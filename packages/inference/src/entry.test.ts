@@ -100,6 +100,25 @@ describe("entry generation (ADR 0031)", () => {
           action: { candidate: "?", purpose: "submit" },
         },
       },
+      // The request log's answer reduces it the same way: an entry request has no slots.
+      answer: {
+        decision: "plan",
+        fields: [{ slot: "?", candidate: "c2" }],
+        action: { candidate: "?", purpose: "submit" },
+      },
+    });
+  });
+
+  it("keeps the named entry as the answer, and ? for an ID the page lacks", async () => {
+    expect((await entryGenerator(entry("c2")).generate({ observation: topPage })).answer).toEqual({
+      decision: "entry",
+      entry: "c2",
+    });
+    const unknown = await entryGenerator(entry("Log in here")).generate({ observation: topPage });
+    expect(unknown).toMatchObject({
+      status: "failed",
+      error: "invalid-output",
+      answer: { decision: "entry", entry: "?" },
     });
   });
 

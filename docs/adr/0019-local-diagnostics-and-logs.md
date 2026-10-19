@@ -9,7 +9,12 @@ Status: accepted by the owner on 2026-10-11 and amended the same day (see
 (see
 [Amendment: URLs keep parameter names, not values](#amendment-urls-keep-parameter-names-not-values))
 and on 2026-10-18 (see
-[Amendment: debug logging stays on before publishing](#amendment-debug-logging-stays-on-before-publishing)).
+[Amendment: debug logging stays on before publishing](#amendment-debug-logging-stays-on-before-publishing)
+and
+[Amendment 2026-10-18: first login results for evaluation](#amendment-2026-10-18-first-login-results-for-evaluation)
+and
+[Amendment 2026-10-18: how long requests and logins take](#amendment-2026-10-18-how-long-requests-and-logins-take),
+implemented).
 The diagnostics page, the logs, the Bitwarden server information, recent log lines and
 the Pateat service's record for the device are implemented.
 
@@ -347,3 +352,118 @@ logging to stay on for now, removed before publishing or kept behind a feature f
 - Before publishing the flag is set to false or removed (see the
   [roadmap](../plan.md#phase-3-public-release)); a build without it turns off debug
   logging left on until turned off.
+
+## Amendment 2026-10-18: first login results for evaluation
+
+On 2026-10-18 at 06:08 UTC the owner chose on a decision card ("送る", option B of the
+corpus design note's section 2.3) that failures of generated plans reach the service for
+the evaluation corpus ([ADR 0012](0012-inference-request-log.md)), where the local log
+keeps them only 14 days. Logs are still never synced; this narrow, value-free result
+code is the one exception:
+
+- For the first login of each recipe revision on a device that ends, signed in or
+  blocked, or settles as unknown without being watched, the worker sends
+  `POST /v1/recipes/:recipeId/outcome` with the revision, the chooser branch when there
+  is one, the `login.attempt` outcome, a cause from a fixed list, and the step index.
+  The service adds the time. Never the URL, origin, reason text, labels, values,
+  usernames or page text.
+- The cause list is the worker's stop causes and the page's reasons for a failed or
+  cancelled step, sent as they are; only when a login has none of them does `settled`
+  (a result that settled as unknown) or `unconfirmed` (a sign-in on an undecided page)
+  stand in (`loginOutcomeCauseSchema`). Any other cause, and the `reason` field, is not
+  sent.
+- The device records each revision before sending, so it reports each one once. The
+  service keeps the first report it receives for a revision, from any of the owner's
+  devices, and ignores later ones; "first" means that report, whichever device generated
+  the revision. A revision that already ran before this build reports its next login as
+  its first (see
+  [ADR 0012](0012-inference-request-log.md#amendment-2026-10-18-login-result-codes)).
+- One the service could not take stays pending. Every ended login and every successful
+  recipe sync sends what is pending, at most five at a time. A repeat report, a new
+  document of a tab whose login state did not change, sends nothing unless it is its
+  revision's first. The first failure stops the run, and no run starts for a minute
+  after it in that worker, so an outage costs about one request and one log line a
+  minute. An unexpected answer, such as a 5xx or an HTML
+  error page, also moves that report behind the others, so it never holds them back. A
+  report still pending after 14 days, the local log's retention, is dropped unsent.
+  Sending never affects the login. Each request logs one `service.outcome` line with the
+  recipe, revision, branch and result (`kept`, `refused`, `rejected` or
+  `failed:<code>`), as every request that leaves the device does.
+- A login without a recipe revision sends nothing. Not confirmed by the owner (the
+  agent's choice):
+  - A fill-only login, any login of an item without a password (every report of it names
+    its stop, so it sends nothing even when it fails before the stop), and
+    `policy-changed`, `account-switched` or cause-less `cancelled` ends send nothing and
+    leave the revision to its next login.
+  - A watched login ([ADR 0027](0027-per-account-login-routes.md)) reports when its
+    watch ends: signed in, or blocked with the outcome the watch left (such as
+    `challenge-abandoned`), never where it first stopped. One whose tab closes before
+    the watch ends reports nothing.
+  - The route is `POST /v1/recipes/:recipeId/outcome` with the recipe ID in the path, as
+    `/completion` has it, and `branch` is left out without one rather than sent as
+    `""`.
+  - The sending limits: five reports a run, a minute's hold-off after a failure, and
+    the 14-day drop.
+  - The design note planned its own ADR; it is recorded as amendments here and in ADR
+    0012 instead.
+- No host permission is added: the service origin is already allowed. The service side,
+  retention and delete-all are recorded in
+  [ADR 0012](0012-inference-request-log.md#amendment-2026-10-18-login-result-codes).
+
+## Amendment 2026-10-18: how long requests and logins take
+
+On 2026-10-18 at 07:28 UTC the owner asked for speed to be recorded:
+「速度を重視したいので、速度、通信にどれだけかかってるか、LLM
+APIがどれくらいで返してるか、とか記録するようにしておいてほしい」. At 08:38 UTC the
+owner approved the plan; its extension part below needed no new decision. The local log
+now records durations, in whole milliseconds, as `count` fields. Nothing of this leaves
+the device; sending timings to the service is a separate decision.
+
+- `recipe.generate`, `recipe.judge` and `service.sync` record how long the request took:
+  `roundTripMs` from just before it is sent until its body is read; `serverMs`, the
+  `total` metric of the answer's `Server-Timing` header, read by name among any others
+  such as Cloudflare's; `networkMs`, the round trip less `serverMs` and never below 0
+  (the network both ways, the Worker's start and the body's transfer); and, for
+  generation and judgement, the service's `token` and `model` metrics as `tokenMs` and
+  `modelMs`. An answer without the header, such as an edge error page, and a request
+  that got no answer have `roundTripMs` only. A header duration that is not a finite
+  number or is longer than a day is ignored.
+  `service.sync` adds up the run's requests, with `serverMs` and `networkMs` only when
+  every answer named the service's time.
+- `login.attempt` records, on the entry where a login ends signed in or blocked (a
+  watched login when its watch ends; a watch that ran out ends when it ran out, not when
+  a later page noticed it), `totalMs` from when the extension saw the page
+  that started the login (the sign-in entry pressed just before it, when there was one)
+  until then, so a first page's generation before the attempt existed counts;
+  `serviceMs`, the time spent waiting for generation, judgement and the recipe sync
+  that follows a generated answer; `networkMs`, the network part of those requests
+  whose answer named the service's time; `personMs`, the time waiting for the person:
+  a watched login (which includes the site's answer to the code the person sent), a
+  click left to the person under a CAPTCHA, and an account picked in the popup, also
+  for a fill-only login after a logout; and `otherMs`, the rest (page loads, Pateat's
+  own waits, filling and clicking). Requests can overlap, such as a judgement while a
+  recipe sync runs, so the service time can exceed the time that passed; `otherMs` is
+  then 0, never below.
+- A page's time before its login counts once: a later login of the same page, such as
+  one picked after a fill-only login, counts from when the login before it started.
+- Unlocking the vault comes before a login: a page that waited for a locked vault
+  starts its login's time again once it can read it. Pateat's own clicks, such as a
+  chooser's branch, are not the person's time.
+- How long a fill or typing took is never recorded: values are typed one character at a
+  time, so it would tell the value's length ([ADR 0012](0012-inference-request-log.md)).
+- The attempt record keeps the start and the sums as epoch-millisecond stamps
+  (`timing`), so the time stored with it outlives a worker restart. Service time is
+  written with the attempt's next change, and a page's time before its login started is
+  kept in memory only; a worker that stops first loses that time.
+
+Not confirmed by the owner (the agent's choices):
+
+- A watched login whose result settled as unknown, which waits for the site's answer
+  as a watched `challenge` does, counts that wait as the person's too.
+- `personMs` has no passkey chooser time: a running login's passkey request is answered
+  with its own item and never opens the chooser, and a chooser opened while a login is
+  watched is already inside the watch's time.
+- Time spent on the service while the person's wait runs, such as a watched page being
+  judged, counts as service time only, so the times add up to `totalMs`.
+- The network part of the recipe sync after a generated answer is not split out; that
+  sync's own `service.sync` entry has it.

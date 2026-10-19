@@ -1,5 +1,10 @@
 import * as v from "valibot";
-import { loginIdentifierSchema, storedLoginRecipeSchema } from "./login";
+import {
+  chooserBranchSchema,
+  loginIdentifierSchema,
+  loginOutcomeSchema,
+  storedLoginRecipeSchema,
+} from "./login";
 import { localSettingsSchema } from "./settings";
 
 // Contracts for the optional private settings/recipe service. Synced documents are
@@ -172,3 +177,63 @@ export const syncDeviceStateSchema = v.strictObject({
   ]),
 });
 export type SyncDeviceState = v.InferOutput<typeof syncDeviceStateSchema>;
+
+/**
+ * Why a login ended where it did, as a fixed code (ADR 0019, amended 2026-10-18): the
+ * worker's stop causes, the page's own reasons for a failed or cancelled step, `settled`
+ * for a result that settled as unknown, and `unconfirmed` for a sign-in on an undecided
+ * page. The extension's `StopCause` must stay inside this list.
+ */
+export const loginOutcomeCauseSchema = v.picklist([
+  // The worker's stop causes.
+  "elements-timeout",
+  "answer-failed",
+  "code-not-submitted",
+  "no-operation",
+  "operation-invalid",
+  "slot-unbound",
+  "no-answer",
+  "page-submitted",
+  "document-gone",
+  "captcha-shown",
+  "sign-in-shown",
+  // The page's reasons for a cancelled or failed step.
+  "not-authorized",
+  "document-cancelled",
+  "operation-used",
+  "operation-expired",
+  "page-changed",
+  "field-changed",
+  "threw",
+  "form-replaced",
+  "target-missing",
+  "form-changed",
+  "assert-failed",
+  "unexpected-values",
+  "fields-split",
+  "secret-refused",
+  "unsupported-input",
+  "code-watch-failed",
+  "form-off-origin",
+  // Flags of the attempt itself.
+  "settled",
+  "unconfirmed",
+]);
+/**
+ * `POST /v1/recipes/:recipeId/outcome`: how the first login of a recipe revision on this
+ * device ended, for the evaluation corpus (ADR 0019 and ADR 0012, amended 2026-10-18). Codes
+ * and numbers only: never a URL, page text, reason text, label, value or username. The
+ * service adds the time.
+ */
+export const loginOutcomeReportSchema = v.strictObject({
+  version: v.literal(1),
+  revision: writtenRevision,
+  /** For a chooser recipe (ADR 0028): the branch the login took. */
+  branch: v.optional(chooserBranchSchema),
+  outcome: loginOutcomeSchema,
+  cause: v.optional(loginOutcomeCauseSchema),
+  /** The attempt's step index when it ended: route steps and entered handlers' (at most 40). */
+  step: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(40)),
+});
+export type LoginOutcomeCause = v.InferOutput<typeof loginOutcomeCauseSchema>;
+export type LoginOutcomeReport = v.InferOutput<typeof loginOutcomeReportSchema>;

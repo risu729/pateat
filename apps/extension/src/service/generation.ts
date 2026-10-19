@@ -25,7 +25,7 @@ import type {
   LoginGeneration,
 } from "../login/runtime";
 import type { ServiceConnection } from "./runtime";
-import type { InferenceResult, ServiceTransport } from "./transport";
+import type { InferenceResult, ServiceTiming, ServiceTransport } from "./transport";
 
 /**
  * A page whose request reached the model is not sent again for this long, whatever came of
@@ -151,6 +151,10 @@ function refused(rejection: GenerationOutputRejection) {
     ...(rejection.path ? { path: rejection.path } : {}),
   } as const;
 }
+
+/** A sent request's timing, for the local log and the login's own times (ADR 0019). */
+const timingOf = (answer: { timing?: ServiceTiming }) =>
+  answer.timing ? { timing: answer.timing } : {};
 
 /** Unavailable codes a continuation's later document would get again (ADR 0018). */
 const continuationSpent = new Set(["recipe-revoked", "recipe-conflict"]);
@@ -420,8 +424,9 @@ export function createLoginGeneration(options: {
       );
       if ("outcome" in claim) return claim;
       const { connection, answer } = claim;
+      const timed = timingOf(answer);
       if (answer.kind !== "result" || answer.result.status !== "recipe")
-        return notRecipe(answer, base);
+        return { ...notRecipe(answer, base), ...timed };
       // The mapping arrives only with the answer that wrote the recipe; the login binds
       // the custom slots from it until a binding is saved (ADR 0027).
       const { customSlots, change } = answer.result;
@@ -432,7 +437,7 @@ export function createLoginGeneration(options: {
           ? !("chooser" in change.recipe)
           : !isLoginRouteRecipe(change.recipe)
       )
-        return { outcome: "unavailable", reason: "recipe-conflict" };
+        return { outcome: "unavailable", reason: "recipe-conflict", ...timed };
       const fields = customSlots && slotFieldsOf(request, customSlots);
       if (fields)
         await rememberSlots(
@@ -450,7 +455,7 @@ export function createLoginGeneration(options: {
       // A continuation's login takes the recipe over at once; a full sync could apply a
       // settings change that stops it (ADR 0018, ADR 0027). Settings follow at the next one.
       await (base ? refresh() : sync()).catch(() => undefined);
-      return { outcome: "recipe", recipe: change.recipe };
+      return { outcome: "recipe", recipe: change.recipe, ...timed };
     },
     async generateEntry(request: EntryGenerationRequest, sent): Promise<EntryGenerationOutcome> {
       const claim = await claimed(request.observation, undefined, undefined, sent, (connection) =>
@@ -458,11 +463,12 @@ export function createLoginGeneration(options: {
       );
       if ("outcome" in claim) return claim;
       const { answer } = claim;
+      const timed = timingOf(answer);
       if (answer.kind !== "result" || answer.result.status !== "recipe")
-        return notRecipe(answer, undefined);
+        return { ...notRecipe(answer, undefined), ...timed };
       // Cached through the full sync as any first page's recipe.
       await sync().catch(() => undefined);
-      return { outcome: "recipe", recipe: answer.result.change.recipe };
+      return { outcome: "recipe", recipe: answer.result.change.recipe, ...timed };
     },
     async slotFields(recipeId: string): Promise<LoginBindingTemplate | undefined> {
       const connection = await service.connection().catch(() => undefined);
@@ -504,6 +510,7 @@ export function createLoginGeneration(options: {
       );
       const result: RecipeCompletionResult | undefined =
         answer.kind === "result" ? answer.result : undefined;
+      const timed = timingOf(answer);
       // Later runs use the learned completion; this attempt settles without waiting.
       if (result?.status === "signed-in") void refresh().catch(() => undefined);
       // The login continues with the returned recipe; the cache catches up behind it (ADR 0027).
@@ -511,14 +518,14 @@ export function createLoginGeneration(options: {
         void refresh().catch(() => undefined);
         // A chooser login's (ADR 0028) is the whole chooser; an entry recipe is never one.
         if (branch ? "chooser" in result.change.recipe : isLoginRouteRecipe(result.change.recipe))
-          return { verdict: "challenge", recipe: result.change.recipe };
+          return { verdict: "challenge", recipe: result.change.recipe, ...timed };
       }
       if (
         result?.status === "signed-in" ||
         result?.status === "rejected" ||
         result?.status === "challenge"
       )
-        return { verdict: result.status };
+        return { verdict: result.status, ...timed };
       // For the local log: the transport's, the service's or the model call's code.
       const reason =
         answer.kind === "rejected"
@@ -542,8 +549,8 @@ export function createLoginGeneration(options: {
         (result?.status === "unavailable" && result.reason === "busy") ||
         (result?.status === "failed" && failedBeforeModel.has(result.error))
       )
-        return { verdict: "retry", ...refusal };
-      return { verdict: "unclear", ...refusal };
+        return { verdict: "retry", ...refusal, ...timed };
+      return { verdict: "unclear", ...refusal, ...timed };
     },
   };
 }

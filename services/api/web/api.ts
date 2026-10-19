@@ -3,6 +3,8 @@ import {
   manageErrorSchema,
   manageRecipeConflictSchema,
   manageRecipesSchema,
+  manageRequestLogDeletedSchema,
+  manageRequestLogSchema,
   manageSettingsConflictSchema,
   syncRecipeWriteResultSchema,
   syncSettingsStateSchema,
@@ -94,6 +96,14 @@ export function createManageClient(fetcher: ManageFetch = (input, init) => fetch
         body: JSON.stringify({ version: 1, expectedRevision }),
       });
       return read(response, syncRecipeWriteResultSchema);
+    },
+    async requestLog() {
+      return read(await call(fetcher, "/request-log"), manageRequestLogSchema);
+    },
+    /** Deletes every request the owner's log holds; recipes and settings stay. */
+    async deleteRequestLog() {
+      const response = await call(fetcher, "/request-log", { method: "DELETE" });
+      return read(response, manageRequestLogDeletedSchema);
     },
   };
 }

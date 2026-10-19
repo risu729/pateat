@@ -5,7 +5,7 @@ import { accountText, showsOtherAccount, shownAccounts } from "../page/accounts"
 import { isButton } from "../page/text";
 import { pressElement } from "../page/script-url-click";
 import { findTargets } from "../page/targets";
-import { clickable, targetState, writable } from "../page/target-state";
+import { clickable, passwordChoice, targetState, writable } from "../page/target-state";
 import { identifierInput } from "../page/identifier-field";
 import {
   CODE_SETTLE_MS,
@@ -14,6 +14,7 @@ import {
   watchCodeSubmission,
 } from "../page/code-submission";
 import { fillBaseline, inputValueMismatch, rejectsFill, unreadyForm } from "../page/fill-checks";
+import { clickRefusal, formRefusal } from "../page/form-destination";
 import { FIELD_GAP_MS, typeValue } from "../page/enter-value";
 import {
   extractAccountListObservation,
@@ -98,13 +99,18 @@ function ready(readiness: LoginReadiness): boolean {
       (readiness.targets.some((target) => listControls(document, target).length === 1) ||
         listsAccounts())
     );
-  return readiness.targets.every((target) => {
-    const found = matches(target);
-    if (found.length !== 1) return false;
-    if (readiness.require === "writable") return writable(found[0]);
-    if (readiness.require === "clickable") return clickable(found[0]);
-    return true;
-  });
+  return (
+    readiness.targets.every((target) => {
+      const found = matches(target);
+      if (found.length !== 1) return false;
+      if (readiness.require === "writable") return writable(found[0]);
+      if (readiness.require === "clickable") return clickable(found[0]);
+      return true;
+    }) &&
+    // A later step is no start while the page also asks for an identifier the step does not
+    // fill, as a form for another account with its own email input (ADR 0049).
+    !(readiness.later && credentialInputs(readiness.targets).identifier)
+  );
 }
 /**
  * Whether the page shows a visible password input, or one marked for a username or a
@@ -823,6 +829,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         const form = writableInputs[0]!.form;
         if (writableInputs.some((input) => input.form !== form))
           return fail("structural-mismatch", "fields-split");
+        // The form sends its values only to this document's origin.
+        const formRefused = formRefusal(writableInputs[0]!, "fill");
+        if (formRefused) return fail("structural-mismatch", formRefused);
         if (
           step.fields.some(
             (field, index) =>
@@ -1065,8 +1074,17 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           const found = matches(step.target);
           const only = found.length === 1 ? found[0] : undefined;
           if (!clickable(only)) return fail("structural-mismatch", "target-missing");
+          // A `password` handler's button whose text no longer names the password, as one
+          // the page rendered again with other text, is never pressed (ADR 0048).
+          if (command.passwordChoice && !passwordChoice(only))
+            return fail("structural-mismatch", "target-missing");
           element = only;
         }
+        // A click that submits a form sends it, through the button's own `formaction` too,
+        // only to this document's origin, also when the element sits inside the submit
+        // button or labels it. Any other click submits no form.
+        const submitRefused = clickRefusal(element);
+        if (submitRefused) return fail("structural-mismatch", submitRefused);
         // The click's form's inputs, or the page's for an element outside a form.
         const form = isButton(element) ? element.form : element.closest("form");
         const formInputs = [...(form ? form.elements : document.querySelectorAll("input"))].filter(

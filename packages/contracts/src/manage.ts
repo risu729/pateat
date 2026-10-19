@@ -4,6 +4,7 @@ import {
   MAX_SETTINGS_DOCUMENT_BYTES,
   settingsDocumentBytes,
   syncRecipeChangeSchema,
+  syncRecipeIdSchema,
   syncSettingsStateSchema,
   syncSettingsWriteSchema,
 } from "./sync";
@@ -13,6 +14,12 @@ import {
 // names; paths and bodies never select an owner.
 
 const timestamp = v.pipe(v.number(), v.integer(), v.minValue(0));
+const headRevision = v.pipe(
+  v.number(),
+  v.integer(),
+  v.minValue(1),
+  v.maxValue(Number.MAX_SAFE_INTEGER - 1),
+);
 
 export const manageDeviceSchema = v.strictObject({
   id: deviceIdSchema,
@@ -53,25 +60,53 @@ export const manageRecipeSchema = v.strictObject({
   change: syncRecipeChangeSchema,
   updatedAt: timestamp,
 });
-/** Most recently changed first. */
+/**
+ * An active head whose stored document no longer passes the recipe contract. Devices
+ * receive it as revoked; it stays active on the service until the owner revokes it.
+ */
+export const manageUnreadableRecipeSchema = v.strictObject({
+  recipeId: syncRecipeIdSchema,
+  revision: headRevision,
+  updatedAt: timestamp,
+});
+/** Both lists are most recently changed first. */
 export const manageRecipesSchema = v.strictObject({
   version: v.literal(1),
   recipes: v.array(manageRecipeSchema),
+  unreadable: v.array(manageUnreadableRecipeSchema),
 });
 /** Revokes the recipe if `expectedRevision` is still its head; devices drop it on sync. */
 export const manageRecipeRevokeSchema = v.strictObject({
   version: v.literal(1),
-  expectedRevision: v.pipe(
-    v.number(),
-    v.integer(),
-    v.minValue(1),
-    v.maxValue(Number.MAX_SAFE_INTEGER - 1),
-  ),
+  expectedRevision: headRevision,
 });
 /** The revocation lost to another write, or the recipe is already revoked. */
 export const manageRecipeConflictSchema = v.strictObject({
   error: v.literal("recipe_conflict"),
   current: v.nullable(syncRecipeChangeSchema),
+});
+
+/**
+ * How long the service keeps each request log row and each login result code (ADR 0012;
+ * owner, 2026-10-18).
+ */
+export const INFERENCE_LOG_RETENTION_MS = 365 * 24 * 60 * 60 * 1000;
+const rowCount = v.pipe(v.number(), v.integer(), v.minValue(0));
+/**
+ * The owner's request log (ADR 0012): how many requests it holds, how many login result
+ * codes devices sent (ADR 0019, amended 2026-10-18), and the oldest row's time of either.
+ */
+export const manageRequestLogSchema = v.strictObject({
+  version: v.literal(1),
+  entries: rowCount,
+  outcomes: rowCount,
+  oldestAt: v.nullable(timestamp),
+});
+/** Deleting the whole request log: how many requests and login result codes it removed. */
+export const manageRequestLogDeletedSchema = v.strictObject({
+  version: v.literal(1),
+  deleted: rowCount,
+  outcomes: rowCount,
 });
 
 export const manageErrorCodeSchema = v.picklist([
@@ -98,6 +133,9 @@ export type ManageDevice = v.InferOutput<typeof manageDeviceSchema>;
 export type ManageDevices = v.InferOutput<typeof manageDevicesSchema>;
 export type ManageSettingsWrite = v.InferOutput<typeof manageSettingsWriteSchema>;
 export type ManageRecipe = v.InferOutput<typeof manageRecipeSchema>;
+export type ManageUnreadableRecipe = v.InferOutput<typeof manageUnreadableRecipeSchema>;
 export type ManageRecipes = v.InferOutput<typeof manageRecipesSchema>;
+export type ManageRequestLog = v.InferOutput<typeof manageRequestLogSchema>;
+export type ManageRequestLogDeleted = v.InferOutput<typeof manageRequestLogDeletedSchema>;
 export type ManageErrorCode = v.InferOutput<typeof manageErrorCodeSchema>;
 export type ManageError = v.InferOutput<typeof manageErrorSchema>;

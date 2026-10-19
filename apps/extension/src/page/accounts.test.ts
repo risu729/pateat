@@ -22,6 +22,19 @@ describe("shownAccounts", () => {
     ]);
   });
 
+  it("finds an address holding format characters", () => {
+    // A zero-width space or soft hyphen marks a line-break opportunity, not a word break.
+    expect
+      .soft(shownAccounts("taro.yamada@\u200Bexample.com"))
+      .toEqual(["taro.yamada@example.com"]);
+    expect
+      .soft(shownAccounts("taro.yamada@example\u00AD.com"))
+      .toEqual(["taro.yamada@example.com"]);
+    expect
+      .soft(shownAccounts("taro\u200B.yamada@example.com"))
+      .toEqual(["taro.yamada@example.com"]);
+  });
+
   it("ignores masks without an identifier and short runs", () => {
     expect(shownAccounts("パスワード ******** を入力 *必須 ** 2026年 Rated 5***")).toEqual([]);
   });
@@ -114,6 +127,19 @@ describe("accountText", () => {
     ]);
     document.body.innerHTML = `<p>Signed in as ****1234</p><label>Password<input type="password"></label>`;
     expect(shownAccounts(accountText(document, null))).toEqual(["****1234"]);
+  });
+
+  it("reads an address split by <wbr> or a format character as one address", () => {
+    document.body.innerHTML = `<form><p>Signed in as taro.yamada@<wbr>example.com</p>
+      <input type="password"></form>`;
+    expect
+      .soft(shownAccounts(accountText(document, document.forms[0]!)))
+      .toEqual(["taro.yamada@example.com"]);
+    document.body.innerHTML = `<form><p>Signed in as taro.yamada@&#8203;example.com</p>
+      <input type="password"></form>`;
+    expect
+      .soft(shownAccounts(accountText(document, document.forms[0]!)))
+      .toEqual(["taro.yamada@example.com"]);
   });
 
   it("skips contact addresses and bounds what it reads", () => {

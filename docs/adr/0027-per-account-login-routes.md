@@ -59,6 +59,16 @@ separately: the stop's page may be judged once with `stop: true`, the service ke
 only a `passkey` handler from it, and a `password` login never enters a `passkey`
 handler on a path where its plan still has a route step to run that fills the password
 or while a fill field of the route shows.
+Amended on 2026-10-18 by [ADR 0048](0048-password-method-button.md) (owner, 01:38 UTC,
+option B): the judge may also name a button that goes on to the password on a page that
+asks how to confirm the sign-in, stored as a third handler kind, `password`, entered
+only by a `password` login that has not filled its password, before other handlers
+shown with it, and only when its text names a password choice (implemented).
+
+Amended on 2026-10-18 by [ADR 0049](0049-start-at-a-later-step.md) (owner, 01:40 UTC,
+implemented): a later step a login may start at releases a watched login as its first
+step does, and the start page's `passkey` button is not offered to a login that starts
+at a later step.
 
 Date: 2026-10-11
 
@@ -579,7 +589,7 @@ new owner decision:
   or deceptive text can at worst store a `totp` handler that fills the current TOTP code
   into that site's checked field on every login until the recipe is revoked; the code
   never leaves the site and the field checks still apply. The added text (at most 360
-  characters) is in the request log for 90 days (ADR 0012); as with the header text of
+  characters) is in the request log for a year (ADR 0012); as with the header text of
   ADR 0029, it is allowed while Pateat is for the owner's own use and decided again
   before the public release (phase 3). The judge's prompt version changed with it, so
   judged pages are judged again once.
@@ -615,7 +625,7 @@ new owner decision:
   store a `passkey` handler that clicks a button of that path once per login, only for
   an item that holds a passkey, until the recipe is revoked; the handler checks of
   `addHandler` still apply. The added text, at most 360 characters, stays in the
-  request log for 90 days under the same terms as `nearCode`. The judge's prompt version
+  request log for a year under the same terms as `nearCode`. The judge's prompt version
   changed with it.
 - **Entering handlers.** A handler that has not run is entered when all its elements
   are unique and usable on its path: a `totp` handler's field a shown writable input,
@@ -866,7 +876,7 @@ new tab while an old logout is still recorded elsewhere.
   routes.
 - The signed-in or challenge page of each new account path now reaches the service and
   Anthropic, within the limits above, not only once per new recipe. The request log
-  keeps them for 90 days ([ADR 0012](0012-inference-request-log.md)).
+  keeps them for a year ([ADR 0012](0012-inference-request-log.md)).
 - Custom-field names, and the Text shapes all matching items agree on, now reach the
   service and Anthropic with each generation request, and the request log keeps them.
 - A site that asks for a security key as its second factor signs in with no human

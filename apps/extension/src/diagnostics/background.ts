@@ -7,7 +7,9 @@ import type { SetupReply } from "../connections/types";
 import type { LoginReport } from "../login/runtime";
 import type { PasskeyCreateReport } from "../passkeys/create";
 import type { PasskeyRequestReport } from "../passkeys/runtime";
+import type { LoginOutcomeSent } from "../service/outcomes";
 import type { RecipeSyncChanges, RecipeSyncOutcome } from "../service/recipes";
+import type { ServiceTiming } from "../service/transport";
 import {
   KNOWN_ERROR_CODES,
   createLogger,
@@ -53,6 +55,15 @@ const WARN_STATES: ReadonlySet<string> = new Set([
   "review-required",
   "reauthentication-required",
 ]);
+
+/** A service request's timing as log fields (ADR 0019); none for a request not sent. */
+const requestTimes = (timing: ServiceTiming | undefined) => ({
+  roundTripMs: timing?.roundTripMs,
+  serverMs: timing?.serverMs,
+  networkMs: timing?.networkMs,
+  tokenMs: timing?.tokenMs,
+  modelMs: timing?.modelMs,
+});
 
 const recipeCacheOriginsSchema = v.looseObject({
   recipes: v.array(v.looseObject({ origin: v.string() })),
@@ -251,6 +262,9 @@ export function createDiagnosticsLog(options: {
           added: changes.added || undefined,
           updated: changes.updated || undefined,
           removed: changes.removed || undefined,
+          roundTripMs: changes.timing?.roundTripMs,
+          serverMs: changes.timing?.serverMs,
+          networkMs: changes.timing?.networkMs,
         },
         {
           level: QUIET_SYNC.has(outcome)
@@ -260,6 +274,24 @@ export function createDiagnosticsLog(options: {
             : outcome === "unreachable" || outcome === "busy"
               ? "info"
               : "warn",
+        },
+      );
+    },
+    /**
+     * A first login's result code sent to the service: `kept` is info, anything else warn,
+     * except an unreachable service, which an offline device meets routinely.
+     */
+    loginOutcome(sent: LoginOutcomeSent) {
+      void logger.log(
+        "service.outcome",
+        {
+          recipe: sent.recipeId,
+          recipeRevision: sent.revision,
+          branch: sent.branch,
+          result: sent.result,
+        },
+        {
+          level: sent.result === "kept" || sent.result === "failed:unreachable" ? "info" : "warn",
         },
       );
     },
@@ -316,6 +348,7 @@ export function createDiagnosticsLog(options: {
             candidates: report.candidates,
             item: report.itemId,
             fillOnly: report.fillOnly,
+            startStep: report.startStep,
             list: report.click,
             listUsername: report.listMiss?.username,
             listEntries: report.listMiss?.entries,
@@ -407,6 +440,7 @@ export function createDiagnosticsLog(options: {
             baseRevision: report.baseRevision,
             takenOver: report.takenOver,
             page: report.page,
+            ...requestTimes(report.timing),
           },
           // A login page without a matching vault item is common and not a problem, nor is
           // a page that is no list of accounts or any page without the service; a request
@@ -439,6 +473,7 @@ export function createDiagnosticsLog(options: {
             notCompleted: report.notCompleted,
             moved: report.moved,
             stop: report.stop,
+            ...requestTimes(report.timing),
           },
           // The answer follows, but `sent` is what is left when no answer came (ADR 0019).
           // A request that failed before the model is a problem; with no paired service
@@ -567,6 +602,7 @@ export function createDiagnosticsLog(options: {
             unconfirmed: report.unconfirmed,
             routeChange: report.routeChange,
             stop: report.stop,
+            ...report.times,
           },
           {
             source,

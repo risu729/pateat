@@ -3,6 +3,8 @@ import {
   loginObservationSchema,
   loginStepSchema,
   semanticSlotsSchema,
+  type LoginObservation,
+  type SemanticSlot,
 } from "@pateat/contracts";
 import { toJsonSchema } from "@valibot/to-json-schema";
 import type { LanguageModel } from "ai";
@@ -211,6 +213,27 @@ type GenerationConfig = {
 type GeneratedOutput = v.InferOutput<typeof generatedPlanSchema>;
 
 /**
+ * The model's answer as the request log keeps it (ADR 0012, owner 2026-10-18): its
+ * decision with every reference reduced as a refused plan is (`redactGeneratedPage`),
+ * whatever the local checks then keep, so a passkey button or alternative dropped later
+ * still shows. A request without slots reduces every slot to `?`.
+ */
+function loggedAnswer(
+  observation: Pick<LoginObservation, "candidates">,
+  slots: readonly Pick<SemanticSlot, "id">[],
+  { result }: GeneratedOutput,
+): unknown {
+  if (result.decision === "abstain") return { decision: result.decision, reason: result.reason };
+  if (result.decision === "entry") return redactEntry(observation, result.entry);
+  if (result.decision === "account-list") {
+    const { decision, ...list } = result;
+    return { decision, ...redactAccountList(observation, list) };
+  }
+  const { decision, ...page } = result;
+  return { decision, ...redactGeneratedPage(observation, slots, page) };
+}
+
+/**
  * One call of the generation role with its response format, after the request bound;
  * shared by page and entry requests.
  */
@@ -228,6 +251,7 @@ function generationCall(config: GenerationConfig) {
     prompt: string;
     abortSignal: AbortSignal | undefined;
     interpret: (output: GeneratedOutput) => Interpreted<T>;
+    answer: (output: GeneratedOutput) => unknown;
   }): Promise<InferenceOutcome<T>> => {
     if (requestBytes([call.instructions, call.prompt, outputSchemaJson]) > limits.maxInputBytes)
       return { status: "failed", error: "input-too-large", calls: 0, usage: noUsage };
@@ -242,6 +266,7 @@ function generationCall(config: GenerationConfig) {
       abortSignal: call.abortSignal,
       refusalCategory: config.refusalCategory,
       interpret: call.interpret,
+      answer: call.answer,
     });
   };
 }
@@ -279,6 +304,7 @@ export function createRecipeGenerator(config: GenerationConfig) {
         : generationInstructions,
       prompt,
       abortSignal: request.abortSignal,
+      answer: (output) => loggedAnswer(observation.output, slots.output, output),
       interpret: (output): Interpreted<ValidatedGeneratedPage | ValidatedAccountList> => {
         const draft = output.result;
         if (draft.decision === "abstain") return { status: "abstained", reason: draft.reason };
@@ -353,6 +379,7 @@ export function createEntryGenerator(config: GenerationConfig) {
       instructions: entryGenerationInstructions,
       prompt: JSON.stringify({ task: "entry", observation: page }),
       abortSignal: request.abortSignal,
+      answer: (output) => loggedAnswer(page, [], output),
       interpret: (output): Interpreted<ValidatedEntry> => {
         const draft = output.result;
         if (draft.decision === "abstain") return { status: "abstained", reason: draft.reason };

@@ -29,18 +29,21 @@ framed. Contracts live in `packages/contracts/src/sync.ts`, `pairing.ts` and
 | `PUT /v1/recipes/:recipeId` | Publish an active revision or a tombstone when `expectedRevision` matches |
 | `POST /v1/recipes/generate` | Generate or extend this origin's recipe from one login page observation |
 | `POST /v1/recipes/:recipeId/completion` | Judge the page after a recipe's final submission and learn its completion |
+| `POST /v1/recipes/:recipeId/outcome` | Keep how the first login of a revision ended, as result codes only; 204 |
 | `GET /v1/device` | The calling device's paired time, the owner's live recipe count and settings revision, and whether recipe generation would run now, for the diagnostics page |
 | `DELETE /v1/device` | Revoke the calling device's own credential |
 | `POST /pair` | Create a device for the signed-in owner from an allowed extension; 201 with the credential, once |
 | `GET /pair/signed-in` | The page the extension opens when pairing needs a sign-in; it asks the user to go back to Pateat's settings |
-| `GET /manage`, `/manage/sites`, `/manage/sites/:scheme/:host` | Owner web UI (React app): devices; the sites list with excluded sites and revoked recipes; one origin's default account, recipes and bindings |
+| `GET /manage`, `/manage/sites`, `/manage/sites/:scheme/:host`, `/manage/request-log` | Owner web UI (React app): devices; the sites list with excluded sites, unreadable and revoked recipes; one origin's default account, recipes and bindings; the request log with Delete all |
 | `GET /manage/assets/*` | The web UI's built script, styles and notices |
 | `GET /manage/api/devices` | The owner's devices with their last use, newest first |
 | `POST /manage/api/devices/:deviceId/revoke` | Revoke one of the owner's devices; 204 |
 | `GET /manage/api/settings` | The settings `/v1/settings` serves; revision 0 before the first write; 404 `not_paired` without a paired device |
 | `PUT /manage/api/settings` | Replace them like `PUT /v1/settings`; `connections` must be empty and the document at most 120 KiB |
-| `GET /manage/api/recipes` | Every recipe head with its document, most recently changed first |
+| `GET /manage/api/recipes` | Every recipe head with its document, most recently changed first; active heads whose document no longer validates are listed apart in `unreadable` |
 | `POST /manage/api/recipes/:recipeId/revoke` | Revoke one recipe if `expectedRevision` is its head; otherwise 409 with the current head |
+| `GET /manage/api/request-log` | How many request log rows (`entries`) and login result codes (`outcomes`) the owner has, and the oldest one's time (`oldestAt`, null when none) |
+| `DELETE /manage/api/request-log` | Delete every request log row and login result code of the owner, and nothing else; answers how many (`deleted`, `outcomes`) |
 | `GET /manage/claude` | Access page showing the Console values and the owner's WIF identifiers |
 | `POST /manage/claude` | Save the owner's four WIF identifiers |
 | `POST /manage/claude/test` | Exchange one assertion and show only the outcome, never the token |
@@ -54,7 +57,9 @@ day; migration 0007 started existing devices at their pairing time. Bodies must 
 `application/json` and at most 128 KiB. Synced settings are server-readable policy
 metadata; device-local field policies, vault values and provider sessions are rejected
 by the strict schemas. Stored documents are revalidated on read and fail closed with a
-500 `internal_error`.
+500 `internal_error`, except an active recipe whose document no longer validates, which
+devices receive as revoked
+([minimal service](../../docs/architecture.md#minimal-service)).
 
 One Cloudflare Access application covers the whole host, and a more specific Bypass
 application exempts `/v1/*`, `/health`, `/.well-known/openid-configuration` and
@@ -354,8 +359,24 @@ version (`prompt_version`: the first 12 hex digits of the SHA-256 of its instruc
 newline and its response format's JSON Schema, computed once per set of instructions:
 the generate role has one for a form, one for an entry request and one for a list of
 accounts, whose instructions add one list line), the instructions
-and input as sent, the structured result, the outcome code, usage and estimated cost; a
-request refused locally before any model call is not logged. For `invalid-output`,
+and input as sent, the structured result, the outcome code, usage and estimated cost.
+Since 2026-10-18
+([ADR 0012](../../docs/adr/0012-inference-request-log.md#amendment-2026-10-18-rows-for-a-real-page-corpus))
+it also records the recipe the call is for (`recipe_id`, `branch`, empty without one),
+`base_revision` (the head revision when the call was made: 0 for none, the tombstone's
+for a revoked recipe generated again, the judged one for the judge), `recipe_page` for
+generation (`first` for a page sent without a base: a new recipe, one generated again,
+a list of accounts or an entry page; `continuation` for one sent with a base, a chooser
+branch's pages included), `build` (`PATEAT_BUILD_REVISION`) and `observation_hash` (12
+hex digits of the SHA-256 of the request's observation as JSON). `callClaude` returns
+the row's ID, and once the answer's recipe write succeeds `keepLogRevision` sets
+`revision`; a write refused or lost to a device leaves it null, and a failed update is
+logged as `Inference log revision not kept` and never fails the request. `answer` holds
+the model's own answer for every decision, `unclear` and refused output included, before
+the local checks: `{ "decision": "signed-in", "marker": "c7" }`, or a generated plan
+with a passkey button the plan check dropped. A candidate or slot it names that is not
+one of the request's IDs is `?` and each generated name `name-N`, as for a refused plan
+below; output the response format refused has no answer. For `invalid-output`,
 the result is `{ rejection }` when a check named it (the judge role's
 check of its marker refuses without one, leaving the result empty) and, when the plan
 check refused a plan, that plan as `output`: a candidate or slot that is not one of the
@@ -366,9 +387,44 @@ stored, and the Worker logs only `Model output refused` with the role, its promp
 version and the `rejection`. A schema `path` resolves each key where the output format
 defines it, so a key the format defines only in another object also ends the path as
 `unknown-key`; the options of a variant are read together, so a key of a sibling option
-gives that object's issue instead. Rows older than 90 days are deleted whenever a call
-is logged and on every `GET /v1/recipes`, because routine releases do not apply cron
-triggers.
+gives that object's issue instead.
+
+A request answered without a model call is logged too
+([ADR 0012](../../docs/adr/0012-inference-request-log.md#amendment-2026-10-18-requests-answered-without-a-model-call)),
+by the route through `logUnsent`: one refused locally (`input-too-large`) or by any
+check above, `recently-tried`, a judgement gate, `not-judgeable`, a recipe state
+refusal, `incomplete-observation`, `invalid-request`, or a recipe another request
+stored. Its `outcome` is the answer's code (`recipe` for a stored recipe); `provider`,
+`model_id`, `result`, `answer` and the token counts are null, the cost is 0 and nothing
+is charged. `request` is what the model would have received; a judgement refused before
+its route is found (`recipe-revoked`, `recipe-conflict`) has no `loginPaths`.
+`base_revision` is the head read when the request arrived. A request answered the same
+way within 10 minutes, with the same whole `request`, role, prompt version, origin,
+path, recipe, branch and base revision, adds no row (the check and the insert are not
+atomic, so two identical requests at once can both land), and past
+`CLAUDE_CALL_LIMITS.unsentRowsPerDay` (500) such rows an owner's UTC day adds none,
+logged as `Inference log row over the daily cap`. A failed write is logged as
+`Inference log row not kept` with the role and outcome and never changes the answer.
+Invalid bodies and requests answered 400 or 404 are not logged: a `base` ID not in the
+`gen-…` form, a judged page of an origin no move reaches, a missing recipe.
+
+Rows older than one year are deleted whenever a request is logged and on every
+`GET /v1/recipes`, because routine releases do not apply cron triggers.
+`DELETE /manage/api/request-log` deletes all of the owner's rows; a call still running
+then logs its row afterwards.
+
+`POST /v1/recipes/:recipeId/outcome` takes
+`{ version: 1, revision, branch?, outcome, cause?, step }`: how the first login of that
+revision on a device ended
+([ADR 0019](../../docs/adr/0019-local-diagnostics-and-logs.md#amendment-2026-10-18-first-login-results-for-evaluation)).
+`outcome` is a `loginOutcomeSchema` code, `cause` one of `loginOutcomeCauseSchema`'s
+fixed codes and `step` the attempt's step index; any other field, a URL or free text
+answers 400, a body over 1 KiB 413. A recipe the owner does not hold, a revision above
+its head or a revoked head's tombstone answers 404. The `login_outcomes` row keeps the
+owner, recipe, branch (empty without one), revision, the codes and the service's own
+time; the first report of a revision is kept and any later one, from any device, is
+answered 204 and ignored. Its rows follow the request log's one-year retention (deleted
+with the expired log rows, also on each report) and its delete-all.
 
 ## Schema and tests
 

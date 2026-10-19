@@ -424,7 +424,13 @@ than in this repository.
   [ADR 0035](adr/0035-page-kinds-per-site.md) delivery 1. Generation answers each
   page's kind, recipes generated as `confirm` neither run nor count as logouts, a
   passkey re-verification after Pateat's login in the tab is handed on, and the logs for
-  judging whether `confirm` can be split are kept.
+  judging whether `confirm` can be split are kept. The request log's recipe ID and
+  revision landed ahead of it, and every row is kept one year (owner, 2026-10-18 06:08
+  UTC,
+  [ADR 0012](adr/0012-inference-request-log.md#amendment-2026-10-18-rows-for-a-real-page-corpus)),
+  so its retention rule needs no work. The first login result of each revision reaches
+  the service as codes
+  ([ADR 0035](adr/0035-page-kinds-per-site.md#amendment-2026-10-18-login-results-on-the-service)).
 - The toolbar badge counts the matching items on every HTTP(S) site (on an `http:` page
   only items saved with an `http://` URI;
   [ADR 0050](adr/0050-http-pages-for-http-items.md)): teal with the usable count, light
@@ -434,7 +440,10 @@ than in this repository.
 - The owner uses Pateat on many sites and reports bugs; Claude may also fix problems it
   finds on its own. Reading the extension's error logs without a report needs a way for
   them to leave the device, which [ADR 0019](adr/0019-local-diagnostics-and-logs.md)
-  keeps local; that is a design to bring to the owner first.
+  keeps local; that is a design to bring to the owner first. The one exception so far is
+  the value-free result code of each recipe revision's first login, which reaches the
+  service's `login_outcomes` table (owner, 2026-10-18 06:08 UTC,
+  [ADR 0019](adr/0019-local-diagnostics-and-logs.md#amendment-2026-10-18-first-login-results-for-evaluation)).
 - Moved from phase 1 (owner, 2026-10-12 20:35 UTC): the daily-use sites not tested
   yet, about 50 in the project's list. They are no longer tested in batches; the
   owner uses them, and Claude fixes what fails, from the owner's reports, the local log
@@ -494,6 +503,16 @@ than in this repository.
   ID in a middle path segment and verifies recipe reuse without another model call.
   Both cases passed in isolated cloud Chromium on 2026-10-17). Check both sites in the
   owner's Chrome.
+- UniSuper's login stopped on the page after its username and Next (2026-10-17, 01:33
+  UTC, build `d29951d`): "Let's confirm it's you", on the same path, offered only a
+  "Password" and a "Mobile" button, the judge answered `unclear`, and the owner pressed
+  "Password" themselves. Since 2026-10-18 the judge may name such a page's button that
+  goes on to the password as a `password` handler, which a login presses only when the
+  button shows and its text names the password by a shared English and Japanese word
+  list, and the page after the press is continued as after a final `advance`
+  ([ADR 0048](adr/0048-password-method-button.md), owner, 01:38 UTC). Implemented with
+  local tests only (unit, service and a synthetic browser fixture); check UniSuper in
+  the owner's Chrome, which needs one more judge call and one continuation call.
 - UNSW's single sign-on page on Microsoft Entra
   (`login.microsoftonline.com/<tenant>/oauth2/authorize`) was logged `recipe.generate`
   `skipped` `incomplete-observation` with `unfillable-field` in the owner's Chrome on
@@ -541,8 +560,14 @@ than in this repository.
   code, not read on the live page. Since 2026-10-17 such an advance's next fields and
   buttons count only when they are also visible as the page's description reads them,
   before and after the advance (agent fix applying ADR 0013; since 2026-10-18 a probe
-  E2E spec on `/identifier-swap` drives that structure with synthetic values). Check
-  the UNSW sign-in page in the owner's Chrome.
+  E2E spec on `/identifier-swap` drives that structure with synthetic values). An
+  attempt in the owner's Chrome on build `6b1cc1d` (2026-10-18) still stopped after
+  Next. On build `4356c9a` (2026-10-18, 08:10 UTC), in a fresh foreground tab with the
+  window visible, the revision 4 recipe logged in end to end without a model call: the
+  password step continued about 2 s after Next, the login submitted, the TOTP handler
+  ran on the next page and the attempt ended `authenticated`. That the earlier stop
+  came from a tab Chrome was not rendering, so the password view's fade stayed at 0, is
+  inferred, not shown; the page navigated away before a timed read of it returned.
 - A login control that is a link whose `javascript:` URL alone submits never submitted:
   on 2026-10-17 (build `d29951d`, 01:55 UTC) the owner's Chrome filled SMBC Trust Bank's
   sign-on page and clicked サインオン, and Chrome refused the URL under the content
@@ -550,7 +575,10 @@ than in this repository.
   ([architecture](architecture.md#declarative-recipes-and-ai); agent implementation
   choice under the owner's 2026-10-11 decision that script links are clicked as buttons;
   local DOM tests, a standalone extension in Chromium 141 and the synthetic browser test
-  in CI). Check that page in the owner's Chrome.
+  in CI). On build `a0a4c2e` (2026-10-18, 22:09 UTC) the owner's Chrome filled that
+  page, clicked サインオン, landed on the signed-in Prestia Online home and the attempt
+  ended `authenticated` after the judge answered `signed-in`, with no `script-src` error
+  in the diagnostics.
 - SMBC Trust Bank's sign-in page in the owner's Chrome on build `d29951d` (2026-10-17,
   01:54 to 02:16 UTC): the submit click had no effect, so the login settled as unknown
   in the same document and was watched
@@ -559,16 +587,20 @@ than in this repository.
   read again (`login.state` with `reshownMiss` `no-effect`, `recipe.judge` `not-sent`
   with `watched`), and the popup said "Logging in…". Since 2026-10-17 a restarted worker
   does not read the watch's own document again, and the popup shows such a login as
-  watched (agent fix applying ADR 0027, local tests only). Check the page in the owner's
-  Chrome after a worker restart.
+  watched (agent fix applying ADR 0027, local tests only). The 2026-10-18 22:09 UTC
+  login above submitted, so no watch or worker restart happened there; the restart case
+  is still untested in the owner's Chrome.
 - Known faults moved from phase 1 (owner, 2026-10-12 20:35 UTC), fixed when a real site
   shows them again: the `reconciling` exception seen on SBI証券, and `generate` ignoring
   a failed sync after generation (both recorded under phase 1).
-- Proposed: the worker drops a waiting account choice once its site is excluded.
-  `choiceFor` in `apps/extension/src/login/runtime.ts` drops one for a site default
-  saved since the refusal, but not for an exclusion, so the worker still answers the
-  popup with it and would take a pick; since
-  [#683](https://github.com/risu729/pateat/pull/683) the popup shows none.
+- Since 2026-10-18 the worker drops a waiting account choice, a choice after a logout
+  included, once its site is excluded: saved or synced settings clear it and the tab's
+  badge, and `choiceFor` in `apps/extension/src/login/runtime.ts` answers the popup and
+  a pick with `no-choice` (agent fix, owner's word 2026-10-18 04:29 UTC; local tests
+  only). Before, only the popup hid it
+  ([#683](https://github.com/risu729/pateat/pull/683)) and the badge kept asking until
+  the page reloaded. Check in the owner's Chrome that excluding a site whose page shows
+  the choice badge clears the badge.
 - Claude also watches the service's D1 records, such as the inference request log
   ([ADR 0012](adr/0012-inference-request-log.md)), not only logs the owner sends from
   the device (owner, 2026-10-11 18:45 UTC).
@@ -906,6 +938,13 @@ Once the fixes have settled:
     [#644](https://github.com/risu729/pateat/pull/644): the passkey decoder strips at
     most two trailing `=` without a regex, as Bitwarden's clients avoid a backtracking
     pattern, and accepts the same inputs as before.
+  - [#636](https://github.com/risu729/pateat/issues/636) fixed at the owner's request
+    (2026-10-16 19:14 UTC): a fill into a form, or a click on a submit control, is
+    refused unless the submission's destination (the `formaction` or `action`, resolved
+    against the base URL) has the document's own origin
+    ([architecture](architecture.md#background-execution)). A `javascript:`
+    destination is allowed (owner, 2026-10-18 04:19 UTC). Same origin rather than same
+    site is the default chosen while the owner's choice is pending.
 
 ### Phase 4: issues and work as needed
 
@@ -927,10 +966,9 @@ items the owner mentioned and gates still open on 2026-10-11.
 
 - From the [external review](research/2026-10-13-external-review.md): decrypted item
   copies in the crypto Worker that hold only the fields a request needs instead of the
-  whole item; a scheduled purge of the inference log, reconsidered once
-  [ADR 0035](adr/0035-page-kinds-per-site.md) changes which rows the purge keeps (a
-  trigger is a deployment change the owner approves); and syncing which recipes exist
-  and which are revoked separately from their bodies, if
+  whole item; a scheduled purge of the inference log, which since 2026-10-18 keeps
+  every row one year (a trigger is a deployment change the owner approves); and syncing
+  which recipes exist and which are revoked separately from their bodies, if
   [#544](https://github.com/risu729/pateat/issues/544) and the recipe limits are not
   enough.
 - Signing in through an identity provider
@@ -1686,12 +1724,13 @@ revocable device credential; request paths and bodies never select an owner. Set
 writes and recipe heads use conditional revision writes, and a recipe's history row
 is recorded in the same D1 batch only when that request won the head.
 
-Local Miniflare tests cover unknown, malformed and revoked credentials, owner and
-device isolation, stale and concurrent writes, tombstones, cursor paging, strict
-schema rejection, media type and body limits, and fail-closed handling of corrupt
-stored documents. Concurrent cases interleave within one local runtime, not hosted
-D1. A migration check regenerates SQL from the Drizzle schema. The D1 database was
-created on 2026-10-11 and the service is deployed at `pateat.takuk.me` (see
+Local Miniflare tests cover unknown, malformed and revoked credentials, owner and device
+isolation, stale and concurrent writes, tombstones, cursor paging, strict schema
+rejection, media type and body limits, fail-closed handling of corrupt stored documents,
+and stored recipes that no longer validate, which devices receive as revoked. Concurrent
+cases interleave within one local runtime, not hosted D1. A migration check regenerates
+SQL from the Drizzle schema. The D1 database was created on 2026-10-11 and the service
+is deployed at `pateat.takuk.me` (see
 [delivery](delivery.md)).
 
 The second slice adds the service side of
@@ -1874,6 +1913,27 @@ tests cover it.
   and JSON API behind Access, with the devices, sites, account bindings and recipes
   pages. Settings edits and recipe revocations there use the same revision checks as
   device sync, and a stale page changes nothing.
+- Done: the request log keeps each row one year with its recipe, branch, base and
+  written revisions, build, observation hash and the model's reduced answer, and the web
+  UI's Request log page deletes all of the owner's rows
+  ([ADR 0012](adr/0012-inference-request-log.md#amendment-2026-10-18-rows-for-a-real-page-corpus)).
+  The 154 earlier rows were filled in where the stored records decide each value
+  ([ADR 0012](adr/0012-inference-request-log.md#amendment-2026-10-18-earlier-rows-filled-in)).
+- Done: the first login of each recipe revision on a
+  device sends its outcome, a cause from a fixed list and the step index to
+  `POST /v1/recipes/:recipeId/outcome`, kept one row per revision in `login_outcomes`
+  for a year and deleted with the request log
+  ([ADR 0019](adr/0019-local-diagnostics-and-logs.md#amendment-2026-10-18-first-login-results-for-evaluation)).
+- Done (local tests only, not deployed): the extension's local log records how long
+  each generation, judgement and sync request took, and on a login's ending entry its
+  total, service, network, person and other time
+  ([ADR 0019](adr/0019-local-diagnostics-and-logs.md#amendment-2026-10-18-how-long-requests-and-logins-take)).
+  Until the service sends `Server-Timing`, a request has only its round trip
+  (`roundTripMs`), with no service or network part.
+- Done (local tests only, not deployed): the request log also keeps each generation and
+  judgement request answered without a model call, under its answer's code at no cost
+  (owner, 2026-10-18 08:04 UTC,
+  [ADR 0012](adr/0012-inference-request-log.md#amendment-2026-10-18-requests-answered-without-a-model-call)).
 - Done: the generation routes stop at
   $100 of estimated Claude spend per owner a month and $5 a day (`CLAUDE_CALL_LIMITS` in
   `services/api/src/claude/calls.ts`,
@@ -2776,7 +2836,10 @@ submission with its sign-in form again (its password input and no other sign, ev
 the result stays unknown) or the login ends `credential-rejected`; its record is
 released then, so other tabs of the site ask instead of being held, and the badge and
 popup say the site did not accept the login (`pateat.login-rejected-asks.v1`). Frame
-logins and sites whose logout page shows only a password step are not detected. By the
+logins are not detected. Since 2026-10-18 (owner, 01:40 UTC;
+[ADR 0049](adr/0049-start-at-a-later-step.md); local tests only, not yet on a real site)
+a later password step a login may start at counts as the first step does, so a site
+whose logout page shows only a password step is detected. By the
 owner's constraint (2026-10-12) a session that only expired never needs a manual press,
 so a logout of a session carried over from another tab's login or an earlier browser
 session is not detected by the form alone. Since 2026-10-16 (owner, after

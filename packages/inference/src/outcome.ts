@@ -44,7 +44,16 @@ export type OutputSchemaIssue = Exclude<GenerationOutputRejection, { check: "pla
  * prompts, page text and raw model output are never included. A generated plan the role's
  * own check refused is kept only as `output`, reduced to references the request holds.
  */
-export type InferenceOutcome<T> = { calls: number; usage: InferenceUsage } & (
+export type InferenceOutcome<T> = {
+  calls: number;
+  usage: InferenceUsage;
+  /**
+   * The model's own answer once its output passed the response format, before any local
+   * check or adjustment, for the request log: each ID that is not a candidate or slot of
+   * the request is `?` and each generated name `name-N` (ADR 0012).
+   */
+  answer?: unknown;
+} & (
   | { status: "ok"; value: T }
   | { status: "abstained"; reason: AbstentionReason }
   | {

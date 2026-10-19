@@ -13,6 +13,7 @@ import {
   loginStepEffect,
   MAX_PASSWORD_ALTERNATIVES,
   parseLoginRecipe,
+  passwordVariants,
   routeSlots,
   routeSteps,
   sameLoginDocument,
@@ -34,6 +35,24 @@ const identifier = v.pipe(
   v.regex(/^[a-zA-Z0-9_.:-]+$/),
 );
 const integer = (max: number) => v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(max));
+const milliseconds = v.pipe(v.number(), v.integer(), v.minValue(0));
+/**
+ * How long a login has taken so far, for the local log (ADR 0019, amended 2026-10-18):
+ * `since` when, in epoch milliseconds, the extension saw the page that started it; the
+ * milliseconds it waited for the service (`serviceMs`), of that for the network
+ * (`networkMs`), and for the person (`personMs`); and `personSince` while it waits for the
+ * person now. Epoch stamps rather than timers, so the time stored with the record outlives
+ * a worker restart; time not yet stored when the worker stops is lost. Never sent anywhere,
+ * and never how long a value took to type, which would tell its length.
+ */
+export const attemptTimingSchema = v.strictObject({
+  since: milliseconds,
+  serviceMs: milliseconds,
+  networkMs: milliseconds,
+  personMs: milliseconds,
+  personSince: v.optional(milliseconds),
+});
+export type AttemptTiming = v.InferOutput<typeof attemptTimingSchema>;
 /** Steps and effects an attempt may hold: its route's, plus those of handlers it entered. */
 const MAX_ATTEMPT_STEPS = 40;
 const MAX_ATTEMPT_SUBMISSIONS = 12;
@@ -211,7 +230,24 @@ export const attemptMetadataSchema = v.pipe(
      * most once per attempt, recorded before the request so a restart never sends it again.
      */
     stopJudged: v.optional(v.literal(true)),
+    /**
+     * A `password` login that started at a later step of its variant, because its page
+     * showed that step and none of the recipe's first steps (ADR 0049): that step's index,
+     * where the route starts again after an answered passkey request falls back to it.
+     */
+    startStep: v.optional(v.pipe(integer(MAX_ATTEMPT_STEPS), v.minValue(1))),
+    /** How long the login has taken so far (`attemptTimes`), for the local log only. */
+    timing: attemptTimingSchema,
   }),
+  v.check(
+    (metadata) =>
+      metadata.startStep === undefined ||
+      (metadata.variant !== undefined &&
+        metadata.chooser === undefined &&
+        (metadata.route !== "password" || metadata.startStep < metadata.stepCount) &&
+        (metadata.stopAt === undefined || metadata.startStep < metadata.stopAt)),
+    "A later start needs a password variant, inside its plan and before any stop",
+  ),
   v.check(
     (metadata) =>
       metadata.unconfirmed === undefined ||
@@ -787,7 +823,8 @@ function record(
     case "ROUTE":
       return {
         route: event.route,
-        stepIndex: 0,
+        // A login that started at a later step goes back to it (ADR 0049).
+        stepIndex: event.route === "password" ? (context.startStep ?? 0) : 0,
         stepCount: event.steps,
         // The passkey answer does not spend the password route's budget. The submission a
         // stop past the plan's last step keeps for its answer stays with the password route.
@@ -1318,6 +1355,13 @@ export function createAttemptMetadata(input: {
   chooser?: ChooserClick;
   /** For an item without a password: where its `password` route stops (ADR 0036). */
   stopAt?: number;
+  /**
+   * The later step of the chosen `password` variant the login starts at, when its page
+   * shows that step and none of the recipe's first steps (ADR 0049).
+   */
+  startAt?: number;
+  /** The time the login took before it started, from when its first page was seen. */
+  timing: Omit<AttemptTiming, "personSince">;
 }): LoginAttemptMetadata {
   const recipe = parseLoginRecipe(input.recipe);
   if (input.account.origin !== recipe.origin)
@@ -1340,7 +1384,7 @@ export function createAttemptMetadata(input: {
     document: input.document,
     ...(input.pageOrigin === undefined ? {} : { pageOrigin: input.pageOrigin }),
     state: "detected",
-    stepIndex: 0,
+    stepIndex: input.choice.route === "password" ? (input.startAt ?? 0) : 0,
     stepCount: routeSteps(recipe, input.choice).length,
     submissions: 0,
     // A stop just past the route's last step keeps one more submission for its passkey
@@ -1361,7 +1405,89 @@ export function createAttemptMetadata(input: {
     ...(input.fillOnly ? { fillOnly: true } : {}),
     ...(input.chooser ? { chooser: { click: input.chooser } } : {}),
     ...(input.stopAt === undefined ? {} : { stopAt: input.stopAt }),
+    ...(input.startAt === undefined ? {} : { startStep: input.startAt }),
+    timing: input.timing,
   });
+}
+
+/** A duration in whole, non-negative milliseconds. */
+const duration = (value: number) => Math.max(0, Math.round(value));
+type Timed = { timing: AttemptTiming };
+
+/**
+ * Adds time a login waited for the service, and of that for the network, or for the person
+ * (ADR 0019). Service time while the login waits for the person moves that wait's start on,
+ * so no time counts twice.
+ */
+export function addAttemptTime<T extends Timed>(
+  metadata: T,
+  add: { serviceMs?: number; networkMs?: number; personMs?: number },
+  now = Date.now(),
+): T {
+  const { timing } = metadata;
+  const service = duration(add.serviceMs ?? 0);
+  return {
+    ...metadata,
+    timing: {
+      ...timing,
+      serviceMs: timing.serviceMs + service,
+      networkMs: timing.networkMs + duration(add.networkMs ?? 0),
+      personMs: timing.personMs + duration(add.personMs ?? 0),
+      ...(timing.personSince === undefined
+        ? {}
+        : {
+            personSince: Math.max(
+              timing.personSince,
+              Math.min(duration(now), timing.personSince + service),
+            ),
+          }),
+    },
+  };
+}
+
+/** Starts a wait for the person, unless one is running (ADR 0019). */
+export function awaitPerson<T extends Timed>(metadata: T, now = Date.now()): T {
+  const { timing } = metadata;
+  if (timing.personSince !== undefined) return metadata;
+  return { ...metadata, timing: { ...timing, personSince: duration(now) } };
+}
+
+/** Ends a running wait for the person and adds its time (ADR 0019). */
+export function personAnswered<T extends Timed>(metadata: T, now = Date.now()): T {
+  const { timing } = metadata;
+  if (timing.personSince === undefined) return metadata;
+  const { personSince, ...rest } = timing;
+  return {
+    ...metadata,
+    timing: { ...rest, personMs: rest.personMs + duration(now - personSince) },
+  };
+}
+
+/** A login's times for the local log, each in whole milliseconds (ADR 0019). */
+export type AttemptTimes = {
+  /** From when the extension saw the page that started the login until now. */
+  totalMs: number;
+  /** Waiting for the service: recipe generation, judging and the recipe sync after them. */
+  serviceMs: number;
+  /** Of `serviceMs`, the network part of requests whose answer named the service's time. */
+  networkMs: number;
+  /** Waiting for the person: a watched login, a click left to them, an account pick. */
+  personMs: number;
+  /** The rest: page loads, Pateat's own waits, filling and clicking. */
+  otherMs: number;
+};
+
+/** A login's times until `now`, a running wait for the person included. */
+export function attemptTimes(metadata: Timed, now = Date.now()): AttemptTimes {
+  const { timing } = personAnswered(metadata, now);
+  const totalMs = duration(now - timing.since);
+  return {
+    totalMs,
+    serviceMs: timing.serviceMs,
+    networkMs: timing.networkMs,
+    personMs: timing.personMs,
+    otherMs: duration(totalMs - timing.serviceMs - timing.personMs),
+  };
 }
 /** A step that may advance or submit the page: a click, or a fill whose event may. */
 export const effectfulStep = (step: LoginStep): boolean => {
@@ -1383,10 +1509,18 @@ export function transitionLoginAttempt(
   if (metadata.state === "authenticated" || metadata.state === "blocked") return metadata;
   const snapshot = loginAttemptMachine.resolveState({ value: metadata.state, context: metadata });
   const [next] = transition(loginAttemptMachine, snapshot, event);
-  const { watch, ...result } = {
+  const { watch, ...moved } = {
     ...next.context,
     state: next.value as LoginAttemptMetadata["state"],
   };
+  // A watched login waits for the person: for a code or an approval, and for the site's
+  // answer to it (ADR 0019), also when its result settled as unknown. An ended login waits
+  // for no one.
+  const result = watched(moved)
+    ? awaitPerson(moved, now)
+    : watched(metadata) || moved.state === "authenticated" || moved.state === "blocked"
+      ? personAnswered(moved, now)
+      : moved;
   if (!watched(result)) return parseAttemptMetadata(result);
   return parseAttemptMetadata({
     ...result,
@@ -1457,11 +1591,17 @@ export function attemptUsesCode(
  */
 export function attemptPlan(
   recipe: LoginRecipe,
-  metadata: Pick<LoginAttemptMetadata, "route" | "variant" | "handlers">,
+  metadata: Pick<LoginAttemptMetadata, "route" | "variant" | "handlers" | "startStep">,
 ): { step: LoginStep; handler?: number }[] | undefined {
+  // A page's own passkey request answered on a later start stands on that step (ADR 0049).
+  const from =
+    metadata.route === "passkey" && metadata.startStep !== undefined
+      ? passwordVariants(recipe)[metadata.variant ?? 0]?.steps[metadata.startStep]
+      : undefined;
   const plan: { step: LoginStep; handler?: number }[] = routeSteps(
     recipe,
     attemptRouteChoice(metadata),
+    from,
   ).map((step) => ({ step }));
   for (const entry of metadata.handlers) {
     const handler = recipe.handlers?.[entry.index];

@@ -1,16 +1,18 @@
 import {
   SYNC_PAGE_LIMIT,
   generationRequestSchema,
+  loginOutcomeReportSchema,
   recipeCompletionRequestSchema,
   syncRecipeIdSchema,
   syncRecipeWriteSchema,
 } from "@pateat/contracts";
-import { asc, gt } from "drizzle-orm";
+import { and, asc, eq, gt } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import * as v from "valibot";
 import type { ApiEnv } from "../auth";
-import { recipeHeads } from "../db/schema";
+import { loginOutcomes, recipeHeads } from "../db/schema";
 import { apiError } from "../http";
 import { purgeExpiredLog } from "../claude/calls";
 import { selectHeads, toChange, writeRecipe } from "../recipe-store";
@@ -18,6 +20,8 @@ import { generateEntry, generateRecipe, judgeCompletion } from "../recipes/gener
 import { jsonBody, requireJsonBody, validate } from "../validation";
 
 const recipeParam = validate("param", v.strictObject({ recipeId: syncRecipeIdSchema }));
+/** A login result code is a few short codes and numbers. */
+const MAX_OUTCOME_BYTES = 1024;
 
 const changesQuerySchema = v.strictObject({
   after: v.optional(
@@ -81,6 +85,60 @@ export const recipeRoutes = new Hono<ApiEnv>()
       if (result === undefined) return apiError(c, 404, { error: "not_found" });
       if (result === null) return apiError(c, 400, { error: "bad_request" });
       return c.json(result);
+    },
+  )
+  /**
+   * How the first login of a recipe revision on a device ended (ADR 0019 and ADR 0012,
+   * amended 2026-10-18): codes only, for a revision the owner holds or held. The first
+   * report of each revision is kept and later ones are ignored, so a second device or a
+   * repeated send changes nothing.
+   */
+  .post(
+    "/:recipeId/outcome",
+    recipeParam,
+    bodyLimit({
+      maxSize: MAX_OUTCOME_BYTES,
+      onError: (c) => apiError(c, 413, { error: "payload_too_large" }),
+    }),
+    requireJsonBody,
+    jsonBody(loginOutcomeReportSchema),
+    async (c) => {
+      const { ownerId } = c.get("scope");
+      const { recipeId } = c.req.valid("param");
+      const { revision, branch, outcome, cause, step } = c.req.valid("json");
+      const db = drizzle(c.env.DB);
+      const [head] = await db
+        .select({ revision: recipeHeads.revision, state: recipeHeads.state })
+        .from(recipeHeads)
+        .where(and(eq(recipeHeads.ownerId, ownerId), eq(recipeHeads.recipeId, recipeId)));
+      // Revisions count up from 1, so any up to the head was the owner's; a revoked head
+      // is a tombstone no login ran.
+      if (
+        !head ||
+        revision > head.revision ||
+        (revision === head.revision && head.state !== "active")
+      )
+        return apiError(c, 404, { error: "not_found" });
+      const now = Date.now();
+      await db
+        .insert(loginOutcomes)
+        .values({
+          ownerId,
+          recipeId,
+          branch: branch ?? "",
+          revision,
+          outcome,
+          cause: cause ?? null,
+          step,
+          createdAt: now,
+        })
+        .onConflictDoNothing();
+      try {
+        await purgeExpiredLog(db, now);
+      } catch {
+        console.error("Inference log purge failed");
+      }
+      return c.body(null, 204);
     },
   )
   .put("/:recipeId", recipeParam, requireJsonBody, jsonBody(syncRecipeWriteSchema), async (c) => {

@@ -584,6 +584,89 @@ describe("recipe generation role", () => {
   });
 });
 
+// Owner, 2026-10-18: the request log keeps the model's own answer beside the result.
+describe("the answer kept for the request log (ADR 0012)", () => {
+  it("keeps a passkey button the local checks drop", async () => {
+    const myjcb = japanesePageCorpus.find((entry) => entry.id === "ja-myjcb")!;
+    const answer = {
+      decision: "plan",
+      fields: [
+        { slot: "username", candidate: "c1" },
+        { slot: "password", candidate: "c2" },
+      ],
+      action: { candidate: "c3", purpose: "submit" },
+      // A link about passkeys, which the plan check drops.
+      passkeyButton: "c6",
+    };
+    const outcome = await generatorReturning(JSON.stringify({ result: answer })).generate({
+      observation: myjcb.observation,
+      slots: myjcb.slots,
+    });
+    if (outcome.status !== "ok" || "accountList" in outcome.value)
+      throw new Error("expected a plan");
+    expect(outcome.value).not.toHaveProperty("passkeyButton");
+    expect(outcome.answer).toEqual(answer);
+  });
+
+  it("reduces IDs the request does not hold to ? and names to name-N", async () => {
+    const outcome = await generatorReturning(
+      JSON.stringify({
+        result: {
+          decision: "plan",
+          fields: [
+            { slot: "email", candidate: "email", name: "Member number" },
+            { slot: "Customer password", candidate: "password", name: "Member number" },
+          ],
+          action: { candidate: "Sign in now", purpose: "submit" },
+          accountSwitch: "Use another account",
+          alternatives: [
+            {
+              fields: [{ slot: "email", candidate: "Email box" }],
+              action: { candidate: "sign-in", purpose: "submit" },
+            },
+          ],
+          passkeyButton: "Passkey",
+        },
+      }),
+    ).generate(request);
+    expect(outcome).toMatchObject({ status: "failed", error: "invalid-output" });
+    expect(outcome.answer).toEqual({
+      decision: "plan",
+      fields: [
+        { slot: "email", candidate: "email", name: "name-1" },
+        { slot: "?", candidate: "password", name: "name-1" },
+      ],
+      action: { candidate: "?", purpose: "submit" },
+      accountSwitch: "?",
+      alternatives: [
+        {
+          fields: [{ slot: "email", candidate: "?" }],
+          action: { candidate: "sign-in", purpose: "submit" },
+        },
+      ],
+      passkeyButton: "?",
+    });
+    expect(JSON.stringify(outcome.answer)).not.toMatch(
+      /Member|Customer|Sign in|another|box|Passkey/u,
+    );
+  });
+
+  it("keeps an abstention and an account list, and no answer the format refused", async () => {
+    const abstained = await generatorReturning(
+      JSON.stringify({ result: { decision: "abstain", reason: "ambiguous" } }),
+    ).generate(request);
+    expect(abstained.answer).toEqual({ decision: "abstain", reason: "ambiguous" });
+    const list = await generatorReturning(
+      JSON.stringify({ result: { decision: "account-list", other: "Another account" } }),
+    ).generate(request);
+    expect(list).toMatchObject({ status: "failed", detail: "unexpected-account-list" });
+    expect(list.answer).toEqual({ decision: "account-list", other: "?" });
+    const text = await generatorReturning("Sign in with the email field.").generate(request);
+    expect(text).toMatchObject({ status: "failed", error: "invalid-output" });
+    expect(text).not.toHaveProperty("answer");
+  });
+});
+
 describe("account lists (ADR 0028)", () => {
   const list = {
     version: 1,

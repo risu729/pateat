@@ -249,6 +249,140 @@ describe("diagnostics log", () => {
     vi.restoreAllMocks();
   });
 
+  it("logs each first login result sent to the service as codes (ADR 0019)", async () => {
+    const log = createDiagnosticsLog({
+      build: { version: "0.1.0", revision: "1c42ad3" },
+      settings: async () => {
+        throw new Error("not needed");
+      },
+      recipeCache: async () => undefined,
+      connections: async () => ({ ok: true, kind: "status", connections: [] }),
+      databaseName: `log-test-${crypto.randomUUID()}`,
+      scope: { addEventListener: () => undefined } as never,
+    });
+    for (const level of ["debug", "info", "warn"] as const)
+      vi.spyOn(console, level).mockImplementation(() => undefined);
+    log.loginOutcome({ recipeId: "gen-0123", revision: 3, result: "kept" });
+    log.loginOutcome({ recipeId: "gen-0123", revision: 4, result: "failed:unreachable" });
+    log.loginOutcome({
+      recipeId: "gen-0123",
+      revision: 5,
+      branch: "other",
+      result: "failed:unexpected-response",
+    });
+    await vi.waitFor(async () =>
+      expect(
+        (await log.logger.entries()).filter((entry) => entry.event === "service.outcome"),
+      ).toHaveLength(3),
+    );
+    const entries = (await log.logger.entries()).filter(
+      (entry) => entry.event === "service.outcome",
+    );
+    expect(entries.map(({ level, fields }) => ({ level, fields }))).toEqual([
+      { level: "info", fields: { recipe: "gen-0123", recipeRevision: 3, result: "kept" } },
+      {
+        level: "info",
+        fields: { recipe: "gen-0123", recipeRevision: 4, result: "failed:unreachable" },
+      },
+      {
+        level: "warn",
+        fields: {
+          recipe: "gen-0123",
+          recipeRevision: 5,
+          branch: "other",
+          result: "failed:unexpected-response",
+        },
+      },
+    ]);
+    vi.restoreAllMocks();
+  });
+
+  it("logs how long service requests and an ended login took (ADR 0019)", async () => {
+    const log = createDiagnosticsLog({
+      build: { version: "0.1.0", revision: "1c42ad3" },
+      settings: async () => {
+        throw new Error("not needed");
+      },
+      recipeCache: async () => undefined,
+      connections: async () => ({ ok: true, kind: "status", connections: [] }),
+      databaseName: `log-test-${crypto.randomUUID()}`,
+      scope: { addEventListener: () => undefined } as never,
+    });
+    for (const level of ["debug", "info", "warn"] as const)
+      vi.spyOn(console, level).mockImplementation(() => undefined);
+    const timing = { roundTripMs: 2_600, serverMs: 2_400, networkMs: 200, tokenMs: 300 };
+    log.recipeSync("synced", {
+      scope: "full",
+      added: 1,
+      updated: 0,
+      removed: 0,
+      timing: { roundTripMs: 500, serverMs: 100, networkMs: 400 },
+    });
+    log.login({
+      type: "generation",
+      tabId: 1,
+      origin: "https://bank.example",
+      outcome: "recipe",
+      timing: { ...timing, modelMs: 2_000 },
+    });
+    log.login({
+      type: "judge",
+      tabId: 1,
+      origin: "https://bank.example",
+      recipeId: "gen-0123",
+      recipeRevision: 2,
+      route: "password",
+      verdict: "unclear",
+      timing: { roundTripMs: 90_000 },
+    });
+    log.login({
+      type: "attempt",
+      tabId: 1,
+      origin: "https://bank.example",
+      recipeId: "gen-0123",
+      recipeRevision: 2,
+      route: "password",
+      variant: 0,
+      state: "authenticated",
+      stepIndex: 2,
+      stepCount: 2,
+      outcome: "authenticated",
+      times: { totalMs: 9_000, serviceMs: 2_600, networkMs: 200, personMs: 4_000, otherMs: 2_400 },
+    });
+    const events = ["service.sync", "recipe.generate", "recipe.judge", "login.attempt"];
+    await vi.waitFor(async () =>
+      expect(
+        (await log.logger.entries()).filter((entry) => events.includes(entry.event)),
+      ).toHaveLength(4),
+    );
+    const fields = Object.fromEntries(
+      (await log.logger.entries())
+        .filter((entry) => events.includes(entry.event))
+        .map((entry) => [entry.event, entry.fields]),
+    );
+    expect(fields["service.sync"]).toEqual({
+      outcome: "synced",
+      scope: "full",
+      added: 1,
+      roundTripMs: 500,
+      serverMs: 100,
+      networkMs: 400,
+    });
+    expect(fields["recipe.generate"]).toMatchObject({ ...timing, modelMs: 2_000 });
+    // A request with no service time, such as one that timed out, has its round trip only.
+    expect(fields["recipe.judge"]).toMatchObject({ roundTripMs: 90_000 });
+    expect(fields["recipe.judge"]).not.toHaveProperty("serverMs");
+    expect(fields["login.attempt"]).toMatchObject({
+      steps: 2,
+      totalMs: 9_000,
+      serviceMs: 2_600,
+      networkMs: 200,
+      personMs: 4_000,
+      otherMs: 2_400,
+    });
+    vi.restoreAllMocks();
+  });
+
   it("keeps a page URL's path and parameter names only for a site named in full", async () => {
     const { logger } = setup();
     const long = `https://bank.example/signin?return=${"a".repeat(600)}`;

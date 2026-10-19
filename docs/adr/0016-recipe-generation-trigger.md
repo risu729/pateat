@@ -21,6 +21,10 @@ without a recipe gets. Amended on 2026-10-16 by
 whose path may carry a token is observed and sent with `[id]` in place of each such
 segment, replacing the 2026-10-11 choice below that such a page is never observed.
 
+Amended on 2026-10-18 by [ADR 0049](0049-start-at-a-later-step.md) (owner, 01:40 UTC,
+implemented): a page that shows a later step a login may start at is not sent; the
+existing recipe logs in there.
+
 Date: 2026-10-11
 
 ## Context

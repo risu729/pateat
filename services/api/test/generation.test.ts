@@ -14,11 +14,13 @@ import { env, exports } from "cloudflare:workers";
 import {
   accountListGenerationInstructions,
   accountListGenerationPromptVersion,
+  completionInstructions,
   completionPromptVersion,
   completionStopPromptVersion,
   entryGenerationInstructions,
   entryGenerationPromptVersion,
   entryInstruction,
+  generationInstructions,
   generationPromptVersion,
 } from "@pateat/inference";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -77,6 +79,38 @@ const homePage = observation("/home", [
   element("logout", "button", "Sign out"),
   element("help", "link", "Help"),
 ]);
+
+/**
+ * A page with every field at its bound: a request for it fits the route's 128 KiB body
+ * limit but not a role's 64 KiB input bound.
+ */
+const WIDE = "\u3042".repeat(120);
+const bigPage = (): LoginObservation => ({
+  ...observation("/" + "a".repeat(200), [
+    {
+      id: "p".repeat(64),
+      role: "password",
+      target: { by: "name", value: "n".repeat(120) },
+      label: WIDE,
+      placeholder: WIDE,
+      autocomplete: "current-password",
+      group: "g".repeat(64),
+      maxLength: 1024,
+      minLength: 1000,
+      inputMode: "text",
+    },
+    ...Array.from({ length: 47 }, (_, index) => ({
+      id: `${"b".repeat(60)}${String(index).padStart(4, "0")}`,
+      role: "button" as const,
+      target: { by: "text" as const, value: `${"\u3044".repeat(116)}${index}` },
+      label: WIDE,
+      placeholder: WIDE,
+      group: "g".repeat(64),
+    })),
+  ]),
+  title: WIDE,
+  headings: Array.from({ length: 8 }, () => WIDE),
+});
 
 /** A stored recipe that must be a route recipe, as every form page's answer is. */
 const route = (recipe: StoredLoginRecipe): LoginRecipe => {
@@ -235,6 +269,38 @@ function failLogPurge() {
   });
 }
 
+/** Only the request log's revision update fails; everything else uses D1. */
+function failLogRevision() {
+  const prepare = env.DB.prepare.bind(env.DB);
+  return vi.spyOn(env.DB, "prepare").mockImplementation((query) => {
+    if (/^update "inference_log"/iu.test(query)) throw new Error("synthetic private log values");
+    return prepare(query);
+  });
+}
+
+/** The request log columns that tie a row to its recipe (ADR 0012, owner 2026-10-18). */
+const logRows = async (ownerId: string, role = "generate") =>
+  (
+    await rows(
+      "SELECT recipe_id, branch, base_revision, revision, recipe_page, build, observation_hash, answer, request FROM inference_log WHERE owner_id = ? AND role = ? ORDER BY created_at",
+      ownerId,
+      role,
+    )
+  ).map(({ answer, request, ...row }) => ({
+    ...(row as Record<
+      "recipe_id" | "branch" | "base_revision" | "revision" | "recipe_page" | "build",
+      unknown
+    > & { observation_hash: unknown }),
+    answer: answer === null ? null : (JSON.parse(String(answer)) as unknown),
+    request: JSON.parse(String(request)) as { observation: unknown },
+  }));
+const hashOf = async (value: unknown) =>
+  new Uint8Array(
+    await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(value))),
+  )
+    .toHex()
+    .slice(0, 12);
+
 /** Generates the two-page recipe and returns its last change. */
 async function twoPageRecipe(device: Device) {
   replies.push({ text: plan([["email", "email"]], "next", "advance") });
@@ -315,11 +381,14 @@ describe("recipe generation", () => {
       "SELECT role, origin, path, outcome, input_tokens, output_tokens, cost_micro_usd, request, result FROM inference_log WHERE owner_id = ? ORDER BY created_at",
       device.ownerId,
     );
+    // The request answered with the stored recipe is logged too, at no cost.
     expect(log.map((row) => [row.role, row.path, row.outcome])).toEqual([
       ["generate", "/login", "ok"],
+      ["generate", "/login", "recipe"],
       ["generate", "/password", "ok"],
       ["judge", "/home", "ok"],
     ]);
+    expect(log[1]).toMatchObject({ input_tokens: null, output_tokens: null, cost_micro_usd: 0 });
     expect(log[0]).toMatchObject({
       origin: ORIGIN,
       input_tokens: 3_000,
@@ -327,7 +396,7 @@ describe("recipe generation", () => {
       cost_micro_usd: 3_000 * 4 + 900 * 20,
     });
     expect(JSON.parse(String(log[0]!.request))).toMatchObject({ slots, observation: emailPage });
-    expect(JSON.parse(String(log[2]!.result))).toEqual({
+    expect(JSON.parse(String(log[3]!.result))).toEqual({
       decision: "signed-in",
       target: { by: "id", value: "logout" },
     });
@@ -561,7 +630,7 @@ describe("recipe generation", () => {
     info.mockRestore();
   });
 
-  it("deletes log rows older than 90 days when it logs a call", async () => {
+  it("deletes log rows older than a year when it logs a call", async () => {
     const device = await owner();
     const insert = (id: string, age: number) =>
       env.DB.prepare(
@@ -569,7 +638,8 @@ describe("recipe generation", () => {
       ).bind(id, device.ownerId, ORIGIN, Date.now() - age);
     const expired = `log-${crypto.randomUUID()}`;
     const kept = `log-${crypto.randomUUID()}`;
-    await env.DB.batch([insert(expired, 91 * DAY_MS), insert(kept, 89 * DAY_MS)]);
+    // Every row is kept for a year (owner, 2026-10-18), past the earlier 90 days.
+    await env.DB.batch([insert(expired, 366 * DAY_MS), insert(kept, 364 * DAY_MS)]);
     replies.push({ text: plan([["email", "email"]], "next", "advance") });
     await generate(device, emailPage);
     const ids = (await rows("SELECT id FROM inference_log WHERE id IN (?, ?)", expired, kept)).map(
@@ -578,7 +648,7 @@ describe("recipe generation", () => {
     expect(ids).toEqual([kept]);
   });
 
-  it("deletes expired logs and keeps 89-day logs when recipes are read without a call", async () => {
+  it("deletes expired logs and keeps 364-day logs when recipes are read without a call", async () => {
     const device = await owner({ claude: false });
     const insert = (id: string, age: number) =>
       env.DB.prepare(
@@ -586,7 +656,7 @@ describe("recipe generation", () => {
       ).bind(id, device.ownerId, ORIGIN, Date.now() - age);
     const expired = `log-${crypto.randomUUID()}`;
     const kept = `log-${crypto.randomUUID()}`;
-    await env.DB.batch([insert(expired, 91 * DAY_MS), insert(kept, 89 * DAY_MS)]);
+    await env.DB.batch([insert(expired, 366 * DAY_MS), insert(kept, 364 * DAY_MS)]);
     const feed = await exports.default.fetch("https://pateat.invalid/v1/recipes", {
       headers: { Authorization: `Bearer ${device.token}` },
     });
@@ -660,6 +730,135 @@ describe("recipe generation", () => {
       purge.mockRestore();
       error.mockRestore();
     }
+  });
+
+  it("logs each call's recipe, revisions, build, page hash and own answer", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    replies.push({ text: JSON.stringify({ result: { decision: "signed-in", marker: "logout" } }) });
+    expect((await complete(device, change.recipeId, 2)).body).toMatchObject({
+      status: "signed-in",
+      change: { revision: 3 },
+    });
+    const generated = await logRows(device.ownerId);
+    const [judged] = await logRows(device.ownerId, "judge");
+    const common = { recipe_id: change.recipeId, branch: "", build: "test-revision" };
+    expect(generated.map(({ request: _request, observation_hash: _hash, ...row }) => row)).toEqual([
+      {
+        ...common,
+        base_revision: 0,
+        revision: 1,
+        recipe_page: "first",
+        answer: {
+          decision: "plan",
+          fields: [{ slot: "email", candidate: "email" }],
+          action: { candidate: "next", purpose: "advance" },
+        },
+      },
+      {
+        ...common,
+        base_revision: 1,
+        revision: 2,
+        recipe_page: "continuation",
+        answer: {
+          decision: "plan",
+          fields: [{ slot: "password", candidate: "password" }],
+          action: { candidate: "sign-in", purpose: "submit" },
+        },
+      },
+    ]);
+    expect(judged).toMatchObject({
+      ...common,
+      base_revision: 2,
+      revision: 3,
+      recipe_page: null,
+      answer: { decision: "signed-in", marker: "logout" },
+    });
+    // The hash is of the observation as the row's request holds it.
+    const all = [...generated, judged!];
+    expect(all.map((row) => row.observation_hash)).toEqual(
+      await Promise.all(all.map((row) => hashOf(row.request.observation))),
+    );
+    expect(new Set(all.map((row) => row.observation_hash)).size).toBe(3);
+    // `request` stays the instructions and input as sent.
+    expect(Object.keys(generated[0]!.request)).toEqual(["instructions", "slots", "observation"]);
+  });
+
+  it("logs no revision for a call that wrote none, and a refused judgement's answer", async () => {
+    const device = await owner();
+    replies.push({
+      text: JSON.stringify({ result: { decision: "abstain", reason: "ambiguous" } }),
+    });
+    expect(await generate(device, emailPage)).toMatchObject({ status: "abstained" });
+    expect(await logRows(device.ownerId)).toMatchObject([
+      {
+        base_revision: 0,
+        revision: null,
+        recipe_page: "first",
+        answer: { decision: "abstain", reason: "ambiguous" },
+      },
+    ]);
+
+    const judged = await owner();
+    const change = await twoPageRecipe(judged);
+    // A challenge with no handler to keep writes nothing.
+    replies.push({ text: JSON.stringify({ result: { decision: "challenge" } }) });
+    expect((await complete(judged, change.recipeId, 2)).body).toEqual({
+      version: 1,
+      status: "challenge",
+    });
+    // A marker the page lacks fails closed; the row keeps the answer, never its text.
+    replies.push({
+      text: JSON.stringify({ result: { decision: "signed-in", marker: "Sign out now" } }),
+    });
+    const account = { ...homePage, path: "/account" };
+    expect((await complete(judged, change.recipeId, 2, account)).body).toEqual({
+      version: 1,
+      status: "failed",
+      error: "invalid-output",
+    });
+    const rowsJudged = await rows(
+      "SELECT outcome, result, answer, base_revision, revision FROM inference_log WHERE owner_id = ? AND role = 'judge' ORDER BY created_at",
+      judged.ownerId,
+    );
+    expect(
+      rowsJudged.map((row) => ({ ...row, answer: JSON.parse(String(row["answer"])) })),
+    ).toEqual([
+      {
+        outcome: "ok",
+        result: JSON.stringify({ decision: "challenge" }),
+        answer: { decision: "challenge" },
+        base_revision: 2,
+        revision: null,
+      },
+      {
+        outcome: "invalid-output",
+        result: null,
+        answer: { decision: "signed-in", marker: "?" },
+        base_revision: 2,
+        revision: null,
+      },
+    ]);
+    expect(JSON.stringify(rowsJudged)).not.toMatch(/Sign out now/u);
+  });
+
+  it("answers the login and logs no revision when the revision update fails", async () => {
+    const device = await owner();
+    const update = failLogRevision();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      replies.push({ text: plan([["email", "email"]], "next", "advance") });
+      expect(await generate(device, emailPage)).toMatchObject({
+        status: "recipe",
+        change: { revision: 1 },
+      });
+      expect(update).toHaveBeenCalledWith(expect.stringMatching(/^update "inference_log"/iu));
+      expect(warn.mock.calls).toEqual([["Inference log revision not kept"]]);
+    } finally {
+      update.mockRestore();
+      warn.mockRestore();
+    }
+    expect(await logRows(device.ownerId)).toMatchObject([{ revision: null, recipe_page: "first" }]);
   });
 
   it("generates the next form of a login that stays on one path", async () => {
@@ -767,41 +966,13 @@ describe("recipe generation", () => {
     ).toEqual([{ lock_id: "other" }]);
   });
 
-  it("refuses an oversized page locally: no call, no log row and no charge", async () => {
+  it("refuses an oversized page locally: no call and no charge, and logs it unsent", async () => {
     const device = await owner();
-    // Every field at its bound: the request fits the route's 128 KiB body limit but not
-    // the role's 64 KiB input bound.
-    const wide = "\u3042".repeat(120);
-    const big: LoginObservation = {
-      ...observation("/" + "a".repeat(200), [
-        {
-          id: "p".repeat(64),
-          role: "password",
-          target: { by: "name", value: "n".repeat(120) },
-          label: wide,
-          placeholder: wide,
-          autocomplete: "current-password",
-          group: "g".repeat(64),
-          maxLength: 1024,
-          minLength: 1000,
-          inputMode: "text",
-        },
-        ...Array.from({ length: 47 }, (_, index) => ({
-          id: `${"b".repeat(60)}${String(index).padStart(4, "0")}`,
-          role: "button" as const,
-          target: { by: "text" as const, value: `${"\u3044".repeat(116)}${index}` },
-          label: wide,
-          placeholder: wide,
-          group: "g".repeat(64),
-        })),
-      ]),
-      title: wide,
-      headings: Array.from({ length: 8 }, () => wide),
-    };
+    const big = bigPage();
     const bigSlots = Array.from({ length: 8 }, (_, index) => ({
       id: `${"s".repeat(62)}${index}`,
       kind: "identifier" as const,
-      description: wide,
+      description: WIDE,
       // Each offer names a different vault field.
       fieldName: `${"\u3042".repeat(119)}${index}`,
     }));
@@ -816,9 +987,38 @@ describe("recipe generation", () => {
       error: "input-too-large",
     });
     expect(sent).toEqual([]);
-    expect(await rows("SELECT * FROM inference_log WHERE owner_id = ?", device.ownerId)).toEqual(
-      [],
-    );
+    // One row, as the model would have received the request (ADR 0012, owner 2026-10-18).
+    expect(
+      await rows(
+        "SELECT provider, model_id, outcome, input_tokens, output_tokens, cost_micro_usd, result, answer FROM inference_log WHERE owner_id = ?",
+        device.ownerId,
+      ),
+    ).toEqual([
+      {
+        provider: null,
+        model_id: null,
+        outcome: "input-too-large",
+        input_tokens: null,
+        output_tokens: null,
+        cost_micro_usd: 0,
+        result: null,
+        answer: null,
+      },
+    ]);
+    const logged = await logRows(device.ownerId);
+    expect(logged).toEqual([
+      {
+        recipe_id: await generatedRecipeId(ORIGIN, big.path),
+        branch: "",
+        base_revision: 0,
+        revision: null,
+        recipe_page: "first",
+        build: "test-revision",
+        observation_hash: await hashOf(logged[0]!.request.observation),
+        answer: null,
+        request: { instructions: generationInstructions, slots: bigSlots, observation: big },
+      },
+    ]);
     expect(
       await rows(
         "SELECT calls, cost_micro_usd FROM inference_spend WHERE owner_id = ?",
@@ -1200,6 +1400,20 @@ describe("recipe generation", () => {
     expect(
       await generate(device, passwordPage, { recipeId: first.change.recipeId, revision: 3 }),
     ).toMatchObject({ status: "recipe", change: { revision: 4 } });
+    // The page generated again after the tombstone starts its recipe, as the first one did.
+    expect(
+      (await logRows(device.ownerId)).map(({ base_revision, revision, recipe_page }) => ({
+        base_revision,
+        revision,
+        recipe_page,
+      })),
+    ).toEqual([
+      { base_revision: 0, revision: 1, recipe_page: "first" },
+      // The continuation refused as `recipe-revoked`, on the tombstone.
+      { base_revision: 2, revision: null, recipe_page: "continuation" },
+      { base_revision: 2, revision: 3, recipe_page: "first" },
+      { base_revision: 3, revision: 4, recipe_page: "continuation" },
+    ]);
   });
 
   it("refuses new pages and continuations before the model call with less than 32 KiB left", async () => {
@@ -1524,6 +1738,10 @@ describe("custom-field slots (ADR 0027)", () => {
       status: "recipe",
       change: { recipeId, revision: 1, state: "active", recipe: other },
     });
+    // The call's own write lost, so its row names no revision.
+    expect(await logRows(device.ownerId)).toMatchObject([
+      { recipe_id: recipeId, base_revision: 0, revision: null, recipe_page: "first" },
+    ]);
   });
 });
 
@@ -1731,7 +1949,12 @@ describe("page judgement (ADR 0027)", () => {
     element("key", "button", "Use security key"),
     element("recovery", "link", "Use a recovery code"),
   ]);
-  const dayStart = () => Date.now() - (Date.now() % DAY_MS);
+  // One clock read: the clock can tick between two, which gives the previous day's last
+  // millisecond and lets the judgement purge delete a row seeded as today's.
+  const dayStart = () => {
+    const now = Date.now();
+    return now - (now % DAY_MS);
+  };
   const judgements = (device: Device) =>
     rows(
       "SELECT recipe_id, revision, path FROM page_judgements WHERE owner_id = ? ORDER BY recipe_id, revision, path",
@@ -1800,11 +2023,16 @@ describe("page judgement (ADR 0027)", () => {
       observation: homePage,
     });
     expect(await response.json()).toEqual({ version: 1, status: "rejected" });
-    // The logged request names the route, and the row the judge's prompt version.
-    const [logged] = await rows(
-      "SELECT request, prompt_version FROM inference_log WHERE owner_id = ? AND role = 'judge'",
+    // The logged request names the route, and the row the judge's prompt version. The
+    // conflict's row has no login paths: the stored revision has no such route.
+    const [conflict, logged] = await rows(
+      "SELECT request, prompt_version, outcome FROM inference_log WHERE owner_id = ? AND role = 'judge' ORDER BY created_at",
       device.ownerId,
     );
+    expect(conflict!.outcome).toBe("recipe-conflict");
+    const conflictRequest = JSON.parse(String(conflict!.request)) as Record<string, unknown>;
+    expect(conflictRequest).toMatchObject({ route: "passkey", observation: homePage });
+    expect(conflictRequest).not.toHaveProperty("loginPaths");
     expect(JSON.parse(String(logged!.request))).toMatchObject({
       route: "password",
       loginPaths: ["/login", "/password"],
@@ -2322,6 +2550,17 @@ describe("page judgement (ADR 0027)", () => {
     expect(JSON.stringify(sent.at(-1)!.body)).toContain(
       String.raw`\"loginPaths\":[\"/login\",\"/password\",\"/login/webauthn\"]`,
     );
+    // The handler's revision is on its judgement's row; the undecided page wrote none.
+    expect(
+      (await logRows(device.ownerId, "judge")).map(({ base_revision, revision, answer }) => ({
+        base_revision,
+        revision,
+        answer,
+      })),
+    ).toEqual([
+      { base_revision: 2, revision: 3, answer: { decision: "challenge", passkeyButton: "key" } },
+      { base_revision: 3, revision: null, answer: { decision: "unclear" } },
+    ]);
   });
 
   it("answers a plain challenge for a registration button or a duplicate handler", async () => {
@@ -2348,6 +2587,100 @@ describe("page judgement (ADR 0027)", () => {
       status: "challenge",
     });
     expect(await head(device, change.recipeId)).toBe(3);
+  });
+
+  describe("a page that asks how to confirm the sign-in (ADR 0048)", () => {
+    // The page after the identifier's Next: no inputs, a choice of how to verify.
+    const choicePage = (label = "Password") =>
+      observation("/login", [
+        element("choose-password", "button", label),
+        element("mobile", "button", "Mobile"),
+        element("cancel", "link", "Cancel"),
+      ]);
+    const passwordHandler = {
+      kind: "password",
+      path: "/login",
+      target: { by: "id", value: "choose-password" },
+    };
+    async function identifierRecipe(device: Device) {
+      replies.push({ text: plan([["email", "email"]], "next", "advance") });
+      const first = await generate(device, emailPage);
+      if (first.status !== "recipe") throw new Error(first.status);
+      return first.change;
+    }
+
+    it("adds a password handler, which a continuation of the route keeps", async () => {
+      const device = await owner();
+      const info = vi.spyOn(console, "info");
+      const change = await identifierRecipe(device);
+      replies.push(judgeReply({ decision: "challenge", passwordButton: "choose-password" }));
+      const judged = await complete(device, change.recipeId, 1, choicePage());
+      expect(judged.body).toMatchObject({
+        status: "challenge",
+        change: {
+          revision: 2,
+          recipe: { steps: route(change.recipe).steps, handlers: [passwordHandler] },
+        },
+      });
+      expect(info).toHaveBeenCalledWith("Judged page handlers", {
+        recipeId: change.recipeId,
+        handlers: [{ kind: "password", kept: true }],
+      });
+      // The judge was told what such a page and its button are.
+      expect(JSON.stringify(sent.at(-1)!.body)).toContain("passwordButton is the button");
+      // The password page after the press continues the route; the handler stays.
+      replies.push({ text: plan([["password", "password"]], "sign-in", "submit") });
+      const continued = await generate(device, passwordPage, {
+        recipeId: change.recipeId,
+        revision: 2,
+      });
+      if (continued.status !== "recipe") throw new Error(continued.status);
+      expect(continued.change.revision).toBe(3);
+      expect(route(continued.change.recipe)).toMatchObject({
+        steps: [
+          { kind: "fill", path: "/login" },
+          { kind: "click", path: "/login", purpose: "advance" },
+          { kind: "fill", path: "/password" },
+          { kind: "click", path: "/password", purpose: "submit" },
+        ],
+        handlers: [passwordHandler],
+      });
+      info.mockRestore();
+    });
+
+    it("answers a plain challenge for a button that does not name the password", async () => {
+      const device = await owner();
+      const change = await identifierRecipe(device);
+      const info = vi.spyOn(console, "info");
+      replies.push(judgeReply({ decision: "challenge", passwordButton: "choose-password" }));
+      expect(
+        (await complete(device, change.recipeId, 1, choicePage("Forgot password?"))).body,
+      ).toEqual({ version: 1, status: "challenge" });
+      expect(info).toHaveBeenCalledWith("Judged page handlers", {
+        recipeId: change.recipeId,
+        handlers: [{ kind: "password", kept: false, reason: "not-password" }],
+      });
+      expect(await head(device, change.recipeId)).toBe(1);
+      info.mockRestore();
+    });
+
+    it("never learns one for a recipe that already types the password", async () => {
+      const device = await owner();
+      const change = await twoPageRecipe(device);
+      const info = vi.spyOn(console, "info");
+      const later = observation("/verify", [element("choose-password", "button", "Password")]);
+      replies.push(judgeReply({ decision: "challenge", passwordButton: "choose-password" }));
+      expect((await complete(device, change.recipeId, 2, later)).body).toEqual({
+        version: 1,
+        status: "challenge",
+      });
+      expect(info).toHaveBeenCalledWith("Judged page handlers", {
+        recipeId: change.recipeId,
+        handlers: [{ kind: "password", kept: false, reason: "password-filled" }],
+      });
+      expect(await head(device, change.recipeId)).toBe(2);
+      info.mockRestore();
+    });
   });
 
   it("adds a totp handler for an authenticator app code, beside a passkey handler in one revision", async () => {
@@ -2687,11 +3020,16 @@ describe("page judgement (ADR 0027)", () => {
         inputMode: "numeric" as const,
         maxLength: 6,
       };
-      const page = observation("/password", [...stopPage.candidates, code]);
+      const page = observation("/password", [
+        ...stopPage.candidates,
+        code,
+        element("choose-password", "button", "Use your password"),
+      ]);
       replies.push(
         judgeReply({
           decision: "challenge",
           passkeyButton: "passkey",
+          passwordButton: "choose-password",
           code: { field: "app-code", submit: "sign-in", source: "authenticator-app" },
         }),
       );
@@ -2724,6 +3062,7 @@ describe("page judgement (ADR 0027)", () => {
         recipeId: change.recipeId,
         handlers: [
           { kind: "passkey", kept: true },
+          { kind: "password", kept: false, reason: "stop" },
           { kind: "totp", kept: false, reason: "stop" },
         ],
       });
@@ -3219,12 +3558,18 @@ describe("the passkey route (ADR 0027)", () => {
     if (result.status !== "recipe") throw new Error(result.status);
     expect(result.change.recipe).not.toHaveProperty("passkey");
     expect(route(result.change.recipe).slots).toEqual(["email", "password"]);
-    // The log keeps nothing the plan check dropped.
+    // The result keeps nothing the plan check dropped; the model's own answer keeps what
+    // it named, as `?` when the page lacks it.
+    const [row] = await logRows(device.ownerId);
     const [logged] = await rows(
       "SELECT result FROM inference_log WHERE owner_id = ? AND role = 'generate'",
       device.ownerId,
     );
     expect(JSON.parse(String(logged!.result))).not.toHaveProperty("passkeyButton");
+    expect(row!.answer).toMatchObject({
+      decision: "plan",
+      passkeyButton: button === "missing" ? "?" : button,
+    });
   });
 
   it("tells the judge every path of the password form on the passkey route", async () => {
@@ -3353,11 +3698,13 @@ describe("the passkey route (ADR 0027)", () => {
         },
       },
     });
+    // The four pages not judged are logged unsent, with the same request.
     const logged = await rows(
-      "SELECT request FROM inference_log WHERE owner_id = ? AND role = 'judge'",
+      "SELECT request, model_id FROM inference_log WHERE owner_id = ? AND role = 'judge'",
       device.ownerId,
     );
-    expect(logged).toHaveLength(2);
+    expect(logged.filter((row) => row["model_id"] !== null)).toHaveLength(2);
+    expect(logged).toHaveLength(6);
     for (const row of logged)
       expect(JSON.parse(String(row.request))).toMatchObject({
         route: "passkey",
@@ -3668,6 +4015,22 @@ describe("account lists and chooser branches (ADR 0028)", () => {
       { branch: "other", path: "/password", base_revision: 3 },
     ]);
     expect(sent).toHaveLength(4);
+    // The list starts the chooser; each branch's page continues it.
+    expect(
+      (await logRows(device.ownerId)).map(({ branch, base_revision, revision, recipe_page }) => ({
+        branch,
+        base_revision,
+        revision,
+        recipe_page,
+      })),
+    ).toEqual([
+      { branch: "", base_revision: 0, revision: 1, recipe_page: "first" },
+      { branch: "account", base_revision: 1, revision: 2, recipe_page: "continuation" },
+      { branch: "other", base_revision: 2, revision: 3, recipe_page: "continuation" },
+      { branch: "other", base_revision: 3, revision: 4, recipe_page: "continuation" },
+      // The account branch's page refused as `recipe-conflict`.
+      { branch: "account", base_revision: 4, revision: null, recipe_page: "continuation" },
+    ]);
   });
 
   it("tries each branch's page on its own within the retry window", async () => {
@@ -3839,6 +4202,15 @@ describe("account lists and chooser branches (ADR 0028)", () => {
         recipeId,
       ),
     ).toEqual([{ revision: 4 }]);
+    // The log keeps the revision the rebased write stored, not the one the call started on.
+    expect(await logRows(device.ownerId)).toContainEqual(
+      expect.objectContaining({
+        branch: "other",
+        base_revision: 2,
+        revision: 4,
+        recipe_page: "continuation",
+      }),
+    );
   });
 
   it("adds a handler into a branch and never judges the list shown again", async () => {
@@ -4004,6 +4376,36 @@ describe("sign-in entry pages (ADR 0031)", () => {
         prompt_version: await entryGenerationPromptVersion(),
         request: { instructions: entryGenerationInstructions, observation: topPage },
         result: { entry: "c2" },
+      },
+      // Asking again is logged as answered with the stored recipe.
+      {
+        role: "generate",
+        path: "/en/",
+        outcome: "recipe",
+        prompt_version: await entryGenerationPromptVersion(),
+        request: { instructions: entryGenerationInstructions, observation: topPage },
+        result: null,
+      },
+    ]);
+    expect(await logRows(device.ownerId)).toMatchObject([
+      {
+        recipe_id: recipeId,
+        branch: "",
+        base_revision: 0,
+        revision: 1,
+        recipe_page: "first",
+        build: "test-revision",
+        observation_hash: await hashOf(topPage),
+        answer: { decision: "entry", entry: "c2" },
+      },
+      {
+        recipe_id: recipeId,
+        branch: "",
+        base_revision: 1,
+        revision: null,
+        recipe_page: "first",
+        observation_hash: await hashOf(topPage),
+        answer: null,
       },
     ]);
     expect(await entryGenerationPromptVersion()).not.toBe(await generationPromptVersion());
@@ -4271,5 +4673,327 @@ describe("sign-in entry pages (ADR 0031)", () => {
       status: "recipe",
       change: { recipeId, revision: 1, state: "active", recipe: theirs },
     });
+  });
+});
+
+describe("requests answered without a model call (ADR 0012)", () => {
+  /** Each column of the owner's rows answered without a call, oldest first. */
+  const unsentRows = async (ownerId: string) =>
+    (
+      await rows(
+        "SELECT role, provider, model_id, outcome, origin, path, recipe_id, branch, base_revision, revision, recipe_page, build, observation_hash, request, result, answer, input_tokens, output_tokens, cost_micro_usd FROM inference_log WHERE owner_id = ? AND model_id IS NULL ORDER BY created_at",
+        ownerId,
+      )
+    ).map((row) => ({ ...row, request: JSON.parse(String(row.request)) as unknown }));
+  const unsent = {
+    provider: null,
+    model_id: null,
+    revision: null,
+    build: "test-revision",
+    result: null,
+    answer: null,
+    input_tokens: null,
+    output_tokens: null,
+    cost_micro_usd: 0,
+  };
+  const holdLock = (ownerId: string) =>
+    env.DB.prepare(
+      "INSERT INTO inference_locks (owner_id, lock_id, expires_at) VALUES (?, 'other', ?)",
+    )
+      .bind(ownerId, Date.now() + 60_000)
+      .run();
+
+  it("logs a page refused at the daily spend limit, which the limit does not count", async () => {
+    const device = await owner();
+    await env.DB.prepare(
+      "INSERT INTO inference_spend (owner_id, period, calls, cost_micro_usd) VALUES (?, ?, 1, ?)",
+    )
+      .bind(device.ownerId, day(), 5_000_000)
+      .run();
+    expect(await generate(device, emailPage)).toEqual({
+      version: 1,
+      status: "unavailable",
+      reason: "daily-limit",
+    });
+    expect(sent).toEqual([]);
+    expect(await unsentRows(device.ownerId)).toEqual([
+      {
+        ...unsent,
+        role: "generate",
+        outcome: "daily-limit",
+        origin: ORIGIN,
+        path: "/login",
+        recipe_id: await generatedRecipeId(ORIGIN, "/login"),
+        branch: "",
+        base_revision: 0,
+        recipe_page: "first",
+        observation_hash: await hashOf(emailPage),
+        request: { instructions: generationInstructions, slots, observation: emailPage },
+      },
+    ]);
+    expect(
+      await rows("SELECT COUNT(*) AS count FROM inference_log WHERE owner_id = ?", device.ownerId),
+    ).toEqual([{ count: 1 }]);
+    // Neither the spend nor the number of calls changes.
+    expect(
+      await rows(
+        "SELECT period, calls, cost_micro_usd FROM inference_spend WHERE owner_id = ?",
+        device.ownerId,
+      ),
+    ).toEqual([{ period: day(), calls: 1, cost_micro_usd: 5_000_000 }]);
+  });
+
+  it("logs a busy refusal once per page in ten minutes", async () => {
+    const device = await owner();
+    await holdLock(device.ownerId);
+    const busy = { version: 1, status: "unavailable", reason: "busy" };
+    // A client repeating the page adds no row; another page does.
+    expect(await generate(device, emailPage)).toEqual(busy);
+    expect(await generate(device, emailPage)).toEqual(busy);
+    expect(await generate(device, passwordPage)).toEqual(busy);
+    expect(
+      (await unsentRows(device.ownerId)).map(({ outcome, path }) => ({ outcome, path })),
+    ).toEqual([
+      { outcome: "busy", path: "/login" },
+      { outcome: "busy", path: "/password" },
+    ]);
+    await env.DB.prepare("UPDATE inference_log SET created_at = ? WHERE owner_id = ?")
+      .bind(Date.now() - 10 * 60 * 1000 - 1, device.ownerId)
+      .run();
+    expect(await generate(device, emailPage)).toEqual(busy);
+    expect(await unsentRows(device.ownerId)).toHaveLength(3);
+    expect(sent).toEqual([]);
+    expect(await rows("SELECT * FROM inference_spend WHERE owner_id = ?", device.ownerId)).toEqual(
+      [],
+    );
+    // The other request's lock stays.
+    expect(
+      await rows("SELECT lock_id FROM inference_locks WHERE owner_id = ?", device.ownerId),
+    ).toEqual([{ lock_id: "other" }]);
+  });
+
+  it("logs a page judged before, with the login paths the judge would have got", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    replies.push({ text: JSON.stringify({ result: { decision: "rejected" } }) });
+    expect((await complete(device, change.recipeId, 2)).body).toEqual({
+      version: 1,
+      status: "rejected",
+    });
+    expect((await complete(device, change.recipeId, 2)).body).toEqual({
+      version: 1,
+      status: "unavailable",
+      reason: "judged-rejected",
+    });
+    expect(sent).toHaveLength(3);
+    const [called] = await rows(
+      "SELECT request FROM inference_log WHERE owner_id = ? AND role = 'judge' AND model_id IS NOT NULL",
+      device.ownerId,
+    );
+    const request = {
+      instructions: completionInstructions,
+      recipeId: change.recipeId,
+      route: "password",
+      loginPaths: ["/login", "/password"],
+      observation: homePage,
+    };
+    expect(JSON.parse(String(called!.request))).toEqual(request);
+    expect(await unsentRows(device.ownerId)).toEqual([
+      {
+        ...unsent,
+        role: "judge",
+        outcome: "judged-rejected",
+        origin: ORIGIN,
+        path: "/home",
+        recipe_id: change.recipeId,
+        branch: "",
+        base_revision: 2,
+        recipe_page: null,
+        observation_hash: await hashOf(homePage),
+        request,
+      },
+    ]);
+  });
+
+  it("logs no request whose body or recipe the route refuses", async () => {
+    const device = await owner();
+    const invalid = await post(device, "/v1/recipes/generate", {
+      version: 1,
+      observation: { ...emailPage, version: 2 },
+      slots,
+    });
+    expect(invalid.status).toBe(400);
+    const unknownRoute = await post(
+      device,
+      `/v1/recipes/${await generatedRecipeId(ORIGIN, "/login")}/completion`,
+      {
+        version: 1,
+        revision: 1,
+        route: "sso",
+        observation: homePage,
+      },
+    );
+    expect(unknownRoute.status).toBe(400);
+    expect((await complete(device, await generatedRecipeId(ORIGIN, "/login"), 1)).status).toBe(404);
+    expect(await rows("SELECT * FROM inference_log WHERE owner_id = ?", device.ownerId)).toEqual(
+      [],
+    );
+  });
+
+  it("answers the same when the row cannot be written", async () => {
+    const device = await owner();
+    await holdLock(device.ownerId);
+    const prepare = env.DB.prepare.bind(env.DB);
+    const insert = vi.spyOn(env.DB, "prepare").mockImplementation((query) => {
+      if (/^insert into "inference_log"/iu.test(query))
+        throw new Error("synthetic private log values");
+      return prepare(query);
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      expect(await generate(device, emailPage)).toEqual({
+        version: 1,
+        status: "unavailable",
+        reason: "busy",
+      });
+      expect(insert).toHaveBeenCalledWith(expect.stringMatching(/^insert into "inference_log"/iu));
+      expect(warn.mock.calls).toEqual([
+        ["Inference log row not kept", { role: "generate", outcome: "busy" }],
+      ]);
+    } finally {
+      insert.mockRestore();
+      warn.mockRestore();
+    }
+    expect(await rows("SELECT * FROM inference_log WHERE owner_id = ?", device.ownerId)).toEqual(
+      [],
+    );
+  });
+
+  it("logs the same page offered with other slots again", async () => {
+    const device = await owner();
+    await holdLock(device.ownerId);
+    const otherSlots: SemanticSlot[] = [
+      ...slots,
+      { id: "member", kind: "identifier", description: "membership number" },
+    ];
+    expect(await generate(device, emailPage)).toMatchObject({ reason: "busy" });
+    const response = await post(device, "/v1/recipes/generate", {
+      version: 1,
+      observation: emailPage,
+      slots: otherSlots,
+    });
+    expect(await response.json()).toMatchObject({ reason: "busy" });
+    expect((await unsentRows(device.ownerId)).map((row) => row.request)).toEqual([
+      { instructions: generationInstructions, slots, observation: emailPage },
+      { instructions: generationInstructions, slots: otherSlots, observation: emailPage },
+    ]);
+  });
+
+  it("logs at most 500 requests answered without a call per owner and UTC day", async () => {
+    const device = await owner();
+    await holdLock(device.ownerId);
+    const now = Date.now();
+    const insert = (id: string, at: number, modelId: string | null) =>
+      env.DB.prepare(
+        "INSERT INTO inference_log (id, owner_id, role, provider, model_id, origin, path, request, outcome, cost_micro_usd, created_at) VALUES (?, ?, 'generate', NULL, ?, ?, '/', '{}', 'busy', 0, ?)",
+      ).bind(id, device.ownerId, modelId, ORIGIN, at);
+    // 499 of today count; yesterday's and a model call's do not.
+    await env.DB.batch([
+      ...Array.from({ length: 499 }, (_, index) => insert(`today-${index}`, now - 1, null)),
+      insert("yesterday", now - (now % DAY_MS) - 1, null),
+      insert("called", now - 1, "claude-opus-5-5"),
+    ]);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      expect(await generate(device, emailPage)).toMatchObject({ reason: "busy" });
+      expect(warn).not.toHaveBeenCalled();
+      // The 501st row of the day is not written, and the answer stays the same.
+      expect(await generate(device, passwordPage)).toEqual({
+        version: 1,
+        status: "unavailable",
+        reason: "busy",
+      });
+      expect(warn.mock.calls).toEqual([
+        ["Inference log row over the daily cap", { role: "generate", outcome: "busy" }],
+      ]);
+    } finally {
+      warn.mockRestore();
+    }
+    expect(
+      await rows(
+        "SELECT path FROM inference_log WHERE owner_id = ? AND model_id IS NULL AND path != '/'",
+        device.ownerId,
+      ),
+    ).toEqual([{ path: "/login" }]);
+  });
+
+  it.each([
+    {
+      outcome: "recently-tried",
+      role: "generate",
+      ask: async (device: Device) => {
+        replies.push({
+          text: JSON.stringify({ result: { decision: "abstain", reason: "ambiguous" } }),
+        });
+        await generate(device, emailPage);
+        return generate(device, emailPage);
+      },
+    },
+    {
+      outcome: "incomplete-observation",
+      role: "generate",
+      ask: (device: Device) => generate(device, { ...emailPage, complete: false }),
+    },
+    {
+      outcome: "credentials-not-configured",
+      role: "generate",
+      claude: false,
+      ask: (device: Device) => generate(device, emailPage),
+    },
+    {
+      outcome: "judgement-limit",
+      role: "judge",
+      ask: async (device: Device) => {
+        const change = await twoPageRecipe(device);
+        const now = Date.now();
+        const dayStart = now - (now % DAY_MS);
+        await env.DB.batch(
+          Array.from({ length: 20 }, (_, index) =>
+            env.DB.prepare(
+              "INSERT INTO page_judgements (owner_id, recipe_id, revision, origin, path, prompt_version, judged_at) VALUES (?, ?, 1, ?, ?, '', ?)",
+            ).bind(device.ownerId, change.recipeId, ORIGIN, `/p${index}`, dayStart + index),
+          ),
+        );
+        return (await complete(device, change.recipeId, 2)).body;
+      },
+    },
+    {
+      outcome: "input-too-large",
+      role: "judge",
+      ask: async (device: Device) => {
+        const change = await twoPageRecipe(device);
+        return (await complete(device, change.recipeId, 2, bigPage())).body;
+      },
+    },
+  ])("logs one row for $outcome", async ({ outcome, role, claude, ask }) => {
+    const device = await owner({ claude: claude ?? true });
+    const calls = sent.length;
+    const answer = await ask(device);
+    expect(answer).toMatchObject(
+      outcome === "incomplete-observation" || outcome === "input-too-large"
+        ? { status: "failed", error: outcome }
+        : { status: "unavailable", reason: outcome },
+    );
+    const unsentOfRole = (await unsentRows(device.ownerId)).filter((row) => row.role === role);
+    expect(unsentOfRole).toMatchObject([{ ...unsent, outcome }]);
+    // Only the calls the case itself made reached the model.
+    expect(sent.length - calls).toBe(
+      (
+        await rows(
+          "SELECT id FROM inference_log WHERE owner_id = ? AND model_id IS NOT NULL",
+          device.ownerId,
+        )
+      ).length,
+    );
   });
 });

@@ -1,11 +1,28 @@
 # ADR 0012: Inference request log and evaluation data
 
-Status: accepted by the owner on 2026-10-10. The retention period is 90 days, chosen
-with the service route in [ADR 0018](0018-recipe-generation-route.md). The service logs
-every request its generation routes send; the delete-all action comes with the web UI.
-Amended on 2026-10-12 by [ADR 0035](0035-page-kinds-per-site.md) (not implemented):
-rows of `confirm` or `unclear` pages, or sent with `signedIn` true, are kept past 90
-days until labelled, for at most one year, and rows gain the recipe ID and revision.
+Status: accepted by the owner on 2026-10-10. The retention period was 90 days (one year
+since 2026-10-18), chosen with the service route in
+[ADR 0018](0018-recipe-generation-route.md). The service logs every request its
+generation routes receive (since 2026-10-18; before, every request they sent); the
+delete-all action comes with the web UI. Amended on
+2026-10-12 by [ADR 0035](0035-page-kinds-per-site.md) (not implemented): rows of
+`confirm` or `unclear` pages, or sent with `signedIn` true, are kept past 90 days until
+labelled, for at most one year, and rows gain the recipe ID and revision. Amended on
+2026-10-18 by the owner (06:08 UTC):
+[rows for a real-page corpus](#amendment-2026-10-18-rows-for-a-real-page-corpus) gain
+the recipe, branch and revisions, the build, an observation hash and the model's own
+answer; every row is kept one year; and the web UI deletes them all. Implemented.
+Amended on 2026-10-18 by the same decision
+([login result codes](#amendment-2026-10-18-login-result-codes), with
+[ADR 0019](0019-local-diagnostics-and-logs.md)): the service keeps the result code of
+each recipe revision's first login beside the log. Implemented. On 2026-10-18 (owner,
+08:58 UTC) the
+[earlier rows were filled in](#amendment-2026-10-18-earlier-rows-filled-in) where the
+stored records decide each value.
+Amended on 2026-10-18 by the owner (08:04 UTC):
+[requests answered without a model call](#amendment-2026-10-18-requests-answered-without-a-model-call)
+are kept too, which amends [ADR 0018](0018-recipe-generation-route.md); invalid bodies
+and requests answered 400 or 404 are not. Implemented.
 
 Date: 2026-10-10
 
@@ -46,6 +63,122 @@ Evaluation data:
   private evaluation and never committed. The candidates and their terms are listed in
   [AI evaluation harness progress](../plan.md#ai-evaluation-harness-progress).
 - Reusing existing per-site recipes (for example Bitwarden map-the-web) is later scope.
+
+## Amendment 2026-10-18: rows for a real-page corpus
+
+The owner chose on decision cards at 06:08 UTC that the log keeps what a real-page
+evaluation corpus needs later, without waiting for phase 1 to finish ("今入れる"):
+
+- Each row records the recipe it is for, the chooser branch (empty without one), the
+  head revision when the call was made, the revision the call wrote (set after that
+  write succeeds; none when it wrote nothing), for generation whether the page starts
+  its recipe (`first`) or continues one (`continuation`), the service build, and the
+  first 12 hex digits of the SHA-256 of the observation sent. `request` stays the
+  instructions and input as sent.
+- `answer` keeps the model's own answer next to `result`, for both roles and every
+  decision, `unclear` and output the local checks refused included ("残す"): a
+  generated plan before local changes, so a dropped passkey button still shows. Output
+  the response format itself refused has none. Any ID that is not a candidate or slot
+  of the request becomes `?` and each generated name `name-N`, so no page text quoted
+  by the model and no vault field name is kept.
+- Every row is kept one year instead of 90 days ("全部 1 年"), which covers ADR 0035's
+  year for `confirm`, `unclear` and `signedIn` rows. Since rows hold custom field names
+  and username shapes for longer, the delete-all action is built now: the web UI's
+  Request log page deletes all of the owner's rows after a confirmation; recipes,
+  settings and the spend the limits count stay.
+
+Not part of this amendment: sending the extension's login outcome codes to the service
+(see the next amendment), filling in earlier rows (see the amendment after it), and
+exporting the corpus. The column
+names (`recipe_page` and the others in `services/api/src/db/schema.ts`) and the Request
+log tab at `/manage/request-log` (the web UI has no settings page for it) were the
+agent's choice, not confirmed by the owner.
+
+## Amendment 2026-10-18: login result codes
+
+With the same decision cards (06:08 UTC, "送る"), devices send how the first login of
+each recipe revision ended, as codes only
+([ADR 0019](0019-local-diagnostics-and-logs.md#amendment-2026-10-18-first-login-results-for-evaluation)),
+so a corpus entry joins the generation row with its result without the device's 14-day
+local log:
+
+- A new owner-scoped table `login_outcomes` keeps the recipe ID, branch (empty without
+  one), revision, `outcome`, `cause` (null without one), step index and the service's
+  own time, one row per revision: the first report is kept and later ones are ignored.
+  The route accepts only a recipe the owner holds, at a revision up to its head that is
+  not a tombstone.
+- Its rows are kept one year like the log's and deleted with expired log rows. The
+  Request log page counts them beside the requests, and Delete all deletes them too.
+- A row is the first report the service received for its revision, not always the
+  revision's first login: a revision that ran before the build that sends these codes
+  reports its next login instead. The corpus builder drops outcome rows whose revision's
+  generation row (the `inference_log` row with that `revision`) has no `build`, or a
+  `build` that is not a descendant of the first service commit that accepts these
+  reports. That commit also builds the extension that sends them. A revision whose
+  first login ran on an extension older than that commit is not caught, as no row
+  records the extension's build.
+
+## Amendment 2026-10-18: earlier rows filled in
+
+The owner chose on a decision card at 08:58 UTC to write the new columns of the 154 rows
+logged before them ("書く"). The values come from the stored records: each row's own
+`request` and `result`, the recipe revisions and tombstones, the recipe heads, the page
+judgements, and when each row and revision was written. A value was written only where
+those records decide it, one row per statement by `id`, and only into an empty column of
+a row with no `build` from before the columns were added.
+
+- `observation_hash` and `recipe_id` are set on every earlier row.
+- `revision` stays empty where the recipe was revoked later and the revision the row
+  wrote is gone, and on rows that wrote none.
+- `answer` stays empty where the model's own answer cannot be rebuilt exactly: a
+  generated plan whose dropped passkey button left no trace, or a challenge judgement
+  whose code source or dropped field was not recorded.
+- `build` stays empty on every earlier row and `prompt_version` where it was empty;
+  their values at the time are not known.
+
+So on a row with no `build`, an empty column means unknown, not none: a generation row
+there may have no `branch`, `recipe_page` or `base_revision` although it had one.
+Undoing the fill sets the same columns of those rows back to empty; D1 Time Travel
+restores the whole database, recipes and settings included, and is the last resort.
+
+## Amendment 2026-10-18: requests answered without a model call
+
+The owner chose on a decision card at 08:04 UTC that a request answered without calling
+the model is logged too ("残す"). The log keeps every generation and judgement request
+the service receives, not only each one it sends, replacing ADR 0018's "Requests
+refused locally before any model call are not logged". A body that fails validation is
+still not logged.
+
+- The row's `outcome` is the code the request was answered with: a spend limit, `busy`,
+  a credential code, `recently-tried`, `judgement-limit`, a page judged before
+  (`already-judged`, `judged-*`, `judgement-unanswered`), `not-judgeable`,
+  `recipe-revoked`, `recipe-conflict`, `recipe-limit`, `incomplete-observation`,
+  `invalid-request` or `input-too-large`. It has no provider, model, usage, result or
+  answer and costs nothing, so the spend limits never count it.
+- `request` is what the model would have received, and the recipe columns, build and
+  observation hash are kept as for a call, with `base_revision` the head read when the
+  request arrived. A judgement refused before its route is found in the stored revision
+  (`recipe-revoked`, `recipe-conflict`) has no `loginPaths`.
+
+The agent's choices, not confirmed by the owner:
+
+- A request answered with a recipe another request already stored is logged with the
+  outcome `recipe`.
+- A request the route refuses with 400 or 404 is not logged: a `base` ID not in the
+  `gen-…` form, a page of an origin no move reaches, a missing recipe. A `gen-` ID of
+  another origin answers `recipe-conflict` and is logged.
+- The same request answered the same way within ten minutes (the whole `request`, with
+  the role, outcome, prompt version, origin, path, recipe, branch and base revision)
+  adds no row, so a client repeating a page refused as `busy` or over a limit cannot
+  fill the log. The check and the insert are not atomic, so two identical requests at
+  once can both be logged.
+- At most 500 such rows are logged per owner and UTC day, since spend no longer bounds
+  them; past that a request is answered as before and logged nowhere but the Worker log.
+- A failed row write never changes the answer.
+
+Consequences: page descriptions are now kept even when no model is called, including
+those of an owner without Claude credentials (`credentials-not-configured`) and of
+requests at a spend limit or answered `busy`.
 
 ## Consequences
 

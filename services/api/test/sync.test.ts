@@ -484,12 +484,41 @@ describe("recipe sync", () => {
     });
   });
 
-  it("fails closed without details when a stored recipe is corrupt", async () => {
+  it("sends a recipe whose stored document no longer validates as revoked", async () => {
     const device = await enrollOwner();
     await publish(device, "bank-login", 0);
-    await env.DB.prepare("UPDATE recipe_revisions SET document = ? WHERE owner_id = ?")
-      .bind(JSON.stringify({ synthetic: "corrupt" }), device.ownerId)
+    await publish(device, "shop-login", 0);
+    // Stands in for a stored document that a later, stricter contract refuses.
+    await env.DB.prepare(
+      "UPDATE recipe_revisions SET document = ? WHERE owner_id = ? AND recipe_id = 'bank-login'",
+    )
+      .bind(JSON.stringify({ synthetic: "unreadable" }), device.ownerId)
       .run();
+    const response = await api(device, "/v1/recipes");
+    expect(response.status).toBe(200);
+    const page: SyncRecipeChanges = await response.json();
+    expect(page.changes[0]).toEqual({ recipeId: "bank-login", revision: 1, state: "revoked" });
+    expect(page).toMatchObject({
+      changes: [{}, { recipeId: "shop-login", revision: 1, state: "active" }],
+      cursor: 2,
+      complete: true,
+    });
+    // A device may replace it with a readable revision.
+    expect((await publish(device, "bank-login", 1)).status).toBe(200);
+    expect(await (await api(device, "/v1/recipes?after=2")).json()).toMatchObject({
+      changes: [{ recipeId: "bank-login", revision: 2, state: "active" }],
+    });
+  });
+
+  it("fails closed without details when a stored recipe head is corrupt", async () => {
+    const device = await enrollOwner();
+    await publish(device, "bank-login", 0);
+    // A revision the contract refuses cannot be sent even as revoked.
+    await env.DB.batch(
+      ["recipe_heads", "recipe_revisions"].map((table) =>
+        env.DB.prepare(`UPDATE ${table} SET revision = 0 WHERE owner_id = ?`).bind(device.ownerId),
+      ),
+    );
     const response = await api(device, "/v1/recipes");
     expect(response.status).toBe(500);
     expect(await response.json()).toEqual({ error: "internal_error" });
@@ -944,7 +973,186 @@ describe("per-owner limits", () => {
     expect(limited.headers.get("Retry-After")).toBe("60");
     expect(await limited.json()).toEqual({ error: "rate_limited" });
     expect((await api(first, "/v1/recipes")).status).toBe(429);
+    expect(
+      (
+        await api(first, "/v1/recipes/bank-login/outcome", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{",
+        })
+      ).status,
+    ).toBe(429);
     // Another owner is not counted against this one.
     expect((await api(await enrollOwner(), "/v1/settings")).status).toBe(200);
   }, 20_000);
+});
+
+// ADR 0019 and ADR 0012, amended 2026-10-18: how the first login of a revision ended.
+describe("login outcomes", () => {
+  const report = { version: 1, revision: 1, outcome: "unknown-submit", cause: "settled", step: 1 };
+  const send = (device: Device | undefined, id: string, body: unknown, type = "application/json") =>
+    api(device, `/v1/recipes/${id}/outcome`, {
+      method: "POST",
+      headers: { "Content-Type": type },
+      body: typeof body === "string" ? body : JSON.stringify(body),
+    });
+  const stored = async (ownerId: string) =>
+    (
+      await env.DB.prepare(
+        "SELECT recipe_id, branch, revision, outcome, cause, step FROM login_outcomes WHERE owner_id = ? ORDER BY recipe_id, revision",
+      )
+        .bind(ownerId)
+        .all()
+    ).results;
+
+  it("keeps the first code of each revision, from any of the owner's devices", async () => {
+    const device = await enrollOwner();
+    const other = await addDevice(device.ownerId);
+    expect((await publish(device, "bank-login", 0)).status).toBe(200);
+    expect((await publish(device, "bank-login", 1)).status).toBe(200);
+    const before = Date.now();
+    const first = await send(device, "bank-login", report);
+    expect(first.status).toBe(204);
+    expect(await first.text()).toBe("");
+    // A repeat, or another device's later login of the same revision, changes nothing.
+    expect((await send(other, "bank-login", { ...report, outcome: "authenticated" })).status).toBe(
+      204,
+    );
+    expect(
+      (
+        await send(other, "bank-login", {
+          version: 1,
+          revision: 2,
+          outcome: "authenticated",
+          step: 2,
+        })
+      ).status,
+    ).toBe(204);
+    expect(
+      (await send(device, "bank-login", { ...report, branch: "other", cause: "target-missing" }))
+        .status,
+    ).toBe(204);
+    expect(await stored(device.ownerId)).toEqual([
+      {
+        recipe_id: "bank-login",
+        branch: "",
+        revision: 1,
+        outcome: "unknown-submit",
+        cause: "settled",
+        step: 1,
+      },
+      {
+        recipe_id: "bank-login",
+        branch: "other",
+        revision: 1,
+        outcome: "unknown-submit",
+        cause: "target-missing",
+        step: 1,
+      },
+      {
+        recipe_id: "bank-login",
+        branch: "",
+        revision: 2,
+        outcome: "authenticated",
+        cause: null,
+        step: 2,
+      },
+    ]);
+    // The service stamps the time itself.
+    const { results } = await env.DB.prepare(
+      "SELECT created_at FROM login_outcomes WHERE owner_id = ?",
+    )
+      .bind(device.ownerId)
+      .all<{ created_at: number }>();
+    expect(results.every((row) => row.created_at >= before && row.created_at <= Date.now())).toBe(
+      true,
+    );
+  });
+
+  it("refuses a recipe or revision the owner never had, and a revoked head", async () => {
+    const device = await enrollOwner();
+    const stranger = await enrollOwner();
+    expect((await publish(device, "bank-login", 0)).status).toBe(200);
+    expect((await publish(stranger, "other-login", 0)).status).toBe(200);
+    const statuses = await Promise.all([
+      send(device, "missing-login", report),
+      send(device, "other-login", report),
+      send(stranger, "bank-login", report),
+      send(device, "bank-login", { ...report, revision: 2 }),
+    ]);
+    expect(statuses.map((response) => response.status)).toEqual([404, 404, 404, 404]);
+    expect(await statuses[0]!.json()).toEqual({ error: "not_found" });
+    expect(
+      (
+        await put(device, "/v1/recipes/bank-login", {
+          version: 1,
+          expectedRevision: 1,
+          state: "revoked",
+        })
+      ).status,
+    ).toBe(200);
+    // Revision 2 is the tombstone; revision 1 ran before the revocation.
+    expect((await send(device, "bank-login", { ...report, revision: 2 })).status).toBe(404);
+    expect((await send(device, "bank-login", report)).status).toBe(204);
+    expect(await stored(device.ownerId)).toHaveLength(1);
+    expect(await stored(stranger.ownerId)).toEqual([]);
+  });
+
+  it("refuses anything but the codes, without echoing the input", async () => {
+    const device = await enrollOwner();
+    expect((await publish(device, "bank-login", 0)).status).toBe(200);
+    const bodies: unknown[] = [
+      { ...report, url: "https://bank.example/login?user=someone" },
+      { ...report, reason: "Password for someone@example.com was wrong" },
+      { ...report, recipeId: "bank-login" },
+      { ...report, createdAt: 1 },
+      { ...report, outcome: "wrong password" },
+      { ...report, cause: "Wrong password" },
+      { ...report, branch: "list" },
+      { ...report, revision: 0 },
+      { ...report, step: 41 },
+      { ...report, version: 2 },
+      "{",
+    ];
+    const responses = await Promise.all(bodies.map((body) => send(device, "bank-login", body)));
+    expect(responses.map((response) => response.status)).toEqual(bodies.map(() => 400));
+    expect(await Promise.all(responses.map((response) => response.json()))).toEqual(
+      bodies.map(() => ({ error: "bad_request" })),
+    );
+    expect((await send(device, "bank-login", report, "text/plain")).status).toBe(415);
+    expect(
+      (await send(device, "bank-login", { ...report, padding: "x".repeat(2_000) })).status,
+    ).toBe(413);
+    expect((await send(device, "not a recipe", report)).status).toBe(400);
+    expect(await stored(device.ownerId)).toEqual([]);
+  });
+
+  it("requires a device credential and answers other methods with 405", async () => {
+    const device = await enrollOwner();
+    expect((await publish(device, "bank-login", 0)).status).toBe(200);
+    const anonymous = await send(undefined, "bank-login", report);
+    expect(anonymous.status).toBe(401);
+    expect(await anonymous.json()).toEqual({ error: "unauthorized" });
+    const wrong = await api(device, "/v1/recipes/bank-login/outcome", { method: "GET" });
+    expect(wrong.status).toBe(405);
+    expect(wrong.headers.get("Allow")).toBe("POST");
+    expect(await stored(device.ownerId)).toEqual([]);
+  });
+
+  it("deletes codes older than a year when recipes are read or a code is kept", async () => {
+    const device = await enrollOwner();
+    expect((await publish(device, "bank-login", 0)).status).toBe(200);
+    expect((await publish(device, "bank-login", 1)).status).toBe(200);
+    expect((await publish(device, "bank-login", 2)).status).toBe(200);
+    const insert = (revision: number, age: number) =>
+      env.DB.prepare(
+        "INSERT INTO login_outcomes (owner_id, recipe_id, branch, revision, outcome, step, created_at) VALUES (?, 'bank-login', '', ?, 'authenticated', 1, ?)",
+      ).bind(device.ownerId, revision, Date.now() - age);
+    await env.DB.batch([insert(1, 366 * DAY_MS), insert(2, 364 * DAY_MS)]);
+    expect((await api(device, "/v1/recipes")).status).toBe(200);
+    expect((await stored(device.ownerId)).map((row) => row["revision"])).toEqual([2]);
+    await insert(1, 366 * DAY_MS).run();
+    expect((await send(device, "bank-login", { ...report, revision: 3 })).status).toBe(204);
+    expect((await stored(device.ownerId)).map((row) => row["revision"])).toEqual([2, 3]);
+  });
 });

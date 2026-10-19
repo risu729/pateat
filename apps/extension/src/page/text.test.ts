@@ -34,6 +34,14 @@ describe("renderedText", () => {
     expect(read('Call <a href="tel:1">us</a> now', { skip: "a" })).toBe("Call now");
   });
 
+  it("does not separate words at a <wbr> line-break opportunity", () => {
+    expect(read("taro@<wbr>example.com")).toBe("taro@example.com");
+    expect.soft(read("taro@<wbr>example.com", { everyElement: true })).toBe("taro@example.com");
+    expect(
+      read("<header><span>taro.yamada@<wbr>example.com</span></header>", { everyElement: true }),
+    ).toBe("taro.yamada@example.com");
+  });
+
   it("reads an element with very many children", () => {
     document.body.innerHTML = `<div id="root"><div id="wide"></div></div>`;
     const root = document.getElementById("root")!;

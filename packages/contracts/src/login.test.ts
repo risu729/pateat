@@ -21,6 +21,7 @@ import {
   recipeHasRoute,
   recipeSlots,
   recipeStartSteps,
+  laterStartSteps,
   routeFillTargets,
   routePaths,
   routeSignInPaths,
@@ -652,6 +653,39 @@ describe("second-factor page handlers (ADR 0027)", () => {
     expect(handlerSteps(passkeyHandler())).toEqual([
       { kind: "click", path: "/webauthn", target: securityKey, purpose: "submit" },
     ]);
+  });
+
+  describe("the password handler (ADR 0048)", () => {
+    const choice = { by: "text", value: "Password" } as const;
+    const password = (path = "/identity", target: LoginTarget = choice) => ({
+      kind: "password" as const,
+      path,
+      target,
+    });
+
+    it("accepts a button beside other handlers on its path, and clicks it as an advance", () => {
+      const handlers = [password(), passkeyHandler("/identity")];
+      expect(parseLoginRecipe(withHandlers(handlers)).handlers).toEqual(handlers);
+      expect(handlerSteps(password())).toEqual([
+        { kind: "click", path: "/identity", target: choice, purpose: "advance" },
+      ]);
+      expect(handlerTargets(password())).toEqual([choice]);
+    });
+
+    it("refuses a route step's element on its path, and a second one per path", () => {
+      const next = { by: "id", value: "next" } as const;
+      expect(() => parseLoginRecipe(withHandlers([password("/identity", next)]))).toThrow();
+      // On another path the locator names another element.
+      expect(parseLoginRecipe(withHandlers([password("/choose", next)])).handlers).toHaveLength(1);
+      expect(() =>
+        parseLoginRecipe(
+          withHandlers([password(), password("/identity", { by: "id", value: "other" })]),
+        ),
+      ).toThrow();
+      expect(() =>
+        parseLoginRecipe(withHandlers([{ ...password(), field: { by: "id", value: "x" } }])),
+      ).toThrow();
+    });
   });
 
   describe("the totp handler", () => {
@@ -2698,5 +2732,60 @@ describe("the stop before a missing password (ADR 0036)", () => {
         [],
       ),
     ).toEqual({ miss: "no-password-step" });
+  });
+});
+
+describe("later steps a login may start at (ADR 0049)", () => {
+  const field = (slot: string, value: string) => ({ slot, target: { by: "id" as const, value } });
+  const remembered = parseLoginRecipe({
+    version: 1,
+    id: "synthetic-later",
+    revision: 1,
+    origin: "https://login.example",
+    slots: ["username", "password", "totp"],
+    steps: [
+      { kind: "fill", path: "/signin", fields: [field("username", "email")] },
+      { kind: "click", path: "/signin", target: { by: "id", value: "next" }, purpose: "advance" },
+      { kind: "fill", path: "/password", fields: [field("password", "password")] },
+      {
+        kind: "click",
+        path: "/password",
+        target: { by: "id", value: "login" },
+        purpose: "advance",
+      },
+      { kind: "fill", path: "/code", fields: [field("totp", "code")] },
+      { kind: "click", path: "/code", target: { by: "id", value: "verify" }, purpose: "submit" },
+    ],
+    alternatives: [
+      {
+        slots: ["contract", "password"],
+        steps: [
+          { kind: "fill", path: "/signin", fields: [field("contract", "contract")] },
+          {
+            kind: "click",
+            path: "/signin",
+            target: { by: "id", value: "next" },
+            purpose: "advance",
+          },
+          { kind: "fill", path: "/password", fields: [field("password", "password")] },
+          {
+            kind: "click",
+            path: "/password",
+            target: { by: "id", value: "login" },
+            purpose: "submit",
+          },
+        ],
+      },
+    ],
+    maxSubmissions: 3,
+  });
+
+  it("lists every variant's later fill steps, but not a first step or a code alone", () => {
+    expect(
+      laterStartSteps(remembered).map(({ variant, index, step }) => [variant, index, step.path]),
+    ).toEqual([
+      [0, 2, "/password"],
+      [1, 2, "/password"],
+    ]);
   });
 });

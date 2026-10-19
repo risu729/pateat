@@ -1,5 +1,6 @@
 import {
   deviceIdSchema,
+  laterStartSteps,
   loginRecipesForOrigin,
   MAX_RECIPE_CACHE_BYTES,
   recipeStartSteps,
@@ -16,7 +17,12 @@ import type { LoginRecipes } from "../login/runtime";
 import { loginReadiness } from "../login/wire";
 import type { RecipeSyncRecord, ServiceConnection } from "./runtime";
 import type { SettingsSyncOutcome } from "./settings-sync";
-import type { ServiceTransport, TransportFailure } from "./transport";
+import {
+  addTimings,
+  type ServiceTiming,
+  type ServiceTransport,
+  type TransportFailure,
+} from "./transport";
 
 /** A lookup this long after the last sync attempt starts a background sync. */
 export const RECIPE_SYNC_STALE_MS = 5 * 60 * 1000;
@@ -92,7 +98,15 @@ export type RecipeSyncChanges = {
   added: number;
   updated: number;
   removed: number;
+  /** The run's requests' timing added up; none when it sent none (ADR 0019). */
+  timing?: ServiceTiming;
 };
+
+/** Adds one request's timing to a sync run's. */
+function timed(changed: RecipeSyncChanges, timing: ServiceTiming | undefined): void {
+  const total = addTimings(changed.timing, timing);
+  if (total) changed.timing = total;
+}
 
 export function createRecipeSync(options: {
   service: {
@@ -105,7 +119,11 @@ export function createRecipeSync(options: {
   schedule: RecipeScheduleStorage;
   /** Settings sync for the same device, run after recipes in every sync. */
   settings?: {
-    run(connection: ServiceConnection, stale: () => boolean): Promise<SettingsSyncOutcome>;
+    run(
+      connection: ServiceConnection,
+      stale: () => boolean,
+      timed?: (timing: ServiceTiming | undefined) => void,
+    ): Promise<SettingsSyncOutcome>;
     clear(): Promise<void>;
   };
   /** Receives the outcome of each sync run and what it changed, for the local log. */
@@ -182,7 +200,11 @@ export function createRecipeSync(options: {
     // Recipes alone do not complete a sync, so nothing is recorded for them.
     if (!withSettings) return recipesOutcome;
     const settingsOutcome = options.settings
-      ? await options.settings.run(connection, () => generation !== started)
+      ? await options.settings.run(
+          connection,
+          () => generation !== started,
+          (timing) => timed(changed, timing),
+        )
       : "synced";
     if (generation !== started) return "not-connected";
     if (settingsOutcome === "rejected") {
@@ -222,6 +244,7 @@ export function createRecipeSync(options: {
         connection.credential,
         cursor,
       );
+      timed(changed, result.timing);
       if (generation !== started) return "not-connected";
       if (result.kind === "rejected") {
         await service.recordSync(connection.deviceId, { rejected: true });
@@ -440,10 +463,15 @@ export function createRecipeSync(options: {
       // the button for another account; an entry recipe (ADR 0031) is left out: the runtime
       // counts its path as a start for generation through `entries` instead.
       return [
-        ...loginRecipesForOrigin(cache.recipes, origin).map((recipe) => ({
-          path: recipe.steps[0]!.path,
-          steps: recipeStartSteps(recipe),
-        })),
+        ...loginRecipesForOrigin(cache.recipes, origin).map((recipe) => {
+          // A later step a login may start at when no first step shows (ADR 0049).
+          const later = laterStartSteps(recipe).map(({ step }) => step);
+          return {
+            path: recipe.steps[0]!.path,
+            steps: recipeStartSteps(recipe),
+            ...(later.length ? { later } : {}),
+          };
+        }),
         ...cache.recipes.flatMap((recipe) =>
           "chooser" in recipe && recipe.origin === origin
             ? [
@@ -467,6 +495,17 @@ export function createRecipeSync(options: {
             : [],
         ),
       ];
+    },
+    async later(origin: string, path: string) {
+      const connection = await service.connection().catch(() => undefined);
+      if (!connection) return [];
+      const cache = await load(connection);
+      if (!cache) return [];
+      // A chooser's branches are never started in the middle: which one runs depends on the
+      // click on its list, which the page alone does not tell (ADR 0049).
+      return loginRecipesForOrigin(cache.recipes, origin).filter((recipe) =>
+        laterStartSteps(recipe).some(({ step }) => step.path === path),
+      );
     },
     async entries(origin: string) {
       const connection = await service.connection().catch(() => undefined);

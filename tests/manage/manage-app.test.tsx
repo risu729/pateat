@@ -2,7 +2,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, test, vi } from "vitest";
 import { page } from "vitest/browser";
 import { cleanup, render } from "vitest-browser-react";
-import { DEVICE_IDLE_LIMIT_MS, type ManageDevices } from "../../packages/contracts/src/index";
+import {
+  DEVICE_IDLE_LIMIT_MS,
+  type ManageDevices,
+  type ManageRequestLog,
+} from "../../packages/contracts/src/index";
 import { createManageClient, ManageApiError, type ManageClient } from "../../services/api/web/api";
 import { ManageApp } from "../../services/api/web/app";
 
@@ -39,6 +43,7 @@ function devices(revokedAt: number | null = null): ManageDevices {
 
 function mockClient(initial = devices()) {
   let current = initial;
+  let logged: ManageRequestLog = { version: 1, entries: 3, outcomes: 1, oldestAt: PAIRED };
   return {
     devices: vi.fn<ManageClient["devices"]>(async () => structuredClone(current)),
     revokeDevice: vi.fn<ManageClient["revokeDevice"]>(async (id) => {
@@ -55,8 +60,18 @@ function mockClient(initial = devices()) {
       settings: null,
     })),
     saveSettings: vi.fn<ManageClient["saveSettings"]>(),
-    recipes: vi.fn<ManageClient["recipes"]>(async () => ({ version: 1, recipes: [] })),
+    recipes: vi.fn<ManageClient["recipes"]>(async () => ({
+      version: 1,
+      recipes: [],
+      unreadable: [],
+    })),
     revokeRecipe: vi.fn<ManageClient["revokeRecipe"]>(),
+    requestLog: vi.fn<ManageClient["requestLog"]>(async () => structuredClone(logged)),
+    deleteRequestLog: vi.fn<ManageClient["deleteRequestLog"]>(async () => {
+      const { entries: deleted, outcomes } = logged;
+      logged = { version: 1, entries: 0, outcomes: 0, oldestAt: null };
+      return { version: 1, deleted, outcomes };
+    }),
   } satisfies ManageClient;
 }
 
@@ -76,6 +91,7 @@ afterEach(async () => {
 test.each([
   ["/manage", "Devices – Pateat"],
   ["/manage/sites", "Sites – Pateat"],
+  ["/manage/request-log", "Request log – Pateat"],
   ["/manage/sites/https/bank.example", "https://bank.example – Pateat"],
   ["/manage/sites/http/bank.example:8080", "http://bank.example:8080 – Pateat"],
   ["/manage/sites/https/BANK.example", "Pateat"],
@@ -188,6 +204,65 @@ test("reports a failed revocation and keeps the device listed", async () => {
   await expect.element(page.getByText("Work laptop")).toBeVisible();
 });
 
+test("deletes the whole request log after a confirmation", async () => {
+  const client = mockClient();
+  await mount(client, "/manage/request-log");
+  await expect
+    .element(page.getByRole("link", { name: "Request log" }))
+    .toHaveAttribute("aria-current", "page");
+  await expect
+    .element(page.getByText(`3 requests and 1 login result logged since ${formatted(PAIRED)}.`))
+    .toBeVisible();
+  await expect
+    .element(page.getByText("Each request and login result is kept for 365 days"))
+    .toBeVisible();
+
+  // Cancelling asks nothing of the service and gives the button back.
+  await page.getByRole("button", { name: "Delete all" }).click();
+  await expect
+    .element(page.getByText("Delete all 3 requests and 1 login result? This cannot be undone."))
+    .toBeVisible();
+  await expect.element(page.getByRole("button", { name: "Confirm" })).toHaveFocus();
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await expect.element(page.getByRole("button", { name: "Delete all" })).toHaveFocus();
+  expect(client.deleteRequestLog).not.toHaveBeenCalled();
+
+  await page.getByRole("button", { name: "Delete all" }).click();
+  await page.getByRole("button", { name: "Confirm" }).click();
+  expect(client.deleteRequestLog).toHaveBeenCalledTimes(1);
+  await expect
+    .element(page.getByRole("status"))
+    .toHaveTextContent("3 requests and 1 login result deleted");
+  await expect.element(page.getByText("No requests are logged.")).toBeVisible();
+  await expect.element(page.getByRole("button", { name: "Delete all" })).toBeDisabled();
+});
+
+test("names only the login results when no request is logged", async () => {
+  const client = mockClient();
+  client.requestLog.mockResolvedValue({ version: 1, entries: 0, outcomes: 2, oldestAt: PAIRED });
+  await mount(client, "/manage/request-log");
+  await expect
+    .element(page.getByText(`2 login results logged since ${formatted(PAIRED)}.`))
+    .toBeVisible();
+  await page.getByRole("button", { name: "Delete all" }).click();
+  await expect
+    .element(page.getByText("Delete all 2 login results? This cannot be undone."))
+    .toBeVisible();
+});
+
+test("reports a failed deletion and keeps the log shown", async () => {
+  const client = mockClient();
+  client.deleteRequestLog.mockRejectedValue(new ManageApiError("rate_limited"));
+  await mount(client, "/manage/request-log");
+  await page.getByRole("button", { name: "Delete all" }).click();
+  await page.getByRole("button", { name: "Confirm" }).click();
+  await expect
+    .element(page.getByRole("alert"))
+    .toHaveTextContent("Too many requests in the last minute. Wait a minute and try again.");
+  await expect.element(page.getByText(/^3 requests and 1 login result logged since/)).toBeVisible();
+  await expect.element(page.getByRole("button", { name: "Delete all" })).toHaveFocus();
+});
+
 test("links the source, its license and the bundled notices", async () => {
   await mount(mockClient());
   await expect.element(page.getByText("Pateat test-revision")).toBeVisible();
@@ -214,6 +289,14 @@ test("the client sends same-origin requests and validates answers", async () => 
   await client.revokeDevice(PHONE);
   expect(fetcher).toHaveBeenLastCalledWith(`/manage/api/devices/${PHONE}/revoke`, {
     method: "POST",
+    credentials: "same-origin",
+    redirect: "error",
+  });
+
+  fetcher.mockResolvedValueOnce(Response.json({ version: 1, deleted: 2, outcomes: 1 }));
+  expect(await client.deleteRequestLog()).toEqual({ version: 1, deleted: 2, outcomes: 1 });
+  expect(fetcher).toHaveBeenLastCalledWith("/manage/api/request-log", {
+    method: "DELETE",
     credentials: "same-origin",
     redirect: "error",
   });

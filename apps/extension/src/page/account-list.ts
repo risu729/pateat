@@ -371,6 +371,7 @@ export function besideAccounts(root: Document | Element): BesideAccount[] {
 export function namesUsername(text: string, username: string): boolean {
   const fold = (value: string) =>
     value
+      .replace(/\p{Cf}+/gu, "")
       .normalize("NFKC")
       .trim()
       .replace(/^[@＠]/u, "")
@@ -566,9 +567,17 @@ export function accountNames(root: Document | Element): string[] {
   return [...new Set(texts)].slice(0, maxNames);
 }
 
-/** Folds a shown text or username for comparison: NFKC, lowercase, no leading `@`. */
+/**
+ * Folds a shown text or username for comparison: no format characters, as page text is
+ * read, NFKC, lowercase, no leading `@`.
+ */
 export const foldName = (text: string) =>
-  text.normalize("NFKC").trim().replace(/^@/u, "").toLowerCase();
+  text
+    .replace(/\p{Cf}+/gu, "")
+    .normalize("NFKC")
+    .trim()
+    .replace(/^@/u, "")
+    .toLowerCase();
 
 /** Letters and digits a Latin name may not touch (ADR 0028). */
 export const latinWord = /[\p{Script=Latin}\p{N}]/u;
