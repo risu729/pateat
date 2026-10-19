@@ -458,7 +458,13 @@ than in this repository.
     included, and an item saved only for `https://` is not offered there (owner,
     2026-10-18 01:41 UTC; [ADR 0050](adr/0050-http-pages-for-http-items.md); synthetic
     tests only). Passkeys on `http://localhost` (owner, 2026-10-19 01:25 UTC): local
-    tests only.
+    tests only. Evidence on 2026-10-19 at 01:20 UTC, in Chrome for Testing 156 in the
+    cloud on `http://localhost:<port>`: a probe build changed locally (not committed) to
+    run the shared login scripts there, with its synthetic vault item's URI replaced,
+    logged in with the URI `http://localhost` and offered nothing for
+    `https://localhost`, `localhost` or `http://127.0.0.1` (`default-not-set`). The
+    owner's Chrome, vault and a service-generated recipe for an `http:` origin are still
+    unchecked.
   - On 三菱UFJ銀行, after an expired QR code, the sign-in page in the same tab is filled
     without pressing anything, while a new tab logs in as before (owner, 2026-10-13:
     「このタブだけ」; ADR 0027).
