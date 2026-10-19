@@ -103,6 +103,7 @@ another also updates the other's `Status:`. Number a new ADR after the highest o
 - [0052: Chrome Immediate UI requests are answered like other passkey requests](adr/0052-immediate-ui-stored-passkeys.md)
 - [0055: Every login's result and times are sent to the service](adr/0055-login-records-sent-to-the-service.md)
 - [0056: Regex URIs run in a nested Worker with a 5-second limit](adr/0056-regex-uris-in-a-nested-worker.md)
+- [0057: Pages without a sign-in input are decided once the DOM is quiet](adr/0057-decide-no-input-pages-when-the-dom-is-quiet.md)
 - [0058: Recipes that are not used or cannot run are removed automatically](adr/0058-automatic-recipe-removal.md)
 
 This layout follows the useful separation in

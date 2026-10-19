@@ -34,6 +34,12 @@ Amended on 2026-10-19 (implemented; a clarification, not an owner decision):
 [the identifier input's `autocomplete`](#amendment-2026-10-19-autocomplete-tokens-of-an-identifier-input)
 is read as the attribute's tokens.
 
+Amended on 2026-10-19 by [ADR 0057](0057-decide-no-input-pages-when-the-dom-is-quiet.md)
+(owner, 20:22 and 20:23 UTC, implemented): a page
+[that asks for an identifier alone](#amendment-2026-10-19-the-wait-ends-when-the-dom-is-quiet)
+is offered once the page's DOM is quiet for a second, at most 5 seconds, instead of
+after 10 seconds; the 10 seconds for a sign-in input are unchanged.
+
 Amended on 2026-10-19 by [ADR 0058](0058-automatic-recipe-removal.md) (owner, 20:28 UTC,
 implemented): a page whose recipe the chosen item cannot run is generated again, its
 recipe revoked first, though a recipe starts there.
@@ -273,3 +279,15 @@ fields only after a click gets no automatic generation.
   pages but needs a click on every new site.
 - Automatic on every page with a password input, without the vault match: also covers
   sites the vault does not know, but sends far more pages.
+
+## Amendment 2026-10-19: the wait ends when the DOM is quiet
+
+Amended by [ADR 0057](0057-decide-no-input-pages-when-the-dom-is-quiet.md) (owner, 20:22
+and 20:23 UTC). Only pages without a sign-in input are decided earlier: the ten-second
+step wait after which a page that asks for an account identifier alone is offered is now
+a wait that ends once the page's DOM has not changed for 1 second, or 5 seconds after it
+began, so the first visit to such a page starts generation after that wait instead of
+after ten seconds. "Only a page that shows such an input within 10 seconds of loading is
+sent" is unchanged (an agent's addition, not confirmed by the owner): a page that showed
+nothing to send when that wait ended is still sent if it shows a sign-in input within
+the 10 seconds.

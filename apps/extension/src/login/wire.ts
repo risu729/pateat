@@ -142,10 +142,11 @@ export const LOGIN_STEP_WAIT_MS = 10000;
  */
 export const HELD_CLICK_WAIT_MS = 120_000;
 /**
- * Why a page offered for generation sent nothing after the step wait: it showed no list of
- * accounts, sign-in entry or identifier input (`no-list`), it is the page right after a
- * submitted password form (`after-sign-in`), or a sign-in input showed only at the end of
- * the wait (`sign-in-shown`).
+ * Why a page offered for generation sent nothing by the end of the step wait: it showed no
+ * list of accounts, sign-in entry or identifier input when its offer wait ended (ADR 0057)
+ * and no sign-in input since (`no-list`), it is the page right after a submitted password
+ * form (`after-sign-in`), or a sign-in input showed only at the end of the wait
+ * (`sign-in-shown`).
  */
 export const unofferedReasons = ["no-list", "after-sign-in", "sign-in-shown"] as const;
 export const helloSchema = v.strictObject({
@@ -157,7 +158,7 @@ export const helloSchema = v.strictObject({
   /**
    * A visible password, username or one-time-code input shows on this path, so a page
    * without a recipe may be sent for generation (ADR 0016); `identifier` when the page,
-   * ten seconds after loading, asks for an account identifier alone instead.
+   * after the offer wait (ADR 0057), asks for an account identifier alone instead.
    */
   signIn: v.optional(v.strictObject({ path, identifier: v.optional(v.literal(true)) })),
   /**
@@ -166,7 +167,7 @@ export const helloSchema = v.strictObject({
    */
   shown: v.optional(v.strictObject({ path })),
   /**
-   * Ten seconds after loading, this path shows no sign-in input but lists accounts (ADR
+   * After the offer wait (ADR 0057), this path shows no sign-in input but lists accounts (ADR
    * 0028): an entry or a text beside at most three buttons with an email, masked or not.
    * Without one, `names` are the short texts that may name an account by a username that
    * is not an email, for the background to compare with the matching items' usernames.
@@ -188,13 +189,13 @@ export const helloSchema = v.strictObject({
     }),
   ),
   /**
-   * No sign-in input and no ready first step showed on this path within the step wait
-   * after loading, so the page may be sent as a site's sign-in entry (ADR 0031).
+   * No sign-in input and no ready first step showed on this path within the offer wait
+   * (ADR 0057), so the page may be sent as a site's sign-in entry (ADR 0031).
    */
   entry: v.optional(v.strictObject({ path })),
   /**
-   * The page was offered for generation, but the step wait after loading found nothing to
-   * send: why, for the log only (ADR 0019).
+   * The page was offered for generation, but nothing was sent by the end of the step wait:
+   * why, for the log only (ADR 0019).
    */
   unoffered: v.optional(v.strictObject({ path, why: v.picklist(unofferedReasons) })),
 });
