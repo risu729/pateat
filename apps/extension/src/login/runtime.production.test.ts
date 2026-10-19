@@ -7836,6 +7836,40 @@ describe("production login document admission", () => {
         expect(await identifierHello("later")).toEqual({ ok: false, reason: "generating" });
       });
 
+      it("never sends the tab's next page as a passkey-only page (ADR 0053)", async () => {
+        const passkeyItems = vi.fn(async () => [{ connectionId, itemId }]);
+        const { h, generations } = setup({ passkeyItems });
+        const passkeyHello = (documentId: string) =>
+          h.login.handle(
+            {
+              version: 1,
+              type: "login.document.ready",
+              token: "synthetic-token",
+              signIn: { path: new URL(fake.state.pageUrl).pathname, passkey: true },
+            },
+            sender({ documentId }),
+          );
+        await h.login.handle(
+          { version: 1, type: "login.document.submitted", token: "synthetic-token" },
+          sender(),
+        );
+        expect(await h.hello({ documentId: "after-sign-in" }, false)).toMatchObject({
+          generate: true,
+        });
+        expect(await passkeyHello("after-sign-in")).not.toEqual({
+          ok: false,
+          reason: "generating",
+        });
+        expect(generations()).toEqual([
+          { type: "generation", tabId: 1, origin, outcome: "skipped", reason: "after-sign-in" },
+        ]);
+        // The vault is not asked for passkeys for a page that is not sent.
+        expect(passkeyItems).not.toHaveBeenCalled();
+        expect(await h.hello({ documentId: "later" }, false)).toMatchObject({ generate: true });
+        expect(await passkeyHello("later")).toEqual({ ok: false, reason: "generating" });
+        expect(passkeyItems).toHaveBeenCalledOnce();
+      });
+
       it("sends a list that loads more than a minute after the submission", async () => {
         const { service, h, generations } = setup();
         const at = Date.now();
@@ -14133,10 +14167,10 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         sender(),
       );
 
-    it.each([
-      ["no passkey", []],
-      ["a passkey from a different item", [{ connectionId, itemId: "unrelated-item" }]],
-    ])("does not generate for %s", async (_, held) => {
+    const passkeyOnlySetup = (
+      passkeyItems: (origin: string) => Promise<readonly PasskeyItem[]>,
+      candidates = uriMatch().candidates,
+    ) => {
       const service = {
         available: vi.fn(async (): Promise<true> => true),
         generate: vi.fn<LoginGeneration["generate"]>(),
@@ -14144,17 +14178,56 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         judge: vi.fn<LoginGeneration["judge"]>(),
         slotFields: vi.fn<LoginGeneration["slotFields"]>(),
       };
+      const report = vi.fn<(report: LoginReport) => void>();
+      const lookup = vi.fn(passkeyItems);
       const h = harness(
         { siteDefaults: [], bindings: [] },
         {
-          uris: async () => ({ ok: true as const, data: uriMatch() }),
-          passkeyItems: async () => held,
+          uris: async () => ({ ok: true as const, data: uriMatch({ candidates }) }),
+          passkeyItems: lookup,
           generation: service,
+          report,
         },
       );
       h.recipes.recipe.mockResolvedValue(undefined);
       h.recipes.starts.mockResolvedValue(startsOf([]));
-      await showPasskey(h);
+      const skipped = () =>
+        report.mock.calls
+          .map(([entry]) => entry)
+          .filter((entry) => entry.type === "generation" && entry.outcome === "skipped");
+      return { h, service, lookup, skipped };
+    };
+
+    it.each<[string, () => Promise<readonly PasskeyItem[]>]>([
+      ["no passkey, as in a locked vault", async () => []],
+      ["a passkey from a different item", async () => [{ connectionId, itemId: otherItemId }]],
+      [
+        "a lookup that fails",
+        async () => {
+          throw new Error("synthetic lookup failure");
+        },
+      ],
+    ])("does not generate for %s", async (_, held) => {
+      const { h, service, lookup, skipped } = passkeyOnlySetup(held);
+      expect(await showPasskey(h)).not.toEqual({ ok: false, reason: "generating" });
+      expect(lookup).toHaveBeenCalledOnce();
+      expect(skipped()).toEqual([
+        expect.objectContaining({ reason: "no-vault-match", detail: "no-passkey" }),
+      ]);
+      expect(service.generate).not.toHaveBeenCalled();
+      expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.extract");
+    });
+
+    it("never looks up passkeys when no vault item matches the page", async () => {
+      const { h, service, lookup, skipped } = passkeyOnlySetup(
+        async () => [{ connectionId, itemId }],
+        [],
+      );
+      expect(await showPasskey(h)).not.toEqual({ ok: false, reason: "generating" });
+      expect(skipped()).toEqual([
+        expect.objectContaining({ reason: "no-vault-match", detail: "no-item" }),
+      ]);
+      expect(lookup).not.toHaveBeenCalled();
       expect(service.generate).not.toHaveBeenCalled();
     });
 

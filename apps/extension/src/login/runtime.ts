@@ -6585,8 +6585,28 @@ export function createLoginRuntime(
           : [];
       }),
     );
-    // A passkey-only page needs a usable discoverable key on an eligible URI match;
-    // passwords and unrelated RP matches never authorize generation.
+    // A passkey-only page fills nothing, so it needs a matching item rather than a slot.
+    if (passkeyOnly ? !items.length : !slots.length && !offers.length) {
+      const enabled = snapshot.catalog.connections.some(
+        (connection) =>
+          snapshot.snapshot.settings.connections.find(
+            (entry) => entry.connectionId === connection.id,
+          )?.enabled,
+      );
+      const unavailable = scope.unavailableConnections[0]?.reason;
+      if (items.length) miss("no-vault-match", "no-slots");
+      // A device without any vault connection is not a problem to log at info level.
+      else if (!snapshot.catalog.connections.length) miss("no-vault-match", "no-connection");
+      else if (!enabled) miss("connection-disabled");
+      else if (unavailable) miss("vault-unavailable", logCode(unavailable));
+      // An item whose URIs could not all be checked may still belong to the page.
+      else if (scope.incompleteItems.length) miss("no-vault-match", "incomplete-item");
+      else miss("no-vault-match", "no-item");
+      return undefined;
+    }
+    // A passkey-only page also needs a usable discoverable passkey held by one of the
+    // matching items (ADR 0053), looked up only once an item matched; passwords and
+    // unrelated RP matches never authorize generation.
     if (passkeyOnly) {
       const leave = await options.vault?.enter(false).catch(() => undefined);
       let held: readonly PasskeyItem[] = [];
@@ -6605,24 +6625,6 @@ export function createLoginRuntime(
         miss("no-vault-match", "no-passkey");
         return undefined;
       }
-    }
-    if (!slots.length && !offers.length && !passkeyOnly) {
-      const enabled = snapshot.catalog.connections.some(
-        (connection) =>
-          snapshot.snapshot.settings.connections.find(
-            (entry) => entry.connectionId === connection.id,
-          )?.enabled,
-      );
-      const unavailable = scope.unavailableConnections[0]?.reason;
-      if (items.length) miss("no-vault-match", "no-slots");
-      // A device without any vault connection is not a problem to log at info level.
-      else if (!snapshot.catalog.connections.length) miss("no-vault-match", "no-connection");
-      else if (!enabled) miss("connection-disabled");
-      else if (unavailable) miss("vault-unavailable", logCode(unavailable));
-      // An item whose URIs could not all be checked may still belong to the page.
-      else if (scope.incompleteItems.length) miss("no-vault-match", "incomplete-item");
-      else miss("no-vault-match", "no-item");
-      return undefined;
     }
     return {
       slots: slots.map(({ slot }) => slot),
