@@ -34,8 +34,12 @@ export function linksTo(document: Document, path: string): HTMLAnchorElement[] {
   );
 }
 
-/** The input's `autocomplete` tokens, lowercased. */
-export const autocompleteTokens = (input: Element) =>
+/**
+ * The input's `autocomplete` attribute tokens, lowercased. Read from the attribute, as
+ * Chromium's `autocomplete` property is empty for a token list that is not a valid
+ * autofill detail, such as `off one-time-code`.
+ */
+export const autocompleteTokens = (input: Pick<Element, "getAttribute">) =>
   (input.getAttribute("autocomplete") ?? "").toLowerCase().split(/\s+/u).filter(Boolean);
 
 /**

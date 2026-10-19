@@ -1644,15 +1644,17 @@ real Bitwarden Cloud US account in their Chrome
   inputs share one `<form>` (or all sit outside any form), and each secret value lands
   in an input made for it. A Bitwarden `login.password` (or the probe's dummy
   `password`) fills only `type="password"` inputs or inputs whose `autocomplete`
-  includes `current-password`. A `login.totp-code` fills `autocomplete="one-time-code"`
-  inputs, or `inputmode="numeric"`, `type="tel"` or `type="number"` inputs with a
-  `maxlength` from 1 to 10. A Hidden custom field fills the password inputs above or
-  those short numeric inputs (a PIN), never a plain `type="text"` input such as a
-  passphrase field. A Linked custom field follows the rule of the built-in field it
-  reads, so one linked to `login.password` fills only password inputs. The owner chose
-  this rule on 2026-10-10. Each write rechecks the same conditions. Usernames, Text
-  custom fields and other values fill any writable input. There is no per-binding
-  exception, so a bank PIN rendered as `<input type="tel">` and
+  attribute holds `current-password`. A `login.totp-code` fills inputs whose
+  `autocomplete` holds `one-time-code`, or `inputmode="numeric"`, `type="tel"` or
+  `type="number"` inputs with a `maxlength` from 1 to 10. The token counts in any case
+  and among other tokens, read from the attribute: Chromium's `autocomplete` property
+  is empty for a list such as `off one-time-code`. A Hidden custom field fills the
+  password inputs above or those short numeric inputs (a PIN), never a plain
+  `type="text"` input such as a passphrase field. A Linked custom field follows the rule
+  of the built-in field it reads, so one linked to `login.password` fills only password
+  inputs. The owner chose this rule on 2026-10-10. Each write rechecks the same
+  conditions. Usernames, Text custom fields and other values fill any writable input.
+  There is no per-binding exception, so a bank PIN rendered as `<input type="tel">` and
   bound to `login.password` is refused; revisit if such sites are common.
 - A real Bitwarden Cloud US connection passed on 2026-10-11 (see
   [connection setup](#connection-setup-and-live-catalog-progress)). Individual MFA

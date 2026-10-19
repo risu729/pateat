@@ -4,7 +4,7 @@ import { browser } from "wxt/browser";
 import { accountText, showsOtherAccount, shownAccounts } from "../page/accounts";
 import { isButton } from "../page/text";
 import { pressElement } from "../page/script-url-click";
-import { findTargets } from "../page/targets";
+import { autocompleteTokens, findTargets } from "../page/targets";
 import { clickable, passwordChoice, targetState, writable } from "../page/target-state";
 import { identifierInput } from "../page/identifier-field";
 import {
@@ -119,7 +119,7 @@ function ready(readiness: LoginReadiness): boolean {
  */
 function showsSignIn(): boolean {
   return [...document.querySelectorAll("input")].some((input) => {
-    const tokens = input.autocomplete.toLowerCase().split(/\s+/u);
+    const tokens = autocompleteTokens(input);
     return (
       (input.type === "password" ||
         tokens.includes("username") ||
@@ -144,9 +144,10 @@ function credentialInputs(targets: readonly LoginMarkerTarget[]): {
   identifier: boolean;
 } {
   const own = new Set(targets.flatMap((target) => matches(target)));
-  const tokens = (input: HTMLInputElement) => input.autocomplete.toLowerCase().split(/\s+/u);
   const other = (input: HTMLInputElement) =>
-    tokens(input).some((token) => token === "new-password" || token === "one-time-code");
+    autocompleteTokens(input).some(
+      (token) => token === "new-password" || token === "one-time-code",
+    );
   const inputs = [...document.querySelectorAll("input")].filter(
     (input) =>
       !own.has(input) &&
@@ -166,7 +167,7 @@ function credentialInputs(targets: readonly LoginMarkerTarget[]): {
     identifier: inputs.some(
       (input) =>
         input.type === "email" ||
-        tokens(input).some((token) => token === "username" || token === "email"),
+        autocompleteTokens(input).some((token) => token === "username" || token === "email"),
     ),
   };
 }
