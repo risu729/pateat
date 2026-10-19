@@ -84,7 +84,11 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null &&
   !Array.isArray(value) &&
   (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null);
-const ambiguous = (value: string) => /\p{Cc}/u.test(value) || value.includes("\\");
+const controlled = (value: string) => /\p{Cc}/u.test(value);
+// Parsers disagree on a backslash in the authority and WHATWG rewrites it in the path; it
+// stays as is in the query and fragment, where the pinned client compares raw strings.
+const backslashBeforeQuery = (value: string) => (value.split(/[?#]/u, 1)[0] ?? "").includes("\\");
+const ambiguous = (value: string) => controlled(value) || backslashBeforeQuery(value);
 const hasHostnameLabels = (hostname: string) =>
   hostname.startsWith("[") ||
   hostname
@@ -93,15 +97,23 @@ const hasHostnameLabels = (hostname: string) =>
     .every((label) => label.length > 0);
 
 function webUrl(value: string, allowBareHost: boolean): URL | undefined {
-  if (!value || value.length > maxUrlLength || ambiguous(value)) return undefined;
+  if (!value || value.length > maxUrlLength || controlled(value)) return undefined;
   if (!allowBareHost && /\s/u.test(value)) return undefined;
-  let candidate = value;
-  if (allowBareHost) {
-    candidate = candidate.trim();
-    if (!candidate.includes("://") && candidate.includes(".")) candidate = `http://${candidate}`;
+  let candidate = value.trim();
+  if (!allowBareHost && backslashBeforeQuery(candidate)) return undefined;
+  if (allowBareHost && !candidate.includes("://") && candidate.includes(".")) {
+    // The pinned client's tldts (its Domain match) ends a bare host only at `/`, `?` or `#`,
+    // so it reads `bank.example\@evil.test` as `evil.test` where WHATWG (its Host match) reads
+    // `bank.example`. After that point, and anywhere after an http(s) scheme, both end the
+    // host at the backslash, as in `https://bank.example\@evil.test` for `bank.example`.
+    // tldts also skips slashes and backslashes after `https:/`, which WHATWG reads as host
+    // `https` here.
+    if (/^[^/?#]*\\/u.test(candidate)) return undefined;
+    if (/^https?:/iu.test(candidate) && backslashBeforeQuery(candidate)) return undefined;
+    candidate = `http://${candidate}`;
   }
   if (!/^https?:\/\/[^/]/iu.test(candidate)) return undefined;
-  const authority = /^https?:\/\/([^/?#]*)/iu.exec(candidate)?.[1];
+  const authority = /^https?:\/\/([^/\\?#]*)/iu.exec(candidate)?.[1];
   if (!authority || authority.includes("@")) return undefined;
   const url = URL.parse(candidate);
   if (!url) return undefined;

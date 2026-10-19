@@ -13,9 +13,14 @@ const revision = v.pipe(
   v.maxValue(Number.MAX_SAFE_INTEGER - 1),
 );
 
-/** Only explicit HTTP(S) URLs are policy inputs; no credentials or ambiguous separators. */
+/**
+ * Only explicit HTTP(S) URLs are policy inputs; no credentials or ambiguous separators.
+ * A backslash is ambiguous only before the query or fragment: parsers disagree on it in the
+ * authority, and WHATWG rewrites it to `/` in the path, but keeps it in the query and fragment.
+ */
 export function parseSiteUrl(value: string): URL | undefined {
-  if (/\s|\\/.test(value) || !/^https?:\/\/[^/]/i.test(value)) return undefined;
+  if (/\s/.test(value) || (value.split(/[?#]/, 1)[0] ?? "").includes("\\")) return undefined;
+  if (!/^https?:\/\/[^/]/i.test(value)) return undefined;
   if (value.split("//")[1]?.split(/[/?#]/)[0]?.includes("@")) return undefined;
   const url = URL.parse(value);
   if (!url) return undefined;

@@ -75,6 +75,38 @@ describe("host policy and URL validation", () => {
     }
   });
 
+  // The URL parser keeps a backslash in the query and fragment, so tab URLs can hold one.
+  it.each(["https://bank.example/login?next=a\\b", "https://bank.example/#/x\\y"])(
+    "accepts a backslash in the query or fragment of %s",
+    (url) => {
+      expect(new URL(url).href).toBe(url);
+      expect(parseSiteUrl(url)?.origin).toBe("https://bank.example");
+      expect(isSiteExcluded(createDefaultSettings(), url)).toBe(false);
+      expect(resolveSiteAccount(withDefault(), DUMMY_VAULT_CATALOG, url)).toMatchObject({
+        ok: true,
+        origin: "https://bank.example",
+        connectionId: "demo-personal",
+        itemId: "primary",
+      });
+      const excluded = createDefaultSettings();
+      excluded.excludedSites = [{ hostname: "bank.example", includeSubdomains: false }];
+      expect(isSiteExcluded(excluded, url)).toBe(true);
+    },
+  );
+
+  it.each([
+    "https://bank.example\\@evil.test/login",
+    "https://bank.example\\@evil.test?next=a\\b",
+    "https://bank.example/a\\b/login?next=a\\b",
+  ])("still rejects a backslash in the authority or path of %s", (url) => {
+    expect(parseSiteUrl(url)).toBeUndefined();
+    expect(isSiteExcluded(createDefaultSettings(), url)).toBe(true);
+    expect(resolveSiteAccount(withDefault(), DUMMY_VAULT_CATALOG, url)).toEqual({
+      ok: false,
+      reason: "invalid-url",
+    });
+  });
+
   it("canonicalizes IDN, trailing dots and IP host forms without accepting URLs as hosts", () => {
     expect(normalizeHostname("BANK.EXAMPLE.")).toBe("bank.example");
     expect(normalizeHostname("bücher.example")).toBe("xn--bcher-kva.example");

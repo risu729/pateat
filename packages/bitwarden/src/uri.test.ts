@@ -545,12 +545,137 @@ describe("strict destination and unsupported rule admission", () => {
     });
   });
 
+  // The URL parser keeps a backslash in the query and fragment, so tab URLs can hold one.
+  it.each(["https://example.com/?q=a\\b", "https://example.com/#/x\\y"])(
+    "matches a target with a backslash in its query or fragment, %s",
+    (targetUrl) => {
+      expect(new URL(targetUrl).href).toBe(targetUrl);
+      const uris = [
+        { uri: "https://example.com", match: 0 },
+        { uri: "https://example.com", match: 1 },
+        { uri: "https://example.com/", match: 2 },
+        { uri: targetUrl, match: 3 },
+        { uri: targetUrl.slice(0, -1), match: 2 },
+      ];
+      const expected = {
+        ok: true,
+        data: {
+          matched: true,
+          targetOrigin: "https://example.com",
+          matches: uris.map(({ match }, uriIndex) => ({ uriIndex, match })),
+          unavailableUris: [],
+        },
+      };
+      expect(matchBitwardenLoginUris(uris, targetUrl)).toEqual(expected);
+      const matcher = createBitwardenUriMatcher(targetUrl, {
+        equivalentDomains: [],
+        defaultMatch: 0,
+      });
+      expect(matcher.ok && matcher.data.evaluate(uris)).toEqual(expected);
+    },
+  );
+
+  // The pinned client compares Exact and StartsWith as raw strings and accepts these.
+  it.each([
+    { match: 0, uri: "https://example.com/?q=a\\b", target },
+    { match: 1, uri: "https://example.com/#a\\b", target },
+    { match: 2, uri: "https://example.com/?q=a\\", target: "https://example.com/?q=a\\b" },
+    { match: 3, uri: "https://example.com/?q=a\\b", target: "https://example.com/?q=a\\b" },
+    { match: 3, uri: "https://example.com/#a\\b", target: "https://example.com/#a\\b" },
+  ])(
+    "matches saved URI $uri (mode $match) with a backslash only in its query or fragment",
+    ({ uri, match, target: targetUrl }) => {
+      expect(matchBitwardenLoginUris([{ uri, match }], targetUrl)).toEqual({
+        ok: true,
+        data: {
+          matched: true,
+          targetOrigin: "https://example.com",
+          matches: [{ uriIndex: 0, match }],
+          unavailableUris: [],
+        },
+      });
+    },
+  );
+
+  it.each([
+    "https://example.com\\@evil.test/?q=a\\b",
+    "https://example.com\\@evil.test/#a\\b",
+    "https://example.com/a\\b#a\\b",
+  ])("still rejects a backslash in the target authority or path, %s", (targetUrl) => {
+    expect(matchBitwardenLoginUris(saved(), targetUrl)).toEqual({
+      ok: false,
+      error: { code: "invalid-uri-input" },
+    });
+    expect(
+      createBitwardenUriMatcher(targetUrl, { equivalentDomains: [], defaultMatch: 0 }),
+    ).toEqual({ ok: false, error: { code: "invalid-uri-input" } });
+  });
+
+  // The pinned client reads these with WHATWG URL (Host) and tldts (Domain), which agree.
+  it.each([
+    "https://example.com\\@evil.test",
+    "https://example.com\\@evil.test/?q=a\\b",
+    "https://example.com/a\\b/?q=a\\b",
+    "https://example.com\\evil.test",
+    "example.com/a\\b",
+    "example.com/\\@evil.test",
+  ])("matches saved URI %s with a backslash before its query as the pinned client", (uri) => {
+    expect(
+      matchBitwardenLoginUris(
+        [0, 1, 2, 3].map((match) => ({ uri, match })),
+        target,
+      ),
+    ).toEqual({
+      ok: true,
+      data: {
+        matched: true,
+        targetOrigin: "https://example.com",
+        matches: [
+          { uriIndex: 0, match: 0 },
+          { uriIndex: 1, match: 1 },
+        ],
+        unavailableUris: [],
+      },
+    });
+  });
+
+  it("keeps a saved URI's backslash after the query out of its host", () => {
+    expect(matchBitwardenLoginUris(saved("https://evil.test?\\@example.com", 1), target)).toEqual({
+      ok: true,
+      data: {
+        matched: false,
+        targetOrigin: "https://example.com",
+        matches: [],
+        unavailableUris: [],
+      },
+    });
+    expect(
+      matchBitwardenLoginUris(saved("example.com/?q=a\\b", 1), "https://example.com/?q=a\\b"),
+    ).toMatchObject({ ok: true, data: { matches: [{ uriIndex: 0, match: 1 }] } });
+  });
+
+  it("reads a target's backslash after the query as part of the query", () => {
+    expect(
+      matchBitwardenLoginUris(saved("https://evil.test", 1), "https://evil.test?\\@example.com"),
+    ).toEqual({
+      ok: true,
+      data: {
+        matched: true,
+        targetOrigin: "https://evil.test",
+        matches: [{ uriIndex: 0, match: 1 }],
+        unavailableUris: [],
+      },
+    });
+  });
+
   it.each([
     { uri: "https://example.com/\n", reason: "invalid-uri" },
     { uri: "https://exa\tmple.com/", reason: "invalid-uri" },
     { uri: "https://user:secret@example.com/", reason: "invalid-uri" },
     { uri: "https://@example.com/", reason: "invalid-uri" },
-    { uri: "https://example.com\\@evil.test", reason: "invalid-uri" },
+    { uri: "example.com\\@evil.test", reason: "invalid-uri" },
+    { uri: "example.com\\@evil.test?q=a\\b", reason: "invalid-uri" },
+    { uri: "https:/\\evil.test", reason: "invalid-uri" },
     { uri: "https://example.com:99999", reason: "invalid-uri" },
     { uri: "androidapp://com.synthetic.app", reason: "unsupported-uri-scheme" },
     { uri: "file:///synthetic", reason: "unsupported-uri-scheme" },
