@@ -5,6 +5,7 @@ import { createDefaultSettings } from "./settings";
 import {
   loginOutcomeReportSchema,
   loginRecordSchema,
+  recipeUseReportSchema,
   syncRecipeChangeSchema,
   syncRecipeWriteSchema,
   syncSettingsStateSchema,
@@ -174,5 +175,39 @@ describe("login record contract", () => {
     expect(accepts(loginRecordSchema, withoutTotal)).toBe(false);
     const { pageMs: _pageMs, ...withoutPage } = record;
     expect(accepts(loginRecordSchema, withoutPage)).toBe(false);
+  });
+});
+
+describe("recipe use report contract (ADR 0058)", () => {
+  it("accepts a version and a written revision only", () => {
+    expect(accepts(recipeUseReportSchema, { version: 1, revision: 1 })).toBe(true);
+    expect(accepts(recipeUseReportSchema, { version: 1, revision: 3 })).toBe(true);
+    expect(
+      accepts(recipeUseReportSchema, { version: 1, revision: Number.MAX_SAFE_INTEGER - 1 }),
+    ).toBe(true);
+  });
+
+  it("refuses an unwritten or malformed revision, a site and anything beyond the fields", () => {
+    for (const changed of [
+      { revision: 0 },
+      { revision: -1 },
+      { revision: 1.5 },
+      { revision: Number.MAX_SAFE_INTEGER },
+      { revision: "1" },
+      { revision: undefined },
+      { version: 2 },
+      { version: undefined },
+    ])
+      expect(accepts(recipeUseReportSchema, { version: 1, revision: 1, ...changed })).toBe(false);
+    for (const extra of [
+      { origin: "https://bank.example" },
+      { url: "https://bank.example/login" },
+      { username: "someone@example.com" },
+      { branch: "other" },
+      { at: 1 },
+    ])
+      expect(accepts(recipeUseReportSchema, { version: 1, revision: 1, ...extra })).toBe(false);
+    expect(accepts(recipeUseReportSchema, null)).toBe(false);
+    expect(accepts(recipeUseReportSchema, [])).toBe(false);
   });
 });

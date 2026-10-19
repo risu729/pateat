@@ -691,6 +691,58 @@ describe("reportLogin", () => {
   });
 });
 
+describe("reportUse", () => {
+  const report = { version: 1, revision: 3 } as const;
+  const send = (fetch: typeof globalThis.fetch, recipeId = "gen-0123") =>
+    createServiceTransport({ fetch }).reportUse(ORIGIN, CREDENTIAL, recipeId, report);
+
+  it("posts only the revision with the device credential, no cookies and no redirects", async () => {
+    const fetch = respond(204);
+    expect(await send(fetch)).toEqual({ kind: "kept" });
+    const [url, init] = fetch.mock.calls[0]!;
+    expect(url).toBe(`${ORIGIN}/v1/recipes/gen-0123/use`);
+    expect(init).toMatchObject({
+      method: "POST",
+      redirect: "error",
+      credentials: "omit",
+      cache: "no-store",
+      referrerPolicy: "no-referrer",
+    });
+    expect(init!.headers).toEqual({
+      Authorization: `Bearer ${CREDENTIAL}`,
+      "Content-Type": "application/json",
+    });
+    expect(JSON.parse(init!.body as string)).toEqual({ version: 1, revision: 3 });
+  });
+
+  it("encodes the recipe ID into the path", async () => {
+    const fetch = respond(204);
+    await send(fetch, "a/b c");
+    expect(fetch.mock.calls[0]![0]).toBe(`${ORIGIN}/v1/recipes/a%2Fb%20c/use`);
+  });
+
+  it.each([
+    [404, { error: "not_found" }, { kind: "refused" }],
+    [400, { error: "bad_request" }, { kind: "refused" }],
+    [405, { error: "method_not_allowed" }, { kind: "refused" }],
+    [413, { error: "payload_too_large" }, { kind: "refused" }],
+    [401, { error: "device_revoked" }, { kind: "rejected" }],
+    [429, { error: "rate_limited" }, { kind: "failed", error: "rate-limited" }],
+    [500, { error: "internal_error" }, { kind: "failed", error: "unexpected-response" }],
+    [503, { error: "internal_error" }, { kind: "failed", error: "unexpected-response" }],
+    [200, {}, { kind: "failed", error: "unexpected-response" }],
+  ])("answers %i as its kind", async (status, body, expected) => {
+    expect(await send(respond(status, body))).toEqual(expected);
+  });
+
+  it("reports an unreachable service", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => {
+      throw new TypeError("Failed to fetch");
+    });
+    expect(await send(fetch)).toEqual({ kind: "failed", error: "unreachable" });
+  });
+});
+
 describe("service timing", () => {
   const request = {
     version: 1 as const,

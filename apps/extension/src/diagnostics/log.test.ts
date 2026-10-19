@@ -385,6 +385,56 @@ describe("diagnostics log", () => {
     vi.restoreAllMocks();
   });
 
+  it("logs each recipe use sent to the service as codes, quietly when kept (ADR 0058)", async () => {
+    const log = createDiagnosticsLog({
+      build: { version: "0.1.0", revision: "1c42ad3" },
+      settings: async () => {
+        throw new Error("not needed");
+      },
+      recipeCache: async () => undefined,
+      connections: async () => ({ ok: true, kind: "status", connections: [] }),
+      databaseName: `log-test-${crypto.randomUUID()}`,
+      scope: { addEventListener: () => undefined } as never,
+    });
+    for (const level of ["debug", "info", "warn"] as const)
+      vi.spyOn(console, level).mockImplementation(() => undefined);
+    const uses = async () =>
+      (await log.logger.entries()).filter((entry) => entry.event === "service.use");
+    // Without debug logging a kept or refused use leaves no entry.
+    log.recipeUse({ recipeId: "gen-0123", revision: 3, result: "kept" });
+    log.recipeUse({ recipeId: "gen-0123", revision: 4, result: "failed:unreachable" });
+    await vi.waitFor(async () => expect(await uses()).toHaveLength(1));
+    await log.logger.enableDebug();
+    log.recipeUse({ recipeId: "gen-0123", revision: 3, result: "kept" });
+    // A recipe revoked meanwhile, or a service without the route, refuses it.
+    log.recipeUse({ recipeId: "gen-0123", revision: 5, result: "refused" });
+    log.recipeUse({ recipeId: "gen-0123", revision: 6, result: "rejected" });
+    log.recipeUse({ recipeId: "gen-0123", revision: 7, result: "failed:unexpected-response" });
+    log.recipeUse({ recipeId: "gen-0123", revision: 8, result: "failed:threw" });
+    await vi.waitFor(async () => expect(await uses()).toHaveLength(6));
+    expect((await uses()).map(({ level, fields }) => ({ level, fields }))).toEqual([
+      {
+        level: "info",
+        fields: { recipe: "gen-0123", recipeRevision: 4, result: "failed:unreachable" },
+      },
+      { level: "debug", fields: { recipe: "gen-0123", recipeRevision: 3, result: "kept" } },
+      { level: "debug", fields: { recipe: "gen-0123", recipeRevision: 5, result: "refused" } },
+      { level: "warn", fields: { recipe: "gen-0123", recipeRevision: 6, result: "rejected" } },
+      {
+        level: "warn",
+        fields: { recipe: "gen-0123", recipeRevision: 7, result: "failed:unexpected-response" },
+      },
+      { level: "warn", fields: { recipe: "gen-0123", recipeRevision: 8, result: "failed:threw" } },
+    ]);
+    // The event allows no other fields, as the origin or a branch.
+    expect(Object.keys(LOG_EVENTS["service.use"].fields).toSorted()).toEqual([
+      "recipe",
+      "recipeRevision",
+      "result",
+    ]);
+    vi.restoreAllMocks();
+  });
+
   it("logs how long service requests and an ended login took (ADR 0019)", async () => {
     const log = createDiagnosticsLog({
       build: { version: "0.1.0", revision: "1c42ad3" },

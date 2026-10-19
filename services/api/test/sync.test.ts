@@ -1681,4 +1681,272 @@ describe("unused recipe revocation (ADR 0058)", () => {
       { recipe_id: "never-logged", last_used_at: 1000 },
     ]);
   });
+
+  describe("use reports", () => {
+    const reportUse = (
+      device: Device | undefined,
+      id: string,
+      body: unknown,
+      type = "application/json",
+    ) =>
+      api(device, `/v1/recipes/${id}/use`, {
+        method: "POST",
+        headers: { "Content-Type": type },
+        body: typeof body === "string" ? body : JSON.stringify(body),
+      });
+    const use = { version: 1, revision: 1 };
+    const rowCount = async (table: string, ownerId: string) =>
+      (
+        await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE owner_id = ?`)
+          .bind(ownerId)
+          .first<{ n: number }>()
+      )?.n;
+    const chooser = {
+      version: 1,
+      id: "bank-chooser",
+      revision: 1,
+      origin: "https://bank.example",
+      chooser: {
+        path: "/login",
+        other: { by: "text", value: "Use another account" },
+        afterAccount: recipe("bank-chooser", 1),
+      },
+    };
+
+    it("marks the head or an older revision used, writing no revision or record", async () => {
+      const device = await enrollOwner();
+      const other = await addDevice(device.ownerId);
+      expect((await publish(device, "bank-login", 0)).status).toBe(200);
+      expect((await publish(device, "bank-login", 1)).status).toBe(200);
+      await lastUsedAgo(device.ownerId, "bank-login", RECIPE_IDLE_LIMIT_MS + DAY_MS).run();
+      const before = Date.now();
+      const onHead = await reportUse(device, "bank-login", { ...use, revision: 2 });
+      expect(onHead.status).toBe(204);
+      expect(await onHead.text()).toBe("");
+      const used = await head(device.ownerId, "bank-login");
+      expect(used?.last_used_at).toBeGreaterThanOrEqual(before);
+      expect(used?.last_used_at).toBeLessThanOrEqual(Date.now());
+      expect(used).toMatchObject({ revision: 2, state: "active", sequence: 2 });
+
+      // A device still on revision 1, another of the owner's, counts as well.
+      await lastUsedAgo(device.ownerId, "bank-login", RECIPE_IDLE_LIMIT_MS + DAY_MS).run();
+      const beforeOlder = Date.now();
+      expect((await reportUse(other, "bank-login", use)).status).toBe(204);
+      const older = await head(device.ownerId, "bank-login");
+      expect(older?.last_used_at).toBeGreaterThanOrEqual(beforeOlder);
+      expect(older).toMatchObject({ revision: 2, state: "active", sequence: 2 });
+      // A repeated report is another 204 and changes nothing else.
+      expect((await reportUse(device, "bank-login", use)).status).toBe(204);
+      expect(await revisions(device.ownerId, "bank-login")).toEqual([
+        { revision: 1, state: "active" },
+        { revision: 2, state: "active" },
+      ]);
+      expect(await rowCount("login_timings", device.ownerId)).toBe(0);
+      expect(await rowCount("login_outcomes", device.ownerId)).toBe(0);
+    });
+
+    it("refuses a revision above the head, an unknown or another owner's recipe and a revoked head", async () => {
+      const device = await enrollOwner();
+      const stranger = await enrollOwner();
+      expect((await publish(device, "bank-login", 0)).status).toBe(200);
+      expect((await publish(stranger, "other-login", 0)).status).toBe(200);
+      await env.DB.batch([
+        lastUsedAgo(device.ownerId, "bank-login", DAY_MS),
+        lastUsedAgo(stranger.ownerId, "other-login", DAY_MS),
+      ]);
+      const ownBefore = await head(device.ownerId, "bank-login");
+      const strangerBefore = await head(stranger.ownerId, "other-login");
+      const responses = await Promise.all([
+        reportUse(device, "bank-login", { ...use, revision: 2 }),
+        reportUse(device, "missing-login", use),
+        reportUse(device, "other-login", use),
+        reportUse(stranger, "bank-login", use),
+      ]);
+      expect(responses.map((response) => response.status)).toEqual([404, 404, 404, 404]);
+      expect(await Promise.all(responses.map((response) => response.json()))).toEqual(
+        responses.map(() => ({ error: "not_found" })),
+      );
+      expect(await head(device.ownerId, "bank-login")).toEqual(ownBefore);
+      expect(await head(stranger.ownerId, "other-login")).toEqual(strangerBefore);
+      // Another owner's report never creates a head for its recipe ID either.
+      expect(await head(device.ownerId, "other-login")).toBeNull();
+
+      expect(
+        (
+          await put(device, "/v1/recipes/bank-login", {
+            version: 1,
+            expectedRevision: 1,
+            state: "revoked",
+          })
+        ).status,
+      ).toBe(200);
+      await lastUsedAgo(device.ownerId, "bank-login", DAY_MS).run();
+      const revoked = await head(device.ownerId, "bank-login");
+      // Revision 2 is the tombstone; revision 1 ran before the revocation, but the recipe
+      // is gone and nothing keeps it now.
+      expect((await reportUse(device, "bank-login", { ...use, revision: 2 })).status).toBe(404);
+      expect((await reportUse(device, "bank-login", use)).status).toBe(404);
+      expect(await head(device.ownerId, "bank-login")).toEqual(revoked);
+    });
+
+    it("refuses other bodies, oversized ones, other methods and no credential, changing nothing", async () => {
+      const device = await enrollOwner();
+      expect((await publish(device, "bank-login", 0)).status).toBe(200);
+      await lastUsedAgo(device.ownerId, "bank-login", DAY_MS).run();
+      const before = await head(device.ownerId, "bank-login");
+      const bodies: unknown[] = [
+        { ...use, revision: 0 },
+        { ...use, revision: -1 },
+        { ...use, revision: 1.5 },
+        { ...use, revision: "1" },
+        { version: 1 },
+        { ...use, version: 2 },
+        { revision: 1 },
+        { ...use, origin: "https://bank.example" },
+        { ...use, url: "https://bank.example/login?user=someone" },
+        { ...use, branch: "other" },
+        { ...use, at: 1 },
+        [],
+        "{",
+      ];
+      const responses = await Promise.all(
+        bodies.map((body) => reportUse(device, "bank-login", body)),
+      );
+      expect(responses.map((response) => response.status)).toEqual(bodies.map(() => 400));
+      expect(await Promise.all(responses.map((response) => response.json()))).toEqual(
+        bodies.map(() => ({ error: "bad_request" })),
+      );
+      expect((await reportUse(device, "bank-login", use, "text/plain")).status).toBe(415);
+      const oversized = await reportUse(device, "bank-login", { ...use, padding: "x".repeat(300) });
+      expect(oversized.status).toBe(413);
+      expect(await oversized.json()).toEqual({ error: "payload_too_large" });
+      expect((await reportUse(device, "not a recipe", use)).status).toBe(400);
+      const anonymous = await reportUse(undefined, "bank-login", use);
+      expect(anonymous.status).toBe(401);
+      expect(await anonymous.json()).toEqual({ error: "unauthorized" });
+      for (const method of ["GET", "PUT", "DELETE"]) {
+        // oxlint-disable-next-line no-await-in-loop -- each method is its own request
+        const wrong = await api(device, "/v1/recipes/bank-login/use", { method });
+        expect(wrong.status).toBe(405);
+        expect(wrong.headers.get("Allow")).toBe("POST");
+      }
+      expect(await head(device.ownerId, "bank-login")).toEqual(before);
+    });
+
+    it("keeps a recipe aged past 90 days that is used before the next sync", async () => {
+      const device = await enrollOwner();
+      expect((await publish(device, "bank-login", 0)).status).toBe(200);
+      expect((await publish(device, "shop-login", 0)).status).toBe(200);
+      await env.DB.batch([
+        lastUsedAgo(device.ownerId, "bank-login", RECIPE_IDLE_LIMIT_MS + DAY_MS),
+        lastUsedAgo(device.ownerId, "shop-login", RECIPE_IDLE_LIMIT_MS + DAY_MS),
+      ]);
+      expect((await reportUse(device, "bank-login", use)).status).toBe(204);
+      expect((await sync(device)).changes).toEqual([
+        { recipeId: "bank-login", revision: 1, state: "active", recipe: recipe("bank-login", 1) },
+        { recipeId: "shop-login", revision: 2, state: "revoked" },
+      ]);
+      expect(await activeIds(device.ownerId)).toEqual(["bank-login"]);
+      // Marking use wrote no revision and took no sequence number.
+      expect(await head(device.ownerId, "bank-login")).toMatchObject({
+        revision: 1,
+        state: "active",
+        sequence: 1,
+      });
+    });
+
+    it("keeps a chooser recipe whose branch login was recorded or started (ADR 0028)", async () => {
+      const device = await enrollOwner();
+      for (const id of ["bank-chooser", "shop-chooser"]) {
+        const written = put(device, `/v1/recipes/${id}`, {
+          version: 1,
+          expectedRevision: 0,
+          state: "active",
+          recipe: { ...chooser, id, chooser: { ...chooser.chooser, afterAccount: recipe(id, 1) } },
+        });
+        // oxlint-disable-next-line no-await-in-loop -- each write takes the next owner sequence
+        expect((await written).status).toBe(200);
+      }
+      expect((await publish(device, "idle-login", 0)).status).toBe(200);
+      await env.DB.batch(
+        ["bank-chooser", "shop-chooser", "idle-login"].map((id) =>
+          lastUsedAgo(device.ownerId, id, RECIPE_IDLE_LIMIT_MS + DAY_MS),
+        ),
+      );
+      // A login that ran the chooser's `other` branch.
+      expect(
+        (await reportLogin(device, "bank-chooser", { ...loginRecord, branch: "other" })).status,
+      ).toBe(204);
+      // A login that started on the other chooser, whatever branch it took.
+      expect((await reportUse(device, "shop-chooser", use)).status).toBe(204);
+      await sync(device);
+      expect(await activeIds(device.ownerId)).toEqual(["bank-chooser", "shop-chooser"]);
+      expect(await head(device.ownerId, "idle-login")).toMatchObject({ state: "revoked" });
+    });
+
+    it("revokes an active head whose document no longer validates once it is unused", async () => {
+      const device = await enrollOwner();
+      expect((await publish(device, "bank-login", 0)).status).toBe(200);
+      expect((await publish(device, "shop-login", 0)).status).toBe(200);
+      // Stands in for stored documents that a later, stricter contract refuses.
+      await env.DB.prepare(
+        "UPDATE recipe_revisions SET document = ? WHERE owner_id = ? AND recipe_id IN ('bank-login', 'shop-login')",
+      )
+        .bind(JSON.stringify({ synthetic: "unreadable" }), device.ownerId)
+        .run();
+      await env.DB.batch([
+        lastUsedAgo(device.ownerId, "bank-login", RECIPE_IDLE_LIMIT_MS + DAY_MS),
+        lastUsedAgo(device.ownerId, "shop-login", RECIPE_IDLE_LIMIT_MS - DAY_MS),
+      ]);
+      // Both read as revoked; only the unused one becomes a tombstone.
+      expect(await sync(device)).toEqual({
+        version: 1,
+        changes: [
+          { recipeId: "shop-login", revision: 1, state: "revoked" },
+          { recipeId: "bank-login", revision: 2, state: "revoked" },
+        ],
+        cursor: 3,
+        complete: true,
+      });
+      expect(await head(device.ownerId, "bank-login")).toMatchObject({
+        revision: 2,
+        state: "revoked",
+      });
+      expect(await revisions(device.ownerId, "bank-login")).toEqual([
+        { revision: 2, state: "revoked" },
+      ]);
+      expect(await head(device.ownerId, "shop-login")).toMatchObject({
+        revision: 1,
+        state: "active",
+      });
+    });
+
+    it("leaves a revoked head's last use alone when a login is reported on it", async () => {
+      const device = await enrollOwner();
+      expect((await publish(device, "bank-login", 0)).status).toBe(200);
+      expect(
+        (
+          await put(device, "/v1/recipes/bank-login", {
+            version: 1,
+            expectedRevision: 1,
+            state: "revoked",
+          })
+        ).status,
+      ).toBe(200);
+      await lastUsedAgo(device.ownerId, "bank-login", DAY_MS).run();
+      const revoked = await head(device.ownerId, "bank-login");
+      expect((await reportLogin(device, "bank-login", loginRecord)).status).toBe(404);
+      expect(await head(device.ownerId, "bank-login")).toEqual(revoked);
+      // Stands in for a revision document kept past the revocation: the record is kept
+      // as one of a revision the owner held, but it marks no revoked recipe used.
+      await env.DB.prepare(
+        "INSERT INTO recipe_revisions (owner_id, recipe_id, revision, state, document, created_at, created_by_device_id) VALUES (?, 'bank-login', 1, 'active', ?, 0, NULL)",
+      )
+        .bind(device.ownerId, JSON.stringify(recipe("bank-login", 1)))
+        .run();
+      expect((await reportLogin(device, "bank-login", loginRecord)).status).toBe(204);
+      expect(await rowCount("login_timings", device.ownerId)).toBe(1);
+      expect(await head(device.ownerId, "bank-login")).toEqual(revoked);
+    });
+  });
 });
