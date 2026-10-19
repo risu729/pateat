@@ -1184,8 +1184,10 @@ items the owner mentioned and gates still open on 2026-10-11.
   2.7.0's `bun.lock` and `pnpm-lock.yaml` bugs and two more `bun.lock` gaps (peers
   written as dependencies, `lockfileVersion` reset). The owner fixed the last two
   upstream ([aubepkg/aube#1727](https://github.com/aubepkg/aube/pull/1727),
-  [aubepkg/aube#1732](https://github.com/aubepkg/aube/pull/1732)), and all four fixes
-  shipped in aube 2.7.1.
+  [aubepkg/aube#1732](https://github.com/aubepkg/aube/pull/1732)), and the fixes for all
+  four gaps shipped in aube 2.7.1; the reproductions have not been run again on a
+  release. Whether ADR 0032's move to `aube add` can now happen depends on running them
+  again on the pinned release.
 - Why the Bitwarden SDK's async exports never settle on unparsable arguments (owner,
   2026-10-13 14:38 UTC): the
   [research note](research/2026-10-13-bitwarden-sdk-async-hang.md) traces it to

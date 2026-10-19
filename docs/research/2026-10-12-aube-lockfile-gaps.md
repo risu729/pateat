@@ -7,7 +7,7 @@ follows the two lockfile bugs found while moving to aube
 [package manager research](2026-10-12-package-manager-aube.md)). The owner asked for bug
 reports with minimal reproductions. Nothing had been filed upstream when this note was
 written; whether to file is the owner's call. Fixes for gaps 3 and 4 were later opened
-upstream, and all four fixes shipped in aube 2.7.1; see
+upstream, and the fixes for all four gaps shipped in aube 2.7.1; see
 [upstream status](#upstream-status-2026-10-19). Nothing in
 Pateat's setup changes with it. Bun 1.4.3 was npm's `latest`; gaps 1 and 3 gave the same
 results with the Bun canary `1.4.3-canary.20261011.1` (it prints `1.4.4`).
@@ -114,16 +114,16 @@ change it back, so gap 4 only causes lockfile churn.
 
 ## Upstream status, 2026-10-19
 
-Checked 2026-10-19 23:30 UTC against aube's `main` history and release tags:
+Checked 2026-10-19 (about 23:15 UTC) against aube's `main` history and release tags:
 
 - Gap 3: [#1727](https://github.com/aubepkg/aube/pull/1727) merged as
   [d7cdd69](https://github.com/aubepkg/aube/commit/d7cdd69) on 2026-10-13.
 - Gap 4: the owner opened the fix as [#1732](https://github.com/aubepkg/aube/pull/1732)
   from `risu729:fix/bun-lock-version-on-re-resolve`, with bats tests for
   `aube install --lockfile-only`, `aube update`, `aube dedupe`, the re-resolving
-  `aube remove` and `aube audit --fix`. It merged as
+  `aube remove` and `aube audit --fix=update`. It merged as
   [01ed5d9](https://github.com/aubepkg/aube/commit/01ed5d9) on 2026-10-14.
-- All four fixes, with #1719, #1721, #1723 and #1724 for gaps 1 and 2, are in
+- The fixes for all four gaps (#1719, #1721, #1723, #1724, #1727 and #1732) are in
   [v2.7.1](https://github.com/aubepkg/aube/releases/tag/v2.7.1) (tagged 2026-10-15) and
   later releases; Pateat's `mise.toml` pins 2.7.2. The reproductions above were not run
   again on a release.

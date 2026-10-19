@@ -53,10 +53,11 @@ malicious-package hit. Commit `mise.lock`, the aube tool locks under `.mise/lock
 `bun.lock` after resolving them, never hand-author a purported installed dependency
 graph. Bun writes `bun.lock`: change dependencies with `bun add --exact`, `bun remove`
 or `bun update`, each with `--lockfile-only` so that only aube installs packages and
-runs their build scripts, then `mise run install`, because aube 2.7.0 rewrites
-`bun.lock` into a form its own frozen install refuses
-([ADR 0032](adr/0032-aube-package-manager.md)). Renovate updates `bun.lock` with Bun
-too.
+runs their build scripts, then `mise run install`, because aube 2.7.0 rewrote
+`bun.lock` into a form its own frozen install refused
+([ADR 0032](adr/0032-aube-package-manager.md)); the fixes released in aube 2.7.1 are
+not checked here yet ([lockfile gaps](research/2026-10-12-aube-lockfile-gaps.md)).
+Renovate updates `bun.lock` with Bun too.
 
 `min_version` in the root `mise.toml` stays at 2026.10.8 (owner decision, 2026-10-13).
 The owner's Windows mise comes from winget, which lags mise releases and refuses
