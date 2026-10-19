@@ -7,6 +7,8 @@ other modes, or only from a popup pick; keep or widen the `http:` rule of
 [ADR 0050](0050-http-pages-for-http-items.md)), the owner answered
 「おすすめ通りでいいが5秒で打ち切って」 (the recommendations are fine, but stop it after
 5 seconds). Implemented (local tests only; not yet checked on a real site).
+[Amended on 2026-10-19](#amendment-2026-10-19-alternatives-considered) to record the
+alternatives the proposal weighed; no new owner decision, and the decision is unchanged.
 
 Date: 2026-10-19
 
@@ -75,3 +77,35 @@ Decrypted patterns now reach a second Worker inside the extension. It receives o
 patterns and the page URL, returns only booleans, and shares the crypto Worker's
 lifetime. No permission or content security policy changes: `script-src 'self'` covers
 the bundled Worker script.
+
+## Amendment 2026-10-19: alternatives considered
+
+Added by an agent from the reviewed proposal the owner was shown before accepting this
+ADR; nothing in the decision changes.
+
+- **re2js instead of `RegExp` (A).** [re2js](https://github.com/le0pard/re2js) is MIT
+  licensed with no dependencies and one npm maintainer. It still needs the same time
+  limit (see Context), and it reads patterns that compile in both engines differently:
+  `\z` and `\A` are the end and start of input in RE2 but the letters `z` and `A` in
+  JavaScript; `[[:alpha:]]` is one letter in RE2 but in JavaScript one of `[`, `:`, `a`,
+  `l`, `p` or `h` followed by `]`; and the Kelvin sign (U+212A) matches `k` under RE2's
+  case folding but not with JavaScript's `i` flag alone. Matching the official clients
+  would need a JavaScript pattern parser such as `@eslint-community/regexpp` to rewrite
+  each pattern, and lookaround or backreference patterns would stay unevaluated. Using
+  re2js and handing what RE2 cannot read, and patterns that run out of time, to the
+  Worker adds a dependency and the pattern conversion without changing any result.
+- **Other libraries.** [@bufbuild/re2](https://www.npmjs.com/package/@bufbuild/re2) is a
+  cut-down fork of re2js with the same differences;
+  [re2-wasm](https://github.com/google/re2-wasm) was last released on 2021-09-14;
+  [re2](https://www.npmjs.com/package/re2) is a Node native add-on that does not run in
+  a browser; static checks for slow patterns (recheck, redos-detector) can miss slow
+  patterns and flag safe ones, so they cannot replace the limit.
+- **Use a Regex-only match only when the person picks the account in the popup (C2).**
+  Safer, because a pattern without `^` could not pick an account without a click, but
+  such items would always be picked by hand. It needs a new refusal, because the popup
+  can pick only candidates it already showed (`pickFor` in
+  `apps/extension/src/login/runtime.ts`), and saving such an item as the site's default
+  would have to be blocked, since `choose()` uses a saved default automatically after
+  the first pick.
+- **Also count patterns starting `^http://` or `^https?://` on `http:` pages (D2).**
+  Pateat would keep a list of accepted prefixes, and ADR 0050 would change.
