@@ -291,6 +291,52 @@ export const loginOutcomes = sqliteTable(
 );
 
 /**
+ * Every login on a recipe revision that a device reported when it ended, signed in or
+ * blocked (ADR 0055): its result code and how long it took, one row per report. `origin`
+ * is the recipe revision's own, which the service reads when the row is written; the device
+ * sends no URL or origin. Kept one year like the request log, and deleted with it.
+ */
+export const loginTimings = sqliteTable(
+  "login_timings",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => owners.id),
+    recipeId: text("recipe_id").notNull(),
+    /** The chooser branch the login took (ADR 0028), or empty for any other recipe. */
+    branch: text("branch").notNull().default(""),
+    revision: integer("revision").notNull(),
+    /** The recipe's origin, from the reported revision or else its newest kept one. */
+    origin: text("origin").notNull(),
+    /** A `loginOutcomeSchema` code. */
+    outcome: text("outcome").notNull(),
+    /** A `loginOutcomeCauseSchema` code, or null when the login named none. */
+    cause: text("cause"),
+    /** The extension commit that ran the login, or `development`. */
+    extensionBuild: text("extension_build").notNull(),
+    /** From the login's first page until it ended, in milliseconds. */
+    totalMs: integer("total_ms").notNull(),
+    /** Waiting for the service. */
+    serviceMs: integer("service_ms").notNull(),
+    /**
+     * Of the service time, the network's: only for answers that named the service's own
+     * time in `Server-Timing`, so a lower bound.
+     */
+    networkMs: integer("network_ms").notNull(),
+    /** Waiting for the person. */
+    personMs: integer("person_ms").notNull(),
+    /** Waiting for the site's answer to the login's steps, page loads included. */
+    pageMs: integer("page_ms").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    index("login_timings_owner_created").on(table.ownerId, table.createdAt),
+    index("login_timings_created").on(table.createdAt),
+  ],
+);
+
+/**
  * Model calls and estimated spend per owner and period: a `YYYY-MM` row for the monthly
  * spend stop and a `YYYY-MM-DD` row for the daily one (UTC).
  */

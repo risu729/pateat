@@ -19,11 +19,76 @@ export function syntheticDashboard(now: number): ManageDashboard {
   );
   const generateP50 = [9800, 10_400, null, 8900, null, 9400, 11_200, 8700];
   const judgeP50 = [2600, 2400, null, 2900, 3100, 2300, 2700, 2500];
+  const loginP50 = [3900, 4100, null, 3600, 5200, 3800, 4400, 3700];
+  const logins = [9, 7, 0, 11, 4, 8, 10, 6];
+  const signedIn = [8, 7, 0, 10, 3, 8, 9, 6];
   return {
     version: 1,
     range: "7d",
     from,
     to: now,
+    logins: {
+      count: 55,
+      loginMs: { n: 51, p50: 3900, p90: 9800 },
+      withService: few([8100, 9800, 10_400, 12_900, 14_100]),
+      recipeOnly: { n: 46, p50: 3700, p90: 6900 },
+      parts: {
+        withService: {
+          n: 5,
+          networkMs: 420,
+          serviceOtherMs: 8900,
+          pageMs: 1100,
+          otherMs: 400,
+          personMs: 0,
+        },
+        recipeOnly: {
+          n: 46,
+          networkMs: 0,
+          serviceOtherMs: 0,
+          pageMs: 2900,
+          otherMs: 800,
+          personMs: 0,
+        },
+      },
+      perSite: [
+        {
+          origin: "https://bank.example",
+          logins: 14,
+          signedIn: 12,
+          loginMs: few([
+            4100, 4800, 5200, 5600, 6000, 6900, 9800, 10_400, 12_900, 14_100, 3900, 4400,
+          ]),
+        },
+        {
+          origin: "https://mail.example",
+          logins: 26,
+          signedIn: 25,
+          loginMs: { n: 25, p50: 3600, p90: 4900 },
+        },
+        {
+          origin: "https://shop.example",
+          logins: 15,
+          signedIn: 14,
+          loginMs: few([
+            2600, 2900, 3100, 3300, 3400, 3500, 3600, 3700, 3800, 4000, 4200, 4500, 8100, 2800,
+          ]),
+        },
+      ],
+      perBuild: [
+        {
+          build: "8f3a754b899c195f36337461fcca94c0e0febcd4",
+          logins: 31,
+          lastAt: now - HOUR_MS,
+          loginMs: { n: 29, p50: 3700, p90: 8600 },
+        },
+        {
+          build: "1292f6f91b708e70b4060bc59f11fea90bf9667e",
+          logins: 24,
+          lastAt: now - 3 * DAY_MS,
+          loginMs: { n: 22, p50: 4300, p90: 10_400 },
+        },
+      ],
+    },
     llm: [
       {
         role: "generate",
@@ -58,8 +123,9 @@ export function syntheticDashboard(now: number): ManageDashboard {
       judgeRequests: judgeP50[index] === null ? 0 : 6,
       generateModelP50: generateP50[index] ?? null,
       judgeModelP50: judgeP50[index] ?? null,
-      logins: [2, 1, 0, 3, 0, 2, 3, 1][index]!,
-      authenticatedLogins: [2, 1, 0, 2, 0, 1, 2, 1][index]!,
+      logins: logins[index]!,
+      authenticatedLogins: signedIn[index]!,
+      loginP50: loginP50[index] ?? null,
     })),
     slowest: [
       {
@@ -134,10 +200,16 @@ export function syntheticDashboard(now: number): ManageDashboard {
         { role: "generate", outcome: "invalid-output", count: 2 },
         { role: "judge", outcome: "timeout", count: 1 },
       ],
-      loginsAuthenticated: 9,
+      loginsAuthenticated: 51,
       logins: [
-        { outcome: "authenticated", count: 9 },
+        { outcome: "authenticated", count: 51 },
         { outcome: "challenge", count: 2 },
+        { outcome: "unknown-submit", count: 1 },
+        { outcome: "timeout", count: 1 },
+      ],
+      firstLoginsAuthenticated: 3,
+      firstLogins: [
+        { outcome: "authenticated", count: 3 },
         { outcome: "unknown-submit", count: 1 },
       ],
       inputTokens: 280_920,
@@ -191,16 +263,34 @@ export function syntheticDashboard(now: number): ManageDashboard {
         code: "unknown-submit",
         count: 1,
         lastAt: now - 6 * HOUR_MS,
-        lastOrigin: null,
-        lastRecipeId: "gen-gone",
+        lastOrigin: "https://shop.example",
+        lastRecipeId: "gen-shop",
         latest: [
           {
             at: now - 6 * HOUR_MS,
-            origin: null,
-            recipeId: "gen-gone",
+            origin: "https://shop.example",
+            recipeId: "gen-shop",
             revision: 3,
             role: null,
             cause: "settled",
+          },
+        ],
+      },
+      {
+        kind: "login",
+        code: "timeout",
+        count: 1,
+        lastAt: now - 2 * DAY_MS,
+        lastOrigin: "https://bank.example",
+        lastRecipeId: "gen-bank",
+        latest: [
+          {
+            at: now - 2 * DAY_MS,
+            origin: "https://bank.example",
+            recipeId: "gen-bank",
+            revision: 4,
+            role: null,
+            cause: "elements-timeout",
           },
         ],
       },

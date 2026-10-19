@@ -8,7 +8,14 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { ChevronRight } from "lucide-react";
 import { lazy, Suspense, useState, type ReactNode } from "react";
 import { describeError, type ManageClient } from "./api";
-import { PART_CONFIG, PARTS, ROLE_CONFIG, formatMs } from "./dashboard-series";
+import {
+  LOGIN_PART_CONFIG,
+  LOGIN_PARTS,
+  PART_CONFIG,
+  PARTS,
+  ROLE_CONFIG,
+  formatMs,
+} from "./dashboard-series";
 import { formatTime } from "./devices";
 import { siteOrigin, sitePath } from "./sites";
 import { Badge, ErrorNotice, KeyValues, PAGE_TITLE_CLASSES, Panel, RowList } from "./ui";
@@ -21,6 +28,12 @@ const BreakdownChart = lazy(() =>
 );
 const TrendChart = lazy(() =>
   import("./dashboard-charts").then((module) => ({ default: module.TrendChart })),
+);
+const LoginBreakdownChart = lazy(() =>
+  import("./dashboard-charts").then((module) => ({ default: module.LoginBreakdownChart })),
+);
+const LoginTrendChart = lazy(() =>
+  import("./dashboard-charts").then((module) => ({ default: module.LoginTrendChart })),
 );
 
 const RANGES: [ManageDashboardRange, string][] = [
@@ -41,8 +54,14 @@ const p50 = (durations: ManageDurations) =>
 const percent = (part: number, whole: number) => `${Math.round((part / whole) * 100)}%`;
 
 /** A median with its count, and the p90 or, below 20 values, the values themselves. */
-function DurationsLine({ durations }: { durations: ManageDurations }) {
-  if (durations.p50 === null) return <span className="text-ink-muted">No timed requests</span>;
+function DurationsLine({
+  durations,
+  empty = "No timed requests",
+}: {
+  durations: ManageDurations;
+  empty?: string;
+}) {
+  if (durations.p50 === null) return <span className="text-ink-muted">{empty}</span>;
   return (
     <span>
       p50 {formatMs(durations.p50)}
@@ -57,8 +76,7 @@ function DurationsLine({ durations }: { durations: ManageDurations }) {
 }
 
 /** A link to the site's page when the origin has one. */
-function SiteLink({ origin }: { origin: string | null }) {
-  if (origin === null) return <span className="text-ink-muted">Unknown site</span>;
+function SiteLink({ origin }: { origin: string }) {
   let path: string | undefined;
   try {
     path = sitePath(origin);
@@ -133,6 +151,154 @@ function ChartFallback({ className }: { className: string }) {
   return <div aria-hidden className={`${className} rounded-lg bg-surface-sunken`} />;
 }
 
+const LOGIN_GROUPS = [
+  ["withService", "Waited on the service"],
+  ["recipeOnly", "Recipe only"],
+] as const;
+
+/**
+ * Login speed from the login records devices send (ADR 0055): a signed-in login's time
+ * less the person's, for logins that waited on the service and the rest.
+ */
+function LoginSpeed({ data }: { data: ManageDashboard }) {
+  const { logins } = data;
+  const timed = logins.withService.n + logins.recipeOnly.n;
+  const withParts = LOGIN_GROUPS.filter(([key]) => logins.parts[key].n > 0);
+  const timedDays = data.daily.some((day) => day.loginP50 !== null);
+  return (
+    <>
+      <SubHeading>Logins</SubHeading>
+      <p className="text-sm text-ink-muted">
+        A login&apos;s time runs from when Pateat saw its first page until it ended, less the time
+        it waited for the person, such as for a code. Only logins that signed in are timed.
+      </p>
+      {timed ? (
+        <p className="text-sm">
+          {logins.withService.n} of {plural(timed, "signed-in login")} (
+          {percent(logins.withService.n, timed)}) waited on the service.
+        </p>
+      ) : null}
+      <div className="grid gap-3 sm:grid-cols-2">
+        {LOGIN_GROUPS.map(([key, label]) => (
+          <section
+            key={key}
+            aria-labelledby={`dashboard-login-${key}`}
+            className="space-y-2 rounded-lg border border-border bg-surface-sunken p-4"
+          >
+            <h3 id={`dashboard-login-${key}`} className="text-sm font-semibold text-ink-muted">
+              {label} · login time
+            </h3>
+            <p className="text-[1.75rem]/9 font-bold tabular-nums">
+              {logins[key].p50 === null ? "–" : formatMs(logins[key].p50)}
+            </p>
+            <p className="text-sm">
+              <DurationsLine durations={logins[key]} empty="No signed-in logins" />
+            </p>
+            <KeyValues
+              entries={[["Person's time p50, apart", optionalMs(logins.parts[key].personMs)]]}
+            />
+          </section>
+        ))}
+      </div>
+
+      <SubHeading>Where a login&apos;s time goes</SubHeading>
+      <p className="text-sm text-ink-muted">
+        The median of each part over signed-in logins. Waiting for the site runs from a step that
+        may change the page until the login read the page&apos;s answer. The network counts only
+        answers that named the service&apos;s own time. The person&apos;s time is not part of the
+        login time and is shown apart. Medians of parts do not add up exactly to the median total.
+      </p>
+      {withParts.length ? (
+        <>
+          <Suspense fallback={<ChartFallback className="h-44" />}>
+            <LoginBreakdownChart parts={logins.parts} />
+          </Suspense>
+          <Table
+            caption="Median login time by part"
+            head={[
+              "Logins",
+              ...LOGIN_PARTS.map((part) => LOGIN_PART_CONFIG[part].label),
+              "Person, apart",
+              "n",
+            ]}
+            rows={withParts.map(([key, label]) => ({
+              key,
+              cells: [
+                label,
+                ...LOGIN_PARTS.map((part) => optionalMs(logins.parts[key][part])),
+                optionalMs(logins.parts[key].personMs),
+                logins.parts[key].n,
+              ],
+            }))}
+          />
+        </>
+      ) : (
+        <p className="text-sm">No login in this range signed in.</p>
+      )}
+
+      <SubHeading>Login time by day</SubHeading>
+      {timedDays ? (
+        <>
+          <Suspense fallback={<ChartFallback className="h-56" />}>
+            <LoginTrendChart daily={data.daily} />
+          </Suspense>
+          <Table
+            visuallyHidden
+            caption="Median login time by UTC day; a dash is a day without a signed-in login"
+            head={["Day", "Login time p50", "Logins", "Signed in"]}
+            rows={data.daily.map((day) => ({
+              key: day.day,
+              cells: [day.day, optionalMs(day.loginP50), day.logins, day.authenticatedLogins],
+            }))}
+          />
+        </>
+      ) : (
+        <p className="text-sm">No login in this range signed in.</p>
+      )}
+
+      <SubHeading>Logins by site</SubHeading>
+      {logins.perSite.length ? (
+        <Table
+          caption="Logins per site, slowest median login time first"
+          head={["Site", "Logins", "Signed in", "Login p50"]}
+          rows={logins.perSite.map((site) => ({
+            key: site.origin,
+            cells: [
+              <SiteLink key="site" origin={site.origin} />,
+              site.logins,
+              site.signedIn,
+              p50(site.loginMs),
+            ],
+          }))}
+        />
+      ) : (
+        <p className="text-sm">No logins in this range.</p>
+      )}
+
+      <SubHeading>Logins by extension build</SubHeading>
+      {logins.perBuild.length ? (
+        <Table
+          caption="Logins per extension build, most recently used first"
+          head={["Build", "Last used", "Logins", "Login p50"]}
+          rows={logins.perBuild.map((build) => ({
+            key: build.build,
+            cells: [
+              <span key="build" className="font-mono text-[13px]/5">
+                {build.build === "development" ? build.build : build.build.slice(0, 7)}
+              </span>,
+              formatTime(build.lastAt),
+              build.logins,
+              p50(build.loginMs),
+            ],
+          }))}
+        />
+      ) : (
+        <p className="text-sm">No logins in this range.</p>
+      )}
+    </>
+  );
+}
+
 function Speed({ data }: { data: ManageDashboard }) {
   const withParts = data.llm.filter((role) => role.parts.n > 0);
   const timedDays = data.daily.some(
@@ -140,6 +306,9 @@ function Speed({ data }: { data: ManageDashboard }) {
   );
   return (
     <Panel id="dashboard-speed" title="Speed">
+      <LoginSpeed data={data} />
+
+      <SubHeading>Requests to Claude</SubHeading>
       <div className="grid gap-3 sm:grid-cols-2">
         {data.llm.map((role) => (
           <section
@@ -231,7 +400,7 @@ function Speed({ data }: { data: ManageDashboard }) {
         <p className="text-sm">No model time was recorded in this range.</p>
       )}
 
-      <SubHeading>By site</SubHeading>
+      <SubHeading>Requests by site</SubHeading>
       {data.perSite.length ? (
         <Table
           caption="Requests per site, slowest median server time first"
@@ -250,7 +419,7 @@ function Speed({ data }: { data: ManageDashboard }) {
         <p className="text-sm">No requests with a model call in this range.</p>
       )}
 
-      <SubHeading>By service build</SubHeading>
+      <SubHeading>Requests by service build</SubHeading>
       {data.perBuild.length ? (
         <Table
           caption="Requests per service build, most recently used first"
@@ -297,9 +466,35 @@ function Speed({ data }: { data: ManageDashboard }) {
   );
 }
 
+/** Result codes and how many logins ended with each. */
+function OutcomeTable({
+  caption,
+  rows,
+}: {
+  caption: string;
+  rows: ManageDashboard["stats"]["logins"];
+}) {
+  return (
+    <Table
+      caption={caption}
+      head={["Result", "Logins"]}
+      rows={rows.map((row) => ({
+        key: row.outcome,
+        cells: [
+          <span key="outcome" className="font-mono text-[13px]/5">
+            {row.outcome}
+          </span>,
+          row.count,
+        ],
+      }))}
+    />
+  );
+}
+
 function Stats({ data }: { data: ManageDashboard }) {
   const { stats } = data;
   const loginTotal = stats.logins.reduce((sum, row) => sum + row.count, 0);
+  const firstTotal = stats.firstLogins.reduce((sum, row) => sum + row.count, 0);
   return (
     <Panel id="dashboard-stats" title="Stats">
       <KeyValues
@@ -320,6 +515,35 @@ function Stats({ data }: { data: ManageDashboard }) {
           ["Recipes generated in this range", stats.recipesGenerated.toLocaleString("en")],
         ]}
       />
+      <SubHeading>Logins</SubHeading>
+      <p className="text-sm text-ink-muted">
+        Every login with a recipe that ended, signed in or blocked, as devices report it.
+      </p>
+      {stats.logins.length ? (
+        <>
+          <KeyValues
+            entries={[
+              [
+                "Signed in",
+                `${stats.loginsAuthenticated} of ${loginTotal} (${percent(stats.loginsAuthenticated, loginTotal)})`,
+              ],
+            ]}
+          />
+          <OutcomeTable caption="How logins ended" rows={stats.logins} />
+          <Table
+            caption="Logins by UTC day; days without one are left out"
+            head={["Day", "Logins", "Signed in"]}
+            rows={data.daily
+              .filter((day) => day.logins > 0)
+              .map((day) => ({
+                key: day.day,
+                cells: [day.day, day.logins, day.authenticatedLogins],
+              }))}
+          />
+        </>
+      ) : (
+        <p className="text-sm">No logins in this range.</p>
+      )}
       <SubHeading>Requests</SubHeading>
       {stats.requests.length ? (
         <Table
@@ -339,47 +563,28 @@ function Stats({ data }: { data: ManageDashboard }) {
       ) : (
         <p className="text-sm">No requests in this range.</p>
       )}
-      <SubHeading>First logins</SubHeading>
+      <SubHeading>First login with each recipe version</SubHeading>
       <p className="text-sm text-ink-muted">
-        Devices report only the first login with each recipe version for now, so these are not every
-        login.
+        The result code kept for evaluating generation: only the first login with each recipe
+        version, so these are not every login.
       </p>
-      {stats.logins.length ? (
+      {stats.firstLogins.length ? (
         <>
           <KeyValues
             entries={[
               [
                 "Signed in",
-                `${stats.loginsAuthenticated} of ${loginTotal} (${percent(stats.loginsAuthenticated, loginTotal)})`,
+                `${stats.firstLoginsAuthenticated} of ${firstTotal} (${percent(stats.firstLoginsAuthenticated, firstTotal)})`,
               ],
             ]}
           />
-          <Table
+          <OutcomeTable
             caption="How the first login with each recipe version ended"
-            head={["Result", "Logins"]}
-            rows={stats.logins.map((row) => ({
-              key: row.outcome,
-              cells: [
-                <span key="outcome" className="font-mono text-[13px]/5">
-                  {row.outcome}
-                </span>,
-                row.count,
-              ],
-            }))}
-          />
-          <Table
-            caption="First logins by UTC day; days without one are left out"
-            head={["Day", "Logins", "Signed in"]}
-            rows={data.daily
-              .filter((day) => day.logins > 0)
-              .map((day) => ({
-                key: day.day,
-                cells: [day.day, day.logins, day.authenticatedLogins],
-              }))}
+            rows={stats.firstLogins}
           />
         </>
       ) : (
-        <p className="text-sm">No login results in this range.</p>
+        <p className="text-sm">No first-login results in this range.</p>
       )}
     </Panel>
   );
@@ -402,8 +607,7 @@ function FailureGroups({ groups, empty }: { groups: ManageDashboardFailure[]; em
               <Badge tone="muted">{group.kind === "login" ? "Login" : "Request"}</Badge>
               <span className="text-sm">{plural(group.count, "time")}</span>
               <span className="text-[13px]/5 text-ink-muted">
-                last {formatTime(group.lastAt)},{" "}
-                {group.lastOrigin ?? group.lastRecipeId ?? "unknown site"}
+                last {formatTime(group.lastAt)}, {group.lastOrigin}
               </span>
             </summary>
             <div className="border-t border-border px-4 py-3">
@@ -443,9 +647,9 @@ function Failures({ data }: { data: ManageDashboard }) {
   return (
     <Panel id="dashboard-failures" title="Failures">
       <p className="text-sm text-ink-muted">
-        Requests that did not end <code className="font-mono">ok</code> and first logins that did
-        not end <code className="font-mono">authenticated</code>, by result code. Open a row for its
-        latest 20.
+        Requests that did not end <code className="font-mono">ok</code> and logins that did not end{" "}
+        <code className="font-mono">authenticated</code>, by result code. Open a row for its latest
+        20.
       </p>
       <FailureGroups groups={data.failures} empty="No failures in this range." />
       <SubHeading>Needed the person</SubHeading>
@@ -459,8 +663,9 @@ function Failures({ data }: { data: ManageDashboard }) {
 }
 
 /**
- * The owner's dashboard: request speed from the request log's recorded times, counts and
- * spend, and the failures by result code, over 24 hours, 7 days or 30 days.
+ * The owner's dashboard: login speed from the login records devices send and request speed
+ * from the request log's recorded times, counts and spend, and the failures by result code,
+ * over 24 hours, 7 days or 30 days.
  */
 export function DashboardPage({ client }: { client: ManageClient }) {
   const [range, setRange] = useState<ManageDashboardRange>("7d");

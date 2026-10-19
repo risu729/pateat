@@ -6,16 +6,17 @@ import {
   type ManageDashboardFailure,
   type ManageDashboardRange,
   type ManageDurations,
+  type ManageLoginParts,
 } from "@pateat/contracts";
-import { and, count, desc, eq, gte, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { CLAUDE_CALL_LIMITS } from "./claude/calls";
 import {
   inferenceLog,
   inferenceSpend,
   loginOutcomes,
+  loginTimings,
   recipeHeads,
-  recipeRevisions,
 } from "./db/schema";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -51,20 +52,29 @@ export type DashboardRequest = {
   serverMs: number | null;
   createdAt: number;
 };
+/** The login record columns the dashboard reads (ADR 0055). */
 export type DashboardLogin = {
   recipeId: string;
   revision: number;
+  origin: string;
   outcome: string;
   cause: string | null;
+  extensionBuild: string;
+  totalMs: number;
+  serviceMs: number;
+  networkMs: number;
+  personMs: number;
+  pageMs: number;
   createdAt: number;
 };
 export type DashboardInput = {
   range: ManageDashboardRange;
   now: number;
   requests: DashboardRequest[];
+  /** Every login a device reported in the range. */
   logins: DashboardLogin[];
-  /** The origin each recipe was generated for, from its kept revisions. */
-  recipeOrigins: Map<string, string>;
+  /** The result codes of the first login with each recipe revision (ADR 0019). */
+  firstLogins: { outcome: string }[];
   spend: { dayMicroUsd: number; monthMicroUsd: number };
   activeRecipes: number;
 };
@@ -96,6 +106,32 @@ function present<T>(rows: T[], pick: (row: T) => number | null): number[] {
 }
 
 const utcDay = (at: number) => new Date(at).toISOString().slice(0, 10);
+
+/** A login's own time: its total less the person's, never below 0. */
+const loginTime = (row: DashboardLogin) => Math.max(0, row.totalMs - row.personMs);
+const signedIn = (row: DashboardLogin) => row.outcome === "authenticated";
+
+/** A login's wait for the site, never more than its own time less the service's. */
+const pageTime = (row: DashboardLogin) =>
+  Math.min(row.pageMs, Math.max(0, loginTime(row) - row.serviceMs));
+
+/** The median of each part of a login's time (`manageLoginPartsSchema`). */
+function loginParts(rows: DashboardLogin[]): ManageLoginParts {
+  return {
+    n: rows.length,
+    networkMs: median(rows.map((row) => Math.min(row.networkMs, row.serviceMs))),
+    serviceOtherMs: median(rows.map((row) => Math.max(0, row.serviceMs - row.networkMs))),
+    pageMs: median(rows.map(pageTime)),
+    otherMs: median(rows.map((row) => Math.max(0, loginTime(row) - row.serviceMs - pageTime(row)))),
+    personMs: median(rows.map((row) => row.personMs)),
+  };
+}
+
+/** Result codes by outcome, most frequent first. */
+const outcomeCounts = (rows: { outcome: string }[]) =>
+  [...Map.groupBy(rows, (row) => row.outcome)]
+    .map(([outcome, group]) => ({ outcome, count: group.length }))
+    .toSorted((a, b) => b.count - a.count || a.outcome.localeCompare(b.outcome));
 
 /** Groups result codes, keeping each code's latest rows; `events` must be newest first. */
 function failureGroups(
@@ -184,10 +220,37 @@ export function summarizeDashboard(input: DashboardInput): ManageDashboard {
       generateModelP50: modelP50("generate"),
       judgeModelP50: modelP50("judge"),
       logins: loginsByDay.get(key)?.length ?? 0,
-      authenticatedLogins:
-        loginsByDay.get(key)?.filter((row) => row.outcome === "authenticated").length ?? 0,
+      authenticatedLogins: loginsByDay.get(key)?.filter(signedIn).length ?? 0,
+      loginP50: median((loginsByDay.get(key) ?? []).filter(signedIn).map(loginTime)),
     });
   }
+
+  // Login speed counts the logins that signed in; every login counts toward the counts.
+  const signedInLogins = logins.filter(signedIn);
+  const waited = signedInLogins.filter((row) => row.serviceMs > 0);
+  const recipeOnly = signedInLogins.filter((row) => row.serviceMs === 0);
+  const loginSites = [...Map.groupBy(logins, (row) => row.origin)]
+    .map(([origin, rows]) => ({
+      origin,
+      logins: rows.length,
+      signedIn: rows.filter(signedIn).length,
+      loginMs: durations(rows.filter(signedIn).map(loginTime)),
+    }))
+    .toSorted(
+      (a, b) =>
+        (b.loginMs.p50 ?? -1) - (a.loginMs.p50 ?? -1) ||
+        b.logins - a.logins ||
+        a.origin.localeCompare(b.origin),
+    );
+  // `logins` is newest first, so each group's first row is its last use.
+  const loginBuilds = [...Map.groupBy(logins, (row) => row.extensionBuild)].map(
+    ([build, rows]) => ({
+      build,
+      logins: rows.length,
+      lastAt: rows[0]!.createdAt,
+      loginMs: durations(rows.filter(signedIn).map(loginTime)),
+    }),
+  );
 
   const slowest = calls
     .filter((row): row is DashboardRequest & { serverMs: number } => row.serverMs !== null)
@@ -231,9 +294,6 @@ export function summarizeDashboard(input: DashboardInput): ManageDashboard {
   ]
     .map((rows) => ({ role: rows[0]!.role, outcome: rows[0]!.outcome, count: rows.length }))
     .toSorted((a, b) => b.count - a.count || a.role.localeCompare(b.role));
-  const loginCounts = [...Map.groupBy(logins, (row) => row.outcome)]
-    .map(([outcome, rows]) => ({ outcome, count: rows.length }))
-    .toSorted((a, b) => b.count - a.count || a.outcome.localeCompare(b.outcome));
 
   // A request answered with a recipe another request stored (`recipe`) did not fail.
   const requestEvents = requests
@@ -251,20 +311,15 @@ export function summarizeDashboard(input: DashboardInput): ManageDashboard {
         cause: null,
       },
     }));
-  // A login result names only its recipe; the origin comes from a kept revision, else
-  // from a request for the same recipe.
-  const requestOrigins = new Map<string, string>();
-  for (const row of requests.toReversed())
-    if (row.recipeId !== null) requestOrigins.set(row.recipeId, row.origin);
   const loginEvents = logins
-    .filter((row) => row.outcome !== "authenticated")
+    .filter((row) => !signedIn(row))
     .map((row) => ({
       kind: "login" as const,
       code: row.outcome,
       at: row.createdAt,
       event: {
         at: row.createdAt,
-        origin: input.recipeOrigins.get(row.recipeId) ?? requestOrigins.get(row.recipeId) ?? null,
+        origin: row.origin,
         recipeId: row.recipeId,
         revision: row.revision,
         role: null,
@@ -278,6 +333,15 @@ export function summarizeDashboard(input: DashboardInput): ManageDashboard {
     range,
     from,
     to: now,
+    logins: {
+      count: logins.length,
+      loginMs: durations(signedInLogins.map(loginTime)),
+      withService: durations(waited.map(loginTime)),
+      recipeOnly: durations(recipeOnly.map(loginTime)),
+      parts: { withService: loginParts(waited), recipeOnly: loginParts(recipeOnly) },
+      perSite: loginSites,
+      perBuild: loginBuilds,
+    },
     llm,
     daily,
     slowest,
@@ -285,8 +349,11 @@ export function summarizeDashboard(input: DashboardInput): ManageDashboard {
     perBuild,
     stats: {
       requests: requestCounts,
-      logins: loginCounts,
-      loginsAuthenticated: logins.filter((row) => row.outcome === "authenticated").length,
+      logins: outcomeCounts(logins),
+      loginsAuthenticated: signedInLogins.length,
+      firstLogins: outcomeCounts(input.firstLogins),
+      firstLoginsAuthenticated: input.firstLogins.filter((row) => row.outcome === "authenticated")
+        .length,
       inputTokens: requests.reduce((sum, row) => sum + (row.inputTokens ?? 0), 0),
       outputTokens: requests.reduce((sum, row) => sum + (row.outputTokens ?? 0), 0),
       spend: {
@@ -323,7 +390,7 @@ export async function readDashboard(
     now,
     requests: [],
     logins: [],
-    recipeOrigins: new Map(),
+    firstLogins: [],
     spend: { dayMicroUsd: 0, monthMicroUsd: 0 },
     activeRecipes: 0,
   };
@@ -332,7 +399,7 @@ export async function readDashboard(
   const from = now - MANAGE_DASHBOARD_RANGE_MS[range];
   const day = utcDay(now);
   const month = day.slice(0, 7);
-  const [requests, logins, spend, [active]] = await db.batch([
+  const [requests, logins, firstLogins, spend, [active]] = await db.batch([
     db
       .select({
         role: inferenceLog.role,
@@ -356,12 +423,24 @@ export async function readDashboard(
       .orderBy(desc(inferenceLog.createdAt)),
     db
       .select({
-        recipeId: loginOutcomes.recipeId,
-        revision: loginOutcomes.revision,
-        outcome: loginOutcomes.outcome,
-        cause: loginOutcomes.cause,
-        createdAt: loginOutcomes.createdAt,
+        recipeId: loginTimings.recipeId,
+        revision: loginTimings.revision,
+        origin: loginTimings.origin,
+        outcome: loginTimings.outcome,
+        cause: loginTimings.cause,
+        extensionBuild: loginTimings.extensionBuild,
+        totalMs: loginTimings.totalMs,
+        serviceMs: loginTimings.serviceMs,
+        networkMs: loginTimings.networkMs,
+        personMs: loginTimings.personMs,
+        pageMs: loginTimings.pageMs,
+        createdAt: loginTimings.createdAt,
       })
+      .from(loginTimings)
+      .where(and(eq(loginTimings.ownerId, ownerId), gte(loginTimings.createdAt, from)))
+      .orderBy(desc(loginTimings.createdAt)),
+    db
+      .select({ outcome: loginOutcomes.outcome })
       .from(loginOutcomes)
       .where(and(eq(loginOutcomes.ownerId, ownerId), gte(loginOutcomes.createdAt, from))),
     db
@@ -375,41 +454,13 @@ export async function readDashboard(
       .from(recipeHeads)
       .where(and(eq(recipeHeads.ownerId, ownerId), eq(recipeHeads.state, "active"))),
   ]);
-  // A login result names only its recipe: the origin of the ones the page lists comes
-  // from the recipe's kept revisions. Every stored recipe kind names its origin; a revoked
-  // revision keeps no document. Chunks stay under D1's limit of bound parameters.
-  const listed = [
-    ...new Set(logins.filter((row) => row.outcome !== "authenticated").map((row) => row.recipeId)),
-  ];
-  const chunks = Array.from({ length: Math.ceil(listed.length / 90) }, (_, index) =>
-    listed.slice(index * 90, index * 90 + 90),
-  );
-  const [first, ...rest] = chunks.map((ids) =>
-    db
-      .select({
-        recipeId: recipeRevisions.recipeId,
-        origin: sql<unknown>`json_extract(${recipeRevisions.document}, '$.origin')`,
-      })
-      .from(recipeRevisions)
-      .where(
-        and(
-          eq(recipeRevisions.ownerId, ownerId),
-          inArray(recipeRevisions.recipeId, ids),
-          isNotNull(recipeRevisions.document),
-        ),
-      ),
-  );
-  const origins = first ? (await db.batch([first, ...rest])).flat() : [];
-  const recipeOrigins = new Map<string, string>();
-  for (const row of origins)
-    if (typeof row.origin === "string") recipeOrigins.set(row.recipeId, row.origin);
   const spent = (period: string) => spend.find((row) => row.period === period)?.costMicroUsd ?? 0;
   return summarizeDashboard({
     range,
     now,
     requests,
     logins,
-    recipeOrigins,
+    firstLogins,
     // A period's sum is never negative once its call is settled; clamp it for the contract.
     spend: { dayMicroUsd: Math.max(0, spent(day)), monthMicroUsd: Math.max(0, spent(month)) },
     activeRecipes: active?.recipes ?? 0,

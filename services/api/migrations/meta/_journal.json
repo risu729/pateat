@@ -141,6 +141,13 @@
       "when": 1792372465337,
       "tag": "0019_inference_log_timings",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1792373456821,
+      "tag": "0020_login_timings",
+      "breakpoints": true
     }
   ]
 }

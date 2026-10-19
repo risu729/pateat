@@ -35,21 +35,22 @@ checks reports `token` alone. Parse it by metric name, as Cloudflare may add ent
 | `POST /v1/recipes/generate` | Generate or extend this origin's recipe from one login page observation |
 | `POST /v1/recipes/:recipeId/completion` | Judge the page after a recipe's final submission and learn its completion |
 | `POST /v1/recipes/:recipeId/outcome` | Keep how the first login of a revision ended, as result codes only; 204 |
+| `POST /v1/recipes/:recipeId/logins` | Keep one record of a login that ended: its result codes, extension build and times, with the recipe's origin; 204 |
 | `GET /v1/device` | The calling device's paired time, the owner's live recipe count and settings revision, and whether recipe generation would run now, for the diagnostics page |
 | `DELETE /v1/device` | Revoke the calling device's own credential |
 | `POST /pair` | Create a device for the signed-in owner from an allowed extension; 201 with the credential, once |
 | `GET /pair/signed-in` | The page the extension opens when pairing needs a sign-in; it asks the user to go back to Pateat's settings |
-| `GET /manage/dashboard`, `/manage`, `/manage/sites`, `/manage/sites/:scheme/:host`, `/manage/request-log` | Owner web UI (React app): the dashboard of request speed, counts, spend and failures; devices; the sites list with excluded sites, unreadable and revoked recipes; one origin's default account, recipes and bindings; the request log with Delete all |
+| `GET /manage/dashboard`, `/manage`, `/manage/sites`, `/manage/sites/:scheme/:host`, `/manage/request-log` | Owner web UI (React app): the dashboard of login and request speed, counts, spend and failures; devices; the sites list with excluded sites, unreadable and revoked recipes; one origin's default account, recipes and bindings; the request log with Delete all |
 | `GET /manage/assets/*` | The web UI's built script, styles and notices |
-| `GET /manage/api/dashboard?range=24h\|7d\|30d` | The dashboard's aggregates over the range ending now (default `7d`; another value is 400 `bad_request`), computed in the Worker from only the owner's rows: model, token, pre-model and server times per role, site and build (of requests that called the model; a request answered without a call counts only as a request and, unless its outcome is `recipe`, a failure), the median model time per UTC day (null on a day without one), the 10 slowest requests, counts, first-login results with how many signed in (in total and per day; only the first login with each recipe revision is reported), tokens, this UTC day's and month's spend with the limits, active recipes, recipes generated, and failures by code with their latest 20; every set of durations has `n`, and below 20 its values instead of a p90 |
+| `GET /manage/api/dashboard?range=24h\|7d\|30d` | The dashboard's aggregates over the range ending now (default `7d`; another value is 400 `bad_request`), computed in the Worker from only the owner's rows: login time (total less the person's) of the signed-in login records, apart for those that waited on the service, with the median of each part (network, the rest of the service, waiting for the site, the rest, and the person apart) and per site and extension build; model, token, pre-model and server times per role, site and build (of requests that called the model; a request answered without a call counts only as a request and, unless its outcome is `recipe`, a failure), the median login and model time per UTC day (null on a day without one), the 10 slowest requests, counts, every login's result with how many signed in (in total and per day), the first-login result codes apart, tokens, this UTC day's and month's spend with the limits, active recipes, recipes generated, and failures by code with their latest 20; every set of durations has `n`, and below 20 its values instead of a p90 |
 | `GET /manage/api/devices` | The owner's devices with their last use, newest first |
 | `POST /manage/api/devices/:deviceId/revoke` | Revoke one of the owner's devices; 204 |
 | `GET /manage/api/settings` | The settings `/v1/settings` serves; revision 0 before the first write; 404 `not_paired` without a paired device |
 | `PUT /manage/api/settings` | Replace them like `PUT /v1/settings`; `connections` must be empty and the document at most 120 KiB |
 | `GET /manage/api/recipes` | Every recipe head with its document, most recently changed first; active heads whose document no longer validates are listed apart in `unreadable` |
 | `POST /manage/api/recipes/:recipeId/revoke` | Revoke one recipe if `expectedRevision` is its head; otherwise 409 with the current head |
-| `GET /manage/api/request-log` | How many request log rows (`entries`) and login result codes (`outcomes`) the owner has, and the oldest one's time (`oldestAt`, null when none) |
-| `DELETE /manage/api/request-log` | Delete every request log row and login result code of the owner, and nothing else; answers how many (`deleted`, `outcomes`) |
+| `GET /manage/api/request-log` | How many request log rows (`entries`), login result codes (`outcomes`) and login records (`logins`) the owner has, and the oldest one's time (`oldestAt`, null when none) |
+| `DELETE /manage/api/request-log` | Delete every request log row, login result code and login record of the owner, and nothing else; answers how many (`deleted`, `outcomes`, `logins`) |
 | `GET /manage/claude` | Access page showing the Console values and the owner's WIF identifiers |
 | `POST /manage/claude` | Save the owner's four WIF identifiers |
 | `POST /manage/claude/test` | Exchange one assertion and show only the outcome, never the token |
@@ -447,6 +448,22 @@ owner, recipe, branch (empty without one), revision, the codes and the service's
 time; the first report of a revision is kept and any later one, from any device, is
 answered 204 and ignored. Its rows follow the request log's one-year retention (deleted
 with the expired log rows, also on each report) and its delete-all.
+
+`POST /v1/recipes/:recipeId/logins` takes `{ version: 1, revision, branch?, outcome,
+cause?, extensionBuild, totalMs, serviceMs, networkMs, personMs, pageMs }`: one login of
+that revision that ended
+([ADR 0055](../../docs/adr/0055-login-records-sent-to-the-service.md)). The codes are
+those of `/outcome`, `extensionBuild` a 7 to 40 digit commit or `development`, and the
+times whole milliseconds up to a day: `networkMs` is the part of `serviceMs` spent to
+and from this service, counted only for answers that named their `Server-Timing`
+`total`, and `pageMs` the time the login waited for the site; any other field (an
+origin, a URL, free text, `otherMs`) answers 400, a body over 1 KiB 413. A recipe the
+owner does not hold, a revision above its head, a revoked head's tombstone, or a recipe
+with no kept document (as after its revocation) answers 404. Each report is one
+`login_timings` row: the owner, recipe, branch (empty without one), revision, the
+recipe's `origin` read from the reported revision's document (or the newest kept one
+when that revision was pruned), the codes, the build, the times and the service's own
+time. Its rows follow the request log's one-year retention and its delete-all.
 
 ## Schema and tests
 

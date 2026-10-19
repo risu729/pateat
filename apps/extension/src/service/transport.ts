@@ -11,6 +11,7 @@ import {
   type EntryGenerationRequest,
   type EntryGenerationResult,
   type LoginOutcomeReport,
+  type LoginRecord,
   type RecipeCompletionRequest,
   type RecipeCompletionResult,
   type RecipeGenerationRequest,
@@ -161,9 +162,9 @@ export type InferenceResult<T> = (
   Timed;
 
 /**
- * `POST /v1/recipes/:recipeId/outcome`'s answer: `kept` for a 204 (a repeat is one too),
- * `refused` for any other answer below 500 the service gives a request it will never take,
- * such as a recipe it does not hold.
+ * `POST /v1/recipes/:recipeId/outcome`'s and `/logins`' answer: `kept` for a 204 (a repeat
+ * outcome is one too), `refused` for any other answer below 500 the service gives a request
+ * it will never take, such as a recipe it does not hold.
  */
 export type OutcomeResult =
   | { kind: "kept" }
@@ -214,6 +215,16 @@ export interface ServiceTransport {
     credential: string,
     recipeId: string,
     report: LoginOutcomeReport,
+  ): Promise<OutcomeResult>;
+  /**
+   * `POST /v1/recipes/:recipeId/logins`: one ended login's result code and times, without
+   * its site or any value (ADR 0055).
+   */
+  reportLogin(
+    origin: string,
+    credential: string,
+    recipeId: string,
+    record: LoginRecord,
   ): Promise<OutcomeResult>;
   /** `POST /v1/recipes/:recipeId/completion`: the page after a recipe's final submission. */
   judgeCompletion(
@@ -508,23 +519,16 @@ export function createServiceTransport(
         entryGenerationResultSchema,
       );
     },
-    async reportOutcome(origin, credential, recipeId, report) {
-      const response = await call(
+    reportOutcome(origin, credential, recipeId, report) {
+      return post(
         origin,
+        credential,
         `/v1/recipes/${encodeURIComponent(recipeId)}/outcome`,
-        {
-          method: "POST",
-          headers: { Authorization: `Bearer ${credential}`, "Content-Type": "application/json" },
-          body: JSON.stringify(report),
-        },
-        { timeout: Math.min(timeoutMs, DEVICE_TIMEOUT_MS) },
+        report,
       );
-      if ("failed" in response) return { kind: "failed", error: response.failed };
-      if (response.status === 204) return { kind: "kept" };
-      if (rejected(response)) return { kind: "rejected" };
-      if (response.status === 429) return { kind: "failed", error: "rate-limited" };
-      if (response.status >= 400 && response.status < 500) return { kind: "refused" };
-      return { kind: "failed", error: "unexpected-response" };
+    },
+    reportLogin(origin, credential, recipeId, record) {
+      return post(origin, credential, `/v1/recipes/${encodeURIComponent(recipeId)}/logins`, record);
     },
     judgeCompletion(origin, credential, recipeId, request) {
       return infer(
@@ -536,6 +540,31 @@ export function createServiceTransport(
       );
     },
   };
+
+  /** A small report the service answers with 204 and no body. */
+  async function post(
+    origin: string,
+    credential: string,
+    path: string,
+    body: unknown,
+  ): Promise<OutcomeResult> {
+    const response = await call(
+      origin,
+      path,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${credential}`, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+      { timeout: Math.min(timeoutMs, DEVICE_TIMEOUT_MS) },
+    );
+    if ("failed" in response) return { kind: "failed", error: response.failed };
+    if (response.status === 204) return { kind: "kept" };
+    if (rejected(response)) return { kind: "rejected" };
+    if (response.status === 429) return { kind: "failed", error: "rate-limited" };
+    if (response.status >= 400 && response.status < 500) return { kind: "refused" };
+    return { kind: "failed", error: "unexpected-response" };
+  }
 
   async function infer<T>(
     origin: string,

@@ -50,6 +50,40 @@ test("is the first section and shows speed, stats and failures for 7 days", asyn
   expect(client.dashboard).toHaveBeenCalledWith("7d");
   await expect.element(page.getByRole("radio", { name: "7 days" })).toBeChecked();
 
+  // Login speed comes first: signed-in logins less the person's time, apart for those that
+  // waited on the service.
+  const speed = page.getByRole("region", { name: "Speed" });
+  await expect
+    .element(speed.getByRole("heading", { level: 3 }).first())
+    .toHaveTextContent("Logins");
+  await expect
+    .element(page.getByText("5 of 51 signed-in logins (10%) waited on the service."))
+    .toBeVisible();
+  const waited = page.getByRole("region", { name: "Waited on the service · login time" });
+  await expect.element(waited).toMatchTextContent("p50 10.4 s · n 5");
+  await expect.element(waited).toMatchTextContent("Values: 8.1 s, 9.8 s");
+  const recipeOnly = page.getByRole("region", { name: "Recipe only · login time" });
+  await expect.element(recipeOnly).toMatchTextContent("p50 3.7 s · p90 6.9 s · n 46");
+  const loginParts = page.getByRole("table", { name: "Median login time by part" });
+  await expect
+    .element(loginParts.getByRole("row").nth(1))
+    .toMatchTextContent("Waited on the service420 ms8.9 s1.1 s400 ms0 ms5");
+  await expect.element(loginParts).toMatchTextContent("Waiting for the site");
+  const loginTrend = page.getByRole("table", { name: /^Median login time by UTC day/ });
+  await expect
+    .element(
+      loginTrend.getByRole("row", {
+        name: new RegExp(`^${syntheticDashboard(NOW).daily[2]!.day}`),
+      }),
+    )
+    .toMatchTextContent(`${syntheticDashboard(NOW).daily[2]!.day}–00`);
+  const loginSites = page.getByRole("table", { name: /^Logins per site/ });
+  await expect
+    .element(loginSites.getByRole("row", { name: /^https:\/\/bank\.example/ }))
+    .toMatchTextContent("14125.6 s · n 12");
+  const loginBuilds = page.getByRole("table", { name: /^Logins per extension build/ });
+  await expect.element(loginBuilds).toMatchTextContent("8f3a754");
+
   // Below 20 values the values are listed; from 20 the p90 is shown.
   const generate = page.getByRole("region", { name: "Generate · model time" });
   await expect.element(generate).toMatchTextContent("p50 9.4 s · n 12");
@@ -78,7 +112,7 @@ test("is the first section and shows speed, stats and failures for 7 days", asyn
       () => document.querySelectorAll('[data-slot="chart"] .recharts-responsive-container').length,
       { timeout: 10_000 },
     )
-    .toBe(2);
+    .toBe(4);
   for (const chart of document.querySelectorAll('[data-slot="chart"]'))
     expect(chart.getAttribute("aria-hidden")).toBe("true");
 
@@ -99,15 +133,25 @@ test("is the first section and shows speed, stats and failures for 7 days", asyn
   await expect.element(page.getByText("$0.42 of $5.00")).toBeVisible();
   await expect.element(page.getByText("$7.35 of $100.00")).toBeVisible();
   await expect.element(page.getByText("280,920 / 24,630")).toBeVisible();
-  await expect.element(page.getByText("9 of 12 (75%)")).toBeVisible();
-  const loginDays = page.getByRole("table", { name: /^First logins by UTC day/ });
+  // Every login counts in the stats; the first logins are counted apart.
+  await expect.element(page.getByText("51 of 55 (93%)")).toBeVisible();
+  const loginDays = page.getByRole("table", { name: /^Logins by UTC day/ });
   // Days without a login are left out.
-  await expect.poll(() => loginDays.getByRole("row").elements().length).toBe(7);
+  await expect.poll(() => loginDays.getByRole("row").elements().length).toBe(8);
+  await expect
+    .element(page.getByRole("heading", { name: "First login with each recipe version" }))
+    .toBeVisible();
+  await expect.element(page.getByText("3 of 4 (75%)")).toBeVisible();
+  await expect
+    .element(
+      page.getByRole("table", { name: "How the first login with each recipe version ended" }),
+    )
+    .toBeVisible();
 
-  // Failure groups open to their latest rows; a login without a known site shows its recipe.
+  // Failure groups open to their latest rows; a login's site is the one its record holds.
   const failures = page.getByRole("region", { name: "Failures" });
   const unknownSubmit = failures.getByRole("listitem").filter({ hasText: "unknown-submit" });
-  await expect.element(unknownSubmit).toMatchTextContent("gen-gone");
+  await expect.element(unknownSubmit).toMatchTextContent("https://shop.example");
   const abstained = failures.getByRole("listitem").filter({ hasText: "abstained" });
   await expect.element(abstained.getByRole("group")).not.toHaveAttribute("open");
   await abstained.getByText("abstained", { exact: true }).click();

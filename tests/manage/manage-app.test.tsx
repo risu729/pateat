@@ -43,7 +43,13 @@ function devices(revokedAt: number | null = null): ManageDevices {
 
 function mockClient(initial = devices()) {
   let current = initial;
-  let logged: ManageRequestLog = { version: 1, entries: 3, outcomes: 1, oldestAt: PAIRED };
+  let logged: ManageRequestLog = {
+    version: 1,
+    entries: 3,
+    outcomes: 1,
+    logins: 12,
+    oldestAt: PAIRED,
+  };
   return {
     dashboard: vi.fn<ManageClient["dashboard"]>(),
     devices: vi.fn<ManageClient["devices"]>(async () => structuredClone(current)),
@@ -69,9 +75,9 @@ function mockClient(initial = devices()) {
     revokeRecipe: vi.fn<ManageClient["revokeRecipe"]>(),
     requestLog: vi.fn<ManageClient["requestLog"]>(async () => structuredClone(logged)),
     deleteRequestLog: vi.fn<ManageClient["deleteRequestLog"]>(async () => {
-      const { entries: deleted, outcomes } = logged;
-      logged = { version: 1, entries: 0, outcomes: 0, oldestAt: null };
-      return { version: 1, deleted, outcomes };
+      const { entries: deleted, outcomes, logins } = logged;
+      logged = { version: 1, entries: 0, outcomes: 0, logins: 0, oldestAt: null };
+      return { version: 1, deleted, outcomes, logins };
     }),
   } satisfies ManageClient;
 }
@@ -213,16 +219,24 @@ test("deletes the whole request log after a confirmation", async () => {
     .element(page.getByRole("link", { name: "Request log" }))
     .toHaveAttribute("aria-current", "page");
   await expect
-    .element(page.getByText(`3 requests and 1 login result logged since ${formatted(PAIRED)}.`))
+    .element(
+      page.getByText(
+        `3 requests, 1 first login result, and 12 login records logged since ${formatted(PAIRED)}.`,
+      ),
+    )
     .toBeVisible();
   await expect
-    .element(page.getByText("Each request and login result is kept for 365 days"))
+    .element(page.getByText("Each request, login result and login record is kept for 365 days"))
     .toBeVisible();
 
   // Cancelling asks nothing of the service and gives the button back.
   await page.getByRole("button", { name: "Delete all" }).click();
   await expect
-    .element(page.getByText("Delete all 3 requests and 1 login result? This cannot be undone."))
+    .element(
+      page.getByText(
+        "Delete all 3 requests, 1 first login result, and 12 login records? This cannot be undone.",
+      ),
+    )
     .toBeVisible();
   await expect.element(page.getByRole("button", { name: "Confirm" })).toHaveFocus();
   await page.getByRole("button", { name: "Cancel" }).click();
@@ -234,21 +248,31 @@ test("deletes the whole request log after a confirmation", async () => {
   expect(client.deleteRequestLog).toHaveBeenCalledTimes(1);
   await expect
     .element(page.getByRole("status"))
-    .toHaveTextContent("3 requests and 1 login result deleted");
+    .toHaveTextContent("3 requests, 1 first login result, and 12 login records deleted");
   await expect.element(page.getByText("No requests are logged.")).toBeVisible();
   await expect.element(page.getByRole("button", { name: "Delete all" })).toBeDisabled();
 });
 
-test("names only the login results when no request is logged", async () => {
+test("names only the login results and records when no request is logged", async () => {
   const client = mockClient();
-  client.requestLog.mockResolvedValue({ version: 1, entries: 0, outcomes: 2, oldestAt: PAIRED });
+  client.requestLog.mockResolvedValue({
+    version: 1,
+    entries: 0,
+    outcomes: 2,
+    logins: 1,
+    oldestAt: PAIRED,
+  });
   await mount(client, "/manage/request-log");
   await expect
-    .element(page.getByText(`2 login results logged since ${formatted(PAIRED)}.`))
+    .element(
+      page.getByText(`2 first login results and 1 login record logged since ${formatted(PAIRED)}.`),
+    )
     .toBeVisible();
   await page.getByRole("button", { name: "Delete all" }).click();
   await expect
-    .element(page.getByText("Delete all 2 login results? This cannot be undone."))
+    .element(
+      page.getByText("Delete all 2 first login results and 1 login record? This cannot be undone."),
+    )
     .toBeVisible();
 });
 
@@ -261,7 +285,9 @@ test("reports a failed deletion and keeps the log shown", async () => {
   await expect
     .element(page.getByRole("alert"))
     .toHaveTextContent("Too many requests in the last minute. Wait a minute and try again.");
-  await expect.element(page.getByText(/^3 requests and 1 login result logged since/)).toBeVisible();
+  await expect
+    .element(page.getByText(/^3 requests, 1 first login result, and 12 login records logged since/))
+    .toBeVisible();
   await expect.element(page.getByRole("button", { name: "Delete all" })).toHaveFocus();
 });
 
@@ -295,8 +321,13 @@ test("the client sends same-origin requests and validates answers", async () => 
     redirect: "error",
   });
 
-  fetcher.mockResolvedValueOnce(Response.json({ version: 1, deleted: 2, outcomes: 1 }));
-  expect(await client.deleteRequestLog()).toEqual({ version: 1, deleted: 2, outcomes: 1 });
+  fetcher.mockResolvedValueOnce(Response.json({ version: 1, deleted: 2, outcomes: 1, logins: 3 }));
+  expect(await client.deleteRequestLog()).toEqual({
+    version: 1,
+    deleted: 2,
+    outcomes: 1,
+    logins: 3,
+  });
   expect(fetcher).toHaveBeenLastCalledWith("/manage/api/request-log", {
     method: "DELETE",
     credentials: "same-origin",

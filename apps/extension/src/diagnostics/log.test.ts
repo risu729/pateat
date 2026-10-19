@@ -297,6 +297,43 @@ describe("diagnostics log", () => {
     vi.restoreAllMocks();
   });
 
+  it("logs each login record sent to the service as codes (ADR 0055)", async () => {
+    const log = createDiagnosticsLog({
+      build: { version: "0.1.0", revision: "1c42ad3" },
+      settings: async () => {
+        throw new Error("not needed");
+      },
+      recipeCache: async () => undefined,
+      connections: async () => ({ ok: true, kind: "status", connections: [] }),
+      databaseName: `log-test-${crypto.randomUUID()}`,
+      scope: { addEventListener: () => undefined } as never,
+    });
+    for (const level of ["debug", "info", "warn"] as const)
+      vi.spyOn(console, level).mockImplementation(() => undefined);
+    log.loginRecord({ recipeId: "gen-0123", revision: 3, result: "kept" });
+    log.loginRecord({ recipeId: "gen-0123", revision: 3, branch: "other", result: "refused" });
+    log.loginRecord({ recipeId: "gen-0123", revision: 4, result: "failed:invalid-record" });
+    await vi.waitFor(async () =>
+      expect(
+        (await log.logger.entries()).filter((entry) => entry.event === "service.login"),
+      ).toHaveLength(3),
+    );
+    const entries = (await log.logger.entries()).filter((entry) => entry.event === "service.login");
+    expect(entries.map(({ level, fields }) => ({ level, fields }))).toEqual([
+      { level: "info", fields: { recipe: "gen-0123", recipeRevision: 3, result: "kept" } },
+      // A service without the route refuses it; that is expected, not a problem.
+      {
+        level: "info",
+        fields: { recipe: "gen-0123", recipeRevision: 3, branch: "other", result: "refused" },
+      },
+      {
+        level: "warn",
+        fields: { recipe: "gen-0123", recipeRevision: 4, result: "failed:invalid-record" },
+      },
+    ]);
+    vi.restoreAllMocks();
+  });
+
   it("logs how long service requests and an ended login took (ADR 0019)", async () => {
     const log = createDiagnosticsLog({
       build: { version: "0.1.0", revision: "1c42ad3" },
@@ -347,7 +384,14 @@ describe("diagnostics log", () => {
       stepIndex: 2,
       stepCount: 2,
       outcome: "authenticated",
-      times: { totalMs: 9_000, serviceMs: 2_600, networkMs: 200, personMs: 4_000, otherMs: 2_400 },
+      times: {
+        totalMs: 9_000,
+        serviceMs: 2_600,
+        networkMs: 200,
+        personMs: 4_000,
+        pageMs: 1_500,
+        otherMs: 900,
+      },
     });
     const events = ["service.sync", "recipe.generate", "recipe.judge", "login.attempt"];
     await vi.waitFor(async () =>
@@ -378,7 +422,8 @@ describe("diagnostics log", () => {
       serviceMs: 2_600,
       networkMs: 200,
       personMs: 4_000,
-      otherMs: 2_400,
+      pageMs: 1_500,
+      otherMs: 900,
     });
     vi.restoreAllMocks();
   });

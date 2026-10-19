@@ -1334,7 +1334,9 @@ origin without a confirmed sign-in ends it the same way where it stopped, not
 `policy-changed` only when they no longer allow its account on the page; otherwise the
 watch takes over their revision, since it only reads, so another site's saved account
 choice does not end it. A login in a frame and the `passkey` route still end `challenge`
-at once. The attempt store is `pateat.login-attempts.v4`.
+at once. The attempt store is `pateat.login-attempts.v5` since the login's site time
+(2026-10-18); a previous store is left unread, as one record that no longer parses would
+stop the whole store from loading.
 
 Chrome use coordination is an open integration gate. Expose a scoped status
 contract for a future trusted consumer, but do not assume Chrome use already
@@ -1593,8 +1595,9 @@ kind's check is left out and a string over 512 characters becomes `"[truncated]"
 | `vault.refresh` | debug for `refreshed`, info for `not-sent`, else warn | connection pseudonym; `not-sent` when no usable session was refreshed and no refresh was sent, with why: `no-session`, `no-refresh-token`, `claimed` (another refresh in this worker holds it), `provider-permission-required`, `cancelled` or the store's error code; `refreshed`, `restored` (the session was put back after a network failure, timeout, 429 or 5xx), `rejected`, `account-mismatch` or `failed` (a non-retryable error drops the claim's refresh token so the sync sign-in needs the password; a store error leaves the claim to resume; a conflict means forget or a password sign-in replaced it); the transport or store error code and HTTP status when there is one |
 | `service.sync` | debug for `synced`, `incomplete`, `not-connected` unless a recipe was added, updated or removed, then info; info for `unreachable`, since a device offline for a while would otherwise fill the warnings, and `busy` (a settings write that waits for a login, a sync superseded by a later one, or attempts that ran out); else warn | recipe and settings sync outcome; `full`, or `recipes` for a recipes-only run after a judged page; recipes added, updated and removed in the cache; how long the run's requests took, added up ([timing](#request-and-login-timing)): `roundTripMs`, and `serverMs` and `networkMs` when every answer named the service's time |
 | `service.outcome` | info for `kept` and `failed:unreachable`, else warn | recipe ID and revision (`recipeRevision`), the chooser branch, and the result of one [first login result](#first-login-results-on-the-service) request: `kept`, `refused`, `rejected` or `failed:<code>` |
+| `service.login` | info for `kept`, `refused` and `failed:unreachable`, else warn | recipe ID and revision (`recipeRevision`), the chooser branch, and the result of one [login record](#login-records-on-the-service) request: `kept`, `refused`, `rejected` or `failed:<code>`, or `failed:invalid-record` for a record the contract refuses, which is not sent |
 | `settings.changed` | info | `synced` (a settings sync wrote local settings) or `saved` (the settings page); the settings revision when the entry is written. Running logins and passkey requests stop; a watched login stops only if the new settings no longer allow its account |
-| `login.attempt` | debug when a new page resumes the attempt without changing its state or outcome; otherwise info for `authenticated` and `retryable`, for a route change and for the end of a fill-only login after a logout, warn for other `blocked`, for `watching` and when the result settles as unknown (`unknown-submit`, marked `settled`), so a login that did not finish counts as a warning, info for `document-gone` with a reason other than `no-receiver` and for `captcha-shown`, else debug | origin, recipe ID and revision (`recipeRevision`), route and `password` variant, state, step, step count, the current step's kind (`fill`, `click`, `wait`, `assert`) and effect (`prepare`, `advance`, `submit`), the entered handler the step belongs to, outcome (`challenge-abandoned` or `watch-abandoned` when a watched login's first step showed again before it signed in, [ADR 0027](adr/0027-per-account-login-routes.md#watching-after-a-challenge)); for `policy-changed`, its cause and a refused plan's reason; else `fill-only` as the reason for a login that only fills the form after a logout (ADR 0021 D); `routeChange` when the login changed route ([ADR 0034](adr/0034-answer-page-passkey-requests.md)): `page-request` (to the `passkey` route, because the page asked for a passkey), or back to the `password` route as `request-missing`, `answer-failed`, `sign-in-rejected` or `sign-in-shown`; `stop` (`password`) on every entry of a login that stops before its item's missing password, also one whose stop lies just past its route's last step, and `password-empty` as the reason when it ends `challenge` at that stop, or `password-empty:<why>` (such as `password-empty:fills-lacking`) when a continuation of a stop past the plan's last step could not take the stop over ([ADR 0036](adr/0036-passkey-after-the-identifier.md)); the item's lack of a password shows as the `no-route` detail does, never a value. A result that settles as unknown (`unknown-submit`) on a page that still shows a sign-in element of the route, with no failure that acted (S1, [ADR 0029](adr/0029-local-sign-in-state.md)), names `sign-in-shown` as its `cause`. A login that failed or was cancelled names its `cause` when one is known (a plain wait timeout or a cancel without a reason has none): the step's elements did not show in time (`elements-timeout`), a code page neither submitted the code nor took the click (`code-not-submitted`), no operation could be built (`no-operation`), the login's item could not answer the page's passkey request (`answer-failed`), the operation no longer validated (`operation-invalid`), a field had no vault binding (`slot-unbound`), the page did not answer or its answer failed its check (`no-answer`), a code page said it submitted the code itself but no check confirmed it (`page-submitted`), the page showed a CAPTCHA, so the click was left to the person and the attempt waits in `awaiting-result` (`captcha-shown`), the document stopped answering, as when a submit replaced it, so the attempt waits in `reconciling` for the next document to resume it (`document-gone`, with what the browser said as the reason: `no-receiver` when no listener was left or the page went into the back/forward cache, logged at debug as a submit's usual navigation, else `port-closed` when the listener did not answer or `send-failed`, logged at info as they may hide a fault), or the page's own reason: the worker did not authorize the step (`not-authorized`), the document was cancelled (`document-cancelled`), the operation was used (`operation-used`) or expired (`operation-expired`), the page moved to another path (`page-changed`, also with a `timeout` outcome when the wait ended on another path), a field changed under the fill (`field-changed`), the step threw (`threw`), the form was replaced (`form-replaced`), the target is missing or not writable, or a `password` handler's button no longer names the password at the press ([ADR 0048](adr/0048-password-method-button.md)) (`target-missing`), the form changed before a click (`form-changed`), an `assert` did not hold (`assert-failed`), the step was sent values it does not fill (`unexpected-values`), its fields are in different forms (`fields-split`), an input refused its secret (`secret-refused`), the page's inputs have no value setter (`unsupported-input`), a code field's submission watch could not start (`code-watch-failed`), the form or the clicked button would send the form off the document's origin to a destination the background did not allow (`form-off-origin`), or the background could not decide that now (`form-destination-unchecked`, [ADR 0051](adr/0051-form-destinations-by-item-uri-match.md)); `unconfirmed` for an undecided completion without a confirmed sign-in (ADR 0029); on the entry where a login ends signed in or blocked (a watched login when its watch ends), how long it took: `totalMs`, `serviceMs`, `networkMs`, `personMs` and `otherMs` ([timing](#request-and-login-timing)) |
+| `login.attempt` | debug when a new page resumes the attempt without changing its state or outcome; otherwise info for `authenticated` and `retryable`, for a route change and for the end of a fill-only login after a logout, warn for other `blocked`, for `watching` and when the result settles as unknown (`unknown-submit`, marked `settled`), so a login that did not finish counts as a warning, info for `document-gone` with a reason other than `no-receiver` and for `captcha-shown`, else debug | origin, recipe ID and revision (`recipeRevision`), route and `password` variant, state, step, step count, the current step's kind (`fill`, `click`, `wait`, `assert`) and effect (`prepare`, `advance`, `submit`), the entered handler the step belongs to, outcome (`challenge-abandoned` or `watch-abandoned` when a watched login's first step showed again before it signed in, [ADR 0027](adr/0027-per-account-login-routes.md#watching-after-a-challenge)); for `policy-changed`, its cause and a refused plan's reason; else `fill-only` as the reason for a login that only fills the form after a logout (ADR 0021 D); `routeChange` when the login changed route ([ADR 0034](adr/0034-answer-page-passkey-requests.md)): `page-request` (to the `passkey` route, because the page asked for a passkey), or back to the `password` route as `request-missing`, `answer-failed`, `sign-in-rejected` or `sign-in-shown`; `stop` (`password`) on every entry of a login that stops before its item's missing password, also one whose stop lies just past its route's last step, and `password-empty` as the reason when it ends `challenge` at that stop, or `password-empty:<why>` (such as `password-empty:fills-lacking`) when a continuation of a stop past the plan's last step could not take the stop over ([ADR 0036](adr/0036-passkey-after-the-identifier.md)); the item's lack of a password shows as the `no-route` detail does, never a value. A result that settles as unknown (`unknown-submit`) on a page that still shows a sign-in element of the route, with no failure that acted (S1, [ADR 0029](adr/0029-local-sign-in-state.md)), names `sign-in-shown` as its `cause`. A login that failed or was cancelled names its `cause` when one is known (a plain wait timeout or a cancel without a reason has none): the step's elements did not show in time (`elements-timeout`), a code page neither submitted the code nor took the click (`code-not-submitted`), no operation could be built (`no-operation`), the login's item could not answer the page's passkey request (`answer-failed`), the operation no longer validated (`operation-invalid`), a field had no vault binding (`slot-unbound`), the page did not answer or its answer failed its check (`no-answer`), a code page said it submitted the code itself but no check confirmed it (`page-submitted`), the page showed a CAPTCHA, so the click was left to the person and the attempt waits in `awaiting-result` (`captcha-shown`), the document stopped answering, as when a submit replaced it, so the attempt waits in `reconciling` for the next document to resume it (`document-gone`, with what the browser said as the reason: `no-receiver` when no listener was left or the page went into the back/forward cache, logged at debug as a submit's usual navigation, else `port-closed` when the listener did not answer or `send-failed`, logged at info as they may hide a fault), or the page's own reason: the worker did not authorize the step (`not-authorized`), the document was cancelled (`document-cancelled`), the operation was used (`operation-used`) or expired (`operation-expired`), the page moved to another path (`page-changed`, also with a `timeout` outcome when the wait ended on another path), a field changed under the fill (`field-changed`), the step threw (`threw`), the form was replaced (`form-replaced`), the target is missing or not writable, or a `password` handler's button no longer names the password at the press ([ADR 0048](adr/0048-password-method-button.md)) (`target-missing`), the form changed before a click (`form-changed`), an `assert` did not hold (`assert-failed`), the step was sent values it does not fill (`unexpected-values`), its fields are in different forms (`fields-split`), an input refused its secret (`secret-refused`), the page's inputs have no value setter (`unsupported-input`), a code field's submission watch could not start (`code-watch-failed`), the form or the clicked button would send the form off the document's origin to a destination the background did not allow (`form-off-origin`), or the background could not decide that now (`form-destination-unchecked`, [ADR 0051](adr/0051-form-destinations-by-item-uri-match.md)); `unconfirmed` for an undecided completion without a confirmed sign-in (ADR 0029); on the entry where a login ends signed in or blocked (a watched login when its watch ends), how long it took: `totalMs`, `serviceMs`, `networkMs`, `personMs`, `pageMs` and `otherMs` ([timing](#request-and-login-timing)) |
 | `login.handler` | info | origin, recipe ID and revision (`recipeRevision`), handler index, kind (`passkey`, `password` or `totp`), step count; `entered`, `shown-again` (left to the person after this login ran it), `missing-fact` (the item lacks what the handler needs, including a `totp` handler's built-in TOTP field), `code-used` (a `totp` handler in a login that already types a TOTP code) or `no-room` (the attempt's step or submission budget is spent) |
 | `login.entry` | info for `pressed` and for the first `refused` of each reason on a document, debug for `refused` with `no-return-target` or `in-progress` and for a reason the document already logged, warn for `blocked` ([ADR 0019](adr/0019-local-diagnostics-and-logs.md#amendment-what-the-log-records)'s levels) | a site's sign-in entry ([ADR 0031](adr/0031-sign-in-entry-pages.md)): origin, recipe ID and revision (`recipeRevision`) and outcome. `pressed` when the document answered that it clicked the link. `refused` with the check before the press that failed: `frame`, `storage-unavailable`, `blocked` (the revision is blocked on this device), `tab-unavailable` (the tab could not be read), `page-changed`, `recipe-changed`, `no-return-target` (the URL names no other path of the site), `no-site`, `site-record` (the tab ran a login of the site), `site-held` (another tab's login holds it), `logged-out` (a tab keeps a logout of it), `logout-clicked` (a control that logs out was clicked on the site in this tab, ADR 0021 D), `press-limit` (the tab pressed an entry in the last 10 minutes), `settings-unavailable`, `site-excluded`, `destination-excluded`, `no-vault-match`, `in-progress` (another document of the tab is being pressed), `no-answer`, `target-missing`, `target-ambiguous`, the element's refusal (`not-link`, `script-link`, `hidden`, `no-text`, `new-window`, `download`), the `href`'s (`link-not-https`, `link-off-site`, `link-query-off-site`, `link-same-page`), `target-changed`, `cancelled`, `unconfirmed` (the document never answered the press, which still counts against the tab's limit) or `exception`. `blocked` with why the page after the press blocked the revision: `left-site`, `no-sign-in` or `sign-up`, and the detail `storage-unavailable` when the block holds in this worker only |
 | `login.state` | debug for a later page of an attempt that already settled as unknown, else info | origin, recipe ID and revision (`recipeRevision`), route; the page signs of [ADR 0029](adr/0029-local-sign-in-state.md) that show, as flags: a sign-in element of the route (`s1`), a password input not for a new password and not in a form with two or more shown password inputs (`s2`), a code input (`s3`), a CAPTCHA widget (`s4`), a passkey request of the top document after the step, outside conditional mediation (`s5`), a new invalid mark on the step's sign-in inputs (`f1`) or new alert text, read as the fill check reads it (`f2`), next to the sign-in fields in the submitted document, or, with `reshown`, any invalid mark on the route's sign-in inputs or any text of an alert next to the form in the first new top document after a password submission, within 30 seconds of it, that shows the sign-in form again, a signed-in marker on any path (`e1`), the username in the header or navigation (`e2`), the return target the sign-in page's URL named (`e3`); and what the ADR would do (`rejected`, `unknown`, `continuing`, `signed-in`, `judge`); `settled` for a later page of an attempt that already settled as unknown; `reshown` when S1 holds in the first new top document after the attempt's password submission, announced within 30 seconds of it, where `rejected` needs no CAPTCHA (`s4`) and also ends a watched login. When S1 holds without `reshown`, `reshownMiss` says why: no effect step of the attempt is known (`no-effect`, as after a worker restart), the last one asked for a passkey (`passkey-step`) or did not submit (`not-submit`, as an `advance`), the page is the document the step ran in (`same-document`), no other top document came within 30 seconds of the step (`late`), or the page is a later document than the first one that did (`later-document`). With `reshown` and no F2, `alertMiss` says why no alert next to the form counted: none outside the sign-in inputs shows text (`no-alert`), none of the route's sign-in elements is a single shown writable input (`no-input`), or the first rule failed by the region closest to counting: its nearest common container with the form is the body or the root (`body`), or holds page chrome (`chrome`), another form that asks for input (`other-form`) or the main area (`main`). Both are codes only, never page text. Logged for a page after an effect step that no check explained, before the judge is asked. On the `password` route a `signed-in` page is read again a second later, and a second apart while it loads (at most ten times), and the last reading is the one logged; the other decisions but `unknown` are read again the same way, and so is an `unknown` reading of the sign-in form shown again with its password input and no other sign, before the tab asks again (ADR 0021 D). A confirmed `signed-in` completes the login without the judge and a confirmed `rejected` ends it `credential-rejected`; the rest go to the judge as described above (ADR 0029). E1 reads the recipe's signed-in markers as the completion check does: a marker counts on any path, but not while one of its `absent` elements is there, even hidden. A login in a frame is not read |
@@ -1682,38 +1685,55 @@ and RP ID becomes `site-N` and every recipe ID `recipe-N`, numbered within that 
 
 Status: implemented and tested locally
 ([ADR 0019](adr/0019-local-diagnostics-and-logs.md#amendment-2026-10-18-how-long-requests-and-logins-take)).
-Durations are whole milliseconds and stay in the local log.
+Durations are whole milliseconds. They stay in the local log, except a login's times,
+which its [login record](#login-records-on-the-service) also sends to the service.
 
 - Each generation, judgement and sync request
   (`apps/extension/src/service/transport.ts`) is timed from just before it is sent until
   its body is read (`roundTripMs`). The answer's `Server-Timing` header gives the
   service's `total` (`serverMs`), and for generation and judgement its `token` and
   `model` metrics (`tokenMs`, `modelMs`), read by name among other entries such as
-  Cloudflare's. `networkMs` is the round trip less `serverMs`, never below 0. Without
-  the header, as on an edge error page or a request that got no answer, only
+  Cloudflare's. `networkMs` is the round trip less `serverMs`, never below 0: the time
+  to and from the Pateat service only (the network both ways, the Worker's start and the
+  body's transfer), never a site's. Without the header, as on an edge error page, a
+  request that got no answer or a service deployed before it sent the header, only
   `roundTripMs` is known. A header duration that is not finite or is longer than a day
   is ignored.
-- A login attempt keeps `timing` in its record (`pateat.login-attempts.v4`): since when
+- A login attempt keeps `timing` in its record (`pateat.login-attempts.v5`): since when
   the extension saw the page that started it, or the sign-in entry pressed just before
-  it, and the service, network and person time so far, with a running wait for the
-  person as a stamp. The time stored with the record outlives a worker restart; service
-  time is written with the attempt's next change, and a page's time before its login
-  is kept in memory only, so a worker that stops first loses it. Time spent before the
-  attempt existed, such as the first page's generation and an account picked in the
-  popup, is carried into it once: a later login of the same page counts from when the
-  one before it started. A page that waited for a locked vault starts again once it
-  can read it.
+  it, and the service, network, person and site time so far, with a running wait for the
+  person or the site as a stamp. The time stored with the record outlives a worker
+  restart; service time is written with the attempt's next change, and a page's time
+  before its login is kept in memory only, so a worker that stops first loses it. Time
+  spent before the attempt existed, such as the first page's generation and an account
+  picked in the popup, is carried into it once: a later login of the same page counts
+  from when the one before it started. A page that waited for a locked vault starts
+  again once it can read it.
 - `serviceMs` is the time spent waiting for generation (with the recipe sync that
   follows a generated answer) and judgement; `networkMs` the network part of those
-  requests that named the service's time. `personMs` is a watched login's time, also
-  one whose result settled as unknown, which includes the site's answer to the code the
-  person sent, a click left to the person
-  under a CAPTCHA until its button is gone or the page changes, and an account pick in
-  the popup, also for a fill-only login after a logout. Service time during the
-  person's wait counts only as service time. `otherMs` is `totalMs` less the service
-  and person time, never below 0, as when overlapping requests add up to more than the
-  time that passed: page loads, Pateat's own waits, filling and clicking. A watch that
-  ran out ends when it ran out, however much later a page notices it.
+  requests that named the service's time. A request without the service's time adds
+  nothing to `networkMs`, so it is a lower bound, and 0 when no answer named it, as from
+  a service without the header; 0 does not mean the network took no time. `personMs` is
+  a watched login's time, also one whose result settled as unknown, which includes the
+  site's answer to the code the person sent, a click left to the person under a CAPTCHA
+  until its button is gone or the page changes, and an account pick in the popup, also
+  for a fill-only login after a logout. Service time during the person's wait counts
+  only as service time. `pageMs` is the time waiting for the site: while the attempt
+  waits in `awaiting-result` or `reconciling` for the result of what may have changed
+  the page (a click, a fill that may submit, a page that submitted a code itself, a
+  passkey answer, or a new page of the tab), until the login read the result in the same
+  page or the next one, a page load included; and from a sign-in entry press until the
+  next page was seen. It never runs while the person is waited for or after the login's
+  result settled as unknown, watched or not (a login in a frame or on the `passkey`
+  route then only waits for a later page), and service time during it, as a judged page,
+  counts only as service time. When the person presses a held CAPTCHA button, the end of
+  their wait and the start of the site's are stored with the attempt's next change; a
+  worker that stops in between counts that gap as the person's. `otherMs` is `totalMs`
+  less the service, person and site time, never below 0, as when overlapping requests
+  add up to more than the time that passed: Pateat's own work and waits, such as reading
+  pages, waiting for a step's elements before it runs, filling and clicking. `pageMs` is
+  cut so the parts never add up to more than `totalMs`. A watch that ran out ends when
+  it ran out, however much later a page notices it.
 - How long a fill or typing took is never recorded, since values are typed one
   character at a time ([ADR 0012](adr/0012-inference-request-log.md)).
 
@@ -1721,18 +1741,21 @@ Durations are whole milliseconds and stay in the local log.
 
 Status: the owner's decision of 2026-10-18 (06:08 UTC,
 [ADR 0019](adr/0019-local-diagnostics-and-logs.md#amendment-2026-10-18-first-login-results-for-evaluation));
-implemented and tested locally, not deployed. The log stays on the device; this is the
-one thing that leaves it. When a login on a service recipe revision first ends on this
-device, signed in or blocked, or settles as unknown without being watched, the worker
-(`apps/extension/src/service/outcomes.ts`) sends `POST /v1/recipes/:recipeId/outcome`
-with the revision, the chooser branch when there is one, the `login.attempt` outcome,
-its cause when it is one of a fixed list (the worker's stop causes and the page's step
-reasons; `settled` or `unconfirmed` only when there is no listed cause) and the step
-index. A watched login ([ADR 0027](adr/0027-per-account-login-routes.md)) reports when
-its watch ends, signed in or blocked with the outcome the watch left, not where it first
-stopped. No URL, origin, reason text, label, value or username is sent, and the service
-adds the time. A login without a recipe revision, a fill-only login, any login of an
-item without a password (even one that fails before its stop), and a `policy-changed`,
+implemented and tested locally, not deployed. The diagnostics log stays on the device.
+Only two value-free records of a login leave it: this result code, and the
+[login record](#login-records-on-the-service) of each ended login with its times
+([ADR 0055](adr/0055-login-records-sent-to-the-service.md)). When a login on a service
+recipe revision first ends on this device, signed in or blocked, or settles as unknown
+without being watched, the worker (`apps/extension/src/service/outcomes.ts`) sends
+`POST /v1/recipes/:recipeId/outcome` with the revision, the chooser branch when there is
+one, the `login.attempt` outcome, its cause when it is one of a fixed list (the worker's
+stop causes and the page's step reasons; `settled` or `unconfirmed` only when there is
+no listed cause) and the step index. A watched login
+([ADR 0027](adr/0027-per-account-login-routes.md)) reports when its watch ends, signed
+in or blocked with the outcome the watch left, not where it first stopped. No URL,
+origin, reason text, label, value or username is sent, and the service adds the time. A
+login without a recipe revision, a fill-only login, any login of an item without a
+password (even one that fails before its stop), and a `policy-changed`,
 `account-switched` or cause-less `cancelled` end send nothing and leave the revision for
 its next login. `pateat.login-outcomes.v1` in `storage.local` records each reported
 revision per service and device (at most 500, oldest dropped) before the request, so a
@@ -1746,6 +1769,27 @@ page) stops the run and keeps the rest, and no run starts for a minute after it
 report still pending after 14 days, the local log's retention, is dropped unsent. Each
 request logs a value-free `service.outcome` line. Sending never waits on, throws into or
 changes the login.
+
+### Login records on the service
+
+Status: the owner's decision of 2026-10-18 (08:38 UTC,
+[ADR 0055](adr/0055-login-records-sent-to-the-service.md)); implemented and tested
+locally, not deployed. Every login on a service recipe revision that ends, signed in or
+blocked (a watched one when its watch ends), is sent by the worker
+(`apps/extension/src/service/login-records.ts`) as one record to
+`POST /v1/recipes/:recipeId/logins`: the revision, the chooser branch when there is one,
+the `login.attempt` outcome, the cause as for the first login's result code, the
+extension build, and `totalMs`, `serviceMs`, `networkMs`, `personMs` and `pageMs` from
+the [login's times](#request-and-login-timing). No URL, origin, reason text, label,
+value, username or typing time is sent; the service takes the site from the recipe
+revision it holds and adds the time. The logins that send no first-login result code
+send no record either (no recipe revision, fill-only, an item without a password,
+`policy-changed`, `account-switched`, a cause-less `cancelled`), nor does a result that
+settled as unknown without a watch, which has no times. A record is sent once after the
+login ended, a repeat report sends none, and a failed send is not retried or stored;
+each send logs a value-free `service.login` line, and a record the contract refuses,
+such as one with a build it does not accept, is not sent and logs
+`failed:invalid-record` instead. Logs never go from the service to a device.
 
 ## Declarative recipes and AI
 
@@ -2459,8 +2503,9 @@ sync, pairing and device management routes and the recipe generation routes of
 [ADR 0018](adr/0018-recipe-generation-route.md), with their limits and the
 [ADR 0012](adr/0012-inference-request-log.md) request log with each request's times, and
 keeps the result codes devices send for the first login of each recipe revision
-([first login results](#first-login-results-on-the-service)) in `login_outcomes`, as
-described in [its README](../services/api/README.md).
+([first login results](#first-login-results-on-the-service)) in `login_outcomes` and a
+record of every login ([login records](#login-records-on-the-service)) in
+`login_timings`, as described in [its README](../services/api/README.md).
 
 Initial human service authentication uses Cloudflare Access, validated through a
 supported integration or verified JWT, not an untrusted email header. Access-free
@@ -2584,12 +2629,13 @@ people.
   `MAX_RECIPE_CACHE_BYTES` are defined together in the contracts; no migration is
   required.
 - Unchanged. Settings are one document of at most 120 KiB per owner. The inference
-  request log and the login result codes are kept one year (owner, 2026-10-18). The
-  log's calls are bounded by the $5 daily spend limit; requests answered without a call
-  are logged too (owner, 08:04 UTC) within the request limit above, the same request
-  answered the same way once in 10 minutes and at most 500 such rows per owner a UTC
-  day; and the codes are bounded by one per recipe revision. The owner deletes both on
-  the web UI's Request log page. Devices are not
+  request log, the login result codes and the login records are kept one year (owner,
+  2026-10-18). The log's calls are bounded by the $5 daily spend limit; requests
+  answered without a call are logged too (owner, 08:04 UTC) within the request limit
+  above, the same request answered the same way once in 10 minutes and at most 500 such
+  rows per owner a UTC day; the codes are bounded by one per recipe revision and the
+  records by the owner's request limit. The owner deletes all three on the web UI's
+  Request log page. Devices are not
   counted: each pairing needs an interactive Access login.
 
 ### Unsupported service edge cases
@@ -2730,23 +2776,33 @@ field exclusions and custom-field review, which need the device's vault catalog
   `Sites – Pateat`, `Request log – Pateat` or `<origin> – Pateat`; the static HTML keeps
   `Pateat` before the app renders. Each page is its own path, a full page load that the
   Worker serves only for these paths:
-  - Dashboard (`/manage/dashboard`): the owner's request log, login result codes,
-    recipes and spend over 24 hours, 7 days or 30 days (7 days first), aggregated by the
-    Worker from the owner's rows (`GET /manage/api/dashboard`). Speed comes first: per
-    role, the model time's median and p90 with the count, and the token exchange, the
-    time before the model call and the server time; a stacked bar of the median of each
-    part of the server time; the median model time per UTC day, with a gap on a day
-    without one; tables per site (linking the site's page), per service build and of the
-    10 slowest requests. Then the request counts by role and outcome, the first-login
-    results with the share that signed in and their count per UTC day (devices report
-    only the first login with each recipe revision for now, so these are not every
-    login), tokens, this UTC day's and month's spend against the limits, the active
-    recipes and the recipes generated in the range (generation requests for a recipe's
-    first page that wrote its revision, so a recipe generated again after its revocation
-    counts again). Last, the failures by result code (request outcomes other than `ok`,
-    login results other than `authenticated`), each opening its latest 20, and apart
-    from them the logins that needed the person (`challenge`, `challenge-abandoned`,
-    `watch-abandoned`, `cancelled`). A request answered without a model call
+  - Dashboard (`/manage/dashboard`): the owner's request log, login records, login
+    result codes, recipes and spend over 24 hours, 7 days or 30 days (7 days first),
+    aggregated by the Worker from the owner's rows (`GET /manage/api/dashboard`). Speed
+    comes first, and within it login speed from the
+    [login records](#login-records-on-the-service): a login's time is its total less the
+    person's time, over the logins that signed in; its median and p90 (with the count)
+    for the logins that waited on the service (`serviceMs` above 0) and for those that
+    ran on the recipe alone, and the share that waited; a stacked bar per group of the
+    median network part (a lower bound: only answers that named the service's time), the
+    rest of the service time, the wait for the site (`pageMs`) and the rest of the
+    login, with the person's median apart; the median login time per UTC day, with a gap
+    on a day without one; and tables per site (the record's origin) and per extension
+    build. Then, for the requests to Claude, per role, the model time's median and p90
+    with the count, and the token exchange, the time before the model call and the
+    server time; a stacked bar of the median of each part of the server time; the median
+    model time per UTC day, with a gap on a day without one; tables per site (linking
+    the site's page), per service build and of the 10 slowest requests. Then every
+    login's result from the login records with the share that signed in and their count
+    per UTC day, the request counts by role and outcome, the first-login result codes
+    apart (only the first login with each recipe revision), tokens, this UTC day's and
+    month's spend against the limits, the active recipes and the recipes generated in
+    the range (generation requests for a recipe's first page that wrote its revision, so
+    a recipe generated again after its revocation counts again). Last, the failures by
+    result code (request outcomes other than `ok`, login records other than
+    `authenticated`), each opening its latest 20, and apart from them the logins that
+    needed the person (`challenge`, `challenge-abandoned`, `watch-abandoned`,
+    `cancelled`). A request answered without a model call
     ([ADR 0012](adr/0012-inference-request-log.md#amendment-2026-10-18-requests-answered-without-a-model-call))
     counts as a request by its outcome and, unless it answered with a stored `recipe`,
     as a failure, but never as a model call or in the speed numbers: the per-role count
@@ -2759,9 +2815,10 @@ field exclusions and custom-field review, which need the device's vault catalog
   - Request log (`/manage/request-log`): how many requests the
     [request log](adr/0012-inference-request-log.md) holds for the owner
     (requests answered without Claude included), and how many
-    [login result codes](#first-login-results-on-the-service), since when, that each is
-    kept one year, and Delete all, which after a confirmation naming the counts deletes
-    every one of the owner's rows of both. Recipes, settings, judged pages and the spend
+    [login result codes](#first-login-results-on-the-service) and
+    [login records](#login-records-on-the-service), since when, that each is kept one
+    year, and Delete all, which after a confirmation naming the counts deletes every one
+    of the owner's rows of all three. Recipes, settings, judged pages and the spend
     the limits count stay.
   - Sites (`/manage/sites`): one list of every origin the service holds a recipe, a
     `siteDefaults` entry or a `bindings` entry for, each with badges for its recipe
