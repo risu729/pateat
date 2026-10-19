@@ -203,7 +203,7 @@ passes its check ([ADR 0031](0031-sign-in-entry-pages.md)).
 
 ## Amendment 2026-10-19: autocomplete tokens of an identifier input
 
-The rule reads the `autocomplete` attribute's tokens, in any case, as the locators do,
+The rule reads the `autocomplete` attribute's tokens, ignoring case, as the locators do,
 since Chromium's `autocomplete` property is empty for a token list that is not a valid
 autofill detail. "No `autocomplete` other than `on` or `off`" means no autofill field
 name among those tokens: a token Chrome ignores, such as `nope` or `chrome-off`, counts

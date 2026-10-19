@@ -65,8 +65,29 @@ function names(input: HTMLInputElement, whole: ReadonlySet<string>, parts: reado
   });
 }
 
-/** Autofill field names that mark an input for something; `on`, `off` and others do not. */
-const fieldNames: ReadonlySet<string> = new Set(observedAutocompleteTokens);
+/**
+ * The HTML autofill field names, which mark an input for something; `on`, `off`, the
+ * section, shipping, billing and contact prefixes and other tokens do not.
+ */
+const fieldNames: ReadonlySet<string> = new Set([
+  ...observedAutocompleteTokens,
+  "cc-name",
+  "cc-given-name",
+  "cc-additional-name",
+  "cc-family-name",
+  "cc-number",
+  "cc-exp",
+  "cc-exp-month",
+  "cc-exp-year",
+  "cc-csc",
+  "cc-type",
+  "transaction-currency",
+  "transaction-amount",
+  "language",
+  "url",
+  "photo",
+  "impp",
+]);
 
 function writable(input: HTMLInputElement): boolean {
   return visible(input) && !input.disabled && !input.readOnly;

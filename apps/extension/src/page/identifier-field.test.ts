@@ -80,9 +80,10 @@ describe("identifierInput", () => {
 
   it("leaves out an input marked for something else among several tokens", () => {
     expect(asks('<input name="login" autocomplete="off given-name">')).toBeUndefined();
+    expect(asks('<input name="login" autocomplete="billing cc-number">')).toBeUndefined();
   });
 
-  it.each(["chrome-off", "false"])(
+  it.each(["chrome-off", "false", "nope"])(
     "takes the sole input whose autocomplete %s names no autofill field",
     (value) => {
       expect(asks(`<input name="login" autocomplete="${value}">`)).toBe("sole");
