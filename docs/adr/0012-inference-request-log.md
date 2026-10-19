@@ -23,6 +23,9 @@ Amended on 2026-10-18 by the owner (08:04 UTC):
 [requests answered without a model call](#amendment-2026-10-18-requests-answered-without-a-model-call)
 are kept too, which amends [ADR 0018](0018-recipe-generation-route.md); invalid bodies
 and requests answered 400 or 404 are not. Implemented.
+Amended on 2026-10-18 by the owner (08:38 UTC):
+[request timings](#amendment-2026-10-18-request-timings) record how long each logged
+request took before, in and after the model call. Implemented.
 
 Date: 2026-10-10
 
@@ -179,6 +182,30 @@ The agent's choices, not confirmed by the owner:
 Consequences: page descriptions are now kept even when no model is called, including
 those of an owner without Claude credentials (`credentials-not-configured`) and of
 requests at a spend limit or answered `busy`.
+
+## Amendment 2026-10-18: request timings
+
+The owner asked at 07:28 UTC for speed to be recorded:
+「速度を重視したいので、速度、通信にどれだけかかってるか、LLM
+APIがどれくらいで返してるか、とか記録するようにしておいてほしい」. At 08:38 UTC the
+owner approved the plan, whose service part needed no further choice:
+
+- Each row records `pre_model_ms` (from the Worker receiving the request to just before
+  the model call), `token_ms` (the part of it spent resolving the credential: its read,
+  the signed assertion and the token exchange, done anew on every call), `model_ms` (the
+  model call) and `server_ms` (from the Worker receiving the request to its response,
+  the recipe write included). The first three are written with the row; `server_ms` is
+  set once the response is out, without delaying it, on every logged row, including
+  those whose answer wrote no recipe. A request answered without a model call has
+  `server_ms` alone: its other three are null. Earlier rows keep null.
+- Device responses carry the standard `Server-Timing` header with `total`, and a
+  generation or judgement that called the model adds `token` and `model`, so the
+  extension can tell network time from service time. No `Timing-Allow-Origin` is sent.
+
+Agent choices not confirmed by the owner: the times start before device authentication
+and the request limit, `model_ms` includes the role's local output checks, a request
+refused at the credential step or by the role's local checks reports `token` alone, and
+a failed `server_ms` update leaves it null.
 
 ## Consequences
 

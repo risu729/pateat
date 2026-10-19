@@ -1926,6 +1926,10 @@ tests cover it.
   ([ADR 0012](adr/0012-inference-request-log.md#amendment-2026-10-18-rows-for-a-real-page-corpus)).
   The 154 earlier rows were filled in where the stored records decide each value
   ([ADR 0012](adr/0012-inference-request-log.md#amendment-2026-10-18-earlier-rows-filled-in)).
+- Done (local tests only, not deployed): each request log row records the time before
+  the model call, the token exchange, the model call and the whole request, and device
+  responses carry `Server-Timing`
+  ([ADR 0012](adr/0012-inference-request-log.md#amendment-2026-10-18-request-timings)).
 - Done: the first login of each recipe revision on a
   device sends its outcome, a cause from a fixed list and the step index to
   `POST /v1/recipes/:recipeId/outcome`, kept one row per revision in `login_outcomes`

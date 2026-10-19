@@ -155,8 +155,8 @@ export const inferenceLogRecipePages = ["first", "continuation"] as const;
  * web UI. A request answered without a model call (owner, 2026-10-18 08:04 UTC) has no
  * provider, model, usage, result or answer and costs 0. `request` is the instructions and
  * input exactly as sent, or as they would have been sent; vault values never reach
- * inference, so they are never here. The recipe columns, `build`, `observation_hash` and
- * `answer` are null on rows logged before they were recorded.
+ * inference, so they are never here. The recipe columns, `build`, `observation_hash`,
+ * `answer` and the timing columns are null on rows logged before they were recorded.
  */
 export const inferenceLog = sqliteTable(
   "inference_log",
@@ -227,6 +227,28 @@ export const inferenceLog = sqliteTable(
     inputTokens: integer("input_tokens"),
     outputTokens: integer("output_tokens"),
     costMicroUsd: integer("cost_micro_usd").notNull(),
+    /**
+     * Milliseconds from the Worker receiving the request to just before the model call:
+     * device authentication, the request limit, the route's own reads, the owner's lock,
+     * the gate and spend checks, the credential with its token exchange, and the spend
+     * reservation.
+     */
+    preModelMs: integer("pre_model_ms"),
+    /**
+     * Milliseconds of that spent resolving the owner's Claude credential, which signs an
+     * assertion and exchanges it for a new token on every call (ADR 0015).
+     */
+    tokenMs: integer("token_ms"),
+    /**
+     * Milliseconds of the role's model call and its local output checks. A retried request
+     * would count every attempt, though the service allows none (`maxRetries: 0`).
+     */
+    modelMs: integer("model_ms"),
+    /**
+     * Milliseconds from the Worker receiving the request to its response, the recipe write
+     * included. Set after the response is sent; null when that update failed.
+     */
+    serverMs: integer("server_ms"),
     createdAt: integer("created_at").notNull(),
   },
   (table) => [
