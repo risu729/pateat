@@ -31,9 +31,9 @@ Pateat's side is `createEvaluator` in `packages/bitwarden/src/uri.ts`
   26 on 2026-10-19. Pateat holds the vault session in the crypto Worker, which such a
   pattern would block. A pattern still running after 5 seconds, and the patterns after
   it, are `regex-unevaluated` on that page, so their item counts as unevaluated rather
-  than as no match, and the running one is not tried again for that page URL. A pattern
-  that finishes in the official clients may therefore leave its item unevaluated in
-  Pateat.
+  than as no match, and the running one, when it ran for at least half the time on its
+  own, is not tried again for that page URL. A pattern that finishes in the official
+  clients may therefore leave its item unevaluated in Pateat.
 - When equivalent domains or the organization default-match policy cannot be read
   consistently, affected URIs are reported unavailable. The official clients continue
   with Domain as the default

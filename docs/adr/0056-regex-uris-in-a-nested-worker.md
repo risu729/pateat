@@ -46,8 +46,9 @@ backreferences, so it would still need a time limit and a pattern rewriter.
   The pattern that was running, when it ran for at least half the time on its own, is
   remembered with a digest of that URL (up to 1,000 pairs) and skipped in later requests
   for the same page, such as the frame's top page check, the item origin checks and the
-  popup. A page with several slow patterns waits once for each of them, and a page whose
-  URL changes on every visit, as with a one-time `state` query, waits on every visit.
+  popup. A page with several slow patterns usually waits once for each of them, and a
+  page whose URL changes on every visit, as with a one-time `state` query, waits on
+  every visit.
 - A Regex match counts as any other mode does (C1 of the proposal): it can choose the
   account on its own, admit the item's origin for a fill, and allow a form destination
   under [ADR 0051](0051-form-destinations-by-item-uri-match.md). On an `http:` page only
