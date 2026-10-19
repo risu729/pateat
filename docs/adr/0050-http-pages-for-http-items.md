@@ -59,8 +59,8 @@ the "Read and change all your data on all websites" warning for `https://*/*`, s
   the page is `http://localhost`. There, as on HTTPS, passkeys are found by RP ID
   (`localhost`) rather than by saved URI, and a passkey answer counts toward a move only
   to an HTTPS or `http://localhost` page. The synthetic probe build, whose own passkey
-  scripts cover `http://localhost`, lets any loopback page take it (`passkeyScriptsRun` in
-  `apps/extension/src/passkeys/rp-id.ts`).
+  scripts cover `http://localhost`, lets any loopback page take it (`passkeyScriptsRun`
+  in `apps/extension/src/passkeys/rp-id.ts`).
 - A login on an `http:` origin may count a move to an `http:` or `https:` page by the
   rules of [ADR 0022](0022-login-attempts-per-tab-and-origin.md) and
   [ADR 0027](0027-per-account-login-routes.md) (`loginMoveFits`). A login on an
