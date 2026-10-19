@@ -60,6 +60,7 @@ import {
   MAX_OUTPUT_TOKENS,
   ROLE_LIMITS,
   type ClaudeCall,
+  type RequestTrace,
   type UnsentOutcome,
   type UnsentRequest,
 } from "../claude/calls";
@@ -110,13 +111,14 @@ export async function generatedRecipeId(origin: string, startPath: string) {
 /**
  * Answers without a model call, logging the request under the answer's code (ADR 0012,
  * owner 2026-10-18 08:04 UTC): the reason or failure code, or `recipe` for a recipe
- * another request stored.
+ * another request stored. The row is named on `trace` for its server time.
  */
 async function answerUnsent<Answer extends UnsentAnswer>(
   env: GenerationEnv,
   ownerId: string,
   unsent: UnsentRequest,
   answer: Answer,
+  trace: RequestTrace,
 ) {
   const code: UnsentOutcome =
     answer.status === "unavailable"
@@ -124,7 +126,7 @@ async function answerUnsent<Answer extends UnsentAnswer>(
       : answer.status === "failed"
         ? answer.error
         : answer.status;
-  await logUnsent(env.DB, ownerId, unsent, code);
+  await logUnsent(env.DB, ownerId, unsent, code, trace);
   return answer;
 }
 
@@ -275,6 +277,7 @@ export async function generateRecipe(
   env: GenerationEnv,
   scope: DeviceScope,
   request: RecipeGenerationRequest,
+  trace: RequestTrace,
 ): Promise<RecipeGenerationResult | undefined> {
   const { observation, slots, base, branch } = request;
   const { origin, path } = observation;
@@ -306,7 +309,7 @@ export async function generateRecipe(
     },
   } satisfies UnsentRequest;
   const unsent = (answer: Extract<RecipeGenerationResult, UnsentAnswer>) =>
-    answerUnsent(env, scope.ownerId, logged, answer);
+    answerUnsent(env, scope.ownerId, logged, answer, trace);
   if (!observation.complete) return unsent(failed("incomplete-observation"));
   // A list of accounts is only ever a recipe's first page.
   if (list && base) return unsent(failed("invalid-request"));
@@ -390,7 +393,7 @@ export async function generateRecipe(
   const baseRevision = revisionOf(before);
   let raced: Extract<RecipeGenerationResult, { status: "recipe" | "unavailable" }> | undefined;
 
-  const call = await callClaude(env, scope.ownerId, {
+  const call = await callClaude(env, scope.ownerId, trace, {
     ...logged,
     recipe: { ...logged.recipe, baseRevision },
     ...attemptWindow(
@@ -574,6 +577,7 @@ export async function generateEntry(
   env: GenerationEnv,
   scope: DeviceScope,
   request: EntryGenerationRequest,
+  trace: RequestTrace,
 ): Promise<EntryGenerationResult> {
   const { observation } = request;
   const { origin, path } = observation;
@@ -589,7 +593,7 @@ export async function generateEntry(
     recipe: { recipeId, branch: "", baseRevision: headAtStart?.revision ?? 0, page: "first" },
   } satisfies UnsentRequest;
   const unsent = (answer: Extract<EntryGenerationResult, UnsentAnswer>) =>
-    answerUnsent(env, scope.ownerId, logged, answer);
+    answerUnsent(env, scope.ownerId, logged, answer, trace);
   if (!observation.complete) return unsent(failed("incomplete-observation"));
 
   /**
@@ -628,7 +632,7 @@ export async function generateEntry(
   const baseRevision = before.revision;
   let raced: Extract<EntryGenerationResult, { status: "recipe" | "unavailable" }> | undefined;
 
-  const call = await callClaude(env, scope.ownerId, {
+  const call = await callClaude(env, scope.ownerId, trace, {
     ...logged,
     recipe: { ...logged.recipe, baseRevision },
     ...attemptWindow(
@@ -707,6 +711,7 @@ export async function judgeCompletion(
   scope: DeviceScope,
   recipeId: string,
   request: RecipeCompletionRequest,
+  trace: RequestTrace,
 ): Promise<RecipeCompletionResult | undefined | null> {
   const head = await readHead(env.DB, scope.ownerId, recipeId);
   if (!head) return undefined;
@@ -743,7 +748,7 @@ export async function judgeCompletion(
       recipe: { recipeId, branch: judgedBranch, baseRevision: head.revision },
     }) satisfies UnsentRequest;
   const unsent = (answer: Extract<RecipeCompletionResult, UnsentAnswer>, loginPaths?: string[]) =>
-    answerUnsent(env, scope.ownerId, logged(loginPaths), answer);
+    answerUnsent(env, scope.ownerId, logged(loginPaths), answer, trace);
   if (head.state === "revoked") return unsent(unavailable("recipe-revoked"));
   // Only a page of the revision that ran, on a route the stored recipe has, is judged: the
   // recipe's own, or for a chooser (ADR 0028) the route of the branch the login took. An
@@ -817,7 +822,7 @@ export async function judgeCompletion(
     eq(pageJudgements.ownerId, scope.ownerId),
     eq(pageJudgements.recipeId, recipeId),
   );
-  const call = await callClaude(env, scope.ownerId, {
+  const call = await callClaude(env, scope.ownerId, trace, {
     ...logged(loginPaths),
     // Each revision, origin and path is judged once per judge prompt version, and a recipe
     // 20 times a UTC day (ADR 0027), counting a stop's pages.

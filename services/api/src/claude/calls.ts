@@ -105,13 +105,38 @@ export type UnsentOutcome =
   | Extract<RecipeGenerationResult, { status: "failed" }>["error"]
   | "recipe";
 
+/**
+ * Milliseconds a call spent, as its request log row keeps them: from the request's start
+ * to just before the model call, the credential's token exchange, and the model call.
+ */
+export type ClaudeCallTimings = { preModelMs: number; tokenMs: number; modelMs: number };
+
 export type ClaudeCallResult<T> =
-  | { status: "unavailable"; reason: GenerationUnavailableReason }
+  /** `tokenMs` once the credential step ran, as for a missing credential or a failed exchange. */
+  | { status: "unavailable"; reason: GenerationUnavailableReason; tokenMs?: number }
   /**
    * `logId` names the request log row. A call refused locally has none here: its route logs
    * it with the answer it gives (`logUnsent`).
    */
-  | { status: "called"; outcome: InferenceOutcome<T>; logId?: string };
+  | {
+      status: "called";
+      outcome: InferenceOutcome<T>;
+      logId?: string;
+      timings: ClaudeCallTimings;
+    };
+
+/**
+ * One request's timing: when the Worker received it, the call `callClaude` made for it,
+ * which the request's middleware reports in `Server-Timing`, and the request log row it
+ * wrote (`logId`), by `callClaude` or, for a request answered without a call, by
+ * `logUnsent`, which the middleware completes with the server time once the response is
+ * out.
+ */
+export type RequestTrace = {
+  startedAt: number;
+  call?: ClaudeCallResult<unknown>;
+  logId?: string;
+};
 
 const periods = (now: number) => {
   const day = new Date(now).toISOString().slice(0, 10);
@@ -212,13 +237,16 @@ export async function keepLogRevision(
  * the same way within ten minutes adds no row, so a client repeating a page refused as
  * `busy` or over a limit cannot fill the log, and past `unsentRowsPerDay` rows an owner's
  * UTC day adds none. The checks and the insert are not atomic, so two identical requests
- * at once can both be logged. A failed write never changes the answer.
+ * at once can both be logged. A failed write never changes the answer. The row has no
+ * time before the model, token exchange or model call; it names itself on `trace`, so the
+ * request's middleware records its server time.
  */
 export async function logUnsent(
   d1: D1Database,
   ownerId: string,
   unsent: UnsentRequest,
   outcome: UnsentOutcome,
+  trace: RequestTrace,
 ) {
   const db = drizzle(d1);
   const now = Date.now();
@@ -254,8 +282,9 @@ export async function logUnsent(
       )
       .limit(1);
     if (repeated) return;
+    const id = newId();
     await db.insert(inferenceLog).values({
-      id: newId(),
+      id,
       ownerId,
       role: unsent.role,
       provider: null,
@@ -278,6 +307,7 @@ export async function logUnsent(
       costMicroUsd: 0,
       createdAt: now,
     });
+    trace.logId = id;
   } catch {
     console.warn("Inference log row not kept", { role: unsent.role, outcome });
     return;
@@ -286,6 +316,26 @@ export async function logUnsent(
     await purgeExpiredLog(db, now);
   } catch {
     console.error("Inference log purge failed");
+  }
+}
+
+/**
+ * Records how long the Worker took to answer the request on its request log row, whatever
+ * the answer wrote. A failed update leaves the row without it and never fails the request.
+ */
+export async function keepServerTime(
+  db: D1Database,
+  ownerId: string,
+  logId: string,
+  serverMs: number,
+) {
+  try {
+    await drizzle(db)
+      .update(inferenceLog)
+      .set({ serverMs })
+      .where(and(eq(inferenceLog.id, logId), eq(inferenceLog.ownerId, ownerId)));
+  } catch {
+    console.warn("Inference log server time not kept");
   }
 }
 
@@ -310,14 +360,28 @@ function loggedResult<T>(call: ClaudeCall<T>, outcome: InferenceOutcome<T>): unk
 }
 
 /**
- * Makes one role call for the authenticated owner. `ownerId` must come from the request
- * scope. Nothing is reserved, logged or sent unless every check passes; the route logs a
- * call that was not sent with the answer it gives (`logUnsent`).
+ * Makes one role call for the authenticated owner and records its result on `trace`.
+ * `ownerId` must come from the request scope. Nothing is reserved, logged or sent unless
+ * every check passes; the route logs a call that was not sent with the answer it gives
+ * (`logUnsent`).
  */
 export async function callClaude<T>(
   env: CallEnv,
   ownerId: string,
+  trace: RequestTrace,
   call: ClaudeCall<T>,
+): Promise<ClaudeCallResult<T>> {
+  const result = await runCall(env, ownerId, call, trace.startedAt);
+  trace.call = result;
+  if (result.status === "called" && result.logId !== undefined) trace.logId = result.logId;
+  return result;
+}
+
+async function runCall<T>(
+  env: CallEnv,
+  ownerId: string,
+  call: ClaudeCall<T>,
+  startedAt: number,
 ): Promise<ClaudeCallResult<T>> {
   const db = drizzle(env.DB);
   const start = Date.now();
@@ -327,9 +391,11 @@ export async function callClaude<T>(
     const blocked = (await call.gate?.(db, start)) ?? (await limitReached(db, ownerId, start));
     if (blocked) return { status: "unavailable", reason: blocked };
 
+    const tokenStart = Date.now();
     const credential = await resolveClaudeCredential(env, ownerId);
+    const tokenMs = Date.now() - tokenStart;
     if (credential.status !== "ready")
-      return { status: "unavailable", reason: credentialUnavailable[credential.status] };
+      return { status: "unavailable", reason: credentialUnavailable[credential.status], tokenMs };
 
     const now = Date.now();
     const [month, day] = periods(now);
@@ -340,12 +406,19 @@ export async function callClaude<T>(
     ]);
 
     let outcome: InferenceOutcome<T>;
+    const modelStart = Date.now();
     try {
       outcome = await call.invoke(createClaudeGenerationModel(credential.credential));
     } catch {
       // The roles return their errors; this only guards the reservation's correction.
       outcome = { status: "failed", error: "provider-error", calls: 1, usage: unknownUsage };
     }
+    // Date.now() advances across I/O on Workers, which is all these spans wait on.
+    const timings = {
+      preModelMs: modelStart - startedAt,
+      tokenMs,
+      modelMs: Date.now() - modelStart,
+    };
     const estimate = estimateClaudeCostUsd(outcome.usage);
     const micro =
       outcome.calls === 0
@@ -362,7 +435,7 @@ export async function callClaude<T>(
     // A request the role refused locally was never sent: its route logs it (ADR 0012).
     if (outcome.calls === 0) {
       await db.batch(corrections);
-      return { status: "called", outcome };
+      return { status: "called", outcome, timings };
     }
     // Codes only, for the Worker's own logs; the request log row holds the rest.
     const rejection = outcome.status === "failed" ? outputRejection(outcome) : undefined;
@@ -398,6 +471,7 @@ export async function callClaude<T>(
         inputTokens: outcome.usage.inputTokens,
         outputTokens: outcome.usage.outputTokens,
         costMicroUsd: micro,
+        ...timings,
         createdAt: finished,
       }),
     ]);
@@ -406,7 +480,7 @@ export async function callClaude<T>(
     } catch {
       console.error("Inference log purge failed");
     }
-    return { status: "called", outcome, logId };
+    return { status: "called", outcome, logId, timings };
   } finally {
     await db
       .delete(inferenceLocks)

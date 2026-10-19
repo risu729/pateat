@@ -15,8 +15,13 @@ migrations to that database before activation
 
 All responses carry `Cache-Control: no-store` and `nosniff`; no route sends CORS
 headers. API routes answer JSON, and owner pages answer script-free HTML that cannot be
-framed. Contracts live in `packages/contracts/src/sync.ts`, `pairing.ts` and
-`generation.ts`.
+framed. Device routes (`/v1/*`) also send `Server-Timing` with `total` from the Worker
+receiving the request, before device authentication. A generation or completion request
+that reached the Claude credential step adds `token` (that step) and, once it sent the
+model request, `model`; a request refused at the credential step or by the role's local
+checks reports `token` alone. Parse it by metric name, as Cloudflare may add entries; no
+`Timing-Allow-Origin` is sent. Contracts live in `packages/contracts/src/sync.ts`,
+`pairing.ts` and `generation.ts`.
 
 | Route | Purpose |
 | --- | --- |
@@ -374,7 +379,19 @@ branch's pages included), `build` (`PATEAT_BUILD_REVISION`) and `observation_has
 hex digits of the SHA-256 of the request's observation as JSON). `callClaude` returns
 the row's ID, and once the answer's recipe write succeeds `keepLogRevision` sets
 `revision`; a write refused or lost to a device leaves it null, and a failed update is
-logged as `Inference log revision not kept` and never fails the request. `answer` holds
+logged as `Inference log revision not kept` and never fails the request. Since the
+[timings amendment](../../docs/adr/0012-inference-request-log.md#amendment-2026-10-18-request-timings),
+`pre_model_ms` (from the Worker receiving the request to just before the model call:
+authentication, the request limit, the route's reads, the lock and checks, the
+credential and the reservation), `token_ms` (resolving the credential: its D1 read,
+signing the assertion and the token exchange, new on every call) and `model_ms` (the
+model call and its output checks) are written with the row. `server_ms` (to the
+response, the recipe write included) is set on every logged row, also one answered
+without a model call, by an owner-scoped update through `waitUntil` once the route
+answered, so it never delays the response. It stays null when that update failed,
+logged as `Inference log server time not kept`, or when releasing the owner's lock threw
+after the row was written, which fails the request. `src/request-timing.ts` does this
+and adds the call's `token` and `model` to `Server-Timing`. `answer` holds
 the model's own answer for every decision, `unclear` and refused output included, before
 the local checks: `{ "decision": "signed-in", "marker": "c7" }`, or a generated plan
 with a passkey button the plan check dropped. A candidate or slot it names that is not
@@ -409,7 +426,8 @@ atomic, so two identical requests at once can both land), and past
 logged as `Inference log row over the daily cap`. A failed write is logged as
 `Inference log row not kept` with the role and outcome and never changes the answer.
 Invalid bodies and requests answered 400 or 404 are not logged: a `base` ID not in the
-`gen-…` form, a judged page of an origin no move reaches, a missing recipe.
+`gen-…` form, a judged page of an origin no move reaches, a missing recipe. Such a row
+has `server_ms` but no `pre_model_ms`, `token_ms` or `model_ms`.
 
 Rows older than one year are deleted whenever a request is logged and on every
 `GET /v1/recipes`, because routine releases do not apply cron triggers.

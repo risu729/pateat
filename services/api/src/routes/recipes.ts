@@ -70,8 +70,8 @@ export const recipeRoutes = new Hono<ApiEnv>()
     // A request without slots asks for a page's sign-in entry (ADR 0031).
     const result =
       "slots" in request
-        ? await generateRecipe(c.env, c.get("scope"), request)
-        : await generateEntry(c.env, c.get("scope"), request);
+        ? await generateRecipe(c.env, c.get("scope"), request, c.get("trace"))
+        : await generateEntry(c.env, c.get("scope"), request, c.get("trace"));
     return result ? c.json(result) : apiError(c, 400, { error: "bad_request" });
   })
   .post(
@@ -81,7 +81,13 @@ export const recipeRoutes = new Hono<ApiEnv>()
     jsonBody(recipeCompletionRequestSchema),
     async (c) => {
       const { recipeId } = c.req.valid("param");
-      const result = await judgeCompletion(c.env, c.get("scope"), recipeId, c.req.valid("json"));
+      const result = await judgeCompletion(
+        c.env,
+        c.get("scope"),
+        recipeId,
+        c.req.valid("json"),
+        c.get("trace"),
+      );
       if (result === undefined) return apiError(c, 404, { error: "not_found" });
       if (result === null) return apiError(c, 400, { error: "bad_request" });
       return c.json(result);

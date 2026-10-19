@@ -2439,8 +2439,8 @@ and middleware. Owner scope, conditional revision writes and D1 batch behavior
 remain explicit application responsibilities. The current Worker implements the
 sync, pairing and device management routes and the recipe generation routes of
 [ADR 0018](adr/0018-recipe-generation-route.md), with their limits and the
-[ADR 0012](adr/0012-inference-request-log.md) request log, and keeps the result codes
-devices send for the first login of each recipe revision
+[ADR 0012](adr/0012-inference-request-log.md) request log with each request's times, and
+keeps the result codes devices send for the first login of each recipe revision
 ([first login results](#first-login-results-on-the-service)) in `login_outcomes`, as
 described in [its README](../services/api/README.md).
 

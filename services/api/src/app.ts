@@ -2,6 +2,7 @@ import { devicePairRequestSchema } from "@pateat/contracts";
 import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { HTTPException } from "hono/http-exception";
+import { timing } from "hono/timing";
 import {
   requireAccess,
   requireAccessApi,
@@ -14,6 +15,7 @@ import { requireDevice, type ApiEnv } from "./auth";
 import { API_HEADERS, apiError } from "./http";
 import { limitIdentity, limitOwner } from "./limits";
 import { message } from "./pages";
+import { traceRequest } from "./request-timing";
 import { deviceRoutes } from "./routes/device";
 import { manageApiRoutes } from "./routes/manage-api";
 import { manageClaudeRoutes } from "./routes/manage-claude";
@@ -107,9 +109,12 @@ export const app = new Hono<ApiEnv>()
   )
   .all("/pair/signed-in", methodNotAllowed("GET"))
   // Authenticate and count the request against its owner before reading bodies;
-  // unauthenticated requests are never parsed.
+  // unauthenticated requests are never parsed. Timing starts first, so `Server-Timing`'s
+  // `total` and the request log's times cover these too; no Timing-Allow-Origin is sent.
   .use(
     "/v1/*",
+    timing(),
+    traceRequest,
     requireDevice,
     limitOwner,
     bodyLimit({
