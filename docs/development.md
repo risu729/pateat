@@ -581,10 +581,33 @@ that sign-in does not finish, **Sign in again** completes the setup and keeps th
 choice. Sign-ins never change the entry; the policy is edited on the settings page.
 Like other saved settings, the entry stays after Delete connection.
 
+An error, cancellation or unsupported-interaction reply, and stopping setup, re-read
+the rows, so a connection whose first sign-in failed shows with Sign in again. Name
+and Email clear once a read lists a new connection with the label and email this
+page's add sent, and only while the form still holds them, so Connect does not add it
+twice. After a final reply only that reply's read can match; after a stop, whose read
+can come before the connection is saved, a later Refresh can. A connection another
+settings page added leaves this page's draft as typed. When the add ended in an error
+or an unsupported interaction and the listed connection never unlocked, the form
+also switches from that unchanged draft to Sign in again for the connection, keeping
+the error message and focusing the master password (owner decision, 2026-10-19).
+**Cancel setup** always leaves sign-in-again mode; when nothing is running it changes
+nothing else, so the saved settings draft is not reloaded. It stays available while
+the page first reads its connections (owner decision, 2026-10-19): stopping that read
+says "Loading stopped.", reads the connections again and leaves the saved settings
+draft as it is, since nothing was written.
+
+Sign in again on a connection that never unlocked (automatic unlock "unknown" and a
+readable local record) starts with **Enable automatic unlock on this device**
+checked: the vault cannot be accepted without it, and the add that registered the
+connection asked for it. An unreadable record starts unchecked, since it may hide a
+choice to keep automatic unlock off.
+
 Connecting retains the local unlock key and encrypted cache. Disabling automatic
 unlock removes the retained key; signing in again does not implicitly re-enable
-it. A cancellation or timeout during the durable write can leave an accepted
-record even when setup reports an uncertain result. Reload connection status;
+it, though the box starts checked for a connection that never unlocked. A
+cancellation or timeout during the durable write can leave an accepted record even
+when setup reports an uncertain result. Reload connection status;
 explicitly disable automatic unlock if that retained key should be removed.
 Compensation removes only a positively identified first-enrollment candidate,
 never an unknown or newer record. Connection status and policy metadata contain
