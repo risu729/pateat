@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CircleCheck,
   CircleX,
@@ -289,8 +289,8 @@ function Logs({
 }: {
   status: DiagnosticsStatus;
   client: DiagnosticsClient;
-  /** Reloads the summary; this section remounts after it, so its message lives above. */
-  changed: () => void;
+  /** Updates the summary in place, after applying `update` to it at once when given. */
+  changed: (update?: (logs: DiagnosticsStatus["logs"]) => DiagnosticsStatus["logs"]) => void;
   message: string;
   setMessage: (message: string) => void;
 }) {
@@ -430,7 +430,16 @@ function Logs({
                       : "Debug logging is off."
                     : "Unable to change logging.",
                 );
-                changed();
+                // The button follows at once; the entry counts follow when the summary is read.
+                if (!response?.ok) changed();
+                else {
+                  const until = response.debugUntil;
+                  changed((current) => {
+                    if (!current) return current;
+                    const { debugUntil: _, ...rest } = current;
+                    return until === undefined ? rest : { ...rest, debugUntil: until };
+                  });
+                }
                 return undefined;
               });
           }}
@@ -520,9 +529,12 @@ function Logs({
   );
 }
 
+const QUERY_KEY = ["diagnostics"] as const;
+
 export function DiagnosticsApp({ client }: { client: DiagnosticsClient }) {
+  const queryClient = useQueryClient();
   const query = useQuery({
-    queryKey: ["diagnostics"],
+    queryKey: QUERY_KEY,
     queryFn: async () => {
       const [response, browser] = await Promise.all([client.load(), client.browser()]);
       if (!response.ok) throw new Error(response.error);
@@ -536,15 +548,26 @@ export function DiagnosticsApp({ client }: { client: DiagnosticsClient }) {
   const [preview, setPreview] = useState<string>();
   const [message, setMessage] = useState("");
   const [logsMessage, setLogsMessage] = useState("");
-  const state = query.isFetching
+  // Only the first load and Refresh start over; a change made on this page updates the
+  // summary in place, so open previews and messages stay, and a failed update keeps the last one.
+  const state = query.isPending
     ? ({ kind: "loading" } as const)
-    : query.isError || !query.data
-      ? ({ kind: "failed" } as const)
-      : ({ kind: "ready", ...query.data } as const);
+    : query.data
+      ? ({ kind: "ready", ...query.data } as const)
+      : ({ kind: "failed" } as const);
   function refresh() {
     setPreview(undefined);
     setMessage("");
     setLogsMessage("");
+    void queryClient.resetQueries({ queryKey: QUERY_KEY });
+  }
+  function changed(update?: (logs: DiagnosticsStatus["logs"]) => DiagnosticsStatus["logs"]) {
+    if (update) {
+      queryClient.setQueryData<NonNullable<typeof query.data>>(
+        QUERY_KEY,
+        (data) => data && { ...data, status: { ...data.status, logs: update(data.status.logs) } },
+      );
+    }
     void query.refetch();
   }
   async function copy(text: string) {
@@ -649,7 +672,7 @@ export function DiagnosticsApp({ client }: { client: DiagnosticsClient }) {
           <Logs
             status={state.status}
             client={client}
-            changed={() => void query.refetch()}
+            changed={changed}
             message={logsMessage}
             setMessage={setLogsMessage}
           />

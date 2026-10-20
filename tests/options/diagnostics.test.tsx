@@ -73,13 +73,18 @@ function client(value: DiagnosticsStatus) {
   } satisfies DiagnosticsClient;
 }
 
-async function show(value: DiagnosticsClient) {
+async function show(value: DiagnosticsClient, queryClient = new QueryClient()) {
   await render(
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider client={queryClient}>
       <DiagnosticsApp client={value} />
     </QueryClientProvider>,
   );
   await expect.element(page.getByRole("heading", { name: "Checks" })).toBeVisible();
+}
+
+/** The open log preview's text, or `undefined` once it is closed. */
+function preview(): string | undefined {
+  return document.querySelector("#logs-preview")?.textContent ?? undefined;
 }
 
 afterEach(async () => {
@@ -163,4 +168,114 @@ test("debug logging that stays on says so", async () => {
   );
   await show(value);
   await expect.element(page.getByText("on until turned off", { exact: true })).toBeVisible();
+});
+
+test("turning debug logging on updates the page in place, keeping the open log preview", async () => {
+  const before = status();
+  let read: (value: Awaited<ReturnType<DiagnosticsClient["load"]>>) => void = () => undefined;
+  const value = {
+    ...client(before),
+    load: vi.fn<DiagnosticsClient["load"]>(async () => ({ ok: true, status: before })),
+    exportLogs: vi.fn(async () => ({ ok: true as const, text: '{"pateat":"0.1.0"}\n{}\n' })),
+    setDebugLogs: vi.fn(async () => ({ ok: true as const, debugUntil: DEBUG_UNTIL_TURNED_OFF })),
+  } satisfies DiagnosticsClient;
+  await show(value);
+  await page.getByRole("button", { name: "Download logs" }).click();
+  await expect.poll(preview).toBe('{"pateat":"0.1.0"}\n{}\n');
+  value.load.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        read = resolve;
+      }),
+  );
+  await page.getByRole("button", { name: "Turn on debug logging", exact: true }).click();
+  // The button and its line follow at once, while the summary is read again.
+  await expect.element(page.getByRole("button", { name: "Turn off debug logging" })).toBeVisible();
+  await expect.element(page.getByText("on until turned off", { exact: true })).toBeVisible();
+  expect(value.load).toHaveBeenCalledTimes(2);
+  expect(document.querySelector("#diagnostics-status")!.textContent).toBe("");
+  await expect.poll(preview).toBe('{"pateat":"0.1.0"}\n{}\n');
+  read({
+    ok: true,
+    status: status({
+      logs: {
+        entries: 1285,
+        bytes: 212 * 1024,
+        recentErrors: 0,
+        recentWarnings: 2,
+        debugUntil: DEBUG_UNTIL_TURNED_OFF,
+      },
+    }),
+  });
+  await expect.element(page.getByText("1285 (212 KB)")).toBeVisible();
+  await expect.poll(preview).toBe('{"pateat":"0.1.0"}\n{}\n');
+  await expect.element(page.getByText("Debug logging is on until you turn it off.")).toBeVisible();
+});
+
+test("Refresh starts over and closes the log preview", async () => {
+  const value = {
+    ...client(status()),
+    load: vi.fn<DiagnosticsClient["load"]>(async () => ({ ok: true, status: status() })),
+    exportLogs: vi.fn(async () => ({ ok: true as const, text: '{"pateat":"0.1.0"}\n{}\n' })),
+  } satisfies DiagnosticsClient;
+  await show(value);
+  await page.getByRole("button", { name: "Download logs" }).click();
+  await expect.poll(preview).toBe('{"pateat":"0.1.0"}\n{}\n');
+  let read: (value: Awaited<ReturnType<DiagnosticsClient["load"]>>) => void = () => undefined;
+  value.load.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        read = resolve;
+      }),
+  );
+  await page.getByRole("button", { name: "Refresh" }).click();
+  await expect.element(page.getByText("Collecting diagnostics…")).toBeVisible();
+  read({ ok: true, status: status() });
+  await expect.element(page.getByRole("heading", { name: "Checks" })).toBeVisible();
+  expect(value.load).toHaveBeenCalledTimes(2);
+  expect(preview()).toBeUndefined();
+});
+
+test("turning debug logging off drops its end time at once", async () => {
+  const on = status({
+    logs: {
+      entries: 3,
+      bytes: 1024,
+      recentErrors: 0,
+      recentWarnings: 0,
+      debugUntil: DEBUG_UNTIL_TURNED_OFF,
+    },
+  });
+  // The summary read again never arrives, so only the response changes the page.
+  const value = {
+    ...client(on),
+    load: vi
+      .fn<DiagnosticsClient["load"]>(() => new Promise(() => undefined))
+      .mockResolvedValueOnce({ ok: true, status: on }),
+  } satisfies DiagnosticsClient;
+  await show(value);
+  await page.getByRole("button", { name: "Turn off debug logging" }).click();
+  await expect
+    .element(page.getByRole("button", { name: "Turn on debug logging", exact: true }))
+    .toBeVisible();
+  await expect.element(page.getByText("off", { exact: true })).toBeVisible();
+  expect(value.load).toHaveBeenCalledTimes(2);
+});
+
+test("a failed read after clearing the logs keeps the page as shown", async () => {
+  const value = {
+    ...client(status()),
+    load: vi
+      .fn<DiagnosticsClient["load"]>(async () => ({ ok: false, error: "unavailable" }))
+      .mockResolvedValueOnce({ ok: true, status: status() }),
+  } satisfies DiagnosticsClient;
+  const queryClient = new QueryClient();
+  await show(value, queryClient);
+  await page.getByRole("button", { name: "Clear logs" }).click();
+  await page.getByRole("button", { name: "Delete all log entries" }).click();
+  await expect.element(page.getByText("Logs cleared.")).toBeVisible();
+  await expect.poll(() => queryClient.getQueryState(["diagnostics"])?.status).toBe("error");
+  expect(value.load).toHaveBeenCalledTimes(2);
+  await expect.element(page.getByRole("heading", { name: "Checks" })).toBeVisible();
+  expect(document.querySelector("#diagnostics-status")!.textContent).toBe("");
 });
