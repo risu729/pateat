@@ -13,10 +13,11 @@ wrote 「テストじゃなくてもそれないと困らないか？そうな�
 problem without it, even outside tests? if so, implement it), read as "like the official
 extension". Decision 6 was accepted at 22:40 UTC by a card tap: offered Mailpit and the
 in-process `smtp-server` library, with `smtp-server` recommended, the owner picked
-Mailpit. Decisions 2 to 5 are implemented (local tests only); the Vaultwarden test
-server is not yet. Unknown-key handling outside nested cipher objects (legacy flat
-`data`) and the exact message list in decision 4 are the agent's reading of the answers,
-not confirmed by the owner.
+Mailpit. All six decisions are implemented, and CI tests Pateat against the pinned
+Vaultwarden image (`tests/vaultwarden/`, `tests/extension/vaultwarden.spec.ts`).
+Unknown-key handling outside nested cipher objects (legacy flat `data`) and the exact
+message list in decision 4 are the agent's reading of the answers, not confirmed by the
+owner.
 
 Date: 2026-10-19
 
@@ -44,7 +45,7 @@ custom fields, passkeys and organization items worked. Two things did not:
 
 1. Vaultwarden is a supported, tested server. Only its latest release is supported
    (1.37.4 on 2026-10-19); older releases are not, even where they work. Tests pin the
-   latest image and Renovate keeps it current (the test server is still to do). It is
+   latest image and Renovate keeps it current. It is
    supported now, outside the roadmap's phases. The synthetic official-shape fixtures
    stay, because passing on Vaultwarden is no evidence for the official server; V2
    (signing-key) accounts and new-device OTP, which Vaultwarden does not have, stay

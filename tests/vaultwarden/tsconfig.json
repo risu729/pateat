@@ -1,0 +1,24 @@
+{
+  "extends": "@risu729/tsconfigs/bundler",
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": [
+      "ES2023",
+      "ES2024.Promise",
+      "ES2025.Promise",
+      "ESNext.Iterator",
+      "ESNext.TypedArrays",
+      "ESNext.Temporal",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": ["*.ts"]
+}
