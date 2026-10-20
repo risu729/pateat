@@ -937,12 +937,12 @@ describe("cancellation, deadlines and host loss", () => {
     async (cause) => {
       // The deadline runs on fake timers, so starting the document never races it.
       if (cause === "deadline") vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-      const h = harness({ timeoutMs: 500 });
+      const h = harness({ timeoutMs: 30_000 });
       const controller = new AbortController();
       const pending = h.host.deriveAuthentication(auth(), controller.signal);
       const command = await h.command();
       if (cause === "abort") controller.abort();
-      else await vi.advanceTimersByTimeAsync(500);
+      else await vi.advanceTimersByTimeAsync(30_000);
       expect(await pending).toEqual({
         ok: false,
         error: { code: cause === "abort" ? "cancelled" : "timeout" },
@@ -980,7 +980,8 @@ describe("cancellation, deadlines and host loss", () => {
   it.each(["timeout", "cancel", "disconnect"] as const)(
     "reports a session as no longer open after a %s ends it",
     async (cause) => {
-      const h = harness({ timeoutMs: 500 });
+      // The longest deadline, so a slow runner never times out the open itself.
+      const h = harness({ timeoutMs: 30_000 });
       const session = await h.open();
       expect(h.host.isOpen(session)).toBe(true);
       expect(h.host.isOpen({ ...session, sessionId: crypto.randomUUID() })).toBe(false);
@@ -992,8 +993,11 @@ describe("cancellation, deadlines and host loss", () => {
         const pending = h.host.listFields(session, itemId, controller.signal);
         await h.command(1);
         if (cause === "cancel") controller.abort();
-        else await vi.advanceTimersByTimeAsync(500);
-        expect((await pending).ok).toBe(false);
+        else await vi.advanceTimersByTimeAsync(30_000);
+        expect(await pending).toEqual({
+          ok: false,
+          error: { code: cause === "cancel" ? "cancelled" : "timeout" },
+        });
       }
       expect(h.host.isOpen(session)).toBe(false);
     },
