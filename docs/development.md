@@ -244,8 +244,8 @@ package; `tests/extension/vaultwarden.spec.ts` signs in to it with the productio
 through the settings page over `http://localhost`, including authenticator and email
 two-step. Both need Docker with the compose plugin, so `check:runtime`, a local
 `mise run check` and `//tests/extension:test` do too. A failed test gets both
-containers' logs (attached in Playwright, printed by the self-check). A run killed
-before `stop()` leaves its project behind:
+containers' logs (`vaultwarden.log` in the Playwright test's output folder, printed by
+the self-check). A run killed before `stop()` leaves its project behind:
 `docker compose ls --filter name=pateat-vaultwarden` lists them and
 `docker compose -p <project> down -v` removes one.
 

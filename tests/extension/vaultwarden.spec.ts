@@ -1,6 +1,6 @@
 import { chromium, expect, test, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -33,7 +33,10 @@ test.beforeAll(async () => {
 test.afterEach(async () => {
   const info = test.info();
   if (info.status === info.expectedStatus || !server) return;
-  await info.attach("vaultwarden.log", { body: await server.logs(), contentType: "text/plain" });
+  // A file in the test's output folder reaches CI's failure artifact; a body attachment does not.
+  const file = info.outputPath("vaultwarden.log");
+  await writeFile(file, await server.logs());
+  await info.attach("vaultwarden.log", { path: file, contentType: "text/plain" });
 });
 test.afterAll(() => server?.stop());
 // Each sign-in derives PBKDF2 600000 in the page's worker and in the seeder. The tests share
