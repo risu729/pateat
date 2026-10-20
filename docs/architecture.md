@@ -136,8 +136,9 @@ and
 
 Prelogin, password/refresh-token requests and encrypted sync are isolated library
 operations. Manual options setup composes them through a dedicated private Port
-bound to the options-page sender (its URL compared without the fragment). Passwords and manual codes never enter
-the metadata query cache. Closing that Port cancels its flow and withholds late
+bound to the options-page sender, its URL compared without the fragment. Passwords
+and manual codes never enter the metadata query cache. Closing that Port cancels its
+flow and withholds late
 results. Every setup failure crosses that Port as an error code only; provider
 HTTP statuses and other failure details stay in the background. Only
 value-free connection, group, item and field metadata returns to
