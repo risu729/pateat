@@ -276,6 +276,39 @@ test("shows a recipe's passkey sign-in route (ADR 0027)", async () => {
   await expect.element(recipeItem("card-signin")).toMatchTextContent("Passkey sign-inNone");
 });
 
+test("shows a passkey-only recipe and its one click (ADR 0053)", async () => {
+  const button = { by: "id", value: "passkey-login" } as const;
+  const only: LoginRecipe = {
+    version: 1,
+    id: "bank-passkey",
+    revision: 1,
+    origin: "https://bank.example",
+    slots: [],
+    passkeyOnly: true,
+    passkey: { path: "/login", target: button },
+    steps: [{ kind: "click", path: "/login", target: button, purpose: "submit" }],
+    maxSubmissions: 1,
+  };
+  const client = mockClient({
+    version: 1,
+    recipes: [
+      {
+        change: { recipeId: "bank-passkey", revision: 1, state: "active", recipe: only },
+        updatedAt: UPDATED,
+      },
+    ],
+  });
+  await mount(client);
+  const details = recipeItem("bank-passkey");
+  for (const text of [
+    "Passkey onlyOnly an account with a discoverable passkey for the site signs in here",
+    '/login Click id "passkey-login" to submit',
+  ])
+    // oxlint-disable-next-line no-await-in-loop -- one element, checked in order
+    await expect.element(details).toMatchTextContent(text);
+  expect(details.element().textContent).not.toContain("Slots");
+});
+
 test("shows an entry recipe's sign-in entry, which devices do not click yet (ADR 0031)", async () => {
   const client = mockClient({
     version: 1,

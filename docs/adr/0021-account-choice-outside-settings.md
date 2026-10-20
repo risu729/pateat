@@ -275,8 +275,12 @@ the tab gets a new ID (seen on Wise on 2026-10-13: the restored tab that logged 
 then told it had logged out in another tab). Chrome reports the change with
 `tabs.onReplaced`, which may also start a stopped worker. The tab's logout state, its
 login records, its sign-in entry press, a pick that started its login and its passkey
-sign-ins then move to the new ID; the page that went away is forgotten as on a close,
-so the restored page asks as the tab that logged out.
+sign-ins then move to the new ID; the page that went away is forgotten as on a close, so
+the restored page asks as the tab that logged out. When a tab that asks after a logout
+closes, its logout state goes with it, and unless another tab of the site logged out
+too, the site's other tabs that asked only because of it log in again; the log shows
+`login.ask-ended`
+([ADR 0019](0019-local-diagnostics-and-logs.md#amendment-2026-10-19-tab-numbers-and-closed-tabs-that-asked)).
 
 Amended 2026-10-12 by the owner (07:41 UTC, after a decision card): a tab whose login of
 the origin stopped (`blocked`) after it submitted something, other than an account

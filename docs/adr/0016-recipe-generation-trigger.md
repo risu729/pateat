@@ -34,6 +34,12 @@ Amended on 2026-10-19 (implemented; a clarification, not an owner decision):
 [the identifier input's `autocomplete`](#amendment-2026-10-19-autocomplete-tokens-of-an-identifier-input)
 is read as the attribute's tokens.
 
+Amended on 2026-10-19 by the owner through [ADR 0053](0053-passkey-only-generation.md)
+(the vault check by decision card at 14:08 UTC; implemented): condition 3 also admits a
+page without an input that shows only a button naming a passkey or security key, and
+condition 2 gets a second vault access to decide whether such a page is sent
+([passkey-only start pages](#amendment-2026-10-19-passkey-only-start-pages)).
+
 Amended on 2026-10-19 by [ADR 0057](0057-decide-no-input-pages-when-the-dom-is-quiet.md)
 (owner, 20:22 and 20:23 UTC, implemented): a page
 [that asks for an identifier alone](#amendment-2026-10-19-the-wait-ends-when-the-dom-is-quiet)
@@ -225,6 +231,27 @@ name among those tokens: a token Chrome ignores, such as `nope` or `chrome-off`,
 as none, as the implementation read it before, while a field name among other tokens,
 such as `off given-name`, marks the input. This clarifies the accepted text; the owner
 has not confirmed it.
+
+## Amendment 2026-10-19: passkey-only start pages
+
+Owner decisions of 2026-10-19, recorded in [ADR 0053](0053-passkey-only-generation.md):
+
+- **Condition 3.** A page also qualifies when it shows no input but only a button that
+  names a passkey or security key (the ADR 0027 words, not a registration button), and a
+  URI-matching item holds a passkey for the site. It is decided in the no-input page
+  wait of [ADR 0057](0057-decide-no-input-pages-when-the-dom-is-quiet.md), as
+  identifier-only pages are. Beside a sign-in entry or a list of accounts, the button is
+  used only when every matching item holds such a passkey; otherwise the page is
+  offered as the entry or the list (22:44 UTC; see ADR 0053).
+- **Condition 2** (decision card, 14:08 UTC). For such a page only, the extension also
+  looks up which items hold a discoverable, usable passkey for the page's RP ID, and
+  sends the page only when one of the URI-matching items does. (That the lookup runs
+  only after an item's URI matched is an implementation choice, not the owner's; see
+  ADR 0053.)
+  This is an explicit exception to "the only vault access a document without a recipe
+  gets to decide whether it is sent". No field value or passkey fact is read into the
+  request or leaves the device; the request carries only `passkeyOnly: true` with no
+  slots.
 
 ## Username shape
 

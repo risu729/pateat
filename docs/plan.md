@@ -36,10 +36,30 @@ installed-Chrome checks moved to [phase 2](#phase-2-use-it-and-fix-what-comes-up
 Vaultwarden support is done now, outside the phases, and covers only the latest
 Vaultwarden release (owner, 2026-10-19 22:14 UTC,
 [ADR 0059](adr/0059-latest-vaultwarden-server.md)). Done: item keys Pateat does not read
-are ignored, and Vaultwarden's wrong-password and wrong-code answers are shown as such
-(local tests). To do: `http://` server roots for `localhost` and `127.0.0.1`,
-sending email two-step codes as the official extension does, and a Vaultwarden test
-server in CI.
+are ignored; Vaultwarden's wrong-password and wrong-code answers are shown as such;
+`http://` server roots are accepted for `localhost` and `127.0.0.1`; and email two-step
+codes are sent as the official extension does. CI signs in to the pinned latest
+Vaultwarden release (`tests/vaultwarden/compose.yaml`) through the settings page
+(password, wrong password, authenticator and email codes through Mailpit, an imported
+passkey item) over `http://localhost`.
+
+The owner chose to merge six pull requests built ahead of their phases now instead of
+at their phase (2026-10-19 13:36 UTC, 「今入れる」, over keeping them until their
+phase or settling only their designs now): from phase 3,
+[#613](https://github.com/risu729/pateat/pull/613) (running without the service) and
+[#617](https://github.com/risu729/pateat/pull/617) (repairing a generated recipe); from
+phase 4, [#614](https://github.com/risu729/pateat/pull/614) (allowed sites and a vault
+timeout), [#658](https://github.com/risu729/pateat/pull/658) (Chrome Immediate UI
+passkey requests), [#663](https://github.com/risu729/pateat/pull/663) (passkey-only
+start pages) and [#664](https://github.com/risu729/pateat/pull/664) (settings profiles).
+The choice meant answering their design questions now, and the paid calls, permission
+changes and security changes they bring still need the owner's approval one by one.
+[#658](https://github.com/risu729/pateat/pull/658) landed as
+[ADR 0052](adr/0052-immediate-ui-stored-passkeys.md) through
+[#803](https://github.com/risu729/pateat/pull/803), and
+[#663](https://github.com/risu729/pateat/pull/663) as
+[ADR 0053](adr/0053-passkey-only-generation.md) through
+[#805](https://github.com/risu729/pateat/pull/805); the other four are still open.
 
 ### Phase 1: usable
 
@@ -445,6 +465,16 @@ than in this repository.
   gray when every match is excluded, amber while a login waits for a choice (owner,
   2026-10-13 14:42 UTC;
   [ADR 0021](adr/0021-account-choice-outside-settings.md#site-count-badge)).
+- Generation for passkey-only start pages, moved from phase 4 (owner, 2026-10-19;
+  [ADR 0053](adr/0053-passkey-only-generation.md)): implemented. A page that shows only
+  a button to sign in with a passkey is sent once the no-input page wait of
+  [ADR 0057](adr/0057-decide-no-input-pages-when-the-dom-is-quiet.md) decides it, when a
+  URI-matching item holds a discoverable passkey for the site, with its own generation
+  instructions, and its recipe has only the `passkey` route. Covered by local synthetic
+  and fake-model tests only; a real passkey-only site in the owner's Chrome is
+  unchecked. Beside an ADR 0031 sign-in entry or an ADR 0028 list, the passkey button
+  is used when every matching item holds a passkey (the recipe is shared), and
+  otherwise the entry or the list is handled as before (owner, 2026-10-19 22:44 UTC).
 - The owner uses Pateat on many sites and reports bugs; Claude may also fix problems it
   finds on its own. Reading the extension's error logs without a report needs a way for
   them to leave the device, which [ADR 0019](adr/0019-local-diagnostics-and-logs.md)
@@ -656,7 +686,9 @@ than in this repository.
   the choice badge clears the badge.
 - Claude also watches the service's D1 records, such as the inference request log
   ([ADR 0012](adr/0012-inference-request-log.md)), not only logs the owner sends from
-  the device (owner, 2026-10-11 18:45 UTC).
+  the device (owner, 2026-10-11 18:45 UTC). The owner later allowed reading logs and the
+  like freely (2026-10-18 04:35 UTC: 「ログなどはすべて自由に読んでください」, "read
+  the logs and so on freely").
 - Browser agents that drive the owner's Chrome, such as Claude in Chrome and ChatGPT's
   agent in Chrome, must be logged in by Pateat and carry on with their task. This is the
   M1/M6 "Chrome use coexistence" gate, and it can only be checked by using them.
@@ -737,21 +769,25 @@ than in this repository.
   `957a53d` (15:08 UTC): after the row's click, `auth.openai.com` held the login
   (`login.move` `passkey-request` `kept`), Pateat answered its passkey, and the login
   ended `authenticated` with the account choice saved.
-- Answer Google's passkey step on the Grok Bot's browser. On build `a8350f5`
+- Done on the Grok Bot: Google's passkey step there. On build `a8350f5`
   (2026-10-12 19:49 UTC) both of the page's requests were logged as `passkey.request`
   `delegate` `invalid-request`, so the browser offered only the phone (hybrid) flow,
   which failed. The log now names the member and its size (`invalid`, `invalidLength`),
   and on build `f2c68aa` (20:37 UTC) it named a 2,056-byte `challenge`, over the
   1,024-byte bound of [ADR 0007](adr/0007-existing-passkey-assertions.md#admission).
-  The bound is now 4,096 bytes (local tests only). Next, the Bot signs in to Google
-  Play subscriptions again.
+  The bound is now 4,096 bytes. On build `74f1e6a` (21:11 UTC) the Bot signed in to
+  Google Play subscriptions again: Pateat answered the passkey request and the login
+  ended `authenticated`.
 - Debugging on the Grok Bot computer goes through the Bot today. A shell or SSH
   session for members, and a public API for messaging a Bot, are not documented;
   users report SSH over Tailscale anyway. A routine started by a webhook call, by
   email to the Bot's address, or on a schedule that reads a Notion page can take
   requests from Claude without the owner pasting them
-  ([Grok Bot remote access](research/2026-10-12-grok-bot-remote-access.md)). Which
-  one to use waits for the owner. A read-only probe run there on 2026-10-12 found the
+  ([Grok Bot remote access](research/2026-10-12-grok-bot-remote-access.md)). The
+  owner's Bot already runs a routine that reads a Notion request page (owner,
+  2026-10-12 18:16 UTC: 「もう作ってある」), and the owner then set remote access aside
+  for now and asked for commands to run in the computer's terminal instead (18:24 UTC).
+  The read-only probe run there on 2026-10-12 found the
   browser-tool guards in the computer's own `sand-host` process, Chrome 154 from
   Google's package with memory saver at its most aggressive, and the `a8350f5` build
   loaded. The owner wants the computer's own code read later (2026-10-12), not now.
@@ -915,7 +951,15 @@ Once the fixes have settled:
   2026-10-11 the owner asked for a larger corpus of real pages before planning it. After
   Clef has been tried, compare it with Jev on the same pages (owner, 2026-10-13 15:11
   UTC). Include Chrome's built-in Prompt API (`LanguageModel`, an on-device model) in
-  that comparison (owner, 2026-10-13 21:36 UTC).
+  that comparison (owner, 2026-10-13 21:36 UTC). Do not compare models on the corpus
+  yet: the request log first keeps what a corpus needs, with earlier rows filled in
+  (both done in [ADR 0012](adr/0012-inference-request-log.md)), and the corpus is
+  rebuilt as regular use adds rows. The comparison is with Clef, and Jev may be tried
+  too; Claude Sonnet and Haiku are for checking whether a part that Clef or the like
+  cannot do can use a cheaper or faster model (owner, 2026-10-18 04:34 UTC). Log rows
+  are kept one year, so the earliest ones (2026-10-11) are deleted from 2027-10-11; a
+  corpus that should include them has to be exported before then (inferred from the
+  retention rule).
 - Split `apps/extension/src/login/runtime.ts` (9,998 lines; `createLoginRuntime` spans
   lines 1573-9998) after [#545](https://github.com/risu729/pateat/issues/545) moves the
   undecided-page completion rule out, keeping the existing state transitions: the types
@@ -1150,10 +1194,10 @@ items the owner mentioned and gates still open on 2026-10-11.
     [phase 2](#phase-2-use-it-and-fix-what-comes-up); deliveries 2 to 4 (the settings
     and fill-only `sign-in`, filling `confirm` pages, personal details) are here.
 - The items under [later work](#initial-delivery-and-later-scope) and the ADRs' later
-  sections, including synced vault policy
-  ([ADR 0023](adr/0023-synced-vault-policy.md)), more settings profiles
-  ([ADR 0024](adr/0024-settings-profiles.md)), the ADR 0025 later work, the ADR 0027
-  cases it does not handle, and generation for passkey-only start pages.
+  sections, including synced vault policy ([ADR 0023](adr/0023-synced-vault-policy.md)),
+  more settings profiles ([ADR 0024](adr/0024-settings-profiles.md)), the ADR 0025 later
+  work and the ADR 0027 cases it does not handle. Generation for passkey-only start
+  pages moved to [phase 2](#phase-2-use-it-and-fix-what-comes-up) on 2026-10-19.
 - Real-account checks of individual Bitwarden two-step methods, other KDFs, V2 keys and
   organization items. The owner moved them after the public release on 2026-10-11
   (18:35 UTC), since few users are expected to need them; each needs the owner's
@@ -1430,16 +1474,16 @@ had stopped with `invalid-response` because `kdfSettings` was required. With thi
 change, real-account setup on Cloud US succeeded at main `f7d3cf5` on 2026-10-11
 ([passkey evidence](#passkey-progress)).
 
-The transport supports explicit manual authenticator/email codes and new-device
-OTP submission as request shapes. Challenge, rejection and interactive/unsupported
-results are distinguished without returning raw server messages or challenge
-URLs. No method is claimed compatible with a real account from synthetic HTTP
-tests. Settings integration, code-delivery initiation, interactive providers,
-token persistence and authoritative account/cache reconciliation remain separate
-gates; an authenticated transport result does not mean an unlocked vault.
-The transport uses the explicit read-protocol profile described in the
-[architecture](architecture.md#vault-adapter). Header acceptance alone does not
-prove real-account compatibility or complete sync coverage.
+The transport supports explicit manual authenticator/email codes and new-device OTP
+submission as request shapes. Challenge, rejection and interactive/unsupported results
+are distinguished without returning raw server messages or challenge URLs. No method is
+claimed compatible with a real account from synthetic HTTP tests. The settings page asks
+the server to email a code when email is the chosen method (ADR 0059). Interactive
+providers, token persistence and authoritative account/cache reconciliation remain
+separate gates; an authenticated transport result does not mean an unlocked vault. The
+transport uses the explicit read-protocol profile described in the
+[architecture](architecture.md#vault-adapter). Header acceptance alone does not prove
+real-account compatibility or complete sync coverage.
 
 ## Account mapping progress
 

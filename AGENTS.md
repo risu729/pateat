@@ -32,6 +32,8 @@
   library choices, provider research and agent-workflow rules into distinct PRs.
   Keep necessary implementation, tests and owning documentation together. Use
   independent base branches where possible and state any real PR dependencies.
+- Do not defer approved implementation to later or follow-up work unless it is very
+  large; a focused separate PR now is fine ([merging](docs/delivery.md#merging)).
 - Use mise tasks and the shared hk checks once bootstrapped; do not add package
   scripts or download-on-demand tool commands.
 - Follow the [merge procedure](docs/delivery.md#merging) and the
@@ -49,9 +51,12 @@
 - Have an independent subagent review every PR that changes implementation or
   tests; documentation-only PRs need passing checks. State what was actually
   tested. Once review findings are resolved and applicable checks pass, merge
-  authorized PRs without waiting for another owner confirmation. Recheck changes
+  authorized PRs without waiting for another owner confirmation, including merges
+  that release the service and the paid calls that release starts within the
+  service's spending caps ([merging](docs/delivery.md#merging)). Recheck changes
   made after review, including material conflict resolutions. This standing merge
-  permission does not approve new library/provider choices or deployment.
+  permission does not approve new library/provider choices or changes to how the
+  service is deployed.
 - Have an independent subagent review a design proposal or plan (facts against the
   code, UX gaps, security and permission impact) before asking the owner to decide,
   and say in the ask that it was reviewed.

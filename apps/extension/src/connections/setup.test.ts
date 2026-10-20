@@ -72,6 +72,7 @@ function harness(options: { existing?: boolean; prelogin?: unknown } = {}) {
   };
   const tokenResponses: { body: unknown; status: number }[] = [];
   const syncResponses: { body: unknown; status: number }[] = [];
+  const emailResponses: { body: unknown; status: number }[] = [];
   const fetch = vi.fn(async (url: string, _init: RequestInit) => {
     const path = new URL(url).pathname;
     const stage = path.includes("prelogin")
@@ -80,7 +81,9 @@ function harness(options: { existing?: boolean; prelogin?: unknown } = {}) {
         ? "token"
         : path.endsWith("/sync")
           ? "sync"
-          : "unexpected";
+          : path.endsWith("/two-factor/send-email-login")
+            ? "email"
+            : "unexpected";
     events.push(stage);
     let body: unknown;
     let status = 200;
@@ -97,6 +100,11 @@ function harness(options: { existing?: boolean; prelogin?: unknown } = {}) {
       const next = syncResponses.shift();
       body = next?.body ?? raw.sync;
       status = next?.status ?? 200;
+    } else if (stage === "email") {
+      const next = emailResponses.shift();
+      if (!next) return new Response(null, { status: 200 });
+      body = next.body;
+      status = next.status;
     } else throw new Error("Unexpected synthetic provider route");
     return new Response(JSON.stringify(body), {
       status,
@@ -281,6 +289,7 @@ function harness(options: { existing?: boolean; prelogin?: unknown } = {}) {
     events,
     tokenResponses,
     syncResponses,
+    emailResponses,
     sessionMemory,
     /** A new background incarnation: no in-memory state, same durable stores. */
     restart() {
@@ -513,6 +522,143 @@ describe("manual challenges and isolated caller lifetime", () => {
     expect(form.get("twoFactorProvider")).toBe("1");
     expect(h.host.deriveAuthentication).toHaveBeenCalledTimes(1);
     noSecrets(completed);
+  });
+  it("emails a code with the hash the password grant sent, and the sign-in still waits", async () => {
+    const h = harness();
+    h.tokenResponses.push({
+      status: 400,
+      body: { error: "invalid_grant", TwoFactorProviders2: { "0": null, "1": {} } },
+    });
+    const challenge = await h.caller.begin(newInput());
+    if (!challenge.ok || challenge.kind !== "mfa-required")
+      throw new Error("Synthetic MFA challenge failed");
+    const grant = new URLSearchParams(
+      String(h.fetch.mock.calls.find(([url]) => url.endsWith("/token"))![1].body),
+    );
+    h.emailResponses.push(
+      { status: 200, body: null },
+      { status: 429, body: null },
+      { status: 400, body: { message: "Email 2FA is disabled", object: "error" } },
+      { status: 400, body: { message: "Synthetic refusal", object: "error" } },
+      { status: 500, body: null },
+    );
+    const results = [];
+    for (let i = 0; i < 5; i++)
+      // oxlint-disable-next-line no-await-in-loop
+      results.push(await h.caller.sendEmailCode(challenge.flowId));
+    expect(
+      results.map((result) => result.ok && result.kind === "email-code" && result.result),
+    ).toEqual(["sent", "rate-limited", "unavailable", "refused", "failed"]);
+    for (const result of results) noSecrets(result);
+    const sends = h.fetch.mock.calls.filter(([url]) =>
+      url.endsWith("/two-factor/send-email-login"),
+    );
+    expect(sends).toHaveLength(5);
+    // The account's own server: its API host, as the official clients send it.
+    expect(sends[0]![0]).toBe("https://api.bitwarden.com/two-factor/send-email-login");
+    expect(sends[0]![1].method).toBe("POST");
+    expect(JSON.parse(String(sends[0]![1].body))).toEqual({
+      email: grant.get("username"),
+      masterPasswordHash: grant.get("password"),
+      ssoEmail2FaSessionToken: "",
+      deviceIdentifier: grant.get("deviceIdentifier"),
+      authRequestAccessCode: "",
+      authRequestId: "",
+    });
+    expect(h.host.deriveAuthentication).toHaveBeenCalledTimes(1);
+    expect(
+      await h.caller.continue({
+        flowId: challenge.flowId,
+        twoFactor: { provider: 1, code: "000123" },
+      }),
+    ).toMatchObject({ ok: true, kind: "ready" });
+  });
+  it("sends no email code for a flow without email two-step or after it ends", async () => {
+    const h = harness();
+    h.tokenResponses.push({
+      status: 400,
+      body: { error: "invalid_grant", TwoFactorProviders2: { "0": null } },
+    });
+    const challenge = await h.caller.begin(newInput());
+    if (!challenge.ok || challenge.kind !== "mfa-required")
+      throw new Error("Synthetic MFA challenge failed");
+    expect(await h.caller.sendEmailCode(challenge.flowId)).toMatchObject({ ok: false });
+    expect(await h.caller.sendEmailCode("not-a-flow")).toMatchObject({ ok: false });
+    const other = h.service.createCaller();
+    closers.push(() => other.dispose());
+    expect(await other.sendEmailCode(challenge.flowId)).toMatchObject({ ok: false });
+    await h.caller.cancel(challenge.flowId);
+    expect(await h.caller.sendEmailCode(challenge.flowId)).toMatchObject({ ok: false });
+    expect(
+      h.fetch.mock.calls.filter(([url]) => url.endsWith("/two-factor/send-email-login")),
+    ).toHaveLength(0);
+  });
+  it.each([
+    ["lost provider access", "provider-permission-required"],
+    ["a transport that cannot be built", "invalid-profile"],
+  ] as const)(
+    "a send refused for %s ends the sign-in so a new one can start",
+    async (why, code) => {
+      const h = harness();
+      h.tokenResponses.push({
+        status: 400,
+        body: { error: "invalid_grant", TwoFactorProviders2: { "1": {} } },
+      });
+      const challenge = await h.caller.begin(newInput());
+      if (!challenge.ok || challenge.kind !== "mfa-required")
+        throw new Error("Synthetic MFA challenge failed");
+      if (why === "lost provider access") h.permission(false);
+      else h.transportFor.mockReturnValueOnce({ ok: false, error: { code } } as never);
+      expect(await h.caller.sendEmailCode(challenge.flowId)).toMatchObject({
+        ok: false,
+        error: { code },
+      });
+      expect(
+        (
+          await h.caller.continue({
+            flowId: challenge.flowId,
+            twoFactor: { provider: 1, code: "1" },
+          })
+        ).ok,
+      ).toBe(false);
+      h.permission(true);
+      expect(await h.caller.begin(newInput())).toMatchObject({ ok: true, kind: "ready" });
+      expect(
+        h.fetch.mock.calls.filter(([url]) => url.endsWith("/two-factor/send-email-login")),
+      ).toHaveLength(0);
+    },
+  );
+  it("a sign-in cancelled while its code is being sent answers cancelled and ends", async () => {
+    const h = harness();
+    h.tokenResponses.push({
+      status: 400,
+      body: { error: "invalid_grant", TwoFactorProviders2: { "1": {} } },
+    });
+    const challenge = await h.caller.begin(newInput());
+    if (!challenge.ok || challenge.kind !== "mfa-required")
+      throw new Error("Synthetic MFA challenge failed");
+    const fetch = h.fetch.getMockImplementation()!;
+    let reached!: () => void;
+    const sending = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    h.fetch.mockImplementation(async (url, init) => {
+      if (!url.endsWith("/two-factor/send-email-login")) return fetch(url, init);
+      reached();
+      await new Promise((_resolve, reject) =>
+        init.signal?.addEventListener("abort", () => reject(init.signal?.reason)),
+      );
+      throw new Error("unreachable");
+    });
+    const sent = h.caller.sendEmailCode(challenge.flowId);
+    await sending;
+    await h.caller.cancel(challenge.flowId);
+    expect(await sent).toMatchObject({ ok: false, error: { code: "cancelled" } });
+    expect(
+      (await h.caller.continue({ flowId: challenge.flowId, twoFactor: { provider: 1, code: "1" } }))
+        .ok,
+    ).toBe(false);
+    expect(await h.caller.begin(newInput())).toMatchObject({ ok: true, kind: "ready" });
   });
   it("another options caller cannot continue or cancel an owned MFA flow", async () => {
     const h = harness();

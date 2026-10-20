@@ -419,6 +419,17 @@ export function createDiagnosticsLog(options: {
           },
           { source },
         );
+      else if (report.type === "ask-ended")
+        void logger.log(
+          "login.ask-ended",
+          {
+            origin: report.origin,
+            ask: report.ask,
+            cause: report.cause,
+            elsewhere: report.elsewhere,
+          },
+          { source },
+        );
       else if (report.type === "popup")
         void logger.log(
           "login.popup",

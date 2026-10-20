@@ -288,6 +288,22 @@ the path ending before it), or `{ check: "plan", reason }` with the plan check's
   attempt row, spend limits, request log and revocation apply as for a first page; the
   log row has the entry request's own prompt version and records `{ entry }` with the
   candidate ID.
+- `POST /v1/recipes/generate` also takes
+  `{ version: 1, observation, slots: [], passkeyOnly: true }` for a passkey-only start
+  page ([ADR 0053](../../docs/adr/0053-passkey-only-generation.md)): no `base` or
+  `branch`, and an observation with no fill candidate and no `accounts` (400 otherwise;
+  empty `slots` without `passkeyOnly` is 400 too). Its instructions are their own text,
+  not the generation role's with a line added, and are logged under their own prompt
+  version: the owner prefers instructions per page kind to one generalized prompt
+  (2026-10-19), so a new kind of page gets its own text rather than changing the shared
+  one. The model plans `fields: []` and one `submit` action on the button that signs in
+  with an existing passkey, naming the same button as `passkeyButton`, or abstains. The
+  plan check accepts only a `button` candidate whose label or locator names a passkey or
+  security key and not a registration (the ADR 0027 word lists). The stored recipe has
+  `passkeyOnly: true`, `slots: []`, one click step that submits, `maxSubmissions: 1` and
+  the same button as its `passkey` route, so it has no `password` route. The retry
+  window, attempt row, spend limits, request log and revocation apply as for a first
+  page; it grants no passkey signing permission.
 - `POST /v1/recipes/:recipeId/completion` takes
   `{ version: 1, revision, route, observation, partial?, stop? }` for a page an effect
   step of that revision led to, on the recipe's origin

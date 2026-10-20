@@ -1,10 +1,13 @@
 import * as v from "valibot";
 
 import {
+  emailLoginCodeRequestSchema,
+  parseEmailLoginCodeOutcome,
   passwordTokenRequestSchema,
   refreshTokenRequestSchema,
   parsePasswordTokenOutcome,
   parseRefreshTokenOutcome,
+  type EmailLoginCodeOutcome,
   type PasswordTokenOutcome,
   type RefreshTokenOutcome,
 } from "./auth-models";
@@ -78,6 +81,8 @@ export function createBitwardenTransport(
     parse: (input: unknown, status: number) => T | undefined,
     signal?: AbortSignal,
     acceptedStatuses: readonly number[] = [200],
+    /** Statuses whose body is never read; `parse` gets `null`. */
+    bodyless: readonly number[] = [],
   ): Promise<BitwardenResult<T>> {
     if (signal !== undefined && !(signal instanceof AbortSignal)) return failure("invalid-request");
     if (signal?.aborted) return failure("cancelled");
@@ -130,8 +135,8 @@ export function createBitwardenTransport(
       if (!acceptedStatuses.includes(response.status))
         return failure("http-error", response.status);
       // ASP.NET answers a null result with an empty 204; only callers that accept it see it.
-      if (response.status === 204) {
-        const data = parse(null, 204);
+      if (response.status === 204 || bodyless.includes(response.status)) {
+        const data = parse(null, response.status);
         return data === undefined ? failure("invalid-response") : { ok: true, data };
       }
       const contentType = response.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase();
@@ -287,6 +292,40 @@ export function createBitwardenTransport(
         },
         (body) => parsePreloginResponse(body, mode),
         signal,
+      );
+    },
+    /**
+     * Unauthenticated `POST {api}/two-factor/send-email-login`, which asks the server to
+     * email a two-step code, as the official extension does when email is the chosen method.
+     */
+    async sendEmailLoginCode(
+      input: unknown,
+      signal?: AbortSignal,
+    ): Promise<BitwardenResult<EmailLoginCodeOutcome>> {
+      const parsed = v.safeParse(emailLoginCodeRequestSchema, input);
+      if (!parsed.success) return failure("invalid-request");
+      const value = parsed.output;
+      if (value.connectionId !== profile.connectionId) return failure("connection-mismatch");
+      // The official extension's TwoFactorEmailLoginRequest, with no SSO or device approval.
+      return request(
+        `${endpoints.apiUrl}/two-factor/send-email-login`,
+        {
+          method: "POST",
+          headers: { Accept: "application/json", "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: value.email,
+            masterPasswordHash: value.masterPasswordHash,
+            ssoEmail2FaSessionToken: "",
+            deviceIdentifier: value.deviceIdentifier,
+            authRequestAccessCode: "",
+            authRequestId: "",
+          }),
+        },
+        parseEmailLoginCodeOutcome,
+        signal,
+        [200, 400, 429],
+        // A sent code answers with an empty body; a rate limit may not be JSON.
+        [200, 429],
       );
     },
     /** Unauthenticated `GET {api}/config`, read for diagnostics only. */

@@ -117,7 +117,13 @@ function recipeFacts(recipe: StoredLoginRecipe): {
   }
   return {
     facts: [
-      ["Slots", slotNames(recipeSlots(recipe))],
+      // A passkey-only start page (ADR 0053) fills nothing and has no password route.
+      recipe.passkeyOnly
+        ? [
+            "Passkey only",
+            "Only an account with a discoverable passkey for the site signs in here; there is no password route",
+          ]
+        : ["Slots", slotNames(recipeSlots(recipe))],
       [
         "Signed-in markers",
         recipe.completion
@@ -145,8 +151,9 @@ function recipeFacts(recipe: StoredLoginRecipe): {
       ],
       ["Submissions", `At most ${recipe.maxSubmissions}`],
     ],
-    // A password route with several identifier sets lists each with its own steps (ADR 0027).
-    variants: passwordVariants(recipe),
+    // A password route with several identifier sets lists each with its own steps (ADR 0027);
+    // a passkey-only recipe shows its one click.
+    variants: recipe.passkeyOnly ? [{ slots: [], steps: recipe.steps }] : passwordVariants(recipe),
   };
 }
 

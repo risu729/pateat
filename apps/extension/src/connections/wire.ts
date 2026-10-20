@@ -55,7 +55,7 @@ export const setupRequestSchema = v.variant("type", [
   }),
   v.strictObject({
     requestId: v.pipe(v.string(), v.uuid()),
-    type: v.literal("connection.cancel"),
+    type: v.picklist(["connection.cancel", "connection.send-email-code"]),
     flowId: id,
   }),
   v.strictObject({ requestId: v.pipe(v.string(), v.uuid()), type: v.literal("connection.status") }),
@@ -102,6 +102,12 @@ const replySchema = v.union([
     kind: v.literal("mfa-required"),
     flowId: v.pipe(v.string(), v.uuid()),
     providers: v.pipe(v.array(v.picklist([0, 1])), v.maxLength(2)),
+  }),
+  v.strictObject({
+    ok: v.literal(true),
+    kind: v.literal("email-code"),
+    flowId: v.pipe(v.string(), v.uuid()),
+    result: v.picklist(["sent", "rate-limited", "unavailable", "refused", "failed"]),
   }),
   v.strictObject({
     ok: v.literal(true),

@@ -94,6 +94,13 @@ type FieldKind =
 
 type EventDefinition = { level: LogLevel; fields: Readonly<Record<string, FieldKind>> };
 
+/**
+ * Fields every event a page caused records besides its own: the Chrome tab ID, so two tabs
+ * of one site can be told apart (ADR 0019, amended 2026-10-19). Chrome numbers tabs within
+ * a browser session; the number says nothing about the page.
+ */
+const PAGE_FIELDS: Readonly<Record<string, FieldKind>> = { tab: "count" };
+
 export const LOG_EVENTS = {
   "runtime.started": { level: "debug", fields: { build: "revision" } },
   "runtime.updated": {
@@ -295,6 +302,12 @@ export const LOG_EVENTS = {
       clicked: "flag",
       url: "url",
     },
+  },
+  // A tab that asked after a logout closed; other tabs that asked only because of it stop
+  // asking (ADR 0021 D).
+  "login.ask-ended": {
+    level: "info",
+    fields: { origin: "origin", ask: "code", cause: "code", elsewhere: "flag" },
   },
   "login.choice": { level: "info", fields: { origin: "origin", outcome: "code", url: "url" } },
   "login.popup": {
@@ -741,6 +754,7 @@ export function createLogger(deps: LoggerDependencies) {
     event: E,
     fields: LogFields<E>,
     level: LogLevel,
+    tab?: number,
   ): Promise<void> {
     if (level === "debug" && now() >= (await debugDeadline())) return;
     const definition: EventDefinition = LOG_EVENTS[event];
@@ -757,6 +771,7 @@ export function createLogger(deps: LoggerDependencies) {
             await recordValue(kind, raw);
       if (value !== undefined) recorded[key] = value;
     }
+    if (tab !== undefined) recorded["tab"] = tab;
     const entry: LogEntry = { time: now(), level, event, fields: recorded };
     out[level]("Pateat", event, recorded);
     await write(entry);
@@ -855,7 +870,10 @@ export function createLogger(deps: LoggerDependencies) {
     const band = level === "debug" ? "debug" : event === "login.attempt" ? "attempt" : "rest";
     if (options.source && !admit(options.source, band, event)) return Promise.resolve();
     // A log failure never changes what the caller does.
-    return serial(() => record(event, fields, level)).catch(() => undefined);
+    // Errors outside a page come with tab -1, which names no tab.
+    const tab =
+      options.source && v.is(integer, options.source.tabId) ? options.source.tabId : undefined;
+    return serial(() => record(event, fields, level, tab)).catch(() => undefined);
   }
 
   async function deleteOldest(
@@ -1089,7 +1107,7 @@ function exportedFields(entry: LogEntry, substitute?: Substitute): Record<string
   const kinds: Readonly<Record<string, FieldKind>> = LOG_EVENTS[entry.event].fields;
   const fields: Record<string, FieldValue> = {};
   for (const [key, value] of Object.entries(entry.fields)) {
-    const kind = kinds[key];
+    const kind = kinds[key] ?? PAGE_FIELDS[key];
     if (!kind || (value !== TRUNCATED && !v.is(STORED_SCHEMAS[kind], value))) continue;
     // Hiding sites leaves page URLs out, and the bug report never carries them.
     if (substitute && kind === "url") continue;

@@ -22,6 +22,8 @@ import {
   entryInstruction,
   generationInstructions,
   generationPromptVersion,
+  passkeyOnlyGenerationInstructions,
+  passkeyOnlyGenerationPromptVersion,
 } from "@pateat/inference";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDeviceToken, hashDeviceToken } from "../src/auth";
@@ -5862,5 +5864,64 @@ describe("signed-in page samples (ADR 0029, owner 2026-10-18 08:05 UTC)", () => 
     );
     expect(response.status).toBe(405);
     expect(response.headers.get("Allow")).toBe("POST");
+  });
+});
+
+describe("passkey-only authenticated recipe generation", () => {
+  it("persists and reuses a click-only passkey recipe from a locally mocked model", async () => {
+    const device = await owner();
+    const page = observation("/passkey-login", [
+      element("login-key", "button", "Sign in with a passkey"),
+    ]);
+    replies.push({
+      text: JSON.stringify({
+        result: {
+          decision: "plan",
+          fields: [],
+          action: { candidate: "login-key", purpose: "submit" },
+          passkeyButton: "login-key",
+        },
+      }),
+    });
+    const body = { version: 1, observation: page, slots: [], passkeyOnly: true };
+    const response = await post(device, "/v1/recipes/generate", body);
+    expect(response.status).toBe(200);
+    const first = (await response.json()) as RecipeGenerationResult;
+    expect(first).toMatchObject({
+      status: "recipe",
+      change: {
+        recipe: {
+          passkeyOnly: true,
+          slots: [],
+          steps: [{ kind: "click", purpose: "submit", path: "/passkey-login" }],
+        },
+      },
+    });
+    expect(sent).toHaveLength(1);
+    // The page goes out with the passkey-only instructions alone, logged under their own
+    // prompt version; a request with slots keeps the generation role's (ADR 0053).
+    const system = (sent[0]!.body as { system: { text: string }[] }).system;
+    expect(system.map((part) => part.text)).toEqual([passkeyOnlyGenerationInstructions]);
+    const [logged] = await rows(
+      "SELECT prompt_version, request FROM inference_log WHERE owner_id = ?",
+      device.ownerId,
+    );
+    expect(logged!["prompt_version"]).toBe(await passkeyOnlyGenerationPromptVersion());
+    expect(JSON.parse(String(logged!["request"]))).toMatchObject({
+      instructions: passkeyOnlyGenerationInstructions,
+      slots: [],
+      passkeyOnly: true,
+    });
+    expect(await passkeyOnlyGenerationPromptVersion()).not.toBe(await generationPromptVersion());
+    expect(passkeyOnlyGenerationInstructions).not.toBe(generationInstructions);
+    const again = await post(device, "/v1/recipes/generate", body);
+    expect(await again.json()).toEqual(first);
+    expect(sent).toHaveLength(1);
+    const unmarked = await post(device, "/v1/recipes/generate", {
+      ...body,
+      passkeyOnly: undefined,
+    });
+    expect(unmarked.status).toBe(400);
+    expect(sent).toHaveLength(1);
   });
 });

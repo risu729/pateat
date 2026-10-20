@@ -599,7 +599,9 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
           if (
             !(
               result.ok &&
-              (result.kind === "mfa-required" || result.kind === "new-device-verification-required")
+              (result.kind === "mfa-required" ||
+                result.kind === "new-device-verification-required" ||
+                result.kind === "email-code")
             )
           )
             end();
@@ -736,6 +738,39 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
               ...(manual.newDeviceOtp ? { newDeviceOtp: manual.newDeviceOtp } : {}),
             };
             return authorize(current);
+          });
+        },
+        /** Asks the flow's own server to email a code, sending the hash the password grant
+         * already sent. Any answer, a failed request included, leaves the sign-in waiting. */
+        sendEmailCode(flowId: string): Promise<SetupReply> {
+          return run(async () => {
+            const current = owned;
+            if (!current || current.id !== flowId) return error("invalid-request");
+            // As in `continue`, a request this flow cannot take ends it.
+            taken = current;
+            if (!current.providers?.includes(1) || !current.hash) return error("invalid-request");
+            if (!alive(current)) return error("setup-expired");
+            if (!(await permitted(current)))
+              return alive(current) ? error("provider-permission-required") : error("cancelled");
+            const profile = current.configuration.profile;
+            const transport = deps.transportFor(profile);
+            if (!transport.ok) return transport;
+            const sent = await transport.data.sendEmailLoginCode(
+              {
+                connectionId: profile.connectionId,
+                email: current.configuration.email,
+                masterPasswordHash: current.hash,
+                deviceIdentifier: current.configuration.deviceIdentifier,
+              },
+              current.controller.signal,
+            );
+            if (!alive(current)) return error("cancelled");
+            return {
+              ok: true,
+              kind: "email-code",
+              flowId: current.id,
+              result: sent.ok ? sent.data.kind : "failed",
+            };
           });
         },
         async cancel(flowId: string): Promise<SetupReply> {
@@ -913,6 +948,7 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
         begin: (input: unknown) => caller.begin(input).then(replyOf),
         continue: (input: unknown) => caller.continue(input).then(replyOf),
         cancel: (flowId: string) => caller.cancel(flowId).then(replyOf),
+        sendEmailCode: (flowId: string) => caller.sendEmailCode(flowId).then(replyOf),
         status: () => caller.status().then(replyOf),
         sync: (connectionId: string) => caller.sync(connectionId).then(replyOf),
         forget: (connectionId: string) => caller.forget(connectionId).then(replyOf),

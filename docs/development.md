@@ -21,6 +21,7 @@ packages/bitwarden/  Provider-specific endpoint and transport boundary
 packages/inference/  Offline AI role adapters, evaluation corpora and harness
 tests/extension/      Isolated synthetic browser fixtures and tests
 tests/options/        React component tests in isolated Chromium
+tests/vaultwarden/    Synthetic Vaultwarden and Mailpit containers, seeding and a self-check
 ```
 
 Keep feature code inside its owner until an actual shared boundary warrants another
@@ -201,6 +202,7 @@ Focused tasks are available for diagnosis:
 | `mise run browser:install` | Install the pinned isolated Chromium browser |
 | `mise run //tests/extension:test` | Exercise the extension against synthetic local pages |
 | `mise run //tests/options:test` | Exercise settings components with a synthetic client in Chromium |
+| `mise run //tests/vaultwarden:test` | Seed a synthetic Vaultwarden server in Docker and read it back with the Bitwarden package ([Vaultwarden test server](#vaultwarden-test-server)) |
 | `mise run //apps/extension:test:dom` | Extract observations, resolve element locators, collect diagnostics and run the vault, provider-session and diagnostics stores on native IndexedDB in Chromium |
 | `mise run //tests/options:typecheck` | Check component-test and browser-provider types |
 | `mise run check:docs` | Check local documentation links |
@@ -224,6 +226,28 @@ acceptance results are recorded in [dated research](research/2026-10-10-feasibil
 Pass one task to each `mise run` invocation; listing several task names turns the
 later names into arguments of the first. To run every static check without the
 runtime graph, use `mise exec -- hk check --all --no-fail-fast --skip-step runtime`.
+
+### Vaultwarden test server
+
+`tests/vaultwarden/compose.yaml` pins the latest Vaultwarden image and Mailpit by digest
+([ADR 0059](adr/0059-latest-vaultwarden-server.md)); Renovate's docker-compose manager
+updates both. `startVaultwarden()` in `server.ts` runs it with
+`docker compose -p <unique project> up -d`, publishes plain HTTP on random `127.0.0.1`
+ports, waits on `GET /alive` (the image's own healthcheck runs once a minute) and on
+Mailpit's `/readyz`, and its `stop()` runs `down -v`. Each call starts with an empty
+database, so Playwright global setup or a single spec can use it. `seed.ts` registers
+synthetic PBKDF2 accounts and encrypts login items with the pinned SDK's `PureCrypto`,
+can turn on authenticator and email two-step, and adds the item `bw import` makes from a
+passkey export (its credential holds `"response": null`). `mailpit.ts` reads two-step
+codes by recipient. The `test` task reads the seeded vault back with the Bitwarden
+package; `tests/extension/vaultwarden.spec.ts` signs in to it with the production build
+through the settings page over `http://localhost`, including authenticator and email
+two-step. Both need Docker with the compose plugin, so `check:runtime`, a local
+`mise run check` and `//tests/extension:test` do too. A failed test gets both
+containers' logs (`vaultwarden.log` in the Playwright test's output folder, printed by
+the self-check). A run killed before `stop()` leaves its project behind:
+`docker compose ls --filter name=pateat-vaultwarden` lists them and
+`docker compose -p <project> down -v` removes one.
 
 ### Test coverage
 
@@ -567,18 +591,20 @@ The sign-ins the check reads are kept per tab in `chrome.storage.session`
 ### Manual Bitwarden setup preview
 
 The connection setup slice is implemented and tested with synthetic responses. Its
-options panel selects Bitwarden Cloud US/EU or an ordinary self-hosted HTTPS root and
-requests access only to that provider's hosts. Setup is a deliberate user action;
+options panel selects Bitwarden Cloud US/EU or an ordinary self-hosted HTTPS root (or
+plain HTTP on `localhost` or `127.0.0.1`, ADR 0059) and requests access only to that
+provider's hosts. Setup is a deliberate user action;
 automated tests use synthetic accounts and responses. Do not enter real account
 credentials during a test unless that account test has been separately authorized.
 
-The panel submits supported manual verification codes through the same private
-setup channel. Email-code delivery initiation and interactive MFA methods are
-not implemented by the existing transport. The sync sign-in persists across restarts
-as described in [ADR 0008](adr/0008-durable-provider-sessions.md); Sync refreshes it
-when needed, and Forget sync sign-in removes it locally without a server logout.
-Forget cancels a running Sync but is refused while a password sign-in is in progress.
-Offline local-vault restoration is independent of that provider session.
+The panel submits supported manual verification codes through the same private setup
+channel. Choosing email asks the server to send one code, and "Resend code" sends
+another (ADR 0059); interactive MFA methods are not implemented. The sync sign-in
+persists across restarts as described in
+[ADR 0008](adr/0008-durable-provider-sessions.md); Sync refreshes it when needed, and
+Forget sync sign-in removes it locally without a server logout. Forget cancels a running
+Sync but is refused while a password sign-in is in progress. Offline local-vault
+restoration is independent of that provider session.
 
 Each connection is a row with one main action, Sync, or Sign in again while syncing
 needs a sign-in first (the vault is locked, setup is incomplete, automatic unlock is

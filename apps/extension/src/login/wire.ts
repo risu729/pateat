@@ -158,9 +158,24 @@ export const helloSchema = v.strictObject({
   /**
    * A visible password, username or one-time-code input shows on this path, so a page
    * without a recipe may be sent for generation (ADR 0016); `identifier` when the page,
-   * after the offer wait (ADR 0057), asks for an account identifier alone instead.
+   * after the offer wait (ADR 0057), asks for an account identifier alone instead, or
+   * `passkey` when it shows a button that signs in with a passkey and no identifier input
+   * (ADR 0053). A passkey page also carries the `list` and `entry` it would otherwise be
+   * announced with, used when no matching item holds a discoverable passkey.
    */
-  signIn: v.optional(v.strictObject({ path, identifier: v.optional(v.literal(true)) })),
+  signIn: v.optional(
+    v.pipe(
+      v.strictObject({
+        path,
+        identifier: v.optional(v.literal(true)),
+        passkey: v.optional(v.literal(true)),
+      }),
+      v.check(
+        (signIn) => !(signIn.identifier && signIn.passkey),
+        "A page asks for an identifier or shows a passkey button, not both",
+      ),
+    ),
+  ),
   /**
    * Such an input shows on this path but no first step is ready; sent once per path, only
    * for the log of a login that did not start.
@@ -447,7 +462,7 @@ export const commandSchema = v.variant("type", [
     version: v.literal(1),
     type: v.literal("login.extract"),
     token: id,
-    page: v.picklist(["login", "signed-in", "accounts", "entry"]),
+    page: v.picklist(["login", "signed-in", "accounts", "entry", "passkey"]),
     /**
      * For a list of accounts (ADR 0028): the shown texts that equal a matching item's
      * username that is not an email, hidden from the observation as `[account]`.

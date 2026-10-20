@@ -37,6 +37,7 @@ export type { BitwardenServerConfig, EncryptedSyncEnvelope, PreloginResponse } f
 export { derivePasswordAuthentication } from "./auth-crypto";
 export type {
   AuthenticationTokens,
+  EmailLoginCodeOutcome,
   PasswordTokenOutcome,
   RefreshTokenOutcome,
 } from "./auth-models";

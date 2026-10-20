@@ -206,7 +206,7 @@ describe("diagnostics log", () => {
       expect(serialized).not.toContain(secret);
   });
 
-  it("logs a create report from the background without its tab (ADR 0007)", async () => {
+  it("logs a create report from the background with its tab number (ADR 0007)", async () => {
     const log = createDiagnosticsLog({
       build: { version: "0.1.0", revision: "1c42ad3" },
       settings: async () => {
@@ -245,6 +245,7 @@ describe("diagnostics log", () => {
       mediation: "other",
       excludeCredentials: 3,
       sinceSignIn: 301,
+      tab: 4,
     });
     vi.restoreAllMocks();
   });
@@ -728,7 +729,7 @@ describe("diagnostics log", () => {
     const entries = await logger.entries();
     expect(entries.slice(-2).map((entry) => [entry.event, entry.fields])).toEqual([
       ["log.dropped", { origin: source.origin, dropped: "recipe.judge", count: 1 }],
-      ["login.refused", { origin: source.origin, reason: "tab-busy" }],
+      ["login.refused", { origin: source.origin, reason: "tab-busy", tab: 4 }],
     ]);
     // A download keeps the entry's own event name next to the dropped one.
     const context = { version: "0.1.0", revision: "1c42ad3", exportedAt: NOW };
@@ -759,6 +760,8 @@ describe("diagnostics log", () => {
     await logger.log("log.debug", { enabled: false });
     const entries = await logger.entries();
     expect(entries.filter((entry) => entry.event === "error.unhandled")).toHaveLength(20);
+    // Tab -1 names no tab.
+    expect(entries.some((entry) => "tab" in entry.fields)).toBe(false);
   });
 
   it("keeps a page's debug events from crowding out the rest", async () => {
@@ -1367,7 +1370,7 @@ describe("unhandled errors", () => {
       ).toHaveLength(7),
     );
     const entries = (await log.logger.entries()).filter((entry) => entry.event === "recipe.sample");
-    const fields = { origin: recipeOrigin, recipe: expect.any(String), recipeRevision: 1 };
+    const fields = { origin: recipeOrigin, recipe: expect.any(String), recipeRevision: 1, tab: 3 };
     expect(entries.map((entry) => [entry.level, entry.fields])).toEqual([
       ["debug", { ...fields, route: "password", outcome: "sent" }],
       ["info", { ...fields, route: "password", outcome: "kept" }],
@@ -1424,6 +1427,7 @@ describe("unhandled errors", () => {
       recipeRevision: 4,
       route: "passkey",
       detail: "password-empty:no-advance",
+      tab: 3,
     };
     expect(entries.map((entry) => [entry.level, entry.fields])).toEqual([
       ["info", { ...fields, outcome: "revoked", ...timing }],
@@ -1640,7 +1644,16 @@ describe("unhandled errors", () => {
     });
     await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(23));
     const entries = (await log.logger.entries()).filter((entry) => entry.event !== "log.debug");
-    expect(entries.map((entry) => [entry.event, entry.level, entry.fields])).toEqual([
+    // Every entry the page caused names its tab; those the worker caused name none.
+    expect(entries.map((entry) => entry.fields["tab"])).toEqual([
+      undefined,
+      undefined,
+      undefined,
+      ...Array.from({ length: 18 }, () => 3),
+    ]);
+    expect(
+      entries.map(({ event, level, fields: { tab: _tab, ...fields } }) => [event, level, fields]),
+    ).toEqual([
       // An unchanged sync is a debug entry; one that changed a recipe is info.
       ["service.sync", "debug", { outcome: "synced", scope: "full" }],
       ["service.sync", "info", { outcome: "synced", scope: "recipes", updated: 1 }],
@@ -1931,6 +1944,7 @@ describe("unhandled errors", () => {
       recipe: expect.any(String),
       recipeRevision: 2,
       url: "/?return_to=",
+      tab: 3,
     };
     expect(entries.map((logged) => [logged.level, logged.fields])).toEqual([
       ["info", { ...fields, outcome: "pressed" }],
@@ -2191,6 +2205,7 @@ describe("unhandled errors", () => {
           route: "password",
           reason: "page-gone",
           kept: true,
+          tab: 4,
         },
       ],
       [
@@ -2202,6 +2217,7 @@ describe("unhandled errors", () => {
           route: "password",
           reason: "no-factor",
           frame: true,
+          tab: 4,
         },
       ],
     ]);
@@ -2339,6 +2355,7 @@ describe("unhandled errors", () => {
       step: 1,
       name: "Error",
       stack: "background.js:12:34",
+      tab: 4,
     });
     expect(JSON.stringify(entries)).not.toContain("hunter2");
     vi.restoreAllMocks();
@@ -2393,6 +2410,65 @@ describe("unhandled errors", () => {
       ["service.sync", "info", "busy", undefined],
     ]);
     expect(JSON.stringify(entries)).not.toContain(connectionId);
+    vi.restoreAllMocks();
+  });
+
+  it("logs a closed tab that stops asking after a logout, with each entry's tab (ADR 0021 D)", async () => {
+    const log = createDiagnosticsLog({
+      build: { version: "0.1.0", revision: "1c42ad3" },
+      settings: async () => {
+        throw new Error("not needed");
+      },
+      recipeCache: async () => undefined,
+      connections: async () => ({ ok: true, kind: "status", connections: [] }),
+      databaseName: `log-test-${crypto.randomUUID()}`,
+      scope: { addEventListener: () => undefined } as never,
+    });
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const origin = "https://login.example";
+    log.login({ type: "logout", tabId: 4, origin, clicked: true });
+    log.login({ type: "ask-ended", tabId: 4, origin, ask: "logout", cause: "tab-closed" });
+    log.login({
+      type: "ask-ended",
+      tabId: 5,
+      origin,
+      ask: "rejected",
+      cause: "tab-closed",
+      elsewhere: true,
+    });
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(3));
+    const entries = await log.logger.entries();
+    expect(entries.map((entry) => [entry.event, entry.level, entry.fields])).toEqual([
+      ["login.logout", "info", { origin: expect.any(String), clicked: true, tab: 4 }],
+      [
+        "login.ask-ended",
+        "info",
+        { origin: expect.any(String), ask: "logout", cause: "tab-closed", tab: 4 },
+      ],
+      [
+        "login.ask-ended",
+        "info",
+        {
+          origin: expect.any(String),
+          ask: "rejected",
+          cause: "tab-closed",
+          elsewhere: true,
+          tab: 5,
+        },
+      ],
+    ]);
+    // A download keeps the tab, with sites hidden too.
+    const exported = formatLogExport(entries, {
+      version: "0.1.0",
+      revision: "1c42ad3",
+      exportedAt: NOW,
+      includeSites: false,
+    })
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+      .filter((line) => line["event"] !== undefined);
+    expect(exported.map((line) => line["tab"])).toEqual([4, 4, 5]);
     vi.restoreAllMocks();
   });
 

@@ -1873,6 +1873,29 @@ describe("production login document admission", () => {
         ok: false,
         reason: "tab-busy",
       });
+      // A passkey page (ADR 0053) is answered as it would be without its button: a list or
+      // a page that offered nothing is not logged again, an entry alone is.
+      const passkeyHello = (extra: Record<string, unknown>) =>
+        h.login.handle(
+          {
+            version: 1,
+            type: "login.document.ready",
+            token: "synthetic-token",
+            signIn: { path: "/home", passkey: true },
+            ...extra,
+          },
+          sender({ documentId: "page-document", url: top }),
+        );
+      for (const extra of [{ list: { path: "/home", names: ["Welcome"] } }, {}])
+        // eslint-disable-next-line no-await-in-loop
+        expect(await passkeyHello(extra)).toEqual({ ok: false, reason: "tab-busy" });
+      expect(
+        report.mock.calls.filter(([value]) => value.type === "refused").map(([value]) => value),
+      ).toHaveLength(2);
+      expect(await passkeyHello({ entry: { path: "/home" } })).toEqual({
+        ok: false,
+        reason: "tab-busy",
+      });
       // The log tells a refused frame from the tab's page.
       expect(
         report.mock.calls.flatMap(([value]) =>
@@ -1881,6 +1904,7 @@ describe("production login document admission", () => {
       ).toEqual([
         ["tab-busy", undefined],
         ["tab-busy", true],
+        ["tab-busy", undefined],
       ]);
       expect(fake.state.messages.filter((entry) => entry.type === "login.cancel")).toEqual([]);
       // While the frame is still there, a new top document is its own page announcing.
@@ -5563,6 +5587,32 @@ describe("production login document admission", () => {
             fake.state.tabUrls[2] = fake.state.pageUrl;
             await filledOnly(h, { tab: { id: 2 }, documentId: "other-tab" });
           });
+          it("logs the tab's asking ending as it closes, and the other tab logs in again", async () => {
+            const report = vi.fn<(entry: LoginReport) => void>();
+            const h = setup(report);
+            expect(await h.hello({ documentId: "home" }, false)).toMatchObject({ ok: false });
+            await clickLogout(h);
+            await filledOnly(h, { documentId: "signed-out" });
+            fake.state.tabUrls[2] = fake.state.pageUrl;
+            await filledOnly(h, { tab: { id: 2 }, documentId: "other-tab" });
+            for (const listener of fake.state.removed) listener(1);
+            await vi.waitFor(() =>
+              expect(report).toHaveBeenCalledWith({
+                type: "ask-ended",
+                tabId: 1,
+                origin,
+                ask: "logout",
+                cause: "tab-closed",
+              }),
+            );
+            expect(logouts()).toEqual([]);
+            // Nothing else asks, so a reload of the other tab logs in (ADR 0021 D).
+            expect(await h.hello({ tab: { id: 2 }, documentId: "reloaded" })).toEqual({
+              ok: true,
+            });
+            await vi.waitFor(() => expect(attempts()).toMatchObject([{ state: "authenticated" }]));
+            expect(attempts()[0]).not.toHaveProperty("fillOnly");
+          });
           it("reads the next page only once a click sent before it is kept", async () => {
             const h = setup();
             // The click's message and the next page's announcement arrive back to back.
@@ -7888,6 +7938,186 @@ describe("production login document admission", () => {
         expect(await identifierHello("later")).toEqual({ ok: false, reason: "generating" });
       });
 
+      it("never sends the tab's next page as a passkey-only page (ADR 0053)", async () => {
+        const passkeyItems = vi.fn(async () => [{ connectionId, itemId }]);
+        const { h, generations } = setup({ passkeyItems });
+        const passkeyHello = (documentId: string) =>
+          h.login.handle(
+            {
+              version: 1,
+              type: "login.document.ready",
+              token: "synthetic-token",
+              signIn: { path: new URL(fake.state.pageUrl).pathname, passkey: true },
+            },
+            sender({ documentId }),
+          );
+        await h.login.handle(
+          { version: 1, type: "login.document.submitted", token: "synthetic-token" },
+          sender(),
+        );
+        expect(await h.hello({ documentId: "after-sign-in" }, false)).toMatchObject({
+          generate: true,
+        });
+        expect(await passkeyHello("after-sign-in")).not.toEqual({
+          ok: false,
+          reason: "generating",
+        });
+        expect(generations()).toEqual([
+          { type: "generation", tabId: 1, origin, outcome: "skipped", reason: "after-sign-in" },
+        ]);
+        // The vault is not asked for passkeys for a page that is not sent.
+        expect(passkeyItems).not.toHaveBeenCalled();
+        expect(await h.hello({ documentId: "later" }, false)).toMatchObject({ generate: true });
+        expect(await passkeyHello("later")).toEqual({ ok: false, reason: "generating" });
+        expect(passkeyItems).toHaveBeenCalledOnce();
+      });
+
+      describe("beside a passkey button (ADR 0053, owner 2026-10-19 22:44 UTC)", () => {
+        const passkeyPage = {
+          ok: true,
+          observation: {
+            version: 1,
+            origin,
+            path: "/signin",
+            language: "en",
+            complete: true,
+            candidates: [
+              { id: "key", role: "button", label: "Sign in with a passkey", target: target("key") },
+            ],
+          },
+        };
+        /** A page with a passkey button and short texts that may name an account. */
+        const passkeyListHello = (
+          h: ReturnType<typeof harness>,
+          names: string[],
+          from: Record<string, unknown> = {},
+        ) =>
+          h.login.handle(
+            {
+              version: 1,
+              type: "login.document.ready",
+              token: "synthetic-token",
+              signIn: { path: "/signin", passkey: true },
+              list: { path: "/signin", names },
+            },
+            sender(from),
+          );
+        const named = (live: Partial<Parameters<typeof harness>[1]>) => {
+          const shown = setup(live);
+          fake.state.extracted = { accounts: listPage, passkey: passkeyPage };
+          shown.h.fields.mockImplementation(async ({ fieldId }) =>
+            fieldId === "login.username" ? "risu729" : "synthetic-secret",
+          );
+          return shown;
+        };
+        const extracted = () =>
+          fake.state.messages.filter((entry) => entry.type === "login.extract");
+
+        it("sends the passkey-only page when a matching item holds a passkey", async () => {
+          const passkeyItems = vi.fn(async () => [{ connectionId, itemId }]);
+          const { service, h, generations } = named({ passkeyItems });
+          expect(await h.hello({}, false)).toMatchObject({ generate: true });
+          expect(await passkeyListHello(h, ["Help"])).toEqual({
+            ok: false,
+            reason: "generating",
+          });
+          await vi.waitFor(() => expect(service.generate).toHaveBeenCalledOnce());
+          expect(service.generate.mock.calls[0]![0]).toMatchObject({
+            passkeyOnly: true,
+            slots: [],
+          });
+          expect(extracted()).toEqual([expect.objectContaining({ page: "passkey" })]);
+          expect(generations()).not.toContainEqual(expect.objectContaining({ outcome: "skipped" }));
+        });
+
+        it("handles the list as without the button for an item without a passkey", async () => {
+          const passkeyItems = vi.fn(async () => []);
+          const { service, h, generations } = named({ passkeyItems });
+          expect(await h.hello({}, false)).toMatchObject({ generate: true });
+          // No shown text names the item: logged as for the list alone, not `no-passkey`.
+          expect(await passkeyListHello(h, ["Help"])).toMatchObject({
+            ok: false,
+            reason: "recipe-not-found",
+          });
+          expect(generations()).toEqual([
+            {
+              type: "generation",
+              tabId: 1,
+              origin,
+              outcome: "skipped",
+              reason: "no-listed-account",
+              detail: "no-name-match",
+            },
+          ]);
+          expect(service.generate).not.toHaveBeenCalled();
+          // A text that names the item sends the page as a list of accounts.
+          expect(await h.hello({ documentId: "next-page" }, false)).toMatchObject({
+            generate: true,
+          });
+          expect(await passkeyListHello(h, ["@risu729"], { documentId: "next-page" })).toEqual({
+            ok: false,
+            reason: "generating",
+          });
+          await vi.waitFor(() => expect(service.generate).toHaveBeenCalledOnce());
+          expect(service.generate.mock.calls[0]![0]).not.toHaveProperty("passkeyOnly");
+          expect(extracted()).toEqual([
+            expect.objectContaining({ page: "accounts", names: ["@risu729"] }),
+          ]);
+          expect(passkeyItems).toHaveBeenCalledTimes(2);
+        });
+
+        it("logs no-passkey for a page whose list is only for the log", async () => {
+          const passkeyItems = vi.fn(async () => []);
+          const { service, h, generations } = named({ passkeyItems });
+          expect(await h.hello({}, false)).toMatchObject({ generate: true });
+          // A support address in the footer is no list of accounts, so there is nothing to
+          // use instead of the passkey button.
+          expect(
+            await h.login.handle(
+              {
+                version: 1,
+                type: "login.document.ready",
+                token: "synthetic-token",
+                signIn: { path: "/signin", passkey: true },
+                list: { path: "/signin", missed: "page-chrome" },
+              },
+              sender(),
+            ),
+          ).toMatchObject({ ok: false, reason: "recipe-not-found" });
+          expect(generations()).toEqual([
+            {
+              type: "generation",
+              tabId: 1,
+              origin,
+              outcome: "skipped",
+              reason: "no-vault-match",
+              detail: "no-passkey",
+            },
+          ]);
+          expect(passkeyItems).toHaveBeenCalledOnce();
+          expect(service.generate).not.toHaveBeenCalled();
+        });
+
+        it("never sends the tab's next page, as without the button", async () => {
+          const passkeyItems = vi.fn(async () => [{ connectionId, itemId }]);
+          const { service, h, generations } = named({ passkeyItems });
+          await h.login.handle(
+            { version: 1, type: "login.document.submitted", token: "synthetic-token" },
+            sender(),
+          );
+          expect(await h.hello({ documentId: "after-sign-in" }, false)).toMatchObject({
+            generate: true,
+          });
+          expect(
+            await passkeyListHello(h, ["@risu729"], { documentId: "after-sign-in" }),
+          ).not.toEqual({ ok: false, reason: "generating" });
+          // A list of names alone is ordinary browsing, so nothing is logged for it.
+          expect(generations()).toEqual([]);
+          expect(passkeyItems).not.toHaveBeenCalled();
+          expect(service.generate).not.toHaveBeenCalled();
+        });
+      });
+
       it("sends a list that loads more than a minute after the submission", async () => {
         const { service, h, generations } = setup();
         const at = Date.now();
@@ -8081,6 +8311,7 @@ describe("production login document admission", () => {
           entries?: LoginEntryRecipe[];
           overrides?: Partial<LocalSettings>;
           uris?: LiveUriMatcher;
+          passkeyItems?: (origin: string) => Promise<readonly PasskeyItem[]>;
         } = {},
       ) => {
         fake.state.extracted = { entry: entryPage };
@@ -8096,6 +8327,7 @@ describe("production login document admission", () => {
             generation: service,
             report,
             ...(options.entries ? { entries: options.entries } : {}),
+            ...(options.passkeyItems ? { passkeyItems: options.passkeyItems } : {}),
           },
         );
         h.recipes.recipe.mockResolvedValue(undefined);
@@ -8158,6 +8390,160 @@ describe("production login document admission", () => {
             { type: "generation", tabId: 1, origin, outcome: "sent", page: "entry" },
             { type: "generation", tabId: 1, origin, outcome: "recipe", page: "entry" },
           ]);
+        });
+
+        describe("beside a passkey button (ADR 0053, owner 2026-10-19 22:44 UTC)", () => {
+          /** The document shows a passkey button beside the site's sign-in entry. */
+          const passkeyEntryHello = (h: ReturnType<typeof harness>) =>
+            h.login.handle(
+              {
+                version: 1,
+                type: "login.document.ready",
+                token: "synthetic-token",
+                signIn: { path: "/", passkey: true },
+                entry: { path: "/" },
+              },
+              sender(),
+            );
+
+          it("sends the entry, as without the button, when no matching item holds a passkey", async () => {
+            const passkeyItems = vi.fn(async () => []);
+            const { service, h, reports } = setup({ passkeyItems });
+            expect(await h.hello({}, false)).toMatchObject({ generate: true, entry: true });
+            service.generateEntry.mockImplementation(async (_request, sentNow) => {
+              sentNow?.();
+              return { outcome: "recipe", recipe: entryRecipe };
+            });
+            expect(await passkeyEntryHello(h)).toEqual({ ok: false, reason: "generating" });
+            await vi.waitFor(() => expect(sent("login.reconnect")).toHaveLength(1));
+            expect(passkeyItems).toHaveBeenCalledOnce();
+            expect(sent("login.extract")).toEqual([expect.objectContaining({ page: "entry" })]);
+            expect(service.generate).not.toHaveBeenCalled();
+            // Logged as the entry alone: the missing passkey is not the outcome.
+            expect(reports("generation")).toEqual([
+              { type: "generation", tabId: 1, origin, outcome: "sent", page: "entry" },
+              { type: "generation", tabId: 1, origin, outcome: "recipe", page: "entry" },
+            ]);
+          });
+
+          it("sends the entry when only some matching items hold a passkey", async () => {
+            // The recipe is shared: an item without a passkey could not run a passkey-only
+            // one, while every item can use the entry.
+            const { service, h, reports } = setup({
+              uris: async () => ({
+                ok: true as const,
+                data: uriMatch({
+                  candidates: [
+                    { itemId, matches: [{ uriIndex: 0, match: 0 }] },
+                    { itemId: otherItemId, matches: [{ uriIndex: 0, match: 0 }] },
+                  ],
+                }),
+              }),
+              passkeyItems: async () => [{ connectionId, itemId }],
+            });
+            expect(await h.hello({}, false)).toMatchObject({ entry: true });
+            service.generateEntry.mockImplementation(async (_request, sentNow) => {
+              sentNow?.();
+              return { outcome: "recipe", recipe: entryRecipe };
+            });
+            expect(await passkeyEntryHello(h)).toEqual({ ok: false, reason: "generating" });
+            await vi.waitFor(() => expect(service.generateEntry).toHaveBeenCalledOnce());
+            expect(service.generate).not.toHaveBeenCalled();
+            expect(reports("generation")).not.toContainEqual(
+              expect.objectContaining({ outcome: "skipped" }),
+            );
+          });
+
+          it("sends the passkey-only page when every matching item holds a passkey", async () => {
+            const { service, h } = setup({
+              uris: async () => ({
+                ok: true as const,
+                data: uriMatch({
+                  candidates: [
+                    { itemId, matches: [{ uriIndex: 0, match: 0 }] },
+                    { itemId: otherItemId, matches: [{ uriIndex: 0, match: 0 }] },
+                  ],
+                }),
+              }),
+              passkeyItems: async () => [
+                { connectionId, itemId },
+                { connectionId, itemId: otherItemId },
+              ],
+            });
+            fake.state.extracted = {
+              entry: entryPage,
+              passkey: {
+                ok: true,
+                observation: {
+                  ...page("/", [
+                    {
+                      id: "key",
+                      role: "button",
+                      label: "Sign in with a passkey",
+                      target: target("key"),
+                    },
+                  ]).observation,
+                },
+              },
+            };
+            expect(await h.hello({}, false)).toMatchObject({ entry: true });
+            expect(await passkeyEntryHello(h)).toEqual({ ok: false, reason: "generating" });
+            await vi.waitFor(() => expect(service.generate).toHaveBeenCalledOnce());
+            expect(service.generate.mock.calls[0]![0]).toMatchObject({ passkeyOnly: true });
+            expect(service.generateEntry).not.toHaveBeenCalled();
+          });
+
+          it("leaves a page that went away during the passkey lookup", async () => {
+            let answer!: (items: readonly PasskeyItem[]) => void;
+            const passkeyItems = vi.fn(
+              () =>
+                new Promise<readonly PasskeyItem[]>((resolve) => {
+                  answer = resolve;
+                }),
+            );
+            const { service, h, reports } = setup({ passkeyItems });
+            expect(await h.hello({}, false)).toMatchObject({ entry: true });
+            const pending = passkeyEntryHello(h);
+            await vi.waitFor(() => expect(passkeyItems).toHaveBeenCalledOnce());
+            // The tab closes before the vault answers.
+            for (const listener of fake.state.removed) listener(1);
+            answer([]);
+            expect(await pending).toEqual({ ok: false, reason: "stale-document" });
+            // Neither the entry nor the passkey page is sent, and nothing is logged for it.
+            await new Promise((resolve) => setTimeout(resolve, 20));
+            expect(service.generateEntry).not.toHaveBeenCalled();
+            expect(service.generate).not.toHaveBeenCalled();
+            expect(reports("generation")).toEqual([]);
+          });
+
+          it("sends the passkey-only page instead when a matching item holds a passkey", async () => {
+            const { service, h } = setup({ passkeyItems: async () => [{ connectionId, itemId }] });
+            fake.state.extracted = {
+              entry: entryPage,
+              passkey: {
+                ok: true,
+                observation: {
+                  ...page("/", [
+                    {
+                      id: "key",
+                      role: "button",
+                      label: "Sign in with a passkey",
+                      target: target("key"),
+                    },
+                  ]).observation,
+                },
+              },
+            };
+            expect(await h.hello({}, false)).toMatchObject({ entry: true });
+            expect(await passkeyEntryHello(h)).toEqual({ ok: false, reason: "generating" });
+            await vi.waitFor(() => expect(service.generate).toHaveBeenCalledOnce());
+            expect(service.generate.mock.calls[0]![0]).toMatchObject({
+              passkeyOnly: true,
+              slots: [],
+            });
+            expect(sent("login.extract")).toEqual([expect.objectContaining({ page: "passkey" })]);
+            expect(service.generateEntry).not.toHaveBeenCalled();
+          });
         });
 
         it.each([
@@ -14153,6 +14539,195 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
     );
   });
 
+  describe("passkey-only generation eligibility", () => {
+    it("does not run the passkey button as a password fallback for a password-only item", async () => {
+      const only = parseLoginRecipe({
+        version: 1,
+        id: "synthetic-passkey-only",
+        revision: 1,
+        origin,
+        slots: [],
+        passkeyOnly: true,
+        passkey: { path: "/signin", target: target("login") },
+        steps: [{ kind: "click", purpose: "submit", path: "/signin", target: target("login") }],
+        maxSubmissions: 1,
+      });
+      const h = harness({}, { passkeys: async () => ({ passkey: false, discoverable: false }) });
+      h.recipes.recipe.mockResolvedValue(only);
+      h.recipes.starts.mockResolvedValue(startsOf(only.steps));
+      expect(await h.hello()).toEqual({ ok: false, reason: "no-route" });
+      expect(clicks("login")).toBe(0);
+      expect(h.fields).not.toHaveBeenCalled();
+    });
+
+    const showPasskey = (h: ReturnType<typeof harness>) =>
+      h.login.handle(
+        {
+          version: 1,
+          type: "login.document.ready",
+          token: "synthetic-token",
+          signIn: { path: reportedPath(fake.state.pageUrl), passkey: true },
+        },
+        sender(),
+      );
+
+    const passkeyOnlySetup = (
+      passkeyItems: (origin: string) => Promise<readonly PasskeyItem[]>,
+      candidates = uriMatch().candidates,
+    ) => {
+      const service = {
+        available: vi.fn(async (): Promise<true> => true),
+        generate: vi.fn<LoginGeneration["generate"]>(),
+        generateEntry: vi.fn<LoginGeneration["generateEntry"]>(),
+        judge: vi.fn<LoginGeneration["judge"]>(),
+        slotFields: vi.fn<LoginGeneration["slotFields"]>(),
+      };
+      const report = vi.fn<(report: LoginReport) => void>();
+      const lookup = vi.fn(passkeyItems);
+      const h = harness(
+        { siteDefaults: [], bindings: [] },
+        {
+          uris: async () => ({ ok: true as const, data: uriMatch({ candidates }) }),
+          passkeyItems: lookup,
+          generation: service,
+          report,
+        },
+      );
+      h.recipes.recipe.mockResolvedValue(undefined);
+      h.recipes.starts.mockResolvedValue(startsOf([]));
+      const skipped = () =>
+        report.mock.calls
+          .map(([entry]) => entry)
+          .filter((entry) => entry.type === "generation" && entry.outcome === "skipped");
+      return { h, service, lookup, skipped };
+    };
+
+    it.each<[string, () => Promise<readonly PasskeyItem[]>]>([
+      ["no passkey, as in a locked vault", async () => []],
+      ["a passkey from a different item", async () => [{ connectionId, itemId: otherItemId }]],
+      [
+        "a lookup that fails",
+        async () => {
+          throw new Error("synthetic lookup failure");
+        },
+      ],
+    ])("does not generate for %s", async (_, held) => {
+      const { h, service, lookup, skipped } = passkeyOnlySetup(held);
+      expect(await showPasskey(h)).not.toEqual({ ok: false, reason: "generating" });
+      expect(lookup).toHaveBeenCalledOnce();
+      expect(skipped()).toEqual([
+        expect.objectContaining({ reason: "no-vault-match", detail: "no-passkey" }),
+      ]);
+      expect(service.generate).not.toHaveBeenCalled();
+      expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.extract");
+    });
+
+    it("refuses a page announced as both an identifier page and a passkey page", async () => {
+      const { h, service, lookup, skipped } = passkeyOnlySetup(async () => [
+        { connectionId, itemId },
+      ]);
+      const both = await h.login.handle(
+        {
+          version: 1,
+          type: "login.document.ready",
+          token: "synthetic-token",
+          signIn: { path: reportedPath(fake.state.pageUrl), identifier: true, passkey: true },
+        },
+        sender(),
+      );
+      expect(both).not.toEqual({ ok: false, reason: "generating" });
+      expect(skipped()).toEqual([]);
+      expect(lookup).not.toHaveBeenCalled();
+      expect(service.generate).not.toHaveBeenCalled();
+    });
+
+    it("never looks up passkeys when no vault item matches the page", async () => {
+      const { h, service, lookup, skipped } = passkeyOnlySetup(
+        async () => [{ connectionId, itemId }],
+        [],
+      );
+      expect(await showPasskey(h)).not.toEqual({ ok: false, reason: "generating" });
+      expect(skipped()).toEqual([
+        expect.objectContaining({ reason: "no-vault-match", detail: "no-item" }),
+      ]);
+      expect(lookup).not.toHaveBeenCalled();
+      expect(service.generate).not.toHaveBeenCalled();
+    });
+
+    it("sends a page with only a passkey button when one of several matching items holds a passkey", async () => {
+      const { h, service, skipped } = passkeyOnlySetup(
+        async () => [{ connectionId, itemId }],
+        [
+          { itemId, matches: [{ uriIndex: 0, match: 0 }] },
+          { itemId: otherItemId, matches: [{ uriIndex: 0, match: 0 }] },
+        ],
+      );
+      fake.state.extracted = {
+        passkey: {
+          ok: true,
+          observation: {
+            version: 1,
+            origin,
+            path: "/signin",
+            language: "en",
+            complete: true,
+            candidates: [
+              { id: "key", role: "button", label: "Sign in with a passkey", target: target("key") },
+            ],
+          },
+        },
+      };
+      service.generate.mockResolvedValue({ outcome: "abstained", reason: "ambiguous" });
+      expect(await showPasskey(h)).toEqual({ ok: false, reason: "generating" });
+      await vi.waitFor(() => expect(service.generate).toHaveBeenCalledOnce());
+      expect(service.generate.mock.calls[0]![0]).toMatchObject({ passkeyOnly: true, slots: [] });
+      expect(skipped()).toEqual([]);
+    });
+
+    it("sends no fill slots only when the same eligible matching item holds a discoverable passkey", async () => {
+      fake.state.extracted = {
+        passkey: {
+          ok: true,
+          observation: {
+            version: 1,
+            origin,
+            path: "/signin",
+            language: "en",
+            complete: true,
+            candidates: [
+              { id: "key", role: "button", label: "Sign in with a passkey", target: target("key") },
+            ],
+          },
+        },
+      };
+      const service = {
+        available: vi.fn(async (): Promise<true> => true),
+        generate: vi.fn<LoginGeneration["generate"]>(async () => ({
+          outcome: "abstained",
+          reason: "ambiguous",
+        })),
+        generateEntry: vi.fn<LoginGeneration["generateEntry"]>(),
+        judge: vi.fn<LoginGeneration["judge"]>(),
+        slotFields: vi.fn<LoginGeneration["slotFields"]>(),
+      };
+      const h = harness(
+        { siteDefaults: [], bindings: [] },
+        {
+          uris: async () => ({ ok: true as const, data: uriMatch() }),
+          passkeyItems: async () => [{ connectionId, itemId }],
+          generation: service,
+        },
+      );
+      h.recipes.recipe.mockResolvedValue(undefined);
+      h.recipes.starts.mockResolvedValue(startsOf([]));
+      await showPasskey(h);
+      await vi.waitFor(() => expect(service.generate).toHaveBeenCalledOnce());
+      expect(service.generate.mock.calls[0]![0]).toMatchObject({ passkeyOnly: true, slots: [] });
+      expect(service.generateEntry).not.toHaveBeenCalled();
+      expect(fake.state.messages.filter((entry) => entry["type"] === "login.fill")).toEqual([]);
+    });
+  });
+
   describe("the item a running login uses", () => {
     it("is named only while the tab's login on that origin has not ended", async () => {
       onClick({ login: "hang" });
@@ -15949,6 +16524,56 @@ describe("the start page's passkey route (ADR 0027)", () => {
     const serialized = JSON.stringify(report.mock.calls);
     for (const key of ['"facts"', '"discoverablePasskey"', '"discoverable"', '"totp"'])
       expect(serialized).not.toContain(key);
+  });
+
+  it("never presses a passkey-only page's button again after a logout (ADR 0021 D)", async () => {
+    const only = parseLoginRecipe({
+      version: 1,
+      id: "synthetic-passkey-only",
+      revision: 1,
+      origin,
+      slots: [],
+      passkeyOnly: true,
+      passkey: { path: "/signin", target: button },
+      steps: [{ kind: "click", path: "/signin", target: button, purpose: "submit" }],
+      completion: home,
+      maxSubmissions: 1,
+    });
+    onClick({ [button.value]: toHome });
+    const { h, report } = start(only);
+    h.recipes.starts.mockResolvedValue(startsOf(only.steps));
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
+    expect(status()![0]).toMatchObject({ route: "passkey" });
+    expect(clicks(button.value)).toBe(1);
+    // A page of the site without the button only watches for it.
+    expect(await h.hello({ documentId: "home" }, false)).toMatchObject({
+      ok: false,
+      reason: "logged-in",
+    });
+    // The site logs out: the same tab shows the start page with its button again.
+    fake.state.observedPath = "/signin";
+    fake.state.present = new Set([button.value]);
+    expect(await h.hello({ documentId: "signed-out" })).toEqual({
+      ok: false,
+      reason: "logged-out",
+    });
+    // The tab asks for an account, and the passkey route fills and presses nothing.
+    expect(fake.state.badges[1]?.text).toBe("1");
+    expect(fake.state.session["pateat.login-logouts.v1"]).toEqual([{ tabId: 1, origin }]);
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "logout", tabId: 1, origin, recipeId: only.id }),
+    );
+    // Announcing again, as a re-render does, still only asks.
+    expect(await h.hello({ documentId: "signed-out" })).toEqual({
+      ok: false,
+      reason: "logged-out",
+    });
+    expect(clicks(button.value)).toBe(1);
+    expect(fills()).toBe(0);
+    expect(h.fields).not.toHaveBeenCalled();
+    // The finished login's record is released, as after any logout, and none starts.
+    expect(status()).toEqual([]);
   });
 
   describe("a totp handler after the passkey click, probed independently", () => {
@@ -25035,6 +25660,73 @@ describe("revoking a recipe the chosen item cannot run (ADR 0058 A)", () => {
       observation: { origin, path: "/signin" },
     });
     expect(generation.replace).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends the list a passkey-only recipe's page shows once a password-only item revoked it (ADR 0053)", async () => {
+    fake.state.present = new Set(["passkey-login"]);
+    const passkeyOnly = parseLoginRecipe({
+      version: 1,
+      id: generatedId,
+      revision: 3,
+      origin,
+      slots: [],
+      passkeyOnly: true,
+      passkey: { path: "/signin", target: target("passkey-login") },
+      steps: [
+        { kind: "click", path: "/signin", target: target("passkey-login"), purpose: "submit" },
+      ],
+      maxSubmissions: 1,
+    });
+    const passkeyItems = vi.fn(async (): Promise<readonly PasskeyItem[]> => []);
+    const { h, reports, generation } = start({
+      used: passkeyOnly,
+      password: true,
+      passkey: { passkey: false, discoverable: false },
+      replace: dropped(),
+      live: { uris: async () => ({ ok: true as const, data: uriMatch() }), passkeyItems },
+    });
+    expect(await h.hello()).toEqual({ ok: false, reason: "generating" });
+    await vi.waitFor(() => expect(fake.state.reconnects).toHaveLength(1));
+    expect(revokes(reports)).toMatchObject([{ route: "password", outcome: "revoked" }]);
+    expect(await h.hello()).toMatchObject({ reason: "recipe-not-found", generate: true });
+    fake.state.extracted = {
+      accounts: {
+        ok: true,
+        observation: {
+          version: 1,
+          origin,
+          path: "/signin",
+          language: "en",
+          complete: true,
+          candidates: [
+            { id: "c1", role: "button", target: target("other"), label: "Use another account" },
+          ],
+          accounts: ["[account]"],
+        },
+      },
+    };
+    // The page still shows the passkey button, beside a list with a control for another
+    // account: no matching item holds a passkey, so the list is sent as without the button.
+    expect(
+      await h.login.handle(
+        {
+          version: 1,
+          type: "login.document.ready",
+          token: "synthetic-token",
+          signIn: { path: "/signin", passkey: true },
+          list: { path: "/signin", names: ["Help"], other: true },
+        },
+        sender(),
+      ),
+    ).toEqual({ ok: false, reason: "generating" });
+    await vi.waitFor(() => expect(generation.generate).toHaveBeenCalledOnce());
+    expect(passkeyItems).toHaveBeenCalledOnce();
+    expect(generation.generate.mock.calls[0]![0]).not.toHaveProperty("passkeyOnly");
+    expect(fake.state.messages.filter((entry) => entry.type === "login.extract")).toEqual([
+      expect.objectContaining({ page: "accounts" }),
+    ]);
+    expect(generation.replace).toHaveBeenCalledOnce();
+    expect(reports).not.toContainEqual(expect.objectContaining({ detail: "no-passkey" }));
   });
 
   it.each<[string, Awaited<ReturnType<Replace>>]>([

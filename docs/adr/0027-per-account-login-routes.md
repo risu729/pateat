@@ -88,6 +88,13 @@ which amends [ADR 0018](0018-recipe-generation-route.md) (the service reads the
 bindings while generating) and [ADR 0012](0012-inference-request-log.md) (a logged
 result may hold a name the page does not show); implemented.
 
+Amended on 2026-10-19 by the owner through [ADR 0053](0053-passkey-only-generation.md)
+([passkey-only start pages and wider passkey words](#amendment-2026-10-19-passkey-only-start-pages-and-wider-passkey-words)):
+a start page that shows only a passkey button is generated, as a recipe with only the
+`passkey` route (recipe shape by decision card at 20:31 UTC; SSO-only start pages still
+are not), and the words that name a passkey button also take device unlock words such as
+Face ID, Touch ID, Windows Hello and 指紋認証 (20:29 UTC, "broad is fine"); implemented.
+
 Amended on 2026-10-19 by the owner (22:48 UTC, "yeah sounds good. go ahead"): the slots
 a saved binding does not name are filled as for an item without one, after the variants
 were tried with the binding as it is, and the binding is widened by them after
@@ -521,7 +528,9 @@ new owner decision:
   button role (not a link or another role) whose label or `id`, `name`, test ID or text
   locator names a passkey or security key, case-insensitively (passkey, pass key,
   security key, each also plural, WebAuthn, FIDO, or パスキー, セキュリティキー,
-  セキュリティーキー, 生体認証), that is not named like a registration or a setting
+  セキュリティーキー, 生体認証;
+  [widened 2026-10-19](#amendment-2026-10-19-passkey-only-start-pages-and-wider-passkey-words)),
+  that is not named like a registration or a setting
   (add, register, create, set up, new, enrol, manage, enable, turn on, or 登録, 追加,
   作成, 設定, 有効, 管理, the words the `passkey` handler check refuses too), and not
   any set's field or action or the account switch, by candidate or by locator. Latin
@@ -940,6 +949,7 @@ Not handled:
   not learned until a new revision or judge prompt version.
 - Start pages without a password input (passkey-only or SSO-only) are never generated
   (ADR 0016 condition 3); that is left to the SSO work.
+  ([Amended 2026-10-19](#amendment-2026-10-19-passkey-only-start-pages-and-wider-passkey-words).)
 - Passkey requests the bridge already passes on: `silent` or `immediate` mediation
   (`conditional` is answered through a login since ADR 0034, `required` since an
   amendment of ADR 0007), external-only transports, a nonzero counter, an incomplete
@@ -1194,3 +1204,27 @@ generation; without one it still refuses `binding-slots-mismatch`, and the stale
 stays in the binding. A gap filled from a sibling binding or the generated map is a
 guess by field name, checked only by resolution and the login's outcome, as for an item
 without a saved binding.
+
+## Amendment 2026-10-19: passkey-only start pages and wider passkey words
+
+**Passkey-only start pages** (owner, 2026-10-19; recipe shape 20:31 UTC;
+[ADR 0053](0053-passkey-only-generation.md)). A start page that shows no input, only a
+button naming a passkey or security key, is generated when a URI-matching item holds a
+discoverable passkey for the site. Its recipe has `passkeyOnly: true`, no slots, one
+click step on that button that submits, `maxSubmissions: 1`, and the same button as its
+`passkey` route; it has no `password` route, so only an item with a discoverable passkey
+takes it, and a password-only item gets `no-route`. This replaces, for such pages, the
+limit under [Consequences](#consequences) that they are never generated. SSO-only start
+pages are still not generated.
+
+**Wider passkey button words** (owner, 2026-10-19 20:29 UTC: keep 生体認証 and widen
+the list, "broad is fine"). The words that name a passkey (`passkeyWording` in
+`packages/contracts/src/passkey-button.ts`) also take the device unlock a passkey uses:
+Face ID, Touch ID, Windows Hello, biometric, biometrics, fingerprint, fingerprints and
+face recognition, as whole Latin words like the others (so "Facebook" or "interface"
+never match), and 指紋 (also 指紋認証) and 顔認証 anywhere. The registration words, with
+their 設定済み and 有効な exceptions, are unchanged, so "Touch ID を登録" or "Set up
+Windows Hello" is still refused. The list is shared, so this widens the generated
+`passkey` route's button check and the passkey-only start page of
+[ADR 0053](0053-passkey-only-generation.md) alike; the judge's `passkey` handler check
+still uses only the registration words.
