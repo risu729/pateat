@@ -121,9 +121,8 @@ Claude's choices beyond the owner's answer, not confirmed by the owner:
 - Part A can repeat on a page whose regenerated recipe the item still cannot run, as a
   page with no passkey button for an item that only has a passkey, or a page with only a
   passkey button that one matching item can press and another, with only a password,
-  cannot: each device then
-  revokes and generates it again once every 30 days, and each round loses the learned
-  handlers, markers and continuation pages, as above.
+  cannot: each device then revokes and generates it again once every 30 days, and each
+  round loses the learned handlers, markers and continuation pages, as above.
 - A revocation under part A tells the service that the chosen item could not run the
   recipe, which hints at what the item lacks (its password, its TOTP secret or a
   passkey). It sends no value or fact by name, and the service is the owner's own.
@@ -153,9 +152,10 @@ without a passkey button, and the owner's example: a passkey-only recipe
 [#805](https://github.com/risu729/pateat/pull/805)) has no `password` variant, so an
 item with a password and no discoverable passkey refuses it with `no-route` and is
 marked `password`. A page that also shows an entry or a list is then sent with that
-entry or list, since that item holds no passkey; a page with only the button is
-generated as a passkey-only page again when another matching item holds a passkey, and
-the 30-day bound limits that repeat (ADR 0053, decision 7). A page whose document was
+entry or list, since that item holds no passkey (ADR 0053 decision 7); a page with only
+the button is generated as a passkey-only page again when another matching item holds
+a passkey (decision 2), and the 30-day bound limits that repeat, as ADR 0053's
+implementation notes say. A page whose document was
 already offered for generation once is generated only on its next visit.
 
 ## Alternatives
