@@ -23,6 +23,7 @@ import { createConnectionSetupService } from "./setup";
 import { createIndexedDbProviderSessionStore } from "./session-store";
 import { createProviderSessions, type RefreshReport } from "./sessions";
 import { SETUP_PORT, setupRequestSchema } from "./wire";
+import { senderPageUrl } from "../messaging/sender";
 import type { ConnectionRegistry, ConnectionSetupDependencies, SetupReply } from "./types";
 
 /** A diagnostics read must not hold the page as long as a sync may take. */
@@ -168,7 +169,7 @@ export function createConnectionRuntime(
     if (port.name !== SETUP_PORT) return false;
     if (
       port.sender?.id !== browser.runtime.id ||
-      port.sender.url !== browser.runtime.getURL("/options.html") ||
+      senderPageUrl(port.sender) !== browser.runtime.getURL("/options.html") ||
       port.sender.nativeApplication
     ) {
       port.disconnect();

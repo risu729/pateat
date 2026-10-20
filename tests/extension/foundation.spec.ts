@@ -313,6 +313,24 @@ test("probe options support keyboard policy validation and pass accessibility ch
   });
 });
 
+test("options reloaded at a section link still read settings and the service", async () => {
+  await withExtension(probeDirectory, async (context, _worker, id) => {
+    const page = await context.newPage();
+    await page.goto(`chrome-extension://${id}/options.html`);
+    await expect(page.locator("#settings-status")).toContainText("Saved settings loaded");
+    await page.getByRole("link", { name: "Sync service", exact: true }).click();
+    await expect(page).toHaveURL(/options\.html#sync$/u);
+    // Chrome now reports the page's URL to the worker with `#sync`.
+    await page.reload();
+    await expect(page.locator("#settings-status")).toContainText("Saved settings loaded");
+    await expect(page.locator("#bitwarden-setup-status")).toHaveText(
+      "Connections loaded. Add a vault or sign in again below.",
+    );
+    await expect(page.getByLabel("Service address", { exact: true })).toBeVisible();
+    await expect(page.getByText("The extension did not answer", { exact: false })).toHaveCount(0);
+  });
+});
+
 test("packaged toolbar icons for both vault lock states load in Chrome", async () => {
   await withExtension(extensionDirectory, async (context, _worker, id) => {
     const page = await context.newPage();

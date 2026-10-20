@@ -71,7 +71,10 @@ alone are not authorization.
 Extension pages and content scripts send their requests to the service worker through
 `@webext-core/messaging`, under one key per area (settings, service, diagnostics,
 passkey chooser, login, passkey); the request keeps its own `type`. The worker checks
-the sender before the area's handler runs, and the handler still validates the request
+the sender before the area's handler runs. An extension page is matched by its URL
+without the fragment: Chrome reports the URL a page was loaded with, so a settings page
+reloaded at `options.html#sync` reports `#sync`. A query is not ignored. The handler
+still validates the request
 with Valibot and checks a content script's tab, frame and document. A handler that
 fails answers `undefined`, so no error the library would serialize reaches the sender.
 The worker's sends to a tab stay raw `tabs.sendMessage` calls addressed by `frameId` and
@@ -133,8 +136,9 @@ and
 
 Prelogin, password/refresh-token requests and encrypted sync are isolated library
 operations. Manual options setup composes them through a dedicated private Port
-bound to the exact options-page sender. Passwords and manual codes never enter
-the metadata query cache. Closing that Port cancels its flow and withholds late
+bound to the options-page sender, its URL compared without the fragment. Passwords
+and manual codes never enter the metadata query cache. Closing that Port cancels its
+flow and withholds late
 results. Every setup failure crosses that Port as an error code only; provider
 HTTP statuses and other failure details stay in the background. Only
 value-free connection, group, item and field metadata returns to

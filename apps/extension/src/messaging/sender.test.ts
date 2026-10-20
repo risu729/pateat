@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { senderDocumentOrigin } from "./sender";
+import { senderDocumentOrigin, senderPageUrl } from "./sender";
 
 describe("a sender's document origin", () => {
   it("is the browser-reported origin when it is the URL's", () => {
@@ -39,5 +39,16 @@ describe("a sender's document origin", () => {
     ],
   ])("is none for %s", (_name, sender) => {
     expect(senderDocumentOrigin(sender as never)).toBeUndefined();
+  });
+});
+
+describe("senderPageUrl", () => {
+  it("drops the fragment a reloaded page keeps, and nothing else", () => {
+    const page = "chrome-extension://synthetic-extension/options.html";
+    expect(senderPageUrl({ url: `${page}#sync` })).toBe(page);
+    expect(senderPageUrl({ url: `${page}#` })).toBe(page);
+    expect(senderPageUrl({ url: page })).toBe(page);
+    expect(senderPageUrl({ url: `${page}?view=other` })).toBe(`${page}?view=other`);
+    expect(senderPageUrl({})).toBeUndefined();
   });
 });

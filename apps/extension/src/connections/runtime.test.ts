@@ -27,14 +27,14 @@ vi.mock("wxt/browser", () => ({
 }));
 vi.mock("../settings", () => ({ createLocalSettingsRuntime: () => ({}) }));
 
-function settingsPort(postMessage: () => void) {
+function settingsPort(
+  postMessage: () => void,
+  url = "chrome-extension://synthetic-extension/options.html",
+) {
   const listeners: { message?: (input: unknown) => void } = {};
   return {
     name: SETUP_PORT,
-    sender: {
-      id: "synthetic-extension",
-      url: "chrome-extension://synthetic-extension/options.html",
-    },
+    sender: { id: "synthetic-extension", url },
     postMessage: vi.fn(postMessage),
     disconnect: vi.fn(),
     onDisconnect: { addListener: vi.fn() },
@@ -48,6 +48,21 @@ function settingsPort(postMessage: () => void) {
 }
 
 describe("settings-page setup port", () => {
+  it("is open to the settings page reloaded at a section link, and to no other page", () => {
+    const runtime = createConnectionRuntime({} as CryptoHost, {
+      registry: { list: async () => [], get: async () => undefined } as never,
+    });
+    const page = "chrome-extension://synthetic-extension";
+    const reloaded = settingsPort(() => undefined, `${page}/options.html#sync`);
+    expect(runtime.attach(reloaded as never)).toBe(true);
+    expect(reloaded.disconnect).not.toHaveBeenCalled();
+    for (const url of [`${page}/options.html?view=other`, `${page}/popup.html`]) {
+      const other = settingsPort(() => undefined, url);
+      expect(runtime.attach(other as never)).toBe(true);
+      expect(other.disconnect).toHaveBeenCalledOnce();
+    }
+  });
+
   it("disconnects when a reply cannot be sent, so the page fails at once instead of waiting", async () => {
     const runtime = createConnectionRuntime({} as CryptoHost, {
       registry: { list: async () => [], get: async () => undefined } as never,
