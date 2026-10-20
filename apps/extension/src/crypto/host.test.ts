@@ -202,6 +202,7 @@ function harness(
 }
 
 afterEach(async () => {
+  vi.useRealTimers();
   await Promise.all(disposed.splice(0).map((host) => host.dispose()));
   vi.restoreAllMocks();
 });
@@ -934,11 +935,14 @@ describe("cancellation, deadlines and host loss", () => {
   it.each(["abort", "deadline"])(
     "sends a generation-bound cancellation on %s and ignores the late native result",
     async (cause) => {
-      const h = harness({ timeoutMs: cause === "abort" ? 500 : 30 });
+      // The deadline runs on fake timers, so starting the document never races it.
+      if (cause === "deadline") vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const h = harness({ timeoutMs: 500 });
       const controller = new AbortController();
       const pending = h.host.deriveAuthentication(auth(), controller.signal);
       const command = await h.command();
       if (cause === "abort") controller.abort();
+      else await vi.advanceTimersByTimeAsync(500);
       expect(await pending).toEqual({
         ok: false,
         error: { code: cause === "abort" ? "cancelled" : "timeout" },
@@ -976,16 +980,19 @@ describe("cancellation, deadlines and host loss", () => {
   it.each(["timeout", "cancel", "disconnect"] as const)(
     "reports a session as no longer open after a %s ends it",
     async (cause) => {
-      const h = harness({ timeoutMs: cause === "timeout" ? 30 : 500 });
+      const h = harness({ timeoutMs: 500 });
       const session = await h.open();
       expect(h.host.isOpen(session)).toBe(true);
       expect(h.host.isOpen({ ...session, sessionId: crypto.randomUUID() })).toBe(false);
       if (cause === "disconnect") h.onDisconnect.emit();
       else {
+        // Only this job's deadline runs on fake timers, so opening the session never races it.
+        if (cause === "timeout") vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
         const controller = new AbortController();
         const pending = h.host.listFields(session, itemId, controller.signal);
         await h.command(1);
         if (cause === "cancel") controller.abort();
+        else await vi.advanceTimersByTimeAsync(500);
         expect((await pending).ok).toBe(false);
       }
       expect(h.host.isOpen(session)).toBe(false);
