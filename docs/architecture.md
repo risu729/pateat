@@ -1738,7 +1738,11 @@ and `error` entries, pruned at worker start and every 500 writes.
 
 The diagnostics page sends `diagnostics.logs.export` (with `includeSites`),
 `diagnostics.logs.clear` and `diagnostics.logs.debug` (with `enabled`), accepted from
-the same page URL only. **Download logs** previews the exact JSON Lines text and saves
+the same page URL only. Turning debug logging on or off updates the page in place
+(owner, 2026-10-20): the button and its end time follow at once, the summary is read
+again without leaving the page, and an open log preview and its messages stay. Clearing
+the logs closes the preview and updates the counts the same way; only **Refresh**
+reloads the whole page. **Download logs** previews the exact JSON Lines text and saves
 it through a `Blob` link (no `downloads` permission): a header line with the version,
 revision and export time, then one line per entry. **Copy all** puts the same text on
 the clipboard in full, without selecting the scrolled preview by hand, and reports how
