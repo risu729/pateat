@@ -1649,7 +1649,7 @@ describe("unhandled errors", () => {
       undefined,
       undefined,
       undefined,
-      ...Array.from({ length: 18 }, () => 3),
+      ...Array.from({ length: 19 }, () => 3),
     ]);
     expect(
       entries.map(({ event, level, fields: { tab: _tab, ...fields } }) => [event, level, fields]),
