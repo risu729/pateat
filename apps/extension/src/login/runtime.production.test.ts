@@ -5535,6 +5535,32 @@ describe("production login document admission", () => {
             fake.state.tabUrls[2] = fake.state.pageUrl;
             await filledOnly(h, { tab: { id: 2 }, documentId: "other-tab" });
           });
+          it("logs the tab's asking ending as it closes, and the other tab logs in again", async () => {
+            const report = vi.fn<(entry: LoginReport) => void>();
+            const h = setup(report);
+            expect(await h.hello({ documentId: "home" }, false)).toMatchObject({ ok: false });
+            await clickLogout(h);
+            await filledOnly(h, { documentId: "signed-out" });
+            fake.state.tabUrls[2] = fake.state.pageUrl;
+            await filledOnly(h, { tab: { id: 2 }, documentId: "other-tab" });
+            for (const listener of fake.state.removed) listener(1);
+            await vi.waitFor(() =>
+              expect(report).toHaveBeenCalledWith({
+                type: "ask-ended",
+                tabId: 1,
+                origin,
+                ask: "logout",
+                cause: "tab-closed",
+              }),
+            );
+            expect(logouts()).toEqual([]);
+            // Nothing else asks, so a reload of the other tab logs in (ADR 0021 D).
+            expect(await h.hello({ tab: { id: 2 }, documentId: "reloaded" })).toEqual({
+              ok: true,
+            });
+            await vi.waitFor(() => expect(attempts()).toMatchObject([{ state: "authenticated" }]));
+            expect(attempts()[0]).not.toHaveProperty("fillOnly");
+          });
           it("reads the next page only once a click sent before it is kept", async () => {
             const h = setup();
             // The click's message and the next page's announcement arrive back to back.

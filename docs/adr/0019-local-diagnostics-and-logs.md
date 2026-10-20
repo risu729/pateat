@@ -18,7 +18,8 @@ and
 [Amendment 2026-10-18: every login's record sent to the service](#amendment-2026-10-18-every-logins-record-sent-to-the-service),
 by [ADR 0055](0055-login-records-sent-to-the-service.md), implemented, and
 [Amendment: signed-in page samples](#amendment-signed-in-page-samples), implemented,
-local tests only).
+local tests only) and on 2026-10-19 (see
+[Amendment 2026-10-19: tab numbers and closed tabs that asked](#amendment-2026-10-19-tab-numbers-and-closed-tabs-that-asked)).
 The diagnostics page, the logs, the Bitwarden server information, recent log lines and
 the Pateat service's record for the device are implemented.
 
@@ -521,3 +522,24 @@ due. Like `service.outcome`, it records no request time
 ([how long requests and logins take](#amendment-2026-10-18-how-long-requests-and-logins-take)):
 it goes after the login ended, so it is not part of the login's time. The event name,
 levels and the missing timing are the agent's choice, not confirmed by the owner.
+
+## Amendment 2026-10-19: tab numbers and closed tabs that asked
+
+On 2026-10-19 (22:28 UTC) the owner logged out of dash.cloudflare.com, opened another
+tab to log in, and after a reload Pateat logged in with the site default. The log could
+not show whether the reload was in the tab that logged out, which must only fill and ask
+(ADR 0021 D), or in the other tab after the first one closed, which logs in: no entry
+named a tab, and closing a tab that asked wrote nothing. The coordinating agent approved
+these additions (22:37 UTC); the owner had been told they would be added:
+
+- Each entry a page caused records `tab`, the Chrome tab ID, so entries of two tabs of
+  one site can be told apart. Chrome numbers tabs within a browser session; the number
+  says nothing about the page. Entries the worker writes on its own name no tab. Log
+  downloads and the bug report keep it, also with sites hidden.
+- `login.ask-ended` (info) is written when a tab that asks after a logout, a rejected
+  login or a stopped login (ADR 0021 D) closes: origin, which kind of asking ended
+  (`ask`: `logout`, `rejected` or `stopped-login`), `cause` `tab-closed`, and
+  `elsewhere` when another tab still asks after its own logout of the origin. For
+  `logout` and `rejected` without `elsewhere`, the site's other tabs that asked only
+  because of this tab stop asking and log in again; a stopped login asked in its own tab
+  only, so closing it changes nothing for other tabs.
