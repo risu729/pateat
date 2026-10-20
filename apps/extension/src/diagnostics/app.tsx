@@ -529,7 +529,7 @@ function Logs({
   );
 }
 
-const QUERY_KEY = ["diagnostics"];
+const QUERY_KEY = ["diagnostics"] as const;
 
 export function DiagnosticsApp({ client }: { client: DiagnosticsClient }) {
   const queryClient = useQueryClient();

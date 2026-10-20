@@ -235,3 +235,45 @@ test("Refresh starts over and closes the log preview", async () => {
   expect(value.load).toHaveBeenCalledTimes(2);
   expect(preview()).toBeUndefined();
 });
+
+test("turning debug logging off drops its end time at once", async () => {
+  const on = status({
+    logs: {
+      entries: 3,
+      bytes: 1024,
+      recentErrors: 0,
+      recentWarnings: 0,
+      debugUntil: DEBUG_UNTIL_TURNED_OFF,
+    },
+  });
+  // The summary read again never arrives, so only the response changes the page.
+  const value = {
+    ...client(on),
+    load: vi
+      .fn<DiagnosticsClient["load"]>(() => new Promise(() => undefined))
+      .mockResolvedValueOnce({ ok: true, status: on }),
+  } satisfies DiagnosticsClient;
+  await show(value);
+  await page.getByRole("button", { name: "Turn off debug logging" }).click();
+  await expect
+    .element(page.getByRole("button", { name: "Turn on debug logging", exact: true }))
+    .toBeVisible();
+  await expect.element(page.getByText("off", { exact: true })).toBeVisible();
+  expect(value.load).toHaveBeenCalledTimes(2);
+});
+
+test("a failed read after clearing the logs keeps the page as shown", async () => {
+  const value = {
+    ...client(status()),
+    load: vi
+      .fn<DiagnosticsClient["load"]>(async () => ({ ok: false, error: "unavailable" }))
+      .mockResolvedValueOnce({ ok: true, status: status() }),
+  } satisfies DiagnosticsClient;
+  await show(value);
+  await page.getByRole("button", { name: "Clear logs" }).click();
+  await page.getByRole("button", { name: "Delete all log entries" }).click();
+  await expect.element(page.getByText("Logs cleared.")).toBeVisible();
+  await expect.poll(() => value.load.mock.calls.length).toBe(2);
+  await expect.element(page.getByRole("heading", { name: "Checks" })).toBeVisible();
+  expect(document.querySelector("#diagnostics-status")!.textContent).toBe("");
+});
