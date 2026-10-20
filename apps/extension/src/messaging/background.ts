@@ -3,6 +3,7 @@ import { browser, type Browser, type PublicPath } from "wxt/browser";
 import { diagnosticsRequestSchema, type DiagnosticsRequest } from "../diagnostics/wire";
 import { CHOOSER_PAGE } from "../passkeys/chooser";
 import { onMessage, type BackgroundProtocol } from "./protocol";
+import { senderPageUrl } from "./sender";
 
 type Sender = Browser.runtime.MessageSender;
 
@@ -60,7 +61,7 @@ export function listenForBackgroundMessages(areas: BackgroundAreas): void {
     );
   const fromPage = (sender: Sender, ...paths: PublicPath[]) =>
     sender.id === browser.runtime.id &&
-    paths.some((path) => sender.url === browser.runtime.getURL(path));
+    paths.some((path) => senderPageUrl(sender) === browser.runtime.getURL(path));
   // The chooser window reaches the chooser alone, whatever its query.
   const fromChooser = (sender: Sender) =>
     sender.id === browser.runtime.id &&
@@ -110,7 +111,7 @@ export function listenForBackgroundMessages(areas: BackgroundAreas): void {
   if (import.meta.env.MODE !== "probe") return;
   const probePage = new URL("crypto-probe.html", browser.runtime.getURL("/options.html")).href;
   const fromProbePage = (sender: Sender) =>
-    sender.id === browser.runtime.id && sender.url === probePage;
+    sender.id === browser.runtime.id && senderPageUrl(sender) === probePage;
   const { setupProbe, vaultProbe, cryptoProbe } = areas;
   if (setupProbe)
     answer("setup.probe", (request, sender) =>

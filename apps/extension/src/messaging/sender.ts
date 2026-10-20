@@ -14,3 +14,12 @@ export function senderDocumentOrigin(sender: {
   if (sender.origin === "null") return undefined;
   return URL.parse(sender.url)?.origin === sender.origin ? sender.origin : undefined;
 }
+
+/**
+ * A sender's document URL without its fragment. Chrome reports the URL the document was
+ * loaded with, so a settings page reloaded after a section link (`options.html#sync`)
+ * keeps that fragment; it never changes which page runs, so page checks ignore it.
+ */
+export function senderPageUrl(sender: { url?: string | undefined }): string | undefined {
+  return sender.url?.split("#", 1)[0];
+}

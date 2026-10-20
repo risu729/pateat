@@ -71,7 +71,9 @@ alone are not authorization.
 Extension pages and content scripts send their requests to the service worker through
 `@webext-core/messaging`, under one key per area (settings, service, diagnostics,
 passkey chooser, login, passkey); the request keeps its own `type`. The worker checks
-the sender before the area's handler runs, and the handler still validates the request
+the sender before the area's handler runs: an extension page by its URL without the
+fragment, since Chrome reports the URL a page loaded with, so a settings page reloaded
+at `options.html#sync` keeps `#sync`. The handler still validates the request
 with Valibot and checks a content script's tab, frame and document. A handler that
 fails answers `undefined`, so no error the library would serialize reaches the sender.
 The worker's sends to a tab stay raw `tabs.sendMessage` calls addressed by `frameId` and

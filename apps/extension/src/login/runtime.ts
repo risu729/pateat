@@ -163,7 +163,7 @@ import {
 import { customFieldOffers, type CustomFieldOffer } from "./generation-slots";
 import { emailUsername, namesUsername, type EntryMiss, type OtherMiss } from "../page/account-list";
 import { observedPath } from "../observation/path";
-import { senderDocumentOrigin } from "../messaging/sender";
+import { senderDocumentOrigin, senderPageUrl } from "../messaging/sender";
 import { pathShowsUsername, withoutUsernames } from "../observation/usernames";
 import {
   decideSignInState,
@@ -2363,7 +2363,7 @@ export function createLoginRuntime(
   }
   const trusted = (sender: Sender) =>
     sender.id === browser.runtime.id &&
-    sender.url === browser.runtime.getURL("/options.html") &&
+    senderPageUrl(sender) === browser.runtime.getURL("/options.html") &&
     !sender.tab?.url?.startsWith("http:");
   /**
    * The record of a tab for one origin, also once it ended. A document resumes only its
@@ -2443,7 +2443,8 @@ export function createLoginRuntime(
     return records.find((entry) => !terminal(entry)) ?? records.at(-1);
   }
   const fromPopup = (sender: Sender) =>
-    sender.id === browser.runtime.id && sender.url === browser.runtime.getURL("/popup.html");
+    sender.id === browser.runtime.id &&
+    senderPageUrl(sender) === browser.runtime.getURL("/popup.html");
   const reviving = new Map<number, Promise<void>>();
   /**
    * Asks a refused document that a restarted worker knows only from session storage to

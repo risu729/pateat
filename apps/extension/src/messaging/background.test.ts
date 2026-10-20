@@ -117,10 +117,21 @@ describe("background messages", () => {
     const get = { version: 1, type: "settings.get" };
     expect(await worker.send(options, "settings", get)).toEqual({ area: "settings", request: get });
     expect(await worker.send(popup, "settings", get)).toEqual({ area: "settings", request: get });
-    for (const sender of [diagnosticsPage, chooserPage, content, otherExtension])
+    // Reloaded after a section link: Chrome reports the URL with the fragment it loaded with.
+    expect(await worker.send(page("/options.html#sync"), "settings", get)).toEqual({
+      area: "settings",
+      request: get,
+    });
+    for (const sender of [
+      diagnosticsPage,
+      chooserPage,
+      content,
+      otherExtension,
+      page("/options.html?view=other"),
+    ])
       // oxlint-disable-next-line no-await-in-loop
       expect(await worker.send(sender, "settings", get)).toBeUndefined();
-    expect(worker.areas.settings).toHaveBeenCalledTimes(2);
+    expect(worker.areas.settings).toHaveBeenCalledTimes(3);
   });
 
   it("routes settings requests by their own type", async () => {
@@ -143,13 +154,17 @@ describe("background messages", () => {
   it("answers service requests from the settings page only", async () => {
     const pair = { version: 1, type: "service.pair" };
     expect(await worker.send(options, "service", pair)).toEqual({ area: "service", request: pair });
+    expect(await worker.send(page("/options.html#sync"), "service", pair)).toEqual({
+      area: "service",
+      request: pair,
+    });
     for (const sender of [popup, diagnosticsPage, content, otherExtension])
       // oxlint-disable-next-line no-await-in-loop
       expect(await worker.send(sender, "service", pair)).toBeUndefined();
     expect(
       await worker.send(options, "service", { version: 1, type: "settings.get" }),
     ).toBeUndefined();
-    expect(worker.areas.service).toHaveBeenCalledTimes(1);
+    expect(worker.areas.service).toHaveBeenCalledTimes(2);
   });
 
   it("answers valid diagnostics requests from the diagnostics page only", async () => {
