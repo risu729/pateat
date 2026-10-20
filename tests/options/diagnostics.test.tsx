@@ -73,9 +73,9 @@ function client(value: DiagnosticsStatus) {
   } satisfies DiagnosticsClient;
 }
 
-async function show(value: DiagnosticsClient) {
+async function show(value: DiagnosticsClient, queryClient = new QueryClient()) {
   await render(
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider client={queryClient}>
       <DiagnosticsApp client={value} />
     </QueryClientProvider>,
   );
@@ -269,11 +269,13 @@ test("a failed read after clearing the logs keeps the page as shown", async () =
       .fn<DiagnosticsClient["load"]>(async () => ({ ok: false, error: "unavailable" }))
       .mockResolvedValueOnce({ ok: true, status: status() }),
   } satisfies DiagnosticsClient;
-  await show(value);
+  const queryClient = new QueryClient();
+  await show(value, queryClient);
   await page.getByRole("button", { name: "Clear logs" }).click();
   await page.getByRole("button", { name: "Delete all log entries" }).click();
   await expect.element(page.getByText("Logs cleared.")).toBeVisible();
-  await expect.poll(() => value.load.mock.calls.length).toBe(2);
+  await expect.poll(() => queryClient.getQueryState(["diagnostics"])?.status).toBe("error");
+  expect(value.load).toHaveBeenCalledTimes(2);
   await expect.element(page.getByRole("heading", { name: "Checks" })).toBeVisible();
   expect(document.querySelector("#diagnostics-status")!.textContent).toBe("");
 });
