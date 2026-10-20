@@ -303,9 +303,11 @@ export function bindingGaps(
  * such gap resolve on the item winning. `templates` are those `templateLoginBinding` would
  * get: the recipe's other saved bindings of the origin, then the generated slot map. The
  * saved entries are kept as they are and in their order, and the filled ones follow in
- * `slots` order; `widened` says whether any was added. A built-in field the saved binding
- * already reads under another slot never fills a gap. A gap left unfilled refuses
- * `binding-slots-mismatch`, as a saved binding that lacks a slot did before; a template
+ * `slots` order; `widened` says whether any was added. A gap named `username`, `password`
+ * or `totp` whose built-in field the saved binding already names directly under another
+ * slot refuses `binding-slots-mismatch`; a custom field linked to that built-in field is
+ * not detected. A gap left unfilled refuses `binding-slots-mismatch` too, as a saved
+ * binding that lacks a slot did before; a template
  * reference that does not resolve on the item refuses with its field's reason when no
  * template fills every gap. The result is resolved by `resolveBindingFields` like any.
  */
@@ -320,7 +322,8 @@ export function fillLoginBinding(
   | { ok: false; slot: string; reason: FieldRefusal } {
   const gaps = bindingGaps(saved, slots);
   if (gaps.length === 0) return { ok: true, binding: saved, widened: false };
-  // One login never types the same built-in value into a second field.
+  // A built-in gap whose field the binding already names directly under another slot would
+  // type that value twice. Only direct references are compared.
   if (gaps.some((slot) => saved.slots.some((entry) => entry.field === slot)))
     return { ok: false, reason: "binding-slots-mismatch" };
   // Built-in gaps alone need no template.
@@ -356,18 +359,22 @@ const maxSavedEntries = 1000;
 export type LoginChoiceAccount = Omit<SavedLoginBinding, "recipeId" | "slots">;
 
 /**
- * Whether `wider` keeps every entry of `binding` as it is and adds at least one: the
- * binding a login filled the gaps of (ADR 0027, amended 2026-10-19).
+ * Whether `wider` starts with every entry of `binding` as it is and in its order, and adds
+ * at least one after them: the binding a login filled the gaps of (ADR 0027, amended
+ * 2026-10-19).
  */
 function widensLoginBinding(binding: SavedLoginBinding, wider: SavedLoginBinding): boolean {
   return (
     sameLoginBinding(binding, wider) &&
     wider.slots.length > binding.slots.length &&
-    binding.slots.every((entry) =>
-      wider.slots.some(
-        (other) => other.slot === entry.slot && sameFieldReference(other.field, entry.field),
-      ),
-    )
+    binding.slots.every((entry, index) => {
+      const other = wider.slots[index];
+      return (
+        other !== undefined &&
+        other.slot === entry.slot &&
+        sameFieldReference(other.field, entry.field)
+      );
+    })
   );
 }
 

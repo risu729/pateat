@@ -4798,6 +4798,58 @@ describe("production login document admission", () => {
         });
         expect(h.store.update).not.toHaveBeenCalled();
       });
+      it.each([false, true])(
+        "widens the picked item's saved binding that lacks a slot only for a pick made the default (makeDefault=%s, ADR 0027)",
+        async (makeDefault) => {
+          const withUsername = parseLoginRecipe({
+            ...recipe,
+            slots: ["username", "password"],
+            steps: [
+              {
+                kind: "fill",
+                path: "/signin",
+                fields: [
+                  { slot: "username", target: target("user") },
+                  { slot: "password", target: target("password") },
+                ],
+              },
+              recipe.steps[1]!,
+            ],
+          });
+          const narrow: SavedLoginBinding = {
+            ...savedBinding,
+            itemId: otherItemId,
+            slots: [{ slot: "username", field: "username" }],
+          };
+          const h = harness(
+            { siteDefaults: [], bindings: [narrow] },
+            {
+              allowedOrigins: [],
+              uris: async () => ({ ok: true, data: both }),
+              otherUsername: true,
+            },
+          );
+          h.recipes.recipe.mockResolvedValue(withUsername);
+          expect(await h.hello()).toEqual({ ok: false, reason: "account-ambiguous" });
+          fake.state.onReconnect = () => h.hello();
+          expect(await pick(h, { makeDefault })).toEqual({ ok: true });
+          await vi.waitFor(() =>
+            expect(JSON.stringify(fake.state.messages)).toContain("authenticated"),
+          );
+          // The gap is filled from the item for this login either way.
+          expect(h.fields.mock.calls.map(([read]) => read.fieldId)).toContain("login.password");
+          if (makeDefault) {
+            await vi.waitFor(() =>
+              expect(h.settings.settings.bindings).toEqual([
+                { ...narrow, slots: [...narrow.slots, { slot: "password", field: "password" }] },
+              ]),
+            );
+          } else {
+            expect(h.store.update).not.toHaveBeenCalled();
+            expect(h.settings.settings.bindings).toEqual([narrow]);
+          }
+        },
+      );
       it("saves a pick marked as the default only after authenticated", async () => {
         const h = await refused();
         fake.state.onReconnect = async () => {
@@ -15025,6 +15077,20 @@ describe("password route variants (ADR 0027)", () => {
       );
     });
 
+    it("widens nothing when the credential is rejected", async () => {
+      fake.state.observed = ["missing", "unique"];
+      const rejecting = parseLoginRecipe({ ...signIn, rejection: target("rejected") });
+      const { h } = start({ bindings: [narrow] }, { ...both, username: true }, rejecting);
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(JSON.stringify(fake.state.messages)).toContain("credential-rejected"),
+      );
+      // The gap was filled for the login, but the binding stays as it was.
+      expect(filled()).toEqual([["username", "password"]]);
+      expect(h.store.update).not.toHaveBeenCalled();
+      expect(h.settings.settings.bindings).toEqual([narrow]);
+    });
+
     it.each<[string, Partial<LocalSettings>, LoginGeneration["slotFields"] | undefined]>([
       ["the generated slot map", {}, async () => [{ slot: "branch", field: { custom: "Branch" } }]],
       [
@@ -21511,6 +21577,48 @@ describe("the start page's own passkey request (ADR 0034)", () => {
     expect(report.mock.calls.map(([entry]) => entry)).toContainEqual(
       expect.objectContaining({ type: "attempt", route: "passkey", cause: "answer-failed" }),
     );
+  });
+
+  it("widens a saved default's binding that lacks a slot after the fallback signs in (ADR 0027)", async () => {
+    // The saved default's passkey plan saves nothing; the password variant fills the
+    // username its saved binding lacks, so that binding is what the sign-in saves.
+    const withUsername = parseLoginRecipe({
+      ...recipe,
+      slots: ["username", "password"],
+      steps: [
+        {
+          kind: "fill",
+          path: "/signin",
+          fields: [
+            { slot: "username", target: target("user") },
+            { slot: "password", target: target("password") },
+          ],
+        },
+        recipe.steps[1]!,
+      ],
+    });
+    fake.state.present = new Set(["user", "password", "login"]);
+    const { h, report } = start(withUsername, { username: true });
+    const request = ask(h);
+    await flush();
+    expect(await h.hello()).toEqual({ ok: true });
+    const answer = answerOf(await request.decision);
+    signsInOnClick();
+    answer.answered(false);
+    await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
+    expect(status()![0]).toMatchObject({ route: "password", variant: 0 });
+    expect(routeChanges(report)).toEqual(["answer-failed"]);
+    await vi.waitFor(() =>
+      expect(h.settings.settings.bindings).toEqual([
+        {
+          ...savedBinding,
+          slots: [...savedBinding.slots, { slot: "username", field: "username" }],
+        },
+      ]),
+    );
+    expect(h.settings.settings.siteDefaults).toEqual([
+      { origin, provider: "bitwarden", userId, itemId },
+    ]);
   });
 
   it("falls back to the password when the sign-in form still shows fifteen seconds after the answer", async () => {

@@ -91,12 +91,11 @@ result may hold a name the page does not show); implemented.
 Amended on 2026-10-19 by the owner (22:48 UTC, "yeah sounds good. go ahead"): the slots
 a saved binding does not name are filled as for an item without one, after the variants
 were tried with the binding as it is, and the binding is widened by them after
-`authenticated`, at login start, at a continuation's takeover and at each step; a
-refused takeover logs why
+`authenticated`; the same rule applies at login start, at a continuation's takeover and
+at each step, and a refused takeover logs why
 ([saved bindings that lack a slot](#amendment-2026-10-19-saved-bindings-that-lack-a-slot)),
 which amends [ADR 0013](0013-service-held-recipes-and-settings.md) (bindings are
-widened), [ADR 0018](0018-recipe-generation-route.md) (the takeover) and
-[ADR 0019](0019-local-diagnostics-and-logs.md) (`notTakenOver`); implemented.
+widened) and [ADR 0018](0018-recipe-generation-route.md) (the takeover); implemented.
 
 Date: 2026-10-11
 
@@ -1104,7 +1103,10 @@ Since the request names no item, the name may come from another account's bindin
 same owner and recipe. It does not help when the account's vault field is named
 otherwise, when the start path (and so the recipe ID) changed, or for a field no binding
 names yet; there the 2026-10-18 consequence (`binding-slots-mismatch` until the binding
-is removed) still holds. Recipe repair, once built, can use the same matching.
+is removed) still holds, since the
+[2026-10-19 amendment](#amendment-2026-10-19-saved-bindings-that-lack-a-slot) only when
+no template names the new slot either. Recipe repair, once built, can use the same
+matching.
 
 ## Amendment 2026-10-19: saved bindings that lack a slot
 
@@ -1134,22 +1136,23 @@ built-in slots only), at 22:48 UTC on 2026-10-19 ("yeah sounds good. go ahead"):
   in recipe order. An item whose binding fits its second variant keeps that variant,
   even when the first could be filled.
 - **Widening.** After an `authenticated` login, the filled slots are written into the
-  saved binding (`saveLoginChoice` replaces a binding with one that keeps each of its
-  entries and adds slots), so the binding is widened.
+  saved binding (`saveLoginChoice` replaces a binding with one that starts with each of
+  its entries in their order and adds slots after them), so the binding is widened.
 - **Everywhere a plan is built.** The same rule applies at login start, to the
   continuation's takeover (`continueWith`, ADR 0018) and to each step's authorization,
   which plans the recorded route again.
 - **Logged refusals.** A takeover the login refuses is logged with why, as a value-free
-  code: `recipe.generate` gains `notTakenOver` beside `takenOver: false`
-  ([ADR 0019](0019-local-diagnostics-and-logs.md)), such as the plan's
+  code: `recipe.generate` gains `notTakenOver` beside `takenOver: false` (in the
+  [local log](../architecture.md#local-log)), such as the plan's
   `binding-slots-mismatch` or `field-missing`.
 
 Claude's details, not confirmed by the owner:
 
-- A built-in field the saved binding already reads under another slot (as
+- A built-in field the saved binding already names directly under another slot (as
   `{ "slot": "Web password", "field": "password" }`) never fills a missing built-in
   slot, so the same value is not typed into a second field; that slot stays unfilled and
-  the plan refuses as before.
+  the plan refuses as before. Only direct references are compared: a custom field linked
+  to that built-in field is not detected.
 - Existing entries are never overwritten, also when a template names another field for
   the same slot.
 - A gap that no template names stays unfilled and refuses `binding-slots-mismatch`, as a

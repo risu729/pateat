@@ -3427,11 +3427,11 @@ export function createLoginRuntime(
    * the automatic one for built-in slots, else one built from a template: another item's
    * saved binding of the recipe, then the slot map of a recipe generated from this device.
    * The synced binding's entries are used as they are, and its entries for other slots are
-   * ignored. With `fill`, the slots it holds no entry for are filled as for an item without
-   * one (amended 2026-10-19, `fillLoginBinding`), and the widened binding counts as unsaved,
-   * so it is saved after `authenticated`; without, such a binding refuses
+   * ignored. With `fillGaps`, the slots it holds no entry for are filled as for an item
+   * without one (amended 2026-10-19, `fillLoginBinding`), and the widened binding counts as
+   * unsaved, so it is saved after `authenticated`; without, such a binding refuses
    * `binding-slots-mismatch`. It is mapped to this device's field IDs by the catalog's raw
-   * field names.
+   * field names. Not to be confused with a fill-only login's `fill` (ADR 0021 D).
    */
   async function bindingFor(
     catalog: VaultCatalog,
@@ -3441,7 +3441,7 @@ export function createLoginRuntime(
     documentOrigin: string,
     slots: readonly string[],
     slotMap: () => Promise<LoginBindingTemplate | undefined>,
-    fill: boolean,
+    fillGaps: boolean,
   ): Promise<
     | { ok: true; binding: LoginAccountBinding; synced: SavedLoginBinding; saved: boolean }
     | { ok: false; reason: string }
@@ -3464,7 +3464,7 @@ export function createLoginRuntime(
     const saved = findLoginBinding(settingsValue.bindings, recipe, owner);
     let binding = saved ?? defaultLoginBinding(slots, recipe, named);
     let widened = false;
-    if (saved && fill && bindingGaps(saved, slots).length > 0) {
+    if (saved && fillGaps && bindingGaps(saved, slots).length > 0) {
       const filled = fillLoginBinding(saved, slots, await templates(), fieldNames);
       if (!filled.ok) return { ok: false, reason: filled.reason };
       binding = filled.binding;
@@ -3627,11 +3627,11 @@ export function createLoginRuntime(
     const slotMap = () =>
       (generated ??= Promise.resolve(generation?.slotFields(recipe.id)).catch(() => undefined));
     /**
-     * The plan for one route, or why it does not resolve. Without `fill`, a saved binding
+     * The plan for one route, or why it does not resolve. Without `fillGaps`, a saved binding
      * that holds no entry for one of the route's slots refuses `binding-slots-mismatch`
      * rather than having it filled (ADR 0027, amended 2026-10-19).
      */
-    const resolveRoute = async (route: LoginRouteChoice, fill = true) => {
+    const resolveRoute = async (route: LoginRouteChoice, fillGaps = true) => {
       const slots = routeSlots(recipe, route);
       let policy = snapshot.snapshot;
       let binding: LoginAccountBinding;
@@ -3661,7 +3661,7 @@ export function createLoginRuntime(
             live.document.origin,
             slots,
             slotMap,
-            fill,
+            fillGaps,
           );
           if (!bound.ok) return { ok: false as const, reason: bound.reason };
           binding = bound.binding;
@@ -3793,7 +3793,7 @@ export function createLoginRuntime(
       return exact.ok || !gapped ? exact : variantPlan(true);
     }
     /** The first password variant that fits, with or without filling a saved binding. */
-    async function variantPlan(fill: boolean, gap?: () => void) {
+    async function variantPlan(fillGaps: boolean, gap?: () => void) {
       const routes: LoginRouteChoice[] = passwordVariants(recipe).map((_, variant) => ({
         route: "password",
         variant,
@@ -3832,7 +3832,7 @@ export function createLoginRuntime(
       // facts and the generated map are read once.
       /* eslint-disable no-await-in-loop */
       for (const [index, route] of routes.entries()) {
-        const resolved = await resolveRoute(route, fill);
+        const resolved = await resolveRoute(route, fillGaps);
         if (!resolved.ok) {
           if (!variantRefusals.has(resolved.reason)) return resolved;
           if (resolved.reason === "binding-slots-mismatch") gap?.();
@@ -11334,8 +11334,11 @@ export function createLoginRuntime(
       return;
     }
     await change(run, { type: "ROUTE", route: "password", steps }, undefined, undefined, cause);
-    if (!current(run) || run.metadata.route !== "password" || !run.choice) return;
-    // The account choice saved after the sign-in names the password variant's binding.
+    if (!current(run) || run.metadata.route !== "password") return;
+    // The account choice saved after the sign-in names the password variant's binding, also
+    // when only that binding is unsaved or widened (ADR 0027, amended 2026-10-19), as for a
+    // saved default whose passkey plan saved nothing. A pick for this login only stays
+    // unsaved, since the plan still sees the pick.
     const snapshot = await settings.handle({ version: 1, type: "settings.get" });
     if (!current(run) || !snapshot.ok) return;
     const plan = await planFor(snapshot, run.live, run.recipe, {

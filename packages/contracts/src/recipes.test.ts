@@ -490,6 +490,12 @@ describe("automatic account choice", () => {
       slots: [...pinned.slots, { slot: "password", field: "password" }],
     } satisfies SavedLoginBinding;
     expect(saveLoginChoice(pinSaved, samePosition).bindings).toEqual([samePosition]);
+    // The saved entries must come first and in their order.
+    const reordered = {
+      ...pinned,
+      slots: [{ slot: "password", field: "password" }, ...pinned.slots],
+    } satisfies SavedLoginBinding;
+    expect(saveLoginChoice(pinSaved, reordered).bindings).toEqual([pinned]);
     // A binding of another item or recipe is never widened.
     expect(
       saveLoginChoice(saved, { ...wide, itemId: "00000000-0000-4000-8000-000000000003" }).bindings,
