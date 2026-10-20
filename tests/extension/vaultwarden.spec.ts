@@ -30,6 +30,11 @@ test.beforeAll(async () => {
   test.setTimeout(240_000);
   server = await startVaultwarden();
 });
+test.afterEach(async () => {
+  const info = test.info();
+  if (info.status === info.expectedStatus || !server) return;
+  await info.attach("vaultwarden.log", { body: await server.logs(), contentType: "text/plain" });
+});
 test.afterAll(() => server?.stop());
 // Each sign-in derives PBKDF2 600000 in the page's worker and in the seeder. The tests share
 // one server, so they stay in one shard instead of each starting its own.
@@ -151,13 +156,13 @@ test("emails a two-step code on its own and signs in with it, then resends", asy
         exact: true,
       }),
     ).toBeVisible({ timeout: 60_000 });
-    const first = await readTwoStepCode(server.mailpitUrl, account.email);
+    // Reading a code deletes its email, so the next read waits for the resent one.
+    await readTwoStepCode(server.mailpitUrl, account.email);
     await options.getByRole("button", { name: "Resend code", exact: true }).click();
-    const second = await readTwoStepCode(server.mailpitUrl, account.email);
-    expect(second).toMatch(/^\d{6}$/);
-    // Vaultwarden keeps only the latest code.
-    expect(second).not.toBe(first);
-    await verify(options, second);
+    // Vaultwarden keeps only the latest code, so signing in proves the resend reached it.
+    const resent = await readTwoStepCode(server.mailpitUrl, account.email);
+    expect(resent).toMatch(/^\d{6}$/);
+    await verify(options, resent);
     await expect(options.getByText(ready, { exact: true })).toBeVisible({ timeout: 60_000 });
   });
 });

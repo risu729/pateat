@@ -242,8 +242,12 @@ passkey export (its credential holds `"response": null`). `mailpit.ts` reads two
 codes by recipient. The `test` task reads the seeded vault back with the Bitwarden
 package; `tests/extension/vaultwarden.spec.ts` signs in to it with the production build
 through the settings page over `http://localhost`, including authenticator and email
-two-step. Both need Docker with the compose plugin, so `check:runtime` and
-`//tests/extension:test` do too.
+two-step. Both need Docker with the compose plugin, so `check:runtime`, a local
+`mise run check` and `//tests/extension:test` do too. A failed test gets both
+containers' logs (attached in Playwright, printed by the self-check). A run killed
+before `stop()` leaves its project behind:
+`docker compose ls --filter name=pateat-vaultwarden` lists them and
+`docker compose -p <project> down -v` removes one.
 
 ### Test coverage
 

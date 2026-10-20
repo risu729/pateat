@@ -52,7 +52,7 @@ export async function readTwoStepCode(
       await deleted.body?.cancel();
       return code;
     }
-    if (Date.now() > deadline) throw new Error(`No two-step email reached ${address}`);
+    if (Date.now() > deadline) throw new Error(`No "${twoStepSubject}" email reached ${address}`);
     // eslint-disable-next-line no-await-in-loop
     await new Promise((resolve) => setTimeout(resolve, 200));
   }

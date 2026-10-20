@@ -9,7 +9,7 @@ const run = promisify(execFile);
 const composeFile = fileURLToPath(new URL("compose.yaml", import.meta.url));
 
 export interface VaultwardenServer {
-  /** The compose project, for `docker compose -p <project> logs` while debugging. */
+  /** The compose project; `docker compose ls --filter name=pateat-vaultwarden` lists leftovers. */
   readonly project: string;
   /** Plain HTTP server root on loopback, such as `http://127.0.0.1:32771`. */
   readonly baseUrl: string;
@@ -17,6 +17,8 @@ export interface VaultwardenServer {
   readonly port: number;
   /** Mailpit's HTTP API root on loopback. */
   readonly mailpitUrl: string;
+  /** Both containers' output so far, to attach to a failed test. */
+  logs(): Promise<string>;
   /** Removes the containers, their network and volumes. Safe to call more than once. */
   stop(): Promise<void>;
 }
@@ -80,7 +82,8 @@ export async function startVaultwarden(
       waitForOk(`${baseUrl}/alive`, deadline),
       waitForOk(`${mailpitUrl}/readyz`, deadline),
     ]);
-    return Object.freeze({ project, baseUrl, port: vaultwardenPort, mailpitUrl, stop });
+    const logs = () => compose(project, "logs", "--no-color", "--timestamps");
+    return Object.freeze({ project, baseUrl, port: vaultwardenPort, mailpitUrl, logs, stop });
   } catch (error) {
     await stop().catch(() => {});
     throw error;

@@ -1,7 +1,7 @@
 // Self-check of the Vaultwarden harness: what it seeds, Pateat's own Bitwarden package reads
 // back from a real server over `http://localhost`. Synthetic accounts and items only.
 import { randomUUID } from "node:crypto";
-import { afterAll, beforeAll, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, expect, it } from "vitest";
 
 import {
   createBitwardenAccountMapper,
@@ -27,6 +27,9 @@ let server: VaultwardenServer;
 beforeAll(async () => {
   server = await startVaultwarden();
 }, 200_000);
+afterEach(async ({ task }) => {
+  if (task.result?.state === "fail" && server) process.stderr.write(await server.logs());
+});
 afterAll(() => server?.stop());
 
 // A fresh synthetic master password each run.

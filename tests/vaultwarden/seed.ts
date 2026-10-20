@@ -43,7 +43,10 @@ export interface SyntheticLogin {
   readonly name: string;
   readonly username?: string;
   readonly password?: string;
-  /** Bitwarden URI match modes: null default, 0 base domain, 1 host, 2 starts with, 3 exact. */
+  /**
+   * Bitwarden URI match modes: null default, 0 base domain, 1 host, 2 starts with, 3 exact,
+   * 4 regular expression, 5 never.
+   */
   readonly uris?: readonly { uri: string; match?: 0 | 1 | 2 | 3 | 4 | 5 | null }[];
   /** A base32 secret or `otpauth://` URI. */
   readonly totp?: string;
