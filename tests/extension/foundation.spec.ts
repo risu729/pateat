@@ -323,6 +323,9 @@ test("options reloaded at a section link still read settings and the service", a
     // Chrome now reports the page's URL to the worker with `#sync`.
     await page.reload();
     await expect(page.locator("#settings-status")).toContainText("Saved settings loaded");
+    await expect(page.locator("#bitwarden-setup-status")).toHaveText(
+      "Connections loaded. Add a vault or sign in again below.",
+    );
     await expect(page.getByLabel("Service address", { exact: true })).toBeVisible();
     await expect(page.getByText("The extension did not answer", { exact: false })).toHaveCount(0);
   });
