@@ -25345,6 +25345,67 @@ describe("revoking a recipe the chosen item cannot run (ADR 0058 A)", () => {
     expect(reports).not.toContainEqual(expect.objectContaining({ detail: "no-passkey" }));
   });
 
+  /** A generated passkey-only recipe: its button is the start page's only route (ADR 0053). */
+  const buttonOnly = parseLoginRecipe({
+    version: 1,
+    id: generatedId,
+    revision: 3,
+    origin,
+    slots: [],
+    passkeyOnly: true,
+    passkey: { path: "/signin", target: target("passkey-login") },
+    steps: [{ kind: "click", path: "/signin", target: target("passkey-login"), purpose: "submit" }],
+    maxSubmissions: 1,
+  });
+
+  it.each([
+    ["no passkey", { passkey: false, discoverable: false }],
+    ["a passkey that is not discoverable", { passkey: true, discoverable: false }],
+  ])(
+    "revokes a passkey-only recipe for an item with a password and %s (ADR 0053)",
+    async (_, passkey) => {
+      fake.state.present = new Set(["passkey-login"]);
+      const { h, reports, generation } = start({
+        used: buttonOnly,
+        password: true,
+        passkey,
+        replace: dropped(),
+      });
+      // The page waits as for a generation, reading no secret.
+      expect(await h.hello()).toEqual({ ok: false, reason: "generating" });
+      await vi.waitFor(() => expect(fake.state.reconnects).toHaveLength(1));
+      expect(generation.replace).toHaveBeenCalledExactlyOnceWith({
+        recipeId: generatedId,
+        revision: 3,
+        origin,
+        path: "/signin",
+      });
+      expect(fake.state.reconnects[0]).toEqual({
+        tabId: 1,
+        frameId: 0,
+        documentId: "synthetic-document",
+      });
+      expect(revokes(reports)).toEqual([
+        {
+          type: "revoke",
+          tabId: 1,
+          origin,
+          recipeId: generatedId,
+          recipeRevision: 3,
+          route: "password",
+          outcome: "revoked",
+          // The recipe has no password variant, so the plan's refusal names no fact.
+          detail: "no-route",
+        },
+      ]);
+      expect(refusals(reports)).toEqual([]);
+      // The button is never pressed.
+      expect(executed()).toEqual([]);
+      expect(h.fields).not.toHaveBeenCalled();
+      expect(fake.state.storage["pateat.login-attempts.v5"] ?? []).toEqual([]);
+    },
+  );
+
   it.each<[string, Awaited<ReturnType<Replace>>]>([
     ["not due", { outcome: "not-due" }],
     ["not sent", { outcome: "not-sent", reason: "storage-unavailable" }],
@@ -25605,6 +25666,23 @@ describe("revoking a recipe the chosen item cannot run (ADR 0058 A)", () => {
       expect(await h.hello()).toEqual({ ok: true });
       await vi.waitFor(() => expect(executed()).toHaveLength(1));
       expect(generation.replace).not.toHaveBeenCalled();
+    });
+
+    it("a passkey-only recipe for an item with a password and a discoverable passkey (ADR 0053)", async () => {
+      fake.state.present = new Set(["passkey-login"]);
+      fake.state.onExecute = () => new Promise(() => undefined);
+      const { h, reports, generation } = start({
+        used: buttonOnly,
+        password: true,
+        replace: dropped(),
+      });
+      // The item takes the recipe's passkey route, its only one.
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(executed()).toHaveLength(1));
+      expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([{ route: "passkey" }]);
+      expect(generation.replace).not.toHaveBeenCalled();
+      expect(revokes(reports)).toEqual([]);
+      expect(fake.state.reconnects).toEqual([]);
     });
 
     it("a refusal for the binding rather than the item's facts", async () => {
