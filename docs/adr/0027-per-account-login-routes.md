@@ -1103,10 +1103,10 @@ Since the request names no item, the name may come from another account's bindin
 same owner and recipe. It does not help when the account's vault field is named
 otherwise, when the start path (and so the recipe ID) changed, or for a field no binding
 names yet; there the 2026-10-18 consequence (`binding-slots-mismatch` until the binding
-is removed) still holds, since the
-[2026-10-19 amendment](#amendment-2026-10-19-saved-bindings-that-lack-a-slot) only when
-no template names the new slot either. Recipe repair, once built, can use the same
-matching.
+is removed) still holds, and since the
+[2026-10-19 amendment](#amendment-2026-10-19-saved-bindings-that-lack-a-slot) it
+holds only when no template names the new slot either. Recipe repair, once built, can
+use the same matching.
 
 ## Amendment 2026-10-19: saved bindings that lack a slot
 
