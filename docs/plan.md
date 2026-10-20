@@ -586,6 +586,18 @@ than in this repository.
   owner, 22:48 UTC). Local tests only (unit and a synthetic browser fixture in cloud
   Chromium 141); check UniSuper in the owner's Chrome, where the next login should type
   the password with the saved binding and widen it.
+  On 2026-10-20 at 09:56 UTC, on build `4aae14c`
+  ([#819](https://github.com/risu729/pateat/pull/819)), the login with revision 3 typed
+  the username, pressed Next, pressed "Select" for the password, typed the password and
+  pressed Verify. The judge answered `challenge` for the next page, "Verify with your
+  mobile" with a Send code button, and the attempt was logged `challenge`; no code was
+  sent and the tab was closed. No `login.choice` entry was logged, as the binding is
+  widened only after `authenticated`; whether the saved binding was filled or already
+  named `password` is not in the log. A `challenge` login is watched
+  ([ADR 0027](adr/0027-per-account-login-routes.md#watching-after-a-challenge)), so once
+  the owner types the code and the attempt ends `authenticated`, the binding should be
+  widened and `login.choice` logged (read from the code, not shown). Check that in the
+  owner's Chrome with the owner typing the code.
 - UNSW's single sign-on page on Microsoft Entra
   (`login.microsoftonline.com/<tenant>/oauth2/authorize`) was logged `recipe.generate`
   `skipped` `incomplete-observation` with `unfillable-field` in the owner's Chrome on
@@ -651,6 +663,10 @@ than in this repository.
   decided the state when it settled and whether the path changed
   ([local log](architecture.md#local-log); agent change, local tests and the synthetic
   browser test only). Check UNSW in the owner's Chrome again and read those codes.
+  On build `3141a89` (2026-10-19, 22:23 UTC), in a fresh foreground tab, the revision 4
+  recipe logged in end to end without a stop after Next: the TOTP handler ran and the
+  attempt ended `authenticated` about 19 seconds after it started. The stop is
+  intermittent; read those codes the next time it stops.
 - A login control that is a link whose `javascript:` URL alone submits never submitted:
   on 2026-10-17 (build `d29951d`, 01:55 UTC) the owner's Chrome filled SMBC Trust Bank's
   sign-on page and clicked サインオン, and Chrome refused the URL under the content
