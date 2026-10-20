@@ -256,8 +256,18 @@ are created for this PR.
 ### Merging
 
 Merge an authorized PR with an ordinary squash merge once CI, CodeQL and the
-required independent review pass. Normal merges do not use the administrator
-bypass.
+required independent review pass. Before merging, read the PR's description and
+comments: a question to the owner or a hold that is still open there blocks the merge
+(added after the owner found PRs called mergeable whose descriptions held open
+questions, 2026-10-18 02:12 UTC). A merge that releases the service to production,
+including the paid calls the release starts within the spending caps, needs no separate
+owner confirmation (owner, 2026-10-19 04:43 UTC, answering a request to merge and
+release a change that re-judged pages: 「今後聞かなくていい」, "no need to ask from now
+on"). Normal merges do not use the administrator bypass, except for a PR blocked only
+by unsigned commits (owner, 2026-10-19 01:01 UTC: "i allow bypass merging for PRs with
+unsigned commits"). Implementation is not deferred to later or follow-up work unless it
+is very large (owner, 2026-10-19 21:00 UTC:
+「実装を後回しにするのは基本的によほど大きくない限りやめて」).
 
 ## Complete-service CI requirements
 
