@@ -6584,11 +6584,14 @@ export function createLoginRuntime(
   /**
    * The slots to generate for when a vault item's URI matches the page, with the
    * matching items. No field value is read here. Without them, `miss` hears why, for the
-   * log: `no-vault-match` when no item fits, or why the vault could not tell.
+   * log: `no-vault-match` when no item fits, or why the vault could not tell. For a
+   * passkey-only page (ADR 0053), `passkeyOnly` says whether `some` matching item or
+   * `every` one must hold a discoverable passkey.
    */
   async function generationSlotsFor(
     live: LiveDocument,
     miss: (reason: GenerationMiss, detail?: string) => void = () => undefined,
+    passkeyOnly: false | "some" | "every" = false,
   ): Promise<GenerationScope | undefined> {
     if (!uris) return undefined;
     const snapshot = await settings.handle({ version: 1, type: "settings.get" });
@@ -6652,7 +6655,8 @@ export function createLoginRuntime(
           : [];
       }),
     );
-    if (!slots.length && !offers.length) {
+    // A passkey-only page fills nothing, so it needs a matching item rather than a slot.
+    if (passkeyOnly ? !items.length : !slots.length && !offers.length) {
       const enabled = snapshot.catalog.connections.some(
         (connection) =>
           snapshot.snapshot.settings.connections.find(
@@ -6669,6 +6673,26 @@ export function createLoginRuntime(
       else if (scope.incompleteItems.length) miss("no-vault-match", "incomplete-item");
       else miss("no-vault-match", "no-item");
       return undefined;
+    }
+    // A passkey-only page also needs a usable discoverable passkey held by one of the
+    // matching items (ADR 0053), looked up only once an item matched; passwords and
+    // unrelated RP matches never authorize generation.
+    if (passkeyOnly) {
+      const leave = await options.vault?.enter(false).catch(() => undefined);
+      let held: readonly PasskeyItem[] = [];
+      try {
+        held = (await options.passkeyItems?.(live.document.origin)) ?? [];
+      } catch {
+        held = [];
+      } finally {
+        leave?.();
+      }
+      const holds = ({ connection, item }: (typeof items)[number]) =>
+        held.some((key) => key.connectionId === connection.id && key.itemId === item.id);
+      if (passkeyOnly === "every" ? !items.every(holds) : !items.some(holds)) {
+        miss("no-vault-match", "no-passkey");
+        return undefined;
+      }
     }
     return {
       slots: slots.map(({ slot }) => slot),
@@ -7129,6 +7153,7 @@ export function createLoginRuntime(
      * page is sent as that branch's first page (ADR 0028).
      */
     otherless?: LoginChooserRecipe,
+    passkeyOnly = false,
   ): Promise<void> {
     if (!generation) return;
     const base = otherless && { recipeId: otherless.id, revision: otherless.revision };
@@ -7156,7 +7181,7 @@ export function createLoginRuntime(
                   page: "accounts",
                   ...(list.names.length ? { names: list.names } : {}),
                 }
-              : { type: "login.extract", page: "login" },
+              : { type: "login.extract", page: passkeyOnly ? "passkey" : "login" },
           ),
         );
         if (documents.get(key) !== live) return;
@@ -7205,7 +7230,7 @@ export function createLoginRuntime(
         skipGeneration(live, hidden.reason, otherless && "other");
         return;
       }
-      const custom = await customSlots(live.document.origin, scope);
+      const custom = passkeyOnly ? [] : await customSlots(live.document.origin, scope);
       if (documents.get(key) !== live) return;
       const spin = spinning(live.document.tabId);
       const asked = Date.now();
@@ -7214,12 +7239,15 @@ export function createLoginRuntime(
           {
             version: 1,
             observation: hidden.observation,
-            slots: [
-              ...scope.slots.map((slot) =>
-                slot.id === "username" && shape ? { ...slot, valueShape: shape } : slot,
-              ),
-              ...custom,
-            ],
+            ...(passkeyOnly ? { passkeyOnly: true } : {}),
+            slots: passkeyOnly
+              ? []
+              : [
+                  ...scope.slots.map((slot) =>
+                    slot.id === "username" && shape ? { ...slot, valueShape: shape } : slot,
+                  ),
+                  ...custom,
+                ],
             ...(base ? { base, branch: "other" as const } : {}),
           },
           spin.sent(() =>
@@ -7467,7 +7495,7 @@ export function createLoginRuntime(
     sender: Sender,
     token: string,
     start?: { path: string },
-    signIn?: { path: string; identifier?: true | undefined },
+    signIn?: { path: string; identifier?: true | undefined; passkey?: true | undefined },
     shown?: { path: string },
     list?: ListOffer,
     entryHello?: Announced,
@@ -7517,7 +7545,7 @@ export function createLoginRuntime(
     helloKey: string,
     sequence: number,
     start?: { path: string },
-    signIn?: { path: string; identifier?: true | undefined },
+    signIn?: { path: string; identifier?: true | undefined; passkey?: true | undefined },
     shown?: { path: string },
     list?: ListOffer,
     entryHello?: Announced,
@@ -7565,7 +7593,7 @@ export function createLoginRuntime(
     helloKey: string,
     sequence: number,
     start?: { path: string },
-    signIn?: { path: string; identifier?: true | undefined },
+    signIn?: { path: string; identifier?: true | undefined; passkey?: true | undefined },
     shown?: { path: string },
     list?: ListOffer,
     entryHello?: Announced,
@@ -7783,9 +7811,12 @@ export function createLoginRuntime(
       if (hellos.get(helloKey) !== sequence) return { ok: false, reason: "stale-document" };
     }
     if (entryRefused.has(refusedKey)) return refuse("entry-blocked");
-    // A report sent only for the log does not log the tab's hold again.
+    // A report sent only for the log does not log the tab's hold again. A passkey page
+    // (ADR 0053) is answered as the announcement it would be without its button: its list,
+    // its entry, or, with neither, the log-only report of a page that offered nothing.
+    const quiet = signIn?.passkey ? list || !entryHello : shown || list || unoffered;
     if (busy)
-      return (shown || list || unoffered) && !start && !signIn
+      return quiet && !start && (!signIn || signIn.passkey)
         ? { ok: false, reason: "tab-busy" }
         : refuse("tab-busy");
     if (!storageHealthy)
@@ -8421,7 +8452,10 @@ export function createLoginRuntime(
         chooser?.chooser.other && !chooser.chooser.afterOther && !previous ? chooser : undefined;
       const otherOffer = otherless && (await offersOther(live, otherless));
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
-      const otherShown = otherless && signIn?.path === live.path ? otherless : undefined;
+      // A passkey page carries the list and entry it would be announced with otherwise
+      // (ADR 0053); only a plain sign-in page counts as such below.
+      const plain = signIn?.passkey ? undefined : signIn;
+      const otherShown = otherless && plain?.path === live.path ? otherless : undefined;
       // Logged only for a shown form: the list may still show on this path.
       if (
         otherShown &&
@@ -8459,16 +8493,52 @@ export function createLoginRuntime(
       if (availability === "sending" || availability === "sent") skipGeneration(live, availability);
       // Without the service no page is sent; logged at debug level, as every page is.
       if (availability === "not-connected") skipGeneration(live, availability);
-      const shownList = !signIn && list?.path === live.path ? list : undefined;
-      // A shown email address that is no list entry is logged only (ADR 0028).
-      if (offer && shownList?.missed)
-        skipGeneration(live, "not-a-list", undefined, shownList.missed);
+      const shownList = !plain && list?.path === live.path ? list : undefined;
       const listing = shownList && (shownList.names || !shownList.missed) ? shownList : undefined;
       // A page whose URL names another path of its site may be sent as a sign-in entry
       // once no sign-in input showed (ADR 0031); a list of accounts goes first.
       const entryPage =
         offer && namesReturnPath(new URL(live.url), sameSiteAs(live.url)) ? true : undefined;
-      const entryOffer = !signIn && entryHello?.path === live.path;
+      const entryOffer = !plain && entryHello?.path === live.path;
+      // A page with a passkey button is sent as a passkey-only page when a matching item
+      // holds a discoverable passkey; otherwise the list or entry it also shows is handled
+      // below as on a page without the button, logged as such (ADR 0053, owner 2026-10-19
+      // 22:44 UTC). With a list or an entry to use instead, every matching item must hold
+      // one: the recipe is shared, and an item without a passkey could not run it.
+      if (offer && signIn?.passkey && signIn.path === live.path) {
+        const fallback = listing !== undefined || entryOffer;
+        // Nor is the page right after a sign-in sent as a passkey-only page.
+        if (afterSignIn.get(document.tabId) === document.documentId) {
+          if (!fallback) {
+            skipGeneration(live, "after-sign-in");
+            offer = false;
+          }
+        } else {
+          let missed: [GenerationMiss, (string | undefined)?] = ["vault-unavailable", "error"];
+          const scope = await generationSlotsFor(
+            live,
+            (...reason) => {
+              missed = reason;
+            },
+            fallback ? "every" : "some",
+          ).catch(() => undefined);
+          if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+          if (scope) {
+            live.state = "generating";
+            delete live.reason;
+            await publish(live);
+            void generateFor(live, scope, undefined, undefined, true);
+            return { ok: false, reason: "generating" };
+          }
+          if (!fallback) {
+            skipGeneration(live, missed[0], undefined, missed[1]);
+            offer = false;
+          }
+        }
+      }
+      // A shown email address that is no list entry is logged only (ADR 0028).
+      if (offer && shownList?.missed)
+        skipGeneration(live, "not-a-list", undefined, shownList.missed);
       // A list announced only for the log is never sent, but may hold the site's entry.
       if (shownList && !listing && !entryOffer) offer = false;
       // The page right after a sign-in is never sent as a list of accounts (ADR 0028) or as
@@ -8499,7 +8569,7 @@ export function createLoginRuntime(
         skipGeneration(live, "after-sign-in");
         offer = false;
       }
-      if (offer && (signIn?.path === live.path || listing)) {
+      if (offer && (plain?.path === live.path || listing)) {
         let missed: [GenerationMiss, (string | undefined)?] = ["vault-unavailable", "error"];
         const scope = await generationSlotsFor(live, (...reason) => {
           missed = reason;

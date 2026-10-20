@@ -51,6 +51,8 @@ import {
   generationInstructions,
   generationPromptVersion,
   outputRejection,
+  passkeyOnlyGenerationInstructions,
+  passkeyOnlyGenerationPromptVersion,
   type InferenceErrorCode,
   type InferenceOutcome,
 } from "@pateat/inference";
@@ -292,7 +294,7 @@ export async function generateRecipe(
   request: RecipeGenerationRequest,
   trace: RequestTrace,
 ): Promise<RecipeGenerationResult | undefined> {
-  const { observation, slots, base, branch } = request;
+  const { observation, slots, base, branch, passkeyOnly } = request;
   const { origin, path } = observation;
   // A first page starts its own recipe; a later page continues the one in `base`.
   const recipeId = base?.recipeId ?? (await generatedRecipeId(origin, path));
@@ -303,13 +305,25 @@ export async function generateRecipe(
   // What the request log keeps of the request, sent or not (ADR 0012).
   const logged = {
     role: "generate",
-    // Only a list of accounts gets the list line (ADR 0028).
-    promptVersion: await (list ? accountListGenerationPromptVersion : generationPromptVersion)(),
+    // Only a list of accounts gets the list line (ADR 0028), and a passkey-only page its
+    // own instructions (ADR 0053).
+    promptVersion: await (
+      passkeyOnly
+        ? passkeyOnlyGenerationPromptVersion
+        : list
+          ? accountListGenerationPromptVersion
+          : generationPromptVersion
+    )(),
     origin,
     path,
     request: {
-      instructions: list ? accountListGenerationInstructions : generationInstructions,
+      instructions: passkeyOnly
+        ? passkeyOnlyGenerationInstructions
+        : list
+          ? accountListGenerationInstructions
+          : generationInstructions,
       slots,
+      ...(passkeyOnly ? { passkeyOnly } : {}),
       observation,
     },
     // A recipe generated again after its revocation has a tombstone but no base: its page
@@ -443,6 +457,7 @@ export async function generateRecipe(
         slots,
         startPage,
         carriedNames,
+        ...(passkeyOnly ? { passkeyOnly } : {}),
       }),
     logValue: (value) => {
       if ("accountList" in value)
@@ -581,6 +596,7 @@ export async function generateRecipe(
     ...(alternatives.length ? { alternatives: alternatives.map((entry) => entry.steps) } : {}),
     ...(value.switchTarget ? { accountSwitch: value.switchTarget } : {}),
     ...(passkey ? { passkey } : {}),
+    ...(value.passkeyOnly && startPage ? { passkeyOnly: true } : {}),
   });
   // A page that fills one of the recipe's slots again, as its identifier form shown again
   // where it posted, is refused before anything is stored (ADR 0018).

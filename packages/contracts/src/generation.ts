@@ -153,10 +153,24 @@ export const recipeGenerationRequestSchema = v.pipe(
   v.strictObject({
     version: v.literal(1),
     observation: loginObservationSchema,
-    slots: semanticSlotsSchema,
+    slots: v.union([semanticSlotsSchema, v.strictTuple([])]),
+    passkeyOnly: v.optional(v.literal(true)),
     base: v.optional(v.strictObject({ recipeId: syncRecipeIdSchema, revision: writtenRevision })),
     branch: v.optional(chooserBranchSchema),
   }),
+  v.check(
+    (request) => request.passkeyOnly === true || request.slots.length > 0,
+    "A request has at least one slot",
+  ),
+  v.check(
+    (request) =>
+      !request.passkeyOnly ||
+      (request.slots.length === 0 &&
+        !request.base &&
+        !request.branch &&
+        isEntryObservation(request.observation)),
+    "A passkey-only request is a first page with no slots, fields or accounts",
+  ),
   v.check((request) => !request.branch || request.base !== undefined, "A branch needs a base"),
 );
 
@@ -186,7 +200,8 @@ export const entryGenerationRequestSchema = v.pipe(
 
 /**
  * Every body `POST /v1/recipes/generate` takes: a page with slots, or an entry request.
- * Strict objects keep them apart, so a request without slots is always an entry request.
+ * Strict objects keep them apart: omitted slots name an entry request; an empty slots
+ * array requires passkeyOnly and never continues a recipe (ADR 0053).
  */
 export const generationRequestSchema = v.union([
   recipeGenerationRequestSchema,

@@ -54,7 +54,10 @@ The choice meant answering their design questions now, and the paid calls, permi
 changes and security changes they bring still need the owner's approval one by one.
 [#658](https://github.com/risu729/pateat/pull/658) landed as
 [ADR 0052](adr/0052-immediate-ui-stored-passkeys.md) through
-[#803](https://github.com/risu729/pateat/pull/803); the other five are still open.
+[#803](https://github.com/risu729/pateat/pull/803), and
+[#663](https://github.com/risu729/pateat/pull/663) as
+[ADR 0053](adr/0053-passkey-only-generation.md) through
+[#805](https://github.com/risu729/pateat/pull/805); the other four are still open.
 
 ### Phase 1: usable
 
@@ -460,6 +463,16 @@ than in this repository.
   gray when every match is excluded, amber while a login waits for a choice (owner,
   2026-10-13 14:42 UTC;
   [ADR 0021](adr/0021-account-choice-outside-settings.md#site-count-badge)).
+- Generation for passkey-only start pages, moved from phase 4 (owner, 2026-10-19;
+  [ADR 0053](adr/0053-passkey-only-generation.md)): implemented. A page that shows only
+  a button to sign in with a passkey is sent once the no-input page wait of
+  [ADR 0057](adr/0057-decide-no-input-pages-when-the-dom-is-quiet.md) decides it, when a
+  URI-matching item holds a discoverable passkey for the site, with its own generation
+  instructions, and its recipe has only the `passkey` route. Covered by local synthetic
+  and fake-model tests only; a real passkey-only site in the owner's Chrome is
+  unchecked. Beside an ADR 0031 sign-in entry or an ADR 0028 list, the passkey button
+  is used when every matching item holds a passkey (the recipe is shared), and
+  otherwise the entry or the list is handled as before (owner, 2026-10-19 22:44 UTC).
 - The owner uses Pateat on many sites and reports bugs; Claude may also fix problems it
   finds on its own. Reading the extension's error logs without a report needs a way for
   them to leave the device, which [ADR 0019](adr/0019-local-diagnostics-and-logs.md)
@@ -1165,10 +1178,10 @@ items the owner mentioned and gates still open on 2026-10-11.
     [phase 2](#phase-2-use-it-and-fix-what-comes-up); deliveries 2 to 4 (the settings
     and fill-only `sign-in`, filling `confirm` pages, personal details) are here.
 - The items under [later work](#initial-delivery-and-later-scope) and the ADRs' later
-  sections, including synced vault policy
-  ([ADR 0023](adr/0023-synced-vault-policy.md)), more settings profiles
-  ([ADR 0024](adr/0024-settings-profiles.md)), the ADR 0025 later work, the ADR 0027
-  cases it does not handle, and generation for passkey-only start pages.
+  sections, including synced vault policy ([ADR 0023](adr/0023-synced-vault-policy.md)),
+  more settings profiles ([ADR 0024](adr/0024-settings-profiles.md)), the ADR 0025 later
+  work and the ADR 0027 cases it does not handle. Generation for passkey-only start
+  pages moved to [phase 2](#phase-2-use-it-and-fix-what-comes-up) on 2026-10-19.
 - Real-account checks of individual Bitwarden two-step methods, other KDFs, V2 keys and
   organization items. The owner moved them after the public release on 2026-10-11
   (18:35 UTC), since few users are expected to need them; each needs the owner's
