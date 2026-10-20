@@ -78,6 +78,13 @@ export type SetupReply =
       policyReviewItemIds: string[];
     }
   | { ok: true; kind: "mfa-required"; flowId: string; providers: (0 | 1)[] }
+  /** The server's answer to sending an email two-step code; the sign-in keeps waiting. */
+  | {
+      ok: true;
+      kind: "email-code";
+      flowId: string;
+      result: "sent" | "rate-limited" | "unavailable" | "refused" | "failed";
+    }
   | {
       ok: true;
       kind: "new-device-verification-required";

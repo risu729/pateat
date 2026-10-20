@@ -228,6 +228,9 @@ export function createConnectionRuntime(
         case "connection.cancel":
           result = caller.cancel(request.flowId);
           break;
+        case "connection.send-email-code":
+          result = caller.sendEmailCode(request.flowId);
+          break;
         case "connection.sync":
           result = caller.sync(request.connectionId);
           break;

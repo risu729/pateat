@@ -58,4 +58,5 @@ codes and `Two-step token is invalid. Try again.` for recovery codes.
 - New-device OTP: not implemented.
 - Email two-step codes are sent only by `POST /api/two-factor/send-email-login`
   ([email.rs](https://github.com/dani-garcia/vaultwarden/blob/7c188967e7a467b19b2757bc3326f9cf3ccae327/src/api/core/two_factor/email.rs#L39-L40)),
-  never by a token request; Pateat does not call it.
+  never by a token request; Pateat did not call it on that date (it does since ADR 0059
+  decision 5).

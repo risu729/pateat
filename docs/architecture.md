@@ -144,8 +144,10 @@ origin, the background returns each item's login username so same-named items ca
 told apart. It is not cached, persisted or synced.
 Password requests accept explicit manual authenticator/email codes and new-device
 OTP values. Return bounded challenge categories and provider IDs, never raw
-challenge parameters, server descriptions or URLs. Code delivery and interactive
-providers need separate integration. Keep successful token and encrypted-account
+challenge parameters, server descriptions or URLs. An email code is requested with
+`POST {api}/two-factor/send-email-login`, sending the master-password hash the password
+grant sent, which the sign-in keeps in memory only (ADR 0059). Interactive providers
+need separate integration. Keep successful token and encrypted-account
 results local; they do not establish account ownership or unlock a vault by
 themselves. Sync sessions persist apart from the vault record
 ([ADR 0008](adr/0008-durable-provider-sessions.md)). Preserve unknown encrypted
@@ -413,9 +415,9 @@ guess:
   (unsupported-unlock)". Trusted-device encryption has no path of its own. Passkey and
   login-with-device sign-in are not offered: setup sends only the password grant.
 - Two-step methods other than an authenticator app (provider 0) and email (provider 1),
-  such as Duo, YubiKey OTP, FIDO2/WebAuthn or a recovery code. The page cannot ask
-  Bitwarden to send an email code, so email needs a code already received, and it never
-  asks Bitwarden to remember the device, so every password sign-in asks for a code.
+  such as Duo, YubiKey OTP, FIDO2/WebAuthn or a recovery code. Choosing email sends one
+  code, and "Resend code" sends another (ADR 0059). The page never asks Bitwarden to
+  remember the device, so every password sign-in asks for a code.
 - Email addresses that the official Bitwarden login page refuses. The settings page and
   the worker use that page's rule (Angular's `Validators.email`), as `bitwardenEmail` in
   `packages/bitwarden/src/email.ts`: only ASCII, no leading, trailing or repeated `.`

@@ -45,6 +45,24 @@ import {
 
 type StatusReply = Extract<SetupReply, { kind: "status" }>;
 type Challenge = Extract<SetupReply, { kind: "mfa-required" | "new-device-verification-required" }>;
+type EmailCode = "sending" | Extract<SetupReply, { kind: "email-code" }>["result"];
+const emailCodeLines: Record<EmailCode, { tone: Tone; text: string }> = {
+  sending: { tone: "idle", text: "Asking the server to email a verification code…" },
+  sent: {
+    tone: "ok",
+    text: "The server sent a verification code to the account's two-step email.",
+  },
+  "rate-limited": {
+    tone: "warn",
+    text: "The server is limiting code emails. Wait a few minutes before resending.",
+  },
+  unavailable: {
+    tone: "warn",
+    text: "This server cannot send email codes. Use another method or a code you already received.",
+  },
+  refused: { tone: "warn", text: "The server did not send a code. Resend or use another method." },
+  failed: { tone: "err", text: "The code email could not be requested. Resend to try again." },
+};
 type Connection = StatusReply["connections"][number];
 /** The background stores a new connection's email in this form. */
 function normalEmail(email: string) {
@@ -231,6 +249,11 @@ export function BitwardenSetup({
   const [addOpen, setAddOpen] = useState<boolean>();
   const focusPassword = useRef(false);
   const [provider, setProvider] = useState<0 | 1>(0);
+  const [emailCode, setEmailCode] = useState<EmailCode>();
+  // The sign-in whose email code was already asked for once without a click.
+  const emailFlow = useRef<string>(undefined);
+  // Disabling the form for a send drops focus from the method select; return it to the code.
+  const focusCode = useRef(false);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(true);
   const [statusKnown, setStatusKnown] = useState(false);
@@ -336,8 +359,10 @@ export function BitwardenSetup({
     if (result.kind === "mfa-required" || result.kind === "new-device-verification-required") {
       setChallenge(result);
       if (result.kind === "mfa-required") {
+        // Ascending IDs put the authenticator before email, as the official clients rank them.
         setProvider(result.providers[0] ?? 0);
-        setMessage("Enter a manual two-step verification code. No code is sent automatically.");
+        setEmailCode(undefined);
+        setMessage("Enter a two-step verification code.");
       } else
         setMessage(
           result.invalidOtp
@@ -467,6 +492,35 @@ export function BitwardenSetup({
       await receive(await client.continue(input), epoch, adding.current);
     });
   }
+  function sendEmailCode(flowId: string) {
+    if (operation.current) return;
+    setEmailCode("sending");
+    focusCode.current = true;
+    start(async (epoch) => {
+      const result = await client.sendEmailCode(flowId);
+      if (epoch !== generation.current) return;
+      if (result.ok && result.kind === "email-code") setEmailCode(result.result);
+      else await receive(result, epoch, adding.current);
+    });
+  }
+  // As the official extension, choosing email sends one code; more need "Resend code". A
+  // send that did not go out is tried again when email is chosen again, as there.
+  useEffect(() => {
+    if (challenge?.kind !== "mfa-required" || busy) return;
+    if (provider !== 1) {
+      if (emailFlow.current === challenge.flowId && emailCode !== "sent")
+        emailFlow.current = undefined;
+      return;
+    }
+    if (emailFlow.current === challenge.flowId) return;
+    emailFlow.current = challenge.flowId;
+    sendEmailCode(challenge.flowId);
+  });
+  useEffect(() => {
+    if (!focusCode.current || busy) return;
+    focusCode.current = false;
+    codeInput.current?.focus();
+  });
   function cancel(stopped = "Setup stopped. Refresh to confirm the latest state.") {
     clearSecrets();
     setExisting(undefined);
@@ -880,16 +934,27 @@ export function BitwardenSetup({
               </label>
             )}
             {provider === 1 && challenge.kind === "mfa-required" && (
-              <StatusLines
-                muted
-                lines={[
-                  {
-                    tone: "idle",
-                    icon: Info,
-                    text: "Enter an email code you already received. Sending an email verification code is not available here.",
-                  },
-                ]}
-              />
+              <div className="flex flex-wrap items-center gap-2">
+                {/* The send's answer is read out; the panel status keeps the sign-in step. */}
+                <output className="block" aria-live="polite">
+                  {emailCode && (
+                    <StatusLines
+                      id="bitwarden-email-code"
+                      muted
+                      lines={[{ ...emailCodeLines[emailCode], icon: Info }]}
+                    />
+                  )}
+                </output>
+                <Button
+                  id="bitwarden-resend-code"
+                  type="button"
+                  variant="ghost"
+                  disabled={busy}
+                  onClick={() => sendEmailCode(challenge.flowId)}
+                >
+                  Resend code
+                </Button>
+              </div>
             )}
           </fieldset>
           <div className="flex flex-wrap gap-2">

@@ -45,6 +45,12 @@ function mockClient() {
     begin: vi.fn<ConnectionClient["begin"]>().mockImplementation(async () => ready()),
     continue: vi.fn<ConnectionClient["continue"]>().mockImplementation(async () => ready()),
     cancel: vi.fn<ConnectionClient["cancel"]>().mockResolvedValue({ ok: true, kind: "cancelled" }),
+    sendEmailCode: vi.fn<ConnectionClient["sendEmailCode"]>().mockImplementation(async (id) => ({
+      ok: true,
+      kind: "email-code",
+      flowId: id,
+      result: "sent",
+    })),
     sync: vi.fn<ConnectionClient["sync"]>().mockImplementation(async () => ready()),
     disableAutoUnlock: vi
       .fn<ConnectionClient["disableAutoUnlock"]>()
@@ -201,7 +207,9 @@ test("manual MFA clears the code on submission and never resends without another
   await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
   await expect.element(page.getByLabelText("Verification code", { exact: true })).toBeVisible();
   expect(client.continue).not.toHaveBeenCalled();
+  expect(client.sendEmailCode).not.toHaveBeenCalled();
   await page.getByRole("combobox", { name: "Verification method", exact: true }).selectOptions("1");
+  await vi.waitFor(() => expect(client.sendEmailCode).toHaveBeenCalledTimes(1));
   await page.getByLabelText("Verification code", { exact: true }).fill("000123");
   await page.getByRole("button", { name: "Verify code", exact: true }).click();
   await vi.waitFor(() => expect(client.continue).toHaveBeenCalledTimes(1));
@@ -216,6 +224,108 @@ test("manual MFA clears the code on submission and never resends without another
     .element(page.getByRole("button", { name: "Verify code", exact: true }))
     .toBeDisabled();
   expect(client.continue).toHaveBeenCalledTimes(1);
+  // The reply was handled once the earlier send's line is gone; the same sign-in already
+  // had its one automatic email.
+  await expect
+    .element(page.getByText(/The server sent a verification code/))
+    .not.toBeInTheDocument();
+  expect(client.sendEmailCode).toHaveBeenCalledTimes(1);
+});
+
+test("choosing email sends one code like the official extension, and Resend code sends another", async () => {
+  const client = mockClient();
+  client.begin.mockResolvedValue({ ok: true, kind: "mfa-required", flowId, providers: [0, 1] });
+  const pending = held<SetupReply>();
+  client.sendEmailCode.mockReturnValueOnce(pending.promise);
+  await mount(client);
+  await fillNew();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  await expect.element(page.getByLabelText("Verification code", { exact: true })).toBeVisible();
+  expect(client.sendEmailCode).not.toHaveBeenCalled();
+  await page.getByRole("combobox", { name: "Verification method", exact: true }).selectOptions("1");
+  await expect
+    .element(page.getByText("Asking the server to email a verification code…", { exact: true }))
+    .toBeVisible();
+  await expect
+    .element(page.getByRole("button", { name: "Resend code", exact: true }))
+    .toBeDisabled();
+  pending.resolve({ ok: true, kind: "email-code", flowId, result: "sent" });
+  await expect
+    .element(
+      page.getByText("The server sent a verification code to the account's two-step email.", {
+        exact: true,
+      }),
+    )
+    .toBeVisible();
+  expect(client.sendEmailCode).toHaveBeenCalledWith(flowId);
+  // Switching away and back sends nothing more on its own.
+  await page.getByRole("combobox", { name: "Verification method", exact: true }).selectOptions("0");
+  await page.getByRole("combobox", { name: "Verification method", exact: true }).selectOptions("1");
+  expect(client.sendEmailCode).toHaveBeenCalledTimes(1);
+  client.sendEmailCode.mockResolvedValueOnce({
+    ok: true,
+    kind: "email-code",
+    flowId,
+    result: "rate-limited",
+  });
+  await page.getByRole("button", { name: "Resend code", exact: true }).click();
+  await expect.element(page.getByText(/The server is limiting code emails/)).toBeVisible();
+  expect(client.sendEmailCode).toHaveBeenCalledTimes(2);
+  // The answer is read out, and focus goes back to the code.
+  await expect
+    .element(page.getByRole("status").filter({ hasText: /limiting code emails/ }))
+    .toBeVisible();
+  await expect.element(page.getByLabelText("Verification code", { exact: true })).toHaveFocus();
+  // As the official page, a send that did not go out is tried again when email is chosen
+  // again.
+  await page.getByRole("combobox", { name: "Verification method", exact: true }).selectOptions("0");
+  await page.getByRole("combobox", { name: "Verification method", exact: true }).selectOptions("1");
+  await vi.waitFor(() => expect(client.sendEmailCode).toHaveBeenCalledTimes(3));
+  await expect.element(page.getByText(/The server sent a verification code/)).toBeVisible();
+  await page.getByRole("combobox", { name: "Verification method", exact: true }).selectOptions("0");
+  await page.getByRole("combobox", { name: "Verification method", exact: true }).selectOptions("1");
+  expect(client.sendEmailCode).toHaveBeenCalledTimes(3);
+  expect(client.continue).not.toHaveBeenCalled();
+});
+
+test("a new sign-in sends its own code, and a send the background refuses ends the sign-in", async () => {
+  const client = mockClient();
+  const second = "50000000-0000-4000-8000-000000000002";
+  client.begin
+    .mockResolvedValueOnce({ ok: true, kind: "mfa-required", flowId, providers: [1] })
+    .mockResolvedValueOnce({ ok: true, kind: "mfa-required", flowId: second, providers: [1] });
+  client.sendEmailCode
+    .mockResolvedValueOnce({ ok: false, error: { code: "provider-permission-required" } })
+    .mockResolvedValueOnce({ ok: true, kind: "email-code", flowId: second, result: "sent" });
+  await mount(client);
+  await fillNew();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  await vi.waitFor(() => expect(client.sendEmailCode).toHaveBeenCalledWith(flowId));
+  await expect
+    .element(page.getByLabelText("Verification code", { exact: true }))
+    .not.toBeInTheDocument();
+  await page.getByLabelText("Master password", { exact: true }).fill(password);
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  await expect.element(page.getByText(/The server sent a verification code/)).toBeVisible();
+  expect(client.sendEmailCode).toHaveBeenLastCalledWith(second);
+  expect(client.sendEmailCode).toHaveBeenCalledTimes(2);
+});
+
+test.each([
+  ["unavailable", /This server cannot send email codes/],
+  ["refused", /The server did not send a code/],
+  ["failed", /The code email could not be requested/],
+] as const)("an email-only sign-in sends its code at once and shows %s", async (result, line) => {
+  const client = mockClient();
+  client.begin.mockResolvedValue({ ok: true, kind: "mfa-required", flowId, providers: [1] });
+  client.sendEmailCode.mockResolvedValue({ ok: true, kind: "email-code", flowId, result });
+  await mount(client);
+  await fillNew();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  await expect.element(page.getByText(line)).toBeVisible();
+  expect(client.sendEmailCode).toHaveBeenCalledTimes(1);
+  // The sign-in still waits for a code.
+  await expect.element(page.getByLabelText("Verification code", { exact: true })).toBeVisible();
 });
 
 test("new-device verification is a distinct manual continuation and clears its code", async () => {
@@ -441,11 +551,7 @@ test("a challenge while adding a connection reloads a clean draft to the revisio
   settings.getSettings.mockResolvedValue(saved(1));
   await fillNew();
   await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
-  await expect
-    .element(
-      page.getByText("Enter a manual two-step verification code. No code is sent automatically."),
-    )
-    .toBeVisible();
+  await expect.element(page.getByText("Enter a two-step verification code.")).toBeVisible();
   await expect.element(page.getByText("Saved settings loaded. Revision 1")).toBeVisible();
   expect(settings.getSettings).toHaveBeenCalledTimes(2);
 });

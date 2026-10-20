@@ -715,3 +715,90 @@ describe.each(["passwordToken", "refreshToken"] as const)("bounded %s HTTP respo
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("email two-step code send", () => {
+  const emailRequest = () => ({
+    connectionId: authConnectionId,
+    email: passwordTokenRequest().email,
+    masterPasswordHash: passwordTokenRequest().masterPasswordHash,
+    deviceIdentifier: authDeviceId,
+  });
+
+  it("posts the official extension's request to the selected API only", async () => {
+    const fetch = vi.fn<Fetch>().mockResolvedValue(new Response(null, { status: 200 }));
+    expect(await client(fetch).sendEmailLoginCode(emailRequest())).toEqual({
+      ok: true,
+      data: { kind: "sent" },
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const [url, init] = fetch.mock.calls[0]!;
+    expect(url).toBe("https://api.bitwarden.com/two-factor/send-email-login");
+    const request = new Request(url, init);
+    expect(request.method).toBe("POST");
+    expect(request.headers.get("content-type")).toBe("application/json");
+    expect(request.headers.has("authorization")).toBe(false);
+    expect(await request.json()).toEqual({
+      email: "synthetic-user@example.test",
+      masterPasswordHash: passwordTokenRequest().masterPasswordHash,
+      ssoEmail2FaSessionToken: "",
+      deviceIdentifier: authDeviceId,
+      authRequestAccessCode: "",
+      authRequestId: "",
+    });
+  });
+
+  it.each([
+    [new Response(null, { status: 429 }), "rate-limited"],
+    [new Response("Slow down", { status: 429 }), "rate-limited"],
+    [
+      jsonResponse(
+        {
+          message: "Email 2FA is disabled",
+          validationErrors: { "": ["Email 2FA is disabled"] },
+          errorModel: { message: "Email 2FA is disabled", object: "error" },
+          error: "",
+          error_description: "",
+          exceptionMessage: null,
+          exceptionStackTrace: null,
+          innerExceptionMessage: null,
+          object: "error",
+        },
+        { status: 400 },
+      ),
+      "unavailable",
+    ],
+    [
+      jsonResponse({ message: "Cannot send two-factor email.", object: "error" }, { status: 400 }),
+      "refused",
+    ],
+  ])("reports answer %# without its text", async (response, kind) => {
+    const fetch = vi.fn<Fetch>().mockResolvedValue(response);
+    expect(await client(fetch).sendEmailLoginCode(emailRequest())).toEqual({
+      ok: true,
+      data: { kind },
+    });
+  });
+
+  it.each([
+    [{ ...emailRequest(), connectionId: "other-connection" }, "connection-mismatch"],
+    [{ ...emailRequest(), masterPasswordHash: "not-a-hash" }, "invalid-request"],
+    [{ ...emailRequest(), extra: "synthetic" }, "invalid-request"],
+  ])("sends nothing for an inadmissible request %#", async (input, code) => {
+    const fetch = vi.fn<Fetch>();
+    expect(await client(fetch).sendEmailLoginCode(input)).toEqual({
+      ok: false,
+      error: { code },
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("treats a 400 that is not JSON and other statuses as failures", async () => {
+    const plain = vi.fn<Fetch>().mockResolvedValue(new Response("no", { status: 400 }));
+    expect((await client(plain).sendEmailLoginCode(emailRequest())).ok).toBe(false);
+    const server = vi.fn<Fetch>().mockResolvedValue(new Response(null, { status: 500 }));
+    expect(await client(server).sendEmailLoginCode(emailRequest())).toMatchObject({
+      ok: false,
+      error: { code: "http-error" },
+    });
+  });
+});
