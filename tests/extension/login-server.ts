@@ -341,8 +341,13 @@ export async function startLoginFixture(
       // never written into the page. `/method-choice-named` shows the choice as row
       // headings, each followed by a link to `#` that reads "Select", told apart only by its
       // accessible name, with no id, name, test ID, `onclick` or role, whose click the page's
-      // script handles (ADR 0048 amendment of 2026-10-19).
+      // script handles (ADR 0048 amendment of 2026-10-19). `?account` expects the
+      // `accountName` option instead and signs in to /account, as a generated recipe's site
+      // (ADR 0018); `?rerender` makes Next remove the account form from the document rather
+      // than hide it, as a sign-in widget that renders each view anew.
       const skip = fixtureUrl.searchParams.has("skip");
+      const toAccount = fixtureUrl.searchParams.has("account");
+      const rerender = fixtureUrl.searchParams.has("rerender");
       const forgot = fixtureUrl.searchParams.has("forgot");
       const dead = fixtureUrl.searchParams.has("dead");
       const named = path === "/method-choice-named";
@@ -358,8 +363,8 @@ export async function startLoginFixture(
           `const count = (key) => sessionStorage.setItem(key, String(Number(sessionStorage.getItem(key) || 0) + 1));
         document.getElementById('next').addEventListener('click', () => {
           count('identityClicks');
-          sessionStorage.setItem('identityMatched', String(document.getElementById('account').value === "00001234"));
-          document.getElementById('account-form').hidden = true;
+          sessionStorage.setItem('identityMatched', String(document.getElementById('account').value === ${JSON.stringify(toAccount ? accountName : "00001234")}));
+          document.getElementById('account-form')${rerender ? ".remove()" : ".hidden = true"};
           setTimeout(() => { document.getElementById(${JSON.stringify(skip ? "password-form" : "choice")}).hidden = false; }, 300);
           updateFixtureStatus();
         });
@@ -372,7 +377,7 @@ export async function startLoginFixture(
         document.getElementById('login').addEventListener('click', () => {
           count('submitClicks');
           sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === ${JSON.stringify(password)}));
-          location.href = '/authenticated';
+          location.href = ${toAccount ? "'/account'" : "'/authenticated'"};
         });`,
         ),
       );

@@ -1520,6 +1520,17 @@ describe("unhandled errors", () => {
       baseRevision: 1,
       takenOver: true,
     });
+    // One not taken over says why, as a code (ADR 0027, amended 2026-10-19).
+    log.login({
+      type: "generation",
+      tabId: 3,
+      origin: recipeOrigin,
+      outcome: "recipe",
+      recipeId: "synthetic-recipe",
+      baseRevision: 1,
+      takenOver: false,
+      notTakenOver: "binding-slots-mismatch",
+    });
     log.login({
       type: "handler",
       ...page,
@@ -1631,14 +1642,14 @@ describe("unhandled errors", () => {
       reason: "incomplete-observation",
       detail: "unlocated-button",
     });
-    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(22));
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(23));
     const entries = (await log.logger.entries()).filter((entry) => entry.event !== "log.debug");
     // Every entry the page caused names its tab; those the worker caused name none.
     expect(entries.map((entry) => entry.fields["tab"])).toEqual([
       undefined,
       undefined,
       undefined,
-      ...Array.from({ length: 18 }, () => 3),
+      ...Array.from({ length: 19 }, () => 3),
     ]);
     expect(
       entries.map(({ event, level, fields: { tab: _tab, ...fields } }) => [event, level, fields]),
@@ -1730,6 +1741,18 @@ describe("unhandled errors", () => {
           recipe: expect.any(String),
           baseRevision: 1,
           takenOver: true,
+        },
+      ],
+      [
+        "recipe.generate",
+        "info",
+        {
+          origin: recipeOrigin,
+          outcome: "recipe",
+          recipe: expect.any(String),
+          baseRevision: 1,
+          takenOver: false,
+          notTakenOver: "binding-slots-mismatch",
         },
       ],
       [

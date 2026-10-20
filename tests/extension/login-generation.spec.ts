@@ -32,7 +32,9 @@ type Prompt = { task: string; observation: { path: string; candidates: Candidate
  * Answers the Worker's token exchange and Messages API calls the way Claude would for
  * the fixture pages: fill the password and press "Log in", or on a page without a password
  * input fill the account and press "Next", then mark "Sign out" as the signed-in evidence.
- * The page descriptions it receives, and when each arrived, are recorded.
+ * A judged page that asks how to verify names its "Select Password." control as the
+ * button that goes on to the password (ADR 0048). The page descriptions it receives, and
+ * when each arrived, are recorded.
  */
 function syntheticClaude({ abstainOnPassword = false }: { abstainOnPassword?: boolean } = {}) {
   const prompts: Prompt[] = [];
@@ -82,19 +84,27 @@ function syntheticClaude({ abstainOnPassword = false }: { abstainOnPassword?: bo
     const signedIn = prompt.observation.candidates.some(
       ({ target }) => target.by === "id" && target.value === "sign-out",
     );
+    const choice = prompt.observation.candidates.some(
+      ({ target }) => target.by === "accessible-name" && target.value === "Select Password.",
+    );
     // A page without a login form (ADR 0031): its "Login" link opens the sign-in page.
     const result =
       prompt.task === "entry"
         ? { decision: "entry", entry: byTarget("Login", "text") }
         : prompt.task !== "generate"
-          ? signedIn
-            ? { decision: "signed-in", marker: byTarget("sign-out") }
-            : prompt.observation.candidates.some(
-                  ({ target }) => target.by === "text" && target.value === "My page",
-                )
-              ? // The `link` marker variant's account link has no id, so only its text names it.
-                { decision: "signed-in", marker: byTarget("My page", "text") }
-              : { decision: "rejected" }
+          ? choice
+            ? {
+                decision: "challenge",
+                passwordButton: byTarget("Select Password.", "accessible-name"),
+              }
+            : signedIn
+              ? { decision: "signed-in", marker: byTarget("sign-out") }
+              : prompt.observation.candidates.some(
+                    ({ target }) => target.by === "text" && target.value === "My page",
+                  )
+                ? // The `link` marker variant's account link has no id, so only its text names it.
+                  { decision: "signed-in", marker: byTarget("My page", "text") }
+                : { decision: "rejected" }
           : passwordPage && abstainOnPassword
             ? { decision: "abstain", reason: "ambiguous" }
             : passwordPage
@@ -451,6 +461,211 @@ for (const { name, start, query, passwordPath } of [
     }
   });
 
+test("a generated identifier page learns the password choice, presses it and continues on the password form it shows (ADR 0048)", async () => {
+  test.setTimeout(90_000);
+  const fixture = await startLoginFixture(0, { password, accountName: username });
+  const claude = syntheticClaude();
+  const service = await startSyncService({ claude: claude.answer });
+  try {
+    await withVaultProfile(
+      async (open) => {
+        const browser = await open();
+        await serveSite(browser.context, fixture);
+        const options = await connect(browser, service);
+
+        const page = await browser.context.newPage();
+        await page.goto(`${site}/method-choice-named?account&rerender`);
+        // Next shows the choice; the learned handler presses "Select Password.", whose
+        // password form shows in the same document on the same path. That page is sent to
+        // continue the recipe, and the running login types the password and logs in.
+        await expect(page.locator("#signed-in")).toBeVisible({ timeout: 60_000 });
+        expect(
+          await page.evaluate(() => ({
+            identityClicks: Number(sessionStorage.getItem("identityClicks") || 0),
+            chooseClicks: Number(sessionStorage.getItem("chooseClicks") || 0),
+            mobileClicks: Number(sessionStorage.getItem("mobileClicks") || 0),
+            submitClicks: Number(sessionStorage.getItem("submitClicks") || 0),
+            identityMatched: sessionStorage.getItem("identityMatched"),
+            passwordMatched: sessionStorage.getItem("passwordMatched"),
+          })),
+        ).toEqual({
+          identityClicks: 1,
+          chooseClicks: 1,
+          mobileClicks: 0,
+          submitClicks: 1,
+          identityMatched: "true",
+          passwordMatched: "true",
+        });
+        await expect
+          .poll(() => send(options, { version: 1, type: "login.probe.status" }))
+          .toMatchObject({
+            attempts: [
+              {
+                state: "authenticated",
+                outcome: "authenticated",
+                handlers: [{ index: 0, start: 2 }],
+                submissions: 3,
+              },
+            ],
+          });
+        // The identifier page, the choice judged under revision 1, the password form after
+        // the press continuing revision 2, then the signed-in page; never a value.
+        expect(claude.prompts.map((prompt) => [prompt.task, prompt.observation.path])).toEqual([
+          ["generate", "/method-choice-named"],
+          ["judge-sign-in", "/method-choice-named"],
+          ["generate", "/method-choice-named"],
+          ["judge-sign-in", "/account"],
+        ]);
+        expect(JSON.stringify(claude.prompts)).not.toContain(password);
+        expect(JSON.stringify(claude.prompts)).not.toContain(username);
+        expect(await service.generationAttempts()).toEqual([
+          { path: "/method-choice-named", base_revision: 0 },
+          { path: "/method-choice-named", base_revision: 2 },
+        ]);
+      },
+      { args: ["--ignore-certificate-errors"] },
+    );
+  } finally {
+    await service.close();
+    await fixture.close();
+  }
+});
+
+test("a login whose saved binding names only the username takes over the continuation after the password choice and widens the binding (ADR 0027)", async () => {
+  test.setTimeout(120_000);
+  const fixture = await startLoginFixture(0, { password, accountName: username });
+  const claude = syntheticClaude();
+  const service = await startSyncService({ claude: claude.answer });
+  try {
+    await withVaultProfile(
+      async (open) => {
+        const browser = await open();
+        await serveSite(browser.context, fixture);
+        const options = await connect(browser, service);
+
+        // As after an earlier sign-in that the person finished by hand while the login
+        // was watched (ADR 0027): the site default and a binding of the recipe that names
+        // only the username slot, which revision 1 fills.
+        const current = await settingsRequest(options);
+        const enabled = current.snapshot.settings.connections.find((entry) => entry.enabled)!;
+        const connection = current.catalog.connections.find(
+          (entry) => entry.id === enabled.connectionId,
+        )!;
+        const item = connection.items[0]!;
+        const digest = await crypto.subtle.digest(
+          "SHA-256",
+          new TextEncoder().encode(JSON.stringify([site, "/method-choice-named"])),
+        );
+        const recipeId = `gen-${Buffer.from(digest).toString("hex").slice(0, 32)}`;
+        const owner = {
+          origin: site,
+          provider: connection.provider,
+          userId: connection.userId!,
+          itemId: item.id,
+          itemName: item.label,
+        };
+        const settings = structuredClone(current.snapshot.settings);
+        settings.siteDefaults.push(owner);
+        settings.bindings.push({
+          ...owner,
+          recipeId,
+          slots: [{ slot: "username", field: "username" }],
+        });
+        await settingsRequest(options, {
+          version: 1,
+          type: "settings.save",
+          expectedRevision: current.snapshot.revision,
+          settings,
+        });
+        const page = await browser.context.newPage();
+        await page.goto(`${site}/method-choice-named?account&rerender`);
+        // Next shows the choice; the learned handler presses "Select Password.", whose
+        // password form shows in the same document on the same path. That page is sent to
+        // continue the recipe, and the running login types the password and logs in.
+        await expect(page.locator("#signed-in")).toBeVisible({ timeout: 60_000 });
+        expect(
+          await page.evaluate(() => ({
+            identityClicks: Number(sessionStorage.getItem("identityClicks") || 0),
+            chooseClicks: Number(sessionStorage.getItem("chooseClicks") || 0),
+            mobileClicks: Number(sessionStorage.getItem("mobileClicks") || 0),
+            submitClicks: Number(sessionStorage.getItem("submitClicks") || 0),
+            identityMatched: sessionStorage.getItem("identityMatched"),
+            passwordMatched: sessionStorage.getItem("passwordMatched"),
+          })),
+        ).toEqual({
+          identityClicks: 1,
+          chooseClicks: 1,
+          mobileClicks: 0,
+          submitClicks: 1,
+          identityMatched: "true",
+          passwordMatched: "true",
+        });
+        await expect
+          .poll(() => send(options, { version: 1, type: "login.probe.status" }))
+          .toMatchObject({
+            attempts: [
+              {
+                state: "authenticated",
+                outcome: "authenticated",
+                handlers: [{ index: 0, start: 2 }],
+                submissions: 3,
+              },
+            ],
+          });
+        // The identifier page, the choice judged under revision 1, the password form after
+        // the press continuing revision 2, then the signed-in page; never a value.
+        expect(claude.prompts.map((prompt) => [prompt.task, prompt.observation.path])).toEqual([
+          ["generate", "/method-choice-named"],
+          ["judge-sign-in", "/method-choice-named"],
+          ["generate", "/method-choice-named"],
+          ["judge-sign-in", "/account"],
+        ]);
+        expect(JSON.stringify(claude.prompts)).not.toContain(password);
+        expect(JSON.stringify(claude.prompts)).not.toContain(username);
+        expect(await service.generationAttempts()).toEqual([
+          { path: "/method-choice-named", base_revision: 0 },
+          { path: "/method-choice-named", base_revision: 2 },
+        ]);
+        // The saved binding keeps its username entry and gains the password the login
+        // filled (ADR 0027, amended 2026-10-19); the site default stays the same account.
+        // A settings sync may name either after this device's connection.
+        await expect
+          .poll(async () => (await settingsRequest(options)).snapshot.settings.bindings)
+          .toEqual([
+            expect.objectContaining({
+              ...owner,
+              recipeId,
+              slots: [
+                { slot: "username", field: "username" },
+                { slot: "password", field: "password" },
+              ],
+            }),
+          ]);
+        expect((await settingsRequest(options)).snapshot.settings.siteDefaults).toEqual([
+          expect.objectContaining(owner),
+        ]);
+
+        // The next visit plans the stored recipe with the widened binding from its start and
+        // signs in without a model call.
+        await page.close();
+        const next = await browser.context.newPage();
+        await next.goto(`${site}/method-choice-named?account&rerender`);
+        await expect(next.locator("#signed-in")).toBeVisible({ timeout: 60_000 });
+        expect(
+          await next.evaluate(() => ({
+            submitClicks: Number(sessionStorage.getItem("submitClicks") || 0),
+            passwordMatched: sessionStorage.getItem("passwordMatched"),
+          })),
+        ).toEqual({ submitClicks: 1, passwordMatched: "true" });
+        expect(claude.prompts).toHaveLength(4);
+      },
+      { args: ["--ignore-certificate-errors"] },
+    );
+  } finally {
+    await service.close();
+    await fixture.close();
+  }
+});
 test("an identifier form shown again where it posted is never continued (ADR 0018)", async () => {
   const fixture = await startLoginFixture(0, { password, accountName: username });
   const claude = syntheticClaude();

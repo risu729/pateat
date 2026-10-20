@@ -3,6 +3,7 @@ import {
   attemptPlan,
   attemptRouteChoice,
   attemptUsesCode,
+  bindingGaps,
   builtInLoginSlots,
   chooseLoginRoute,
   continuesRecipe,
@@ -10,6 +11,7 @@ import {
   defaultLoginBinding,
   effectfulStep,
   extendsRecipe,
+  fillLoginBinding,
   findLoginBinding,
   getItemEligibility,
   handlerFact,
@@ -1578,6 +1580,12 @@ export type LoginReport = (
       recipeId?: string;
       baseRevision?: number;
       takenOver?: boolean;
+      /**
+       * For a returned recipe this login did not take over: a value-free code for why, such
+       * as the plan's refusal (`binding-slots-mismatch`, `field-missing`) or
+       * `settings-revision` (ADR 0019).
+       */
+      notTakenOver?: string;
       /**
        * `accounts` for a page that lists accounts (ADR 0028), `entry` for a page sent as a
        * site's sign-in entry (ADR 0031), `other` for a form shown on a chooser's path sent
@@ -3433,9 +3441,12 @@ export function createLoginRuntime(
    * The chosen item's binding for one route's `slots` (ADR 0027): the synced binding, else
    * the automatic one for built-in slots, else one built from a template: another item's
    * saved binding of the recipe, then the slot map of a recipe generated from this device.
-   * A synced binding is never bypassed: it must hold every one of `slots` itself, and its
-   * entries for other slots are ignored. It is mapped to this device's field IDs by the
-   * catalog's raw field names.
+   * The synced binding's entries are used as they are, and its entries for other slots are
+   * ignored. With `fillGaps`, the slots it holds no entry for are filled as for an item
+   * without one (amended 2026-10-19, `fillLoginBinding`), and the widened binding counts as
+   * unsaved, so it is saved after `authenticated`; without, such a binding refuses
+   * `binding-slots-mismatch`. It is mapped to this device's field IDs by the catalog's raw
+   * field names. Not to be confused with a fill-only login's `fill` (ADR 0021 D).
    */
   async function bindingFor(
     catalog: VaultCatalog,
@@ -3445,6 +3456,7 @@ export function createLoginRuntime(
     documentOrigin: string,
     slots: readonly string[],
     slotMap: () => Promise<LoginBindingTemplate | undefined>,
+    fillGaps: boolean,
   ): Promise<
     | { ok: true; binding: LoginAccountBinding; synced: SavedLoginBinding; saved: boolean }
     | { ok: false; reason: string }
@@ -3455,16 +3467,25 @@ export function createLoginRuntime(
     const owner = { provider: connection.provider, userId: connection.userId, itemId: item.id };
     const named = { ...owner, itemName: item.label, accountName: connection.label };
     const fieldNames = item.fields.map((field) => ({ id: field.id, name: field.name }));
-    const saved = findLoginBinding(settingsValue.bindings, recipe, owner);
-    let binding = saved ?? defaultLoginBinding(slots, recipe, named);
-    if (!binding) {
-      // Sibling bindings were proven by an authenticated login, so they go first.
-      const templates: LoginBindingTemplate[] = settingsValue.bindings
+    // Sibling bindings were proven by an authenticated login, so they go first.
+    const templates = async () => {
+      const found: LoginBindingTemplate[] = settingsValue.bindings
         .filter((entry) => entry.recipeId === recipe.id && entry.origin === recipe.origin)
         .map((entry) => entry.slots);
       const generated = await slotMap();
-      if (generated) templates.push(generated);
-      const built = templateLoginBinding(slots, recipe, named, templates, fieldNames);
+      if (generated) found.push(generated);
+      return found;
+    };
+    const saved = findLoginBinding(settingsValue.bindings, recipe, owner);
+    let binding = saved ?? defaultLoginBinding(slots, recipe, named);
+    let widened = false;
+    if (saved && fillGaps && bindingGaps(saved, slots).length > 0) {
+      const filled = fillLoginBinding(saved, slots, await templates(), fieldNames);
+      if (!filled.ok) return { ok: false, reason: filled.reason };
+      binding = filled.binding;
+      widened = filled.widened;
+    } else if (!binding) {
+      const built = templateLoginBinding(slots, recipe, named, await templates(), fieldNames);
       if (!built.ok) return { ok: false, reason: built.reason };
       binding = built.binding;
     }
@@ -3479,9 +3500,9 @@ export function createLoginRuntime(
         slots: resolved.slots,
       },
       // A default saved from a stored binding is named after this device's connection
-      // too; the stored binding itself is never rewritten.
-      synced: saved ? { ...saved, accountName: connection.label } : binding,
-      saved: saved !== undefined,
+      // too. The stored binding itself is only ever widened, keeping its entries.
+      synced: saved ? { ...binding, accountName: connection.label } : binding,
+      saved: saved !== undefined && !widened,
     };
   }
   /**
@@ -3620,8 +3641,12 @@ export function createLoginRuntime(
     let generated: Promise<LoginBindingTemplate | undefined> | undefined;
     const slotMap = () =>
       (generated ??= Promise.resolve(generation?.slotFields(recipe.id)).catch(() => undefined));
-    /** The plan for one route, or why it does not resolve. */
-    const resolveRoute = async (route: LoginRouteChoice) => {
+    /**
+     * The plan for one route, or why it does not resolve. Without `fillGaps`, a saved binding
+     * that holds no entry for one of the route's slots refuses `binding-slots-mismatch`
+     * rather than having it filled (ADR 0027, amended 2026-10-19).
+     */
+    const resolveRoute = async (route: LoginRouteChoice, fillGaps = true) => {
       const slots = routeSlots(recipe, route);
       let policy = snapshot.snapshot;
       let binding: LoginAccountBinding;
@@ -3651,6 +3676,7 @@ export function createLoginRuntime(
             live.document.origin,
             slots,
             slotMap,
+            fillGaps,
           );
           if (!bound.ok) return { ok: false as const, reason: bound.reason };
           binding = bound.binding;
@@ -3768,8 +3794,21 @@ export function createLoginRuntime(
       // Otherwise the password route decides, with its own refusals.
     }
     return passwordPlan();
-    /** The first password variant that fits, or why none does. */
+    /**
+     * The first password variant that fits, or why none does. A saved binding is first tried
+     * as it is on every variant, so an item keeps the variant its binding fits even when an
+     * earlier one could be filled; only when none fits are its gaps filled (ADR 0027,
+     * amended 2026-10-19).
+     */
     async function passwordPlan() {
+      let gapped = false;
+      const exact = await variantPlan(false, () => {
+        gapped = true;
+      });
+      return exact.ok || !gapped ? exact : variantPlan(true);
+    }
+    /** The first password variant that fits, with or without filling a saved binding. */
+    async function variantPlan(fillGaps: boolean, gap?: () => void) {
       const routes: LoginRouteChoice[] = passwordVariants(recipe).map((_, variant) => ({
         route: "password",
         variant,
@@ -3808,9 +3847,10 @@ export function createLoginRuntime(
       // facts and the generated map are read once.
       /* eslint-disable no-await-in-loop */
       for (const [index, route] of routes.entries()) {
-        const resolved = await resolveRoute(route);
+        const resolved = await resolveRoute(route, fillGaps);
         if (!resolved.ok) {
           if (!variantRefusals.has(resolved.reason)) return resolved;
+          if (resolved.reason === "binding-slots-mismatch") gap?.();
           refusals[index] = resolved.reason;
           continue;
         }
@@ -5685,7 +5725,7 @@ export function createLoginRuntime(
     const request = { operationId, answer: asked };
     continuations.set(metadata.id, request);
     const answer = await asked;
-    const reportGeneration = (takenOver?: boolean) =>
+    const reportGeneration = (takenOver?: boolean, notTakenOver?: string) =>
       report(run.live.document, {
         type: "generation",
         tabId: run.live.document.tabId,
@@ -5694,6 +5734,7 @@ export function createLoginRuntime(
         recipeId: recipe.id,
         baseRevision: recipe.revision,
         ...(takenOver === undefined ? {} : { takenOver }),
+        ...(notTakenOver === undefined ? {} : { notTakenOver }),
       });
     // Left meanwhile: the attempt's next document uses the answer.
     if (!current(run)) {
@@ -5711,14 +5752,23 @@ export function createLoginRuntime(
     }
     let reported = false;
     let taken = false;
+    // Why the login did not take the revision over, always logged (ADR 0019).
+    let refusal = "not-recorded";
     try {
-      taken = await continueWith(run, answer.recipe, () => {
-        reported = true;
-        reportGeneration(true);
-      });
+      taken = await continueWith(
+        run,
+        answer.recipe,
+        () => {
+          reported = true;
+          reportGeneration(true);
+        },
+        (reason) => {
+          refusal = reason;
+        },
+      );
     } finally {
       // Not taken over, or the `CONTINUED` write failed.
-      if (!reported) reportGeneration(false);
+      if (!reported) reportGeneration(false, refusal);
     }
     if (taken || !current(run)) return "moved";
     // A chooser the other branch changed meanwhile comes back without this branch's page
@@ -5815,40 +5865,46 @@ export function createLoginRuntime(
    * on the page it is on (ADR 0018, "use immediately"): only a revision that keeps the steps
    * it ran (`continuesRecipe`), and only when a dry run of the recorded route on it resolves
    * to the attempt's own account. Its earlier steps never run again; the account choice to
-   * save after `authenticated` is derived again, so it covers the new slots too. Returns
-   * whether the attempt moved on.
+   * save after `authenticated` is derived again, so it covers the new slots too, filling
+   * the ones a saved binding lacks (ADR 0027, amended 2026-10-19). Returns whether the
+   * attempt moved on; otherwise `refused` gets a value-free code for why, for the log.
    */
   async function continueWith(
     run: Execution,
     next: LoginRecipe | LoginChooserRecipe,
     taking?: () => void,
+    refused?: (reason: string) => void,
   ): Promise<boolean> {
+    const refuse = (reason: string) => {
+      refused?.(reason);
+      return false;
+    };
     const route = attemptRouteChoice(run.metadata);
     const answered = next;
     const converted = routeOf(run, next);
-    if (
-      !current(run) ||
-      !converted ||
-      route.route !== "password" ||
-      converted.id !== run.recipe.id ||
-      !continuesRecipe(run.recipe, converted)
-    )
-      return false;
+    if (!current(run)) return refuse("left");
+    if (!converted) return refuse("route-missing");
+    if (route.route !== "password") return refuse("route-not-password");
+    if (converted.id !== run.recipe.id) return refuse("recipe-changed");
+    if (!continuesRecipe(run.recipe, converted)) return refuse("not-continued");
     next = converted;
     const snapshot = await settings.handle({ version: 1, type: "settings.get" });
-    if (!current(run) || !snapshot.ok || snapshot.snapshot.revision !== run.metadata.policyRevision)
-      return false;
+    if (!current(run)) return refuse("left");
+    if (!snapshot.ok) return refuse("settings-unavailable");
+    if (snapshot.snapshot.revision !== run.metadata.policyRevision)
+      return refuse("settings-revision");
     const plan = await planFor(snapshot, run.live, next, {
       route,
       handlerSlots: handlerSlots(next, run.metadata),
     });
+    if (!current(run)) return refuse("left");
+    // The plan's own refusal, such as `binding-slots-mismatch` or `field-missing`.
+    if (!plan.ok) return refuse(plan.reason);
     if (
-      !current(run) ||
-      !plan.ok ||
       plan.account.connectionId !== run.metadata.account.connectionId ||
       plan.account.itemId !== run.metadata.account.itemId
     )
-      return false;
+      return refuse("account-changed");
     const added = routeSteps(next, route).slice(routeSteps(run.recipe, route).length);
     // A login whose stop lay just past its plan moves it to the continued step that fills a
     // password, or past them again; one the continuation cannot stop in is not taken over.
@@ -5856,7 +5912,7 @@ export function createLoginRuntime(
       run.metadata.stopAt === undefined ? undefined : continuedStop(run, next, route, plan);
     if (typeof stopAt === "string") {
       run.stopMiss = stopAt;
-      return false;
+      return refuse(`stop:${stopAt}`);
     }
     const event: LoginAttemptEvent = {
       type: "CONTINUED",
@@ -5870,10 +5926,10 @@ export function createLoginRuntime(
       ...(stopAt === undefined ? {} : { stopAt }),
     };
     try {
-      if (transitionLoginAttempt(run.metadata, event).state !== "ready") return false;
+      if (transitionLoginAttempt(run.metadata, event).state !== "ready") return refuse("not-ready");
     } catch {
       // More steps or effects than one page may add.
-      return false;
+      return refuse("budget-exceeded");
     }
     // The recipe is replaced before the record that names its revision is written.
     run.recipe = next;
@@ -11382,8 +11438,11 @@ export function createLoginRuntime(
       return;
     }
     await change(run, { type: "ROUTE", route: "password", steps }, undefined, undefined, cause);
-    if (!current(run) || run.metadata.route !== "password" || !run.choice) return;
-    // The account choice saved after the sign-in names the password variant's binding.
+    if (!current(run) || run.metadata.route !== "password") return;
+    // The account choice saved after the sign-in names the password variant's binding, also
+    // when only that binding is unsaved or widened (ADR 0027, amended 2026-10-19), as for a
+    // saved default whose passkey plan saved nothing. A pick for this login only stays
+    // unsaved, since the plan still sees the pick.
     const snapshot = await settings.handle({ version: 1, type: "settings.get" });
     if (!current(run) || !snapshot.ok) return;
     const plan = await planFor(snapshot, run.live, run.recipe, {

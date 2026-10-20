@@ -572,6 +572,20 @@ than in this repository.
   (unit, DOM, service and a synthetic browser fixture); check UniSuper in the owner's
   Chrome, one judge call and one continuation call. The service deploys before the
   extension build is installed.
+  On 2026-10-19 at 12:50 UTC, on build `cfce11f`, the login pressed "Select" for the
+  password and the service returned the continuation (fill the password, press Verify),
+  but the login did not take it over and settled `unknown`. The item's saved binding of
+  the recipe, saved on 2026-10-17 at 01:34 UTC after revision 1, which filled only the
+  username, and a login wrongly judged `authenticated` (fixed by
+  [#571](https://github.com/risu729/pateat/pull/571)), named only `username`, so the
+  takeover refused `binding-slots-mismatch`, and the log named no reason. Since
+  2026-10-19 the slots a saved binding lacks are filled as for an item without one, the
+  binding is widened by them after `authenticated`, and a refused takeover logs why as
+  `notTakenOver`
+  ([ADR 0027's amendment](adr/0027-per-account-login-routes.md#amendment-2026-10-19-saved-bindings-that-lack-a-slot),
+  owner, 22:48 UTC). Local tests only (unit and a synthetic browser fixture in cloud
+  Chromium 141); check UniSuper in the owner's Chrome, where the next login should type
+  the password with the saved binding and widen it.
 - UNSW's single sign-on page on Microsoft Entra
   (`login.microsoftonline.com/<tenant>/oauth2/authorize`) was logged `recipe.generate`
   `skipped` `incomplete-observation` with `unfillable-field` in the owner's Chrome on

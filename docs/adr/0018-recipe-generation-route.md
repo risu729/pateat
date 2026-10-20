@@ -28,6 +28,11 @@ Amended on 2026-10-18 by [ADR 0048](0048-password-method-button.md) (owner, 01:3
 the click of a learned `password` handler that follows the recipe's final `advance` is
 continued like that advance
 ([Continuing after an advance](#continuing-after-an-advance)); implemented.
+Amended on 2026-10-19 by [ADR 0027](0027-per-account-login-routes.md) (owner, 22:48
+UTC): a saved binding that lacks a slot of the continued revision no longer stops the
+takeover when the slot can be filled as for an item without a binding, and a refused
+takeover logs why ([Continuing after an advance](#continuing-after-an-advance));
+implemented.
 Amended on 2026-10-18 by
 [ADR 0012](0012-inference-request-log.md#amendment-2026-10-18-rows-for-a-real-page-corpus)
 (owner, 06:08 UTC): [request log retention](#request-log-retention-of-one-year) is one
@@ -285,6 +290,11 @@ Implementation choices for the page after a recipe's final `advance` step, made 
   effects per recipe, and at most 40 steps and 12 submissions per login. The account
   choice saved after `authenticated` is derived from the new revision, so it covers both
   pages' slots; a saved choice that cannot fill the new page's slots stops the takeover.
+  Since 2026-10-19 the slots a saved binding lacks are first filled as for an item
+  without a binding, and the binding is widened by them after `authenticated`; only a
+  slot that cannot be filled stops the takeover, and `recipe.generate` names why as
+  `notTakenOver` beside `takenOver: false`
+  ([ADR 0027](0027-per-account-login-routes.md#amendment-2026-10-19-saved-bindings-that-lack-a-slot)).
   A revision that is not taken over stays cached for the next visit, and this login
   settles `unknown`.
 - **New documents and restarts.** A form that posts back during the request makes a new
