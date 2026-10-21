@@ -15,7 +15,9 @@ wait_for = [
   ":test:login",
   ":test:messaging",
   ":test:passkeys",
+  ":test:popup",
   ":test:service",
+  ":test:storage",
   ":test:vault",
 ]
 run = "node ../../node_modules/wxt/bin/wxt.mjs build --browser chrome"
@@ -49,9 +51,17 @@ run = "node ../../node_modules/vitest/vitest.mjs run src/messaging --coverage.re
 depends = [":prepare"]
 run = "node ../../node_modules/vitest/vitest.mjs run src/passkeys --coverage.reportsDirectory=../../coverage/extension-passkeys"
 
+[tasks."test:popup"]
+depends = [":prepare"]
+run = "node ../../node_modules/vitest/vitest.mjs run src/popup --coverage.reportsDirectory=../../coverage/extension-popup"
+
 [tasks."test:service"]
 depends = [":prepare"]
 run = "node ../../node_modules/vitest/vitest.mjs run src/service --coverage.reportsDirectory=../../coverage/extension-service"
+
+[tasks."test:storage"]
+depends = [":prepare"]
+run = "node ../../node_modules/vitest/vitest.mjs run src/storage.test.ts --coverage.reportsDirectory=../../coverage/extension-storage"
 
 [tasks."test:vault"]
 depends = [":prepare"]
@@ -74,6 +84,8 @@ depends = [
   ":test:login",
   ":test:messaging",
   ":test:passkeys",
+  ":test:popup",
   ":test:service",
+  ":test:storage",
   ":test:vault",
 ]
