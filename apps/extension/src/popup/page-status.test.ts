@@ -365,10 +365,37 @@ describe("pageStatusLines", () => {
     ["password-empty:no-passkey", "the vault item has neither a password nor a passkey"],
     [
       "password-empty:no-advance",
-      "the vault item has no password, and the recipe has no way on without one",
+      "the vault item has no password, and the recipe has no way on without one. Pateat signs in with its passkey only when the passkey needs no username, and the page asks for a passkey or the recipe presses a passkey button",
     ],
-    ["password-empty:frame", "the vault item has no password"],
+    // A recipe with several variants never goes on to the item's passkey (ADR 0036), as on a
+    // page with an email and a login ID tab.
+    [
+      "password-empty:alternatives",
+      "the vault item has no password, and Pateat goes on to a passkey only on a recipe with one way to sign in. Pateat signs in with its passkey only when the passkey needs no username, and the page asks for a passkey or the recipe presses a passkey button",
+    ],
+    [
+      "password-empty:no-password-step",
+      "the vault item has no password, and the recipe neither asks for one nor goes on to another page. Pateat signs in with its passkey only when the passkey needs no username, and the page asks for a passkey or the recipe presses a passkey button",
+    ],
+    [
+      "password-empty:fills-lacking",
+      "the vault item has no password, and the recipe needs another value the item lacks before it. Pateat signs in with its passkey only when the passkey needs no username, and the page asks for a passkey or the recipe presses a passkey button",
+    ],
+    [
+      "password-empty:password-field",
+      "the vault item has no password, and the account fills its password from another field. Pateat signs in with its passkey only when the passkey needs no username, and the page asks for a passkey or the recipe presses a passkey button",
+    ],
+    [
+      "password-empty:later-start",
+      "the vault item has no password, and this page asks for it. Pateat signs in with its passkey only when the passkey needs no username, and the page asks for a passkey or the recipe presses a passkey button",
+    ],
+    // A frame's login never goes on without a password, whatever the item holds.
+    [
+      "password-empty:frame",
+      "the vault item has no password, and Pateat goes on without one only in the page itself, not in a frame",
+    ],
     ["password-empty", "the vault item has no password"],
+    ["password-empty:unknown-why", "the vault item has no password"],
     [
       "password-not-allowed",
       "the recipe has no way to log in with this vault item (password-not-allowed)",

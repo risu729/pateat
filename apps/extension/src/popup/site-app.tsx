@@ -26,7 +26,7 @@ import { Button } from "../options/button";
 import { SETTINGS_QUERY_KEY, type SettingsClient } from "../options/client";
 import { siteAccountOptions } from "../options/site-policy";
 import { Logo } from "../logo";
-import { choiceReason, type ChoiceClient } from "../login/choice-wire";
+import { choiceReason, pickFailure, type ChoiceClient } from "../login/choice-wire";
 import { PageStatusSection } from "./page-status";
 
 /**
@@ -408,6 +408,7 @@ export function SiteApp({
     offered: Extract<Awaited<ReturnType<ChoiceClient["get"]>>, { ok: true }>,
     selected: { connectionId: string; itemId: string; name: string },
     asDefault: boolean,
+    isDefault: boolean,
   ) {
     if (tabId === undefined || busy) return;
     setBusy(true);
@@ -430,19 +431,10 @@ export function SiteApp({
         // The login runs in the page from here; the popup has nothing left to show.
         host.close();
         return;
-      } else if (response.reason === "document-gone")
-        say("The page changed, so nothing was started. Reload it to choose again.", "error");
-      else if (response.reason === "origin-busy")
-        say(
-          "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. Close that tab or wait up to 5 minutes, then choose again.",
-          "error",
-        );
-      else if (response.reason === "not-started")
-        say(
-          `Pateat could not log in with ${selected.name} on this page. Reload the page to choose again.`,
-          "error",
-        );
-      else say("This page is no longer waiting for a choice", "error");
+      }
+      // The saved default stays when its own pick fails, so only another account is said
+      // not to have become the default.
+      say(pickFailure(response.reason, selected.name, asDefault && !isDefault), "error");
       await choice.refetch();
     } catch {
       say("The login could not be started. Reopen this popup and try again.", "error");
@@ -691,6 +683,7 @@ export function SiteApp({
                     offered,
                     { ...selected, name: accountName(selected, found?.accounts) },
                     asDefault,
+                    shownPick === currentValue,
                   );
               }}
             >

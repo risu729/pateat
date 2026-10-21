@@ -79,6 +79,25 @@ export const pickResponseSchema = v.variant("ok", [
     ]),
   }),
 ]);
+/**
+ * The toolbar popup's message for a pick that started no login. A picked account becomes
+ * the default only once its login succeeds (ADR 0021), so with `makeDefault` it says that
+ * nothing was saved.
+ */
+export function pickFailure(
+  reason: Extract<v.InferOutput<typeof pickResponseSchema>, { ok: false }>["reason"],
+  name: string,
+  makeDefault: boolean,
+): string {
+  const unsaved = makeDefault ? ` ${name} was not made the default.` : "";
+  if (reason === "document-gone")
+    return `The page changed, so nothing was started.${unsaved} Reload it to choose again.`;
+  if (reason === "origin-busy")
+    return `Another tab's login to this site is running or did not succeed, so Pateat did not log in here.${unsaved} Close that tab or wait up to 5 minutes, then choose again.`;
+  if (reason === "not-started")
+    return `Pateat could not log in with ${name} on this page.${unsaved} Reload the page to choose again.`;
+  return `This page is no longer waiting for a choice${unsaved ? `.${unsaved}` : ""}`;
+}
 /** The toolbar popup asks what Pateat did on a tab's page (ADR 0038). */
 export const statusRequestSchema = v.strictObject({
   version: v.literal(1),

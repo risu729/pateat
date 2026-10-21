@@ -497,43 +497,47 @@ when a parent-domain rule or one with subdomains covers the site, the switch is 
 and the popup links each such rule to the settings page. While the tab's page waits for
 an account choice, the choice is the popup's only list (the owner asked for one list on
 2026-10-13 at 03:54 UTC): its cards mark the saved default, its "Make it the default"
-checkbox makes the picked account the default once that login succeeds, and a saved
+checkbox makes the picked account the default once that login succeeds (a pick of
+another account that starts no login says it was not made the default), and a saved
 default can still be removed there. An excluded site offers no choice, since it would
 start no login: once saved or synced settings exclude the page's site, or the site of
 the tab around its frame, the worker drops the waiting choice, the badge stops asking,
-and no pick is taken for it. The
-default-account list, where a default is chosen without logging in, returns once the
-page no longer waits. An open popup reads the settings again from the worker whenever
-the stored settings change, so a default saved by a picked login that succeeds while it
-is open shows without reopening it. The popup
-waits up to 45 seconds for the site's matching vault items. When the search has not
-answered by then, as while the vault is busy right after the extension restarts, the
-popup stops waiting and says to reopen it a little later, while the worker finishes the
-search, and the saved default shows by its saved labels. Under the header, a "This page"
-section ([ADR 0038](adr/0038-login-status-badge.md#popup);
+and no pick is taken for it. The default-account list, where a default is chosen without
+logging in, returns once the page no longer waits. An open popup reads the settings
+again from the worker whenever the stored settings change, so a default saved by a
+picked login that succeeds while it is open shows without reopening it. The popup waits
+up to 45 seconds for the site's matching vault items. When the search has not answered
+by then, as while the vault is busy right after the extension restarts, the popup stops
+waiting and says to reopen it a little later, while the worker finishes the search, and
+the saved default shows by its saved labels. Under the header, a "This page" section
+([ADR 0038](adr/0038-login-status-badge.md#popup);
 `apps/extension/src/popup/page-status.tsx`) asks the worker every second with
 `login.status.get` and says whether the site has a recipe that starts on the page, one
 on other paths only, or none; the AI's last answer for the tab (making a recipe, made
 one, chose not to, could not, or a page sent with no answer recorded), or why the page
 was not sent; and the tab's last login on the site (logging in, logged in, waiting on a
-second step, a result not known yet whose next pages are checked, for a watched login
-or one whose result settled as unknown, an ended sign-in that could not be
-confirmed, or why it did not start, stopped or did not succeed, with a note that a
-broken recipe is not made again automatically), and a refusal the badge shows, such as
-"the vault item has neither a password nor a passkey". Known codes get a plain sentence
-and others show their log name; a link opens the diagnostics page. The worker answers
-from the recipe cache, its own record of the top page, the badge's spin for a request
-in flight, the tab's login record for whether a `reconciling` login's result settled
-as unknown (`settled`), and the last login and model request the badge keeps from the
-log reports,
-with the badge's lifetime: a top page of another origin or the tab's closing drops them,
-and `chrome.storage.session` keeps them across a worker restart. Item selection, field
-exclusions and custom-field review stay on the extension's settings page once synced
-([ADR 0023](adr/0023-synced-vault-policy.md)). The service keeps one settings document
-per owner; [ADR 0024](adr/0024-settings-profiles.md) assigns its parts either to a
-settings profile that each device will choose later or to the owner. Chrome use access
-to these pages is not assumed. Keep settings and execution operations independent of
-their UI.
+second step, a result not known yet whose next pages are checked, for a watched login or
+one whose result settled as unknown, an ended sign-in that could not be confirmed, or
+why it did not start, stopped or did not succeed, with a note that a broken recipe is
+not made again automatically), and a refusal the badge shows, such as "the vault item
+has neither a password nor a passkey". A `no-route` refusal of an item without a
+password says why its login could not go on without one, by each `password-empty:<why>`
+([ADR 0036](adr/0036-passkey-after-the-identifier.md), `later-start` of
+[ADR 0049](adr/0049-start-at-a-later-step.md)), and, outside a frame for an item that
+holds a passkey, that the passkey signs in only when it needs no username and the page
+asks for a passkey or the recipe presses a passkey button. Known codes get a plain
+sentence and others show their log name; a link opens the diagnostics page. The worker
+answers from the recipe cache, its own record of the top page, the badge's spin for a
+request in flight, the tab's login record for whether a `reconciling` login's result
+settled as unknown (`settled`), and the last login and model request the badge keeps
+from the log reports, with the badge's lifetime: a top page of another origin or the
+tab's closing drops them, and `chrome.storage.session` keeps them across a worker
+restart. Item selection, field exclusions and custom-field review stay on the
+extension's settings page once synced ([ADR 0023](adr/0023-synced-vault-policy.md)). The
+service keeps one settings document per owner; [ADR 0024](adr/0024-settings-profiles.md)
+assigns its parts either to a settings profile that each device will choose later or to
+the owner. Chrome use access to these pages is not assumed. Keep settings and execution
+operations independent of their UI.
 
 Each connection supports all items except exclusions or selected
 folders/collections/items only. Use existing Bitwarden metadata; independent

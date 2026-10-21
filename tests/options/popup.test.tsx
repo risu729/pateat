@@ -779,7 +779,7 @@ test("a site another tab's login holds says so until that tab lets it go", async
   await expect
     .element(
       page.getByText(
-        /so Pateat did not log in here\. Close that tab or wait up to 5 minutes, then choose again\.$/,
+        /so Pateat did not log in here\. Demo primary account was not made the default\. Close that tab or wait up to 5 minutes, then choose again\.$/,
       ),
     )
     .toBeVisible();
@@ -841,7 +841,7 @@ test("a pick that starts nothing says so, and the default list returns once the 
   await expect
     .element(
       page.getByText(
-        "Pateat could not log in with Demo primary account on this page. Reload the page to choose again.",
+        "Pateat could not log in with Demo primary account on this page. Demo primary account was not made the default. Reload the page to choose again.",
       ),
     )
     .toBeVisible();
@@ -882,10 +882,24 @@ test("after a logout, the popup lists the saved default first", async () => {
     .element(radios.first())
     .toHaveAccessibleName("Demo team account, Demo work vault, default");
   await expect.element(radios.first()).toBeChecked();
+  // The saved default stays when its own pick starts nothing, so the popup does not say it
+  // was not made the default.
+  choices.pick.mockResolvedValue({ ok: false, reason: "not-started" });
   await userEvent.click(page.getByRole("button", { name: "Log in" }));
   expect(choices.pick).toHaveBeenCalledWith(
-    expect.objectContaining({ documentId: "signed-out", connectionId: "demo-work" }),
+    expect.objectContaining({
+      documentId: "signed-out",
+      connectionId: "demo-work",
+      makeDefault: true,
+    }),
   );
+  await expect
+    .element(
+      page.getByText(
+        "Pateat could not log in with Demo team account on this page. Reload the page to choose again.",
+      ),
+    )
+    .toBeVisible();
 });
 
 test("while a choice waits, the saved default can still be removed, and one missing from the choice is named", async () => {

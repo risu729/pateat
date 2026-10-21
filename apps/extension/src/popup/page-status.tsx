@@ -72,17 +72,49 @@ const NOT_SENT: Record<string, string> = {
 
 const plain = (table: Record<string, string>, code: string) => table[code] ?? code;
 
-/** Why a vault item without a password has no way in (ADR 0036), in plain words. */
+/**
+ * Why a login of a vault item without a password did not go on to its passkey (ADR 0036,
+ * ADR 0049), in plain words, by the `password-empty:<why>` detail.
+ */
 const NO_PASSWORD: Record<string, string> = {
   "no-passkey": "the vault item has neither a password nor a passkey",
   "no-advance": "the vault item has no password, and the recipe has no way on without one",
+  alternatives:
+    "the vault item has no password, and Pateat goes on to a passkey only on a recipe with one way to sign in",
+  "no-password-step":
+    "the vault item has no password, and the recipe neither asks for one nor goes on to another page",
+  "fills-lacking":
+    "the vault item has no password, and the recipe needs another value the item lacks before it",
+  "password-field":
+    "the vault item has no password, and the account fills its password from another field",
+  "later-start": "the vault item has no password, and this page asks for it",
+  frame:
+    "the vault item has no password, and Pateat goes on without one only in the page itself, not in a frame",
 };
+/**
+ * Details whose item holds a usable passkey: only a discoverable one signs in, and only when
+ * the page asks for a passkey by itself or the recipe has a passkey button (ADR 0027,
+ * ADR 0034).
+ */
+const HELD_PASSKEY = new Set([
+  "no-advance",
+  "alternatives",
+  "no-password-step",
+  "fills-lacking",
+  "password-field",
+  "later-start",
+]);
 
 /** A refusal the badge shows as a failure, in plain words. */
 function refusalText(refused: NonNullable<Status["refused"]>): string {
   const { reason, detail } = refused;
-  if (reason === "no-route" && detail?.startsWith("password-empty"))
-    return NO_PASSWORD[detail.slice("password-empty:".length)] ?? "the vault item has no password";
+  if (reason === "no-route" && detail?.startsWith("password-empty")) {
+    const why = detail.slice("password-empty:".length);
+    const text = NO_PASSWORD[why] ?? "the vault item has no password";
+    return HELD_PASSKEY.has(why)
+      ? `${text}. Pateat signs in with its passkey only when the passkey needs no username, and the page asks for a passkey or the recipe presses a passkey button`
+      : text;
+  }
   if (reason === "no-route")
     return `the recipe has no way to log in with this vault item${detail ? ` (${detail})` : ""}`;
   return plain(NOT_STARTED, reason);
