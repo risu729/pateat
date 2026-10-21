@@ -224,6 +224,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   // the current path, including after a same-document URL change or a dialog opening.
   let starts: LoginReadiness[] = [];
   let announced = false;
+  // The path the last announcement was made on.
+  let announcedPath: string | undefined;
   // The background may generate a recipe for this page if it shows a sign-in input within
   // the step wait after it may be sent (ADR 0016); a form shown only later, for example
   // after a click, is not sent.
@@ -403,6 +405,12 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     timer = undefined;
     if (!observer) return;
     const startable = starts.some(ready);
+    // A step that shows on another path of the same document is a new appearance too, as
+    // the password step a single-page app renders in place of its email step (ADR 0049).
+    if (startable && announced && announcedPath !== pagePath()) {
+      announced = false;
+      retries = 0;
+    }
     if (startable && !announced) void announce(true).catch(retry);
     else if (!startable) {
       announced = false;
@@ -461,6 +469,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     entryPage = false,
   ): Promise<unknown> {
     announced = start;
+    announcedPath = pagePath();
     const result: unknown = await sendMessage("login", {
       version: 1,
       type: "login.document.ready",

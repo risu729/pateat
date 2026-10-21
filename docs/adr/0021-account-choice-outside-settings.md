@@ -270,6 +270,13 @@ the page shows another account, the fill ends and the tab asks. The log shows su
 login as `login.attempt` with reason `fill-only`, then the asking as `login.refused`
 `logged-out` with the tab that logged out.
 
+Implementation detail, not confirmed by the owner (2026-10-21,
+[#831](https://github.com/risu729/pateat/issues/831)): a document is filled once on
+each path, so a start on another path of the same document, as the password step
+a single-page app shows in place of its email step
+([ADR 0049](0049-start-at-a-later-step.md)), is filled once too; a document whose page
+the site rejected a login on is still never filled again.
+
 A tab is known by its Chrome tab ID. When Chrome's Memory Saver discards an idle tab,
 the tab gets a new ID (seen on Wise on 2026-10-13: the restored tab that logged out was
 then told it had logged out in another tab). Chrome reports the change with

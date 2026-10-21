@@ -11953,6 +11953,28 @@ describe("production login document admission", () => {
       expect(await ask(h)).toEqual({ ok: true, origin, recipe: "none" });
     });
 
+    it("counts the path of a later step a login may start at as a recipe on the page", async () => {
+      const h = harness();
+      h.recipes.starts.mockResolvedValue([
+        {
+          path: "/signin",
+          steps: [recipe.steps[0]!],
+          later: [
+            {
+              kind: "fill",
+              path: "/signin/password",
+              fields: [{ slot: "password", target: { by: "id", value: "password" } }],
+              effect: "prepare",
+            },
+          ],
+        },
+      ]);
+      fake.state.tabUrls[1] = `${origin}/signin/password?state=synthetic`;
+      expect(await ask(h)).toEqual({ ok: true, origin, recipe: "page" });
+      fake.state.tabUrls[1] = `${origin}/home`;
+      expect(await ask(h)).toEqual({ ok: true, origin, recipe: "other-paths" });
+    });
+
     it("counts a sign-in entry's path as a recipe on the page", async () => {
       const entry: LoginEntryRecipe = {
         version: 1,
@@ -25259,6 +25281,68 @@ describe("a login that starts at a later step its page shows (ADR 0049)", () => 
       fillOnly: true,
       startStep: 2,
     });
+  });
+
+  it("only fills the later step a single-page app shows after its filled first step", async () => {
+    // This tab logged out of the site; the sign-in app keeps one document for both pages.
+    fake.state.session["pateat.login-logouts.v1"] = [{ tabId: 1, origin }];
+    fake.state.pageUrl = "https://login.example/signin/id";
+    fake.state.observedPath = "/signin/id";
+    shows(["email", "next"]);
+    const { h, reports } = start([twoPages()]);
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(reports.at(-1)).toMatchObject({ type: "refused", reason: "logged-out" }),
+    );
+    expect(executed()).toEqual(["fill:email"]);
+    // The person presses Next; the same document moves to the password page in place.
+    fake.state.pageUrl = "https://login.example/signin/pwd";
+    fake.state.observedPath = "/signin/pwd";
+    shows(["password", "login"]);
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(executed()).toEqual(["fill:email", "fill:password"]));
+    expect(reports.filter((entry) => entry.type === "start").at(-1)).toMatchObject({
+      fillOnly: true,
+      startStep: 2,
+    });
+  });
+
+  it("logs in at the later step a single-page app shows when the popup picks the account", async () => {
+    fake.state.session["pateat.login-logouts.v1"] = [{ tabId: 1, origin }];
+    fake.state.pageUrl = "https://login.example/signin/id";
+    fake.state.observedPath = "/signin/id";
+    shows(["email", "next"]);
+    const { h, reports } = start([twoPages()]);
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(reports.at(-1)).toMatchObject({ type: "refused", reason: "logged-out" }),
+    );
+    // The document announces again once the fill ended, then shows the password page in
+    // place without announcing it.
+    expect(await h.hello({}, false)).toMatchObject({ ok: false, reason: "form-not-ready" });
+    fake.state.pageUrl = "https://login.example/signin/pwd";
+    fake.state.observedPath = "/signin/pwd";
+    shows(["password", "login"]);
+    fake.state.onReconnect = () => h.hello();
+    const picked = await h.login.handle(
+      {
+        version: 1,
+        type: "login.choice.pick",
+        tabId: 1,
+        documentId: "synthetic-document",
+        connectionId,
+        itemId,
+        makeDefault: false,
+      },
+      {
+        id: "synthetic-extension",
+        url: "chrome-extension://synthetic-extension/popup.html",
+      } as never,
+    );
+    expect(picked).toEqual({ ok: true });
+    await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
+    expect(executed().slice(-2)).toEqual(["fill:password", "click:login"]);
+    expect(status()![0]).toMatchObject({ startStep: 2 });
   });
 
   it("takes the later step shown again after this tab's login as a logout", async () => {

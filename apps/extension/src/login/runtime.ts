@@ -193,7 +193,10 @@ const STORAGE_KEY = "pateat.login-attempts.v5";
 const PICKS_KEY = "session:pateat.login-picks.v1";
 const CHOICES_KEY = "session:pateat.login-choices.v1";
 const LOGOUTS_KEY = "session:pateat.login-logouts.v1";
-/** Documents filled once after a logout, as `${tabId} ${documentId}` (ADR 0021 D). */
+/**
+ * Pages filled once after a logout, as `${tabId} ${documentId} ${path}`, and documents a
+ * rejected login keeps unfilled, as `${tabId} ${documentId}` (ADR 0021 D).
+ */
 const LOGOUT_FILLS_KEY = "session:pateat.login-logout-fills.v1";
 /**
  * Tabs whose login of an origin stopped after a submission and whose login form then
@@ -2086,8 +2089,10 @@ export function createLoginRuntime(
   /** By `recordKey`: the `logouts` that the site's rejection of the tab's login began. */
   const rejectedAsks = new Set<string>();
   /**
-   * Documents filled once after a logout, so neither a re-announcement nor a restarted
-   * worker fills over what the user typed (ADR 0021 D). The oldest go first.
+   * Documents filled once after a logout, each as `tabId documentId path`, so neither a
+   * re-announcement nor a restarted worker fills over what the user typed (ADR 0021 D); a
+   * whole document, as `tabId documentId`, that showed the site's rejection of a login is
+   * never filled again. The oldest go first.
    */
   const logoutFills = new Set<string>();
   /** By tab: its sign-in entry press, kept until the tab closes (ADR 0031). */
@@ -2603,8 +2608,9 @@ export function createLoginRuntime(
       recipes.starts(pageOrigin).catch(() => []),
       recipes.entries(pageOrigin).catch(() => []),
     ]);
+    // A later step a login may start at counts as a start on its path (ADR 0049).
     const paths = [
-      ...starts.map((start) => start.path),
+      ...starts.flatMap((start) => [start.path, ...(start.later ?? []).map((step) => step.path)]),
       ...entries.map((entry) => entry.entry.path),
     ];
     await loaded;
@@ -8803,10 +8809,18 @@ export function createLoginRuntime(
     }
     // A new login reads its item's facts once and chooses its route from them (ADR 0027);
     // a resumed one keeps those in its record, so a sync cannot change its route.
-    // After a logout, a document is filled once with the single account to use, without
-    // pressing anything (ADR 0021 D); the passkey route has nothing to fill.
-    const filledKey = `${document.tabId} ${document.documentId}`;
-    const fill = asking && !previous && !switched && !logoutFills.has(filledKey);
+    // After a logout, a document is filled once on each path with the single account to
+    // use, without pressing anything (ADR 0021 D); the passkey route has nothing to fill. A
+    // single-page app that shows its next step in place, as a password page after its email
+    // page, gets that step filled as a new document would (ADR 0049). A page the site
+    // rejected a login on is never filled again, on any path.
+    const filledKey = `${document.tabId} ${document.documentId} ${live.path}`;
+    const fill =
+      asking &&
+      !previous &&
+      !switched &&
+      !logoutFills.has(`${document.tabId} ${document.documentId}`) &&
+      !logoutFills.has(filledKey);
     // A new login answers the page's own passkey request when its item holds a passkey
     // (ADR 0034), as one picked in the popup after a logout and one on a chooser's list do,
     // instead of clicking there; a login that only fills after a logout keeps its form.
@@ -9175,7 +9189,7 @@ export function createLoginRuntime(
       sessionChanged = true;
     }
     // A login started after a logout ends the tab's asking for this origin; filling the
-    // page only does not, and the document is not filled again.
+    // page only does not, and the document is not filled again on this path.
     if (metadata.fillOnly) {
       logoutFills.add(filledKey);
       for (const old of logoutFills) {

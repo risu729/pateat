@@ -512,16 +512,17 @@ waiting and says to reopen it a little later, while the worker finishes the sear
 the saved default shows by its saved labels. Under the header, a "This page" section
 ([ADR 0038](adr/0038-login-status-badge.md#popup);
 `apps/extension/src/popup/page-status.tsx`) asks the worker every second with
-`login.status.get` and says whether the site has a recipe that starts on the page, one
-on other paths only, or none; the AI's last answer for the tab (making a recipe, made
-one, chose not to, could not, or a page sent with no answer recorded), or why the page
-was not sent; and the tab's last login on the site (logging in, logged in, waiting on a
-second step, a result not known yet whose next pages are checked, for a watched login or
-one whose result settled as unknown, an ended sign-in that could not be confirmed, or
-why it did not start, stopped or did not succeed, with a note that a broken recipe is
-not made again automatically), and a refusal the badge shows, such as "the vault item
-has neither a password nor a passkey". A `no-route` refusal of an item without a
-password says why its login could not go on without one, by each `password-empty:<why>`
+`login.status.get` and says whether the site has a recipe that starts on the page (a
+later step a login may start at counts, ADR 0049), one on other paths only, or none; the
+AI's last answer for the tab (making a recipe, made one, chose not to, could not, or a
+page sent with no answer recorded), or why the page was not sent; and the tab's last
+login on the site (logging in, logged in, waiting on a second step, a result not known
+yet whose next pages are checked, for a watched login or one whose result settled as
+unknown, an ended sign-in that could not be confirmed, or why it did not start, stopped
+or did not succeed, with a note that a broken recipe is not made again automatically),
+and a refusal the badge shows, such as "the vault item has neither a password nor a
+passkey". A `no-route` refusal of an item without a password says why its login could
+not go on without one, by each `password-empty:<why>`
 ([ADR 0036](adr/0036-passkey-after-the-identifier.md), `later-start` of
 [ADR 0049](adr/0049-start-at-a-later-step.md)), and, outside a frame for an item that
 holds a passkey, that the passkey signs in only when it needs no username and the page
