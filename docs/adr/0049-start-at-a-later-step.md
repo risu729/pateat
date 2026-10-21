@@ -111,6 +111,17 @@ Details added in implementation, not confirmed by the owner:
   the page announces again up to its limit and is logged as `login.refused`
   `stale-document` (`gave-up` once it stops).
 - The content script watches at most 32 steps, first steps before later ones.
+- A single-page app may show the later step in place, in the document of the first step
+  (2026-10-21, [#831](https://github.com/risu729/pateat/issues/831): Cursor's sign-in
+  page moves from its email step to `/password` without loading a new document). The
+  page announces a step that becomes ready on another path of the document as a new
+  appearance, and after a logout the first step's fill-only login no longer keeps that
+  document from being filled: a document is filled once on each path (ADR 0021 D), so
+  the fill-only login starts at the later step there, as it would in a new document. The
+  popup's "This page" section counts the path of a later step as a recipe on the page.
+  As in a new document, a value the person types into the later step before the fill
+  arrives may be replaced; the guard of
+  [ADR 0035](0035-page-kinds-per-site.md)'s fill-only pages is not implemented.
 - A refused later start is logged as `login.refused` `no-route` with `later-variant`
   (the chosen variant shows no later step) or `password-empty:later-start` (the login
   would stop before it). Such a refusal can come after the popup offered the account,
