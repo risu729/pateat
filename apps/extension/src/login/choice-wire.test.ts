@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { choiceReason, choiceResponseSchema } from "./choice-wire";
+import { choiceReason, choiceResponseSchema, pickFailure } from "./choice-wire";
 import * as v from "valibot";
 
 describe("the popup's reason for asking (ADR 0021)", () => {
@@ -12,6 +12,27 @@ describe("the popup's reason for asking (ADR 0021)", () => {
     // signed in (ADR 0027), asks in this tab only.
     expect(choiceReason("stopped-login", 1)).toBe(
       "The last login on this site stopped in this tab",
+    );
+  });
+
+  it("says a failed pick saved no default when it was to be one (ADR 0021)", () => {
+    expect(pickFailure("not-started", "taro@example.com", true)).toBe(
+      "Pateat could not log in with taro@example.com on this page. taro@example.com was not made the default. Reload the page to choose again.",
+    );
+    expect(pickFailure("not-started", "taro@example.com", false)).toBe(
+      "Pateat could not log in with taro@example.com on this page. Reload the page to choose again.",
+    );
+    expect(pickFailure("document-gone", "Example", true)).toBe(
+      "The page changed, so nothing was started. Example was not made the default. Reload it to choose again.",
+    );
+    expect(pickFailure("origin-busy", "Example", false)).toBe(
+      "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. Close that tab or wait up to 5 minutes, then choose again.",
+    );
+    expect(pickFailure("no-choice", "Example", false)).toBe(
+      "This page is no longer waiting for a choice",
+    );
+    expect(pickFailure("not-a-candidate", "Example", true)).toBe(
+      "This page is no longer waiting for a choice. Example was not made the default.",
     );
   });
 
