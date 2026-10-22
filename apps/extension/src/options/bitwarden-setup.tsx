@@ -22,7 +22,7 @@ import {
   Trash2,
   TriangleAlert,
 } from "lucide-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
 import * as v from "valibot";
 import type { SetupBegin, SetupReply } from "../connections/types";
 import { providerPermissionOrigins } from "../connections/permissions";
@@ -520,30 +520,30 @@ export function BitwardenSetup({
   });
   // The waiting sign-in, password included, lives only in the service worker, which Chrome
   // stops after 30 seconds without an event while the person fetches a code. A message on
-  // the Port restarts that count, so the page sends one every 20 seconds while a challenge
-  // shows, until the challenge's own 5 minutes end it.
+  // the Port restarts that count, so the page sends one as soon as a challenge shows and
+  // every 20 seconds after, until the challenge's own 5 minutes end it.
+  const beat = useEffectEvent(async (flowId: string) => {
+    // An operation started after this beat moves the epoch on and answers for the flow.
+    const epoch = generation.current;
+    let result: SetupReply;
+    try {
+      result = await client.keepAlive(flowId);
+    } catch {
+      // The page's next request reports a closed connection.
+      return;
+    }
+    // Only an ended flow ends the challenge; a running request answers for the flow
+    // itself, and a busy worker's refusal leaves it waiting.
+    if (result.ok || result.error.code !== "setup-expired" || operation.current) return;
+    await receive(result, epoch, adding.current);
+  });
   useEffect(() => {
     if (!challenge) return;
     const { flowId } = challenge;
-    const epoch = generation.current;
-    async function beat() {
-      let result: SetupReply;
-      try {
-        result = await client.keepAlive(flowId);
-      } catch {
-        // The page's next request reports a closed connection.
-        return;
-      }
-      // Only an ended flow ends the challenge; a running request answers for the flow
-      // itself, and a busy worker's refusal leaves it waiting.
-      if (result.ok || result.error.code !== "setup-expired" || operation.current) return;
-      await receive(result, epoch);
-    }
-    const timer = setInterval(() => void beat(), KEEP_ALIVE_MS);
+    void beat(flowId);
+    const timer = setInterval(() => void beat(flowId), KEEP_ALIVE_MS);
     return () => clearInterval(timer);
-    // `receive` reads only refs and state setters; the timer belongs to this challenge.
-    // oxlint-disable-next-line react/exhaustive-deps
-  }, [challenge, client]);
+  }, [challenge]);
   useEffect(() => {
     if (!focusCode.current || busy) return;
     focusCode.current = false;

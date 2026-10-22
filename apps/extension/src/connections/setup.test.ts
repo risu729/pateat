@@ -598,6 +598,11 @@ describe("manual challenges and isolated caller lifetime", () => {
     expect(await other.keepAlive(challenge.flowId)).toEqual(expired);
     h.advance(300_000);
     expect(await h.caller.keepAlive(challenge.flowId)).toEqual(expired);
+    other.dispose();
+    expect(await other.keepAlive(challenge.flowId)).toEqual({
+      ok: false,
+      error: { code: "setup-unavailable" },
+    });
     expect(
       await h.caller.continue({ flowId: challenge.flowId, twoFactor: { provider: 1, code: "1" } }),
     ).toMatchObject({ ok: false });

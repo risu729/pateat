@@ -77,8 +77,10 @@ describe("settings-page setup port", () => {
   });
 
   it("answers the page's heartbeat on the same port, expired when this worker holds no flow", async () => {
+    const onVaultStateMayChange = vi.fn();
     const runtime = createConnectionRuntime({} as CryptoHost, {
       registry: { list: async () => [], get: async () => undefined } as never,
+      onVaultStateMayChange,
     });
     const port = settingsPort(() => undefined);
     expect(runtime.attach(port as never)).toBe(true);
@@ -90,6 +92,8 @@ describe("settings-page setup port", () => {
       result: { ok: false, error: { code: "setup-expired" } },
     });
     expect(port.disconnect).not.toHaveBeenCalled();
+    // A heartbeat every 20 seconds changes no vault state, so it re-reads none.
+    expect(onVaultStateMayChange).not.toHaveBeenCalled();
   });
 });
 
