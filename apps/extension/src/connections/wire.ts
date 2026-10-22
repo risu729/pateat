@@ -55,7 +55,7 @@ export const setupRequestSchema = v.variant("type", [
   }),
   v.strictObject({
     requestId: v.pipe(v.string(), v.uuid()),
-    type: v.picklist(["connection.cancel", "connection.send-email-code"]),
+    type: v.picklist(["connection.cancel", "connection.send-email-code", "connection.keep-alive"]),
     flowId: id,
   }),
   v.strictObject({ requestId: v.pipe(v.string(), v.uuid()), type: v.literal("connection.status") }),
@@ -108,6 +108,11 @@ const replySchema = v.union([
     kind: v.literal("email-code"),
     flowId: v.pipe(v.string(), v.uuid()),
     result: v.picklist(["sent", "rate-limited", "unavailable", "refused", "failed"]),
+  }),
+  v.strictObject({
+    ok: v.literal(true),
+    kind: v.literal("waiting"),
+    flowId: v.pipe(v.string(), v.uuid()),
   }),
   v.strictObject({
     ok: v.literal(true),

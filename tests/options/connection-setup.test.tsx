@@ -61,6 +61,9 @@ function mockClient() {
     deleteConnection: vi
       .fn<ConnectionClient["deleteConnection"]>()
       .mockImplementation(async (connectionId) => ({ ok: true, kind: "deleted", connectionId })),
+    keepAlive: vi
+      .fn<ConnectionClient["keepAlive"]>()
+      .mockImplementation(async (id) => ({ ok: true, kind: "waiting", flowId: id })),
     review: vi.fn<ConnectionClient["review"]>().mockImplementation(async () => ready()),
     close: vi.fn<ConnectionClient["close"]>(),
   };
@@ -71,6 +74,10 @@ function held<T>() {
     resolve = resolvePromise;
   });
   return { promise, resolve };
+}
+/** Lets a reply's render and the effects after it run. */
+function painted() {
+  return new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
 }
 async function mount(client = mockClient()) {
   const queryClient = createMetadataQueryClient();
@@ -326,6 +333,46 @@ test.each([
   expect(client.sendEmailCode).toHaveBeenCalledTimes(1);
   // The sign-in still waits for a code.
   await expect.element(page.getByLabelText("Verification code", { exact: true })).toBeVisible();
+});
+
+test("a waiting challenge keeps the worker running until its flow ends", async () => {
+  // Only the heartbeat's interval is faked; locators keep their real timeouts.
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+  try {
+    const client = mockClient();
+    client.begin.mockResolvedValue({ ok: true, kind: "mfa-required", flowId, providers: [0] });
+    await mount(client);
+    await fillNew();
+    await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+    await expect.element(page.getByLabelText("Verification code", { exact: true })).toBeVisible();
+    expect(client.keepAlive).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(20_000);
+    await vi.waitFor(() => expect(client.keepAlive).toHaveBeenCalledTimes(1));
+    expect(client.keepAlive).toHaveBeenCalledWith(flowId);
+    // A busy worker's refusal leaves the challenge waiting.
+    client.keepAlive.mockResolvedValueOnce({ ok: false, error: { code: "resource-limit" } });
+    vi.advanceTimersByTime(20_000);
+    await vi.waitFor(() => expect(client.keepAlive).toHaveBeenCalledTimes(2));
+    await painted();
+    expect(page.getByLabelText("Verification code", { exact: true }).query()).not.toBeNull();
+    vi.advanceTimersByTime(20_000);
+    await vi.waitFor(() => expect(client.keepAlive).toHaveBeenCalledTimes(3));
+    // A flow the worker no longer holds, such as one past its 5 minutes, ends the challenge.
+    client.keepAlive.mockResolvedValueOnce({ ok: false, error: { code: "setup-expired" } });
+    vi.advanceTimersByTime(20_000);
+    await expect
+      .element(page.getByText("This verification session expired. Start sign-in again."))
+      .toBeVisible();
+    await expect
+      .element(page.getByLabelText("Verification code", { exact: true }))
+      .not.toBeInTheDocument();
+    // React runs the effect's cleanup after the next paint.
+    await painted();
+    vi.advanceTimersByTime(60_000);
+    expect(client.keepAlive).toHaveBeenCalledTimes(4);
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 test("new-device verification is a distinct manual continuation and clears its code", async () => {

@@ -85,6 +85,8 @@ export type SetupReply =
       flowId: string;
       result: "sent" | "rate-limited" | "unavailable" | "refused" | "failed";
     }
+  /** The sign-in still waits for its code; the answer to the settings page's heartbeat. */
+  | { ok: true; kind: "waiting"; flowId: string }
   | {
       ok: true;
       kind: "new-device-verification-required";

@@ -75,6 +75,22 @@ describe("settings-page setup port", () => {
     await vi.waitFor(() => expect(port.postMessage).toHaveBeenCalledOnce());
     expect(port.disconnect).toHaveBeenCalledOnce();
   });
+
+  it("answers the page's heartbeat on the same port, expired when this worker holds no flow", async () => {
+    const runtime = createConnectionRuntime({} as CryptoHost, {
+      registry: { list: async () => [], get: async () => undefined } as never,
+    });
+    const port = settingsPort(() => undefined);
+    expect(runtime.attach(port as never)).toBe(true);
+    const requestId = crypto.randomUUID();
+    port.send({ requestId, type: "connection.keep-alive", flowId: crypto.randomUUID() });
+    await vi.waitFor(() => expect(port.postMessage).toHaveBeenCalledOnce());
+    expect(port.postMessage).toHaveBeenCalledWith({
+      requestId,
+      result: { ok: false, error: { code: "setup-expired" } },
+    });
+    expect(port.disconnect).not.toHaveBeenCalled();
+  });
 });
 
 describe("current vault catalog", () => {

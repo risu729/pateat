@@ -232,6 +232,9 @@ export function createConnectionRuntime(
         case "connection.send-email-code":
           result = caller.sendEmailCode(request.flowId);
           break;
+        case "connection.keep-alive":
+          result = caller.keepAlive(request.flowId);
+          break;
         case "connection.sync":
           result = caller.sync(request.connectionId);
           break;

@@ -434,7 +434,15 @@ guess:
   official login page.
 - A sign-in or sync that takes longer than 120 seconds: the settings page's request
   times out and closes its connection to the worker, which cancels the work. A
-  verification challenge expires after 5 minutes without a countdown.
+  verification challenge expires after 5 minutes without a countdown, as the official
+  clients' pending sign-in does
+  ([`LOGIN_SESSION_TIMEOUT_LENGTH`](https://github.com/bitwarden/clients/blob/86f41566aebe5a024796df8abfb3d4d89ec509c1/libs/auth/src/common/services/login-strategies/default-login-strategy-session-timeout.service.ts#L14)).
+  The waiting sign-in, password included, lives only in the service worker, which Chrome
+  stops after 30 seconds without an event, so while a challenge shows the settings page
+  sends the worker a `connection.keep-alive` message every 20 seconds; an answer that
+  the flow is gone (its 5 minutes ended, or Chrome restarted the worker anyway) ends the
+  challenge with "This verification session expired". Closing the settings page ends the
+  sign-in.
 - A second sign-in step or sync from one settings page while one runs, a new sign-in
   or sync while that page's verification challenge waits (the challenge stays usable),
   a sign-in or sync of a connection that already has one, or a fifth at once across
