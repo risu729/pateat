@@ -27,6 +27,16 @@ describe("synthetic corpus", () => {
         alternatives: expectedAlternatives(entry.expected),
       });
       expect(result.ok, entry.id).toBe(true);
+      // Without alternatives, the purpose read from the page matches the ground truth
+      // whatever the model answers (#834).
+      if (!expectedAlternatives(entry.expected)?.length)
+        for (const answered of ["advance", "submit"] as const) {
+          const read = validateGeneratedPage(observation, slots, {
+            fields: expectedFields(entry.expected),
+            action: { candidate: entry.expected.action, purpose: answered },
+          });
+          expect(read.ok && read.plan.action.purpose, entry.id).toBe(entry.expected.purpose);
+        }
       expect(result.ok && (result.plan.alternatives ?? []).length, entry.id).toBe(
         entry.expected.alternatives?.length ?? 0,
       );

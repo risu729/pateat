@@ -440,6 +440,35 @@ export function validatePagePlan(
   };
 }
 
+/**
+ * The purpose of a plan's action, read from the page instead of taken from the model
+ * (owner, 2026-10-22, #834): a click after only identifiers advances unless its form (or,
+ * for an action outside any form, every input outside one) also shows a password or code
+ * input the plan leaves empty, which the click would then submit; any other click submits. A plan that names an unknown slot or candidate keeps `fallback`, for
+ * {@link validatePagePlan} to refuse.
+ */
+export function actionPurpose(
+  observation: LoginObservation,
+  slots: readonly SemanticSlot[],
+  plan: Pick<PagePlan, "fields"> & { action: { candidate: string } },
+  fallback: PagePlan["action"]["purpose"],
+): PagePlan["action"]["purpose"] {
+  const action = observation.candidates.find((candidate) => candidate.id === plan.action.candidate);
+  const kinds = plan.fields.map((field) => slots.find((slot) => slot.id === field.slot)?.kind);
+  if (action === undefined || kinds.includes(undefined)) return fallback;
+  if (kinds.some((kind) => kind !== "identifier")) return "submit";
+  const filled = new Set(plan.fields.map((field) => field.candidate));
+  return observation.candidates.some(
+    (candidate) =>
+      candidate.group === action.group &&
+      !filled.has(candidate.id) &&
+      (candidate.role === "password" ||
+        ((fillRoles as readonly string[]).includes(candidate.role) && isCodeField(candidate))),
+  )
+    ? "submit"
+    : "advance";
+}
+
 export { namesPasskey, registersPasskey } from "@pateat/contracts";
 
 /**
@@ -566,6 +595,8 @@ function passkeyButtonOf(
  * elements. An ambiguous mapping therefore abstains instead of becoming two variants.
  * Any failure refuses the whole plan, so a recipe never stores a set that was not checked.
  * A passkey button that fails its own checks is dropped instead (`passkeyButtonOf`).
+ * A plan stored without alternatives (none answered, or dropped on another page) takes
+ * its action's purpose from {@link actionPurpose}, not from the model.
  *
  * Only a start page keeps alternatives and a passkey button (ADR 0027). On another page
  * (`startPage` false) the alternatives are still checked but dropped, as is the passkey
@@ -615,12 +646,31 @@ export function validateGeneratedPage(
       },
     };
   }
-  const { passkeyButton, ...sets } = draft;
+  const { passkeyButton, ...answered } = draft;
+  // With alternatives every set submits, so only a lone set's purpose is read from the page.
+  const sets = answered.alternatives?.length
+    ? answered
+    : {
+        ...answered,
+        action: {
+          ...answered.action,
+          purpose: actionPurpose(observation, slots, answered, answered.action.purpose),
+        },
+      };
   const validated = validateGeneratedSets(observation, slots, sets, startPage, carried);
   if (!validated.ok) return validated;
   if (!startPage) {
     const { alternatives: _alternatives, ...plan } = validated.plan;
-    return { ok: true, plan };
+    // Only the first set is stored, so its purpose is read from the page as a lone set's.
+    const purpose = actionPurpose(observation, slots, plan, plan.action.purpose);
+    return {
+      ok: true,
+      plan: {
+        ...plan,
+        action: { ...plan.action, purpose },
+        steps: plan.steps.map((step) => (step.kind === "click" ? { ...step, purpose } : step)),
+      },
+    };
   }
   const passkey = passkeyButtonOf(
     observation,

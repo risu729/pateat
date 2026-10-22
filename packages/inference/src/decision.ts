@@ -19,7 +19,13 @@ import {
   type InferenceOutcome,
   type RoleLimits,
 } from "./outcome";
-import { isActionRole, slotAcceptsOn, validatePagePlan, type ValidatedPagePlan } from "./plan";
+import {
+  actionPurpose,
+  isActionRole,
+  slotAcceptsOn,
+  validatePagePlan,
+  type ValidatedPagePlan,
+} from "./plan";
 
 /** A finite-choice model implementing the AI SDK decision contract (`doDecide`). */
 export type FiniteChoiceModel = Extract<
@@ -198,12 +204,18 @@ export function createFieldMappingDecider(config: {
     if (new Set(fields.map((field) => field.candidate)).size !== fields.length)
       return { status: "abstained", reason: "inconsistent-mapping", calls, usage };
 
+    const planned = fields.map(({ slot, candidate }) => ({ slot, candidate }));
     const validated = validatePagePlan(observation.output, slots.output, {
-      fields: fields.map(({ slot, candidate }) => ({ slot, candidate })),
-      // Purpose is derived locally: a page that receives a secret or code submits.
+      fields: planned,
+      // Purpose is derived locally, as for a generated plan.
       action: {
         candidate: action,
-        purpose: fields.some((field) => field.kind !== "identifier") ? "submit" : "advance",
+        purpose: actionPurpose(
+          observation.output,
+          slots.output,
+          { fields: planned, action: { candidate: action } },
+          "submit",
+        ),
       },
     });
     // Options are pre-filtered, so a rejection here is a cross-form joint mapping, or a
