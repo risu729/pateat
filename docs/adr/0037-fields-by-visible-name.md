@@ -13,6 +13,8 @@ Amended on 2026-10-18 by
 Amended on 2026-10-19 by [ADR 0048](0048-password-method-button.md)'s amendment (owner,
 01:26 UTC, option A1): a control may be named by its accessible name
 ([amendment](#amendment-controls-named-by-their-accessible-names)).
+Amended on 2026-10-22 by the owner (11:36 UTC, #850): a split code input's name may
+number its place ([amendment](#amendment-2026-10-22-places-of-a-split-code)).
 
 Date: 2026-10-13
 
@@ -162,3 +164,27 @@ second shown visible name already did. A step's element the page keeps in two or
 copies, all hidden, now counts as missing rather than ambiguous, so a login form left
 hidden twice on a page may let that page reach the judge; a single hidden element is
 still found, as before.
+
+## Amendment 2026-10-22: places of a split code
+
+Accepted by the owner on 2026-10-22 at 11:36 UTC, on the decision card that chose option
+A of `designs/grok-issues-833-834-850-proposal-ja.md` (#850). Option B (a new locator
+for a form's first code input, which changes the recipe format) and C were not chosen.
+
+Slack's two-factor page shows six one-digit inputs with no `id` or `name`, sharing
+`autocomplete="one-time-code"`, each named by its place (`digit 1 of 6`). Item 2 refused
+those names, so the page was incomplete (`unlocated-field`) and never judged. An
+input's name may now hold numbers when the input is one of a code split into one input
+per digit (6 to 8 shown inputs of its form, or of no form, that take one character and
+that the TOTP fill rule accepts: `splitCodeInputs` in
+`apps/extension/src/page/code-submission.ts`, with shown read as the extractor reads
+it) and every number in the name is the input's place among them or their count. A place
+does not change as the person types; a name such as `Sent to ••12` or
+`••• 4 2 7, digit 1` is still refused. Uniqueness and redaction stay as item 2 says.
+
+This is an exception to item 2's other reason too: the numbers reach the service and the
+model as locator values of the signed-in page, which otherwise shows no number (ADR
+0018). A field's label and description there still show `[number]`. The executor
+needs no change: a `totp` handler names only the first input, fills the rest from its
+form (ADR 0027), and finds the first input by its name again while it watches for the
+page submitting the code.
