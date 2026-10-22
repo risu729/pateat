@@ -1189,8 +1189,8 @@ function loginFormsOf(
  * (`observedPath`, ADR 0039); on such a page an ID, name or test ID that may be a token
  * locates nothing.
  *
- * `known` names the fields a recipe already fills on this path, for a page that continues
- * it after an `advance` step (ADR 0018). Such a field shown read-only or disabled, as an
+ * `known` names the fields a recipe already fills, on any of its paths, for a page that
+ * continues it after an `advance` step (ADR 0018). Such a field shown read-only or disabled, as an
  * email address shown again beside the password, is left out instead: the recipe has
  * filled it, and no step of this page needs it.
  */

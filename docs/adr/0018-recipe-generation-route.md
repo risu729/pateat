@@ -258,10 +258,10 @@ Implementation choices for the page after a recipe's final `advance` step, made 
   custom field the recipe's generated slot map already names (ADR 0027), and both the
   extension and the service refuse a page whose steps fill one of the recipe's slots
   again, before anything is stored. A read-only or disabled field that the recipe
-  already fills on that path, such as an identifier the page shows again, is left out
-  instead of making the description incomplete. The request is recorded in the attempt
-  before it is sent, so a worker restart cannot send that step's page again, and the
-  login makes one model call per final advance within the 10-minute retry window
+  already fills on any of its paths, such as an identifier the page shows again, is left
+  out instead of making the description incomplete. The request is recorded in the
+  attempt before it is sent, so a worker restart cannot send that step's page again, and
+  the login makes one model call per final advance within the 10-minute retry window
   ([ADR 0016](0016-recipe-generation-trigger.md)). The request is given back for a later
   document of the tab by the generation claim's own rule
   ([ADR 0016](0016-recipe-generation-trigger.md)): when its claim is freed because the

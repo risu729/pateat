@@ -1404,6 +1404,31 @@ describe("extractLoginObservation", () => {
     ]);
   });
 
+  it("leaves out a read-only email a password page on another path keeps (#831)", () => {
+    // A WorkOS AuthKit sign-in (2026-10-22): the email step at `/` filled `name="email"`;
+    // `/password` keeps the address read-only under the same name and a useId ID.
+    page(
+      `<form><label for="radix-_r_1_">Email</label>
+        <input type="text" name="email" readonly tabindex="-1" id="radix-_r_1_">
+        <label for="radix-_r_2_">Password</label>
+        <input type="password" name="password" autocomplete="current-password" id="radix-_r_2_">
+        <button type="submit">Sign in</button></form>`,
+    );
+    expect(observe().complete).toBe(false);
+    for (const known of [
+      { by: "name" as const, value: "email" },
+      { by: "label" as const, value: "Email" },
+    ]) {
+      const result = extractLoginObservation(document, [known]);
+      if (!result.ok) throw new Error(result.reason);
+      expect(result.observation.complete, known.by).toBe(true);
+      expect(result.observation.candidates.map((candidate) => candidate.target)).toEqual([
+        { by: "name", value: "password" },
+        { by: "text", value: "Sign in" },
+      ]);
+    }
+  });
+
   it("matches a known field by its name or test ID locator too, exactly (ADR 0018)", () => {
     const form = (field: string) =>
       page(
