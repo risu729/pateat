@@ -573,6 +573,40 @@ describe("manual challenges and isolated caller lifetime", () => {
       }),
     ).toMatchObject({ ok: true, kind: "ready" });
   });
+  it("answers the page's heartbeat while its sign-in waits, and expired once it ends", async () => {
+    const h = harness();
+    h.tokenResponses.push({
+      status: 400,
+      body: { error: "invalid_grant", TwoFactorProviders2: { "1": {} } },
+    });
+    const challenge = await h.caller.begin(newInput());
+    if (!challenge.ok || challenge.kind !== "mfa-required")
+      throw new Error("Synthetic MFA challenge failed");
+    const waiting = { ok: true, kind: "waiting", flowId: challenge.flowId };
+    expect(await h.caller.keepAlive(challenge.flowId)).toEqual(waiting);
+    // It does not take the page's one running request, so it answers during a send.
+    h.emailResponses.push({ status: 200, body: null });
+    const sent = h.caller.sendEmailCode(challenge.flowId);
+    expect(await h.caller.keepAlive(challenge.flowId)).toEqual(waiting);
+    expect(await sent).toMatchObject({ ok: true, kind: "email-code", result: "sent" });
+    // Another flow ID, another page, or a flow past its 5 minutes is expired; a worker
+    // Chrome restarted holds no flow and answers the same.
+    const expired = { ok: false, error: { code: "setup-expired" } };
+    expect(await h.caller.keepAlive("not-a-flow")).toEqual(expired);
+    const other = h.service.createCaller();
+    closers.push(() => other.dispose());
+    expect(await other.keepAlive(challenge.flowId)).toEqual(expired);
+    h.advance(300_000);
+    expect(await h.caller.keepAlive(challenge.flowId)).toEqual(expired);
+    other.dispose();
+    expect(await other.keepAlive(challenge.flowId)).toEqual({
+      ok: false,
+      error: { code: "setup-unavailable" },
+    });
+    expect(
+      await h.caller.continue({ flowId: challenge.flowId, twoFactor: { provider: 1, code: "1" } }),
+    ).toMatchObject({ ok: false });
+  });
   it("sends no email code for a flow without email two-step or after it ends", async () => {
     const h = harness();
     h.tokenResponses.push({

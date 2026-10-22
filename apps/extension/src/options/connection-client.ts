@@ -14,6 +14,8 @@ export interface ConnectionClient {
   cancel(flowId: string): Promise<SetupReply>;
   /** Asks the server to email a two-step code for the waiting sign-in. */
   sendEmailCode(flowId: string): Promise<SetupReply>;
+  /** Keeps the worker, and the sign-in waiting in it, running while a challenge shows. */
+  keepAlive(flowId: string): Promise<SetupReply>;
   sync(connectionId: string): Promise<SetupReply>;
   disableAutoUnlock(connectionId: string): Promise<SetupReply>;
   /** Local only: removes saved sync sign-in, not a provider logout. */
@@ -119,6 +121,7 @@ export function createConnectionClient(api: {
     continue: (input) => send({ type: "connection.continue", input }),
     cancel: (flowId) => send({ type: "connection.cancel", flowId }),
     sendEmailCode: (flowId) => send({ type: "connection.send-email-code", flowId }),
+    keepAlive: (flowId) => send({ type: "connection.keep-alive", flowId }),
     sync: (connectionId) => send({ type: "connection.sync", connectionId }),
     disableAutoUnlock: (connectionId) => send({ type: "connection.disable", connectionId }),
     forgetProviderSession: (connectionId) => send({ type: "connection.forget", connectionId }),

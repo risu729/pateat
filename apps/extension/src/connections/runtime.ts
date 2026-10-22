@@ -232,6 +232,9 @@ export function createConnectionRuntime(
         case "connection.send-email-code":
           result = caller.sendEmailCode(request.flowId);
           break;
+        case "connection.keep-alive":
+          result = caller.keepAlive(request.flowId);
+          break;
         case "connection.sync":
           result = caller.sync(request.connectionId);
           break;
@@ -255,7 +258,8 @@ export function createConnectionRuntime(
         .catch(() => ({ ok: false as const, error: { code: "setup-unavailable" as const } }))
         .then((reply) => {
           pending -= 1;
-          options.onVaultStateMayChange?.();
+          // A heartbeat changes no vault state.
+          if (request.type !== "connection.keep-alive") options.onVaultStateMayChange?.();
           if (request.type === "connection.sync") {
             try {
               options.onSync?.(request.connectionId, reply);

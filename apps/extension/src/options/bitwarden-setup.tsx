@@ -22,7 +22,7 @@ import {
   Trash2,
   TriangleAlert,
 } from "lucide-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
 import * as v from "valibot";
 import type { SetupBegin, SetupReply } from "../connections/types";
 import { providerPermissionOrigins } from "../connections/permissions";
@@ -46,6 +46,8 @@ import {
 type StatusReply = Extract<SetupReply, { kind: "status" }>;
 type Challenge = Extract<SetupReply, { kind: "mfa-required" | "new-device-verification-required" }>;
 type EmailCode = "sending" | Extract<SetupReply, { kind: "email-code" }>["result"];
+/** Below Chrome's 30-second idle limit for an extension service worker. */
+const KEEP_ALIVE_MS = 20_000;
 const emailCodeLines: Record<EmailCode, { tone: Tone; text: string }> = {
   sending: { tone: "idle", text: "Asking the server to email a verification code…" },
   sent: {
@@ -516,6 +518,32 @@ export function BitwardenSetup({
     emailFlow.current = challenge.flowId;
     sendEmailCode(challenge.flowId);
   });
+  // The waiting sign-in, password included, lives only in the service worker, which Chrome
+  // stops after 30 seconds without an event while the person fetches a code. A message on
+  // the Port restarts that count, so the page sends one as soon as a challenge shows and
+  // every 20 seconds after, until the challenge's own 5 minutes end it.
+  const beat = useEffectEvent(async (flowId: string) => {
+    // An operation started after this beat moves the epoch on and answers for the flow.
+    const epoch = generation.current;
+    let result: SetupReply;
+    try {
+      result = await client.keepAlive(flowId);
+    } catch {
+      // The page's next request reports a closed connection.
+      return;
+    }
+    // Only an ended flow ends the challenge; a running request answers for the flow
+    // itself, and a busy worker's refusal leaves it waiting.
+    if (result.ok || result.error.code !== "setup-expired" || operation.current) return;
+    await receive(result, epoch, adding.current);
+  });
+  useEffect(() => {
+    if (!challenge) return;
+    const { flowId } = challenge;
+    void beat(flowId);
+    const timer = setInterval(() => void beat(flowId), KEEP_ALIVE_MS);
+    return () => clearInterval(timer);
+  }, [challenge]);
   useEffect(() => {
     if (!focusCode.current || busy) return;
     focusCode.current = false;

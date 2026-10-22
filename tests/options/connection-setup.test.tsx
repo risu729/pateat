@@ -61,6 +61,9 @@ function mockClient() {
     deleteConnection: vi
       .fn<ConnectionClient["deleteConnection"]>()
       .mockImplementation(async (connectionId) => ({ ok: true, kind: "deleted", connectionId })),
+    keepAlive: vi
+      .fn<ConnectionClient["keepAlive"]>()
+      .mockImplementation(async (id) => ({ ok: true, kind: "waiting", flowId: id })),
     review: vi.fn<ConnectionClient["review"]>().mockImplementation(async () => ready()),
     close: vi.fn<ConnectionClient["close"]>(),
   };
@@ -71,6 +74,10 @@ function held<T>() {
     resolve = resolvePromise;
   });
   return { promise, resolve };
+}
+/** Lets a reply's render and the effects after it run. */
+function painted() {
+  return new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
 }
 async function mount(client = mockClient()) {
   const queryClient = createMetadataQueryClient();
@@ -326,6 +333,142 @@ test.each([
   expect(client.sendEmailCode).toHaveBeenCalledTimes(1);
   // The sign-in still waits for a code.
   await expect.element(page.getByLabelText("Verification code", { exact: true })).toBeVisible();
+});
+
+/** Runs `run` with only the heartbeat's interval faked; locators keep their real timeouts. */
+async function withFakeInterval(run: () => Promise<void>) {
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+  try {
+    await run();
+  } finally {
+    vi.useRealTimers();
+  }
+}
+const expiredText = "This verification session expired. Start sign-in again.";
+
+test("a waiting challenge keeps the worker running until its flow ends", async () => {
+  await withFakeInterval(async () => {
+    const client = mockClient();
+    client.begin.mockResolvedValue({ ok: true, kind: "mfa-required", flowId, providers: [0] });
+    await mount(client);
+    await fillNew();
+    await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+    await expect.element(page.getByLabelText("Verification code", { exact: true })).toBeVisible();
+    // The first message goes out as the challenge shows, before the worker's idle count ends.
+    await vi.waitFor(() => expect(client.keepAlive).toHaveBeenCalled());
+    expect(client.keepAlive).toHaveBeenCalledWith(flowId);
+    await painted();
+    const shown = client.keepAlive.mock.calls.length;
+    vi.advanceTimersByTime(20_000);
+    await vi.waitFor(() => expect(client.keepAlive).toHaveBeenCalledTimes(shown + 1));
+    // A busy worker's refusal leaves the challenge waiting.
+    client.keepAlive.mockResolvedValueOnce({ ok: false, error: { code: "resource-limit" } });
+    vi.advanceTimersByTime(20_000);
+    await vi.waitFor(() => expect(client.keepAlive).toHaveBeenCalledTimes(shown + 2));
+    await painted();
+    expect(page.getByLabelText("Verification code", { exact: true }).query()).not.toBeNull();
+    // A flow the worker no longer holds, such as one past its 5 minutes, ends the challenge.
+    client.keepAlive.mockResolvedValueOnce({ ok: false, error: { code: "setup-expired" } });
+    vi.advanceTimersByTime(20_000);
+    await expect.element(page.getByText(expiredText)).toBeVisible();
+    await expect
+      .element(page.getByLabelText("Verification code", { exact: true }))
+      .not.toBeInTheDocument();
+    // React runs the effect's cleanup after the next paint.
+    await painted();
+    vi.advanceTimersByTime(60_000);
+    expect(client.keepAlive).toHaveBeenCalledTimes(shown + 3);
+  });
+});
+
+test.each([
+  ["email only", [1] as (0 | 1)[], false],
+  ["email only, after Resend code", [1] as (0 | 1)[], true],
+  ["email chosen after the authenticator", [0, 1] as (0 | 1)[], false],
+])(
+  "an ended flow ends the challenge after an email code was sent: %s",
+  async (_, providers, resend) => {
+    await withFakeInterval(async () => {
+      const client = mockClient();
+      client.begin.mockResolvedValue({ ok: true, kind: "mfa-required", flowId, providers });
+      await mount(client);
+      await fillNew();
+      await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+      await expect.element(page.getByLabelText("Verification code", { exact: true })).toBeVisible();
+      if (providers[0] === 0)
+        await page
+          .getByRole("combobox", { name: "Verification method", exact: true })
+          .selectOptions("1");
+      await vi.waitFor(() => expect(client.sendEmailCode).toHaveBeenCalledTimes(1));
+      await expect.element(page.getByText(/The server sent a verification code/)).toBeVisible();
+      if (resend) {
+        await page.getByRole("button", { name: "Resend code", exact: true }).click();
+        await vi.waitFor(() => expect(client.sendEmailCode).toHaveBeenCalledTimes(2));
+        await expect
+          .element(page.getByRole("button", { name: "Resend code", exact: true }))
+          .toBeEnabled();
+      }
+      client.keepAlive.mockResolvedValue({ ok: false, error: { code: "setup-expired" } });
+      vi.advanceTimersByTime(20_000);
+      await expect.element(page.getByText(expiredText)).toBeVisible();
+      await expect
+        .element(page.getByLabelText("Verification code", { exact: true }))
+        .not.toBeInTheDocument();
+    });
+  },
+);
+
+test("an ended flow answered while Verify code runs leaves that request to answer", async () => {
+  await withFakeInterval(async () => {
+    const client = mockClient();
+    client.begin.mockResolvedValue({ ok: true, kind: "mfa-required", flowId, providers: [0] });
+    const pending = held<SetupReply>();
+    client.continue.mockReturnValue(pending.promise);
+    await mount(client);
+    await fillNew();
+    await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+    await vi.waitFor(() => expect(client.keepAlive).toHaveBeenCalledTimes(1));
+    await page.getByLabelText("Verification code", { exact: true }).fill("000123");
+    await page.getByRole("button", { name: "Verify code", exact: true }).click();
+    await vi.waitFor(() => expect(client.continue).toHaveBeenCalledTimes(1));
+    client.keepAlive.mockResolvedValue({ ok: false, error: { code: "setup-expired" } });
+    vi.advanceTimersByTime(20_000);
+    await vi.waitFor(() => expect(client.keepAlive).toHaveBeenCalledTimes(2));
+    await painted();
+    expect(page.getByText(expiredText).query()).toBeNull();
+    pending.resolve(ready());
+    await expect
+      .element(
+        page.getByText(
+          "Vault verified and local cache accepted. Check automatic-unlock status below.",
+        ),
+      )
+      .toBeVisible();
+    expect(page.getByText(expiredText).query()).toBeNull();
+  });
+});
+
+test("an ended first sign-in switches the form to finishing its connection", async () => {
+  await withFakeInterval(async () => {
+    const client = mockClient();
+    client.list
+      .mockResolvedValueOnce(status())
+      .mockResolvedValue({ ...status(), connections: [registered] });
+    client.begin.mockResolvedValue({ ok: true, kind: "mfa-required", flowId, providers: [0] });
+    await mount(client);
+    await fillNew();
+    await page.getByLabelText("Email", { exact: true }).fill("Test@Example.test");
+    await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+    await expect.element(page.getByLabelText("Verification code", { exact: true })).toBeVisible();
+    await painted();
+    client.keepAlive.mockResolvedValue({ ok: false, error: { code: "setup-expired" } });
+    vi.advanceTimersByTime(20_000);
+    await expect.element(page.getByText(expiredText)).toBeVisible();
+    await expect
+      .element(page.getByRole("button", { name: "Synthetic vault: Sign in again", exact: true }))
+      .toBeVisible();
+    await vi.waitFor(() => expect(addForm()).toBe("Sign in to Synthetic vault again"));
+  });
 });
 
 test("new-device verification is a distinct manual continuation and clears its code", async () => {

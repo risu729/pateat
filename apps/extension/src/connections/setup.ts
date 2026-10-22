@@ -773,6 +773,17 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
             };
           });
         },
+        /**
+         * The settings page's heartbeat while its challenge waits. The flow, password
+         * included, lives only in this worker, which Chrome stops after 30 seconds without
+         * an event; each message on the Port restarts that count. Answers whether the flow
+         * still waits, without taking this page's one running request.
+         */
+        async keepAlive(flowId: string): Promise<SetupReply> {
+          if (closed) return error("setup-unavailable");
+          if (!waiting() || owned?.id !== flowId) return error("setup-expired");
+          return { ok: true, kind: "waiting", flowId };
+        },
         async cancel(flowId: string): Promise<SetupReply> {
           const current = owned;
           if (!current || current.id !== flowId) return error("invalid-request");
@@ -949,6 +960,7 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
         continue: (input: unknown) => caller.continue(input).then(replyOf),
         cancel: (flowId: string) => caller.cancel(flowId).then(replyOf),
         sendEmailCode: (flowId: string) => caller.sendEmailCode(flowId).then(replyOf),
+        keepAlive: (flowId: string) => caller.keepAlive(flowId).then(replyOf),
         status: () => caller.status().then(replyOf),
         sync: (connectionId: string) => caller.sync(connectionId).then(replyOf),
         forget: (connectionId: string) => caller.forget(connectionId).then(replyOf),
