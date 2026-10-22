@@ -14,8 +14,9 @@ import {
   type ObservedCandidate,
 } from "@pateat/contracts";
 import * as v from "valibot";
-import { shortNumericInput } from "../login/inputs";
+import { acceptsSecret, shortNumericInput } from "../login/inputs";
 import type { observationGaps } from "../login/wire";
+import { splitCodeInputs } from "../page/code-submission";
 import { autocompleteTokens, findTargets, linkPath, namedControls } from "../page/targets";
 import { observedPath, redactsPath, tokenSegment } from "./path";
 import {
@@ -377,7 +378,8 @@ function namesOnly(
  * attribute value or token counted as `namesOnly` counts it with `hidden`. With
  * `labels`, a fillable input none of those name is located by its visible name
  * (`fieldName`, ADR 0037) when no other shown fillable input has that name, it holds no
- * number and redaction leaves it unchanged, before an ID another load may change. An ID
+ * number other than a split code input's place (`numbersCodeDigit`) and redaction leaves
+ * it unchanged, before an ID another load may change. An ID
  * React's `useId` generated is not used, as another page gives it to another element. One
  * that another load may change (`changingId`) is used only when no other locator is
  * unique, as it may as well be stable, and never with `lasting`, which a signed-in
@@ -498,6 +500,31 @@ function shownWords(text: string | undefined): Set<string> {
 }
 
 /**
+ * Whether a field's visible name that holds numbers may still name it (owner, 2026-10-22,
+ * #850, amending ADR 0037): the field is one input of a code split into one input per
+ * digit (`splitCodeInputs`, counting shown inputs only), and every number in the name is
+ * its place among them or their count, as in "digit 1 of 6", which never changes as the
+ * person types. A name such as "Sent to ••12" or "••• 4 2 7, digit 1" never qualifies.
+ */
+function numbersCodeDigit(field: HTMLInputElement, name: string): boolean {
+  if (field.maxLength !== 1 || !acceptsSecret(field, "otp")) return false;
+  const inputs = field.form
+    ? [...field.form.elements].filter((element) => element instanceof HTMLInputElement)
+    : [...field.ownerDocument.querySelectorAll("input")].filter((input) => input.form === null);
+  const digits = inputs.filter(
+    (input) => input.maxLength === 1 && acceptsSecret(input, "otp") && visible(input),
+  );
+  const place = digits.indexOf(field) + 1;
+  return (
+    place > 0 &&
+    (name.match(/\p{Number}+/gu) ?? []).every(
+      (number) => number === `${place}` || number === `${digits.length}`,
+    ) &&
+    splitCodeInputs(digits[0]!, digits.length, visible) !== undefined
+  );
+}
+
+/**
  * `locate`'s `autocomplete` token, visible name (with `labels`), link text or button text,
  * when one is unique.
  */
@@ -518,12 +545,13 @@ function contentTarget(
       if (namesOnly(element, target, index.get("autocomplete")!.get(value), hidden)) return target;
     }
     const name = labels ? fieldName(element) : undefined;
-    // A name holding a number may change as the person types, such as a counter "0/20".
+    // A name holding a number may change as the person types, such as a counter "0/20",
+    // unless it numbers an input of a split code.
     if (
       name === undefined ||
-      /\p{Number}/u.test(name) ||
       observedText(name) !== name ||
-      index.get("label")!.get(name) !== 1
+      index.get("label")!.get(name) !== 1 ||
+      (/\p{Number}/u.test(name) && !numbersCodeDigit(element, name))
     )
       return undefined;
     const target = { by: "label" as const, value: name };
@@ -1874,7 +1902,8 @@ function describeSignedIn(document: Document): ObservationResult {
   // an ID another load may change. A field that may be a sign-in field keeps such an
   // ID, as on a login page, rather than leave the page incomplete, and is located by its
   // visible name before it (ADR 0037), as a recipe's fill and a `totp` handler's code
-  // field name it; a name with a number, which this page's text never shows, is not used.
+  // field name it; a name with a number, which this page's text never shows, is not used
+  // unless it numbers an input of a split code (`numbersCodeDigit`).
   const located = (entries: typeof fieldEntries) =>
     entries.flatMap((entry) => {
       const { element } = entry.draft;

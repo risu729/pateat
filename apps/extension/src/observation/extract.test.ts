@@ -2928,6 +2928,68 @@ describe("extractSignedInObservation", () => {
     expect(kept.some((entry) => entry.label === "ログアウト")).toBe(false);
   });
 
+  it("locates a split code's inputs by names that number their places (#850)", () => {
+    // Slack's two-factor page (Grok Bot, 2026-10-21: `unlocated-field`): six one-digit
+    // inputs with no ID or name, outside any form, each named by its place.
+    const digits = (name: (place: number) => string, count = 6, extra = "") =>
+      Array.from(
+        { length: count },
+        (_, index) =>
+          `<input type="text" inputmode="numeric" maxlength="1" aria-label="${name(index + 1)}"${extra}>`,
+      ).join("");
+    const located = () => {
+      const result = extractSignedInObservation();
+      if (!result.ok) throw new Error(result.reason);
+      return [
+        result.observation.complete,
+        result.observation.candidates.flatMap(({ role, target }) =>
+          role === "button" ? [] : [target],
+        ),
+      ];
+    };
+    page(`<div>${digits((place) => `digit ${place} of 6`)}</div><button id="go">Continue</button>`);
+    expect(located()).toEqual([
+      true,
+      Array.from({ length: 6 }, (_, index) => ({ by: "label", value: `digit ${index + 1} of 6` })),
+    ]);
+    const judged = extractSignedInObservation();
+    if (!judged.ok) throw new Error(judged.reason);
+    // The label still hides the numbers this page shows.
+    expect(judged.observation.candidates[0]!.label).toBe("digit [number] of [number]");
+    // On a login page too.
+    const login = observe();
+    expect(login.complete).toBe(true);
+    expect(login.candidates[0]!.target).toEqual({ by: "label", value: "digit 1 of 6" });
+    // Inside a form too.
+    page(
+      `<form><div>${digits((place) => `Ziffer ${place}`)}</div><button id="go">Weiter</button></form>`,
+    );
+    expect(located()).toEqual([
+      true,
+      Array.from({ length: 6 }, (_, index) => ({ by: "label", value: `Ziffer ${index + 1}` })),
+    ]);
+    // Not a name with a number other than the input's place or the count, nor inputs that
+    // are no split code.
+    for (const html of [
+      digits((place) => `digit ${place + 10}`),
+      digits((place) => `Sent to ••• 4 2 7, digit ${place}`),
+      digits((place) => `digit ${place} of 6, step 2`),
+      digits((place) => `digit ${place} of 6`, 5),
+      digits((place) => `digit ${place} of 6`, 9),
+      digits((place) => `digit ${place} of 6`, 6, ` maxlength="2"`).replaceAll(
+        `maxlength="1" `,
+        "",
+      ),
+    ]) {
+      page(`<div>${html}</div><button id="go">Continue</button>`);
+      const result = extractSignedInObservation();
+      expect(result.ok && [result.observation.complete, result.gap], html).toEqual([
+        false,
+        "unlocated-field",
+      ]);
+    }
+  });
+
   it("marks a page incomplete when a field cannot be described, and says why", () => {
     const gap = () => {
       const result = extractSignedInObservation();
