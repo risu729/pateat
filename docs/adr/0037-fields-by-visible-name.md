@@ -151,11 +151,14 @@ extension also leaves hidden fields out (`loadPasswordFields(…, canBeHidden = 
 in `autofill.service.ts`).
 
 Signed-in markers and the elements they need missing (ADR 0029) keep counting every
-copy, in the extractor and when observed, as decided on the card. An absent element
-whose hidden copy stays on the signed-in page therefore still keeps that marker from
-proving a sign-in.
+copy, in the extractor and when observed, as decided on the card, and so does a `wait`
+or `assert` step's element that must be missing. A field that may be a sign-in field on
+the signed-in page is located as on a login page, since its steps find it that way. An
+absent element whose hidden copy stays on the signed-in page therefore still keeps that
+marker from proving a sign-in.
 
 A copy that a site shows later makes the step ambiguous (`structural-mismatch`), as a
-second shown visible name already did. A step's elements a page hides now count as
-missing rather than ambiguous, so a login form left hidden on a page may let that page
-reach the judge, and a hidden passkey or method button no longer holds the judge back.
+second shown visible name already did. A step's element the page keeps in two or more
+copies, all hidden, now counts as missing rather than ambiguous, so a login form left
+hidden twice on a page may let that page reach the judge; a single hidden element is
+still found, as before.

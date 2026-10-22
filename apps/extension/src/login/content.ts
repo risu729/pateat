@@ -1218,8 +1218,10 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                 : fail("structural-mismatch", "target-missing");
         return { ok: true, mutation: "possible" };
       }
+      // An element that must be missing counts every copy, hidden or not, as a marker's
+      // `absent` element does (ADR 0037 amendment of 2026-10-22).
       const satisfied = () => {
-        const count = matches(step.target).length;
+        const count = findTargets(document, step.target, { hidden: !step.present }).length;
         return step.present ? count === 1 : count === 0;
       };
       if (step.kind === "assert")

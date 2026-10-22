@@ -355,8 +355,8 @@ function locatorIndex(document: Document): LocatorIndex {
  * finds it (`findTargets`): a value the whole document carries once, or else, without
  * `hidden`, a value only `element` carries among the shown elements (ADR 0037 amendment
  * of 2026-10-22), as a field of a form whose hidden copy shares its names. With `hidden`,
- * which a signed-in page asks for since its markers and the elements they need missing
- * count every copy (ADR 0029), only the whole document's count decides.
+ * which a signed-in page's markers ask for since a marker counts every copy (ADR 0029),
+ * only the whole document's count decides.
  */
 function namesOnly(
   element: Element,
@@ -1874,7 +1874,7 @@ function describeSignedIn(document: Document): ObservationResult {
         links: true,
         lasting: !signIn,
         labels: signIn,
-        hidden: true,
+        hidden: !signIn,
         paths: headerWords,
       });
       return target && !(target.by === "text" && /\p{Number}/u.test(target.value))
