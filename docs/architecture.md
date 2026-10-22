@@ -2238,6 +2238,22 @@ sign-in field gets it; markers never do.
 generated again each time (2026-10-13). A site that rewords the field gets its recipe
 generated again.
 
+An `id`, `name`, `data-testid` or `autocomplete` locator that several elements match
+counts only the shown ones, by the content script's visibility check (owner,
+2026-10-22, the 2026-10-22 amendment of
+[ADR 0037](adr/0037-fields-by-visible-name.md)):
+a card site's login (#832, 2026-10-20) kept a closed dialog whose hidden form repeated
+the login form's `name="webId"` and `name="webPassword"`, and whose visible names held
+`4～30桁`, so no locator named the fields and the page was incomplete. One match counts
+shown or hidden, so a step whose element the page has not shown yet is still found and
+waited for. The extractor counts the same way: a value the whole page carries once, or
+one only the element carries among the shown elements. A signed-in marker and the
+elements it needs missing (ADR 0029) still count every copy, in the extractor and in
+`login.observe` (its `hidden` flags), so a marker's hidden copy still makes it
+ambiguous and an absent element's hidden copy still keeps it from proving the sign-in.
+A copy that shows later makes the step ambiguous, as for visible names; a copy hidden
+only from assistive technology, such as a page form behind a modal, still counts.
+
 A control is named by its accessible name only as a `password` handler's button (owner,
 2026-10-19 01:26 UTC, option A1,
 [ADR 0048's amendment](adr/0048-password-method-button.md#amendment-controls-told-apart-by-their-accessible-names)):

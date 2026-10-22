@@ -762,10 +762,14 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         respond({ ok: false, reason: "cancelled" });
         return false;
       }
+      const observeOptions = (index: number) => ({
+        links: command.links?.[index] === true,
+        hidden: command.hidden?.[index] === true,
+      });
       respond({
         path: pagePath(),
         targets: command.targets.map((target, index) =>
-          targetState(document, target, command.require?.[index], command.links?.[index] === true),
+          targetState(document, target, command.require?.[index], observeOptions(index)),
         ),
         ...(command.signIn
           ? {
@@ -778,12 +782,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         ...(command.explain
           ? {
               checks: command.targets.map((target, index) =>
-                targetCheck(
-                  document,
-                  target,
-                  command.require?.[index],
-                  command.links?.[index] === true,
-                ),
+                targetCheck(document, target, command.require?.[index], observeOptions(index)),
               ),
             }
           : {}),

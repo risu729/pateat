@@ -134,3 +134,28 @@ equals a field's never makes the field's step ambiguous. It names only a `passwo
 handler's button, which may be a link to a fragment of its own page, and is given on
 the conditions of item 2 (one on the page, no number, unchanged by redaction). The
 service must accept it before an extension that sends it, as for the `label` locator.
+
+## Amendment 2026-10-22: shown copies only
+
+Accepted by the owner on 2026-10-22 at 04:23 UTC, on the decision card that chose option
+A of `designs/hidden-duplicate-name-fields-proposal-ja.md` (#832). Options B (numbers
+allowed in a length hint), C (a `name` scoped to its form) and D were not chosen.
+
+This ADR counted visible names among shown inputs only, while `id`, `name`,
+`data-testid` and `autocomplete` counted every element, hidden or not. They now count
+the same way: when several elements carry the value, only those the content script's
+visibility check shows count (`findTargets`), and the extractor gives such a value when
+the field is the one shown element with it. One element counts shown or hidden, so a
+step whose element is not shown yet is still waited for. The official Bitwarden
+extension also leaves hidden fields out (`loadPasswordFields(…, canBeHidden = false)`
+in `autofill.service.ts`).
+
+Signed-in markers and the elements they need missing (ADR 0029) keep counting every
+copy, in the extractor and when observed, as decided on the card. An absent element
+whose hidden copy stays on the signed-in page therefore still keeps that marker from
+proving a sign-in.
+
+A copy that a site shows later makes the step ambiguous (`structural-mismatch`), as a
+second shown visible name already did. A step's elements a page hides now count as
+missing rather than ambiguous, so a login form left hidden on a page may let that page
+reach the judge, and a hidden passkey or method button no longer holds the judge back.

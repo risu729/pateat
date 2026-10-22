@@ -369,6 +369,13 @@ export const commandSchema = v.variant("type", [
      */
     links: v.optional(v.pipe(v.array(v.boolean()), v.maxLength(24))),
     /**
+     * Per target, whether hidden elements count when an attribute or `autocomplete` locator
+     * names several (`findTargets`): set for a signed-in marker and the elements it needs
+     * missing (ADR 0029), which keep counting every copy (ADR 0037 amendment of
+     * 2026-10-22).
+     */
+    hidden: v.optional(v.pipe(v.array(v.boolean()), v.maxLength(24))),
+    /**
      * Also answer `signIn`: whether the page has loaded and which sign-in inputs other than
      * `targets` it shows, to continue a recipe on (ADR 0018).
      */

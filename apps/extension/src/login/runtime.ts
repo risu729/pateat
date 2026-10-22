@@ -1253,6 +1253,8 @@ function markerProof(recipe: LoginRecipe, pageOrigin = recipe.origin) {
   return {
     targets: markers.flatMap((marker) => [marker.target, ...(marker.absent ?? [])]),
     links: markers.flatMap((marker) => [true, ...(marker.absent ?? []).map(() => false)]),
+    /** Every copy counts, hidden or not, as the markers were learned (ADR 0037 amendment). */
+    hidden: markers.flatMap((marker) => [true, ...(marker.absent ?? []).map(() => true)]),
     /** Each marker must be visible; the elements it needs gone count even when hidden. */
     shown: markers.flatMap((marker) => [
       "shown" as const,
@@ -4023,9 +4025,12 @@ export function createLoginRuntime(
     run: Execution,
     targets: LoginMarkerTarget[],
     require?: TargetRequirement[],
-    links?: boolean[],
-    signIn = false,
-    explain = false,
+    {
+      links,
+      hidden,
+      signIn = false,
+      explain = false,
+    }: { links?: boolean[]; hidden?: boolean[]; signIn?: boolean; explain?: boolean } = {},
   ) {
     // Exclusion/default/policy checks precede even metadata observation.
     if (!(await allowed(run))) return undefined;
@@ -4035,6 +4040,7 @@ export function createLoginRuntime(
       targets,
       ...(require ? { require } : {}),
       ...(links ? { links } : {}),
+      ...(hidden ? { hidden } : {}),
       ...(signIn ? { signIn: true } : {}),
       ...(explain ? { explain: true } : {}),
     });
@@ -4113,7 +4119,7 @@ export function createLoginRuntime(
         ...(rejection ? ["present" as const] : []),
         ...nextTargets.map(() => inPlace?.require ?? "present"),
       ],
-      proof.links.length > 0 ? proof.links : undefined,
+      proof.links.length > 0 ? { links: proof.links, hidden: proof.hidden } : {},
     );
     if (!observed) return undefined;
     // Without a marker only the sign-in state below proves a sign-in.
@@ -4554,9 +4560,7 @@ export function createLoginRuntime(
       run,
       targets,
       targets.map(() => inPlace.require),
-      undefined,
-      false,
-      true,
+      { explain: true },
     );
     if (!observed?.checks) return undefined;
     const measured =
@@ -4609,7 +4613,10 @@ export function createLoginRuntime(
     if (!observed) return undefined;
     const marked =
       proof.targets.length > 0
-        ? await observe(run, proof.targets, proof.shown, proof.links)
+        ? await observe(run, proof.targets, proof.shown, {
+            links: proof.links,
+            hidden: proof.hidden,
+          })
         : undefined;
     if (proof.targets.length > 0 && !marked) return undefined;
     const authorized = await allowed(run);
@@ -4945,7 +4952,9 @@ export function createLoginRuntime(
       run,
       [click.target, ...proof.targets, ...(rejection ? [rejection] : [])],
       ["present", ...proof.shown, ...(rejection ? ["present" as const] : [])],
-      proof.links.length > 0 ? [false, ...proof.links] : undefined,
+      proof.links.length > 0
+        ? { links: [false, ...proof.links], hidden: [false, ...proof.hidden] }
+        : {},
     );
     if (!observed || !current(run)) return false;
     if (observed.path !== click.path) return true;
@@ -5197,7 +5206,12 @@ export function createLoginRuntime(
         ...fills.map((target) => (passkeyButton(run, target) ? "present" : "input")),
         ...marker.map(() => "shown" as const),
       ],
-      marker.length > 0 ? [...fills.map(() => false), ...marker.map(() => true)] : undefined,
+      marker.length > 0
+        ? {
+            links: [...fills.map(() => false), ...marker.map(() => true)],
+            hidden: [...fills.map(() => false), ...marker.map(() => true)],
+          }
+        : {},
     );
     if (!remaining) {
       // A superseded run or a refused one (logged with its own cause) says nothing here.
@@ -5473,8 +5487,7 @@ export function createLoginRuntime(
       run,
       fills,
       fills.map(() => "writable" as const),
-      undefined,
-      true,
+      { signIn: true },
     );
     if (!current(run)) return "moved";
     if (!observed) return "none";
@@ -6003,7 +6016,10 @@ export function createLoginRuntime(
     if (proof.targets.length > 0) {
       const until = Date.now() + WATCH_SETTLE_MS;
       for (;;) {
-        const observed = await observe(run, proof.targets, proof.shown, proof.links);
+        const observed = await observe(run, proof.targets, proof.shown, {
+          links: proof.links,
+          hidden: proof.hidden,
+        });
         if (!observed || !watching()) return;
         if (proof.proves(observed.targets)) {
           await change(run, {
@@ -6960,6 +6976,7 @@ export function createLoginRuntime(
           targets: proof.targets,
           require: proof.shown,
           links: proof.links,
+          hidden: proof.hidden,
         }),
       );
       // A page that cannot be read starts nothing either.
@@ -10428,6 +10445,7 @@ export function createLoginRuntime(
             targets: proof.targets,
             require: proof.shown,
             links: proof.links,
+            hidden: proof.hidden,
           }),
         );
         observed = parsed.success ? parsed.output : undefined;

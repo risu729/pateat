@@ -16,7 +16,7 @@ import {
 import * as v from "valibot";
 import { shortNumericInput } from "../login/inputs";
 import type { observationGaps } from "../login/wire";
-import { autocompleteTokens, linkPath, namedControls } from "../page/targets";
+import { autocompleteTokens, findTargets, linkPath, namedControls } from "../page/targets";
 import { observedPath, redactsPath, tokenSegment } from "./path";
 import {
   attributeHidden,
@@ -351,8 +351,29 @@ function locatorIndex(document: Document): LocatorIndex {
 }
 
 /**
+ * Whether an attribute or `autocomplete` locator names `element` alone, as the executor
+ * finds it (`findTargets`): a value the whole document carries once, or else, without
+ * `hidden`, a value only `element` carries among the shown elements (ADR 0037 amendment
+ * of 2026-10-22), as a field of a form whose hidden copy shares its names. With `hidden`,
+ * which a signed-in page asks for since its markers and the elements they need missing
+ * count every copy (ADR 0029), only the whole document's count decides.
+ */
+function namesOnly(
+  element: Element,
+  target: LoginMarkerTarget,
+  count: number | undefined,
+  hidden: boolean,
+): boolean {
+  if (count === 1) return true;
+  if (hidden || count === undefined) return false;
+  const found = findTargets(element.ownerDocument, target);
+  return found.length === 1 && found[0] === element;
+}
+
+/**
  * Mirrors the executor's lookup: an attribute value, or else a fillable input's
- * `autocomplete` token, or else a button's text, that matches exactly one element. With
+ * `autocomplete` token, or else a button's text, that matches exactly one element, an
+ * attribute value or token counted as `namesOnly` counts it with `hidden`. With
  * `labels`, a fillable input none of those name is located by its visible name
  * (`fieldName`, ADR 0037) when no other shown fillable input has that name, it holds no
  * number and redaction leaves it unchanged, before an ID another load may change. An ID
@@ -389,6 +410,7 @@ function locate(
     lasting = false,
     labels = false,
     roles = false,
+    hidden = false,
     paths,
   }: {
     redactAttributes?: boolean;
@@ -397,24 +419,26 @@ function locate(
     lasting?: boolean | undefined;
     labels?: boolean | undefined;
     roles?: boolean;
+    hidden?: boolean;
     paths?: ReadonlySet<string>;
   } = {},
 ): LoginMarkerTarget | undefined {
   let demoted: LoginTarget | undefined;
   for (const [by, attribute] of locators) {
     const value = element.getAttribute(attribute);
-    if (value === null || index.get(attribute)!.get(value) !== 1) continue;
+    if (value === null) continue;
     if (attribute === "id" && generatedId.test(value)) continue;
     if ((redactAttributes || tokens) && tokenSegment(value)) continue;
     if (redactAttributes && observedText(value) !== value) continue;
     const target = { by, value };
     if (!v.is(loginTargetSchema, target)) continue;
+    if (!namesOnly(element, target, index.get(attribute)!.get(value), hidden)) continue;
     if (attribute !== "id" || !changingId(value)) return target;
     if (!lasting) demoted = target;
   }
   return (
     (paths ? pathTarget(element, index, paths) : undefined) ??
-    contentTarget(element, index, links, labels, roles) ??
+    contentTarget(element, index, links, labels, roles, hidden) ??
     demoted
   );
 }
@@ -482,14 +506,15 @@ function contentTarget(
   links: boolean,
   labels: boolean,
   roles: boolean,
+  hidden: boolean,
 ): LoginTarget | undefined {
   // Only a field the login fills; a button is named by its own attributes or text.
   if (element instanceof HTMLInputElement && fillTypes[element.type]) {
     for (const value of autocompleteTokens(element)) {
       if (!(loginAutocompleteTokens as readonly string[]).includes(value)) continue;
-      if (index.get("autocomplete")!.get(value) !== 1) continue;
       const target = { by: "autocomplete" as const, value };
-      if (v.is(loginTargetSchema, target)) return target;
+      if (!v.is(loginTargetSchema, target)) continue;
+      if (namesOnly(element, target, index.get("autocomplete")!.get(value), hidden)) return target;
     }
     const name = labels ? fieldName(element) : undefined;
     // A name holding a number may change as the person types, such as a counter "0/20".
@@ -1849,6 +1874,7 @@ function describeSignedIn(document: Document): ObservationResult {
         links: true,
         lasting: !signIn,
         labels: signIn,
+        hidden: true,
         paths: headerWords,
       });
       return target && !(target.by === "text" && /\p{Number}/u.test(target.value))
