@@ -81,15 +81,16 @@ const byName = (target: LoginMarkerTarget) => target.by === "accessible-name";
  * page's description reads it; with `password-choice`, a shown control that names the
  * password choice, {@link passwordChoice}, ADR 0048); without
  * it, or with `present`, any one element counts. A target named by its accessible name may
- * be a link to a fragment of its own document, which counts as clickable.
+ * be a link to a fragment of its own document, which counts as clickable. `links` and
+ * `hidden` are {@link findTargets}'s options.
  */
 export function targetState(
   document: Document,
   target: LoginMarkerTarget,
   require?: TargetRequirement,
-  links = false,
+  options: { links?: boolean; hidden?: boolean } = {},
 ): TargetState {
-  const found = findTargets(document, target, { links });
+  const found = findTargets(document, target, options);
   if (found.length !== 1) return found.length === 0 ? "missing" : "ambiguous";
   const [element] = found;
   const shown = element instanceof HTMLElement && visible(element);
@@ -123,12 +124,12 @@ export function targetCheck(
   document: Document,
   target: LoginMarkerTarget,
   require?: TargetRequirement,
-  links = false,
+  options: { links?: boolean; hidden?: boolean } = {},
 ): TargetCheck {
-  const found = findTargets(document, target, { links });
+  const found = findTargets(document, target, options);
   if (found.length === 0) return "missing";
   if (found.length > 1) return `matches-${Math.min(found.length, 9)}` as TargetCheck;
-  if (targetState(document, target, require, links) === "unique") return "ok";
+  if (targetState(document, target, require, options) === "unique") return "ok";
   const [element] = found;
   const fragment = byName(target);
   const writing = require === "writable" || require === "described-writable";

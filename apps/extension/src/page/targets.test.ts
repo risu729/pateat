@@ -38,18 +38,75 @@ describe("findTargets", () => {
     expect(ids(findTargets(document, { by: "id", value: "a" }))).toEqual(["a"]);
   });
 
-  it("matches inputs by one of their autocomplete tokens, hidden ones included", () => {
+  it("matches inputs by one of their autocomplete tokens, a lone hidden one included", () => {
     page(
       `<input id="a" autocomplete="username webauthn"><input id="b" autocomplete="Current-Password">
       <textarea id="c" autocomplete="email"></textarea><input id="d" autocomplete="email" hidden>
-      <input id="e" autocomplete="section-x email">`,
+      <input id="e" autocomplete="section-x email"><input id="f" autocomplete="one-time-code" hidden>`,
     );
     expect(ids(findTargets(document, { by: "autocomplete", value: "username" }))).toEqual(["a"]);
     expect(ids(findTargets(document, { by: "autocomplete", value: "current-password" }))).toEqual([
       "b",
     ]);
-    // The caller rejects the two inputs rather than picking the shown one.
-    expect(ids(findTargets(document, { by: "autocomplete", value: "email" }))).toEqual(["d", "e"]);
+    expect(ids(findTargets(document, { by: "autocomplete", value: "one-time-code" }))).toEqual([
+      "f",
+    ]);
+    // Of two inputs only the shown one counts, unless a signed-in marker asks for both.
+    expect(ids(findTargets(document, { by: "autocomplete", value: "email" }))).toEqual(["e"]);
+    expect(
+      ids(findTargets(document, { by: "autocomplete", value: "email" }, { hidden: true })),
+    ).toEqual(["d", "e"]);
+  });
+
+  describe("an attribute several elements carry (ADR 0037 amendment of 2026-10-22, #832)", () => {
+    it("counts only the shown ones, as beside a hidden copy of the login form", () => {
+      // A card site's login (2026-10-21): an additional-check dialog, closed, copies the
+      // form's fields under the same names.
+      page(
+        `<form><input id="a" name="webId"><input id="b" type="password" name="webPassword">
+          <input type="submit" value="ログイン"></form>
+        <span style="display:none"><form>
+          <dl style="display:none"><input id="c" name="webId"></dl>
+          <dl style="display:none"><input id="d" type="password" name="webPassword"></dl>
+          <input id="e" name="webPhoneNum" maxlength="4"></form></span>`,
+      );
+      expect(ids(findTargets(document, { by: "name", value: "webId" }))).toEqual(["a"]);
+      expect(ids(findTargets(document, { by: "name", value: "webPassword" }))).toEqual(["b"]);
+      expect(ids(findTargets(document, { by: "name", value: "webId" }, { hidden: true }))).toEqual([
+        "a",
+        "c",
+      ]);
+      // A step's one element the page has not shown yet is still found.
+      expect(ids(findTargets(document, { by: "name", value: "webPhoneNum" }))).toEqual(["e"]);
+      // Once the copy shows, the caller rejects the two inputs rather than pick one.
+      document.querySelector("span")!.removeAttribute("style");
+      document.querySelector<HTMLElement>("dl")!.removeAttribute("style");
+      expect(ids(findTargets(document, { by: "name", value: "webId" }))).toEqual(["a", "c"]);
+    });
+
+    it("follows whichever of two forms the window's width shows", () => {
+      page(
+        `<style>.narrow { display: none } @media (max-width: 1px) { .wide { display: none }
+          .narrow { display: block } }</style>
+        <form class="wide"><input id="a" data-testid="user"><button id="b" name="go">Go</button></form>
+        <form class="narrow"><input id="c" data-testid="user"><button id="d" name="go">Go</button></form>`,
+      );
+      expect(ids(findTargets(document, { by: "test-id", value: "user" }))).toEqual(["a"]);
+      expect(ids(findTargets(document, { by: "name", value: "go" }))).toEqual(["b"]);
+      document.body.querySelector("style")!.textContent =
+        ".wide { display: none } .narrow { display: block }";
+      expect(ids(findTargets(document, { by: "test-id", value: "user" }))).toEqual(["c"]);
+      expect(ids(findTargets(document, { by: "name", value: "go" }))).toEqual(["d"]);
+    });
+
+    it("still counts a copy that is rendered but hidden from assistive technology", () => {
+      // Behind an open modal the page's form is aria-hidden, but it still shows.
+      page(
+        `<main aria-hidden="true"><input id="a" name="user"></main>
+        <div role="dialog" aria-modal="true"><input id="b" name="user"></div>`,
+      );
+      expect(ids(findTargets(document, { by: "name", value: "user" }))).toEqual(["a", "b"]);
+    });
   });
 
   it("matches shown fillable inputs by their visible name (ADR 0037)", () => {

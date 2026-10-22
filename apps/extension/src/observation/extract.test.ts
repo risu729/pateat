@@ -326,7 +326,35 @@ describe("extractLoginObservation", () => {
     ]);
   });
 
-  it("locates a password field by its webauthn token when a hidden copy shares the first token", () => {
+  it("locates a field by a name a hidden copy of its form shares (ADR 0037 amendment of 2026-10-22)", () => {
+    // A card site's login (2026-10-21, #832): a closed additional-check dialog copies the
+    // form's fields under the same names, and the visible names hold numbers.
+    page(
+      `<form id="f"><dl><dt>ID</dt><dd><input type="text" name="webId" autocomplete="off"
+          placeholder="ID（4～30桁）"></dd></dl>
+        <dl><dt>パスワード</dt><dd><input type="password" name="webPassword" autocomplete="off"
+          placeholder="パスワード（4～30桁）"></dd></dl>
+        <input id="submit1" type="submit" value="ログイン"></form>
+      <span style="display:none"><h2>追加確認項目の入力</h2><form>
+        <dl style="display:none"><input id="webId2" name="webId"></dl>
+        <dl style="display:none"><input id="webPassword2" type="password" name="webPassword"></dl>
+        <input name="webPhoneNum" maxlength="4"><input id="submit" type="submit" value="ログイン">
+      </form></span>`,
+    );
+    const observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(summary(observation).map((candidate) => candidate.target)).toEqual([
+      { by: "name", value: "webId" },
+      { by: "name", value: "webPassword" },
+      { by: "id", value: "submit1" },
+    ]);
+    const elements = [...document.querySelectorAll("#f input")];
+    observation.candidates.forEach((candidate, at) =>
+      expect(findTargets(document, candidate.target)).toEqual([elements[at]]),
+    );
+  });
+
+  it("locates a password field by its first token when a hidden copy shares it", () => {
     // LinkedIn's remembered-account page (2026-10-12): both fields carry only useId IDs.
     page(
       `<form><label for="_r_0_">Password</label>
@@ -338,11 +366,11 @@ describe("extractLoginObservation", () => {
     const observation = observe();
     expect(observation.complete).toBe(true);
     expect(summary(observation).map((candidate) => candidate.target)).toEqual([
-      { by: "autocomplete", value: "webauthn" },
+      { by: "autocomplete", value: "current-password" },
       { by: "text", value: "Show password" },
       { by: "text", value: "Sign in" },
     ]);
-    expect(findTargets(document, { by: "autocomplete", value: "webauthn" })).toEqual([
+    expect(findTargets(document, { by: "autocomplete", value: "current-password" })).toEqual([
       document.getElementById("_r_1_"),
     ]);
     // The hint the model and the slots read still says it is the password field.
@@ -575,13 +603,22 @@ describe("extractLoginObservation", () => {
       `<form><input autocomplete="username"><input type="submit" value="Go" autocomplete="username"></form>`,
     );
     expect(observe().candidates.map(({ target }) => target)).toEqual([{ by: "text", value: "Go" }]);
-    // A token two inputs carry, even a hidden one, names neither; nor does new-password.
+    // A token two shown inputs carry names neither; nor does new-password.
     page(
-      `<form><input autocomplete="username"><input type="password" autocomplete="new-password">
-        <button>ログイン</button></form><input autocomplete="username" hidden>`,
+      `<form><input autocomplete="username"><input autocomplete="username">
+        <input type="password" autocomplete="new-password"><button>ログイン</button></form>`,
     );
     expect(observe().complete).toBe(false);
     expect(observe().candidates.map(({ target }) => target)).toEqual([
+      { by: "text", value: "ログイン" },
+    ]);
+    // A hidden input's copy of the token does not count (ADR 0037 amendment of 2026-10-22).
+    page(
+      `<form><input autocomplete="username"><button>ログイン</button></form>
+      <input autocomplete="username" hidden>`,
+    );
+    expect(observe().candidates.map(({ target }) => target)).toEqual([
+      { by: "autocomplete", value: "username" },
       { by: "text", value: "ログイン" },
     ]);
   });
@@ -848,11 +885,11 @@ describe("extractLoginObservation", () => {
   });
 
   it("refuses a login page where nothing can be located", () => {
-    // A hidden copy of the form shares the ids and names, and the header shows the
+    // A second shown copy of the form shares the ids and names, and the header shows the
     // button's text too.
     const form = `<form><input id="vp-userid" name="userid">
       <input id="vp-password" name="password" type="password"><button>Log in</button></form>`;
-    page(`<header><button>Log in</button></header>${form}<div hidden>${form}</div>`);
+    page(`<header><button>Log in</button></header>${form}<aside>${form}</aside>`);
     expect(extractLoginObservation()).toEqual({ ok: false, reason: "no-locator" });
     // A form with only a field that cannot be filled has nothing to locate.
     page(`<form><input id="pin" type="password" readonly></form>`);
@@ -1630,6 +1667,17 @@ describe("extractSignedInObservation", () => {
     expect(withField.candidates.map(({ target }) => target)).toEqual([
       { by: "href", value: "/mypage" },
       { by: "id", value: "mantine-v0zmrhrmb" },
+    ]);
+  });
+
+  it("names a marker only by a value no hidden copy shares (ADR 0037 amendment of 2026-10-22)", () => {
+    page(
+      `<header><a name="account" href="/account">My page</a>
+        <a name="account" href="/settings" hidden>Settings</a></header>`,
+    );
+    // A marker counts every copy, so the shared name never names it.
+    expect(summary(signedIn())).toEqual([
+      { role: "link", target: { by: "href", value: "/account" }, label: "My page" },
     ]);
   });
 

@@ -762,10 +762,14 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         respond({ ok: false, reason: "cancelled" });
         return false;
       }
+      const observeOptions = (index: number) => ({
+        links: command.links?.[index] === true,
+        hidden: command.hidden?.[index] === true,
+      });
       respond({
         path: pagePath(),
         targets: command.targets.map((target, index) =>
-          targetState(document, target, command.require?.[index], command.links?.[index] === true),
+          targetState(document, target, command.require?.[index], observeOptions(index)),
         ),
         ...(command.signIn
           ? {
@@ -778,12 +782,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         ...(command.explain
           ? {
               checks: command.targets.map((target, index) =>
-                targetCheck(
-                  document,
-                  target,
-                  command.require?.[index],
-                  command.links?.[index] === true,
-                ),
+                targetCheck(document, target, command.require?.[index], observeOptions(index)),
               ),
             }
           : {}),
@@ -1219,8 +1218,10 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                 : fail("structural-mismatch", "target-missing");
         return { ok: true, mutation: "possible" };
       }
+      // An element that must be missing counts every copy, hidden or not, as a marker's
+      // `absent` element does (ADR 0037 amendment of 2026-10-22).
       const satisfied = () => {
-        const count = matches(step.target).length;
+        const count = findTargets(document, step.target, { hidden: !step.present }).length;
         return step.present ? count === 1 : count === 0;
       };
       if (step.kind === "assert")

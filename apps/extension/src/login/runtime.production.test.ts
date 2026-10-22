@@ -4103,11 +4103,14 @@ describe("production login document admission", () => {
         h.recipes.recipe.mockResolvedValue(learned);
         expect(await h.hello()).toEqual({ ok: true });
         await vi.waitFor(() => expect(published()).toContain('"state":"authenticated"'));
-        // The completion target comes first, then the elements that must be missing.
+        // The completion target comes first, then the elements that must be missing, each
+        // counting its hidden copies too (ADR 0037 amendment of 2026-10-22).
         expect(fake.state.messages).toContainEqual(
           expect.objectContaining({
             type: "login.observe",
             targets: [target("authenticated"), target("password")],
+            links: [true, false],
+            hidden: [true, true],
           }),
         );
       });
