@@ -72,6 +72,17 @@ describe("targetState", () => {
   });
 
   // For the log (ADR 0019): why an advance on its next step's own path was not confirmed.
+  it("counts an inert control, or one inside an inert element, as not clickable (#853)", () => {
+    page(`<a href="javascript:void(0)" id="sign-in" inert>Log in</a>`);
+    expect(targetState(document, signIn, "clickable")).toBe("unusable");
+    expect(targetCheck(document, signIn, "clickable")).toBe("not-clickable");
+    // The page lifts it once the fields are filled.
+    document.getElementById("sign-in")!.removeAttribute("inert");
+    expect(targetState(document, signIn, "clickable")).toBe("unique");
+    page(`<div inert><button id="sign-in">Log in</button></div>`);
+    expect(targetState(document, signIn, "clickable")).toBe("unusable");
+  });
+
   it("names the check that decided each state, as codes", () => {
     const check = (html: string, require: TargetRequirement = "described-writable") => {
       page(html);

@@ -30,7 +30,9 @@ export function writable(element: Element | undefined): element is HTMLInputElem
   return textInput(element) && visible(element) && !element.disabled && !element.readOnly;
 }
 /**
- * A shown enabled button, or a shown script button that is not `aria-disabled`; with
+ * A shown enabled button, or a shown script button that is not `aria-disabled`, neither
+ * `inert` nor inside an `inert` element, which takes no click until the page lifts it, as
+ * a submit control kept inert until its fields are filled (#853); with
  * `fragment`, which a target named by its accessible name sets, also such a link to a
  * fragment of its own document ({@link isFragmentButton}, ADR 0048 amendment of
  * 2026-10-19).
@@ -39,7 +41,7 @@ export function clickable(
   element: Element | undefined,
   { fragment = false }: { fragment?: boolean } = {},
 ): element is HTMLElement {
-  if (element === undefined) return false;
+  if (element === undefined || element.closest("[inert]")) return false;
   if (isButton(element)) return visible(element) && !element.disabled;
   return (
     element instanceof HTMLElement &&

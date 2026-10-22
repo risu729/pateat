@@ -2168,7 +2168,10 @@ text, such as `<input type="button" value="Login">` submitting by script, still 
 the page incomplete when it has no unique locator. The executor compares strings and
 acts only when exactly one element matches; more than one is a structural mismatch. It
 clicks buttons, image buttons and script buttons (not a disabled button, nor a script
-button with `aria-disabled="true"`), never links, except a recipe's `accountSwitch`,
+button with `aria-disabled="true"`, nor a control that is or sits inside an `inert`
+element; the extractor still describes a control `inert` itself, as a disabled button,
+since a page may lift it once its fields are filled, as ANA's login modal does, #853),
+never links, except a recipe's `accountSwitch`,
 which may be an `<a href>` link (a script link with `href` included) named by its
 rendered text; no other script button is clicked as a switch. A switch's text locator
 names another link only when no shown button or script link has that text (a hidden
