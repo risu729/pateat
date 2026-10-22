@@ -128,6 +128,28 @@ describe("finite-choice decision role", () => {
     ]);
   });
 
+  it("submits after an identifier alone when its form leaves a password input empty (#834)", async () => {
+    const { "slot:password": _password, ...emailOnly } = correct;
+    const outcome = await decider(answering(emailOnly))(request);
+    expect(outcome).toMatchObject({
+      status: "ok",
+      value: { action: { candidate: "sign-in", purpose: "submit" } },
+    });
+    const withoutPassword = {
+      ...request,
+      observation: {
+        ...page.observation,
+        candidates: page.observation.candidates.filter(
+          (candidate) => candidate.role !== "password",
+        ),
+      },
+    };
+    expect(await decider(answering(emailOnly))(withoutPassword)).toMatchObject({
+      status: "ok",
+      value: { action: { candidate: "sign-in", purpose: "advance" } },
+    });
+  });
+
   it.each([
     ["an unknown option", { ...correct, action: "c:delete" }],
     ["a raw candidate ID without the option prefix", { ...correct, action: "sign-in" }],

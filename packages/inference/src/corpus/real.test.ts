@@ -20,16 +20,20 @@ const expectCompleteWithValidTruth = (corpus: EvaluationCase[]) => {
       action: { candidate: entry.expected.action, purpose: entry.expected.purpose },
     });
     expect(result.ok, entry.id).toBe(true);
-    // A passkey button in the truth passes the generated plan's own check (ADR 0027).
-    if (entry.expected.passkeyButton === undefined) continue;
-    const generated = validateGeneratedPage(observation, slots, {
-      fields: expectedFields(entry.expected),
-      action: { candidate: entry.expected.action, purpose: entry.expected.purpose },
-      passkeyButton: entry.expected.passkeyButton,
-    });
-    expect(generated.ok && generated.plan.passkeyButton, entry.id).toBe(
-      entry.expected.passkeyButton,
-    );
+    // The purpose read from the page matches the ground truth whatever the model answers
+    // (#834), and a passkey button in the truth passes the generated plan's own check (ADR
+    // 0027).
+    for (const answered of ["advance", "submit"] as const) {
+      const generated = validateGeneratedPage(observation, slots, {
+        fields: expectedFields(entry.expected),
+        action: { candidate: entry.expected.action, purpose: answered },
+        passkeyButton: entry.expected.passkeyButton,
+      });
+      expect(generated.ok && generated.plan.action.purpose, entry.id).toBe(entry.expected.purpose);
+      expect(generated.ok && generated.plan.passkeyButton, entry.id).toBe(
+        entry.expected.passkeyButton,
+      );
+    }
   }
 };
 

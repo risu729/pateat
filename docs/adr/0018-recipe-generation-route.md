@@ -47,6 +47,9 @@ Amended on 2026-10-19 by
 (owner, 01:22 UTC): generation reads the owner's saved bindings of the recipe to keep
 their slot names ([slot names from the bindings](#slot-names-from-the-bindings));
 implemented.
+Amended on 2026-10-22 by the owner (11:36 UTC, #834): a generated page stored without
+alternatives takes its action's `advance` or `submit` from its fields, not from the
+model's answer ([the action's purpose](#the-actions-purpose)); implemented.
 
 Date: 2026-10-11
 
@@ -351,6 +354,28 @@ extension uploads with settings sync hold item IDs, and the generation route now
 them: of the bindings of the page's origin and recipe, it takes only each entry's slot
 name and field reference. The generation request still carries no item ID, and nothing
 of the bindings reaches the model.
+
+### The action's purpose
+
+The owner chose on 2026-10-22 at 11:36 UTC (#834, option A): Pateat decides whether a
+generated page's click advances or submits. On Money Forward the model answered `submit`
+for the button after an email alone, twice, so a passkey-only item never reached the
+page after it ([ADR 0036](0036-passkey-after-the-identifier.md),
+`password-empty:no-password-step`). `actionPurpose` (`packages/inference/src/plan.ts`)
+sets it when the plan is checked:
+
+- a click after a password, a hidden value or a code submits;
+- a click after identifiers alone advances, unless its form (the action's group; inputs
+  outside any form count as one) shows a password or code input that the plan leaves
+  empty, which the click would submit empty. A short numeric input, such as a phone
+  number box, counts as a code input, so such a page still submits;
+- a start page with alternatives keeps the model's answers, where every set must submit
+  (ADR 0027); a later page, which stores only its first set, reads that set's purpose
+  again; a passkey-only page's click still submits (ADR 0053).
+
+The model still answers a purpose, which the request log keeps. A stored recipe changes
+only when it is generated again. A site that only mails a link after the email is still
+sent on as the page after an advance.
 
 ## Consequences
 
