@@ -891,6 +891,43 @@ than in this repository.
     route, whose sign-in targets are its fill targets, which the gate already checks on
     every origin. The settings page's Demo vaults preview, shown only without a
     connection client, stays: the options page tests render the page that way.
+- Personal details asked for during a login, filled from another Bitwarden item linked
+  to the login. Moved from phase 4 (owner, 2026-10-22 04:23 UTC); a design proposal for
+  the owner comes before any code. エポスNet asks for the card's security code after the
+  password (owner, 2026-10-12 04:18 UTC: it can wait), and other sites ask for a birth
+  date or similar details as extra verification. The owner sees these as one need
+  (2026-10-12 05:29 UTC): the value is in a card or identity item, not in the login
+  item, so the login has to be linked to that item. The owner chose how to link them
+  (05:27 UTC): Pateat guesses the item from the site being logged into and what its
+  pages show (such as a card name, brand or masked last digits), proposes it, and
+  records the choice for the site once the owner confirms it.
+  - The [feasibility note](research/2026-10-12-card-security-code.md) found that the
+    Worker already decrypts card and identity items. Filling one of their fields needs
+    a handler for the page that fills a field the binding names (ADR 0027's deferred
+    `totp` binding field needs the same naming, but makes a code instead of filling a
+    raw value), and a binding that can name a second item.
+  - The linked item is stored like an account binding
+    ([ADR 0013](adr/0013-service-held-recipes-and-settings.md#recipes-and-account-bindings)):
+    in the owner's settings on the service, by provider, server, user ID and item ID,
+    with custom fields by name, and never in a shared recipe.
+  - Each kind of value gets its own fill rule, as passwords and TOTP codes have, rather
+    than an exception to those: a card code only into a password or short numeric
+    input, as Hidden fields are filled today. Bitwarden identities have no birth date,
+    so it would sit in a custom field of the identity item, and forms often split it
+    across year, month and day selects, as with the Japanese forms in the
+    [personal-data note](research/2026-10-11-personal-data-autofill.md#japanese-forms).
+  - MUFG Card NEWS+PLUS (`https://www2.cr.mufg.jp/newsplus/`, live DOM read on
+    2026-10-21 for [#832](https://github.com/risu729/pateat/issues/832)): pressing
+    ログイン copies the ID and password into a second form in a lightbox titled
+    追加確認項目の入力, which asks for one of two facts chosen by radio buttons
+    (`webAddAuthType` 2: birth year and month as `YYYYMM` in `webBirthDay`, maxlength
+    6; 3: the phone number's last four digits in `webPhoneNum`, maxlength 4), then its
+    own submit. So a page may offer a choice of fact and want a part of the stored
+    value (year and month only, last digits) rather than the whole value.
+  - This is the login-time part of personal-data autofill (see
+    [Research](#research)): it fills only a page of a login, not a sign-up or checkout.
+  - Which part of the guess runs locally, and whether the AI may see the names of card
+    or identity items, is left to the design; their values never leave the device.
 - UI improvements the owner reports from daily use of the UI polished in phase 1. Small
   fixes for broken UI still land as found.
 - Features found missing during use are added here.
@@ -1137,34 +1174,6 @@ items the owner mentioned and gates still open on 2026-10-11.
 - Low priority (owner, 2026-10-11 18:29 UTC): pages that add another account while one
   is signed in, such as Google's AddSession or Microsoft's "Use another account", show
   a login form and are logged in with the default account today. They should not be.
-- Personal details asked for during a login, filled from another Bitwarden item linked
-  to the login. エポスNet asks for the card's security code after the password (owner,
-  2026-10-12 04:18 UTC: it can wait), and other sites ask for a birth date or similar
-  details as extra verification. The owner sees these as one need (2026-10-12 05:29
-  UTC): the value is in a card or identity item, not in the login item, so the login has
-  to be linked to that item. The owner chose how to link them (05:27 UTC): Pateat
-  guesses the item from the site being logged into and what its pages show (such as a
-  card name, brand or masked last digits), proposes it, and records the choice for the
-  site once the owner confirms it.
-  - The [feasibility note](research/2026-10-12-card-security-code.md) found that the
-    Worker already decrypts card and identity items. Filling one of their fields needs
-    a handler for the page that fills a field the binding names (ADR 0027's deferred
-    `totp` binding field needs the same naming, but makes a code instead of filling a
-    raw value), and a binding that can name a second item.
-  - The linked item is stored like an account binding
-    ([ADR 0013](adr/0013-service-held-recipes-and-settings.md#recipes-and-account-bindings)):
-    in the owner's settings on the service, by provider, server, user ID and item ID,
-    with custom fields by name, and never in a shared recipe.
-  - Each kind of value gets its own fill rule, as passwords and TOTP codes have, rather
-    than an exception to those: a card code only into a password or short numeric
-    input, as Hidden fields are filled today. Bitwarden identities have no birth date,
-    so it would sit in a custom field of the identity item, and forms often split it
-    across year, month and day selects, as with the Japanese forms in the
-    [personal-data note](research/2026-10-11-personal-data-autofill.md#japanese-forms).
-  - This is the login-time part of personal-data autofill (see
-    [Research](#research)): it fills only a page of a login, not a sign-up or checkout.
-  - Which part of the guess runs locally, and whether the AI may see the names of card
-    or identity items, is left to the design; their values never leave the device.
 - Entering a value on a page's software keyboard (owner, 2026-10-17 03:35 UTC): a
   login whose field takes characters only from buttons the page draws, such as an input
   that is `readonly` and opens a keypad on focus. Pateat leaves such a page to the
@@ -1176,7 +1185,9 @@ items the owner mentioned and gates still open on 2026-10-11.
   keyboard button, is typed into as usual. The design is still to come: how a recipe
   names a keypad's keys, keys that change position or show their character only as an
   image, and keeping the value's characters out of what reaches the service and the AI.
-  A PIN or card code asked in an ordinary input is the item above.
+  A PIN or card code asked in an ordinary input is the
+  [phase 2](#phase-2-use-it-and-fix-what-comes-up) item on personal details asked
+  during a login.
 - Optional confirmation pages after a login, such as
   GitHub's "Verify your two-factor authentication (2FA) settings": Pateat should
   complete them itself (owner, 2026-10-12 04:08 UTC), as a general rule rather than for
