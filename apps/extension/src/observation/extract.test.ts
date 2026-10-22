@@ -166,6 +166,37 @@ describe("extractLoginObservation", () => {
     ]);
   });
 
+  it("keeps a submit control the page holds inert until its fields are filled (#853)", () => {
+    // An airline's login modal (2026-10-22): its script lifts `inert` once both fields
+    // hold valid values.
+    page(
+      `<form id="f"><input id="member_no" autocomplete="username">
+        <input id="member_password" type="password" autocomplete="current-password">
+        <a href="javascript: void(0)" id="login" inert>ログイン</a></form>`,
+    );
+    const observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(summary(observation).map((candidate) => [candidate.role, candidate.target])).toEqual([
+      ["text", { by: "id", value: "member_no" }],
+      ["password", { by: "id", value: "member_password" }],
+      ["button", { by: "id", value: "login" }],
+    ]);
+    // An inert or hidden ancestor, or a control also hidden otherwise, still hides it.
+    for (const html of [
+      `<div inert><button id="go">Log in</button></div>`,
+      `<div aria-hidden="true"><button id="go">Log in</button></div>`,
+      `<button id="go" inert hidden>Log in</button>`,
+      `<button id="go" inert aria-hidden="true">Log in</button>`,
+      `<button id="go" inert style="display:none">Log in</button>`,
+    ]) {
+      page(`<form id="f"><input id="user" autocomplete="username">${html}</form>`);
+      expect(
+        summary(observe()).map((candidate) => candidate.target.value),
+        html,
+      ).toEqual(["user"]);
+    }
+  });
+
   it("keeps personal-data autocomplete tokens, which mark a sign-up form", () => {
     page(
       `<form id="f">

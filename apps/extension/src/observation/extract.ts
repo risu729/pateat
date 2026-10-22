@@ -33,6 +33,7 @@ import {
   linkText,
   openModals,
   readBehindModal,
+  readOwnInert,
   renderedText,
   shown,
 } from "../page/text";
@@ -1007,9 +1008,19 @@ type Found =
    */
   | { kind: "unsupported"; form: HTMLFormElement | null; field: HTMLInputElement | undefined };
 
+/** A control a click step may press: a button, a submit, button or image input, or a script button. */
+const actionControl = (element: HTMLElement) =>
+  element instanceof HTMLButtonElement ||
+  (element instanceof HTMLInputElement && actionTypes.has(element.type)) ||
+  isScriptButton(element);
+
 function describe(element: Element): Found | undefined {
   if (!(element instanceof HTMLElement)) return undefined;
-  const present = presence(element);
+  // An action control the page keeps `inert` itself until its fields are filled stays a
+  // candidate, as a disabled one does (`readOwnInert`, #853).
+  const present = actionControl(element)
+    ? readOwnInert(element, () => presence(element))
+    : presence(element);
   if (element instanceof HTMLInputElement && fillTypes[element.type] && present !== "absent") {
     if (present === "faint" || element.readOnly || element.disabled)
       return { kind: "unsupported", form: element.form, field: element };

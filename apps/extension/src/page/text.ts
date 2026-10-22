@@ -76,8 +76,27 @@ export function readBehindModal<Result>(document: Document, read: () => Result):
 }
 
 /**
+ * Runs `read` with `element`'s own `inert` attribute not hiding it, as a page that keeps
+ * its submit control inert until its fields are filled (ANA's login modal, 2026-10-22,
+ * #853): such a control counts as a disabled button does. An `inert` or
+ * `aria-hidden="true"` ancestor still hides it, and so does its own `aria-hidden`.
+ */
+export function readOwnInert<Result>(element: Element, read: () => Result): Result {
+  if (!element.hasAttribute("inert") || element.getAttribute("aria-hidden") === "true")
+    return read();
+  const outer = behindModal;
+  behindModal = new Set([...(outer ?? []), element]);
+  try {
+    return read();
+  } finally {
+    behindModal = outer;
+  }
+}
+
+/**
  * Whether an `inert` or `aria-hidden="true"` element hides `element`, leaving out those
- * an open modal hid while {@link readBehindModal} runs.
+ * an open modal hid while {@link readBehindModal} runs and an element {@link readOwnInert}
+ * reads.
  */
 function hiddenByAttribute(element: Element): boolean {
   for (
