@@ -5576,9 +5576,9 @@ export function createLoginRuntime(
       return refuse();
     }
     if (now - state.since < CONTINUATION_STABLE_MS) return "qualified";
-    // The fields the recipe already filled on this path may show again, read-only.
+    // The fields the recipe already filled, on any path, may show again read-only, as an
+    // email a password page on another path of the same document keeps (#831).
     const known = recipe.steps
-      .filter((step) => step.path === observed.path)
       .flatMap((step) => (step.kind === "fill" ? step.fields.map((field) => field.target) : []))
       .slice(0, 24);
     let observation: LoginObservation | undefined;

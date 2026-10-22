@@ -18374,6 +18374,10 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
     await until(settled("authenticated"));
     expect(executed()).toEqual(allSteps);
     expect(service.generate.mock.calls[0]![0].observation.path).toBe("/signin/password");
+    // The email field the recipe filled on `/signin` may show again there, read-only (#831).
+    expect(
+      fake.state.messages.find((entry) => entry.type === "login.extract") as unknown,
+    ).toMatchObject({ page: "login", known: [target("email")] });
     // The vault match for the request used the URL the page shows now.
     expect(uris.mock.calls.map(([, url]) => url)).toContain(
       "https://login.example/signin/password",
@@ -19509,9 +19513,10 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
       // Never sent before a full second on the new path.
       expect(Date.now() - moved).toBeGreaterThanOrEqual(1_000);
       expect(service.generate.mock.calls[0]![0].observation.path).toBe("/signin/password");
-      // The email field the recipe filled on /signin is not known on this path.
+      // The email field the recipe filled on /signin is known on this path too (#831).
       const extracts = fake.state.messages.filter((entry) => entry.type === "login.extract");
-      expect(extracts.every((entry) => !("known" in entry))).toBe(true);
+      expect(extracts.length).toBeGreaterThan(0);
+      for (const entry of extracts) expect(entry).toMatchObject({ known: [target("email")] });
       await until(settled("authenticated"));
       expect(executed()).toEqual(allSteps);
     });
