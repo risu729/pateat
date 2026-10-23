@@ -65,6 +65,7 @@ test("long hostnames and usernames wrap inside the 360px popup", async () => {
     pick: vi.fn<ChoiceClient["pick"]>(),
     pause: vi.fn<ChoiceClient["pause"]>(),
     status: vi.fn<ChoiceClient["status"]>().mockResolvedValue({ ok: false, reason: "no-page" }),
+    switchTo: vi.fn<ChoiceClient["switchTo"]>().mockResolvedValue({ ok: true }),
   };
   await render(
     <QueryClientProvider client={createMetadataQueryClient()}>
@@ -139,6 +140,7 @@ test("the page section's long log codes wrap inside the 360px popup", async () =
         page: "continuation",
       },
     }),
+    switchTo: vi.fn<ChoiceClient["switchTo"]>(),
   };
   await render(
     <QueryClientProvider client={createMetadataQueryClient()}>
@@ -184,4 +186,13 @@ test("the page section's long log codes wrap inside the 360px popup", async () =
   }
   const link = document.querySelector("#popup-open-diagnostics")!;
   expect(link.getBoundingClientRect().right).toBeLessThanOrEqual(right);
+  // An account switch's rows (ADR 0063) keep their button inside the popup.
+  await expect.element(page.getByRole("button", { name: /^Switch to this account/ })).toBeVisible();
+  for (const row of document.querySelectorAll(".popup-switch-row")) {
+    expect(row.scrollWidth).toBeLessThanOrEqual(row.clientWidth);
+    expect(row.getBoundingClientRect().right).toBeLessThanOrEqual(right);
+    expect(row.querySelector("button")!.getBoundingClientRect().right).toBeLessThanOrEqual(
+      row.getBoundingClientRect().right,
+    );
+  }
 });

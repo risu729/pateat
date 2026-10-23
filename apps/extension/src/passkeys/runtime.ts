@@ -107,6 +107,8 @@ export interface PasskeyRequestReport {
    * out (`timeout`) or the request being cancelled (`cancelled`) while it was open.
    */
   readonly chooser?: PasskeyChoice["kind"] | "timeout" | "cancelled";
+  /** The site treated its saved default as unset, so the chooser asked (ADR 0063). */
+  readonly defaultUnset?: boolean;
   /** The request's mediation, when it names one (ADR 0034). */
   readonly mediation?: "optional" | "conditional" | "required" | "silent" | "immediate" | "other";
   readonly uiMode?: "immediate";
@@ -246,6 +248,14 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
      */
     answered?: (tabId: number, origin: string, rpId: string, signed: TCandidate) => void;
     /**
+     * Whether a request of the origin treats the site's saved default as unset: the person's
+     * own request, of no running login, then opens the chooser with every passkey that fits
+     * and none preselected, also for one passkey (ADR 0063: a site that asks every time after
+     * a pick that did not make its account the default). A conditional request never gets
+     * here without a login, so it is handed on as before.
+     */
+    defaultUnset?: (origin: string, incognito: boolean) => Promise<boolean> | boolean;
+    /**
      * Decides a `conditional` request of a top document through the login of its page
      * (ADR 0034). Without it, conditional requests are handed on (ADR 0007).
      */
@@ -380,7 +390,20 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       detail.complete = candidates.complete;
       // One match or the site default signs without asking, also after a logout in the tab
       // (ADR 0062); several matches ask. A running login never asks (ADR 0027).
-      const selection = selectPasskey(admission.request, candidates);
+      const found = selectPasskey(admission.request, candidates);
+      // A site that treats its default as unset asks for any passkey that fits (ADR 0063).
+      const unset =
+        !login &&
+        options.defaultUnset !== undefined &&
+        (found.kind === "credential" || found.reason === "ambiguous-credential") &&
+        (await abortable(
+          Promise.try(() => options.defaultUnset!(origin, context.incognito)).catch(() => false),
+          signal,
+        ));
+      if (unset) detail.defaultUnset = true;
+      const selection: typeof found = unset
+        ? { kind: "delegate", reason: "ambiguous-credential" }
+        : found;
       const signWith = (candidate: TCandidate) => {
         step = "signing";
         return abortable(
@@ -432,8 +455,15 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
         // two is not a choice.
         const offered = accepted
           .filter((entry) => entry.counter === 0)
-          .sort((a, b) => Number(b.preferred === true) - Number(a.preferred === true));
-        if (selection.reason !== "ambiguous-credential" || offered.length < 2) return selection;
+          .sort((a, b) =>
+            unset ? 0 : Number(b.preferred === true) - Number(a.preferred === true),
+          );
+        const declined = unset
+          ? ({ kind: "delegate", reason: "default-unset" } as const)
+          : ({ kind: "delegate", reason: "ambiguous-credential" } as const);
+        if (unset ? offered.length === 0 : selection.reason !== "ambiguous-credential")
+          return unset ? declined : selection;
+        if (offered.length < 2 && !unset) return selection;
         // An unsearched item might hold the passkey the person signed out to switch to.
         if (!candidates.complete) return { kind: "delegate", reason: "vault-incomplete" };
         const remaining = received + chooserWaitMs(admission.request.timeoutMs) - Date.now();
@@ -446,7 +476,7 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
           !context.active ||
           remaining < CHOOSER_MIN_REMAINING_MS
         )
-          return { kind: "delegate", reason: "ambiguous-credential" };
+          return declined;
         // The window waits for a person, so the lookup budget no longer applies.
         clearTimeout(timer);
         timer = setTimeout(expire, remaining);
@@ -460,7 +490,7 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
             rpId: admission.request.rpId,
             entries: offered.map((entry, index) => ({
               ...(entry.display ?? { item: `Passkey ${index + 1}` }),
-              ...(entry.preferred === true ? { preferred: true } : {}),
+              ...(entry.preferred === true && !unset ? { preferred: true } : {}),
             })),
             replacesDefault:
               candidates.siteDefault !== undefined && candidates.siteDefault !== "unset",

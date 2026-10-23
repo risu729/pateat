@@ -199,6 +199,25 @@ export const LOG_EVENTS = {
       url: "url",
     },
   },
+  // An account switch from the popup (ADR 0063): its start, each logout click, and its end.
+  "login.switch": {
+    level: "info",
+    fields: {
+      origin: "origin",
+      stage: "code",
+      outcome: "code",
+      reason: "code",
+      detail: "code",
+      purpose: "code",
+      source: "code",
+      learned: "flag",
+      clicks: "count",
+      recipe: "recipe",
+      recipeRevision: "count",
+      makeDefault: "flag",
+      url: "url",
+    },
+  },
   "login.handler": {
     level: "info",
     fields: {
@@ -434,6 +453,7 @@ export const LOG_EVENTS = {
       siteDefaultItem: "code",
       complete: "flag",
       chooser: "code",
+      defaultUnset: "flag",
       mediation: "code",
       uiMode: "code",
       duringLogin: "flag",

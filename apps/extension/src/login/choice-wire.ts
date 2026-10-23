@@ -9,13 +9,16 @@ const tabId = v.pipe(v.number(), v.integer(), v.minValue(0));
  * (`rejected-elsewhere`), or this tab's own login stopped after a submission or its watch
  * ended before it signed in (`stopped-login`); these three fill the page once with the one
  * account to use, pressing nothing. Or two automatic logins of the site ended signed in
- * within 10 minutes (`relogin-limit`), which fills nothing.
+ * within 10 minutes (`relogin-limit`), or an account was picked for the site in this
+ * browser session without making it the default (`one-time-pick`, ADR 0063); these two
+ * fill nothing.
  */
 export const askReasonSchema = v.picklist([
   "rejected",
   "rejected-elsewhere",
   "stopped-login",
   "relogin-limit",
+  "one-time-pick",
 ]);
 export type AskReason = v.InferOutput<typeof askReasonSchema>;
 /** The toolbar popup's line saying why it asks for an account (ADR 0021). */
@@ -29,6 +32,8 @@ export function choiceReason(ask: AskReason | undefined, matches: number, paused
     "stopped-login": "The last login on this site stopped in this tab",
     "relogin-limit":
       "Pateat logged in to this site twice in the last 10 minutes, so it waits for you to choose",
+    "one-time-pick":
+      "You chose an account here without making it the default, so Pateat asks each time until the browser closes",
   }[ask];
 }
 /** The toolbar popup asks which accounts the refused login in a tab could use (ADR 0021). */
@@ -112,6 +117,75 @@ export function pickFailure(
     return `Pateat could not log in with ${name} on this page.${unsaved} Reload the page to choose again.`;
   return `This page is no longer waiting for a choice${unsaved ? `.${unsaved}` : ""}`;
 }
+/**
+ * The popup's account switch (ADR 0063): log the tab out of its site, then log in on the
+ * site's next login page in that tab with this account.
+ */
+export const switchRequestSchema = v.strictObject({
+  version: v.literal(1),
+  type: v.literal("login.switch.start"),
+  tabId,
+  connectionId: id,
+  itemId: id,
+  /** Save it as the site default once the login is confirmed `authenticated`. */
+  makeDefault: v.boolean(),
+});
+/**
+ * Why a switch did not start: the tab shows no page Pateat watches (`no-page`), its page
+ * waits for an account choice, a switch or a login runs in the tab, the settings could not
+ * be read, the site is excluded or automatic login is paused for it, the account does not
+ * match the page, or no paired service can tell how to log out (`unavailable`).
+ */
+export const switchRefusalSchema = v.picklist([
+  "no-page",
+  "choice-waiting",
+  "in-progress",
+  "tab-busy",
+  "settings-unavailable",
+  "site-excluded",
+  "paused",
+  "not-a-candidate",
+  "unavailable",
+]);
+export type SwitchRefusal = v.InferOutput<typeof switchRefusalSchema>;
+export const switchResponseSchema = v.variant("ok", [
+  v.strictObject({ ok: v.literal(true) }),
+  v.strictObject({ ok: v.literal(false), reason: switchRefusalSchema }),
+]);
+export type SwitchRequest = Omit<v.InferOutput<typeof switchRequestSchema>, "version" | "type">;
+export type SwitchResponse = v.InferOutput<typeof switchResponseSchema>;
+/** The toolbar popup's message for a switch that did not start. */
+export function switchRefusal(reason: SwitchRefusal, name: string): string {
+  return {
+    "no-page": "Pateat is not running on this page yet. Reload it, then try again.",
+    "choice-waiting": "This page waits for an account choice. Choose the account there.",
+    "in-progress": "An account switch is already running in this tab.",
+    "tab-busy": "A login is running in this tab. Wait for it to end, then try again.",
+    "settings-unavailable": "Pateat settings could not be read. Try again.",
+    "site-excluded": "Pateat is off for this site, so it did not switch accounts.",
+    paused: "Automatic login is paused for this site, so Pateat did not switch accounts.",
+    "not-a-candidate": `${name} does not match this page.`,
+    unavailable: "Pateat needs its service to find how to log out. Pair it in the settings.",
+  }[reason];
+}
+/**
+ * The popup's line for the tab's account switch: logging out, signed out and waiting for
+ * the site's login page, or why it stopped.
+ */
+export function switchStatus(
+  state: "running" | "signed-out" | "failed",
+  reason: string | undefined,
+  name: string,
+): string {
+  if (state === "running") return `Logging out to switch to ${name}…`;
+  if (state === "signed-out")
+    return `Logged out. Pateat logs in with ${name} on this site's login page in this tab`;
+  if (reason === "no-logout-control")
+    return `Pateat found no way to log out on this page, so it did not switch to ${name}. Log out yourself, then choose the account`;
+  if (reason === "still-signed-in")
+    return `The site still shows you logged in after 3 tries, so Pateat did not switch to ${name}. Log out yourself, then choose the account`;
+  return `Pateat could not log out to switch to ${name}. Log out yourself, then choose the account`;
+}
 /** The toolbar popup asks what Pateat did on a tab's page (ADR 0038). */
 export const statusRequestSchema = v.strictObject({
   version: v.literal(1),
@@ -166,6 +240,20 @@ export const statusResponseSchema = v.variant("ok", [
      * for a vault item with neither a password nor a passkey, until the next login starts.
      */
     refused: v.optional(v.strictObject({ reason: code, detail: v.optional(code) })),
+    /**
+     * The account of the tab's last login on this site that signed in, which the popup
+     * marks as used in this tab (ADR 0063).
+     */
+    used: v.optional(v.strictObject({ connectionId: id, itemId: id })),
+    /** The tab's account switch (ADR 0063): logging out, signed out, or why it stopped. */
+    switch: v.optional(
+      v.strictObject({
+        state: v.picklist(["running", "signed-out", "failed"]),
+        reason: v.optional(code),
+        connectionId: id,
+        itemId: id,
+      }),
+    ),
     /** Automatic login of the tab's site is paused until then, in epoch ms (ADR 0062). */
     pause: v.optional(v.strictObject({ until: v.pipe(v.number(), v.integer(), v.minValue(0)) })),
     /** The tab's last page sent for generation on this origin's page, and what came back. */
@@ -209,6 +297,8 @@ export interface ChoiceClient {
   pick(request: PickRequest): Promise<PickResponse>;
   /** What Pateat did on the tab's page, for the popup's page section (ADR 0038). */
   status(tabId: number): Promise<StatusResponse>;
+  /** Logs the tab out of its site and in again with another account (ADR 0063). */
+  switchTo(request: SwitchRequest): Promise<SwitchResponse>;
   /** Pauses automatic login of the tab's site, or resumes it (ADR 0062). */
   pause(tabId: number, paused: boolean): Promise<PauseResponse>;
 }
@@ -229,6 +319,11 @@ export function createChoiceClient(send: (message: unknown) => Promise<unknown>)
       v.parse(
         statusResponseSchema,
         await send({ version: 1, type: "login.status.get", tabId: tab }),
+      ),
+    switchTo: async (request) =>
+      v.parse(
+        switchResponseSchema,
+        await send({ version: 1, type: "login.switch.start", ...request }),
       ),
     pause: async (tab, paused) =>
       v.parse(

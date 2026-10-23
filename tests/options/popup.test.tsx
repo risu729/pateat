@@ -77,6 +77,7 @@ function noChoice() {
     get: vi.fn<ChoiceClient["get"]>().mockResolvedValue({ ok: false, reason: "no-choice" }),
     pick: vi.fn<ChoiceClient["pick"]>().mockResolvedValue({ ok: true }),
     status: vi.fn<ChoiceClient["status"]>().mockResolvedValue({ ok: false, reason: "no-page" }),
+    switchTo: vi.fn<ChoiceClient["switchTo"]>().mockResolvedValue({ ok: true }),
     pause: vi.fn<ChoiceClient["pause"]>().mockResolvedValue({ ok: true }),
   };
 }
@@ -1306,6 +1307,105 @@ test("the page section names the page's refusal over an older not-started reason
   await expect
     .poll(() => lineText("login"))
     .toBe("No login started: another tab's login to this site is running or did not succeed.");
+});
+
+test("each matching account can be switched to, the tab's account is marked, and a refusal is said (ADR 0063)", async () => {
+  const { client } = store();
+  const choices = onPage({
+    recipe: "page",
+    used: { connectionId: "demo-personal", itemId: "primary" },
+  });
+  choices.switchTo.mockResolvedValueOnce({ ok: false, reason: "paused" });
+  await mount(client, "https://bank.example/home", choices);
+  await expect.element(page.getByRole("heading", { name: "Switch account" })).toBeVisible();
+  const buttons = page.getByRole("button", { name: /^Switch to this account/ });
+  await expect.poll(() => buttons.elements().length).toBe(3);
+  // The account of the tab's last login is marked in the default list too.
+  await expect
+    .element(
+      page.getByRole("radio", {
+        name: "Demo primary account, Demo personal vault, used in this tab",
+      }),
+    )
+    .toBeVisible();
+  const secondary = page.getByRole("button", {
+    name: "Switch to this account: Demo secondary account, Demo personal vault",
+  });
+  await userEvent.click(secondary);
+  await expect
+    .element(
+      page.getByText("Automatic login is paused for this site, so Pateat did not switch accounts."),
+    )
+    .toBeVisible();
+  expect(choices.switchTo).toHaveBeenCalledWith({
+    tabId: 7,
+    connectionId: "demo-personal",
+    itemId: "secondary",
+    makeDefault: false,
+  });
+  // Made the default only when asked; the popup itself saves nothing.
+  await userEvent.click(
+    page.getByRole("checkbox", { name: "Make it the default for bank.example" }),
+  );
+  await userEvent.click(secondary);
+  expect(choices.switchTo).toHaveBeenLastCalledWith({
+    tabId: 7,
+    connectionId: "demo-personal",
+    itemId: "secondary",
+    makeDefault: true,
+  });
+  expect(client.saveSettings).not.toHaveBeenCalled();
+  await expect
+    .element(page.getByText("may log you out of that account too", { exact: false }))
+    .toBeVisible();
+});
+
+test("the switch's line follows the worker, and a running switch takes no second press (ADR 0063)", async () => {
+  const { client } = store();
+  const choices = onPage({
+    switch: {
+      state: "failed",
+      reason: "no-logout-control",
+      connectionId: "demo-personal",
+      itemId: "secondary",
+    },
+  });
+  await mount(client, "https://bank.example/home", choices);
+  await expect
+    .element(
+      page.getByText(
+        "Pateat found no way to log out on this page, so it did not switch to Demo secondary account. Log out yourself, then choose the account",
+      ),
+    )
+    .toBeVisible();
+  choices.status.mockResolvedValue({
+    ok: true,
+    origin: "https://bank.example",
+    recipe: "none",
+    switch: { state: "running", connectionId: "demo-work", itemId: "primary" },
+  });
+  await expect.element(page.getByText("Logging out to switch to Demo team account…")).toBeVisible();
+  for (const button of page.getByRole("button", { name: /^Switch to this account/ }).elements())
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+});
+
+test("a page that waits for an account choice offers no switch (ADR 0063)", async () => {
+  const { client } = store();
+  const choices = onPage({ recipe: "page" });
+  choices.get.mockResolvedValue({
+    ok: true,
+    origin: "https://bank.example",
+    documentId: "refused-document",
+    candidates: [
+      { connectionId: "demo-personal", itemId: "primary" },
+      { connectionId: "demo-work", itemId: "primary" },
+    ],
+  });
+  await mount(client, "https://bank.example/login", choices);
+  await expect.element(page.getByRole("heading", { name: "Choose an account" })).toBeVisible();
+  await expect
+    .element(page.getByRole("heading", { name: "Switch account" }))
+    .not.toBeInTheDocument();
 });
 
 test("a site Pateat logs in to by itself can be paused for an hour, then resumed (ADR 0062)", async () => {

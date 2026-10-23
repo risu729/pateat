@@ -636,6 +636,96 @@ describe("passkey chooser window", () => {
     expect(choose.choose).not.toHaveBeenCalled();
   });
 
+  describe("a site that treats its default as unset (ADR 0063)", () => {
+    const withDefault = (items = [{ ...pair[0]!, preferred: true }, pair[1]!]) =>
+      source({
+        candidates: vi.fn(async () => ({
+          candidates: items,
+          complete: true,
+          siteDefault: "searched" as const,
+        })),
+      });
+
+    it("opens the chooser with no default preselected, also for one passkey", async () => {
+      const choose = chooser(async () => ({ kind: "chosen", index: 0, makeDefault: false }));
+      const defaultUnset = vi.fn(async () => true);
+      const report = vi.fn();
+      const runtime = createPasskeyRuntime(withDefault(), {
+        extensionId,
+        chooser: choose,
+        defaultUnset,
+        report,
+      });
+      expect(await runtime.handle(get(), sender())).toMatchObject({ kind: "assertion" });
+      expect(defaultUnset).toHaveBeenCalledWith(origin, false);
+      expect(choose.choose.mock.calls[0]![0].entries).toEqual([
+        { item: "Work", userName: "alice", account: "Personal" },
+        { item: "Passkey 2" },
+      ]);
+      expect(report).toHaveBeenCalledWith(
+        expect.objectContaining({ defaultUnset: true, chooser: "chosen" }),
+      );
+      // One passkey, which would sign without asking, asks as well.
+      const single = createPasskeyRuntime(withDefault([{ ...pair[0]!, preferred: true }]), {
+        extensionId,
+        chooser: choose,
+        defaultUnset,
+      });
+      expect(await single.handle(get(), sender())).toMatchObject({ kind: "assertion" });
+      expect(choose.choose).toHaveBeenCalledTimes(2);
+      expect(choose.choose.mock.calls[1]![0].entries).toEqual([
+        { item: "Work", userName: "alice", account: "Personal" },
+      ]);
+    });
+
+    it("hands the request on where no chooser can open, and signs with the default otherwise", async () => {
+      const choose = chooser(async () => ({ kind: "closed" }));
+      const unset = createPasskeyRuntime(withDefault(), {
+        extensionId,
+        chooser: choose,
+        defaultUnset: () => true,
+      });
+      expect(await unset.handle(get(), sender({ tab: { id: 7, incognito: true } }))).toEqual({
+        kind: "delegate",
+        reason: "default-unset",
+      });
+      expect(choose.choose).not.toHaveBeenCalled();
+      const backing = withDefault();
+      const kept = createPasskeyRuntime(backing, {
+        extensionId,
+        chooser: choose,
+        defaultUnset: async () => false,
+      });
+      expect(await kept.handle(get(), sender())).toMatchObject({ kind: "assertion" });
+      expect(choose.choose).not.toHaveBeenCalled();
+      expect(backing.sign).toHaveBeenCalledWith(
+        expect.objectContaining({ credentialId: "AQID", preferred: true }),
+        expect.anything(),
+        expect.anything(),
+        expect.any(AbortSignal),
+      );
+    });
+
+    it("never asks the hook for a running login's item or a conditional request", async () => {
+      const defaultUnset = vi.fn(async () => true);
+      const login = createPasskeyRuntime(withDefault([{ ...pair[0]!, preferred: true }]), {
+        extensionId,
+        chooser: chooser(async () => ({ kind: "closed" })),
+        loginAccount: () => ({ connectionId: "connection-1", itemId: "item-1" }),
+        defaultUnset,
+      });
+      expect(await login.handle(get(), sender())).toMatchObject({ kind: "assertion" });
+      const conditional = createPasskeyRuntime(withDefault(), { extensionId, defaultUnset });
+      expect(
+        await conditional.handle(
+          { ...get(), request: { ...request, mediation: "conditional" } },
+          sender(),
+        ),
+      ).toMatchObject({ kind: "delegate" });
+      expect(defaultUnset).not.toHaveBeenCalled();
+    });
+  });
+
   it("closes the window when the page cancels", async () => {
     const signals: AbortSignal[] = [];
     const choose = chooser(

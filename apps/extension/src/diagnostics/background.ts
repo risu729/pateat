@@ -652,6 +652,27 @@ export function createDiagnosticsLog(options: {
                   : "info",
           },
         );
+      else if (report.type === "switch")
+        void logger.log(
+          "login.switch",
+          {
+            origin: report.origin,
+            url: report.url,
+            stage: report.stage,
+            outcome: report.outcome,
+            reason: report.reason,
+            detail: report.detail,
+            purpose: report.purpose,
+            source: report.source,
+            learned: report.learned,
+            clicks: report.clicks,
+            recipe: report.recipeId,
+            recipeRevision: report.recipeRevision,
+            makeDefault: report.makeDefault,
+          },
+          // A switch that could not log out is a problem the person sees in the popup too.
+          { source, level: report.outcome === "failed" ? "warn" : "info" },
+        );
       else if (report.type === "pause")
         // The person paused or resumed automatic login of a site, or a login picked in the
         // popup ended its pause (ADR 0062).

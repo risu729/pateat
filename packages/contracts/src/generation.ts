@@ -10,8 +10,12 @@ import {
   chooserBranchSchema,
   loginChooserRecipeSchema,
   loginEntryRecipeSchema,
+  loginLogoutRecipeSchema,
   loginRecipeSchema,
+  loginPathSchema,
   loginRouteSchema,
+  logoutTargetSchema,
+  MAX_LOGOUT_TARGETS,
   storedRecipeSlots,
 } from "./login";
 import { syncRecipeIdSchema } from "./sync";
@@ -59,6 +63,17 @@ const activeEntryChange = v.pipe(
     revision: writtenRevision,
     state: v.literal("active"),
     recipe: loginEntryRecipeSchema,
+  }),
+  v.check((change) => sameIdentity(change), "Recipe identity does not match its sync revision"),
+);
+
+/** The same for a logout recipe (ADR 0063), which only a logout request is answered with. */
+const activeLogoutChange = v.pipe(
+  v.strictObject({
+    recipeId: syncRecipeIdSchema,
+    revision: writtenRevision,
+    state: v.literal("active"),
+    recipe: loginLogoutRecipeSchema,
   }),
   v.check((change) => sameIdentity(change), "Recipe identity does not match its sync revision"),
 );
@@ -301,6 +316,81 @@ export const entryGenerationResultSchema = v.pipe(
 );
 
 /**
+ * `POST /v1/recipes/logout` (ADR 0063): a signed-in page of the tab an account switch runs
+ * in, described as a page without a login form is (its shown buttons and links, redacted),
+ * so the service names the control that signs out, or the one that opens the menu holding
+ * it, or the one that confirms a sign-out the page asks about. Without `base` the page
+ * starts the origin and path's logout recipe; with `base` it is the page after that
+ * revision's last click, whose answer appends the next click. Nothing of the vault is sent.
+ */
+export const logoutGenerationRequestSchema = v.pipe(
+  v.strictObject({
+    version: v.literal(1),
+    observation: loginObservationSchema,
+    /**
+     * The logout recipe whose clicks led to this page. `keep`, when it holds fewer clicks
+     * than the recipe, says the recipe's next click is gone from the page: the clicks past
+     * `keep` are replaced by the one the page is asked for (ADR 0063).
+     */
+    base: v.optional(
+      v.strictObject({
+        recipeId: syncRecipeIdSchema,
+        revision: writtenRevision,
+        keep: v.optional(
+          v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(MAX_LOGOUT_TARGETS - 1)),
+        ),
+      }),
+    ),
+    /**
+     * A logout control the extension found by its words on `path` and clicked, after which
+     * the page changed but still shows the account, as a confirmation dialog: the recipe
+     * starts with it, and the page's click follows (ADR 0063).
+     */
+    local: v.optional(v.strictObject({ path: loginPathSchema, target: logoutTargetSchema })),
+  }),
+  v.check(
+    (request) => isEntryObservation(request.observation),
+    "A logout request's page shows no field and lists no accounts",
+  ),
+  v.check(
+    (request) => !(request.base && request.local),
+    "A logout request follows a recipe or a local click, not both",
+  ),
+);
+
+/** Why the model named no logout control (ADR 0063). */
+export const logoutAbstentionSchema = v.picklist([
+  "no-logout-control",
+  "ambiguous",
+  "insufficient-evidence",
+  "unsafe-instructions",
+]);
+
+/**
+ * The answer to a logout request (ADR 0063): the origin's logout recipe with the page's
+ * click, `signed-out` when the page shows no signed-in account (nothing is stored), an
+ * abstention, a failure or why the model was not called.
+ */
+export const logoutGenerationResultSchema = v.pipe(
+  v.variant("status", [
+    v.strictObject({
+      version: v.literal(1),
+      status: v.literal("recipe"),
+      change: activeLogoutChange,
+    }),
+    v.strictObject({ version: v.literal(1), status: v.literal("signed-out") }),
+    v.strictObject({
+      version: v.literal(1),
+      status: v.literal("abstained"),
+      reason: logoutAbstentionSchema,
+    }),
+    generationAnswers[1],
+    generationAnswers[2],
+  ]),
+  v.check((result) => rejectsOnlyInvalidOutput(result), "Only invalid output has a rejection"),
+);
+
+/**
  * `POST /v1/recipes/:recipeId/completion`: a page shown after an effect step of the given
  * revision that no recipe check explained, judged at most once per revision, origin, path
  * and judge prompt version so the service can learn a signed-in marker or a handler (ADR
@@ -393,6 +483,9 @@ export type RecipeGenerationRequest = v.InferOutput<typeof recipeGenerationReque
 export type RecipeGenerationResult = v.InferOutput<typeof recipeGenerationResultSchema>;
 export type EntryGenerationRequest = v.InferOutput<typeof entryGenerationRequestSchema>;
 export type EntryGenerationResult = v.InferOutput<typeof entryGenerationResultSchema>;
+export type LogoutGenerationRequest = v.InferOutput<typeof logoutGenerationRequestSchema>;
+export type LogoutGenerationResult = v.InferOutput<typeof logoutGenerationResultSchema>;
+export type LogoutAbstention = v.InferOutput<typeof logoutAbstentionSchema>;
 export type RecipeCompletionRequest = v.InferOutput<typeof recipeCompletionRequestSchema>;
 export type RecipeCompletionResult = v.InferOutput<typeof recipeCompletionResultSchema>;
 export type RecipePageSampleRequest = v.InferOutput<typeof recipePageSampleRequestSchema>;

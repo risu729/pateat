@@ -745,16 +745,82 @@ export const loginChooserRecipeSchema = v.pipe(
     "A chooser has an other-account branch only with its button",
   ),
 );
+/** How many clicks a logout recipe holds (ADR 0063): a switch runs at most 3 rounds. */
+export const MAX_LOGOUT_TARGETS = 3;
+/**
+ * What a logout recipe's click does (ADR 0063): `menu` opens a menu or panel that holds the
+ * logout control, `logout` signs the person out (a site may then ask to confirm), and
+ * `confirm` confirms a sign-out a dialog or page asks about.
+ */
+export const logoutPurposeSchema = v.picklist(["menu", "logout", "confirm"]);
+/**
+ * A logout click's locator: a control by `id`, `name`, `test-id`, its rendered text, or,
+ * for a control that shows no text of its own (an icon-only account menu, or a menu item),
+ * its `aria-label` or `title` (`accessible-name`); never `autocomplete` or `label`, which
+ * name only inputs.
+ */
+export const logoutTargetSchema = v.variant("by", [
+  loginAttributeTargetSchema.options[0],
+  loginAttributeTargetSchema.options[1],
+  loginTextTargetSchema,
+  loginAccessibleNameTargetSchema,
+]);
+/**
+ * A recipe whose only member is `logout` (ADR 0063): how a signed-in page of the origin
+ * signs out, for switching to another account from the toolbar popup. `path` is the page
+ * the first click is on; each target is a click on the path the page then shows, in order,
+ * such as the account menu, then "Sign out" in it, then the confirmation. It reads no vault
+ * field, starts no login and its path is never a path where a login recipe starts. The
+ * service keys it apart from a login, chooser or entry recipe of the same origin and path.
+ */
+export const loginLogoutRecipeSchema = v.pipe(
+  v.strictObject({
+    version: v.literal(1),
+    id: identifier,
+    revision,
+    origin: loginOriginSchema,
+    logout: v.strictObject({
+      path,
+      targets: v.pipe(
+        v.array(
+          v.strictObject({
+            kind: v.literal("click"),
+            path,
+            target: logoutTargetSchema,
+            purpose: logoutPurposeSchema,
+          }),
+        ),
+        v.minLength(1),
+        v.maxLength(MAX_LOGOUT_TARGETS),
+      ),
+    }),
+  }),
+  v.check(
+    ({ logout }) => logout.targets[0]!.path === logout.path,
+    "A logout recipe starts with a click on its path",
+  ),
+  v.check(
+    ({ logout }) =>
+      logout.targets.every(
+        (target, index) =>
+          target.purpose !== "confirm" ||
+          (index === logout.targets.length - 1 && logout.targets[index - 1]?.purpose === "logout"),
+      ),
+    "Only a last click right after the logout confirms it",
+  ),
+);
 /**
  * Any recipe the service stores and devices sync: a recipe with a login route
- * (`loginRecipeSchema`, which every login runs), an entry recipe (ADR 0031) or a chooser
- * recipe (ADR 0028). Strict objects keep them apart, so `entry` or `chooser` is never
- * beside `slots`, `steps` or another login route member.
+ * (`loginRecipeSchema`, which every login runs), an entry recipe (ADR 0031), a chooser
+ * recipe (ADR 0028) or a logout recipe (ADR 0063). Strict objects keep them apart, so
+ * `entry`, `chooser` or `logout` is never beside `slots`, `steps` or another login route
+ * member.
  */
 export const storedLoginRecipeSchema = v.union([
   loginRecipeSchema,
   loginEntryRecipeSchema,
   loginChooserRecipeSchema,
+  loginLogoutRecipeSchema,
 ]);
 export const loginAccountSchema = v.strictObject({
   origin: loginOriginSchema,
@@ -852,19 +918,23 @@ export function loginStepEffect(step: LoginStep): LoginEffect | undefined {
 export type LoginRecipe = v.InferOutput<typeof loginRecipeSchema>;
 export type LoginEntryRecipe = v.InferOutput<typeof loginEntryRecipeSchema>;
 export type LoginChooserRecipe = v.InferOutput<typeof loginChooserRecipeSchema>;
+export type LoginLogoutRecipe = v.InferOutput<typeof loginLogoutRecipeSchema>;
+export type LogoutPurpose = v.InferOutput<typeof logoutPurposeSchema>;
+export type LogoutTarget = LoginLogoutRecipe["logout"]["targets"][number];
 export type StoredLoginRecipe = v.InferOutput<typeof storedLoginRecipeSchema>;
 /** Whether a stored recipe has a login route: its own `steps`. */
 export const isLoginRouteRecipe = (recipe: StoredLoginRecipe): recipe is LoginRecipe =>
   "steps" in recipe;
 /**
- * The path a stored recipe starts on: its entry's (ADR 0031), its chooser's (ADR 0028)
- * or its first step's. The service keeps one generated recipe per origin and start path
+ * The path a stored recipe starts on: its entry's (ADR 0031), its chooser's (ADR 0028),
+ * its logout's (ADR 0063) or its first step's. The service keeps one generated recipe per origin and start path
  * either way. Each kind of stored recipe is named, so a new kind has to say where it
  * starts.
  */
 export function storedRecipeStartPath(recipe: StoredLoginRecipe): string {
   if ("entry" in recipe) return recipe.entry.path;
   if ("chooser" in recipe) return recipe.chooser.path;
+  if ("logout" in recipe) return recipe.logout.path;
   if ("steps" in recipe) return recipe.steps[0]!.path;
   const unknown: never = recipe;
   throw new Error(`Unknown stored recipe kind: ${JSON.stringify(unknown)}`);
@@ -987,7 +1057,7 @@ export function chooserRoute(
 /** The slots a stored recipe's routes fill: none for an entry, its branches' for a chooser. */
 export function storedRecipeSlots(recipe: StoredLoginRecipe): string[] {
   if ("steps" in recipe) return recipeSlots(recipe);
-  if ("entry" in recipe) return [];
+  if ("entry" in recipe || "logout" in recipe) return [];
   return [
     ...new Set(
       [recipe.chooser.afterAccount, recipe.chooser.afterOther].flatMap((branch) =>

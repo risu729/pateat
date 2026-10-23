@@ -33,6 +33,7 @@ import {
   type VaultPasskeyCandidate,
 } from "../src/passkeys/vault";
 import { createLoginGeneration } from "../src/service/generation";
+import { createLogoutService } from "../src/service/logout";
 import { createLoginRecords } from "../src/service/login-records";
 import { createLoginOutcomes } from "../src/service/outcomes";
 import { createRecipeUse } from "../src/service/recipe-use";
@@ -253,6 +254,15 @@ export default defineBackground(() => {
       sync: () => recipeSync.sync(),
       refresh: () => recipeSync.sync({ settings: false }),
     }),
+    // ADR 0063: an account switch from the popup signs the tab out first.
+    logout: createLogoutService({
+      service,
+      transport: {
+        generateLogout: (...request) => keepAlive(serviceTransport.generateLogout(...request)),
+      },
+      recipes: recipeSync.recipes,
+      refresh: () => recipeSync.sync({ settings: false }),
+    }),
     // ADR 0027: a passkey handler runs only for an item Pateat can sign with.
     passkeys: (account) => itemPasskeyFacts(vaultPasskeys, account),
     // ADR 0034: a popup choice keeps the page's request only when an item holds a passkey.
@@ -338,6 +348,8 @@ export default defineBackground(() => {
         loginAccount: login.loginAccount,
         requested: login.passkeyRequested,
         answered: passkeyAnswered,
+        // ADR 0063: a site that asks every time opens the chooser with no default.
+        defaultUnset: login.defaultUnset,
         conditional: login.conditionalRequest,
         hold: () => vaultSync.enter(false),
       })
@@ -354,6 +366,8 @@ export default defineBackground(() => {
         // ADR 0022: a login that moves on to the passkey's site after an answer completes.
         answered: passkeyAnswered,
         // ADR 0034: the page's own conditional request waits for the login of its page.
+        // ADR 0063: a site that asks every time opens the chooser with no default.
+        defaultUnset: login.defaultUnset,
         conditional: login.conditionalRequest,
         // The open vault is not replaced while a passkey request is looked up or signed.
         hold: () => vaultSync.enter(false),
