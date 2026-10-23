@@ -29,6 +29,8 @@ export const settingsEn = {
     "an account used to log in on a site was saved for that site",
   "a vault field for a personal detail was linked or unlinked for a site":
     "a vault field for a personal detail was linked or unlinked for a site",
+  "a site was set to hand its passkey requests to the browser":
+    "a site was set to hand its passkey requests to the browser",
   "settings changed for a reason no longer recorded":
     "settings changed for a reason no longer recorded",
   "{{error}} Your unsaved changes are kept.": "{{error}} Your unsaved changes are kept.",
@@ -157,6 +159,13 @@ export const settingsEn = {
   "A default account takes effect at the next login.":
     "A default account takes effect at the next login.",
   "{{item}} ({{method}})": "{{item}} ({{method}})",
+  "Sites whose passkey requests go to the browser":
+    "Sites whose passkey requests go to the browser",
+  'Added with "Always for this site" in Pateat\'s passkey window. Pateat answers no passkey request on these sites and logs in there only with a password. Remove a site to let Pateat answer again.':
+    'Added with "Always for this site" in Pateat\'s passkey window. Pateat answers no passkey request on these sites and logs in there only with a password. Remove a site to let Pateat answer again.',
+  "Remove {{hostname}} from this list": "Remove {{hostname}} from this list",
+  Remove: "Remove",
+  "No sites listed": "No sites listed",
   "Vault timeout": "Vault timeout",
   "Saved on this device.": "Saved on this device.",
   "The vault timeout could not be saved. Try again.":

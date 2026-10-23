@@ -201,7 +201,12 @@ export const diagnosticsStatusSchema = v.strictObject({
   connections: v.pipe(v.array(connectionSchema), v.maxLength(64)),
   service: serviceSchema,
   settings: v.optional(
-    v.strictObject({ excludedSites: count, siteDefaults: count, bindings: count }),
+    v.strictObject({
+      excludedSites: count,
+      siteDefaults: count,
+      bindings: count,
+      passkeyBrowserSites: count,
+    }),
   ),
   storage: v.strictObject({ localBytes: v.optional(count) }),
   logs: v.optional(

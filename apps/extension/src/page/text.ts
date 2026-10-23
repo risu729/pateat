@@ -443,8 +443,8 @@ export function opensHere(link: HTMLAnchorElement): boolean {
  * reloads the page and never counts, nor does a script link, nor a fragment that starts
  * with `#/` or `#!`, which a page's router reads as a route (`#/account/delete`), so such
  * a link may go to another page in all but its URL. Only an accessible-name
- * locator, which only a `password` handler's button uses, counts such a link as a button;
- * everywhere else it stays a link.
+ * locator of a `password` handler's button counts such a link as a button; everywhere
+ * else, a route step's click by that name included, it stays a link.
  */
 export function isFragmentButton(element: Element): element is HTMLAnchorElement {
   if (!(element instanceof HTMLAnchorElement)) return false;
@@ -629,16 +629,37 @@ function labelledBy(element: Element): Element[] {
 
 /**
  * The rendered text of `elements`, collapsed; undefined when it is cut short, which could
- * collapse to a prefix of it.
+ * collapse to a prefix of it. With `ownHidden`, an element's own `aria-hidden="true"` does
+ * not hide it, as a control's label that the page hides from assistive technology so that
+ * the control alone announces it (`<span id="say" aria-hidden="true">Continue</span>`
+ * beside `<input type="submit" aria-labelledby="say">`, Amazon.co.jp, 2026-10-23); an
+ * `inert` or `aria-hidden` ancestor or descendant, and CSS, still hide.
  */
-function readNames(elements: readonly Element[]): string | undefined {
+function readNames(
+  elements: readonly Element[],
+  { ownHidden = false }: { ownHidden?: boolean } = {},
+): string | undefined {
   const readLimit = fieldNameLimit * 4;
   let raw = "";
   for (const part of elements) {
-    raw += ` ${renderedText(part, readLimit) ?? ""}`;
+    const read = () => renderedText(part, readLimit) ?? "";
+    raw += ` ${ownHidden ? readOwnAriaHidden(part, read) : read()}`;
     if (raw.length > readLimit) return undefined;
   }
   return collapseText(raw);
+}
+
+/** Runs `read` with `element`'s own `aria-hidden="true"`, but not `inert`, not hiding it. */
+function readOwnAriaHidden<Result>(element: Element, read: () => Result): Result {
+  if (element.getAttribute("aria-hidden") !== "true" || element.hasAttribute("inert"))
+    return read();
+  const outer = behindModal;
+  behindModal = new Set([...(outer ?? []), element]);
+  try {
+    return read();
+  } finally {
+    behindModal = outer;
+  }
 }
 
 /**
@@ -667,7 +688,8 @@ export function isNamedControl(element: Element): element is HTMLElement {
 /**
  * The accessible name an `{ by: "accessible-name" }` locator compares (ADR 0048 amendment
  * of 2026-10-19): for a shown {@link isNamedControl}, the rendered text of the elements
- * its `aria-labelledby` names, else its `aria-label`, the first that is not empty,
+ * its `aria-labelledby` names, each read even when its own `aria-hidden` hides it from
+ * assistive technology (ADR 0048 amendment of 2026-10-23), else its `aria-label`, the first that is not empty,
  * collapsed. A control that is not shown, or whose first name is longer than 120 code
  * units, has none; a later source is never tried in its place. Its visible text, an
  * image's `alt` and its `title` are not its name here.
@@ -675,7 +697,7 @@ export function isNamedControl(element: Element): element is HTMLElement {
 export function controlName(element: Element): string | undefined {
   if (!isNamedControl(element) || !shown(element)) return undefined;
   return firstName([
-    () => readNames(labelledBy(element)),
+    () => readNames(labelledBy(element), { ownHidden: true }),
     () => collapseText(element.getAttribute("aria-label") ?? ""),
   ]);
 }

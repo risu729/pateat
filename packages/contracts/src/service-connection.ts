@@ -37,7 +37,14 @@ export function normalizeServiceOrigin(input: string): string | undefined {
 const timestamp = v.pipe(v.number(), v.integer(), v.minValue(0));
 
 export const serviceStateSchema = v.variant("kind", [
-  v.strictObject({ kind: v.literal("disconnected") }),
+  v.strictObject({
+    kind: v.literal("disconnected"),
+    /**
+     * How many recipes this device holds as its own (ADR 0040), which logins use while no
+     * service is paired; absent for none, -1 when they cannot be read.
+     */
+    keptRecipes: v.optional(v.pipe(v.number(), v.integer(), v.minValue(-1))),
+  }),
   v.strictObject({
     kind: v.literal("connected"),
     origin: serviceOriginSchema,
@@ -64,7 +71,17 @@ export const serviceRequestSchema = v.variant("type", [
     origin: serviceOriginSchema,
     label: deviceLabelSchema,
   }),
-  v.strictObject({ version: v.literal(1), type: v.literal("service.disconnect") }),
+  v.strictObject({
+    version: v.literal(1),
+    type: v.literal("service.disconnect"),
+    /**
+     * Keeps the synced recipes as this device's own, so logins go on without the service
+     * (ADR 0040); otherwise they are deleted with the pairing.
+     */
+    keepRecipes: v.optional(v.boolean()),
+  }),
+  /** Deletes the recipes this device holds as its own (ADR 0040). */
+  v.strictObject({ version: v.literal(1), type: v.literal("service.delete-recipes") }),
   /** Forgets an unreadable local record without contacting the service. */
   v.strictObject({ version: v.literal(1), type: v.literal("service.forget") }),
 ]);
@@ -97,6 +114,8 @@ export const serviceErrorCodeSchema = v.picklist([
   "pairing-unavailable",
   /** The service could not fetch the keys it checks sign-ins with; try again later. */
   "access-keys-unavailable",
+  /** The synced recipes could not be kept on this device, so it stayed paired. */
+  "recipes-not-kept",
 ]);
 
 export const serviceResponseSchema = v.variant("ok", [

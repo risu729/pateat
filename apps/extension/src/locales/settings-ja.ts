@@ -30,6 +30,8 @@ export const settingsJa = {
     "サイトでのログインに使ったアカウントの保存",
   "a vault field for a personal detail was linked or unlinked for a site":
     "サイトの個人情報の割り当ての変更",
+  "a site was set to hand its passkey requests to the browser":
+    "サイトのパスキーのリクエストをブラウザーに任せる設定",
   "settings changed for a reason no longer recorded": "理由の記録が残っていない変更",
   "{{error}} Your unsaved changes are kept.": "{{error}} 未保存の変更は保持されています。",
   "{{error}} Your unsaved changes are kept. Reload saved settings to try again; reloading drops them.":
@@ -161,6 +163,13 @@ export const settingsJa = {
   "A default account takes effect at the next login.":
     "既定のアカウントは次回のログインから有効になります。",
   "{{item}} ({{method}})": "{{item}}（{{method}}）",
+  "Sites whose passkey requests go to the browser":
+    "パスキーのリクエストをブラウザーに任せるサイト",
+  'Added with "Always for this site" in Pateat\'s passkey window. Pateat answers no passkey request on these sites and logs in there only with a password. Remove a site to let Pateat answer again.':
+    "Pateat のパスキーウィンドウの「このサイトでは常に」で追加されます。これらのサイトでは Pateat はパスキーのリクエストに応答せず、パスワードでのみログインします。サイトを削除すると、Pateat が再び応答します。",
+  "Remove {{hostname}} from this list": "{{hostname}} をこの一覧から削除",
+  Remove: "削除",
+  "No sites listed": "登録されたサイトはありません",
   "Vault timeout": "保管庫のタイムアウト",
   "Saved on this device.": "このデバイスに保存しました。",
   "The vault timeout could not be saved. Try again.":

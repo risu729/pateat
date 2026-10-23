@@ -5,6 +5,7 @@ import {
   namesPasskey,
   registersPasskey,
   isCodeField,
+  isLoginTarget,
   isStepTarget,
   loginStepSchema,
   personalDataAutocompleteTokens,
@@ -393,10 +394,11 @@ export function validatePagePlan(
 ): { ok: true; plan: ValidatedPagePlan } | { ok: false; reason: PlanRejection } {
   if (plan.fields.length === 0) return { ok: false, reason: "empty-plan" };
   // A link named by its path is only ever a signed-in marker (ADR 0029), and a button named
-  // by its accessible name only a `password` handler's (ADR 0048), never a step's.
+  // by its accessible name only a `password` handler's (ADR 0048) or the plan's click
+  // (ADR 0048 amendment of 2026-10-23), never a field or the account switch.
   const candidates = new Map(
     observation.candidates.flatMap(({ target, ...candidate }) =>
-      isStepTarget(target) ? [[candidate.id, { ...candidate, target }] as const] : [],
+      isLoginTarget(target) ? [[candidate.id, { ...candidate, target }] as const] : [],
     ),
   );
   const requested = new Map(slots.map((slot) => [slot.id, slot]));
@@ -458,7 +460,10 @@ export function validatePagePlan(
     if (accountSwitch === undefined) return { ok: false, reason: "unknown-candidate" };
     if (usedCandidates.has(accountSwitch.id) || accountSwitch.id === action.id)
       return { ok: false, reason: "duplicate-candidate" };
-    if (!isActionRole(accountSwitch.role) && accountSwitch.role !== "link")
+    if (
+      (!isActionRole(accountSwitch.role) && accountSwitch.role !== "link") ||
+      !isStepTarget(accountSwitch.target)
+    )
       return { ok: false, reason: "incompatible-role" };
   }
 
@@ -863,7 +868,7 @@ const accountText = /\[(?:email|masked|number|account)\]|@|\d{4}/u;
  * control must be a button or link of the page, not hold account text and not be the
  * other control. A list whose accounts are all shown beside buttons needs a named
  * control. Its locator is never `autocomplete` or `label`, which name only inputs, nor
- * `accessible-name`, which names only a `password` handler's button.
+ * `accessible-name`, which names only a `password` handler's button or a route step's click.
  */
 export function validateAccountList(
   observation: LoginObservation,

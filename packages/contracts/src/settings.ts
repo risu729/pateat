@@ -329,6 +329,22 @@ export const localSettingsSchema = v.pipe(
      * the list existed has no sites.
      */
     repromptSites: v.optional(siteRulesSchema, []),
+    /**
+     * Hostnames whose passkey requests Pateat hands on to the browser unanswered, added by
+     * the chooser's "Always for this site" (ADR 0007). Exact hostnames, without subdomains.
+     * Settings written before the list existed lack it, and read as an empty list.
+     */
+    passkeyBrowserSites: v.optional(
+      v.pipe(
+        v.array(v.strictObject({ hostname: hostnameSchema })),
+        v.maxLength(1000),
+        v.check(
+          (sites) => new Set(sites.map((site) => site.hostname)).size === sites.length,
+          "Duplicate sites",
+        ),
+      ),
+      () => [],
+    ),
     siteDefaults: v.pipe(
       v.array(siteDefaultSchema),
       v.maxLength(1000),
@@ -429,6 +445,8 @@ export const SETTINGS_CHANGE_CAUSES = [
   "account-choice",
   /** A vault field linked to a personal detail on a site, or that link removed (ADR 0061). */
   "detail-link",
+  /** A site whose passkey requests go to the browser, from the chooser (ADR 0007). */
+  "passkey-browser-site",
 ] as const;
 export const settingsChangeCauseSchema = v.picklist(SETTINGS_CHANGE_CAUSES);
 /** The most recent revisions whose cause the snapshot keeps. */
@@ -657,6 +675,7 @@ export function createDefaultSettings(catalog: VaultCatalog = DUMMY_VAULT_CATALO
     })),
     excludedSites: [],
     repromptSites: [],
+    passkeyBrowserSites: [],
     siteDefaults: [],
     bindings: [],
   };
@@ -738,6 +757,17 @@ export function itemAsksForMasterPassword(
   value: string,
 ): boolean {
   return item?.reprompt === true && asksForMasterPassword(settings, value);
+}
+
+/**
+ * Whether Pateat hands every passkey request of this page's exact hostname on to the
+ * browser (ADR 0007). An invalid destination is handed on too.
+ */
+export function isPasskeyBrowserSite(settings: LocalSettings, value: string): boolean {
+  const url = parseSiteUrl(value);
+  const hostname = url && normalizeHostname(url.hostname);
+  if (!hostname) return true;
+  return settings.passkeyBrowserSites.some((site) => site.hostname === hostname);
 }
 
 export type SiteAccountResolution =
