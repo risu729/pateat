@@ -7,6 +7,7 @@ import {
 } from "@pateat/contracts";
 import { describe, expect, it } from "vitest";
 import {
+  actionPurpose,
   carriedSlotNames,
   customSlotNames,
   namesPasskey,
@@ -65,6 +66,58 @@ const slots = [builtInLoginSlots.username, builtInLoginSlots.password, branch, a
 const action = { candidate: "login", purpose: "submit" } as const;
 const validate = (fields: PagePlan["fields"]) =>
   validatePagePlan(observation, slots, { fields, action });
+
+describe("a button beside a form without one of its own", () => {
+  // Sakura Internet's login page (2026-10-23): the ID and password in a form, links to
+  // reset them in it, and the login button just after the form.
+  const page = (...extra: Candidate[]): LoginObservation => ({
+    ...observation,
+    candidates: [
+      input("member", { group: "f1" }),
+      input("forgot", { role: "link", group: "f1" }),
+      input("pass", { role: "password", group: "f1" }),
+      input("go", { role: "button" }),
+      ...extra,
+    ],
+  });
+  const loginSlots = [builtInLoginSlots.username, builtInLoginSlots.password];
+  const both = [
+    { slot: "username", candidate: "member" },
+    { slot: "password", candidate: "pass" },
+  ];
+  const submit = { candidate: "go", purpose: "submit" } as const;
+
+  it("presses it for that form", () => {
+    expect(validatePagePlan(page(), loginSlots, { fields: both, action: submit }).ok).toBe(true);
+    // An identifier alone submits, as the form still shows its password.
+    const member = [{ slot: "username", candidate: "member" }];
+    expect(actionPurpose(page(), loginSlots, { fields: member, action: submit }, "advance")).toBe(
+      "submit",
+    );
+  });
+
+  it("refuses it for a form with a button of its own, or beside a field outside every form", () => {
+    for (const extra of [
+      input("own", { role: "button", group: "f1" }),
+      input("q", { group: undefined }),
+    ])
+      expect(
+        validatePagePlan(page(extra), loginSlots, { fields: both, action: submit }),
+        extra.id,
+      ).toEqual({ ok: false, reason: "mixed-groups" });
+    // Fields of two forms never share it.
+    const two = page(input("other", { role: "password", group: "f2" }));
+    expect(
+      validatePagePlan(two, loginSlots, {
+        fields: [
+          { slot: "username", candidate: "member" },
+          { slot: "password", candidate: "other" },
+        ],
+        action: submit,
+      }),
+    ).toEqual({ ok: false, reason: "mixed-groups" });
+  });
+});
 
 describe("an accessible-name locator (ADR 0048 amendment of 2026-10-19)", () => {
   it("names no route step's element, as only a password handler's button uses it", () => {

@@ -2838,17 +2838,23 @@ extractor gap: Rakuten's login (`shadow-control`), Amazon's `/ax/claim`
 (`URL.parse` replaced by the page) and American Express (`eval` disabled) the probe
 failed in the page's own world, where the extension's content script would not.
 
-A second pass the same day observed about 280 more pages (Japanese shops, hosting,
-job and travel sites; English SaaS, banks, universities and streaming services) with
-the same build and added 39 Japanese and 31 English cases, after an independent review
-of every label. Pages whose email step only sends a sign-in link or code, with no
-password (Slack, Vercel, Claude Platform, Instacart, Loom, Temu), are left out, as no
-login item fits them; Slack and Vercel were removed from the first pass for that
-reason. Sakura Internet's login page is left out too: its login button sits outside
-the form of its fields, so the correct plan fails the plan check (`mixed-groups`), a
-case for that check rather than for the corpus. The Japanese set now has 108 cases (15
-abstain, 11 passkey buttons, 27 `advance`) and the English set 45 (5 abstain, 3 passkey
-buttons, 13 `advance`); the heuristic scores 0.73 (18 false submits) and 0.64 (7).
+A second pass the same day observed about 280 more pages (Japanese shops, hosting, job
+and travel sites; English SaaS, banks, universities and streaming services) with the
+same build and added 39 Japanese and 31 English cases, after an independent review of
+every label. Pages whose email step only sends a sign-in link or code, with no password
+(Slack, Vercel, Claude Platform, Instacart, Loom, Temu), are left out, as no login item
+fits them; Slack and Vercel were removed from the first pass for that reason. Sakura
+Internet's login page is left out too: its login button sits outside the form of its
+fields, so the correct plan fails the plan check (`mixed-groups`), a case for that check
+rather than for the corpus. Since 2026-10-23 the check accepts a button outside every
+form for the fields of one form that shows no button of its own, when no field outside
+every form is on the page (`besideForm`, agent change, local tests only; recorded in
+[Bitwarden differences](bitwarden-differences.md#submit-button-outside-the-form)); on
+the live page in cloud Chromium (main `b803056`) generation then planned 会員ID,
+パスワード and ログイン, and the check accepted it. The Japanese set now has 108 cases
+(15 abstain, 11 passkey buttons, 27 `advance`) and the English set 45 (5 abstain, 3
+passkey buttons, 13 `advance`); the heuristic scores 0.73 (18 false submits) and 0.64
+(7).
 
 The same import measured the extractor on real markup (2026-10-11, main `9cf8356`). Of
 the 241 pages with an annotated login form, 6 gave no observation and 109 an incomplete
