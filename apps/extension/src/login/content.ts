@@ -1,5 +1,5 @@
 import * as v from "valibot";
-import type { LoginMarkerTarget, LoginTarget } from "@pateat/contracts";
+import { sameLoginTarget, type LoginMarkerTarget, type LoginTarget } from "@pateat/contracts";
 import { browser } from "wxt/browser";
 import {
   accountText,
@@ -12,6 +12,7 @@ import { pressElement } from "../page/script-url-click";
 import { autocompleteTokens, findTargets } from "../page/targets";
 import {
   clickable,
+  keyable,
   passwordChoice,
   targetCheck,
   targetState,
@@ -19,6 +20,16 @@ import {
 } from "../page/target-state";
 import { answerInput, identifierInput } from "../page/identifier-field";
 import { showsAmount } from "../page/amount";
+import {
+  besideKeypad,
+  findKeypad,
+  keypadCovers,
+  keypadField,
+  keypadInput,
+  keypadOpen,
+  locateKeypad,
+} from "../page/keypad";
+import { typeOnKeypad } from "../page/keypad-typing";
 import {
   CODE_SETTLE_MS,
   splitCodeInputs,
@@ -125,7 +136,11 @@ function ready(readiness: LoginReadiness): boolean {
     readiness.targets.every((target) => {
       const found = matches(target);
       if (found.length !== 1) return false;
-      if (readiness.require === "writable") return writable(found[0]);
+      // A field entered on the page's keypad may be read-only (ADR 0067).
+      if (readiness.require === "writable")
+        return readiness.keypad?.some((other) => sameLoginTarget(other, target))
+          ? keyable(found[0])
+          : writable(found[0]);
       // A control named by its accessible name may be a link to a fragment of its page.
       if (readiness.require === "clickable")
         return clickable(found[0], { fragment: target.by === "accessible-name" });
@@ -139,11 +154,15 @@ function ready(readiness: LoginReadiness): boolean {
 /**
  * Whether the page shows a visible password input, or one marked for a username or a
  * one-time code: the only pages without a recipe that may be sent for generation
- * (ADR 0016).
+ * (ADR 0016). A read-only one counts beside a software keyboard (`keypadField`,
+ * ADR 0067).
  */
 function showsSignIn(): boolean {
   return [...document.querySelectorAll("input")].some((input) => {
     const tokens = autocompleteTokens(input);
+    // The keypad is looked for only for a read-only input that may take its characters.
+    if (!writable(input) && keyable(input) && keypadInput(input))
+      return keypadField(input, findKeypad(document, input));
     return (
       (input.type === "password" ||
         tokens.includes("username") ||
@@ -1011,10 +1030,16 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     if (command.type === "login.state") {
       const username = command.account?.username;
       if (command.account) command.account.username = "";
-      // The sign-in form shown again in a new document: its inputs each target names alone.
+      // The sign-in form shown again in a new document: its inputs each target names alone,
+      // read-only ones when entered on the page's keypad (ADR 0067).
+      const keyed = new Set<HTMLInputElement>();
       const reshown = command.fields?.flatMap((target) => {
         const found = matches(target);
-        return found.length === 1 && writable(found[0]) ? [found[0]] : [];
+        if (found.length !== 1) return [];
+        if (writable(found[0])) return [found[0]];
+        if (!keyable(found[0]) || !keypadField(found[0], findKeypad(document, found[0]))) return [];
+        keyed.add(found[0]);
+        return [found[0]];
       });
       respond(
         cancelled
@@ -1022,7 +1047,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           : {
               ok: true,
               signs: pageSigns(document, {
-                ...(reshown ? { reshown } : submitted ? { submitted } : {}),
+                ...(reshown ? { reshown, keyed } : submitted ? { submitted } : {}),
                 ...(username === undefined ? {} : { username }),
               }),
               loaded: document.readyState === "complete",
@@ -1064,9 +1089,13 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     }
     // An advance's next step as measured just before its effect, answered with the result.
     let before: TargetState[] | undefined;
+    // And those of another layout's next step on the same path (ADR 0060).
+    let siblingsBefore: TargetState[][] | undefined;
     void (async () => {
       const operation = command.operation;
       let mutated = false;
+      // A key of the page's keypad was pressed (ADR 0067).
+      let keyPressed = false;
       const fail = (
         reason:
           | "structural-mismatch"
@@ -1081,7 +1110,14 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       ) => ({
         ok: false,
         reason,
-        ...(detail ? { detail } : {}),
+        // A stop after a key press leaves its characters in the field, which only the
+        // page's own keys or a reload clear, so the person is told to reload it; a page
+        // that may have submitted them is waited for instead (ADR 0067).
+        ...(keyPressed && reason !== "submitted"
+          ? { detail: "keypad-pressed" as const }
+          : detail
+            ? { detail }
+            : {}),
         mutation: mutated ? "possible" : "none",
       });
       const authorized: unknown = await sendMessage("login", {
@@ -1153,6 +1189,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         const next = command.next;
         if (next)
           before = next.targets.map((target) => targetState(document, target, next.require));
+        siblingsBefore = command.siblings?.map((sibling) =>
+          sibling.targets.map((target) => targetState(document, target, sibling.require)),
+        );
       };
       /**
        * Submits the form of `target`, the field the fill just before typed last, as pressing
@@ -1254,8 +1293,25 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           const found = matches(field.target);
           return found.length === 1 ? found[0] : undefined;
         });
-        if (inputs.some((input) => !writable(input)))
+        // A field entered on the page's keypad may be read-only (ADR 0067).
+        const usable = (input: Element | undefined, index: number) =>
+          step.fields[index]!.keypad ? keyable(input) : writable(input);
+        if (inputs.some((input, index) => !usable(input, index)))
           return fail("structural-mismatch", "target-missing");
+        // Each field's keypad, which holds the keys, shown or not yet.
+        const keypadOf = (index: number) => {
+          const field = step.fields[index]!;
+          const input = inputs[index] as HTMLInputElement;
+          const keypad = field.keypad && locateKeypad(document, field.keypad, input);
+          return keypad && besideKeypad(keypad, input) ? keypad : undefined;
+        };
+        const keypads = step.fields.map((field, index) =>
+          field.keypad ? (keypadOf(index) ?? null) : undefined,
+        );
+        if (keypads.includes(null)) return fail("structural-mismatch", "keypad-missing");
+        // A split code's digits and an effectful fill's event never go through a keypad.
+        if (keypads.some(Boolean) && (command.code || step.effect !== "prepare"))
+          return fail("structural-mismatch", "unsupported-input");
         if (
           command.values.length !== step.fields.length ||
           step.fields.some(
@@ -1347,6 +1403,17 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           )
         )
           return fail("value-mismatch");
+        // A keypad that already shows its keys must show exactly one for each character of
+        // its value before anything is typed, in any field (ADR 0067). One that
+        // opens when its field is pressed is checked once it opens.
+        if (
+          step.fields.some((field, index) => {
+            const keypad = keypads[index];
+            const value = command.values.find((entry) => entry.slot === field.slot)!.value;
+            return keypad && keypadOpen(keypad) && !keypadCovers(keypad, value);
+          })
+        )
+          return fail("value-mismatch", "keypad-key-missing");
         const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
         if (!setter) return fail("structural-mismatch", "unsupported-input");
         // Messages already shown are not the page's answer to this fill.
@@ -1389,7 +1456,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
               pagePath() !== step.path ||
               current.length !== 1 ||
               current[0] !== input ||
-              !writable(input) ||
+              !usable(input, index) ||
               input.form !== form ||
               !acceptsSecret(input, value.secret) ||
               !fits(input, value.value)
@@ -1456,6 +1523,58 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                 if (stopped === "refused") return fail("fill-rejected");
                 if (stopped) return fail("cancelled", stopped);
               }
+            } else if (keypads[index]) {
+              // One press per character on the page's keypad (ADR 0067); a stop is
+              // never followed by another press.
+              filled.add(input);
+              let pressed = false;
+              // eslint-disable-next-line no-await-in-loop
+              const stopped = await typeOnKeypad(input, value.value, () => keypadOf(index), {
+                // The background learns of the presses before the first one, so only a
+                // page replaced after it may count as the page's own submission.
+                beforePress: async () =>
+                  (await sendMessage("login", {
+                    version: 1,
+                    type: "login.keypad.press",
+                    token,
+                    attemptId: operation.attemptId,
+                    operationId: operation.operationId,
+                  })) === true
+                    ? undefined
+                    : ("not-authorized" as const),
+                onPress: () => {
+                  pressed = true;
+                  keyPressed = true;
+                },
+                // A keypad the page redrew is looked up again for each press; the field
+                // must stay the same input.
+                between: () => {
+                  if (cancelled) return "document-cancelled";
+                  if (pagePath() !== step.path) return "page-changed";
+                  if (!input.isConnected) return "field-gone";
+                  const now = matches(field.target);
+                  return now.length !== 1 ||
+                    now[0] !== input ||
+                    !keyable(input) ||
+                    input.form !== form
+                    ? "field-changed"
+                    : undefined;
+                },
+              });
+              if (stopped === "refused") return fail("fill-rejected");
+              // The field was pressed to open its keypad before a key was missing, so even
+              // without a key press the page may have changed (`mutated`).
+              if (stopped === "key-missing" || stopped === "keypad-closed")
+                return fail("structural-mismatch", "keypad-key-missing");
+              // A page that moved, or took the field out of the document, after a press may
+              // have taken the characters so far as the whole value and submitted them, as
+              // a PIN pad that submits at its last digit: never a cancellation that could
+              // type again. A field the page only redrew or hid is no submission; the stop
+              // keeps `keypad-pressed`, and the person is told to reload.
+              if (pressed && (stopped === "page-changed" || stopped === "field-gone"))
+                return fail("submitted");
+              if (stopped === "field-gone") return fail("cancelled", "field-changed");
+              if (stopped) return fail("cancelled", stopped);
             } else if (step.effect === "prepare" || buttonless) {
               // A `detail` handler's input is chosen by its radio button first (ADR 0061);
               // the page's handlers for that click may change the form, so the checks run
@@ -1593,12 +1712,18 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         // The next fills are checked against the next click.
         filled = new WeakSet();
         shownBefore = undefined;
+        // A keypad field Pateat filled is read-only, and still a sign-in input of the form
+        // (ADR 0067).
+        const keyed = new Set(
+          formInputs.filter((input) => !writable(input) && fills.has(input) && keyable(input)),
+        );
+        const signIn = (input: HTMLInputElement) => writable(input) || keyed.has(input);
         // The page changed the form under the fill: never send it without its values.
         if (
           unreadyForm(formInputs, {
             filled: (input) => fills.has(input),
             shownBefore: (input) => passwordsBefore?.has(input) === true,
-            writable,
+            writable: signIn,
             submit: step.purpose === "submit",
           })
         )
@@ -1606,7 +1731,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         // An advance's next step is measured in this task, just before the click, and so
         // is what the page shows before it (ADR 0029).
         measureNext();
-        submitted = submittedPage(document, formInputs.filter(writable));
+        submitted = submittedPage(document, formInputs.filter(signIn), keyed);
         // A CAPTCHA the page shows and that has not passed is left to the person, who
         // presses the button after solving it; the background reads the page as after a
         // click (ADR 0029, S4).
@@ -1661,6 +1786,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             ...result,
             ...(before && (result.ok || ("reason" in result && result.reason === "captcha"))
               ? { before }
+              : {}),
+            ...(siblingsBefore && (result.ok || ("reason" in result && result.reason === "captcha"))
+              ? { siblingsBefore }
               : {}),
             operationId: command.operation.operationId,
             documentId: command.operation.document.documentId,

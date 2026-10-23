@@ -107,6 +107,11 @@ export const loginReadinessSchema = v.strictObject({
   require: v.picklist(["writable", "clickable", "present"]),
   targets: v.pipe(v.array(loginTargetSchema), v.maxLength(20)),
   /**
+   * Those of a `fill` step's `targets` that are entered on the page's software keyboard
+   * (ADR 0067): ready when shown and enabled, read-only or not.
+   */
+  keypad: v.optional(v.pipe(v.array(loginTargetSchema), v.minLength(1), v.maxLength(20))),
+  /**
    * A chooser recipe's start (ADR 0028): ready on its path, without a sign-in input, once
    * one of `targets` shows or the page lists an account by its email, masked or not.
    */
@@ -126,6 +131,10 @@ export function loginReadiness(step: LoginStep): LoginReadiness {
       : step.kind === "click" || (step.kind === "assert" && step.present)
         ? [step.target]
         : [];
+  const keypad =
+    step.kind === "fill"
+      ? step.fields.flatMap((field) => (field.keypad ? [field.target] : []))
+      : [];
   return {
     path: step.path,
     // Enter goes into a field (ADR 0064).
@@ -136,6 +145,7 @@ export function loginReadiness(step: LoginStep): LoginReadiness {
           ? "clickable"
           : "present",
     targets,
+    ...(keypad.length ? { keypad } : {}),
   };
 }
 /**
@@ -309,6 +319,20 @@ export const reconnectSchema = v.strictObject({
 export const authorizeSchema = v.strictObject({
   version: v.literal(1),
   type: v.literal("login.operation.authorize"),
+  token: id,
+  attemptId: id,
+  operationId: id,
+});
+/**
+ * Tells the background, just before the first key press of a fill on a page's software
+ * keyboard, that keys are pressed from now on (ADR 0067). The background answers `true`
+ * while the operation is still the attempt's own and still authorized, and only then is a
+ * key pressed; only then may a document that replaces the page count as the page's own
+ * submission of the fill.
+ */
+export const keypadPressSchema = v.strictObject({
+  version: v.literal(1),
+  type: v.literal("login.keypad.press"),
   token: id,
   attemptId: id,
   operationId: id,
@@ -496,6 +520,12 @@ export const commandSchema = v.variant("type", [
      * answer reports them as `before`.
      */
     next: v.optional(inPlaceNextSchema),
+    /**
+     * With an advance where another layout of the recipe goes on along the same steps (ADR
+     * 0060): that layout's next step on the advance's path, measured as `next` is. The answer
+     * reports them as `siblingsBefore`, in this order.
+     */
+    siblings: v.optional(v.pipe(v.array(inPlaceNextSchema), v.maxLength(2))),
   }),
   v.strictObject({
     version: v.literal(1),
@@ -650,12 +680,23 @@ export const executionResultSchema = v.strictObject({
   documentId: id,
   mutation: v.picklist(["none", "possible"]),
   /**
-   * `value-mismatch`: a value does not fit its input, and nothing was filled.
+   * `value-mismatch`: a value does not fit its input, or a keypad that already shows its
+   * keys has no single key for a character of its value; nothing was filled or pressed
+   * (`mutation` `none`). A keypad that shows its keys only once its field is pressed, and
+   * then lacks one, ends as `structural-mismatch` with `keypad-key-missing`, as that press
+   * may have changed the page.
+   * `keypad-missing`: a keypad field's keypad is not on the page or not beside the field;
+   * `keypad-key-missing`: it showed no key, or a character of the value had no key or
+   * several, so no further key was pressed; `keypad-pressed`: the step stopped for any
+   * reason but `submitted` after a key press, so the field holds characters the person
+   * clears by reloading the page (ADR 0067).
    * `fill-rejected`: after a preparing fill the page marked a filled input invalid or
    * showed a new alert (ADR 0010), or while typing it kept a character out so the input
    * does not hold the value.
    * `submitted`: after a `totp` handler's code fill the page showed that it submits the
-   * code by itself (ADR 0027); nothing was clicked.
+   * code by itself (ADR 0027), or after a key press on a keypad the page moved to another
+   * path or took the field out of the document, perhaps submitting the characters so far
+   * (ADR 0067); nothing was clicked.
    * `captcha`: the page showed a CAPTCHA before a click, so the click was left to the
    * person (ADR 0029, S4); nothing was clicked.
    */
@@ -705,6 +746,9 @@ export const executionResultSchema = v.strictObject({
       "code-watch-failed",
       "form-off-origin",
       "form-destination-unchecked",
+      "keypad-missing",
+      "keypad-key-missing",
+      "keypad-pressed",
     ]),
   ),
   /**
@@ -717,6 +761,10 @@ export const executionResultSchema = v.strictObject({
    * first input, in the same task.
    */
   before: v.optional(v.pipe(v.array(targetStateSchema), v.maxLength(20))),
+  /** With the command's `siblings`: each one's targets as `before` measures `next`'s. */
+  siblingsBefore: v.optional(
+    v.pipe(v.array(v.pipe(v.array(targetStateSchema), v.maxLength(20))), v.maxLength(2)),
+  ),
 });
 export const awaitResultSchema = v.strictObject({
   ok: v.boolean(),

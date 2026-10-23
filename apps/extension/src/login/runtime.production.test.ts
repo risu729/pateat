@@ -315,6 +315,16 @@ const fake = vi.hoisted(() => {
             next && state.present && state.measures
               ? next.targets.map((entry) => stateOf(entry.value, next.require))
               : undefined;
+          // And another layout's next steps on the same path (ADR 0060).
+          const siblings = message["siblings"] as
+            | { require: string; targets: { value: string }[] }[]
+            | undefined;
+          const siblingsBefore =
+            siblings && state.present && state.measures
+              ? siblings.map((sibling) =>
+                  sibling.targets.map((entry) => stateOf(entry.value, sibling.require)),
+                )
+              : undefined;
           await state.onExecute?.(message, _tabId);
           const operation = message["operation"] as {
             operationId: string;
@@ -326,6 +336,7 @@ const fake = vi.hoisted(() => {
             documentId: operation.document.documentId,
             mutation: state.executeReply && !state.executeReply.ok ? "none" : "possible",
             ...(before && state.executeReply?.ok !== false ? { before } : {}),
+            ...(siblingsBefore && state.executeReply?.ok !== false ? { siblingsBefore } : {}),
             ...state.executeReply,
           };
         }
@@ -816,6 +827,205 @@ describe("production login document admission", () => {
     expect(executes()).toHaveLength(2);
     expect(executes()[1]!.accountSwitch).toBeUndefined();
     expect(types().filter((type) => type === "login.switch")).toHaveLength(1);
+  });
+  describe("a software keyboard that submits by itself (ADR 0067)", () => {
+    const keypadRecipe = parseLoginRecipe({
+      ...recipe,
+      steps: [
+        {
+          kind: "fill",
+          path: "/signin",
+          fields: [
+            { slot: "password", target: target("password"), keypad: { by: "id", value: "keys" } },
+          ],
+        },
+        recipe.steps[1],
+      ],
+    });
+    const attempts = () => fake.state.storage["pateat.login-attempts.v5"];
+    const executed = () =>
+      fake.state.messages
+        .filter((entry) => entry.type === "login.execute")
+        .map((entry) => (entry as unknown as { operation: { step: LoginStep } }).operation.step);
+    it("takes the page's own submission after a key press for the click", async () => {
+      // The page took the field away after a press, as a PIN pad that submits at its last
+      // digit does, and shows that it signed in.
+      fake.state.onExecute = async () => {
+        fake.state.executeReply = { ok: false, reason: "submitted", mutation: "possible" };
+        fake.state.present = new Set(["authenticated"]);
+      };
+      const h = harness();
+      h.recipes.recipe.mockResolvedValue(keypadRecipe);
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(attempts()).toMatchObject([{ state: "authenticated", submissions: 1 }]),
+      );
+      expect(executed().map((step) => step.kind)).toEqual(["fill"]);
+    });
+    it.each([false, true])(
+      "takes a page replaced during the keypad fill for its submission only after the page told of a key press (%s)",
+      async (pressed) => {
+        const h = harness();
+        h.recipes.recipe.mockResolvedValue(keypadRecipe);
+        const answers: unknown[] = [];
+        let held = false;
+        fake.state.onExecute = async (message) => {
+          const operation = message["operation"] as {
+            attemptId: string;
+            operationId: string;
+            step: LoginStep;
+          };
+          if (operation.step.kind !== "fill") return;
+          if (pressed)
+            answers.push(
+              await h.login.handle(
+                {
+                  version: 1,
+                  type: "login.keypad.press",
+                  token: "synthetic-token",
+                  attemptId: operation.attemptId,
+                  operationId: operation.operationId,
+                },
+                sender(),
+              ),
+            );
+          // The document is replaced before the fill answers, as by a PIN pad that
+          // submits at its last digit, or by the person's own link click.
+          held = true;
+          await new Promise(() => undefined);
+        };
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(held).toBe(true));
+        expect(answers).toEqual(pressed ? [true] : []);
+        fake.state.onExecute = undefined;
+        expect(await h.hello({ documentId: "next-page" })).toEqual({ ok: true });
+        await vi.waitFor(() =>
+          expect(attempts()).toMatchObject([
+            pressed ? { submissions: 1, operationKind: "click" } : { submissions: 0, stepIndex: 0 },
+          ]),
+        );
+        // The page's own click is never pressed after a replaced keypad page.
+        expect(executed().map((step) => step.kind)).toEqual(["fill"]);
+      },
+    );
+    /** Tells the runtime of the keypad fill's first key press, as the page does. */
+    const press = (h: ReturnType<typeof harness>, message: Record<string, unknown>) => {
+      const operation = message["operation"] as { attemptId: string; operationId: string };
+      return h.login.handle(
+        {
+          version: 1,
+          type: "login.keypad.press",
+          token: "synthetic-token",
+          attemptId: operation.attemptId,
+          operationId: operation.operationId,
+        },
+        sender(),
+      );
+    };
+    it.each([false, true])(
+      "takes a page replaced after the keypad fill went in and before its click for its submission only after a key press (%s)",
+      async (pressed) => {
+        const h = harness();
+        h.recipes.recipe.mockResolvedValue(keypadRecipe);
+        fake.state.onExecute = async (message) => {
+          if (pressed) await press(h, message);
+        };
+        // The fill answered; the click's wait for its button holds, and the page that
+        // submitted at its last digit is replaced meanwhile.
+        let waiting = false;
+        fake.state.awaitReply = () => {
+          if (executed().length === 0) return undefined;
+          waiting = true;
+          return new Promise(() => undefined) as never;
+        };
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(waiting).toBe(true));
+        expect(attempts()).toMatchObject([{ stepIndex: 1, submissions: 0 }]);
+        fake.state.onExecute = undefined;
+        fake.state.awaitReply = undefined;
+        expect(await h.hello({ documentId: "next-page" })).toEqual({ ok: true });
+        await vi.waitFor(() =>
+          expect(attempts()).toMatchObject([
+            pressed
+              ? { submissions: 1, operationKind: "click" }
+              : { submissions: 0, outcome: "interrupted" },
+          ]),
+        );
+        if (pressed) expect(executed().map((step) => step.kind)).toEqual(["fill"]);
+      },
+    );
+    it("takes no page after a keypad stop that pressed keys for a submission", async () => {
+      // The fill stopped after a key press, as when the page redrew its field; the person
+      // reloads the page as told while the login still waits for the page's result.
+      fake.state.executeReply = {
+        ok: false,
+        reason: "structural-mismatch",
+        mutation: "possible",
+        detail: "keypad-pressed",
+      };
+      const h = harness();
+      h.recipes.recipe.mockResolvedValue(keypadRecipe);
+      const answers: unknown[] = [];
+      fake.state.onExecute = async (message) => {
+        answers.push(await press(h, message));
+      };
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(attempts()).toMatchObject([
+          { state: "reconciling", outcome: "structural-mismatch" },
+        ]),
+      );
+      expect(answers).toEqual([true]);
+      fake.state.onExecute = undefined;
+      expect(await h.hello({ documentId: "reloaded" })).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(attempts()).toMatchObject([{ document: { documentId: "reloaded" } }]),
+      );
+      expect(attempts()).toMatchObject([{ submissions: 0 }]);
+      expect(executed().map((step) => step.kind)).toEqual(["fill"]);
+    });
+    it("refuses a key press notice for a step that is no keypad fill", async () => {
+      const h = harness();
+      const answers: unknown[] = [];
+      fake.state.onExecute = async (message) => {
+        const operation = message["operation"] as { attemptId: string; operationId: string };
+        answers.push(
+          await h.login.handle(
+            {
+              version: 1,
+              type: "login.keypad.press",
+              token: "synthetic-token",
+              attemptId: operation.attemptId,
+              operationId: operation.operationId,
+            },
+            sender(),
+          ),
+        );
+        fake.state.onExecute = undefined;
+      };
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(answers).toHaveLength(1));
+      expect(answers).toEqual([false]);
+    });
+    it("takes no missing key for a submission", async () => {
+      fake.state.executeReply = {
+        ok: false,
+        reason: "structural-mismatch",
+        mutation: "possible",
+        detail: "keypad-key-missing",
+      };
+      const h = harness();
+      h.recipes.recipe.mockResolvedValue(keypadRecipe);
+      expect(await h.hello()).toEqual({ ok: true });
+      // The fill failed after the field was pressed, so its result is waited for as after
+      // any fill that may have changed the page, with no submission counted.
+      await vi.waitFor(() =>
+        expect(attempts()).toMatchObject([
+          { outcome: "structural-mismatch", submissions: 0, operationKind: "fill" },
+        ]),
+      );
+      expect(executed().map((step) => step.kind)).toEqual(["fill"]);
+    });
   });
   it("ends as wrong-account and keeps the tab when the page does not click the switch", async () => {
     fake.state.executeReply = { ok: false, reason: "wrong-account", switchable: true };
@@ -5942,6 +6152,41 @@ describe("production login document admission", () => {
           // The fill-only record is forgotten and the tab asks.
           expect(attempts()).toEqual([]);
           expect(fake.state.badges[1]?.text).toBe("2");
+        });
+        it("presses no key of a software keyboard while it only fills, and asks", async () => {
+          // A PIN pad may submit at its last digit, so a fill-only login ends before a keypad
+          // fill (ADR 0021 D, 0067).
+          const h = harness(
+            {},
+            { allowedOrigins: [], uris: async () => ({ ok: true, data: both }), username: true },
+          );
+          h.recipes.recipe.mockResolvedValue(
+            parseLoginRecipe({
+              ...recipe,
+              steps: [
+                {
+                  kind: "fill",
+                  path: "/signin",
+                  fields: [
+                    {
+                      slot: "password",
+                      target: target("password"),
+                      keypad: { by: "id", value: "keys" },
+                    },
+                  ],
+                },
+                recipe.steps[1],
+              ],
+            }),
+          );
+          expect(await h.hello()).toEqual({ ok: true });
+          await vi.waitFor(() => expect(attempts()).toMatchObject([{ state: "authenticated" }]));
+          const before = steps().length;
+          expect(await h.hello({ documentId: "signed-out" })).toEqual({ ok: true });
+          await vi.waitFor(() => expect(fake.state.badges[1]?.text).toBe("2"));
+          await vi.waitFor(async () => expect(await h.login.active()).toBe(false));
+          expect(steps()).toHaveLength(before);
+          expect(attempts()).toEqual([]);
         });
         it("ends the account choice after a logout once the site is excluded", async () => {
           const h = await loggedOut();
@@ -29706,6 +29951,248 @@ describe("a login that starts at a later step its page shows (ADR 0049)", () => 
       expect(await h.hello()).toEqual({ ok: false, reason: "stale-document" });
       expect(executed()).toEqual([]);
       expect(status()).toBeUndefined();
+    });
+
+    describe("where the layouts part after the email page (ADR 0060)", () => {
+      /** The original layout; the newer one, as a repair made it, has another password page. */
+      const original = parseLoginRecipe({ ...twoPages(), layout: "1000" });
+      /**
+       * Starts on the email page, which every layout shares, so the newest runs. Next shows
+       * `afterNext` on `nextPath`, in the same document, or none with `newDocument` until
+       * the test announces the next one; a submit signs in.
+       */
+      const onEmail = (
+        layouts: LoginRecipe[],
+        afterNext: string[],
+        { nextPath = "/signin/pwd", newDocument = false } = {},
+      ) => {
+        fake.state.pageUrl = "https://login.example/signin/id";
+        fake.state.observedPath = "/signin/id";
+        shows(["email", "next"]);
+        // A step's elements that do not show run out its wait.
+        fake.state.awaitReply = (readiness) =>
+          (readiness as unknown as { targets: { value: string }[] }).targets.every((entry) =>
+            fake.state.present!.has(entry.value),
+          )
+            ? { ok: true }
+            : { ok: false, reason: "timeout" };
+        fake.state.onExecute = async (message) => {
+          const step = (message["operation"] as { step: LoginStep }).step;
+          if (step.kind !== "click") return;
+          if (step.purpose === "advance") {
+            fake.state.observedPath = nextPath;
+            fake.state.pageUrl = `https://login.example${nextPath}`;
+            fake.state.present = new Set(afterNext);
+            if (newDocument) await new Promise(() => undefined);
+            return;
+          }
+          fake.state.observedPath = "/home";
+          fake.state.present = new Set(["authenticated"]);
+        };
+        const { h, reports } = laid(layouts);
+        // A resumed login asks for its own layout by ID.
+        h.recipes.recipe.mockImplementation(
+          async (_origin: string, path: string, id?: string, layout?: string) =>
+            id === undefined
+              ? path === "/signin/id"
+                ? layouts.at(-1)
+                : undefined
+              : layouts.find((entry) => entry.layout === layout),
+        );
+        return { h, reports };
+      };
+      /** Layouts whose password form replaces the email form on its own path. */
+      const inPlace = (layout: string, field: string, button: string) =>
+        parseLoginRecipe({
+          ...twoPages("/signin/id"),
+          layout,
+          steps: [
+            ...twoPages("/signin/id").steps.slice(0, 2),
+            {
+              kind: "fill",
+              path: "/signin/id",
+              fields: [{ slot: "password", target: target(field) }],
+            },
+            { kind: "click", path: "/signin/id", target: target(button), purpose: "submit" },
+          ],
+        });
+      const switches = (reports: LoginReport[]) =>
+        reports.filter((entry) => entry.type === "attempt" && entry.layoutFrom !== undefined);
+
+      it("goes on with the layout whose password page shows, and logs the switch", async () => {
+        const { h, reports } = onEmail([original, otherForm("2000")], ["password", "login"]);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
+        expect(reports.find((entry) => entry.type === "start")).toMatchObject({ layout: "2000" });
+        expect(executed()).toEqual(["fill:email", "click:next", "fill:password", "click:login"]);
+        expect(status()![0]).toMatchObject({ layout: "1000", stepCount: 4, submissions: 2 });
+        expect(switches(reports)).toEqual([
+          expect.objectContaining({ branch: "1000", layoutFrom: "2000", stepIndex: 2 }),
+        ]);
+      });
+
+      it("keeps its own layout while its own password page shows", async () => {
+        const { h, reports } = onEmail(
+          [original, otherForm("2000")],
+          ["passcode", "continue", "password", "login"],
+        );
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
+        expect(executed()).toEqual(["fill:email", "click:next", "fill:passcode", "click:continue"]);
+        expect(status()![0]).toMatchObject({ layout: "2000" });
+        expect(switches(reports)).toEqual([]);
+      });
+
+      it("resumes the layout it switched to in the next document", async () => {
+        const { h } = onEmail([original, otherForm("2000")], [], { newDocument: true });
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(executed()).toEqual(["fill:email", "click:next"]));
+        // The password page loads as a new document of the tab.
+        fake.state.present = new Set(["password", "login"]);
+        // Its submit loads the next document.
+        fake.state.onExecute = async (message) => {
+          const step = (message["operation"] as { step: LoginStep }).step;
+          if (step.kind === "click") await new Promise(() => undefined);
+        };
+        expect(await h.hello({ documentId: "synthetic-document-2" }, false)).toMatchObject({
+          ok: true,
+        });
+        await vi.waitFor(() =>
+          expect(executed()).toEqual(["fill:email", "click:next", "fill:password", "click:login"]),
+        );
+        expect(h.recipes.recipe).toHaveBeenCalledWith(origin, "/signin/pwd", recipe.id, "2000");
+        expect(status()![0]).toMatchObject({ layout: "1000", stepIndex: 3 });
+        // The page after the password's submit resumes the layout the login switched to.
+        fake.state.observedPath = "/home";
+        fake.state.pageUrl = "https://login.example/home";
+        fake.state.present = new Set(["authenticated"]);
+        await h.hello({ documentId: "synthetic-document-3" }, false);
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
+        expect(h.recipes.recipe).toHaveBeenLastCalledWith(origin, "/home", recipe.id, "1000");
+      });
+
+      it("switches on the email page's own path only by elements the advance made ready", async () => {
+        const { h, reports } = onEmail(
+          [inPlace("1000", "password", "login"), inPlace("2000", "passcode", "continue")],
+          ["password", "login"],
+          { nextPath: "/signin/id" },
+        );
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
+        expect(executed()).toEqual(["fill:email", "click:next", "fill:password", "click:login"]);
+        expect(switches(reports)).toHaveLength(1);
+        // Next measured the other layout's password form just before it.
+        const next = fake.state.messages.find(
+          (entry) =>
+            entry.type === "login.execute" &&
+            (entry as unknown as { operation: { stepIndex: number } }).operation.stepIndex === 1,
+        ) as unknown as { siblings?: unknown[] };
+        expect(next.siblings).toEqual([
+          { require: "described-writable", targets: [target("password")] },
+        ]);
+      });
+
+      it("does not switch on its path to a form that showed before the advance", async () => {
+        const { h, reports } = onEmail(
+          [inPlace("1000", "password", "login"), inPlace("2000", "passcode", "continue")],
+          [],
+          { nextPath: "/signin/id" },
+        );
+        // The email page shows the original layout's password input once the email is in.
+        fake.state.onExecute = async (message) => {
+          const step = (message["operation"] as { step: LoginStep }).step;
+          fake.state.present = new Set(
+            step.kind === "fill" ? ["email", "next", "password"] : ["email", "password", "login"],
+          );
+        };
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()).toMatchObject([{ outcome: "unknown-submit" }]));
+        expect(executed()).toEqual(["fill:email", "click:next"]);
+        expect(switches(reports)).toEqual([]);
+        expect(status()![0]).toMatchObject({ layout: "2000" });
+      });
+
+      it("does not switch to a layout the account's binding does not cover", async () => {
+        // The original password page also asks for a code, which the saved binding lacks.
+        const coded = parseLoginRecipe({
+          ...original,
+          slots: ["username", "password", "totp"],
+          steps: [
+            ...original.steps.slice(0, 2),
+            {
+              kind: "fill",
+              path: "/signin/pwd",
+              fields: [
+                { slot: "password", target: target("password") },
+                { slot: "totp", target: target("code") },
+              ],
+            },
+            original.steps[3]!,
+          ],
+        });
+        // The binding is saved for the first layout listed, the newer one here.
+        const { h, reports } = onEmail([otherForm("2000"), coded], ["password", "code", "login"]);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()).toMatchObject([{ outcome: "unknown-submit" }]));
+        expect(executed()).toEqual(["fill:email", "click:next"]);
+        expect(switches(reports)).toEqual([]);
+        expect(status()![0]).toMatchObject({ layout: "2000" });
+      });
+
+      it("does not switch to a step that needs no element of the page", async () => {
+        // The original layout waits for a banner to go before its button; nothing on the page
+        // shows that it is the original's.
+        const waiting = parseLoginRecipe({
+          ...original,
+          steps: [
+            ...original.steps.slice(0, 3),
+            {
+              kind: "wait",
+              path: "/signin/pwd",
+              target: target("banner"),
+              present: false,
+              timeoutMs: 1000,
+            },
+            original.steps[3]!,
+          ],
+        });
+        const continued = parseLoginRecipe({
+          ...original,
+          layout: "2000",
+          steps: [
+            ...original.steps.slice(0, 3),
+            { kind: "click", path: "/signin/pwd", target: target("continue"), purpose: "submit" },
+          ],
+        });
+        const { h, reports } = onEmail([waiting, continued], ["password"]);
+        expect(await h.hello()).toEqual({ ok: true });
+        // The button never shows, so the step fails as before, after its retries.
+        await vi.waitFor(() =>
+          expect(status()).toMatchObject([{ state: "blocked", outcome: "retry-limit" }]),
+        );
+        expect(executed()).toEqual(["fill:email", "click:next", "fill:password"]);
+        expect(switches(reports)).toEqual([]);
+        expect(status()![0]).toMatchObject({ layout: "2000" });
+      });
+
+      it("switches at a step it waits for when only the other layout's shows", async () => {
+        // The layouts part at the password page's button: the newer one presses Continue.
+        const continued = parseLoginRecipe({
+          ...original,
+          layout: "2000",
+          steps: [
+            ...original.steps.slice(0, 3),
+            { kind: "click", path: "/signin/pwd", target: target("continue"), purpose: "submit" },
+          ],
+        });
+        const { h, reports } = onEmail([original, continued], ["password", "login"]);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
+        expect(executed()).toEqual(["fill:email", "click:next", "fill:password", "click:login"]);
+        expect(switches(reports)).toEqual([
+          expect.objectContaining({ branch: "1000", layoutFrom: "2000", stepIndex: 3 }),
+        ]);
+      });
     });
   });
 
