@@ -12,7 +12,8 @@ import {
   targetState,
   writable,
 } from "../page/target-state";
-import { identifierInput } from "../page/identifier-field";
+import { answerInput, identifierInput } from "../page/identifier-field";
+import { showsAmount } from "../page/amount";
 import {
   CODE_SETTLE_MS,
   splitCodeInputs,
@@ -244,6 +245,15 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   // each so the background can log a login that did not start.
   const shown = new Set<string>();
   let shownTimer: ReturnType<typeof setTimeout> | undefined;
+  // A recipe generated as `confirm` or `unclear` starts on this path, so the page only
+  // watches (ADR 0035): its first step is reported with `shown` as soon as it shows, and
+  // the person's own submission of its form once per path.
+  let confirmPage: LoginReadiness | undefined;
+  const personSubmits = new Set<string>();
+  // A frame the worker asked to report a sign-in input or a secret answer (ADR 0035): the
+  // watch's stop while it runs, and whether it reported one.
+  let frameWatch: (() => void) | undefined;
+  let frameReported = false;
   // The pending offer's timers: its decision once the DOM is quiet (`offerQuiet`) or at the
   // latest (`offerCap`, ADR 0057), and the end of its window for a sign-in input
   // (`offerWindow`, ADR 0016). The decision is pending while `offerCap` is set.
@@ -325,7 +335,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     const bare = !cancelled && !starts.some(ready) && !showsSignIn() && !afterSubmitted();
     const accounts = bare ? listedAccounts(document) : undefined;
     if (accounts && logOnly(accounts)) void announce(false, false, accounts).catch(() => undefined);
-    // Nothing was sent: the log says why (ADR 0019).
+    // Nothing was sent: the log says why (ADR 0019). A secret answer of `type="text"` looks
+    // like a verification that is never sent, so it is counted (ADR 0035).
     else if (!cancelled && !starts.some(ready))
       void sendMessage("login", {
         version: 1,
@@ -333,9 +344,64 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         token,
         unoffered: {
           path: pagePath(),
-          why: afterSubmitted() ? "after-sign-in" : showsSignIn() ? "sign-in-shown" : "no-list",
+          why: answerInput(document)
+            ? "text-answer"
+            : afterSubmitted()
+              ? "after-sign-in"
+              : showsSignIn()
+                ? "sign-in-shown"
+                : "no-list",
         },
       }).catch(() => undefined);
+  }
+  /**
+   * Reports once, for the count of pages that look like a verification but are not sent, a
+   * sign-in input or a secret answer this frame shows within the step wait (ADR 0035).
+   */
+  function watchFrame(): void {
+    if (frameWatch || frameReported || cancelled) return;
+    let pending: ReturnType<typeof setTimeout> | undefined;
+    const changes = new MutationObserver(() => {
+      pending ??= setTimeout(look, 100);
+    });
+    const end = setTimeout(() => stop(), LOGIN_STEP_WAIT_MS);
+    function stop(): void {
+      changes.disconnect();
+      clearTimeout(pending);
+      clearTimeout(end);
+      frameWatch = undefined;
+    }
+    function look(): void {
+      pending = undefined;
+      if (cancelled) stop();
+      if (cancelled || frameReported || (!showsSignIn() && !answerInput(document))) return;
+      frameReported = true;
+      stop();
+      void sendMessage("login", {
+        version: 1,
+        type: "login.document.ready",
+        token,
+        unoffered: { path: pagePath(), why: "frame" },
+      }).catch(() => undefined);
+    }
+    frameWatch = stop;
+    changes.observe(document, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: [
+        "type",
+        "autocomplete",
+        "hidden",
+        "style",
+        "class",
+        "disabled",
+        "readonly",
+        "aria-hidden",
+        "inert",
+      ],
+    });
+    look();
   }
   function watch(list: LoginReadiness[], offer = false, entryPage = false): void {
     starts = list;
@@ -347,7 +413,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       offerCap = setTimeout(decideOffer, offerWaitMs);
       offerWindow = setTimeout(endOffer, LOGIN_STEP_WAIT_MS);
     }
-    if ((!starts.length && !generate) || cancelled) {
+    // A page Pateat does not fill keeps watching for its first step (ADR 0035).
+    if ((!starts.length && !generate && !confirmPage) || cancelled) {
       unwatch();
       return;
     }
@@ -404,6 +471,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     clearTimeout(timer);
     timer = undefined;
     if (!observer) return;
+    noteConfirm();
     const startable = starts.some(ready);
     // A step that shows on another path of the same document is a new appearance too, as
     // the password step a single-page app renders in place of its email step (ADR 0049).
@@ -451,9 +519,48 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         version: 1,
         type: "login.document.ready",
         token,
-        shown: { path },
+        shown: shownReport(path),
       }).catch(() => undefined);
     }, LOGIN_STEP_WAIT_MS);
+  }
+  /**
+   * Reports, for the log only, the first step of a page Pateat does not fill as soon as it
+   * shows, once per path (ADR 0035).
+   */
+  function noteConfirm(): void {
+    const path = pagePath();
+    if (!confirmPage || cancelled || shown.has(path) || !ready(confirmPage)) return;
+    shown.add(path);
+    void sendMessage("login", {
+      version: 1,
+      type: "login.document.ready",
+      token,
+      shown: shownReport(path),
+    }).catch(() => undefined);
+  }
+  /**
+   * A `shown` report of `path`: on a page Pateat does not fill, with whether an amount shows
+   * in the form of its first step, never the amount; nothing when that step is in no form
+   * (ADR 0035).
+   */
+  function shownReport(path: string): { path: string; amount?: boolean } {
+    const forms = confirmForms();
+    return forms.length ? { path, amount: forms.some((form) => showsAmount(form)) } : { path };
+  }
+  /** The forms that hold the first step's elements of a page Pateat does not fill (ADR 0035). */
+  function confirmForms(): HTMLFormElement[] {
+    if (!confirmPage || pagePath() !== confirmPage.path) return [];
+    const forms = confirmPage.targets
+      .flatMap((target) => matches(target))
+      .flatMap((element) => {
+        // `form` also follows a control's `form` attribute.
+        const form =
+          element instanceof HTMLInputElement || element instanceof HTMLButtonElement
+            ? element.form
+            : element.closest("form");
+        return form ? [form] : [];
+      });
+    return [...new Set(forms)];
   }
   /** Whether this path is the one this document showed next after a submitted password form. */
   function afterSubmitted(): boolean {
@@ -488,6 +595,12 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       ...(entryPage ? { entry: { path: pagePath() } } : {}),
     });
     const parsed = v.safeParse(readySchema, result);
+    if (parsed.success) {
+      // A page Pateat does not fill stays one until an answer on another path (ADR 0035).
+      if (parsed.output.confirm) confirmPage = parsed.output.confirm;
+      else if (confirmPage?.path !== announcedPath) confirmPage = undefined;
+      if (parsed.output.frame) watchFrame();
+    }
     if (parsed.success && parsed.output.ok && parsed.output.starts) {
       // A page of a watched login: its recipe's first step showing releases the login
       // (ADR 0027).
@@ -535,6 +648,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     if (command.type === "login.cancel") {
       cancelled = true;
       unwatch();
+      frameWatch?.();
       respond({ ok: true });
       return false;
     }
@@ -1300,8 +1414,24 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
    */
   const onSubmit = (event: Event) => {
     const form = event.target;
+    if (!(form instanceof HTMLFormElement)) return;
+    // The person submitted the form of a page Pateat does not fill: only the fact, once per
+    // path, before the page leaves (ADR 0035).
+    const path = pagePath();
     if (
-      !(form instanceof HTMLFormElement) ||
+      event.isTrusted &&
+      !cancelled &&
+      !personSubmits.has(path) &&
+      confirmForms().includes(form)
+    ) {
+      personSubmits.add(path);
+      void sendMessage("login", {
+        version: 1,
+        type: "login.document.person-submitted",
+        token,
+      }).catch(() => undefined);
+    }
+    if (
       ![...form.elements].some(
         (element) => element instanceof HTMLInputElement && element.type === "password",
       )
@@ -1334,6 +1464,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   return () => {
     cancelled = true;
     unwatch();
+    frameWatch?.();
     document.removeEventListener("submit", onSubmit, true);
     removeEventListener("click", onClick, true);
     browser.runtime.onMessage.removeListener(listener);

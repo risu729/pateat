@@ -106,6 +106,11 @@ export function formatReport(status: DiagnosticsStatus, browser: BrowserInfo): s
     lines.push(
       `Passkey delegations (24 h): ${recent.passkeyDelegations.map(({ reason, count }) => `${reason} ${count}`).join(" · ")}`,
     );
+  // Pages that looked like a verification but were not sent (ADR 0035).
+  if (recent?.unsentVerifications.length)
+    lines.push(
+      `Verification pages not sent (24 h): ${recent.unsentVerifications.map(({ reason, count }) => `${reason} ${count}`).join(" · ")}`,
+    );
   lines.push(`Collected ${isoMinute(status.collectedAt)}`);
   return lines.join("\n");
 }

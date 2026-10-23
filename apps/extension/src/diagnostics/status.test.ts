@@ -145,6 +145,10 @@ function dependencies(overrides: Partial<DiagnosticsDependencies> = {}): Diagnos
         { reason: "no-credential", count: 3 },
         { reason: "ambiguous-credential", count: 1 },
       ],
+      unsentVerifications: [
+        { reason: "frame", count: 2 },
+        { reason: "text-answer", count: 1 },
+      ],
     }),
     storage: {
       localBytes: async () => 412 * 1024,
@@ -274,7 +278,7 @@ describe("diagnostics status", () => {
     expect(report).toContain("self-hosted · Bitwarden server 2026.9.2 · ready");
     expect(report).not.toContain("600000");
     expect(report).toContain(
-      "Updated 2026-10-11T06:30Z from 9cf8356\nRecent problems (24 h, newest first):\n  2026-10-11T09:20Z warn login.attempt site-1 recipe-1 blocked structural-mismatch\nPasskey delegations (24 h): no-credential 3 · ambiguous-credential 1\n",
+      "Updated 2026-10-11T06:30Z from 9cf8356\nRecent problems (24 h, newest first):\n  2026-10-11T09:20Z warn login.attempt site-1 recipe-1 blocked structural-mismatch\nPasskey delegations (24 h): no-credential 3 · ambiguous-credential 1\nVerification pages not sent (24 h): frame 2 · text-answer 1\n",
     );
   });
 

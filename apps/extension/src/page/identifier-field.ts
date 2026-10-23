@@ -32,6 +32,12 @@ const otherWords = new Set([
   "postal",
 ]);
 const otherParts = ["検索", "クーポン", "注文", "追跡", "メルマガ", "マガジン", "購読", "郵便"];
+/**
+ * Words that name the answer to a secret question (ADR 0035), matched as the identifier
+ * words are: `secretAnswer` splits into words, and Japanese words match anywhere.
+ */
+const answerWords = new Set(["answer", "secret"]);
+const answerParts = ["答え", "回答", "合言葉", "秘密"];
 
 /** Text-like input types, of which a page asking for an identifier alone shows one. */
 const textTypes = new Set(["text", "email", "tel", "number", "url"]);
@@ -144,4 +150,23 @@ export function identifierInput(document: Document): "sole" | "email" | undefine
     names(input, identifierWords, identifierParts)
     ? "sole"
     : undefined;
+}
+
+/**
+ * Whether the page shows a visible, writable `type="text"` input for the answer to a secret
+ * question (ADR 0035): a word of its name, id, placeholder, `aria-label` or label names an
+ * answer or a secret, as `secretAnswer`, `秘密の質問の答え` or `合言葉`. Such a page looks like
+ * a verification but meets no generation trigger (ADR 0016), so it is only counted. A
+ * search box, an input with a word of a coupon, order or other such field and an input in a
+ * sign-up form do not count. Only the page's own markup is read, never a value.
+ */
+export function answerInput(document: Document): boolean {
+  return [...document.querySelectorAll("input")].some(
+    (input) =>
+      input.type === "text" &&
+      writable(input) &&
+      !searchField(input) &&
+      !signUpForm(input) &&
+      names(input, answerWords, answerParts),
+  );
 }

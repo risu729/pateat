@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { identifierInput } from "./identifier-field";
+import { answerInput, identifierInput } from "./identifier-field";
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -96,5 +96,34 @@ describe("identifierInput", () => {
         '<form><input type="email"><input type="password" autocomplete="off new-password"></form>',
       ),
     ).toBeUndefined();
+  });
+});
+
+describe("answerInput", () => {
+  const answers = (html: string) => {
+    document.body.innerHTML = html;
+    return answerInput(document);
+  };
+
+  it("takes a text input named as a secret answer", () => {
+    expect(answers('<form><input type="text" name="secretAnswer"><button>OK</button></form>')).toBe(
+      true,
+    );
+    expect(answers('<label>秘密の質問の答え<input type="text"></label>')).toBe(true);
+    expect(answers('<input placeholder="合言葉">')).toBe(true);
+    expect(answers('<input aria-label="Your answer">')).toBe(true);
+  });
+
+  it("leaves out other, hidden, read-only, search and sign-up inputs", () => {
+    expect(answers('<input type="text" name="nickname">')).toBe(false);
+    expect(answers('<input type="password" name="answer">')).toBe(false);
+    expect(answers('<input type="text" name="answer" readonly>')).toBe(false);
+    expect(answers('<input type="text" name="answer" style="display: none">')).toBe(false);
+    expect(answers('<form role="search"><input name="answer"></form>')).toBe(false);
+    expect(
+      answers(
+        '<form><input name="secretAnswer"><input type="password" autocomplete="new-password"></form>',
+      ),
+    ).toBe(false);
   });
 });

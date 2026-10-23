@@ -6,12 +6,10 @@ thread (`sign-in` can be limited to filling, login-time values belong to `sign-i
 re-verification is not split by kind for now, Pateat never presses on it, logs for
 evaluation, and the answers to the proposal's seven questions). The proposal was
 reviewed against the code by subagents before each round. Delivery 1 is implemented
-([below](#implementation-of-delivery-1)) except the evaluation fields of
-`confirm-unsupported` pages beyond the recipe and its kind (`amount`, E1 and E2, the
-previous path, `personSubmitted`, the next page's E1) and the counts of pages not sent;
-deliveries 2 to 4 are not. Amends [ADR 0012](0012-inference-request-log.md) (retention
-of evaluation rows) and [ADR 0024](0024-settings-profiles.md) (two more profile parts).
-Amended on 2026-10-18 by
+([below](#implementation-of-delivery-1)); deliveries 2 to 4 are not, so no page is
+`page-off` yet and only `confirm-unsupported` pages carry the evaluation fields. Amends
+[ADR 0012](0012-inference-request-log.md) (retention of evaluation rows) and
+[ADR 0024](0024-settings-profiles.md) (two more profile parts). Amended on 2026-10-18 by
 [ADR 0012](0012-inference-request-log.md#amendment-2026-10-18-rows-for-a-real-page-corpus)
 ([below](#amendment-2026-10-18-request-log-rows)): the request log's recipe ID and
 revision are implemented ahead of delivery 1, and every row is kept one year; and by
@@ -258,6 +256,37 @@ these readings of the text:
   request is handed on as `confirm-fill`, the default setting for `confirm` pages.
 - The benchmark report counts the kind each plan answered (`pageKinds`); every corpus
   page is a sign-in page.
+
+The evaluation fields of `confirm-unsupported` pages and the counts of pages not sent
+followed the same day, all local, with these readings:
+
+- The content script reports a page's `shown` as soon as the first step of its `confirm`
+  or `unclear` recipe shows, which the worker names in its answer, instead of after the
+  10-second step wait; an origin with only such recipes otherwise never reported it.
+- `amount`: whether the rendered text of the forms that hold that step's elements shows
+  `¥`, `円` or `$` (full-width forms too) beside a digit; never a control's value. It is
+  absent when those elements are in no form.
+- E1 and E2 are read as the `signedIn` hint reads them, as `e1` and `e2`; `e2` is absent
+  when no vault item matches or a username cannot be read.
+- The previous path (`previousUrl`, sanitized like `url`) is the tab's previous top page
+  of the same origin, or the same document before an in-place path change; one of
+  another origin is not recorded.
+- `personSubmitted` counts a trusted `submit` of a form that holds the step's elements,
+  sent once per path in `login.document.person-submitted`. It is logged in a follow-up
+  entry, `login.confirm-left`, when the tab's next top page arrives or the tab closes.
+  The worker keeps the visit in memory only, so a worker restart drops that entry.
+- "Sent with `signedIn` false" is read as this page's own E1 and E2 being false, the
+  inputs of that hint. Then `login.confirm-left` adds `nextE1`: whether the next page
+  shows a signed-in marker of the origin's recipes, read up to five times a second
+  apart. It is absent when the next page went before its first reading or the tab
+  closed. `confirm` covers `unclear` here.
+- Counted pages are those that would otherwise be sent, a vault item matching:
+  `text-answer` when a page offered for generation ends its offer window with a visible
+  writable `type="text"` input named, labelled or described as an answer or secret
+  (`答え`, `回答`, `合言葉`, `秘密`), and `frame` when a frame the worker would
+  otherwise offer shows a sign-in input or such an answer within the step wait. Each
+  logs `recipe.generate` `skipped` with that reason at info, and the bug report counts
+  them over 24 hours, like passkey delegations.
 
 ## Consequences
 
