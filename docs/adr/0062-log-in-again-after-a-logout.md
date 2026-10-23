@@ -54,8 +54,10 @@ to stay logged out; the pause covers that case.
   `login.document.logout-clicked`, the entry refusal `logout-clicked`, the passkey
   mark `logoutClicked`), the passkey chooser in a tab Pateat signed in from
   (`pateat.passkey-signed.v1`), and the log entries `login.logout` and
-  `login.refused` `logged-out`. A username-less passkey request is signed with the
-  site's account without a window when one is to be used.
+  `login.refused` `logged-out`. Attempt records move to `pateat.login-attempts.v6`
+  (no `fillOnly`); older records are not read. A username-less passkey request is signed
+  with the site's account without a window when one is to be used; the chooser opens
+  only for several matches without a usable default, as C of ADR 0021 says.
 - [ADR 0031](0031-sign-in-entry-pages.md) no longer reads a logout state. Its
   `site-record` check still keeps a tab where Pateat logged in from pressing an entry.
 
@@ -73,9 +75,12 @@ just failed:
 - a watched login abandoned (`challenge-abandoned`, `watch-abandoned`,
   [ADR 0027](0027-per-account-login-routes.md#watching-after-a-challenge)).
 
-They no longer fill without pressing: the badge and popup list the accounts and a pick
-logs in. The page's own passkey request still waits while the tab asks, as
-[ADR 0034](0034-answer-page-passkey-requests.md) rule 5 describes.
+They no longer fill without pressing: the document is refused `account-asked` with
+detail `rejected`, `rejected-elsewhere` or `stopped-login`, and the badge and popup list
+the accounts; a pick logs in. `login.ask-ended` is logged for these asks only. A
+rejection no longer keeps [ADR 0031](0031-sign-in-entry-pages.md) entries unpressed; the
+login page an entry leads to asks. The page's own passkey request still waits while the
+tab asks, as [ADR 0034](0034-answer-page-passkey-requests.md) rule 5 describes.
 
 ### C. A guard against repeated logins
 
@@ -86,6 +91,9 @@ that logs out right after a login, or two tabs of a site that allows one session
   `authenticated` within 10 minutes (an ADR 0029 undecided completion counts), the
   next automatic login of the site does not start: its document is refused
   `relogin-limit` and asks. A popup pick logs in and is not counted.
+- The count includes the first login: a login, a logout and a login again pass, and the
+  next logout's login asks. The popup says Pateat logged in to the site twice in the
+  last 10 minutes.
 - The completion times are kept per site, separately for incognito, in
   `pateat.login-relogins.v1` in `chrome.storage.session`, so the guard survives a
   worker restart and a replaced tab.
@@ -147,6 +155,9 @@ that logs out right after a login, or two tabs of a site that allows one session
   logout.
 - A re-verification page that matches a recipe's step on the same path is submitted in a
   tab Pateat logged in from, as it already is in other tabs, until ADR 0035 is built.
+- A login that left for an identity provider (`left-origin`) and comes back to the
+  site's form logs in again; such a loop is not counted by the guard, which counts only
+  `authenticated` endings.
 - A person who wants to stay logged out presses Pause first, or logs out and leaves the
   login page; leaving the site and coming back to its login page logs in again.
 - The plan's real-site rows for choosing again after a logout (Wise, アパホテル) are
