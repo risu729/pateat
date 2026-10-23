@@ -1402,13 +1402,13 @@ export function extractLoginObservation(
  * row of fields beside a row with a select still holds both.
  */
 function formlessFieldsArea(found: readonly Found[], document: Document): Element | undefined {
-  const fields = found.flatMap((entry) =>
+  const inputs = found.flatMap((entry) =>
     entry.kind === "candidate" && entry.form === null && fillTypes[entry.draft.role]
       ? [entry.draft.element]
       : [],
   );
-  let area: Element | null = fields[0] ?? null;
-  while (area && !fields.every((field) => area!.contains(field))) area = area.parentElement;
+  let area: Element | null = inputs[0] ?? null;
+  while (area && !inputs.every((input) => area!.contains(input))) area = area.parentElement;
   for (let depth = 0; depth < formlessDepth && area; depth++) area = area.parentElement;
   return area && area !== document.body && area !== document.documentElement ? area : undefined;
 }
