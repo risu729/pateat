@@ -3071,6 +3071,21 @@ Haiku 5.5 `low` 0.978 and `medium` 0.957, each over 3 runs and every remaining e
 `unclear`. Opus 5.5's truncated call took 59.7 s (56.4 s at `medium`), next to the 60 s
 timeout.
 
+After #889 grew the corpora (main `b803056`: 108 Japanese and 45 web pages), the main
+choices ran again on them:
+
+| Generation | Japanese 108 | Web 45 | p50 / p95 s | USD per call |
+| --- | --- | --- | --- | --- |
+| Opus 5.5 `low` (service) | 0.986 (2) | 1.000 (2) | 1.96 / 2.91 | 0.0116 |
+| Opus 5.5 `low`, fast mode | 0.991 | 1.000 | 1.01 / 1.73 | 0.0232 |
+| Sonnet 5.5 `low` | 0.991 (2) | 0.989 (2) | 1.68 / 2.50 | 0.0058 |
+| Haiku 5.5 `low` | 1.000 (3) | 1.000 (3) | 1.45 / 2.52 | 0.0003 |
+
+On `ja-agoda-top`, a top page labelled to abstain, Opus 5.5 and Sonnet 5.5 name its
+サインイン button as a sign-in entry, which a request with slots refuses
+(`unexpected-entry`); Haiku 5.5 abstains. Sonnet 5.5 once abstained on `web-mailchimp`
+(`insufficient-evidence`). These runs cost about $9.
+
 Fast mode takes about 0.9 s off a generation and 0.6 s off a judgement for Opus 5.5
 (p50 1.59 s standard against 1.03 s fast for the judge in the same window) at twice the
 price ($8/$40 per million tokens). Recipes and judgements are stored, so this speeds up
