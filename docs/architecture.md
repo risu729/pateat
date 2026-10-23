@@ -1973,6 +1973,14 @@ failure condition, and provenance. The vocabulary is packaged code such as fill,
 wait-for-state, and assert-state. There is no eval, remote JavaScript, arbitrary fetch,
 or model-selected secret destination.
 
+A generated page plan fills its fields and clicks the one button that advances or
+submits. When the form shows no such button, as x.com's sign-in before a username is
+typed, the plan's action is its last field, and the click step carries `press: "enter"`
+with that field as its target: the executor then submits the field's form as Enter does,
+through the form's default button or `requestSubmit()`, never through a default button
+that showed when the fill began, is disabled or sits outside the form
+([ADR 0064](adr/0064-enter-in-a-form-without-a-button.md)).
+
 A stored recipe is either a login recipe, with `pageKind`, `slots`, `steps`,
 `maxSubmissions` and the optional route members, or an entry recipe
 ([ADR 0031](adr/0031-sign-in-entry-pages.md#recipe-contract)) whose only member besides
@@ -2174,7 +2182,12 @@ that shows such an input cannot become the completion. A script button is a cont
 scripts make clickable: a script link, or another element with `role="button"`, but
 never a form control or anything inside an `<a href>`. A script link is an `<a>` without
 `href` that has an `onclick` attribute or `role="button"`, such as
-`<a id="login" onclick="document.loginForm.submit()">`, or an `<a href>` that runs a
+`<a id="login" onclick="document.loginForm.submit()">`, or sets a pointer cursor
+itself (CSS `cursor: pointer` that its parent does not have), such as IIJmio's
+`<a class="pink_btn">ログイン</a>`, whose script listener leaves no attribute
+(owner-approved 2026-10-23); the cursor is read as computed when the page is read,
+so one set only on hover or once the fields are filled does not count, or an `<a href>`
+that runs a
 script instead of following the link: a `javascript:` URL (or a `data:` or `vbscript:`
 one, which Chrome never follows from a page), such as
 `<a href="javascript:;" onclick="login()">ログイン</a>`, or an empty or fragment-only
@@ -2599,6 +2612,12 @@ as stated, never as a guessed recipe:
   is complete, and the paid answer is dropped.
 - The service passes no abort signal to the model call, so a device that stops waiting
   or disconnects does not end it; the call is charged and logged as usual.
+- A button a page shows only after a value is typed is not described, because Pateat
+  never types a placeholder value into a page to reveal it (owner, 2026-10-23 11:25 UTC:
+  「仮の値を入れるのは一旦しない方向で」, as a page may change when a username is
+  typed; reconsidered only when a site cannot be handled otherwise). Such a form is
+  submitted only as [ADR 0064](adr/0064-enter-in-a-form-without-a-button.md) does, so
+  one whose shown button is not a submit button is not submitted.
 
 ## Existing passkeys
 

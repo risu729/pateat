@@ -1307,6 +1307,20 @@ describe("extractLoginObservation", () => {
     expect(observe().complete).toBe(false);
   });
 
+  it("describes a pointer link without href as the login's button (IIJmio, 2026-10-23)", () => {
+    page(
+      `<div><input name="j_username"><input name="j_password" type="password">
+        <a class="pink_btn" style="cursor:pointer">ログイン</a></div>`,
+    );
+    const observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(summary(observation).map(({ role, target }) => [role, target])).toEqual([
+      ["text", { by: "name", value: "j_username" }],
+      ["password", { by: "name", value: "j_password" }],
+      ["button", { by: "text", value: "ログイン" }],
+    ]);
+  });
+
   it("treats every control outside a form as part of a formless login", () => {
     page(`<input id="u"><input id="p" type="password"><button>Sign in</button>`);
     expect(observe().complete).toBe(true);

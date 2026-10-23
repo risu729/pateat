@@ -2908,7 +2908,9 @@ never contribute. Only forms that hold a field count, or every control outside a
 when a field is outside one. In those forms the candidates are visible text, email, tel,
 number and password inputs, checkboxes, buttons (disabled ones too, since many enable
 after typing), script links (an `<a>` without `href` that has an `onclick` attribute or
-`role="button"`, or an `<a href>` with a `javascript:` URL or with an empty or
+`role="button"` or sets a pointer cursor itself, as IIJmio's login (owner-approved
+2026-10-23), or an
+`<a href>` with a `javascript:` URL or with an empty or
 fragment-only `href` and an `onclick` attribute or `role="button"`) as buttons, other
 elements with `role="button"` that have an `id`, `name` or `data-testid`, or in a login
 form or beside a password form a unique text (as
