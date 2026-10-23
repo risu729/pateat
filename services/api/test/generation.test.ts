@@ -33,7 +33,7 @@ import { createDeviceToken, hashDeviceToken } from "../src/auth";
 import { saveWifCredential } from "../src/claude/credentials";
 import { MAX_ACTIVE_RECIPES } from "../src/limits";
 import { writeRecipe } from "../src/recipe-store";
-import { documentBytes, seedRecipeBytes, storedRecipeBytes } from "./recipe-byte-helpers";
+import { seedRecipeBytes, storedRecipeBytes } from "./recipe-byte-helpers";
 import {
   ATTEMPT_WINDOW_MS,
   buildLoginLayout,
@@ -124,9 +124,9 @@ const bigPage = (): LoginObservation => ({
  */
 const route = (recipe: StoredLoginRecipe | LoginRecipe): LoginRecipe => {
   if ("steps" in recipe) return recipe;
-  const projected = storedLayoutRecipe(recipe);
-  if (!projected || !isLoginRouteRecipe(projected)) throw new Error("Expected a route recipe");
-  return projected;
+  const layout = storedLayoutRecipe(recipe);
+  if (!layout || !isLoginRouteRecipe(layout)) throw new Error("Expected a route recipe");
+  return layout;
 };
 const plan = (fields: [string, string][], action: string, purpose: "advance" | "submit") =>
   JSON.stringify({
@@ -253,7 +253,7 @@ async function branchOf(ownerId: string, recipeId: string, side?: "account" | "o
  * the chooser branch a test names as `account` or `other`. `raw` sends the body as it is.
  */
 async function post(device: Device, path: string, body: unknown, method = "POST", raw = false) {
-  let sent = body;
+  let payload = body;
   const named = /^\/v1\/recipes\/([^/]+)\/(?:completion|page-sample)$/u.exec(path)?.[1];
   const request = body as { base?: { recipeId?: unknown }; branch?: unknown } | undefined;
   const recipeId =
@@ -265,7 +265,7 @@ async function post(device: Device, path: string, body: unknown, method = "POST"
   if (!raw && recipeId !== undefined && typeof body === "object" && body !== null) {
     const branch = request?.branch;
     if (branch === undefined || branch === "account" || branch === "other")
-      sent = {
+      payload = {
         ...body,
         branch: await branchOf(device.ownerId, recipeId, branch as "account" | "other" | undefined),
       };
@@ -273,7 +273,7 @@ async function post(device: Device, path: string, body: unknown, method = "POST"
   return exports.default.fetch(`https://pateat.invalid${path}`, {
     method,
     headers: { Authorization: `Bearer ${device.token}`, "Content-Type": "application/json" },
-    body: JSON.stringify(sent),
+    body: JSON.stringify(payload),
   });
 }
 
