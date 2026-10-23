@@ -573,7 +573,7 @@ describe("crypto Worker TOTP code grant", () => {
     const catalog = await command({ kind: "catalog", session });
     expect(JSON.stringify(catalog)).not.toContain(rfcTotpSecrets.SHA1);
     const items = (catalog as { data: { items: { id: string; fields: object[] }[] } }).data.items;
-    expect(items.find((item) => item.id === itemId(1))?.fields).toContainEqual({
+    expect(items.find((item) => item.id === itemId(seedIndex))?.fields).toContainEqual({
       id: `custom.${snapshotId}.0`,
       label: "seed",
       name: "seed",
