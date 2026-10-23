@@ -642,8 +642,11 @@ const shownHello = (
   );
 
 // The runtime's waits (observation budgets, settle and recheck delays) run on a fake clock
-// that jumps to the next timer whenever the test awaits, so they cost no real time. A test
-// that changes the page while the runtime still waits calls `realTime()` to keep that order.
+// that fires the next timer after each native macrotask, so they cost no real time. The
+// clock also runs on while a test sits in `vi.waitFor` or awaits a promise, so a long timer
+// can fire before an outcome the test expects sooner. A test that changes the page while the
+// runtime still waits, or that such a timer could answer instead, calls `realTime()`. Tests
+// that install their own fake timers replace this clock for their run.
 beforeEach(() => {
   vi.useFakeTimers({
     toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"],
@@ -21996,6 +21999,9 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
 });
 
 describe("the start page's own passkey request (ADR 0034)", () => {
+  // A request waits on a 1-second review and gives up after its park; on the fake clock
+  // that park could end first and settle a request the test expects decided sooner.
+  beforeEach(realTime);
   afterEach(() => {
     vi.useRealTimers();
     for (const listener of fake.state.removed.splice(0))
