@@ -4091,8 +4091,11 @@ export function createLoginRuntime(
           waitedMs: 0,
           site: true,
         };
-        picked.set(live.document.tabId, site);
-        await quietly(saveSession);
+        // A running login's pick in the tab stays; this choice then covers this document.
+        if (picked.get(live.document.tabId)?.attemptId === undefined) {
+          picked.set(live.document.tabId, site);
+          await quietly(saveSession);
+        }
         return {
           connectionId: shown.connectionId,
           itemId: shown.itemId,
@@ -12511,6 +12514,13 @@ export function createLoginRuntime(
       return { ok: false, reason: "generating" };
     }
     if (!plan.ok) {
+      // An account the page's value picked for a login that did not start is dropped, so
+      // a default saved or a logout later decides this document again.
+      const site = picked.get(document.tabId);
+      if (site?.site && site.attemptId === undefined && site.documentId === document.documentId) {
+        picked.delete(document.tabId);
+        void quietly(saveSession);
+      }
       // Only a fresh start can be restarted with a picked account (ADR 0021). The page
       // after an account switch belongs to that login, so it offers none.
       if (!previous && !switched && "candidates" in plan && plan.candidates) {

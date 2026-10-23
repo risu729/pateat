@@ -31551,7 +31551,7 @@ describe("a login that starts at a later step its page shows (ADR 0049)", () => 
         : "synthetic-secret",
     );
     h.recipes.recipe.mockResolvedValue(used);
-    fake.state.onExecute = async (message) => {
+    fake.state.onExecute = async (message, tabId) => {
       const step = (message["operation"] as { step: LoginStep }).step;
       if (step.kind === "click" && step.target.value === "next") {
         fake.state.observedPath = "/signin/pwd";
@@ -31561,7 +31561,7 @@ describe("a login that starts at a later step its page shows (ADR 0049)", () => 
         setTimeout(() => void h.hello({ documentId: "password-page" }, false), 0);
         return;
       }
-      await submitted(message);
+      await submitted(message, tabId);
     };
     expect(await h.hello()).toEqual({ ok: true });
     await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {

@@ -209,7 +209,7 @@ test("production package permits local storage, the crypto host and the HTTPS lo
   // only there: its own login script covers loopback HTTP.
   for (const script of probeManifest.content_scripts as Array<{ matches: string[]; js: string[] }>)
     expect(script.matches).toEqual(
-      /^content-scripts\/(?:login|login-main|passkey-main|passkey-isolated)\.js$/u.test(
+      /^content-scripts\/(?:login|login-main|login-start|passkey-main|passkey-isolated)\.js$/u.test(
         script.js.join(),
       )
         ? ["https://*/*"]
