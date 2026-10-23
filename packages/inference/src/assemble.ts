@@ -50,8 +50,9 @@ export type CompletionRejection =
   | "marker-limit"
   | "origin-mismatch"
   /**
-   * The marker is an element one of the recipe's own steps or handlers uses, on any path:
-   * a marker proves a sign-in wherever it shows.
+   * The marker is an element one of the recipe's own steps, its passkey route or handlers
+   * use, or its account switch or rejection, on any path: a marker proves a sign-in
+   * wherever it shows.
    */
   | "step-target"
   /** The marker is not an element of the judged page. */
@@ -205,7 +206,8 @@ export function appendPageSteps(
  * Adds the judged signed-in marker to a generated recipe in its next revision (ADR 0029):
  * the first one, or one more after those learned before, up to four. A marker proves a
  * sign-in on any path, so it must be an element of the judged page and none of the
- * elements the recipe's steps, passkey route or handlers use on any path. The page must
+ * elements the recipe's steps, passkey route or handlers use on any path, nor its account
+ * switch or rejection. The page must
  * not still show any element a step uses on its own path, nor a field any step fills on
  * any path: a failed sign-in that shows the login form again, on its own path or where
  * the form posted, is not learned as signed in. On a step's own path the marker also
