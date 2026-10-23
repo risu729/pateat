@@ -7,7 +7,12 @@ import {
   type BitwardenTransportOptions,
   type LocalFieldReference,
 } from "@pateat/bitwarden";
-import { getItemEligibility, type SettingsSnapshot, type VaultCatalog } from "@pateat/contracts";
+import {
+  getItemEligibility,
+  type SettingsSnapshot,
+  type VaultAccount,
+  type VaultCatalog,
+} from "@pateat/contracts";
 import { browser } from "wxt/browser";
 import type { CryptoHost } from "../crypto/host";
 import { boundedMessage } from "../crypto/wire";
@@ -28,7 +33,13 @@ import {
 } from "./action-icon";
 import { catalogEntry } from "./catalog";
 import { createBrowserConnectionRegistry } from "./registry";
-import { createConnectionPolicy, quarantinedItems } from "./policy";
+import {
+  createConnectionPolicy,
+  itemEvidence,
+  profileServer,
+  reviewBlockedItems,
+  withEvidence,
+} from "./policy";
 import { providerPermissionOrigins } from "./permissions";
 import { createConnectionSetupService } from "./setup";
 import { createIndexedDbProviderSessionStore } from "./session-store";
@@ -102,6 +113,11 @@ export function createConnectionRuntime(
     onSignIn?: (step: SignInStep, reply: SetupReply) => void;
     /** Called with each Bitwarden refresh result, for the local log. */
     onRefresh?: (event: RefreshReport) => void;
+    /**
+     * Whether this device waits for its first settings sync since pairing; the catalog then
+     * says so and no vault item is eligible (ADR 0023).
+     */
+    settingsSyncPending?: () => Promise<boolean>;
     /** Where an unlocked vault's key is kept, from the vault timeout (ADR 0075). */
     retention?: () => Promise<KeyRetention>;
     /**
@@ -157,7 +173,7 @@ export function createConnectionRuntime(
   const opening = new Map<string, number>();
   /** The vault each sign-in waiting for a code signs in to. */
   const flows = new Map<string, string>();
-  async function current(connectionId: string) {
+  async function current(connectionId: string, restore = true) {
     // A check that cannot tell whether the timeout passed keeps the vault closed.
     await options.vaultTimeout?.check().catch(() => {
       throw new Error("vault-unavailable");
@@ -173,6 +189,7 @@ export function createConnectionRuntime(
       throw new Error("vault-unavailable");
     let handle = vault.manager.status().handle;
     if (!handle) {
+      if (!restore) throw new Error("vault-closed");
       const restored = await vault.manager.restore();
       if (!restored.ok)
         throw new Error(
@@ -185,8 +202,27 @@ export function createConnectionRuntime(
       throw new Error("vault-unavailable");
     return {
       entry: record.data,
-      catalog: catalogEntry(connectionId, configuration.label, projected.data),
+      catalog: catalogEntry(
+        connectionId,
+        configuration.label,
+        profileServer(configuration.profile),
+        projected.data,
+      ),
     };
+  }
+  /** The provider account of a connection's accepted snapshot, read without unlocking it. */
+  async function account(connectionId: string): Promise<VaultAccount | undefined> {
+    const configuration = await registry.get(connectionId);
+    if (!configuration) return undefined;
+    const record = await vaultFor(configuration.profile).store.read();
+    const accepted = record.ok ? record.data?.accepted : undefined;
+    return accepted
+      ? {
+          provider: "bitwarden",
+          server: profileServer(configuration.profile),
+          userId: accepted.userId,
+        }
+      : undefined;
   }
   async function catalog(snapshot: SettingsSnapshot): Promise<VaultCatalog> {
     const connections = [...(options.baseCatalog?.connections ?? [])];
@@ -195,21 +231,24 @@ export function createConnectionRuntime(
         // Native sessions are limited. A failure is visible, never a fabricated ready catalog.
         // eslint-disable-next-line no-await-in-loop
         const value = await current(configuration.profile.connectionId);
-        const quarantine = quarantinedItems(
-          snapshot,
-          configuration.profile.connectionId,
-          value.entry.accepted.snapshotId,
-        );
+        // eslint-disable-next-line no-await-in-loop
+        const connection = withEvidence(value.catalog, await itemEvidence(value.entry));
+        const review = reviewBlockedItems(snapshot, connection);
         connections.push({
-          ...value.catalog,
-          quarantinedItemIds: quarantine,
-          state: quarantine.length ? "review-required" : "ready",
+          ...connection,
+          quarantinedItemIds: review.blocked,
+          ...(review.stale.length ? { staleItemIds: review.stale } : {}),
+          state: review.blocked.length ? "review-required" : "ready",
         });
       } catch (error) {
+        // eslint-disable-next-line no-await-in-loop
+        const known = await account(configuration.profile.connectionId).catch(() => undefined);
         connections.push({
           id: configuration.profile.connectionId,
           label: configuration.label,
           provider: "bitwarden",
+          server: profileServer(configuration.profile),
+          ...(known ? { lockedUserId: known.userId } : {}),
           groups: [],
           items: [],
           state:
@@ -217,13 +256,14 @@ export function createConnectionRuntime(
         });
       }
     }
-    return { connections };
+    const pending = await options.settingsSyncPending?.().catch(() => true);
+    return pending ? { settingsSyncPending: true, connections } : { connections };
   }
   const settings = createLocalSettingsRuntime({
     catalog,
     ...(options.baseCatalog ? { initialCatalog: options.baseCatalog } : {}),
   });
-  const policy = createConnectionPolicy({ settings, current });
+  const policy = createConnectionPolicy({ settings, current, account });
   const containsPermission =
     options.containsPermission ??
     (async (profile: BitwardenProfile) => {
@@ -502,6 +542,7 @@ export function createConnectionRuntime(
     vaultFor,
     vaultStates,
     current,
+    account,
     attach,
     timeOut,
     keepKeys,
@@ -544,13 +585,16 @@ export function createConnectionRuntime(
       const saved = await settings.handle({ version: 1, type: "settings.get" });
       if (!saved.ok) return vaultFailure("storage-uncertain");
       const connection = saved.catalog.connections.find((entry) => entry.id === connectionId);
-      const item = connection?.items.find((entry) => entry.id === captured.itemId);
+      const eligibility = getItemEligibility(
+        saved.snapshot.settings,
+        saved.catalog,
+        connectionId,
+        captured.itemId,
+      );
       if (
-        !item ||
+        !eligibility.eligible ||
         connection?.snapshotId !== captured.snapshotId ||
-        connection.quarantinedItemIds?.includes(captured.itemId) ||
-        !getItemEligibility(saved.snapshot.settings, saved.catalog, connectionId, captured.itemId)
-          .eligible
+        connection.quarantinedItemIds?.includes(captured.itemId)
       )
         return vaultFailure("field-denied");
       const configuration = await registry.get(connectionId);
@@ -558,14 +602,9 @@ export function createConnectionRuntime(
       const vault = vaultFor(configuration.profile);
       const handle = vault.manager.status().handle;
       if (!handle) return vaultFailure("crypto-locked");
-      const denied =
-        saved.snapshot.settings.connections
-          .find((entry) => entry.connectionId === connectionId)
-          ?.excludedFields.filter((entry) => entry.itemId === captured.itemId)
-          .map((entry) => entry.fieldId) ?? [];
       const resolved = await vault.manager.resolveField(handle, captured, {
         snapshotId: captured.snapshotId,
-        allowedFieldIds: item.fields.map((entry) => entry.id).filter((id) => !denied.includes(id)),
+        allowedFieldIds: eligibility.fieldIds,
         ...(code ? { code: true as const } : {}),
       });
       const latest = await settings.handle({ version: 1, type: "settings.get" });

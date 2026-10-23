@@ -1,6 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
 import type { SettingsResponse } from "../../packages/contracts/src/index";
-import { beginInput, settingsRequest, setupProbe, setupRequest } from "./connection-fixture";
+import {
+  beginInput,
+  catalogAccount,
+  settingsRequest,
+  setupProbe,
+  setupRequest,
+} from "./connection-fixture";
 import { startLoginFixture } from "./login-server";
 import { withVaultProfile } from "./vault-fixture";
 import { sendToBackground as send } from "./background-message";
@@ -37,7 +43,13 @@ async function connectAndBind(options: Page, origin: string) {
   ).toEqual({ ok: true });
   const settings = saved.snapshot.settings;
   settings.siteDefaults = [
-    { origin, provider: connection.provider, userId: connection.userId, itemId: item.id },
+    {
+      origin,
+      provider: connection.provider,
+      server: connection.server,
+      userId: connection.userId,
+      itemId: item.id,
+    },
   ];
   const stored = await settingsRequest(options, {
     version: 1,
@@ -126,14 +138,17 @@ test("a saved live field exclusion refuses the attempt before any page observati
       const bound = await connectAndBind(options, fixture.origin);
       const current = await settingsRequest(options);
       const settings = current.snapshot.settings;
-      settings.connections = settings.connections.map((entry) =>
-        entry.connectionId === bound.connectionId
-          ? {
-              ...entry,
-              excludedFields: [{ itemId: bound.itemId, fieldId: "login.password" }],
-            }
-          : entry,
-      );
+      // The exclusion is the account's synced item policy, named by the built-in field ID.
+      settings.itemPolicies.push({
+        ...catalogAccount(current.catalog, bound.connectionId),
+        itemId: bound.itemId,
+        itemName: current.catalog.connections
+          .find((entry) => entry.id === bound.connectionId)!
+          .items.find((entry) => entry.id === bound.itemId)!.label,
+        selected: false,
+        excluded: false,
+        excludedFields: ["login.password"],
+      });
       const saved = (await send(options, {
         version: 1,
         type: "settings.save",

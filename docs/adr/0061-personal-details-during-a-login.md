@@ -467,6 +467,7 @@ The owner's settings gain `detailLinks`, one per login item, site and detail:
 {
   "origin": "https://www2.cr.mufg.jp",
   "provider": "bitwarden",
+  "server": "cloud-us",
   "userId": "...",
   "itemId": "<login item>",
   "detail": "birth-date",
@@ -474,12 +475,13 @@ The owner's settings gain `detailLinks`, one per login item, site and detail:
 }
 ```
 
-`field` is `identity.phone`, `card.number`, `card.code`, `card.expMonth` (for
-`card-expiry`, whose year the same card item gives) or a custom field by name, as
-binding references name them. A link is per site, not per recipe, so a new recipe for
-the origin keeps it, and it exists before the first binding is saved. It holds no item
-name: a card item's name often carries its last digits, so names are shown from the
-device's catalog only.
+The login item's vault account is named by provider, server and user ID, as
+[ADR 0023](0023-synced-vault-policy.md) names accounts. `field` is `identity.phone`,
+`card.number`, `card.code`, `card.expMonth` (for `card-expiry`, whose year the same card
+item gives) or a custom field by name, as binding references name them. A link is per
+site, not per recipe, so a new recipe for the origin keeps it, and it exists before the
+first binding is saved. It holds no item name: a card item's name often carries its last
+digits, so names are shown from the device's catalog only.
 
 The linked item belongs to the same vault account as the login item. It has no URIs, so
 it is exempt from URI matching; the confirmed link is what lets the login read it. It

@@ -88,8 +88,8 @@ export const bitwardenJa = {
   "Setup cancelled.": "設定をキャンセルしました。",
   "Sync sign-in removed from this device. This does not sign out other sessions; the local vault still unlocks as before.":
     "同期用のログイン情報をこのデバイスから削除しました。ほかのセッションからはログアウトしません。ローカル保管庫のロック解除は引き続き利用できます。",
-  "Connection deleted from this device, with its local vault copy, unlock key and sync sign-in. This does not sign out other sessions. Saved settings that referred to it now show it as unavailable.":
-    "接続、ローカル保管庫のコピー、ロック解除キー、同期用のログイン情報をこのデバイスから削除しました。ほかのセッションからはログアウトしません。この接続を参照する保存済みの設定は、利用不可と表示されます。",
+  "Connection deleted from this device, with its local vault copy, unlock key and sync sign-in. This does not sign out other sessions, and the synced settings of its account stay.":
+    "接続、ローカル保管庫のコピー、ロック解除キー、同期用のログイン情報をこのデバイスから削除しました。ほかのセッションからはログアウトしません。このアカウントの同期された設定は残ります。",
   "Pateat could not confirm the result. Refresh, then reload saved settings.":
     "結果を確認できませんでした。更新してから、保存済みの設定を再読み込みしてください。",
   "Enter a name, a valid email and the master password. A self-hosted server address is an HTTPS address such as https://vault.example.com, or HTTP on localhost or 127.0.0.1, with no path, credentials, query or fragment.":
@@ -124,9 +124,11 @@ export const bitwardenJa = {
   "Delete connection": "接続を削除",
   "Connection kept.": "接続を維持しました。",
   "Delete {{name}}?": "{{name}} を削除しますか？",
-  "This removes the connection, its local vault copy, unlock key and sync sign-in from this device. It does not sign out other sessions, and saved settings that refer to it will show it as unavailable.":
-    "この接続、ローカル保管庫のコピー、ロック解除キー、同期用のログイン情報をこのデバイスから削除します。ほかのセッションからはログアウトしません。この接続を参照する保存済みの設定は、利用不可と表示されます。",
+  "This removes the connection, its local vault copy, unlock key and sync sign-in from this device. It does not sign out other sessions, and the synced settings of its account stay for other devices and a later connection.":
+    "この接続、ローカル保管庫のコピー、ロック解除キー、同期用のログイン情報をこのデバイスから削除します。ほかのセッションからはログアウトしません。このアカウントの同期された設定は、ほかのデバイスや後で接続し直すときのために残ります。",
   "Keep connection": "接続を維持",
+  "{{item}} was reviewed on another device against a newer copy of this vault. Sync this vault; if it is still older afterwards, review it here.":
+    "{{item}} は、ほかのデバイスでこの保管庫のより新しいコピーをもとに確認されています。この保管庫を同期し、同期後もこちらが古いままなら、ここで確認してください。",
   "Review changed custom fields in {{name}}": "{{name}} の変更されたカスタムフィールドを確認",
   "Affected items stay unavailable until their field settings are reviewed; refreshing does not approve them.":
     "影響を受けるアイテムは、フィールド設定を確認するまで利用できません。更新しても承認は行われません。",
@@ -164,6 +166,8 @@ export const bitwardenJa = {
   "{{count}} field": "{{count}} 個のフィールド",
   "{{vault}}: Use this vault": "{{vault}}：この保管庫を使う",
   "Use this vault": "この保管庫を使う",
+  "Saved settings name this account on another server, so Pateat does not use it here.":
+    "保存済みの設定がこのアカウントを別のサーバーのものとして登録しているため、ここでは Pateat はこのアカウントを使いません。",
   "Items for Pateat": "Pateat が使うアイテム",
   "{{vault}}: Items for Pateat": "{{vault}}：Pateat が使うアイテム",
   "All except exclusions": "除外設定以外のすべて",
@@ -189,8 +193,6 @@ export const bitwardenJa = {
   "Exclude item {{item}}": "アイテム {{item}} を除外",
   "{{vault}}: Exclude {{field}} from {{item}}": "{{vault}}：{{item}} の {{field}} を除外",
   "Exclude {{field}} from {{item}}": "{{item}} の {{field}} を除外",
-  "Unavailable connection": "利用できない接続",
-  "{{id}}. Its saved settings are kept.": "{{id}}。保存済みの設定は保持されています。",
   "{{count}} item_one": "{{count}} 件のアイテム",
   "{{count}} item_other": "{{count}} 件のアイテム",
   "{{count}} field_one": "{{count}} 個のフィールド",

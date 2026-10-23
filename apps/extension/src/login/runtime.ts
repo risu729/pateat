@@ -13,7 +13,9 @@ import {
   extendsRecipe,
   fillLoginBinding,
   findLoginBinding,
+  connectionEnabled,
   getItemEligibility,
+  isFieldExcluded,
   handlerFact,
   handlerSlots,
   handlerSteps,
@@ -1428,6 +1430,7 @@ const generationSlots: { slot: SemanticSlot; fieldId: string }[] = [
  */
 function offersGenerationField(
   settings: LocalSettings,
+  catalog: VaultCatalog,
   entry: { connectionId: string; item: VaultItemMetadata },
   fieldId: string,
 ): boolean {
@@ -1436,13 +1439,7 @@ function offersGenerationField(
   if (fieldId !== "login.password") return true;
   return (
     field.empty !== true &&
-    !settings.connections.some(
-      (connection) =>
-        connection.connectionId === entry.connectionId &&
-        connection.excludedFields.some(
-          (ref) => ref.itemId === entry.item.id && ref.fieldId === fieldId,
-        ),
-    )
+    !isFieldExcluded(settings, catalog, entry.connectionId, entry.item.id, fieldId)
   );
 }
 /**
@@ -1468,6 +1465,7 @@ function codeFieldOf(
   if (connection.provider !== "bitwarden" || !connection.userId) return undefined;
   const saved = findLoginBinding(bindings, recipe, {
     provider: connection.provider,
+    server: connection.server,
     userId: connection.userId,
     itemId,
   });
@@ -1782,11 +1780,12 @@ type GenerationScope = {
     item: VaultCatalog["connections"][number]["items"][number];
   }[];
   settings: SettingsSnapshot["settings"];
+  catalog: VaultCatalog;
   /** Every enabled connection answered and every item's URI rules were evaluated. */
   complete: boolean;
 };
 /** The items that matched a page and the settings they were matched under. */
-type VaultMatch = Pick<GenerationScope, "items" | "settings">;
+type VaultMatch = Pick<GenerationScope, "items" | "settings" | "catalog">;
 
 /** Each URI match's connection and item in the catalog; one the catalog lacks is left out. */
 function catalogItems(
@@ -4174,7 +4173,7 @@ export function createLoginRuntime(
       delete live.uriMatch;
       const scope = await findLiveSiteCandidates({
         settings: snapshot.snapshot.settings,
-        catalog: { connections: [connection] },
+        catalog: { ...catalog, connections: [connection] },
         url: live.url,
         match: uris,
       });
@@ -4221,7 +4220,7 @@ export function createLoginRuntime(
       return { reason: "mismatch" };
     const scope = await findLiveSiteCandidates({
       settings: snapshot.snapshot.settings,
-      catalog: { connections: [connection] },
+      catalog: { ...snapshot.catalog, connections: [connection] },
       url,
       match: uris,
     });
@@ -4349,7 +4348,12 @@ export function createLoginRuntime(
     const connection = catalog.connections.find((entry) => entry.id === choice.connectionId);
     const item = connection?.items.find((entry) => entry.id === choice.itemId);
     if (!connection?.userId || !item) return { ok: false, reason: "vault-unavailable" };
-    const owner = { provider: connection.provider, userId: connection.userId, itemId: item.id };
+    const owner = {
+      provider: connection.provider,
+      server: connection.server,
+      userId: connection.userId,
+      itemId: item.id,
+    };
     const named = { ...owner, itemName: item.label, accountName: connection.label };
     // Names, and the flags that pick the `totp` slot's field (`totpFieldReference`).
     const fieldNames = item.fields.map(({ id, name, empty, totpSeed }) => ({
@@ -4476,6 +4480,7 @@ export function createLoginRuntime(
     return {
       origin: documentOrigin,
       provider: connection.provider,
+      server: connection.server,
       userId: connection.userId,
       itemId: item.id,
       // Named as a binding built for the item is.
@@ -4602,6 +4607,7 @@ export function createLoginRuntime(
           policy.settings.siteDefaults.push({
             origin: live.document.origin,
             provider: named.provider,
+            server: named.server,
             userId: named.userId,
             itemId: named.itemId,
             itemName: named.itemName,
@@ -5725,6 +5731,7 @@ export function createLoginRuntime(
       owner: {
         origin: login.origin,
         provider: connection.provider,
+        server: connection.server,
         userId: connection.userId,
         itemId: login.itemId,
       },
@@ -7256,7 +7263,11 @@ export function createLoginRuntime(
       if (!connection || !item) return undefined;
       reads = [
         ...reads,
-        ...usernameReads({ items: [{ connection, item }], settings: snapshot.snapshot.settings }),
+        ...usernameReads({
+          items: [{ connection, item }],
+          settings: snapshot.snapshot.settings,
+          catalog: snapshot.catalog,
+        }),
       ];
     }
     const own = (read: (typeof reads)[number]) =>
@@ -8336,13 +8347,7 @@ export function createLoginRuntime(
         connection.id === owner.connectionId &&
         item.id === owner.itemId &&
         item.fields.some((field) => field.id === "login.password") &&
-        !scope.settings.connections.some(
-          (entry) =>
-            entry.connectionId === connection.id &&
-            entry.excludedFields.some(
-              (ref) => ref.itemId === item.id && ref.fieldId === "login.password",
-            ),
-        ),
+        !isFieldExcluded(scope.settings, scope.catalog, connection.id, item.id, "login.password"),
     );
   }
   /**
@@ -9414,6 +9419,7 @@ export function createLoginRuntime(
       items.some(({ connection, item }) =>
         offersGenerationField(
           snapshot.snapshot.settings,
+          snapshot.catalog,
           { connectionId: connection.id, item },
           fieldId,
         ),
@@ -9435,11 +9441,8 @@ export function createLoginRuntime(
     );
     // A passkey-only page fills nothing, so it needs a matching item rather than a slot.
     if (passkeyOnly ? !items.length : !slots.length && !offers.length) {
-      const enabled = snapshot.catalog.connections.some(
-        (connection) =>
-          snapshot.snapshot.settings.connections.find(
-            (entry) => entry.connectionId === connection.id,
-          )?.enabled,
+      const enabled = snapshot.catalog.connections.some((connection) =>
+        connectionEnabled(snapshot.snapshot.settings, snapshot.catalog, connection.id),
       );
       const unavailable = scope.unavailableConnections[0]?.reason;
       if (items.length) miss("no-vault-match", "no-slots");
@@ -9481,6 +9484,7 @@ export function createLoginRuntime(
       offers,
       items,
       settings: snapshot.snapshot.settings,
+      catalog: snapshot.catalog,
       // An item that could not be checked might have another username.
       complete: !scope.unavailableConnections.length && !scope.incompleteItems.length,
     };
@@ -9532,13 +9536,15 @@ export function createLoginRuntime(
    * The matching items' username reads: none for an item without one, with an empty one
    * (the catalog's value-free `empty` flag) or whose username the user excluded.
    */
-  function usernameReads(scope: Pick<GenerationScope, "items" | "settings">) {
+  function usernameReads(scope: Pick<GenerationScope, "items" | "settings" | "catalog">) {
     return scope.items.flatMap(({ connection, item }) => {
-      const excluded = scope.settings.connections
-        .find((entry) => entry.connectionId === connection.id)
-        ?.excludedFields.some(
-          (field) => field.itemId === item.id && field.fieldId === "login.username",
-        );
+      const excluded = isFieldExcluded(
+        scope.settings,
+        scope.catalog,
+        connection.id,
+        item.id,
+        "login.username",
+      );
       return excluded ||
         !item.fields.some((field) => field.id === "login.username" && field.empty !== true)
         ? []
@@ -9613,9 +9619,7 @@ export function createLoginRuntime(
       if (!fieldId) return "";
       if (
         excluded &&
-        settingsValue.connections
-          .find((entry) => entry.connectionId === connectionId)
-          ?.excludedFields.some((field) => field.itemId === itemId && field.fieldId === fieldId)
+        isFieldExcluded(settingsValue, snapshot.catalog, connectionId, itemId, fieldId)
       )
         return undefined;
       try {
@@ -10166,7 +10170,12 @@ export function createLoginRuntime(
     const scope: GenerationScope = {
       slots: generationSlots
         .filter(({ fieldId }) =>
-          offersGenerationField(policy, { connectionId: connection.id, item }, fieldId),
+          offersGenerationField(
+            policy,
+            snapshot.catalog,
+            { connectionId: connection.id, item },
+            fieldId,
+          ),
         )
         .map(({ slot }) => slot),
       offers: customFieldOffers([
@@ -10174,6 +10183,7 @@ export function createLoginRuntime(
       ]),
       items: [{ connection, item }],
       settings: policy,
+      catalog: snapshot.catalog,
       complete: true,
     };
     const plain = () => scope.offers.map((offer) => offer.slot);
@@ -13245,6 +13255,7 @@ export function createLoginRuntime(
     return {
       items: scope.ok ? catalogItems(snapshot.catalog, scope.candidates) : [],
       settings: snapshot.snapshot.settings,
+      catalog: snapshot.catalog,
     };
   }
   /**

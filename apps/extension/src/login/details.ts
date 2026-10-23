@@ -24,7 +24,7 @@ import type { LoginSecretKind } from "./wire";
 // parts: a date's year, month and day, or a card number's or PIN's digit groups.
 
 /** The login item a link belongs to: its site and its vault account and item. */
-export type DetailOwner = Pick<DetailLink, "origin" | "provider" | "userId" | "itemId">;
+export type DetailOwner = Pick<DetailLink, "origin" | "provider" | "server" | "userId" | "itemId">;
 
 /** The built-in fields each detail may be read from; custom fields are checked by kind. */
 const builtinSources: Readonly<Record<LoginDetail, readonly string[]>> = {
@@ -370,6 +370,7 @@ export function savedDetailLinks(
     (link) =>
       link.origin === owner.origin &&
       link.provider === owner.provider &&
+      link.server === owner.server &&
       link.userId === owner.userId &&
       link.itemId === owner.itemId &&
       link.detail === detail,
@@ -386,6 +387,7 @@ export function savedDetailLink(
     (link) =>
       link.origin === owner.origin &&
       link.provider === owner.provider &&
+      link.server === owner.server &&
       link.userId === owner.userId &&
       link.itemId === owner.itemId &&
       link.detail === detail,

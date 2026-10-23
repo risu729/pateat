@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CryptoHost } from "../crypto/host";
 import type { HostSessionRef } from "../crypto/wire";
 import type { VaultEntry } from "../vault/record";
-import type { VaultCatalog } from "@pateat/contracts";
+import type { SettingsSnapshot, VaultCatalog } from "@pateat/contracts";
 import { activeEntry, disabledEntry, lockedEntry } from "../vault/__fixtures__/vault";
 import { accountProfile } from "../../../../packages/bitwarden/src/__fixtures__/account";
 import { legacyItemKey } from "../../../../packages/bitwarden/src/__fixtures__/crypto";
@@ -376,6 +376,9 @@ describe("vault timeout and lock (ADR 0075)", () => {
           id,
           label: "Synthetic",
           provider: "bitwarden",
+          server: "cloud-us",
+          // A locked vault still names its account, so its synced policy applies (ADR 0023).
+          lockedUserId: lockedEntry().accepted!.userId,
           groups: [],
           items: [],
           state: "locked",
@@ -955,5 +958,88 @@ describe("vault timeout and lock (ADR 0075)", () => {
         error: { code: "vault-locked" },
       });
     });
+  });
+});
+
+describe("vault catalog", () => {
+  const snapshot = {
+    version: 1,
+    revision: 1,
+    settings: {
+      connections: [],
+      accountPolicies: [],
+      itemPolicies: [],
+      customFieldReviews: [],
+      excludedSites: [],
+      repromptSites: [],
+      passkeyBrowserSites: [],
+      siteDefaults: [],
+      bindings: [],
+    },
+  } satisfies SettingsSnapshot;
+  const configuration = {
+    profile: accountProfile,
+    label: "Synthetic vault",
+    email: "synthetic@example.test",
+    deviceIdentifier: "12345678-1234-4234-8234-123456789abc",
+  };
+  const registry = (configured = [configuration]) =>
+    ({
+      list: async () => configured,
+      get: async (id: string) => configured.find((entry) => entry.profile.connectionId === id),
+    }) as never;
+  async function catalogOf(options: Parameters<typeof createConnectionRuntime>[1]) {
+    createConnectionRuntime({} as CryptoHost, options);
+    return (await settingsRuntime.catalog!(snapshot)) as VaultCatalog;
+  }
+
+  it.each<[string, () => Promise<boolean>, Partial<VaultCatalog>]>([
+    ["waits for its first settings sync", async () => true, { settingsSyncPending: true }],
+    [
+      "cannot tell whether it waits",
+      async () => Promise.reject(new Error("unreadable")),
+      { settingsSyncPending: true },
+    ],
+    ["has synced settings", async () => false, {}],
+  ])("says so while the device %s", async (_label, settingsSyncPending, expected) => {
+    expect(await catalogOf({ registry: registry([]), settingsSyncPending })).toEqual({
+      ...expected,
+      connections: [],
+    });
+  });
+
+  it("names a locked connection's server and last known account, without items", async () => {
+    stored.entry = disabledEntry();
+    const catalog = await catalogOf({ registry: registry() });
+    expect(catalog).toEqual({
+      connections: [
+        {
+          id: accountProfile.connectionId,
+          label: "Synthetic vault",
+          provider: "bitwarden",
+          server: "cloud-us",
+          lockedUserId: disabledEntry().accepted!.userId,
+          groups: [],
+          items: [],
+          state: "unavailable",
+        },
+      ],
+    });
+    // A connection that never accepted a snapshot cannot name its account.
+    stored.entry = disabledEntry(false);
+    expect((await catalogOf({ registry: registry() })).connections[0]).not.toHaveProperty(
+      "lockedUserId",
+    );
+  });
+
+  it("names the account of a connection's accepted snapshot without unlocking it", async () => {
+    stored.entry = disabledEntry();
+    const runtime = createConnectionRuntime({} as CryptoHost, { registry: registry() });
+    expect(await runtime.account(accountProfile.connectionId)).toEqual({
+      provider: "bitwarden",
+      server: "cloud-us",
+      userId: disabledEntry().accepted!.userId,
+    });
+    expect(await runtime.account("unknown-connection")).toBeUndefined();
   });
 });
