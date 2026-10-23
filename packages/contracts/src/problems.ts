@@ -80,7 +80,7 @@ export const PROBLEM_EVENT_FIELDS = {
   },
   "service.outcome": { recipe: "recipe", recipeRevision: "count", branch: "code", result: "code" },
   "service.login": { recipe: "recipe", recipeRevision: "count", branch: "code", result: "code" },
-  "service.use": { recipe: "recipe", recipeRevision: "count", result: "code" },
+  "service.use": { recipe: "recipe", recipeRevision: "count", layout: "code", result: "code" },
   "service.problems": { lines: "count", result: "code" },
   "settings.changed": { source: "code", revision: "count" },
   "login.attempt": {
@@ -193,6 +193,8 @@ export const PROBLEM_EVENT_FIELDS = {
     origin: "origin",
     recipe: "recipe",
     recipeRevision: "count",
+    layout: "code",
+    layouts: "count",
     route: "code",
     variant: "count",
     account: "code",

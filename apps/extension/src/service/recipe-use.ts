@@ -7,7 +7,7 @@ import type { OutcomeResult, ServiceTransport } from "./transport";
 // Each login that starts on a service recipe revision tells the service, so it does not
 // revoke the recipe as unused (ADR 0058), whatever happens after: fill-only logins and ones
 // that stop before an item's missing password send no login record (ADR 0055) but are use
-// too. The recipe ID and revision only. Sending is best-effort; it never waits on, throws
+// too. The recipe ID, revision and layout key only (ADR 0060). Sending is best-effort; it never waits on, throws
 // into or changes a login, and a failed send is neither retried nor stored.
 
 /**
@@ -22,6 +22,8 @@ export const MAX_RECENT_RECIPE_USES = 100;
 export type RecipeUseSent = {
   recipeId: string;
   revision: number;
+  /** The layout the login started on (ADR 0060). */
+  layout: string;
   /** `kept`, `refused`, `rejected`, or `failed:<code>`. */
   result: string;
 };
@@ -29,8 +31,8 @@ export type RecipeUseSent = {
 /**
  * The use to send for a login report, or nothing: only a login's `start` report, which the
  * runtime sends once when a new login starts, on a service recipe revision (a valid recipe
- * ID and a revision of at least 1, as for a login record). A fill-only login and one of an
- * item without a password count as well.
+ * ID and a revision of at least 1, as for a login record) and one of its layouts (ADR
+ * 0060). A fill-only login and one of an item without a password count as well.
  */
 export function recipeUseOf(
   report: LoginReport,
@@ -39,6 +41,7 @@ export function recipeUseOf(
   const parsed = v.safeParse(recipeUseReportSchema, {
     version: 1,
     revision: report.recipeRevision,
+    layout: report.layout,
   });
   return parsed.success ? { recipeId: report.recipeId, report: parsed.output } : undefined;
 }
@@ -71,7 +74,7 @@ export function createRecipeUse(options: {
     const connection = await service.connection().catch(() => undefined);
     if (!connection || connection.rejected) return;
     const { recipeId, report } = found;
-    const key = JSON.stringify([connection.origin, recipeId, report.revision]);
+    const key = JSON.stringify([connection.origin, recipeId, report.revision, report.layout]);
     const at = now();
     const sentAt = recent.get(key);
     if (sentAt !== undefined && at - sentAt < RECIPE_USE_REPEAT_MS) return;
@@ -95,6 +98,7 @@ export function createRecipeUse(options: {
     tell({
       recipeId,
       revision: report.revision,
+      layout: report.layout,
       result: !result
         ? "failed:threw"
         : result.kind === "failed"

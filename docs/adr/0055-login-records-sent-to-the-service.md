@@ -18,6 +18,12 @@ log's `warn` and `error` lines and why Pateat did nothing. A setting to turn off
 kinds of sending is on the
 [pre-release list](../plan.md#phase-3-public-release).
 
+Amended on 2026-10-23 by [ADR 0060](0060-recipe-layouts.md) (layouts accepted by the
+owner on 2026-10-23 at 11:41 UTC; implemented on a branch, local tests only): a record
+always carries `branch`, which names the layout the login ran (`<key>`, or
+`<key>:account` / `<key>:other` for a chooser's branch), and the service marks that
+layout used.
+
 Date: 2026-10-18
 
 ## Context

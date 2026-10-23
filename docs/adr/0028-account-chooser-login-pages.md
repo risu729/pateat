@@ -20,6 +20,14 @@ Amended on 2026-10-19 by [ADR 0057](0057-decide-no-input-pages-when-the-dom-is-q
 [a list is checked](#amendment-2026-10-19-checked-once-the-dom-is-quiet) once the page's
 DOM is quiet for a second, at most 5 seconds, instead of 10 seconds after loading.
 
+Amended on 2026-10-23 by [ADR 0060](0060-recipe-layouts.md) (accepted by the owner on
+2026-10-23 at 11:41 UTC; implemented on a branch, local tests only): a chooser holds up
+to three layouts under its `path`, each with its own `other`, `continue`, `afterAccount`
+and `afterOther`, and a branch is named `<layout>:account` or `<layout>:other`. A new
+login on the list takes the layout whose list buttons fit the page best (all shown, then
+the fewest missing, then the most shown), then one of the page's language, then the
+newest.
+
 Amended on 2026-10-23 (owner, 11:48 UTC, implemented):
 [a list is sent without slots](#amendment-2026-10-23-sent-without-slots) or value
 shapes.

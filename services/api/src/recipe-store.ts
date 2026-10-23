@@ -1,13 +1,39 @@
 import {
   MAX_ACTIVE_RECIPE_BYTES,
+  runsLogin,
+  storedLayouts,
   syncRecipeChangeSchema,
+  type ManageLayoutSource,
+  type StoredLoginRecipe,
   type SyncRecipeChange,
   type SyncRecipeWrite,
 } from "@pateat/contracts";
-import { and, asc, eq, lt, or, sql, type SQL } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/d1";
+import {
+  and,
+  asc,
+  eq,
+  gte,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  notInArray,
+  or,
+  sql,
+  type SQL,
+} from "drizzle-orm";
+import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
 import * as v from "valibot";
-import { owners, recipeHeads, recipeRevisions } from "./db/schema";
+import type { ServedModel } from "./claude/calls";
+import {
+  owners,
+  recipeHeads,
+  recipeLayoutUses,
+  recipeRevisions,
+  recipeUnitSources,
+  type RecipeUnitOrigin,
+} from "./db/schema";
+import { documentUnits, LIST_UNIT, namedUnits, pageUnit, type RecipeUnit } from "./recipe-units";
 import {
   KEPT_RECIPE_REVISIONS,
   MAX_ACTIVE_RECIPES,
@@ -146,16 +172,43 @@ export async function hasRecipeRoom(db: D1Database, ownerId: string): Promise<bo
 }
 
 /**
+ * What a recipe write records of its units (ADR 0060, generation provenance): the units a
+ * call made and the call, or a device's whole document, which names no call.
+ */
+export type UnitSources =
+  | {
+      origin: Extract<RecipeUnitOrigin, "generated" | "judged">;
+      units: readonly RecipeUnit[];
+      served: ServedModel;
+      promptVersion: string;
+      logId: string | undefined;
+    }
+  | { origin: "device" };
+
+/**
  * Writes the next revision of one recipe when `expectedRevision` is still its head.
- * `writer` is the writing device, or null for the owner web UI or the service. A stale
+ * `writer` is the device the write is for: the one that wrote it (`PUT /v1/recipes/:id`) or
+ * whose request generated or judged it. It is null for a write no device asked for, by the
+ * owner web UI or the service's own checks, such as the idle check (ADR 0058). A stale
  * writer changes nothing and gets the current head back (null when the recipe never
  * existed). Every winning write marks the recipe used (`lastUsedAt`, ADR 0058); with
  * `unusedBefore`, the write wins only while the head was last used before that time, so a
- * recipe used after an idle check is not revoked by it.
+ * recipe used after an idle check is not revoked by it; with `idleLayouts`, only while
+ * none of those layouts was used since `before`, so a layout used after the check is not
+ * removed by it.
  * A write that would make the owner hold more than `MAX_ACTIVE_RECIPES` active recipes
  * or exceed `MAX_ACTIVE_RECIPE_BYTES` by creating or growing one
  * changes nothing and is `limited`. A winning write deletes revisions older than the
- * newest `KEPT_RECIPE_REVISIONS`, or every older one when it revokes the recipe.
+ * newest `KEPT_RECIPE_REVISIONS`, or every older one when it revokes the recipe, and the
+ * last use of each layout (ADR 0060) the written document no longer has. With `used:
+ * false`, as when the owner or the idle check removes a layout, the write does not mark
+ * the recipe used.
+ * The same batch keeps `recipe_unit_sources` (ADR 0060): it deletes the rows of layouts the
+ * document no longer has and every row of a revoked recipe, and with a call's `sources`
+ * writes a row for each unit named there, replacing that unit's earlier row. A `device`
+ * write keeps the rows of units whose digest it left unchanged, deletes the rows of units
+ * its document no longer has, and writes a `device` row for each unit it changed or
+ * added. `writer` is each row's device.
  */
 export async function writeRecipe(
   db: D1Database,
@@ -163,7 +216,13 @@ export async function writeRecipe(
   recipeId: string,
   write: SyncRecipeWrite,
   writer: string | null,
-  options: { unusedBefore?: number } = {},
+  options: {
+    unusedBefore?: number;
+    used?: boolean;
+    /** The layouts the write removes as idle, which must still be unused since `before`. */
+    idleLayouts?: { keys: readonly string[]; before: number };
+    sources?: UnitSources;
+  } = {},
 ): Promise<
   | { ok: true; change: SyncRecipeChange }
   | { ok: false; limited: false; current: SyncRecipeChange | null }
@@ -184,7 +243,7 @@ export async function writeRecipe(
     sequence: nextSequence,
     writeId,
     updatedAt: now,
-    lastUsedAt: now,
+    ...(options.used === false ? {} : { lastUsedAt: now }),
   };
   // Only a write that makes a recipe active can add one; updates and revocations cannot.
   const hasRoom = sql`${activeRecipes(ownerId)} < ${MAX_ACTIVE_RECIPES}`;
@@ -226,6 +285,16 @@ export async function writeRecipe(
               options.unusedBefore === undefined
                 ? undefined
                 : lt(recipeHeads.lastUsedAt, options.unusedBefore),
+              options.idleLayouts?.keys.length
+                ? sql`NOT EXISTS (SELECT 1 FROM ${recipeLayoutUses}
+                    WHERE ${recipeLayoutUses.ownerId} = ${ownerId}
+                      AND ${recipeLayoutUses.recipeId} = ${recipeId}
+                      AND ${recipeLayoutUses.layout} IN (${sql.join(
+                        options.idleLayouts.keys.map((key) => sql`${key}`),
+                        sql`, `,
+                      )})
+                      AND ${recipeLayoutUses.lastUsedAt} >= ${options.idleLayouts.before})`
+                : undefined,
               // Re-revoking a tombstone would only add churn to every change feed.
               write.state === "revoked"
                 ? eq(recipeHeads.state, "active")
@@ -268,15 +337,119 @@ export async function writeRecipe(
         sql`${recipeRevisions.revision} <= (SELECT ${recipeHeads.revision} - CASE ${recipeHeads.state} WHEN 'revoked' THEN 1 ELSE ${KEPT_RECIPE_REVISIONS} END FROM ${recipeHeads} WHERE ${recipeHeads.ownerId} = ${ownerId} AND ${recipeHeads.recipeId} = ${recipeId} AND ${recipeHeads.writeId} = ${writeId})`,
       ),
     );
-  const [claimed, recorded] = await orm.batch([claim, history, pruned]);
+  // Runs only after this request's claim won: the uses of layouts the document dropped,
+  // every one for a tombstone.
+  const kept = document === null ? [] : storedLayouts(document).map((layout) => layout.key);
+  const unusedLayouts = orm.delete(recipeLayoutUses).where(
+    and(
+      eq(recipeLayoutUses.ownerId, ownerId),
+      eq(recipeLayoutUses.recipeId, recipeId),
+      sql`EXISTS (SELECT 1 FROM ${recipeHeads} WHERE ${recipeHeads.ownerId} = ${ownerId} AND ${recipeHeads.recipeId} = ${recipeId} AND ${recipeHeads.writeId} = ${writeId})`,
+      kept.length
+        ? sql`${recipeLayoutUses.layout} NOT IN (${sql.join(
+            kept.map((key) => sql`${key}`),
+            sql`, `,
+          )})`
+        : undefined,
+    ),
+  );
+  // The provenance of the recipe's units (ADR 0060), kept only after this request's claim
+  // won. A device's document does not say where its pages end, so it is split where the
+  // recorded pages start; a write that wins finds these rows unchanged, since every write
+  // of them changes the head.
+  const { sources } = options;
+  const device = sources?.origin === "device";
+  const call = sources && sources.origin !== "device" ? sources : undefined;
+  const units =
+    document === null || !sources
+      ? []
+      : call
+        ? await namedUnits(document, call.units)
+        : await documentUnits(document, await readPageUnits(db, ownerId, recipeId));
+  const won = sql`EXISTS (SELECT 1 FROM ${recipeHeads} WHERE ${recipeHeads.ownerId} = ${ownerId} AND ${recipeHeads.recipeId} = ${recipeId} AND ${recipeHeads.writeId} = ${writeId})`;
+  const unitRows = sql`json_each(${JSON.stringify(units)}) AS unit_row`;
+  const unitLayout = sql`json_extract(unit_row.value, '$.layout')`;
+  const unitId = sql`json_extract(unit_row.value, '$.unit')`;
+  const unitDigest = sql`json_extract(unit_row.value, '$.digest')`;
+  /** Whether the written units name the row's unit, and with `digest` its content too. */
+  const listed = (digest: boolean) =>
+    sql`EXISTS (SELECT 1 FROM ${unitRows} WHERE ${unitId} = ${recipeUnitSources.unit} AND ${unitLayout} IS ${recipeUnitSources.layout}${digest ? sql` AND ${unitDigest} = ${recipeUnitSources.digest}` : sql``})`;
+  // A tombstone drops every row; a device's document every row it did not keep as it was;
+  // a call's write the rows of layouts the document dropped and of the units it rewrote.
+  const staleSources = orm
+    .delete(recipeUnitSources)
+    .where(
+      and(
+        eq(recipeUnitSources.ownerId, ownerId),
+        eq(recipeUnitSources.recipeId, recipeId),
+        won,
+        document === null
+          ? undefined
+          : device
+            ? sql`NOT ${listed(true)}`
+            : or(
+                "entry" in document
+                  ? isNotNull(recipeUnitSources.layout)
+                  : or(
+                      isNull(recipeUnitSources.layout),
+                      notInArray(recipeUnitSources.layout, kept),
+                    ),
+                listed(false),
+              ),
+      ),
+    );
+  const writtenSources = units.length
+    ? [
+        // Drizzle fills INSERT ... SELECT positionally: keep these fields in the
+        // recipeUnitSources column order. A unit whose row stayed keeps it.
+        orm.insert(recipeUnitSources).select(
+          orm
+            .select({
+              ownerId: sql`${ownerId}`.as("owner_id"),
+              recipeId: sql`${recipeId}`.as("recipe_id"),
+              layout: unitLayout.as("layout"),
+              unit: unitId.as("unit"),
+              digest: unitDigest.as("digest"),
+              revision: sql`${revision}`.as("revision"),
+              origin: sql`${sources!.origin}`.as("origin"),
+              provider: sql`${call?.served.provider ?? null}`.as("provider"),
+              model: sql`${call?.served.model ?? null}`.as("model"),
+              effort: sql`${call?.served.effort ?? null}`.as("effort"),
+              speed: sql`${call?.served.speed ?? null}`.as("speed"),
+              promptVersion: sql`${call?.promptVersion ?? null}`.as("prompt_version"),
+              build: sql`${PATEAT_BUILD_REVISION}`.as("build"),
+              deviceId: sql`${writer}`.as("device_id"),
+              logId: sql`${call?.logId ?? null}`.as("log_id"),
+              createdAt: sql`${now}`.as("created_at"),
+            })
+            .from(unitRows)
+            .where(
+              and(
+                won,
+                sql`NOT EXISTS (SELECT 1 FROM ${recipeUnitSources} WHERE ${recipeUnitSources.ownerId} = ${ownerId} AND ${recipeUnitSources.recipeId} = ${recipeId} AND ${recipeUnitSources.unit} = ${unitId} AND ${recipeUnitSources.layout} IS ${unitLayout})`,
+              ),
+            ),
+        ),
+      ]
+    : [];
+  const [claimed, recorded] = await orm.batch([
+    claim,
+    history,
+    pruned,
+    unusedLayouts,
+    staleSources,
+    ...writtenSources,
+  ]);
   if (claimed.meta.changes === 1 && recorded.meta.changes !== 1)
     throw new Error("Recipe head was claimed without its history row");
   if (claimed.meta.changes !== 1) {
     const current = await readHead(db, ownerId, recipeId);
     // A matching expected head means the active claim was refused only by a quota.
     // Do not recheck capacity here: another writer may have freed room after the claim.
+    // A removal of idle layouts that only shrinks the document is refused by a use instead.
     const limited =
       write.state === "active" &&
+      !options.idleLayouts?.keys.length &&
       (current ? current.revision === write.expectedRevision : write.expectedRevision === 0);
     return limited ? { ok: false, limited } : { ok: false, limited, current };
   }
@@ -292,12 +465,182 @@ export async function writeRecipe(
   };
 }
 
+/** Stored layouts, of a login recipe or a chooser, as JSON rows of the head's document. */
+const layoutRows = (path: string) =>
+  sql`json_each(${recipeRevisions.document}, ${path}) AS layout_row`;
+/** Whether the head's document has the layout among those at `path`. */
+const hasLayout = (path: string, layout: string) =>
+  sql`EXISTS (SELECT 1 FROM ${layoutRows(path)}
+    WHERE json_extract(layout_row.value, '$.key') = ${layout})`;
+/**
+ * Marks one layout of an active recipe used now (ADR 0060), for a batch: a login reported
+ * on it, or a write of it that a login's page caused. Nothing unless the active head still
+ * has the layout, so a report of one removed meanwhile, or made up, leaves no row.
+ */
+export function markLayoutUsed(
+  orm: DrizzleD1Database,
+  ownerId: string,
+  recipeId: string,
+  layout: string,
+  now: number,
+) {
+  return orm
+    .insert(recipeLayoutUses)
+    .select(
+      orm
+        .select({
+          ownerId: recipeHeads.ownerId,
+          recipeId: recipeHeads.recipeId,
+          layout: sql`${layout}`.as("layout"),
+          lastUsedAt: sql`${now}`.as("last_used_at"),
+        })
+        .from(recipeHeads)
+        .innerJoin(
+          recipeRevisions,
+          and(
+            eq(recipeRevisions.ownerId, recipeHeads.ownerId),
+            eq(recipeRevisions.recipeId, recipeHeads.recipeId),
+            eq(recipeRevisions.revision, recipeHeads.revision),
+          ),
+        )
+        .where(
+          and(
+            eq(recipeHeads.ownerId, ownerId),
+            eq(recipeHeads.recipeId, recipeId),
+            eq(recipeHeads.state, "active"),
+            sql`(${hasLayout("$.layouts", layout)} OR ${hasLayout("$.chooser.layouts", layout)})`,
+          ),
+        ),
+    )
+    .onConflictDoUpdate({
+      target: [recipeLayoutUses.ownerId, recipeLayoutUses.recipeId, recipeLayoutUses.layout],
+      set: { lastUsedAt: now },
+    });
+}
+
+/** When each layout of the owner's recipes was last used, by recipe ID and layout key. */
+export async function readLayoutUses(
+  db: D1Database,
+  ownerId: string,
+  recipeId?: string,
+): Promise<Map<string, Map<string, number>>> {
+  const rows = await drizzle(db)
+    .select()
+    .from(recipeLayoutUses)
+    .where(
+      and(
+        eq(recipeLayoutUses.ownerId, ownerId),
+        recipeId === undefined ? undefined : eq(recipeLayoutUses.recipeId, recipeId),
+      ),
+    );
+  const uses = new Map<string, Map<string, number>>();
+  for (const row of rows) {
+    const recipe = uses.get(row.recipeId) ?? new Map<string, number>();
+    recipe.set(row.layout, row.lastUsedAt);
+    uses.set(row.recipeId, recipe);
+  }
+  return uses;
+}
+
+/** The recorded page units of a recipe (ADR 0060), where a device's document is split. */
+async function readPageUnits(
+  db: D1Database,
+  ownerId: string,
+  recipeId: string,
+): Promise<RecipeUnit[]> {
+  return drizzle(db)
+    .select({ layout: recipeUnitSources.layout, unit: recipeUnitSources.unit })
+    .from(recipeUnitSources)
+    .where(
+      and(
+        eq(recipeUnitSources.ownerId, ownerId),
+        eq(recipeUnitSources.recipeId, recipeId),
+        sql`${recipeUnitSources.unit} GLOB '*page:*'`,
+      ),
+    );
+}
+
+/**
+ * Who made the first page of each layout of the owner's recipes (ADR 0060, generation
+ * provenance), a chooser layout's list for a chooser, by recipe ID and layout key.
+ */
+export async function readFirstPageSources(
+  db: D1Database,
+  ownerId: string,
+): Promise<Map<string, Map<string, ManageLayoutSource>>> {
+  const rows = await drizzle(db)
+    .select({
+      recipeId: recipeUnitSources.recipeId,
+      layout: recipeUnitSources.layout,
+      origin: recipeUnitSources.origin,
+      model: recipeUnitSources.model,
+      createdAt: recipeUnitSources.createdAt,
+    })
+    .from(recipeUnitSources)
+    .where(
+      and(
+        eq(recipeUnitSources.ownerId, ownerId),
+        isNotNull(recipeUnitSources.layout),
+        inArray(recipeUnitSources.unit, [pageUnit(0), LIST_UNIT]),
+      ),
+    );
+  const sources = new Map<string, Map<string, ManageLayoutSource>>();
+  for (const { recipeId, layout, ...source } of rows) {
+    if (layout === null) continue;
+    const recipe = sources.get(recipeId) ?? new Map<string, ManageLayoutSource>();
+    recipe.set(layout, source);
+    sources.set(recipeId, recipe);
+  }
+  return sources;
+}
+
+/**
+ * The stored recipe without its layouts unused since `unusedBefore` (ADR 0060): a layout
+ * counts as used when it was created and at its last reported use. A recipe whose layouts
+ * were generated as `confirm` or `unclear` never runs, so never reports use, and keeps them
+ * all (ADR 0035): every layout of a recipe has its kind. A chooser's layouts are `sign-in`.
+ * `undefined` when none is unused, or every one is, which the recipe's own idle check
+ * revokes instead.
+ */
+export function withoutUnusedLayouts(
+  recipe: StoredLoginRecipe,
+  uses: ReadonlyMap<string, number>,
+  unusedBefore: number,
+): StoredLoginRecipe | undefined {
+  const idle = new Set(
+    [
+      ...("layouts" in recipe ? recipe.layouts.filter(runsLogin) : []),
+      ...("chooser" in recipe ? recipe.chooser.layouts : []),
+    ]
+      .filter((layout) => Math.max(layout.createdAt, uses.get(layout.key) ?? 0) < unusedBefore)
+      .map((layout) => layout.key),
+  );
+  if (!idle.size || idle.size === storedLayouts(recipe).length) return undefined;
+  const revision = recipe.revision + 1;
+  if ("layouts" in recipe)
+    return {
+      ...recipe,
+      revision,
+      layouts: recipe.layouts.filter((layout) => !idle.has(layout.key)),
+    };
+  if ("chooser" in recipe)
+    return {
+      ...recipe,
+      revision,
+      chooser: {
+        ...recipe.chooser,
+        layouts: recipe.chooser.layouts.filter((layout) => !idle.has(layout.key)),
+      },
+    };
+  return undefined;
+}
+
 /**
  * Revokes the owner's active recipes unused for `RECIPE_IDLE_LIMIT_MS` (ADR 0058), at most
  * `MAX_IDLE_REVOCATIONS` per call and oldest first, as ordinary tombstone writes by the
  * service. Entry recipes (ADR 0031) stay: pressing an entry reports nothing to the service.
- * So do route recipes generated as `confirm` or `unclear` (ADR 0035), which never run, so
- * never report use. A recipe used after this read keeps its head. Returns how many were
+ * So do login recipes with a layout generated as `confirm` or `unclear` (ADR 0035, ADR
+ * 0060), which never runs, so never reports use. A recipe used after this read keeps its head. Returns how many were
  * revoked.
  */
 export async function revokeUnusedRecipes(
@@ -312,7 +655,9 @@ export async function revokeUnusedRecipes(
     eq(recipeHeads.state, "active"),
     lt(recipeHeads.lastUsedAt, unusedBefore),
     sql`json_extract(${recipeRevisions.document}, '$.entry') IS NULL`,
-    sql`coalesce(json_extract(${recipeRevisions.document}, '$.pageKind'), 'sign-in') = 'sign-in'`,
+    // Every layout of a login recipe was generated as `sign-in` (ADR 0060).
+    sql`NOT EXISTS (SELECT 1 FROM ${layoutRows("$.layouts")}
+      WHERE json_extract(layout_row.value, '$.pageKind') <> 'sign-in')`,
   )
     .orderBy(asc(recipeHeads.lastUsedAt))
     .limit(MAX_IDLE_REVOCATIONS);
@@ -330,5 +675,67 @@ export async function revokeUnusedRecipes(
     );
     if (result.ok) revoked += 1;
   }
+  await removeUnusedLayouts(db, ownerId, unusedBefore);
   return revoked;
+}
+
+/**
+ * Removes the layouts unused since `unusedBefore` of the owner's active recipes that were
+ * themselves used since then, at their head's `lastUsedAt`, and keep another layout (ADR
+ * 0060), at most `MAX_IDLE_REVOCATIONS` recipes per call, as service writes that do not
+ * mark the recipe used. A recipe written meanwhile, or a removed layout used meanwhile,
+ * keeps its layouts until the next check.
+ */
+async function removeUnusedLayouts(db: D1Database, ownerId: string, unusedBefore: number) {
+  // Only recipes holding a layout created before the limit and not used since are read.
+  const idleLayout = (path: string) =>
+    sql`EXISTS (SELECT 1 FROM ${layoutRows(path)}
+      WHERE json_extract(layout_row.value, '$.createdAt') < ${unusedBefore}
+        AND coalesce(json_extract(layout_row.value, '$.pageKind'), 'sign-in') = 'sign-in'
+        AND NOT EXISTS (SELECT 1 FROM ${recipeLayoutUses}
+          WHERE ${recipeLayoutUses.ownerId} = ${recipeHeads.ownerId}
+            AND ${recipeLayoutUses.recipeId} = ${recipeHeads.recipeId}
+            AND ${recipeLayoutUses.layout} = json_extract(layout_row.value, '$.key')
+            AND ${recipeLayoutUses.lastUsedAt} >= ${unusedBefore}))`;
+  const candidates = await selectHeads(
+    db,
+    ownerId,
+    eq(recipeHeads.state, "active"),
+    gte(recipeHeads.lastUsedAt, unusedBefore),
+    sql`(${idleLayout("$.layouts")} OR ${idleLayout("$.chooser.layouts")})`,
+  )
+    .orderBy(asc(recipeHeads.lastUsedAt))
+    .limit(MAX_IDLE_REVOCATIONS);
+  if (!candidates.length) return;
+  const uses = await readLayoutUses(db, ownerId);
+  for (const row of candidates) {
+    const { change } = readChange(row);
+    if (change.state !== "active" || "entry" in change.recipe) continue;
+    const next = withoutUnusedLayouts(
+      change.recipe,
+      uses.get(row.recipeId) ?? new Map(),
+      unusedBefore,
+    );
+    if (!next) continue;
+    const kept = new Set(storedLayouts(next).map((layout) => layout.key));
+    // Sequential: each write takes the owner's next sequence number.
+    // eslint-disable-next-line no-await-in-loop
+    await writeRecipe(
+      db,
+      ownerId,
+      row.recipeId,
+      { version: 1, expectedRevision: row.revision, state: "active", recipe: next },
+      null,
+      {
+        used: false,
+        // A use reported after `uses` was read keeps its layout.
+        idleLayouts: {
+          keys: storedLayouts(change.recipe)
+            .map((layout) => layout.key)
+            .filter((key) => !kept.has(key)),
+          before: unusedBefore,
+        },
+      },
+    );
+  }
 }

@@ -719,8 +719,15 @@ this rule; compatibility from then on needs its own decision.
 
 One exception, chosen by the owner on 2026-10-12 at 18:07 UTC: D1 migration 0013
 rewrites each stored recipe's `completion` into the list of signed-in markers of
-[ADR 0029](adr/0029-local-sign-in-state.md), so the owner's recipes keep working
-without being generated again.
+[ADR 0029](adr/0029-local-sign-in-state.md), so the owner's recipes keep working without
+being generated again.
+
+A second exception, for every stored recipe (owner request, 2026-10-23 11:41 UTC; see
+[ADR 0060](adr/0060-recipe-layouts.md#changing-the-recipe-schema-later)): a later recipe
+schema change backfills them from the logs without opening login pages where possible.
+A change that needs no new model output rewrites them in a migration; one that needs new
+model output is rebuilt from the request log's observations by a separate tool; a recipe
+that cannot be rebuilt is discarded and generated again on the next visit.
 
 ## Platform features
 
