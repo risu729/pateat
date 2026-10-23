@@ -222,6 +222,118 @@ describe("passkey runtime cancellation", () => {
   });
 });
 
+describe("a document replaced while Pateat answers its request", () => {
+  const signature = Uint8Array.of(0x30, 0x06, 0x02, 0x01, 0x01, 0x02, 0x01, 0x01);
+  /** What the relay sends for each pending request on `pagehide`. */
+  const cancel = (operationId: string) => ({ version: 1, type: "passkey.cancel", operationId });
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+  /** A runtime with every side effect of an assertion observed. */
+  const setup = (backing: PasskeySource, choice?: PasskeyChoice) => {
+    const chooser = {
+      choose: vi.fn<PasskeyChooser["choose"]>(
+        async () => choice ?? { kind: "chosen", index: 0, makeDefault: false },
+      ),
+    };
+    const leave = vi.fn();
+    const effects = {
+      answered: vi.fn(),
+      remember: vi.fn(async () => {}),
+      report: vi.fn(),
+      hold: vi.fn(async () => leave),
+    };
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      chooser,
+      ...effects,
+    });
+    return { runtime, chooser, leave, ...effects };
+  };
+
+  it("gets no assertion and records no sign-in when its signing ignores the cancel", async () => {
+    // The vault's Worker signs anyway: only the runtime's own abort ends the request.
+    let release!: (signature: Uint8Array) => void;
+    const backing = source({
+      sign: vi
+        .fn<PasskeySource["sign"]>(async () => signature)
+        .mockImplementationOnce(() => new Promise((resolve) => (release = resolve))),
+    });
+    const tab = setup(backing);
+    const operationId = crypto.randomUUID();
+    const pending = tab.runtime.handle(get(operationId), sender());
+    await vi.waitFor(() => expect(backing.sign).toHaveBeenCalledOnce());
+    expect(await tab.runtime.handle(cancel(operationId), sender())).toEqual({ ok: true });
+    expect(await pending).toEqual({ kind: "cancelled" });
+    expect(tab.leave).toHaveBeenCalledOnce();
+
+    // The late signature changes nothing.
+    release(signature);
+    await tick();
+    await tick();
+    expect(tab.answered).not.toHaveBeenCalled();
+    expect(tab.remember).not.toHaveBeenCalled();
+    expect(tab.leave).toHaveBeenCalledOnce();
+    expect(tab.report).toHaveBeenCalledOnce();
+    expect(tab.report).toHaveBeenCalledWith(
+      expect.objectContaining({ tabId: 7, outcome: "cancelled", cause: "page-cancelled" }),
+    );
+
+    // The tab's next document is answered as before.
+    const next = sender({ documentId: "document-b" });
+    expect(await tab.runtime.handle(get(), next)).toMatchObject({
+      kind: "assertion",
+      assertion: { credentialId: "AQID" },
+    });
+    expect(tab.chooser.choose).not.toHaveBeenCalled();
+    expect(tab.answered).toHaveBeenCalledOnce();
+    expect(tab.answered).toHaveBeenCalledWith(7, origin, "example.com", candidate);
+    expect(tab.leave).toHaveBeenCalledTimes(2);
+  });
+
+  it("saves no passkey chosen in the window when the page is left while it signs", async () => {
+    const pair = [candidate, { ...candidate, credentialId: "BAUG" }];
+    const backing = source({
+      candidates: vi.fn(async () => ({ candidates: pair, complete: true })),
+      sign: vi.fn<PasskeySource["sign"]>(() => new Promise(() => {})),
+    });
+    const tab = setup(backing, { kind: "chosen", index: 1, makeDefault: true });
+    const operationId = crypto.randomUUID();
+    const pending = tab.runtime.handle(get(operationId), sender());
+    await vi.waitFor(() => expect(backing.sign).toHaveBeenCalledOnce());
+    expect(tab.chooser.choose).toHaveBeenCalledOnce();
+    await tab.runtime.handle(cancel(operationId), sender());
+    expect(await pending).toEqual({ kind: "cancelled" });
+    await tick();
+    await tick();
+    expect(tab.remember).not.toHaveBeenCalled();
+    expect(tab.answered).not.toHaveBeenCalled();
+    expect(tab.leave).toHaveBeenCalledOnce();
+    expect(tab.report).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: "cancelled", cause: "page-cancelled", chooser: "chosen" }),
+    );
+  });
+
+  it("never signs when the page is left during the vault lookup", async () => {
+    let found!: (candidates: PasskeyCandidates) => void;
+    const backing = source({
+      candidates: vi.fn(() => new Promise<PasskeyCandidates>((resolve) => (found = resolve))),
+    });
+    const tab = setup(backing);
+    const operationId = crypto.randomUUID();
+    const pending = tab.runtime.handle(get(operationId), sender());
+    await vi.waitFor(() => expect(backing.candidates).toHaveBeenCalledOnce());
+    await tab.runtime.handle(cancel(operationId), sender());
+    expect(await pending).toEqual({ kind: "cancelled" });
+    found({ candidates: [candidate], complete: true });
+    await tick();
+    expect(backing.sign).not.toHaveBeenCalled();
+    expect(tab.answered).not.toHaveBeenCalled();
+    expect(tab.leave).toHaveBeenCalledOnce();
+    expect(tab.report).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: "cancelled", cause: "page-cancelled" }),
+    );
+  });
+});
+
 describe("page option snapshots", () => {
   it("copies buffer sources and keeps only supported members", () => {
     const challenge = new Uint8Array(32).fill(7);

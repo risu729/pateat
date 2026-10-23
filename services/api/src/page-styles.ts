@@ -1,10 +1,9 @@
-// The stylesheet of the service's script-free pages (sign-in results, errors and the
-// Claude settings page), inlined because their Content-Security-Policy loads nothing.
+// The stylesheet of the service's script-free pages (sign-in results and errors), inlined
+// because their Content-Security-Policy loads nothing.
 // The light-dark() tokens repeat services/api/web/styles.css, which
 // tests/options/design-tokens.test.tsx checks. These pages have no Theme select, so
 // color-scheme: light dark follows the browser. The explicit scheme overrides keep
-// the copies identical. The status note is neutral because it shows errors as well
-// as "Saved".
+// the copies identical.
 
 export const PAGE_CSS = `
 :root {
@@ -80,68 +79,14 @@ h1 {
   line-height: 2.25rem;
   letter-spacing: -0.02em;
 }
-h2 {
-  margin: 1.5rem 0 0.5rem;
-  font-size: 1.125rem;
-}
 p {
   margin: 0.5rem 0;
-}
-code {
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, "Noto Sans Mono", monospace;
-  overflow-wrap: anywhere;
 }
 a {
   color: var(--accent-ink);
 }
-input,
-button {
-  font: inherit;
-}
-input {
-  box-sizing: border-box;
-  max-width: 100%;
-  padding: 0.4rem 0.6rem;
-  border: 1px solid var(--border-strong);
-  border-radius: 0.5rem;
-  color: var(--ink);
-  background: var(--surface);
-}
-button {
-  min-height: 2.5rem;
-  padding: 0.5rem 1rem;
-  border: 1px solid var(--accent);
-  border-radius: 0.5rem;
-  color: var(--on-accent);
-  background: var(--accent);
-  font-weight: 600;
-  cursor: pointer;
-}
-button:hover {
-  border-color: var(--accent-hover);
-  background: var(--accent-hover);
-}
 :focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
-}
-table {
-  border-collapse: collapse;
-}
-th,
-td {
-  padding: 0.25rem 0.75rem 0.25rem 0;
-  text-align: left;
-  vertical-align: top;
-}
-th {
-  color: var(--ink-muted);
-  font-weight: 600;
-}
-[role="status"] {
-  padding: 0.75rem 1rem;
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
-  background: var(--surface-sunken);
 }
 `;

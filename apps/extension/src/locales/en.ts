@@ -37,8 +37,8 @@ export const en = {
   "Logging in with {{name}}": "Logging in with {{name}}",
   "The page changed, so nothing was started. Reload it to choose again.":
     "The page changed, so nothing was started. Reload it to choose again.",
-  "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. Close that tab or wait up to 5 minutes, then choose again.":
-    "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. Close that tab or wait up to 5 minutes, then choose again.",
+  "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. Close that tab or wait up to 10 minutes, then choose again.":
+    "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. Close that tab or wait up to 10 minutes, then choose again.",
   "Pateat could not log in with {{name}} on this page. Reload the page to choose again.":
     "Pateat could not log in with {{name}} on this page. Reload the page to choose again.",
   "This page is no longer waiting for a choice": "This page is no longer waiting for a choice",
@@ -75,8 +75,8 @@ export const en = {
     "The site did not accept the last login in this tab",
   "The last login on this site stopped in this tab":
     "The last login on this site stopped in this tab",
-  "Another tab's login to this site is running or did not succeed. Close that tab or wait up to 5 minutes.":
-    "Another tab's login to this site is running or did not succeed. Close that tab or wait up to 5 minutes.",
+  "Another tab's login to this site is running or did not succeed. Close that tab or wait up to 10 minutes.":
+    "Another tab's login to this site is running or did not succeed. Close that tab or wait up to 10 minutes.",
   "Account to log in with": "Account to log in with",
   "Make it the default for {{hostname}}": "Make it the default for {{hostname}}",
   "Log in": "Log in",
@@ -217,8 +217,8 @@ export const en = {
     "the vault item has no password, and Pateat goes on without one only in the page itself, not in a frame",
   "The page changed, so nothing was started. {{name}} was not made the default. Reload it to choose again.":
     "The page changed, so nothing was started. {{name}} was not made the default. Reload it to choose again.",
-  "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. {{name}} was not made the default. Close that tab or wait up to 5 minutes, then choose again.":
-    "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. {{name}} was not made the default. Close that tab or wait up to 5 minutes, then choose again.",
+  "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. {{name}} was not made the default. Close that tab or wait up to 10 minutes, then choose again.":
+    "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. {{name}} was not made the default. Close that tab or wait up to 10 minutes, then choose again.",
   "Pateat could not log in with {{name}} on this page. {{name}} was not made the default. Reload the page to choose again.":
     "Pateat could not log in with {{name}} on this page. {{name}} was not made the default. Reload the page to choose again.",
   "This page is no longer waiting for a choice. {{name}} was not made the default.":
@@ -275,8 +275,8 @@ export const en = {
     "Pateat: the last login on this site stopped in this tab. Click to choose an account.",
   "Pateat: {{count}} accounts match this page. Click to choose one.":
     "Pateat: {{count}} accounts match this page. Click to choose one.",
-  "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait 5 minutes and reload this page, to log in here.":
-    "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait 5 minutes and reload this page, to log in here.",
+  "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait up to 10 minutes and reload this page, to log in here.":
+    "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait up to 10 minutes and reload this page, to log in here.",
   "Pateat: automatic login is paused on this site. Click to choose an account.":
     "Pateat: automatic login is paused on this site. Click to choose an account.",
   "Pateat: the site did not accept the last login in another tab. Click to choose an account.":
@@ -303,6 +303,8 @@ export const en = {
     "An account switch is already running in this tab.",
   "A login is running in this tab. Wait for it to end, then try again.":
     "A login is running in this tab. Wait for it to end, then try again.",
+  "Another tab's login to this site is running or waits for a code. Finish or close it, then try again.":
+    "Another tab's login to this site is running or waits for a code. Finish or close it, then try again.",
   "Pateat settings could not be read. Try again.": "Pateat settings could not be read. Try again.",
   "Automatic login is paused for this site, so Pateat did not switch accounts.":
     "Automatic login is paused for this site, so Pateat did not switch accounts.",

@@ -39,8 +39,8 @@ export const ja = {
   "Logging in with {{name}}": "{{name}} でログインしています",
   "The page changed, so nothing was started. Reload it to choose again.":
     "ページが変わったため、ログインを開始しませんでした。もう一度選ぶには、ページを再読み込みしてください。",
-  "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. Close that tab or wait up to 5 minutes, then choose again.":
-    "別のタブでこのサイトへのログインが進行中か、成功していないため、このタブではログインしませんでした。そのタブを閉じるか、最大 5 分待ってから、もう一度選んでください。",
+  "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. Close that tab or wait up to 10 minutes, then choose again.":
+    "別のタブでこのサイトへのログインが進行中か、成功していないため、このタブではログインしませんでした。そのタブを閉じるか、最大 10 分待ってから、もう一度選んでください。",
   "Pateat could not log in with {{name}} on this page. Reload the page to choose again.":
     "このページでは {{name}} でログインできませんでした。もう一度選ぶには、ページを再読み込みしてください。",
   "This page is no longer waiting for a choice": "このページはアカウントの選択を待っていません",
@@ -77,7 +77,7 @@ export const ja = {
     "このタブでの前回のログインはサイトに受け付けられませんでした",
   "The last login on this site stopped in this tab":
     "このタブでのこのサイトへの前回のログインは中断されました",
-  "Another tab's login to this site is running or did not succeed. Close that tab or wait up to 5 minutes.":
+  "Another tab's login to this site is running or did not succeed. Close that tab or wait up to 10 minutes.":
     "別のタブでこのサイトへのログインが進行中か、成功していません。そのタブを閉じるか、最大 5 分お待ちください。",
   "Account to log in with": "ログインに使うアカウント",
   "Make it the default for {{hostname}}": "{{hostname}} の既定のアカウントにする",
@@ -219,8 +219,8 @@ export const ja = {
     "保管庫のアイテムにパスワードがなく、Pateat がパスワードなしで進むのはページ本体だけで、フレーム内では進みません",
   "The page changed, so nothing was started. {{name}} was not made the default. Reload it to choose again.":
     "ページが変わったため、ログインを開始しませんでした。{{name}} は既定のアカウントになっていません。もう一度選ぶには、ページを再読み込みしてください。",
-  "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. {{name}} was not made the default. Close that tab or wait up to 5 minutes, then choose again.":
-    "別のタブでこのサイトへのログインが進行中か、成功していないため、このタブではログインしませんでした。{{name}} は既定のアカウントになっていません。そのタブを閉じるか、最大 5 分待ってから、もう一度選んでください。",
+  "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. {{name}} was not made the default. Close that tab or wait up to 10 minutes, then choose again.":
+    "別のタブでこのサイトへのログインが進行中か、成功していないため、このタブではログインしませんでした。{{name}} は既定のアカウントになっていません。そのタブを閉じるか、最大 10 分待ってから、もう一度選んでください。",
   "Pateat could not log in with {{name}} on this page. {{name}} was not made the default. Reload the page to choose again.":
     "このページでは {{name}} でログインできませんでした。{{name}} は既定のアカウントになっていません。もう一度選ぶには、ページを再読み込みしてください。",
   "This page is no longer waiting for a choice. {{name}} was not made the default.":
@@ -277,8 +277,8 @@ export const ja = {
     "Pateat：このタブでのこのサイトへの前回のログインは中断されました。クリックしてアカウントを選んでください。",
   "Pateat: {{count}} accounts match this page. Click to choose one.":
     "Pateat：{{count}} 件のアカウントがこのページに一致します。クリックして選んでください。",
-  "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait 5 minutes and reload this page, to log in here.":
-    "Pateat：別のタブでこのサイトへのログインが進行中か、成功していません。ここでログインするには、そのタブを閉じるか、5 分待ってからこのページを再読み込みしてください。",
+  "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait up to 10 minutes and reload this page, to log in here.":
+    "Pateat：別のタブでこのサイトへのログインが進行中か、成功していません。ここでログインするには、そのタブを閉じるか、最大 10 分待ってからこのページを再読み込みしてください。",
   "Pateat: automatic login is paused on this site. Click to choose an account.":
     "Pateat：このサイトの自動ログインは一時停止中です。クリックしてアカウントを選んでください。",
   "Pateat: the site did not accept the last login in another tab. Click to choose an account.":
@@ -305,6 +305,8 @@ export const ja = {
     "このタブではすでにアカウントの切り替えが進行中です。",
   "A login is running in this tab. Wait for it to end, then try again.":
     "このタブでログインが進行中です。終わるのを待ってからもう一度お試しください。",
+  "Another tab's login to this site is running or waits for a code. Finish or close it, then try again.":
+    "別のタブでこのサイトへのログインが進行中か、確認コードを待っています。それを終えるか閉じてから、もう一度お試しください。",
   "Pateat settings could not be read. Try again.":
     "Pateat の設定を読み込めませんでした。もう一度お試しください。",
   "Automatic login is paused for this site, so Pateat did not switch accounts.":

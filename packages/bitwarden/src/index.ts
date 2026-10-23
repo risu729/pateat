@@ -34,7 +34,7 @@ export {
   type UriMatchOptions,
 } from "./uri";
 export type { BitwardenServerConfig, EncryptedSyncEnvelope, PreloginResponse } from "./models";
-export { derivePasswordAuthentication } from "./auth-crypto";
+export { derivePasswordAuthentication, derivesAuthenticationWithArgon2id } from "./auth-crypto";
 export type {
   AuthenticationTokens,
   EmailLoginCodeOutcome,

@@ -52,7 +52,7 @@ describe("the popup's reason for asking (ADR 0021)", () => {
       "The page changed, so nothing was started. Example was not made the default. Reload it to choose again.",
     );
     expect(pickFailure("origin-busy", "Example", false, en)).toBe(
-      "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. Close that tab or wait up to 5 minutes, then choose again.",
+      "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. Close that tab or wait up to 10 minutes, then choose again.",
     );
     expect(pickFailure("no-choice", "Example", false, en)).toBe(
       "This page is no longer waiting for a choice",

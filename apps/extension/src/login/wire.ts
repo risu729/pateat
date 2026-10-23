@@ -688,7 +688,12 @@ export const extractResultSchema = v.variant("ok", [
      */
     disabledLeftOut: v.optional(v.literal(true)),
   }),
-  v.strictObject({ ok: v.literal(false), reason: v.string() }),
+  v.strictObject({
+    ok: v.literal(false),
+    reason: v.string(),
+    /** For `no-candidates`, why no field was described, as codes only; for the log. */
+    detail: v.optional(v.pipe(v.string(), v.maxLength(64))),
+  }),
 ]);
 /** The answer to `login.entry.hosts`. */
 export const entryHostsResultSchema = v.strictObject({ ok: v.literal(true), hosts: hostList });

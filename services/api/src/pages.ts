@@ -14,7 +14,7 @@ const ICON = `data:image/svg+xml,${encodeURIComponent(icon.trim())}`;
 /** Pages carry no script, load nothing but their inline icon and cannot be framed. */
 export const PAGE_HEADERS = {
   "Content-Security-Policy":
-    "default-src 'none'; style-src 'unsafe-inline'; img-src data:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+    "default-src 'none'; style-src 'unsafe-inline'; img-src data:; form-action 'none'; frame-ancestors 'none'; base-uri 'none'",
   "Referrer-Policy": "no-referrer",
   "X-Frame-Options": "DENY",
 } as const;
@@ -22,7 +22,7 @@ export const PAGE_HEADERS = {
 type Body = HtmlEscapedString | Promise<HtmlEscapedString>;
 
 /** Every interpolated value but the fixed stylesheet is escaped by Hono's `html` helper. */
-export function page(c: Context, status: ContentfulStatusCode, title: string, body: Body) {
+function page(c: Context, status: ContentfulStatusCode, title: string, body: Body) {
   return c.html(
     html`<!doctype html>
       <html lang="en">

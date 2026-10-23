@@ -908,6 +908,21 @@ so if the person then approves in that other tab, the login is not recorded as s
 in there. Keeping such a tab waiting instead would refuse a person who starts over in a
 new tab while an old logout is still recorded elsewhere.
 
+Amended 2026-10-23 by the owner (13:24 UTC,
+「同時に2つのタブで進むのは無駄ですね、やめましょう」), replacing the second point above
+and closing the known gap. Evidence: on Instagram (Real Chrome, 13:09 UTC) a login
+waited for its WhatsApp code in one tab, the sign-in page opened in a new tab 28 seconds
+later logged in again, and two codes were sent. Now only the watched login's own tab
+ends its watch. Until the watch ends (10 minutes) or its tab closes, the login holds the
+site against the site's other tabs, as ADR 0022's hold does, past that hold's 5 minutes:
+they are refused `origin-busy` and fill nothing. So a person who starts over in a new
+tab after an expired code or approval, as on 三菱UFJ銀行, closes the old tab or waits;
+the tooltip and popup say "wait up to 10 minutes". The owner added at 13:24 UTC
+「incognitoみたいに共有されないってわかってるなら 無駄にブロックしないで」: no tab holds
+back, or asks because of, a tab that Chrome reports in an incognito window when it is
+not, or the other way around, since the two keep separate cookies. A tab whose window
+Chrome has not reported yet counts as sharing.
+
 ## Consequences
 
 - npm in any order: B's login teaches the completion; A's login adds the security-key
