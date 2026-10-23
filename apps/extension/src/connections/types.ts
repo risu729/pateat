@@ -131,6 +131,8 @@ export interface ConnectionPolicy {
    * the first attempt failed or expired, then keeps that choice.
    */
   register(connectionId: string, enabled: boolean): Promise<void>;
+  /** Drops a deleted connection's device-local settings and field policy; synced ones stay. */
+  remove(connectionId: string): Promise<void>;
   /** Reconcile after durable cache acceptance; an unmatched binding never authorizes release. */
   adopt(input: {
     previous: VaultEntry | null;

@@ -446,3 +446,41 @@ describe("policy choice of a new connection", () => {
     expect(h.read().settings.connections).toEqual(before);
   });
 });
+
+describe("deleted connection settings", () => {
+  it("drop only that connection's device settings and field policy, keeping synced entries", async () => {
+    const h = harness();
+    const before = h.read();
+    const other = {
+      ...structuredClone(before.settings.connections[0]!),
+      connectionId: "other-connection",
+    };
+    before.settings.connections.push(other);
+    before.fieldPolicies!.push({
+      connectionId: other.connectionId,
+      snapshotId: nextSnapshot,
+      quarantinedItemIds: [],
+    });
+    before.settings.siteDefaults = [
+      { origin: "https://example.com", provider: "bitwarden", userId: "user", itemId: h.itemId },
+    ];
+    h.setSnapshot(before);
+    await h.policy.remove(accountProfile.connectionId);
+    const after = h.read();
+    expect(after.revision).toBe(before.revision + 1);
+    expect(after.settings.connections).toEqual([other]);
+    expect(after.fieldPolicies).toEqual([before.fieldPolicies![1]]);
+    expect(after.settings.siteDefaults).toEqual(before.settings.siteDefaults);
+    // The removed custom deny no longer pulls the entry back into an ordinary save.
+    const saved = await h.settings.handle({
+      version: 1,
+      type: "settings.save",
+      expectedRevision: after.revision,
+      settings: { ...after.settings, connections: [other] },
+    });
+    expect(saved.ok && saved.snapshot.settings.connections).toEqual([other]);
+    await h.policy.remove(other.connectionId);
+    expect(h.read().settings.connections).toEqual([]);
+    expect(h.read()).not.toHaveProperty("fieldPolicies");
+  });
+});

@@ -79,6 +79,19 @@ export function createConnectionPolicy(options: {
         return snapshot;
       });
     },
+    async remove(connectionId) {
+      await options.settings.update(undefined, (snapshot) => {
+        snapshot.settings.connections = snapshot.settings.connections.filter(
+          (entry) => entry.connectionId !== connectionId,
+        );
+        const policies = snapshot.fieldPolicies?.filter(
+          (entry) => entry.connectionId !== connectionId,
+        );
+        if (policies?.length) snapshot.fieldPolicies = policies;
+        else delete snapshot.fieldPolicies;
+        return snapshot;
+      });
+    },
     async adopt(input) {
       const captured = structuredClone(input);
       const accepted = captured.next.accepted;

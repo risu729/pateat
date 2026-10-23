@@ -1599,8 +1599,9 @@ the choice is applied from the page's module, so a page whose stored choice diff
 the browser's scheme may paint one frame in the browser's scheme first.
 
 Deleting a Bitwarden connection in settings asks in a modal Base UI `AlertDialog`. It
-names the connection and explains removal of its local vault cache, unlock key and sync
-sign-in. Focus starts on **Keep connection**; Keep and Escape close without deleting,
+names the connection and explains removal of its local vault cache, unlock key, sync
+sign-in and this device's settings for it, that synced saved accounts and account
+bindings stay, and that Forget sync sign-in only signs out. Focus starts on **Keep connection**; Keep and Escape close without deleting,
 report "Connection kept." and return focus to that row's **More** button. Backdrop
 clicks leave the question open, and the page behind it is blocked until it closes.
 **Delete connection** runs the existing local deletion operation and reports its result

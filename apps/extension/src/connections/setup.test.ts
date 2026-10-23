@@ -222,6 +222,9 @@ function harness(options: { existing?: boolean; prelogin?: unknown } = {}) {
       events.push("policy");
       return { policyReviewItemIds: [] };
     }),
+    remove: vi.fn<ConnectionSetupDependencies["policy"]["remove"]>(async () => {
+      events.push("policy-remove");
+    }),
   };
   // The revision-date check is answered here and counted apart, so `fetch` counts only
   // the prelogin, token and sync requests.
@@ -1560,6 +1563,12 @@ describe("durable provider sessions", () => {
     expect(h.manager.remove).toHaveBeenCalledTimes(1);
     expect(h.durable()).toBeNull();
     expect(h.registry.remove).toHaveBeenCalledWith(accountProfile.connectionId);
+    // This device's settings for it go before the registry entry, after the vault record.
+    expect(h.policy.remove).toHaveBeenCalledWith(accountProfile.connectionId);
+    expect(h.events.slice(-2)).toEqual(["remove", "policy-remove"]);
+    expect(h.policy.remove.mock.invocationCallOrder[0]).toBeLessThan(
+      h.registry.remove.mock.invocationCallOrder[0]!,
+    );
     expect(h.configurations.size).toBe(0);
     expect(h.manager.disableAutoUnlock).not.toHaveBeenCalled();
     expect(await h.caller.status()).toEqual({ ok: true, kind: "status", connections: [] });
@@ -1738,6 +1747,7 @@ describe("durable provider sessions", () => {
       error: { code: "storage-uncertain" },
     });
     expect(h.registry.remove).not.toHaveBeenCalled();
+    expect(h.policy.remove).not.toHaveBeenCalled();
     expect(h.configurations.size).toBe(1);
     expect((await h.caller.remove(accountProfile.connectionId)).ok).toBe(true);
     expect(h.configurations.size).toBe(0);
@@ -1816,7 +1826,7 @@ describe("permission removal across connections", () => {
         put: vi.fn(),
         remove: vi.fn(),
       },
-      policy: { register: vi.fn(), adopt: vi.fn() },
+      policy: { register: vi.fn(), adopt: vi.fn(), remove: vi.fn() },
       vaultFor: vi.fn(),
       sessions: createProviderSessions({
         storeFor: (profile) => memories.get(profile.connectionId)!.store,

@@ -399,7 +399,7 @@ export function BitwardenSetup({
       await readConnections(epoch);
     } else if (result.kind === "deleted") {
       setMessage(
-        "Connection deleted from this device, with its local vault cache, unlock key and sync sign-in. This does not sign out other sessions. Saved settings that referred to it now show it as unavailable.",
+        "Connection deleted from this device, with its local vault cache, unlock key, sync sign-in and its settings here. Saved accounts and account bindings stay. This does not sign out other sessions.",
       );
       const deleted = result.connectionId;
       setExisting((previous) => (previous?.connectionId === deleted ? undefined : previous));
@@ -823,9 +823,11 @@ export function BitwardenSetup({
                 Delete {payload?.label}?
               </AlertDialog.Title>
               <AlertDialog.Description className="my-4 text-sm leading-6">
-                This removes the connection, its local vault cache, unlock key and sync sign-in from
-                this device. It does not sign out other sessions, and saved settings that refer to
-                it will show it as unavailable.
+                This removes the connection from this device with its local vault cache, unlock key,
+                sync sign-in and its settings here: Use this vault, included items and excluded
+                items and fields. Saved accounts and account bindings stay and apply again when the
+                same account is added back. It does not sign out other sessions. To only sign out
+                for now, use Forget sync sign-in instead.
               </AlertDialog.Description>
               <div className="flex flex-wrap justify-end gap-2">
                 <AlertDialog.Close

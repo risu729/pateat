@@ -921,7 +921,7 @@ test("deleting a connection needs an explicit confirmation and then removes it f
   await expect
     .element(dialog)
     .toHaveAccessibleDescription(
-      "This removes the connection, its local vault cache, unlock key and sync sign-in from this device. It does not sign out other sessions, and saved settings that refer to it will show it as unavailable.",
+      "This removes the connection from this device with its local vault cache, unlock key, sync sign-in and its settings here: Use this vault, included items and excluded items and fields. Saved accounts and account bindings stay and apply again when the same account is added back. It does not sign out other sessions. To only sign out for now, use Forget sync sign-in instead.",
     );
   // Close composes the repo's Button, including its ref and keyboard focus.
   const keep = dialog.getByRole("button", { name: "Keep connection", exact: true });

@@ -618,19 +618,23 @@ Forget sync sign-in and Delete connection are in the row's menu.
 
 Delete connection, confirmed in the row, removes one connection from this
 device: its sync sign-in, its local vault record with the retained unlock key (after
-locking any open vault session), and finally its saved configuration. Like forget, it
-is local only: no provider revocation is called, so other sessions stay signed in. It
-cancels a running Sync and is refused while a password sign-in for that connection is
-in progress. A failed step leaves the connection listed so deletion can be retried.
-Saved settings, recipes and their field-policy entries are not modified; anything that
-referred to the deleted connection resolves as an unavailable connection. This is how
-a connection left over by a failed first sign-in is removed.
+locking any open vault session), then this device's settings for it (its **Use this
+vault** entry, item selection, exclusions and field-policy entry), and finally its saved
+configuration. Like forget, it is local only: no provider revocation is called, so other
+sessions stay signed in. It cancels a running Sync and is refused while a password
+sign-in for that connection is in progress. A failed step leaves the connection listed
+so deletion can be retried. Synced saved accounts, account bindings and recipes are not
+modified: they name the provider account, not the connection, so they apply again when
+the same account is added back. This is how a connection left over by a failed first
+sign-in is removed. The owner asked on 2026-10-23 at 11:22 UTC that deleting, after its
+confirmation, remove these settings too; signing out while keeping them is Forget sync
+sign-in.
 
 The add form's **Use this connection** choice becomes the **Use this vault** switch
 in the connection's row when the connection is added, before its first sign-in. If
 that sign-in does not finish, **Sign in again** completes the setup and keeps the
 choice. Sign-ins never change the entry; the policy is edited on the settings page.
-Like other saved settings, the entry stays after Delete connection.
+Delete connection removes it.
 
 An error, cancellation or unsupported-interaction reply, and stopping setup, re-read
 the rows, so a connection whose first sign-in failed shows with Sign in again. Name
