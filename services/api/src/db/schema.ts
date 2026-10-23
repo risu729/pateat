@@ -200,7 +200,8 @@ export const inferenceLog = sqliteTable(
     /**
      * The validated result (a plan, a judgement or an abstention reason); for
      * `invalid-output`, the check that refused the output and the refused plan reduced to
-     * references (`{ rejection, output? }`); otherwise null.
+     * references (`{ rejection, output? }`); for `refused`, the provider's refusal
+     * category code when it reported one (`{ refusalCategory }`); otherwise null.
      */
     result: text("result", { mode: "json" }),
     /**

@@ -475,7 +475,11 @@ page or a field name, so the model's text is never stored, and the Worker logs o
 `Model output refused` with the role, its prompt version and the `rejection`. A schema
 `path` resolves each key where the output format defines it, so a key the format defines
 only in another object also ends the path as `unknown-key`; the options of a variant are
-read together, so a key of a sibling option gives that object's issue instead.
+read together, so a key of a sibling option gives that object's issue instead. For
+`refused`, the result is `{ refusalCategory }` with the provider's refusal category code
+(for Claude, `stop_details.category`, such as `cyber`) when it reported a short code
+([ADR 0014](../../docs/adr/0014-claude-generation-provider.md)), and empty otherwise;
+the provider's explanation is never stored.
 
 A request answered without a model call is logged too
 ([ADR 0012](../../docs/adr/0012-inference-request-log.md#amendment-2026-10-18-requests-answered-without-a-model-call)),
