@@ -65,7 +65,6 @@ monthly Claude API credit and chose the model. The offline harness in
   passkey buttons (`namesPasskey` and `registersPasskey`, now in
   `packages/contracts/src/passkey-button.ts`, with English and Japanese words): they are
   not sent to the model and only refuse a button.
-
 - On 2026-10-23 the owner compared Claude models and fast mode on both roles (results in
   [the plan](../plan.md#ai-evaluation-harness-progress)) and kept `claude-opus-5-5` at
   effort `low` for both, without fast mode (11:03 UTC). The results stay recorded as
