@@ -52,6 +52,16 @@ function pair(by: Owner | undefined, options: PairOptions = {}) {
   return request("/pair", pairInit(by?.token, options));
 }
 
+/** Pairs an existing owner's later device into the first profile it offers (ADR 0075). */
+async function pairAgain(by: Owner) {
+  const asked = await pair(by);
+  expect(asked.status).toBe(409);
+  const { profiles } = (await asked.json()) as { profiles: { id: string }[] };
+  return pair(by, {
+    body: JSON.stringify({ version: 1, label: "Test laptop", profileId: profiles[0]!.id }),
+  });
+}
+
 async function devicesOf(subject: string) {
   const ownerId = await ownerIdFor(subject);
   if (!ownerId) return [];
@@ -107,7 +117,7 @@ describe("direct pairing", () => {
     expect((await pair(first)).status).toBe(201);
     const ownerId = await ownerIdFor(first.subject);
     expect(ownerId).not.toBeNull();
-    expect((await pair(await owner(first.subject))).status).toBe(201);
+    expect((await pairAgain(await owner(first.subject))).status).toBe(201);
     expect(await ownerIdFor(first.subject)).toBe(ownerId);
     expect(await devicesOf(first.subject)).toHaveLength(2);
 
@@ -121,14 +131,19 @@ describe("direct pairing", () => {
   it("maps one identity to one owner under concurrent first pairings", async () => {
     const by = await owner();
     const responses = await Promise.all([pair(by), pair(by), pair(by)]);
-    expect(responses.map((response) => response.status)).toEqual([201, 201, 201]);
+    // A pairing that finds the owner already created asks which profile to take.
+    const statuses = responses.map((response) => response.status);
+    expect(statuses).toContain(201);
+    expect(statuses.every((status) => status === 201 || status === 409)).toBe(true);
     const { results } = await env.DB.prepare(
       "SELECT owner_id FROM owner_identities WHERE issuer = ? AND subject = ?",
     )
       .bind(ISSUER, by.subject)
       .all();
     expect(results).toHaveLength(1);
-    expect(await devicesOf(by.subject)).toHaveLength(3);
+    expect(await devicesOf(by.subject)).toHaveLength(
+      statuses.filter((status) => status === 201).length,
+    );
     const orphans = await env.DB.prepare(
       "SELECT COUNT(*) AS count FROM owners WHERE id NOT IN (SELECT owner_id FROM owner_identities) AND id NOT LIKE 'owner-%'",
     ).first<{ count: number }>();
@@ -220,7 +235,7 @@ describe("pairing through the pairing-only Access application", () => {
     const ownerId = await ownerIdFor(subject);
     expect(ownerId).not.toBeNull();
 
-    expect((await pair(await owner(subject))).status).toBe(201);
+    expect((await pairAgain(await owner(subject))).status).toBe(201);
     expect(await ownerIdFor(subject)).toBe(ownerId);
     expect(await devicesOf(subject)).toHaveLength(2);
     // The device list, behind the host-wide application, shows both devices.
@@ -493,13 +508,16 @@ describe("pairing limits and methods", () => {
     for (let attempt = 0; attempt <= PAIR_LIMIT; attempt += 1)
       // oxlint-disable-next-line no-await-in-loop -- the limiter counts sequential calls
       statuses.push((await send(by)).status);
-    expect(statuses.slice(0, PAIR_LIMIT)).toEqual(Array.from({ length: PAIR_LIMIT }, () => 201));
+    // The first creates the owner; the rest ask which profile to take (ADR 0075).
+    expect(statuses.slice(0, PAIR_LIMIT)).toEqual(
+      Array.from({ length: PAIR_LIMIT }, (_, index) => (index ? 409 : 201)),
+    );
     const limited = await send(by);
     expect(statuses[PAIR_LIMIT]).toBe(429);
     expect(limited.status).toBe(429);
     expect(limited.headers.get("Retry-After")).toBe("60");
     expect(await limited.json()).toEqual({ error: "rate_limited" });
-    expect(await devicesOf(by.subject)).toHaveLength(PAIR_LIMIT);
+    expect(await devicesOf(by.subject)).toHaveLength(1);
     expect((await send(await owner())).status).toBe(201);
   });
 

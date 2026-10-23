@@ -6,7 +6,15 @@ import {
 } from "@pateat/contracts";
 import * as v from "valibot";
 import { describe, expect, it } from "vitest";
-import { deviceApi, installAccessKeys, owner, ORIGIN, request, type Owner } from "./access-helpers";
+import {
+  deviceApi,
+  installAccessKeys,
+  owner,
+  ORIGIN,
+  pairOwner,
+  request,
+  type Owner,
+} from "./access-helpers";
 
 // Synthetic Access identities and vault references only. Every test pairs a new owner.
 installAccessKeys();
@@ -27,15 +35,20 @@ function manage(by: Owner, path: string, body?: unknown, method = "POST") {
   });
 }
 
-function pair(by: Owner, profileId?: string) {
+function pair(
+  by: Owner,
+  profileId?: string,
+  { label = "Synthetic browser", newProfile }: { label?: string; newProfile?: string } = {},
+) {
   return request("/pair", {
     access: by.token,
     method: "POST",
     headers: { "Content-Type": "application/json", Origin: EXTENSION_ORIGIN },
     body: JSON.stringify({
       version: 1,
-      label: "Synthetic browser",
+      label,
       ...(profileId ? { profileId } : {}),
+      ...(newProfile ? { newProfile } : {}),
     }),
   });
 }
@@ -67,6 +80,129 @@ async function save(credential: string, expectedRevision: number, settings: Loca
 }
 
 describe("settings profile isolation", () => {
+  it("asks an existing owner's pairing to choose a profile even when there is one", async () => {
+    const { by, settings } = await setup();
+    const asked = await pair(by);
+    expect(asked.status).toBe(409);
+    expect(await asked.json()).toEqual({
+      error: "profile_required",
+      profiles: [{ id: settings.profileId, name: "Default" }],
+    });
+  });
+
+  it("creates a new profile while pairing, which the device's first sync fills", async () => {
+    const { by, device, settings } = await setup();
+    const shared = {
+      ...createDefaultSettings(),
+      connections: [],
+      excludedSites: [{ hostname: "default-only.example", includeSubdomains: false }],
+    };
+    expect((await save(device.credential, settings.revision, shared)).status).toBe(200);
+    const created = await pair(by, undefined, { label: "Agent", newProfile: "Agent browser" });
+    expect(created.status).toBe(201);
+    const agent = v.parse(devicePairResultSchema, await created.json());
+    const state = v.parse(
+      syncSettingsStateSchema,
+      await (await deviceApi(agent.credential)).json(),
+    );
+    // Its own parts are empty and marked new; the shared bindings are the owner's.
+    expect(state).toMatchObject({
+      revision: 1,
+      newProfile: true,
+      settings: { excludedSites: [], siteDefaults: [], bindings: [] },
+    });
+    expect(state.profileId).not.toBe(settings.profileId);
+    const filled = await save(agent.credential, state.revision, {
+      ...shared,
+      excludedSites: [{ hostname: "agent-only.example", includeSubdomains: false }],
+    });
+    expect(filled.status).toBe(200);
+    const after = v.parse(
+      syncSettingsStateSchema,
+      await (await deviceApi(agent.credential)).json(),
+    );
+    expect(after.newProfile).toBeUndefined();
+    expect(after.settings?.excludedSites).toEqual([
+      { hostname: "agent-only.example", includeSubdomains: false },
+    ]);
+    // Names are unique per owner, ignoring case.
+    const taken = await pair(by, undefined, { newProfile: "agent BROWSER" });
+    expect(taken.status).toBe(409);
+    expect(await taken.json()).toEqual({ error: "profile_name_taken" });
+  });
+
+  it("renames a profile and refuses a name another profile has", async () => {
+    const { by, settings } = await setup();
+    const copied = await copy(by, settings.profileId);
+    const renamed = await manage(
+      by,
+      `/profiles/${copied.id}`,
+      { version: 1, name: "Grok Bot" },
+      "PATCH",
+    );
+    expect(renamed.status).toBe(200);
+    expect(await renamed.json()).toEqual({ id: copied.id, name: "Grok Bot" });
+    const taken = await manage(
+      by,
+      `/profiles/${copied.id}`,
+      { version: 1, name: "default" },
+      "PATCH",
+    );
+    expect(taken.status).toBe(409);
+    expect(await taken.json()).toEqual({ error: "profile_name_taken" });
+    // Its own name, in another case, is not taken.
+    expect(
+      (await manage(by, `/profiles/${copied.id}`, { version: 1, name: "GROK BOT" }, "PATCH"))
+        .status,
+    ).toBe(200);
+  });
+
+  it("deletes a profile only when no device uses it and it is not the last", async () => {
+    const { by, device, settings } = await setup();
+    const remove = (id: string) =>
+      request(`/manage/api/profiles/${id}`, {
+        access: by.token,
+        method: "DELETE",
+        headers: { Origin: ORIGIN },
+      });
+    const last = await remove(settings.profileId);
+    expect(last.status).toBe(409);
+    expect(await last.json()).toEqual({ error: "profile_in_use", devices: ["Synthetic browser"] });
+    const copied = await copy(by, settings.profileId);
+    const agent = v.parse(
+      devicePairResultSchema,
+      await (await pair(by, copied.id, { label: "Agent" })).json(),
+    );
+    const inUse = await remove(copied.id);
+    expect(inUse.status).toBe(409);
+    expect(await inUse.json()).toEqual({ error: "profile_in_use", devices: ["Agent"] });
+    // A revoked device does not keep the profile.
+    expect((await deviceApi(agent.credential, "/v1/device", { method: "DELETE" })).status).toBe(
+      204,
+    );
+    expect((await remove(copied.id)).status).toBe(204);
+    expect(await (await manage(by, "/profiles")).json()).toEqual({
+      version: 1,
+      profiles: [{ id: settings.profileId, name: "Default" }],
+    });
+    // Deleted profiles can no longer be read, written, copied, assigned or paired.
+    const gone = await Promise.all([
+      manage(by, `/profiles/${copied.id}/settings`),
+      manage(by, "/profiles", { version: 1, name: "Copy of gone", copyFrom: copied.id }),
+      manage(by, `/devices/${device.deviceId}/profile`, { version: 1, profileId: copied.id }),
+      pair(by, copied.id),
+      remove(copied.id),
+    ]);
+    expect(gone.map((response) => response.status)).toEqual([404, 404, 404, 404, 404]);
+    // The owner's only profile stays, once no device uses it.
+    expect((await deviceApi(device.credential, "/v1/device", { method: "DELETE" })).status).toBe(
+      204,
+    );
+    const only = await remove(settings.profileId);
+    expect(only.status).toBe(409);
+    expect(await only.json()).toEqual({ error: "last_profile" });
+  });
+
   it("requires an explicit profile for pairing when multiple profiles exist", async () => {
     const { by, device, settings } = await setup();
     const copied = await copy(by, settings.profileId);
@@ -196,7 +332,7 @@ describe("settings profile isolation", () => {
 
 describe("extension profile editor authorization", () => {
   function editor(by: Owner, path: string, init: RequestInit = {}) {
-    return request(`/pair/profiles${path}`, {
+    return request(`/extension/profiles${path}`, {
       access: by.token,
       ...init,
       headers: { Origin: EXTENSION_ORIGIN, ...init.headers },
@@ -208,7 +344,7 @@ describe("extension profile editor authorization", () => {
     expect((await editor(by, path)).status).toBe(200);
     expect(
       (
-        await deviceApi(device.credential, `/pair/profiles${path}`, {
+        await deviceApi(device.credential, `/extension/profiles${path}`, {
           headers: { Origin: EXTENSION_ORIGIN },
         })
       ).status,
@@ -223,6 +359,10 @@ describe("extension profile editor authorization", () => {
     expect(
       (await editor(by, path, { headers: { Origin: "https://attacker.example" } })).status,
     ).toBe(403);
+    // A sign-in through the pairing application, which needs no WARP, is not enough
+    // (ADR 0030, ADR 0075).
+    const viaPair = await pairOwner(by.subject);
+    expect((await editor(viaPair, path)).status).toBe(403);
   });
   it("never reads or overwrites a foreign owner's profile through the editor", async () => {
     const alice = await setup();

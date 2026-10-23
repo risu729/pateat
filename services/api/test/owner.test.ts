@@ -47,18 +47,25 @@ function manageApi(
   return request(path, { method, access, headers: origin ? { Origin: origin } : {} });
 }
 
-function postPair(access: string | undefined, label = "Test laptop") {
+function postPair(access: string | undefined, label = "Test laptop", profileId?: string) {
   return request("/pair", {
     method: "POST",
     access,
     headers: { "Content-Type": "application/json", Origin: EXTENSION_ORIGIN },
-    body: JSON.stringify({ version: 1, label }),
+    body: JSON.stringify({ version: 1, label, ...(profileId ? { profileId } : {}) }),
   });
 }
 
-/** Pairs a device for `by` as the extension does (ADR 0020). */
+/**
+ * Pairs a device for `by` as the extension does (ADR 0020). An owner's later device takes
+ * the first profile the service offers (ADR 0075).
+ */
 async function pairDevice(by: Owner, label = "Test laptop"): Promise<DevicePairResult> {
-  const response = await postPair(by.token, label);
+  let response = await postPair(by.token, label);
+  if (response.status === 409) {
+    const { profiles } = (await response.json()) as { profiles: { id: string }[] };
+    response = await postPair(by.token, label, profiles[0]!.id);
+  }
   expect(response.status).toBe(201);
   return v.parse(devicePairResultSchema, await response.json());
 }
@@ -963,7 +970,8 @@ describe("owner web UI request log", () => {
         "INSERT INTO page_judgements (owner_id, recipe_id, branch, revision, origin, path, prompt_version, judged_at, verdict) VALUES (?, 'gen-synthetic', '', 1, 'https://bank.example', '/home', 'v', ?, 'signed-in')",
       ).bind(mine, Date.now()),
     ]);
-    const settings = await request("/manage/api/settings", {
+    // The owner's first profile has the owner's ID.
+    const settings = await request(`/manage/api/profiles/${mine}/settings`, {
       method: "PUT",
       access: first.token,
       headers: { "Content-Type": "application/json", Origin: ORIGIN },

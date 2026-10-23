@@ -169,6 +169,13 @@
       "when": 1792756361121,
       "tag": "0027_inference_model_config",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1792760934559,
+      "tag": "0029_settings_profiles",
+      "breakpoints": true
     }
   ]
 }

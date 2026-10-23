@@ -3,17 +3,17 @@ CREATE TABLE `profiles` (
 	`id` text NOT NULL,
 	`name` text NOT NULL,
 	`document` text,
+	`deleted_at` integer,
 	PRIMARY KEY(`owner_id`, `id`),
 	FOREIGN KEY (`owner_id`) REFERENCES `owners`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
-INSERT INTO profiles (owner_id, id, name, document)
-SELECT o.id, o.id, 'Default', CASE WHEN s.document IS NULL THEN NULL ELSE
-json_object('excludedSites', json_extract(s.document, '$.excludedSites'), 'siteDefaults', json_extract(s.document, '$.siteDefaults')) END
-FROM owners o LEFT JOIN settings s ON s.owner_id = o.id;
---> statement-breakpoint
-UPDATE settings SET document = json_object('bindings', json_extract(document, '$.bindings'));
---> statement-breakpoint
+-- Settings profiles (ADR 0024, ADR 0075). Each owner gets one profile named Default,
+-- with the owner's ID and no document, and every device takes it. Stored settings are
+-- reset, not converted (owner decision 2026-10-23): the first device to sync writes its
+-- own settings into Default again.
+INSERT INTO `profiles` (`owner_id`, `id`, `name`) SELECT `id`, `id`, 'Default' FROM `owners`;--> statement-breakpoint
+DELETE FROM `settings`;--> statement-breakpoint
 PRAGMA foreign_keys=OFF;--> statement-breakpoint
 CREATE TABLE `__new_devices` (
 	`id` text PRIMARY KEY NOT NULL,

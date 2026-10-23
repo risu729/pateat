@@ -6162,10 +6162,11 @@ describe("signed-in page samples (ADR 0029, owner 2026-10-18 08:05 UTC)", () => 
     const otherDevice = { ...device, deviceId: `device-${crypto.randomUUID()}` };
     otherDevice.token = createDeviceToken();
     await env.DB.prepare(
-      "INSERT INTO devices (id, owner_id, token_hash, created_at, last_used_at) VALUES (?, ?, ?, ?, ?)",
+      "INSERT INTO devices (id, owner_id, profile_id, token_hash, created_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?)",
     )
       .bind(
         otherDevice.deviceId,
+        device.ownerId,
         device.ownerId,
         await hashDeviceToken(otherDevice.token),
         Date.now(),

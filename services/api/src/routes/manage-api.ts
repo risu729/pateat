@@ -4,6 +4,7 @@ import {
   manageModelsWriteSchema,
   profileIdSchema,
   profileCreateSchema,
+  profileRenameSchema,
   deviceProfileSchema,
   manageRecipeRevokeSchema,
   manageSettingsWriteSchema,
@@ -24,7 +25,14 @@ import { devices, inferenceLog, loginOutcomes, loginTimings, recipeHeads } from 
 import { apiError } from "../http";
 import { findOwner } from "../owners";
 import { readChange, revokeUnusedRecipes, selectHeads, writeRecipe } from "../recipe-store";
-import { listProfiles, copyProfile, assignProfile } from "../profile-store";
+import {
+  assignProfile,
+  copyProfile,
+  deleteProfile,
+  hasProfile,
+  listProfiles,
+  renameProfile,
+} from "../profile-store";
 import { readSettings, writeSettings } from "../settings-store";
 import { jsonBody, requireJsonBody, validate } from "../validation";
 
@@ -51,9 +59,48 @@ export const manageApiRoutes = new Hono<ApiEnv>()
     const ownerId = await findOwner(c.env.DB, c.get("identity"));
     if (!ownerId) return apiError(c, 404, { error: "not_paired" });
     const { name, copyFrom } = c.req.valid("json");
-    const profile = await copyProfile(c.env.DB, ownerId, copyFrom, name);
-    return profile ? c.json(profile, 201) : apiError(c, 404, { error: "not_found" });
+    const result = await copyProfile(c.env.DB, ownerId, copyFrom, name);
+    if (result.ok) return c.json(result.profile, 201);
+    return result.error === "not_found"
+      ? apiError(c, 404, { error: "not_found" })
+      : apiError(c, 409, { error: result.error });
   })
+  .patch(
+    "/profiles/:profileId",
+    validate("param", profileParamSchema, { status: 404, error: "not_found" }),
+    requireJsonBody,
+    jsonBody(profileRenameSchema),
+    async (c) => {
+      const ownerId = await findOwner(c.env.DB, c.get("identity"));
+      if (!ownerId) return apiError(c, 404, { error: "not_found" });
+      const result = await renameProfile(
+        c.env.DB,
+        ownerId,
+        c.req.valid("param").profileId,
+        c.req.valid("json").name,
+      );
+      if (result.ok) return c.json(result.profile);
+      return result.error === "not_found"
+        ? apiError(c, 404, { error: "not_found" })
+        : apiError(c, 409, { error: result.error });
+    },
+  )
+  // Refused while a device that is not revoked uses the profile, naming those devices.
+  .delete(
+    "/profiles/:profileId",
+    validate("param", profileParamSchema, { status: 404, error: "not_found" }),
+    async (c) => {
+      const ownerId = await findOwner(c.env.DB, c.get("identity"));
+      if (!ownerId) return apiError(c, 404, { error: "not_found" });
+      const result = await deleteProfile(c.env.DB, ownerId, c.req.valid("param").profileId);
+      if (result.ok) return c.body(null, 204);
+      if (result.error === "profile_in_use")
+        return c.json({ error: result.error, devices: result.devices }, 409);
+      return result.error === "not_found"
+        ? apiError(c, 404, { error: "not_found" })
+        : apiError(c, 409, { error: result.error });
+    },
+  )
   .post(
     "/devices/:deviceId/profile",
     validate("param", deviceParamSchema, { status: 404, error: "not_found" }),
@@ -127,7 +174,7 @@ export const manageApiRoutes = new Hono<ApiEnv>()
       const ownerId = await findOwner(c.env.DB, c.get("identity"));
       if (!ownerId) return apiError(c, 404, { error: "not_paired" });
       const profileId = c.req.valid("param").profileId;
-      if (!(await listProfiles(c.env.DB, ownerId)).some((profile) => profile.id === profileId))
+      if (!(await hasProfile(c.env.DB, ownerId, profileId)))
         return apiError(c, 404, { error: "not_found" });
       return c.json(await readSettings(c.env.DB, ownerId, profileId));
     },
@@ -142,7 +189,7 @@ export const manageApiRoutes = new Hono<ApiEnv>()
       const ownerId = await findOwner(c.env.DB, c.get("identity"));
       if (!ownerId) return apiError(c, 404, { error: "not_paired" });
       const profileId = c.req.valid("param").profileId;
-      if (!(await listProfiles(c.env.DB, ownerId)).some((profile) => profile.id === profileId))
+      if (!(await hasProfile(c.env.DB, ownerId, profileId)))
         return apiError(c, 404, { error: "not_found" });
       const result = await writeSettings(c.env.DB, ownerId, profileId, c.req.valid("json"), null);
       if (!result.ok)

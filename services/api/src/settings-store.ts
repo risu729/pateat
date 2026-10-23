@@ -13,7 +13,11 @@ export const profileDocument = (document: LocalSettings) => ({
   siteDefaults: document.siteDefaults,
 });
 
-/** Reads the profile and shared binding revision in one database snapshot. */
+/**
+ * Reads the profile and the shared bindings at the owner's revision in one statement. A
+ * profile with no document of its own yet answers `newProfile`, so the first device to
+ * sync it keeps its own entries (ADR 0075).
+ */
 export async function readSettings(
   db: D1Database,
   ownerId: string,
@@ -22,7 +26,7 @@ export async function readSettings(
   const row = await db
     .prepare(`SELECT s.revision, s.document AS shared, p.document
     FROM profiles p LEFT JOIN settings s ON s.owner_id = p.owner_id
-    WHERE p.owner_id = ? AND p.id = ?`)
+    WHERE p.owner_id = ? AND p.id = ? AND p.deleted_at IS NULL`)
     .bind(ownerId, profileId)
     .first<{ revision: number | null; shared: string | null; document: string | null }>();
   if (!row) throw new Error("profile-not-found");
@@ -33,6 +37,7 @@ export async function readSettings(
     profileId,
     revision: row.revision ?? 0,
     settings: row.revision ? { connections: [], ...profile, bindings: shared.bindings } : null,
+    ...(row.revision && !row.document ? { newProfile: true } : {}),
   });
 }
 
@@ -72,7 +77,7 @@ export async function writeSettings(
   // runs first; changes() gates the revision write so losing writers update neither.
   const results = await db.batch([
     db
-      .prepare(`UPDATE profiles SET document = ? WHERE owner_id = ? AND id = ?
+      .prepare(`UPDATE profiles SET document = ? WHERE owner_id = ? AND id = ? AND deleted_at IS NULL
       AND COALESCE((SELECT revision FROM settings WHERE owner_id = ?), 0) = ?
       AND (? IS NULL OR EXISTS (SELECT 1 FROM devices WHERE id = ? AND owner_id = ? AND profile_id = ?))`)
       .bind(

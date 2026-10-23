@@ -4,13 +4,16 @@ import * as v from "valibot";
 import type { ApiEnv } from "../auth";
 import { apiError } from "../http";
 import { findOwner } from "../owners";
-import { listProfiles } from "../profile-store";
+import { hasProfile, listProfiles } from "../profile-store";
 import { readSettings, writeSettings } from "../settings-store";
 import { jsonBody, requireJsonBody, validate } from "../validation";
 
 const profileParam = v.strictObject({ profileId: profileIdSchema });
 
-/** Owner-authorized editing from an allowed extension; never changes its device profile. */
+/**
+ * Profile editing from an allowed extension's settings page with the owner's WARP-backed
+ * session (ADR 0075); it never changes which profile the extension's device uses.
+ */
 export const profileEditorRoutes = new Hono<ApiEnv>()
   .get("/", async (c) => {
     const ownerId = await findOwner(c.env.DB, c.get("identity"));
@@ -25,10 +28,7 @@ export const profileEditorRoutes = new Hono<ApiEnv>()
     async (c) => {
       const ownerId = await findOwner(c.env.DB, c.get("identity"));
       const profileId = c.req.valid("param").profileId;
-      if (
-        !ownerId ||
-        !(await listProfiles(c.env.DB, ownerId)).some((profile) => profile.id === profileId)
-      )
+      if (!ownerId || !(await hasProfile(c.env.DB, ownerId, profileId)))
         return apiError(c, 404, { error: "not_found" });
       return c.json(await readSettings(c.env.DB, ownerId, profileId));
     },
@@ -41,10 +41,7 @@ export const profileEditorRoutes = new Hono<ApiEnv>()
     async (c) => {
       const ownerId = await findOwner(c.env.DB, c.get("identity"));
       const profileId = c.req.valid("param").profileId;
-      if (
-        !ownerId ||
-        !(await listProfiles(c.env.DB, ownerId)).some((profile) => profile.id === profileId)
-      )
+      if (!ownerId || !(await hasProfile(c.env.DB, ownerId, profileId)))
         return apiError(c, 404, { error: "not_found" });
       const result = await writeSettings(c.env.DB, ownerId, profileId, c.req.valid("json"), null);
       return result.ok

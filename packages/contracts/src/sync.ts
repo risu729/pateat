@@ -43,6 +43,11 @@ export const syncSettingsStateSchema = v.pipe(
     profileId: profileIdSchema,
     revision,
     settings: v.nullable(localSettingsSchema),
+    /**
+     * Set while no device has written this profile's own settings yet, as for a profile
+     * created during pairing: the first device then keeps its own entries (ADR 0075).
+     */
+    newProfile: v.optional(v.literal(true)),
   }),
   v.check(
     (state) => (state.revision === 0) === (state.settings === null),

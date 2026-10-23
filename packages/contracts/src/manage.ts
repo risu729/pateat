@@ -373,11 +373,23 @@ export const manageErrorCodeSchema = v.picklist([
   "unsupported_media_type",
   /** A model choice names a model, effort or speed the model list does not offer. */
   "model_unavailable",
+  /** Another profile already has the name. */
+  "profile_name_taken",
+  /** The owner's only profile cannot be deleted. */
+  "last_profile",
   /** Too many requests from this identity in the last minute. */
   "rate_limited",
   "internal_error",
 ]);
 export const manageErrorSchema = v.strictObject({ error: manageErrorCodeSchema });
+/**
+ * A profile that devices still use cannot be deleted; `devices` holds their labels, empty
+ * labels included, so the page can name them (ADR 0075).
+ */
+export const manageProfileInUseSchema = v.strictObject({
+  error: v.literal("profile_in_use"),
+  devices: v.array(v.pipe(v.string(), v.maxLength(64))),
+});
 
 export type ManageDevice = v.InferOutput<typeof manageDeviceSchema>;
 export type ManageDevices = v.InferOutput<typeof manageDevicesSchema>;

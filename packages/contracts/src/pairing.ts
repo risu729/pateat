@@ -25,16 +25,22 @@ export const deviceLabelSchema = v.pipe(
 /** A Chrome extension ID: the first 128 bits of the key's SHA-256 as letters `a`-`p`. */
 export const extensionIdSchema = v.pipe(v.string(), v.regex(/^[a-p]{32}$/));
 
+/** An owner's settings profile (ADR 0024); names follow device labels' rules. */
 export const profileIdSchema = deviceIdSchema;
-export const profileSchema = v.strictObject({ id: profileIdSchema, name: deviceLabelSchema });
+export const profileNameSchema = deviceLabelSchema;
+export const profileSchema = v.strictObject({ id: profileIdSchema, name: profileNameSchema });
 export const profilesSchema = v.strictObject({
   version: v.literal(1),
   profiles: v.array(profileSchema),
 });
 export const profileCreateSchema = v.strictObject({
   version: v.literal(1),
-  name: deviceLabelSchema,
+  name: profileNameSchema,
   copyFrom: profileIdSchema,
+});
+export const profileRenameSchema = v.strictObject({
+  version: v.literal(1),
+  name: profileNameSchema,
 });
 export const deviceProfileSchema = v.strictObject({
   version: v.literal(1),
@@ -44,7 +50,12 @@ export const deviceProfileSchema = v.strictObject({
 export const devicePairRequestSchema = v.strictObject({
   version: v.literal(1),
   label: deviceLabelSchema,
+  /**
+   * The profile an existing owner's device takes; `newProfile` names one to create for
+   * it instead. A first pairing names neither (ADR 0075).
+   */
   profileId: v.optional(profileIdSchema),
+  newProfile: v.optional(profileNameSchema),
 });
 /** The credential is returned exactly once; the service keeps only its hash. */
 export const devicePairResultSchema = v.strictObject({
@@ -55,8 +66,11 @@ export const devicePairResultSchema = v.strictObject({
 
 export const pairErrorCodeSchema = v.picklist([
   "bad_request",
+  /** The owner has profiles; the request must name one or a new one (ADR 0075). */
   "profile_required",
   "profile_not_found",
+  /** Another profile of the owner already has the new profile's name. */
+  "profile_name_taken",
   /** No login token: the user must sign in to the service first. */
   "unauthorized",
   /** The login token failed verification. */

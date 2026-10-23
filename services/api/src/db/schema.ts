@@ -38,7 +38,7 @@ export const ownerIdentities = sqliteTable(
   ],
 );
 
-/** Policy documents are scoped by both owner and profile identity. */
+/** Settings profiles: policy documents scoped by owner and profile (ADR 0024). */
 export const profiles = sqliteTable(
   "profiles",
   {
@@ -47,7 +47,13 @@ export const profiles = sqliteTable(
       .references(() => owners.id),
     id: text("id").notNull(),
     name: text("name").notNull(),
+    /** The profile's own parts; null until a device or the owner first writes them. */
     document: text("document", { mode: "json" }),
+    /**
+     * Set when the owner deleted the profile. The row stays, since revoked devices keep
+     * naming it; lists and writes skip it (ADR 0075).
+     */
+    deletedAt: integer("deleted_at"),
   },
   (table) => [primaryKey({ columns: [table.ownerId, table.id] })],
 );
