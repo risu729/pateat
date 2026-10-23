@@ -178,8 +178,8 @@ export const manageApiRoutes = new Hono<ApiEnv>()
     },
   )
   // The owner's ADR 0012 request log, the login result codes devices sent (ADR 0019,
-  // amended 2026-10-18), their login records (ADR 0055) and problem lines (proposed ADR
-  // 0066): how much they hold, and deleting all of it. Only these go: recipes, settings,
+  // amended 2026-10-18), their login records (ADR 0055) and problem lines (ADR 0066):
+  // how much they hold, and deleting all of it. Only these go: recipes, settings,
   // judged pages and the spend the limits count stay.
   .get("/request-log", async (c) => {
     const ownerId = await findOwner(c.env.DB, c.get("identity"));

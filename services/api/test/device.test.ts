@@ -169,7 +169,13 @@ describe("problem reports (ADR 0066)", () => {
       ...fields,
     },
   });
-  const report = (...entries: unknown[]) => ({ version: 1, extensionBuild: "1c42ad3", entries });
+  const LOG_ID = "0123456789abcdef0123456789abcdef";
+  const report = (...entries: unknown[]) => ({
+    version: 1,
+    extensionBuild: "1c42ad3",
+    logId: LOG_ID,
+    entries,
+  });
   const send = (device: Device | undefined, body: unknown, type = "application/json") =>
     exports.default.fetch("https://pateat.invalid/v1/device/problems", {
       method: "POST",
@@ -209,6 +215,21 @@ describe("problem reports (ADR 0066)", () => {
     expect(JSON.parse(String(kept["fields"]))).toEqual(line(41).fields);
   });
 
+  it("keeps a log made again on the device apart from the old one, though its seq restarts", async () => {
+    const device = await owner();
+    expect((await send(device, report(line(1), line(2)))).status).toBe(204);
+    const again = { ...report(line(1, { step: 9 })), logId: "fedcba9876543210fedcba9876543210" };
+    expect((await send(device, again)).status).toBe(204);
+    const rows = await env.DB.prepare(
+      "SELECT log_id, seq FROM problem_log WHERE owner_id = ? ORDER BY created_at, log_id, seq",
+    )
+      .bind(device.ownerId)
+      .all();
+    expect(
+      rows.results.map((row) => `${String(row["log_id"]).slice(0, 4)}:${String(row["seq"])}`),
+    ).toEqual(["0123:1", "0123:2", "fedc:1"]);
+  });
+
   it("keeps the lines that pass beside ones it refuses, as from a newer extension", async () => {
     const device = await owner();
     const response = await send(
@@ -229,6 +250,32 @@ describe("problem reports (ADR 0066)", () => {
     expect((await stored(device.ownerId)).map((row) => row["seq"])).toEqual([1, 5]);
   });
 
+  it("keeps the info lines that say why Pateat did nothing, and no other info line", async () => {
+    const device = await owner();
+    const info = (seq: number, event: string, fields: Record<string, unknown>) => ({
+      seq,
+      time: LOGGED_AT,
+      level: "info",
+      event,
+      fields: { origin: "https://bank.example", url: "/signin", tab: 12, ...fields },
+    });
+    const response = await send(
+      device,
+      report(
+        info(1, "login.refused", { reason: "account-ambiguous", candidates: 2 }),
+        info(2, "login.entry", { outcome: "refused", reason: "target-missing" }),
+        info(3, "recipe.generate", { outcome: "skipped", reason: "incomplete-observation" }),
+        info(4, "login.entry", { outcome: "pressed" }),
+        info(5, "recipe.generate", { outcome: "recipe" }),
+        info(6, "login.start", { route: "password" }),
+      ),
+    );
+    expect(response.status).toBe(204);
+    expect(
+      (await stored(device.ownerId)).map((row) => `${String(row["seq"])}:${String(row["level"])}`),
+    ).toEqual(["1:info", "2:info", "3:info"]);
+  });
+
   it("refuses free text, other levels and anything beyond the contract, without echoing it", async () => {
     const device = await owner();
     const refused = [
@@ -241,6 +288,8 @@ describe("problem reports (ADR 0066)", () => {
       report(line(1, { reason: "wrong password" })),
       report(line(1, { url: "https://bank.example/cb?code=abc" })),
       report(line(1, { url: "/u/alice@example.com" })),
+      report(line(1, { url: "/session;jsessionid=abc/login" })),
+      report(line(1, { url: "/login/token=abc" })),
       report(line(1, { origin: "https://bank.example/login" })),
       report(line(1, { label: "x" })),
       report(line(1, { item: "item:0123abcd" })),
@@ -252,6 +301,7 @@ describe("problem reports (ADR 0066)", () => {
       report({ ...line(1), event: "Login Attempt" }),
       report(line(0)),
       { ...report(line(1)), extensionBuild: "main" },
+      { ...report(line(1)), logId: "not-an-id" },
       { ...report(line(1)), device: "laptop" },
       report(...Array.from({ length: 101 }, (_, at) => line(at + 1))),
     ];
@@ -279,7 +329,7 @@ describe("problem reports (ADR 0066)", () => {
     const other = await addDevice(device.ownerId);
     // 1,999 lines from the owner's other device within the last day.
     await env.DB.prepare(
-      "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 1999) INSERT INTO problem_log (owner_id, device_id, seq, extension_build, level, event, fields, logged_at, created_at) SELECT ?, ?, i, 'development', 'warn', 'login.attempt', '{}', ?, ? FROM n",
+      "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 1999) INSERT INTO problem_log (owner_id, device_id, log_id, seq, extension_build, level, event, fields, logged_at, created_at) SELECT ?, ?, '0000000000000000000000000000000a', i, 'development', 'warn', 'login.attempt', '{}', ?, ? FROM n",
     )
       .bind(device.ownerId, other.deviceId, Date.now(), Date.now() - 1000)
       .run();
@@ -298,13 +348,13 @@ describe("problem reports (ADR 0066)", () => {
     expect((await send(device, report(line(2), line(3)))).status).toBe(204);
   });
 
-  it("deletes lines older than 30 days when a report is kept", async () => {
+  it("deletes lines older than a year when a report is kept", async () => {
     const device = await owner();
     const insert = (seq: number, age: number) =>
       env.DB.prepare(
-        "INSERT INTO problem_log (owner_id, device_id, seq, extension_build, level, event, fields, logged_at, created_at) VALUES (?, ?, ?, 'development', 'error', 'error.unhandled', '{}', ?, ?)",
+        "INSERT INTO problem_log (owner_id, device_id, log_id, seq, extension_build, level, event, fields, logged_at, created_at) VALUES (?, ?, '0000000000000000000000000000000a', ?, 'development', 'error', 'error.unhandled', '{}', ?, ?)",
       ).bind(device.ownerId, device.deviceId, seq, Date.now() - age, Date.now() - age);
-    await env.DB.batch([insert(1, 31 * DAY_MS), insert(2, 29 * DAY_MS)]);
+    await env.DB.batch([insert(1, 366 * DAY_MS), insert(2, 364 * DAY_MS)]);
     expect((await send(device, report(line(3)))).status).toBe(204);
     expect((await stored(device.ownerId)).map((row) => row["seq"])).toEqual([2, 3]);
   });

@@ -376,11 +376,11 @@ export const loginTimings = sqliteTable(
 );
 
 /**
- * The `warn` and `error` lines of devices' local logs (ADR 0066), as the extension
- * let them leave: the event, its level, the device's time and its allowlisted fields as
- * JSON, such as `origin`, `recipe`, `outcome` and `cause`. One row per line; a device's
- * retry repeats its `seq` and changes nothing. Kept 30 days, and deleted with the request
- * log.
+ * The `warn` and `error` lines of devices' local logs, and the `info` lines that say why
+ * Pateat did nothing (ADR 0066), as the extension let them leave: the event, its level,
+ * the device's time and its allowlisted fields as JSON, such as `origin`, `recipe`,
+ * `outcome` and `cause`. One row per line; a device's retry repeats its log ID and `seq`
+ * and changes nothing. Kept a year, and deleted with the request log.
  */
 export const problemLog = sqliteTable(
   "problem_log",
@@ -391,11 +391,13 @@ export const problemLog = sqliteTable(
     deviceId: text("device_id")
       .notNull()
       .references(() => devices.id),
-    /** The local log's own key on that device. */
+    /** The device log's random ID; a log made again on the device has another. */
+    logId: text("log_id").notNull(),
+    /** The local log's own key in that log. */
     seq: integer("seq").notNull(),
     /** The extension commit that wrote the line, or `development`. */
     extensionBuild: text("extension_build").notNull(),
-    level: text("level", { enum: ["warn", "error"] }).notNull(),
+    level: text("level", { enum: ["info", "warn", "error"] }).notNull(),
     /** A local log event name, such as `login.attempt`. */
     event: text("event").notNull(),
     /** The line's fields as a JSON object of strings, integers and booleans. */
@@ -405,7 +407,7 @@ export const problemLog = sqliteTable(
     createdAt: integer("created_at").notNull(),
   },
   (table) => [
-    primaryKey({ columns: [table.deviceId, table.seq] }),
+    primaryKey({ columns: [table.deviceId, table.logId, table.seq] }),
     index("problem_log_owner_created").on(table.ownerId, table.createdAt),
     index("problem_log_created").on(table.createdAt),
   ],

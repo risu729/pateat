@@ -69,14 +69,15 @@ export const deviceRoutes = new Hono<ApiEnv>()
     return c.json(state);
   })
   /**
-   * The calling device's newest `warn` and `error` local log lines (ADR 0066), as the
-   * extension let them leave, one row per line. Each line is checked on its own: one the
-   * contract refuses is left out and the others are kept, and only a report with no line
-   * that passes is refused. A retry repeats a line's `seq`, which changes nothing and does
-   * not count. A report whose new lines would take the owner's devices past their lines
-   * for the last 24 hours is refused whole, and the device sends it again later. The count
-   * is read before the insert, so two reports at once may pass the limit by up to one
-   * report's lines; that is accepted.
+   * The calling device's newest `warn` and `error` local log lines, and `info` lines that
+   * say why Pateat did nothing (ADR 0066), as the extension let them leave, one row per
+   * line. Each line is checked on its own: one the contract refuses is left out and the
+   * others are kept, and only a report with no line that passes is refused. A retry
+   * repeats a line's log ID and `seq`, which changes nothing and does not count. A report
+   * whose new lines would take the owner's devices past their lines for the last 24 hours
+   * is refused whole, and the device sends it again later. The count is read before the
+   * insert, so two reports at once may pass the limit by up to one report's lines; that is
+   * accepted.
    */
   .post(
     "/problems",
@@ -114,6 +115,7 @@ export const deviceRoutes = new Hono<ApiEnv>()
           .where(
             and(
               eq(problemLog.deviceId, deviceId),
+              eq(problemLog.logId, report.logId),
               gte(problemLog.seq, Math.min(...seqs)),
               lte(problemLog.seq, Math.max(...seqs)),
             ),
@@ -130,6 +132,7 @@ export const deviceRoutes = new Hono<ApiEnv>()
           .values({
             ownerId,
             deviceId,
+            logId: report.logId,
             seq: entry.seq,
             extensionBuild: report.extensionBuild,
             level: entry.level,

@@ -85,7 +85,7 @@ export function createDiagnosticsLog(options: {
   settings(): Promise<{ revision: number; settings: LocalSettings }>;
   recipeCache(): Promise<unknown>;
   connections(): Promise<SetupReply>;
-  /** Told after each `warn` or `error` entry is stored (ADR 0066). */
+  /** Told after each entry is stored that goes to the service (ADR 0066). */
   onProblem?: () => void;
   /** For tests: another database and event target than the worker's. */
   databaseName?: string;

@@ -92,8 +92,8 @@ export default defineBackground(() => {
     onProblem: () => problemReports?.schedule(),
   });
   const { logger } = diagnosticsLog;
-  // ADR 0066: warning and error lines go to the paired service; set below, once
-  // the service is.
+  // ADR 0066: warning and error lines, and why Pateat did nothing, go to the paired
+  // service; set below, once the service is.
   let problemReports: ReturnType<typeof createProblemReports> | undefined;
   const catalog = import.meta.env.MODE === "probe" ? createProbeCatalog() : undefined;
   const cryptoControls = import.meta.env.MODE === "probe" ? createCryptoProbeControls() : undefined;

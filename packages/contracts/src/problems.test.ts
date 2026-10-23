@@ -1,6 +1,11 @@
 import * as v from "valibot";
 import { describe, expect, it } from "vitest";
-import { problemFieldsAllowed, problemReportEnvelopeSchema, problemReportSchema } from "./problems";
+import {
+  problemFieldsAllowed,
+  problemInfoLine,
+  problemReportEnvelopeSchema,
+  problemReportSchema,
+} from "./problems";
 
 const accepts = (schema: v.GenericSchema, value: unknown) => v.safeParse(schema, value).success;
 
@@ -20,7 +25,12 @@ describe("problem report contract (ADR 0066)", () => {
       tab: 9,
     },
   };
-  const report = (...entries: unknown[]) => ({ version: 1, extensionBuild: "1c42ad3", entries });
+  const report = (...entries: unknown[]) => ({
+    version: 1,
+    extensionBuild: "1c42ad3",
+    logId: "0123456789abcdef0123456789abcdef",
+    entries,
+  });
   const withFields = (event: string, fields: Record<string, unknown>) =>
     report({ ...line, event, fields });
 
@@ -63,6 +73,9 @@ describe("problem report contract (ADR 0066)", () => {
       ["login.attempt", { url: "/u/alice%40example.com" }],
       ["login.attempt", { url: "/u/alice%2540example.com" }],
       ["login.attempt", { url: "/u/al ice" }],
+      // `;` and `=` mark parameters, which the device always redacts.
+      ["login.attempt", { url: "/s;jsessionid=abc/login" }],
+      ["login.attempt", { url: "/login/token=abc" }],
       ["login.attempt", { url: "relative/path" }],
       ["login.attempt", { url: `/${"a".repeat(512)}` }],
       // `://` only in an origin, and an origin only of its shape.
@@ -106,6 +119,9 @@ describe("problem report contract (ADR 0066)", () => {
     );
     expect(accepts(problemReportSchema, { ...report(line), extensionBuild: "main" })).toBe(false);
     expect(accepts(problemReportSchema, { ...report(line), deviceId: "d" })).toBe(false);
+    expect(accepts(problemReportSchema, { ...report(line), logId: "0123" })).toBe(false);
+    const { logId: _, ...withoutId } = report(line);
+    expect(accepts(problemReportSchema, withoutId)).toBe(false);
   });
 
   it("lets the service check each line on its own within the same envelope", () => {
@@ -121,6 +137,27 @@ describe("problem report contract (ADR 0066)", () => {
       false,
     );
     expect(accepts(problemReportEnvelopeSchema, { ...report(line), deviceId: "d" })).toBe(false);
+  });
+
+  it("takes an info line only when it says why Pateat did nothing", () => {
+    const info = (event: string, fields: Record<string, unknown>) =>
+      report({
+        ...line,
+        level: "info",
+        event,
+        fields: { origin: "https://bank.example", ...fields },
+      });
+    expect(accepts(problemReportSchema, info("login.refused", { reason: "no-route" }))).toBe(true);
+    expect(accepts(problemReportSchema, info("login.entry", { outcome: "refused" }))).toBe(true);
+    for (const outcome of ["skipped", "abstained", "unavailable"])
+      expect(accepts(problemReportSchema, info("recipe.generate", { outcome }))).toBe(true);
+    expect(accepts(problemReportSchema, info("login.entry", { outcome: "pressed" }))).toBe(false);
+    expect(accepts(problemReportSchema, info("login.entry", {}))).toBe(false);
+    expect(accepts(problemReportSchema, info("recipe.generate", { outcome: "recipe" }))).toBe(
+      false,
+    );
+    expect(accepts(problemReportSchema, info("login.start", { route: "password" }))).toBe(false);
+    expect(problemInfoLine("toString", {})).toBe(false);
   });
 
   it("checks each field by the kind its event gives it", () => {

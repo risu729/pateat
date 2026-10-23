@@ -270,8 +270,8 @@ export interface ServiceTransport {
     report: RecipeUseReport,
   ): Promise<OutcomeResult>;
   /**
-   * `POST /v1/device/problems`: the device's `warn` and `error` log lines not sent yet, as
-   * they may leave the device (ADR 0066).
+   * `POST /v1/device/problems`: the device's `warn` and `error` log lines, and `info` lines
+   * saying why Pateat did nothing, not sent yet, as they may leave the device (ADR 0066).
    */
   reportProblems(origin: string, credential: string, report: ProblemReport): Promise<OutcomeResult>;
   /**
@@ -437,7 +437,15 @@ export function createServiceTransport(
       // page that is not JSON, such as Cloudflare's rate-limit page.
       if (response.status === 429) {
         void response.body?.cancel().catch(() => undefined);
-        return { status: 429, body: undefined, timing: timing() };
+        const retryAfter = response.headers.get("Retry-After");
+        return {
+          status: 429,
+          body: undefined,
+          timing: timing(),
+          ...(retryAfter && /^\d{1,6}$/u.test(retryAfter)
+            ? { retryAfterMs: Number(retryAfter) * 1000 }
+            : {}),
+        };
       }
       const text = await readBounded(response, limit);
       if (text === undefined) return { failed: "unexpected-response" as const, timing: timing() };
@@ -447,15 +455,7 @@ export function createServiceTransport(
       } catch {
         return { failed: "unexpected-response" as const, timing: timing() };
       }
-      const retryAfter = response.status === 429 ? response.headers.get("Retry-After") : null;
-      return {
-        status: response.status,
-        body,
-        timing: timing(),
-        ...(retryAfter && /^\d{1,6}$/u.test(retryAfter)
-          ? { retryAfterMs: Number(retryAfter) * 1000 }
-          : {}),
-      };
+      return { status: response.status, body, timing: timing() };
     } catch {
       return {
         failed: "unreachable" as const,
@@ -626,7 +626,8 @@ export function createServiceTransport(
       return post(origin, credential, `/v1/recipes/${encodeURIComponent(recipeId)}/use`, report);
     },
     reportProblems(origin, credential, report) {
-      return post(origin, credential, "/v1/device/problems", report);
+      // Until the service has the route, its 404 keeps the lines for a later run.
+      return post(origin, credential, "/v1/device/problems", report, true);
     },
     async revokeRecipe(origin, credential, recipeId, expectedRevision) {
       const response = await call(
@@ -691,12 +692,17 @@ export function createServiceTransport(
     },
   };
 
-  /** A small report the service answers with 204 and no body. */
+  /**
+   * A small report the service answers with 204 and no body. With `routeMissingFails`, a
+   * 404 or 405, as from a service not yet deployed with the route, is a failure to retry
+   * rather than a refusal.
+   */
   async function post(
     origin: string,
     credential: string,
     path: string,
     body: unknown,
+    routeMissingFails = false,
   ): Promise<OutcomeResult> {
     const response = await call(
       origin,
@@ -719,6 +725,8 @@ export function createServiceTransport(
           ? { retryAfterMs: response.retryAfterMs }
           : {}),
       };
+    if (routeMissingFails && (response.status === 404 || response.status === 405))
+      return { kind: "failed", error: "unexpected-response" };
     if (response.status >= 400 && response.status < 500) return { kind: "refused" };
     return { kind: "failed", error: "unexpected-response" };
   }

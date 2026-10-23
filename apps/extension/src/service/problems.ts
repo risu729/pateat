@@ -1,11 +1,12 @@
-import { problemEntrySchema, type ProblemEntry } from "@pateat/contracts";
+import { extensionBuildSchema, problemEntrySchema, type ProblemEntry } from "@pateat/contracts";
 import * as v from "valibot";
 import { problemLine, type KeyedEntry, type ProblemsRead } from "../diagnostics/log";
 import type { ServiceConnection } from "./runtime";
 import type { OutcomeResult, ServiceTransport } from "./transport";
 
-// The local log's `warn` and `error` lines go to the paired service (ADR 0066),
-// so Claude can find failures without the owner reporting each one. Only what
+// The local log's `warn` and `error` lines, and the `info` lines that say why Pateat did
+// nothing on a page, go to the paired service (ADR 0066), so Claude can find failures
+// without the owner reporting each one. Only what
 // `problemLine` lets leave is sent: codes, counts, flags, recipe IDs, origins of sites set
 // up, redacted paths, error names and script positions. Sending is best-effort and never
 // touches a login or the log itself.
@@ -37,6 +38,7 @@ export type ProblemsSent = {
 export interface ProblemLog {
   problemsAfter(after: number, limit: number): Promise<ProblemsRead>;
   lastKey(): Promise<number>;
+  logId(): Promise<string>;
   problemCursor(): Promise<unknown>;
   setProblemCursor(cursor: Cursor): Promise<void>;
 }
@@ -73,13 +75,15 @@ const sameness = (entry: ProblemEntry) => JSON.stringify([entry.level, entry.eve
 const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).byteLength;
 
 /**
- * Sends the local log's `warn` and `error` lines to the paired service, oldest first, each
- * once (ADR 0066). A pairing starts after the newest entry, so no backlog from
- * before it is sent. A line the contract refuses is skipped, and so is one identical to the
- * last line sent less than {@link PROBLEM_REPEAT_MS} before it, as a vault state a new
- * worker logs again. A failed request keeps the lines for a later run and holds off runs, 1
- * minute after the first failure, doubling up to an hour, or longer when the service asks
- * by `Retry-After`; this survives a worker restart. A credential the service rejected
+ * Sends the local log's lines that go to the service (`sentToService`: `warn`, `error`
+ * and why Pateat did nothing) to the paired service, oldest first, each once (ADR 0066).
+ * A pairing starts after the newest entry, so no backlog from before it is sent. Each
+ * request carries the log's ID and the lines of one build, the one that wrote them. A line
+ * the contract refuses is skipped, and so is one identical to the last line sent less than
+ * {@link PROBLEM_REPEAT_MS} before it, as a vault state a new worker logs again. A failed
+ * request keeps the lines for a later run and holds off runs, 1 minute after the first
+ * failure, doubling up to an hour, or longer when the service asks by `Retry-After`; this
+ * survives a worker restart. A credential the service rejected
  * sends nothing. Nothing here throws.
  */
 export function createProblemReports(options: {
@@ -140,37 +144,48 @@ export function createProblemReports(options: {
     if (!connection || connection.rejected) return;
     let cursor = await cursorFor(connection);
     if (now() < cursor.retryAt) return;
+    const logId = await log.logId();
     for (let request = 0; request < MAX_PROBLEM_REQUESTS; request += 1) {
       // oxlint-disable-next-line no-await-in-loop -- one batch at a time, each after the last
-      const { entries: found, scanned } = await log.problemsAfter(cursor.after, MAX_PROBLEM_BATCH);
+      const read = await log.problemsAfter(cursor.after, MAX_PROBLEM_BATCH);
       const entries: ProblemEntry[] = [];
+      let build = options.build;
+      // The JSON array's bytes so far: its brackets, each entry and the commas between.
+      let size = 2;
       let last = cursor.after;
       let lastSent = cursor.last;
       let cut = false;
-      for (const keyed of found) {
+      for (const keyed of read.entries) {
         const entry = problemEntry(keyed);
-        // A line too long to go with others waits for the next request; one too long on its
-        // own is skipped.
-        if (entry && bytes([...entries, entry]) > MAX_PROBLEM_BATCH_BYTES && entries.length > 0) {
+        const written = v.is(extensionBuildSchema, keyed.entry.build)
+          ? keyed.entry.build
+          : options.build;
+        const grown = entry ? size + bytes(entry) + (entries.length > 0 ? 1 : 0) : size;
+        // A line past the request's size, or one another build wrote, so that its stack
+        // positions are read against its own build, waits for the next request.
+        if (entry && entries.length > 0 && (grown > MAX_PROBLEM_BATCH_BYTES || written !== build)) {
           cut = true;
           break;
         }
         last = keyed.key;
-        if (!entry || bytes([entry]) > MAX_PROBLEM_BATCH_BYTES) continue;
+        if (!entry) continue;
         const line = sameness(entry);
         if (lastSent?.line === line && entry.time - lastSent.time < PROBLEM_REPEAT_MS) continue;
         entries.push(entry);
+        size = grown;
+        build = written;
         lastSent = { line, time: entry.time };
       }
       // Every entry read went: the next read starts past the ones it passed over too.
-      if (!cut) last = Math.max(last, scanned);
+      if (!cut) last = Math.max(last, read.scanned);
       let result: OutcomeResult | undefined = { kind: "kept" };
       if (entries.length > 0) {
         try {
           // oxlint-disable-next-line no-await-in-loop -- one request at a time, stopping at a failure
           result = await transport.reportProblems(connection.origin, connection.credential, {
             version: 1,
-            extensionBuild: options.build,
+            extensionBuild: build,
+            logId,
             entries,
           });
         } catch {
@@ -205,12 +220,12 @@ export function createProblemReports(options: {
       };
       // oxlint-disable-next-line no-await-in-loop -- recorded before the next request
       if (moved) await log.setProblemCursor(cursor);
-      if (!cut && found.length < MAX_PROBLEM_BATCH) return;
+      if (!cut && !read.more && read.entries.length < MAX_PROBLEM_BATCH) return;
     }
   }
 
   return {
-    /** A `warn` or `error` entry was stored: sends it, with any others, shortly. */
+    /** An entry that goes to the service was stored: sends it, with any others, shortly. */
     schedule(): void {
       if (scheduled) return;
       scheduled = true;

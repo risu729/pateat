@@ -892,7 +892,7 @@ describe("owner web UI request log", () => {
   /** A synthetic problem line a device sent (ADR 0066). */
   const insertProblem = (ownerId: string, deviceId: string, seq: number, createdAt: number) =>
     env.DB.prepare(
-      "INSERT INTO problem_log (owner_id, device_id, seq, extension_build, level, event, fields, logged_at, created_at) VALUES (?, ?, ?, 'development', 'warn', 'login.attempt', '{\"outcome\":\"target-missing\"}', ?, ?)",
+      "INSERT INTO problem_log (owner_id, device_id, log_id, seq, extension_build, level, event, fields, logged_at, created_at) VALUES (?, ?, '0000000000000000000000000000000a', ?, 'development', 'warn', 'login.attempt', '{\"outcome\":\"target-missing\"}', ?, ?)",
     ).bind(ownerId, deviceId, seq, createdAt, createdAt);
   const loginCount = async (ownerId: string) =>
     (await env.DB.prepare("SELECT COUNT(*) AS n FROM login_timings WHERE owner_id = ?")
@@ -1057,7 +1057,7 @@ describe("owner web UI request log", () => {
       insertProblem(theirs!, theirDevice.deviceId, 1, now),
       // A stored line that no longer passes the contract is left out.
       env.DB.prepare(
-        "INSERT INTO problem_log (owner_id, device_id, seq, extension_build, level, event, fields, logged_at, created_at) VALUES (?, ?, 8, 'development', 'warn', 'login.attempt', 'not json', ?, ?)",
+        "INSERT INTO problem_log (owner_id, device_id, log_id, seq, extension_build, level, event, fields, logged_at, created_at) VALUES (?, ?, '0000000000000000000000000000000a', 8, 'development', 'warn', 'login.attempt', 'not json', ?, ?)",
       ).bind(mine, laptop.deviceId, now, now),
     ]);
     const response = await request("/manage/api/problems", { access: first.token });

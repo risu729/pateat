@@ -1,4 +1,4 @@
-import { INFERENCE_LOG_RETENTION_MS, PROBLEM_LOG_RETENTION_MS } from "@pateat/contracts";
+import { INFERENCE_LOG_RETENTION_MS } from "@pateat/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Clock, FileText, ShieldCheck } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -11,7 +11,6 @@ import { ErrorNotice, Line, Lines, PAGE_TITLE_CLASSES, SuccessNotice } from "./u
 export const REQUEST_LOG_QUERY_KEY = ["request-log"] as const;
 
 const RETENTION_DAYS = INFERENCE_LOG_RETENTION_MS / (24 * 60 * 60 * 1000);
-const PROBLEM_RETENTION_DAYS = PROBLEM_LOG_RETENTION_MS / (24 * 60 * 60 * 1000);
 const requests = (n: number) => `${n} request${n === 1 ? "" : "s"}`;
 const results = (n: number) => `${n} first login result${n === 1 ? "" : "s"}`;
 const logins = (n: number) => `${n} login record${n === 1 ? "" : "s"}`;
@@ -82,8 +81,8 @@ export function RequestLogPage({ client }: { client: ManageClient }) {
         it also keeps how the login ended, as a result code without any page text or value. They are
         used to evaluate and improve generation. For every login with a recipe, it keeps a record of
         how it ended and how long it took, with the site and time, for the dashboard. Devices also
-        send the warnings and errors of their logs, shown on the Problems page, which are kept for{" "}
-        {PROBLEM_RETENTION_DAYS} days.
+        send the warnings and errors of their logs, and why Pateat did nothing on a page, shown on
+        the Problems page.
       </p>
       <SuccessNotice
         id="request-log-deleted"
@@ -147,7 +146,8 @@ export function RequestLogPage({ client }: { client: ManageClient }) {
       )}
       <Lines>
         <Line icon={<Clock size={16} aria-hidden />}>
-          Each request, login result and login record is kept for {RETENTION_DAYS} days
+          Each request, login result, login record and problem line is kept for {RETENTION_DAYS}{" "}
+          days
         </Line>
         <Line icon={<FileText size={16} aria-hidden />}>
           Vault values are never sent, so they are never logged

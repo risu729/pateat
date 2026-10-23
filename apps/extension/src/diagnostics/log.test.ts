@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { PROBLEM_EVENT_FIELDS } from "@pateat/contracts";
+import { PROBLEM_EVENT_FIELDS, problemEntrySchema } from "@pateat/contracts";
 import { createDiagnosticsLog } from "./background";
 import {
   DEBUG_LOGGING_MS,
@@ -2886,26 +2886,37 @@ describe("unhandled errors", () => {
 });
 
 describe("problem lines (ADR 0066)", () => {
-  it("tells of each stored warning and error only", async () => {
+  it("tells of each stored entry that goes to the service only", async () => {
     const onProblem = vi.fn(() => {
       throw new Error("listener");
     });
     const { logger } = setup({ onProblem, debugStaysOn: true });
     await logger.enableDebug();
-    await logger.log("login.refused", { origin: "https://bank.example", reason: "no-account" });
+    await logger.log("login.start", { origin: "https://bank.example", route: "password" });
+    await logger.log("login.entry", { origin: "https://bank.example", outcome: "pressed" });
+    await logger.log("recipe.generate", { origin: "https://bank.example", outcome: "sent" });
+    await logger.log(
+      "login.refused",
+      { origin: "https://bank.example", reason: "no-account" },
+      { level: "debug" },
+    );
     await logger.log("runtime.started", { build: "1c42ad3" });
     expect(onProblem).not.toHaveBeenCalled();
     await logger.log("login.exception", { origin: "https://bank.example", name: "TypeError" });
     await logger.log("error.unhandled", { source: "error", name: "Error" });
+    // `info` lines that say why Pateat did nothing go too.
+    await logger.log("login.refused", { origin: "https://bank.example", reason: "no-account" });
+    await logger.log("login.entry", { origin: "https://bank.example", outcome: "refused" });
+    await logger.log("recipe.generate", { origin: "https://bank.example", outcome: "abstained" });
     // A listener that throws changes nothing.
-    expect(onProblem).toHaveBeenCalledTimes(2);
+    expect(onProblem).toHaveBeenCalledTimes(5);
     expect((await logger.entries()).map((entry) => entry.event)).toContain("error.unhandled");
   });
 
-  it("reads warnings and errors after a key, oldest first, and keeps its cursor across a clear", async () => {
+  it("reads the entries that go after a key, oldest first, and keeps its cursor across a clear", async () => {
     const { logger } = setup();
     expect(await logger.lastKey()).toBe(0);
-    expect(await logger.problemsAfter(0, 10)).toEqual({ entries: [], scanned: 0 });
+    expect(await logger.problemsAfter(0, 10)).toEqual({ entries: [], scanned: 0, more: false });
     await logger.log("login.exception", { origin: "https://bank.example", name: "TypeError" });
     await logger.log("login.refused", { origin: "https://bank.example", reason: "no-account" });
     await logger.log(
@@ -2914,18 +2925,19 @@ describe("problem lines (ADR 0066)", () => {
       { level: "warn" },
     );
     await logger.log("error.unhandled", { source: "error", name: "Error" });
-    await logger.log("login.refused", { origin: "https://bank.example", reason: "no-account" });
+    await logger.log("login.start", { origin: "https://bank.example", route: "password" });
     const all = await logger.problemsAfter(0, 10);
     expect(all.entries.map(({ entry }) => entry.event)).toEqual([
       "login.exception",
+      "login.refused",
       "vault.sync",
       "error.unhandled",
     ]);
     const keys = all.entries.map(({ key }) => key);
     expect(keys).toEqual([...keys].sort((a, b) => a - b));
-    // The read looked at the `info` entry after the last warning too.
+    // The read looked at the `info` entry that does not go after the last one too.
     expect(all.scanned).toBe(await logger.lastKey());
-    expect(all.scanned).toBeGreaterThan(keys[2]!);
+    expect(all.scanned).toBeGreaterThan(keys[3]!);
     // A read that stops at its limit looked no further than its last entry.
     expect(await logger.problemsAfter(keys[0]!, 1)).toMatchObject({
       entries: [{ key: keys[1] }],
@@ -2934,7 +2946,15 @@ describe("problem lines (ADR 0066)", () => {
     expect(await logger.problemsAfter(all.scanned, 10)).toEqual({
       entries: [],
       scanned: all.scanned,
+      more: false,
     });
+    // Each entry carries the build that wrote it.
+    expect(all.entries.map(({ entry }) => entry.build)).toEqual([
+      "1c42ad3",
+      "1c42ad3",
+      "1c42ad3",
+      "1c42ad3",
+    ]);
 
     await logger.setProblemCursor({ service: "https://pateat.example", deviceId: "d", after: 4 });
     await logger.clear();
@@ -2947,6 +2967,30 @@ describe("problem lines (ADR 0066)", () => {
     await logger.log("error.unhandled", { source: "error", name: "Error" });
     const [after] = (await logger.problemsAfter(keys[2]!, 10)).entries;
     expect(after?.key).toBeGreaterThan(keys[2]!);
+  });
+
+  it("keeps one random log ID per database, also across a clear", async () => {
+    const { logger } = setup();
+    const id = await logger.logId();
+    expect(id).toMatch(/^[0-9a-f]{32}$/u);
+    await logger.clear();
+    expect(await logger.logId()).toBe(id);
+    // Another database, as a log made again, has another.
+    expect(await setup().logger.logId()).not.toBe(id);
+  });
+
+  it("stops a read at 2,000 entries looked at, and the next read goes on past them", async () => {
+    const { logger } = setup();
+    for (let at = 0; at < 2_000; at += 1)
+      // oxlint-disable-next-line no-await-in-loop -- entries are written one at a time
+      await logger.log("login.start", { origin: "https://bank.example", route: "password" });
+    await logger.log("error.unhandled", { source: "error", name: "Error" });
+    const first = await logger.problemsAfter(0, 10);
+    expect(first.entries).toEqual([]);
+    expect(first.more).toBe(true);
+    const next = await logger.problemsAfter(first.scanned, 10);
+    expect(next.entries.map(({ entry }) => entry.event)).toEqual(["error.unhandled"]);
+    expect(next).toMatchObject({ scanned: await logger.lastKey(), more: false });
   });
 
   it("lets only codes, counts, recipe IDs, known origins and redacted paths leave", async () => {
@@ -2995,7 +3039,7 @@ describe("problem lines (ADR 0066)", () => {
         tab: 9,
       },
     });
-    // An `info` entry never leaves.
+    // An `info` entry that does not say why Pateat did nothing never leaves.
     expect(lines[1]).toBeUndefined();
     // No vault pseudonym leaves.
     expect(lines[2]?.fields).toEqual({ state: "unavailable" });
@@ -3021,13 +3065,78 @@ describe("problem lines (ADR 0066)", () => {
       reason: "x".repeat(600),
       url: `https://bank.example/${"a/".repeat(300)}partial`,
     });
+    // Pages after a submit or likely signed in, for any event, and events not known to
+    // come before a submit.
+    await logger.log("login.exception", { ...page, state: "watching", name: "TypeError" });
+    await logger.log("login.refused", { ...page, reason: "not-started", detail: "logged-in" });
+    await logger.log("recipe.generate", {
+      ...page,
+      outcome: "failed",
+      reason: "error",
+      signedIn: true,
+    });
+    await logger.log("login.state", { ...page, decision: "signed-in" });
+    await logger.log("login.move", { ...page, reason: "left" });
+    await logger.log("login.logout", { ...page, clicked: true });
+    await logger.log("login.popup", { ...page, choice: "offered" });
+    // Pages before a submit keep theirs.
+    await logger.log("login.exception", { ...page, state: "running", name: "TypeError" });
+    await logger.log("recipe.generate", { ...page, outcome: "failed", reason: "error" });
     const lines = (await logger.entries()).map((entry) => problemLine({ ...entry, level: "warn" }));
-    for (const line of lines.slice(0, 4)) expect(line?.fields).not.toHaveProperty("url");
+    for (const line of [...lines.slice(0, 4), ...lines.slice(6, 13)])
+      expect(line?.fields, line?.event).not.toHaveProperty("url");
     expect(lines[4]?.fields["url"]).toBe("/users/alice/home");
+    expect(lines[13]?.fields["url"]).toBe("/users/alice/home");
+    expect(lines[14]?.fields["url"]).toBe("/users/alice/home");
     // A path cut at the field limit loses its last, maybe partial, segment.
     const cut = lines[5]?.fields["url"];
     expect(cut).toMatch(/^\/(?:a\/)+\[id\]$/u);
     expect(lines[5]?.fields).not.toHaveProperty("reason");
+  });
+
+  it("lets the info lines that say why Pateat did nothing leave, under the same rules", async () => {
+    const { logger } = setup();
+    const page = { origin: "https://bank.example", url: "https://bank.example/u/alice/login?x=1" };
+    await logger.log("login.refused", { ...page, reason: "account-ambiguous", candidates: 2 });
+    await logger.log("login.entry", { ...page, outcome: "refused", reason: "target-missing" });
+    await logger.log("login.entry", { ...page, outcome: "pressed" });
+    await logger.log("recipe.generate", {
+      ...page,
+      outcome: "skipped",
+      reason: "incomplete-observation",
+    });
+    await logger.log("recipe.generate", { ...page, outcome: "abstained", reason: "not-login" });
+    await logger.log("recipe.generate", { ...page, outcome: "sent", page: "page" });
+    // Pages whose path may hold the account's username send no path.
+    await logger.log("login.refused", { ...page, reason: "not-started", detail: "logged-in" });
+    await logger.log("recipe.generate", { ...page, outcome: "skipped", reason: "after-sign-in" });
+    await logger.log("recipe.generate", { ...page, outcome: "skipped", reason: "username-shown" });
+    const entries = await logger.entries();
+    const lines = entries.map(problemLine);
+    expect(lines[0]).toEqual({
+      level: "info",
+      event: "login.refused",
+      time: entries[0]!.time,
+      fields: {
+        origin: "https://bank.example",
+        reason: "account-ambiguous",
+        candidates: 2,
+        url: "/u/alice/login",
+      },
+    });
+    expect(lines[1]?.fields).toMatchObject({ outcome: "refused", url: "/u/alice/login" });
+    expect(lines[2]).toBeUndefined();
+    expect(lines[3]?.fields).toMatchObject({ outcome: "skipped", url: "/u/alice/login" });
+    expect(lines[4]?.fields).toMatchObject({ outcome: "abstained" });
+    expect(lines[5]).toBeUndefined();
+    for (const line of lines.slice(6)) {
+      expect(line?.level).toBe("info");
+      expect(line?.fields).not.toHaveProperty("url");
+    }
+    // Each line that leaves is one the contract takes.
+    for (const [index, line] of lines.entries())
+      if (line)
+        expect(v.is(problemEntrySchema, { seq: index + 1, ...line }), line.event).toBe(true);
   });
 
   it("carries only what the contract lets each event carry", () => {

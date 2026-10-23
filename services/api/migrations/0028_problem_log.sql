@@ -1,6 +1,7 @@
 CREATE TABLE `problem_log` (
 	`owner_id` text NOT NULL,
 	`device_id` text NOT NULL,
+	`log_id` text NOT NULL,
 	`seq` integer NOT NULL,
 	`extension_build` text NOT NULL,
 	`level` text NOT NULL,
@@ -8,7 +9,7 @@ CREATE TABLE `problem_log` (
 	`fields` text NOT NULL,
 	`logged_at` integer NOT NULL,
 	`created_at` integer NOT NULL,
-	PRIMARY KEY(`device_id`, `seq`),
+	PRIMARY KEY(`device_id`, `log_id`, `seq`),
 	FOREIGN KEY (`owner_id`) REFERENCES `owners`(`id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`device_id`) REFERENCES `devices`(`id`) ON UPDATE no action ON DELETE no action
 );

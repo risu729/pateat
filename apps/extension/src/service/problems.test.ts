@@ -1,6 +1,6 @@
 import type { ProblemReport } from "@pateat/contracts";
 import { describe, expect, it, vi } from "vitest";
-import type { KeyedEntry, LogEntry } from "../diagnostics/log";
+import { sentToService, type KeyedEntry, type LogEntry } from "../diagnostics/log";
 import {
   createProblemReports,
   MAX_PROBLEM_BATCH,
@@ -41,12 +41,14 @@ const blocked = (fields: LogEntry["fields"] = {}): LogEntry => ({
     ...fields,
   },
 });
+/** An `info` entry that does not say why Pateat did nothing, so it is never sent. */
 const info: LogEntry = {
   time: TIME,
   level: "info",
-  event: "login.refused",
-  fields: { origin: "https://bank.example", reason: "no-account" },
+  event: "login.start",
+  fields: { origin: "https://bank.example", route: "password" },
 };
+const LOG_ID = "0123456789abcdef0123456789abcdef";
 
 function setup(
   options: {
@@ -54,6 +56,8 @@ function setup(
     cursor?: unknown;
     connection?: ServiceConnection | undefined;
     answer?: (report: ProblemReport) => Promise<OutcomeResult>;
+    /** Entries one read looks at most, as the log's scan limit. */
+    scanLimit?: number;
   } = {},
 ) {
   const state = {
@@ -64,16 +68,17 @@ function setup(
   };
   const log: ProblemLog = {
     problemsAfter: vi.fn(async (after: number, limit: number) => {
-      const entries = state.entries
-        .filter(
-          ({ key, entry }) => key > after && (entry.level === "warn" || entry.level === "error"),
-        )
-        .slice(0, limit);
+      const looked = state.entries
+        .filter(({ key }) => key > after)
+        .slice(0, options.scanLimit ?? Infinity);
+      const more = looked.length < state.entries.filter(({ key }) => key > after).length;
+      const entries = looked.filter(({ entry }) => sentToService(entry)).slice(0, limit);
       const scanned =
-        entries.length === limit ? entries.at(-1)!.key : (state.entries.at(-1)?.key ?? 0);
-      return { entries, scanned: Math.max(after, scanned) };
+        entries.length === limit ? entries.at(-1)!.key : (looked.at(-1)?.key ?? after);
+      return { entries, scanned: Math.max(after, scanned), more: entries.length < limit && more };
     }),
     lastKey: vi.fn(async () => state.entries.at(-1)?.key ?? 0),
+    logId: vi.fn(async () => LOG_ID),
     problemCursor: vi.fn(async () => structuredClone(state.cursor)),
     setProblemCursor: vi.fn(async (cursor) => {
       state.cursor = structuredClone(cursor);
@@ -152,6 +157,7 @@ describe("problem reports (ADR 0066)", () => {
     expect(reportProblems).toHaveBeenCalledWith(CONNECTION.origin, CONNECTION.credential, {
       version: 1,
       extensionBuild: "1c42ad3",
+      logId: LOG_ID,
       entries: [
         {
           seq: 3,
@@ -225,6 +231,44 @@ describe("problem reports (ADR 0066)", () => {
     expect(reportProblems.mock.calls.flatMap(([, , r]) => r.entries.map((e) => e.seq))).toEqual(
       Array.from({ length: MAX_PROBLEM_BATCH }, (_, at) => at + 1),
     );
+  });
+
+  it("sends each build's lines in requests of their own, with that build", async () => {
+    const { problems, reportProblems } = setup({
+      entries: keyed(
+        { ...blocked({ step: 1 }), build: "abcdef1" },
+        { ...blocked({ step: 2 }), build: "abcdef1" },
+        { ...blocked({ step: 3 }), build: "1c42ad3" },
+        // An entry an older log stored without its build, or with one the contract refuses,
+        // goes with this build.
+        blocked({ step: 4 }),
+        { ...blocked({ step: 5 }), build: "not a build" },
+      ),
+      cursor: { service: CONNECTION.origin, deviceId: CONNECTION.deviceId, after: 0 },
+    });
+    await problems.flush();
+    expect(
+      reportProblems.mock.calls.map(([, , report]) => [
+        report.extensionBuild,
+        report.logId,
+        report.entries.map((entry) => entry.seq),
+      ]),
+    ).toEqual([
+      ["abcdef1", LOG_ID, [1, 2]],
+      ["1c42ad3", LOG_ID, [3, 4, 5]],
+    ]);
+  });
+
+  it("goes on past entries a read only looked over, within the run's requests", async () => {
+    const { problems, reportProblems, state } = setup({
+      entries: keyed(info, info, info, info, info, info, info, blocked()),
+      cursor: { service: CONNECTION.origin, deviceId: CONNECTION.deviceId, after: 0 },
+      scanLimit: 3,
+    });
+    await problems.flush();
+    expect(reportProblems).toHaveBeenCalledTimes(1);
+    expect(reportProblems.mock.calls[0]![2].entries.map((entry) => entry.seq)).toEqual([8]);
+    expect(state.cursor).toMatchObject({ after: 8 });
   });
 
   it("keeps lines after a failure and backs off, doubling up to an hour", async () => {

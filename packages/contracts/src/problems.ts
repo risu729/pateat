@@ -1,8 +1,8 @@
 import * as v from "valibot";
 import { extensionBuildSchema } from "./sync";
 
-// What one `warn` or `error` line of a device's local log may carry to the service
-// (ADR 0066). The extension's log allowlists every event's fields by kind (ADR
+// What one `warn` or `error` line, or `info` line saying why Pateat did nothing, of a
+// device's local log may carry to the service (ADR 0066). The extension's log allowlists every event's fields by kind (ADR
 // 0019); this is that allowlist less the item and connection pseudonyms, with a page URL
 // as a redacted path, so the service checks each field by its kind too and the extension's
 // own reduction is not the only boundary.
@@ -49,7 +49,8 @@ export const PROBLEM_FIELD_KINDS = {
     v.string(),
     v.maxLength(MAX_PROBLEM_FIELD_LENGTH),
     v.regex(/^\/[!-~]*$/u),
-    v.check((value) => !/[@?#]/u.test(value) && !/%(?:25)*40/iu.test(value)),
+    // `;` and `=` mark a parameter, and the device redacts any segment holding them.
+    v.check((value) => !/[@?#;=]/u.test(value) && !/%(?:25)*40/iu.test(value)),
   ),
 } as const satisfies Record<string, v.GenericSchema<unknown, string | number | boolean>>;
 export type ProblemFieldKind = keyof typeof PROBLEM_FIELD_KINDS;
@@ -339,7 +340,29 @@ export const PROBLEM_PAGE_FIELDS = { tab: "count" } as const satisfies Record<
   ProblemFieldKind
 >;
 
-export const problemLevelSchema = v.picklist(["warn", "error"]);
+/**
+ * The `info` lines that say why Pateat did nothing on a page, which leave like `warn` and
+ * `error` lines (ADR 0066; owner, 2026-10-23 13:00 UTC): each event with the `outcome`
+ * values that count, or `"any"` for every `info` line of it. A refused login or sign-in
+ * entry press, and a page generation skipped, abstained from or found unavailable.
+ */
+export const PROBLEM_INFO_LINES = {
+  "login.refused": "any",
+  "login.entry": ["refused"],
+  "recipe.generate": ["skipped", "abstained", "unavailable"],
+} as const satisfies Partial<Record<ProblemEventName, "any" | readonly string[]>>;
+
+/** Whether an `info` line of `event` with these fields says why Pateat did nothing. */
+export function problemInfoLine(event: string, fields: Readonly<Record<string, unknown>>): boolean {
+  const lines: Readonly<Record<string, "any" | readonly string[]>> = PROBLEM_INFO_LINES;
+  const outcomes = Object.hasOwn(lines, event) ? lines[event] : undefined;
+  if (outcomes === "any") return true;
+  const outcome = fields["outcome"];
+  return outcomes !== undefined && typeof outcome === "string" && outcomes.includes(outcome);
+}
+
+export const problemLevelSchema = v.picklist(["info", "warn", "error"]);
+export const problemLogIdSchema = v.pipe(v.string(), v.regex(/^[0-9a-f]{32}$/u));
 /** A local log event name, such as `login.attempt`. */
 export const problemEventSchema = v.picklist(
   Object.keys(PROBLEM_EVENT_FIELDS) as [ProblemEventName, ...ProblemEventName[]],
@@ -368,8 +391,9 @@ export function problemFieldsAllowed(
 }
 
 /**
- * One `warn` or `error` line of the device's local log as it leaves the device: the event,
- * its level and time, and only the fields that event may carry, each of its kind.
+ * One `warn` or `error` line, or `info` line of {@link PROBLEM_INFO_LINES}, of the device's
+ * local log as it leaves the device: the event, its level and time, and only the fields
+ * that event may carry, each of its kind.
  */
 export const problemEntrySchema = v.pipe(
   v.strictObject({
@@ -382,16 +406,23 @@ export const problemEntrySchema = v.pipe(
     fields: problemFieldsSchema,
   }),
   v.check((entry) => problemFieldsAllowed(entry.event, entry.fields)),
+  v.check((entry) => entry.level !== "info" || problemInfoLine(entry.event, entry.fields)),
 );
 /**
- * `POST /v1/device/problems`: the device's `warn` and `error` log lines it has not sent yet,
- * oldest first. Never a vault value, page text, query, fragment, email address, or item
+ * `POST /v1/device/problems`: the device's `warn` and `error` log lines, and `info` lines of
+ * {@link PROBLEM_INFO_LINES}, it has not sent yet, oldest first. Never a vault value, page text, query, fragment, email address, or item
  * or connection pseudonym. The service adds the device, from the credential, and its own
  * time.
  */
 export const problemReportSchema = v.strictObject({
   version: v.literal(1),
+  /** The build that wrote every line of the report, so stack positions read against it. */
   extensionBuild: extensionBuildSchema,
+  /**
+   * The device log's random ID, made with its database: a log made again restarts its
+   * `seq`, and its lines stay apart from the old log's.
+   */
+  logId: problemLogIdSchema,
   entries: v.pipe(v.array(problemEntrySchema), v.minLength(1), v.maxLength(MAX_PROBLEM_ENTRIES)),
 });
 /**

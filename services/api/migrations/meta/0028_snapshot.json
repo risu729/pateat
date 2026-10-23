@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "3c59c036-3495-420d-9680-9a38808ab1ee",
+  "id": "f98309f5-0832-4cd5-ab5f-b3c927ce96b3",
   "prevId": "90daeab7-76a3-4c04-911c-2b7df00f5ccb",
   "tables": {
     "devices": {
@@ -1064,6 +1064,13 @@
           "notNull": true,
           "autoincrement": false
         },
+        "log_id": {
+          "name": "log_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
         "seq": {
           "name": "seq",
           "type": "integer",
@@ -1147,9 +1154,9 @@
         }
       },
       "compositePrimaryKeys": {
-        "problem_log_device_id_seq_pk": {
-          "columns": ["device_id", "seq"],
-          "name": "problem_log_device_id_seq_pk"
+        "problem_log_device_id_log_id_seq_pk": {
+          "columns": ["device_id", "log_id", "seq"],
+          "name": "problem_log_device_id_log_id_seq_pk"
         }
       },
       "uniqueConstraints": {},

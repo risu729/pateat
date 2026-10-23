@@ -4,6 +4,7 @@
 import {
   PROBLEM_EVENT_FIELDS,
   PROBLEM_PAGE_FIELDS,
+  problemInfoLine,
   REDACTED_PATH_SEGMENT,
   type ProblemFieldKind,
 } from "@pateat/contracts";
@@ -593,12 +594,17 @@ const entrySchema = v.object({
   level: v.picklist(LOG_LEVELS),
   event: v.picklist(Object.keys(LOG_EVENTS) as [LogEventName, ...LogEventName[]]),
   fields: v.record(v.string(), v.union([v.string(), v.number(), v.boolean()])),
+  /** The build revision that wrote the entry; entries of older builds have none. */
+  build: v.optional(v.pipe(v.string(), v.maxLength(64))),
 });
 export type LogEntry = v.InferOutput<typeof entrySchema>;
 /** An entry with its key in the `entries` store. */
 export type KeyedEntry = { key: number; entry: LogEntry };
-/** Problem entries read after a key, and the last key the read looked at. */
-export type ProblemsRead = { entries: KeyedEntry[]; scanned: number };
+/**
+ * Problem entries read after a key, the last key the read looked at, and whether it
+ * stopped at its scan limit with entries left to look at.
+ */
+export type ProblemsRead = { entries: KeyedEntry[]; scanned: number; more: boolean };
 
 /** Sites the user configured; only these appear by name in the log. */
 export type KnownSites = {
@@ -617,7 +623,7 @@ export type LoggerDependencies = {
   limits?: { entries: number; problems: number; pruneEvery: number };
   /** {@link DEBUG_STAYS_ON} unless a test says otherwise. */
   debugStaysOn?: boolean;
-  /** Told after each `warn` or `error` entry is stored (ADR 0066). */
+  /** Told after each entry is stored that goes to the service (ADR 0066). */
   onProblem?: () => void;
 };
 
@@ -637,6 +643,8 @@ const OVERFLOW_WINDOW = "overflow";
 const BUILD_KEY = "previous-build";
 const DEBUG_KEY = "debug-until";
 const PROBLEM_CURSOR_KEY = "problem-cursor";
+const LOG_ID_KEY = "log-id";
+const logIdSchema = v.pipe(v.string(), v.regex(/^[0-9a-f]{32}$/u));
 /** Entries one read of problem entries looks at most, so a long log never holds the queue. */
 const PROBLEM_SCAN_LIMIT = 2_000;
 
@@ -823,10 +831,16 @@ export function createLogger(deps: LoggerDependencies) {
       if (value !== undefined) recorded[key] = value;
     }
     if (tab !== undefined) recorded["tab"] = tab;
-    const entry: LogEntry = { time: now(), level, event, fields: recorded };
+    const entry: LogEntry = {
+      time: now(),
+      level,
+      event,
+      fields: recorded,
+      build: deps.build.revision,
+    };
     out[level]("Pateat", event, recorded);
     await write(entry);
-    if (level === "warn" || level === "error")
+    if (sentToService(entry))
       try {
         deps.onProblem?.();
       } catch {
@@ -1012,7 +1026,8 @@ export function createLogger(deps: LoggerDependencies) {
   }
 
   /**
-   * Up to `limit` `warn` and `error` entries stored after the key `after`, oldest first,
+   * Up to `limit` entries that go to the service ({@link sentToService}) stored after the
+   * key `after`, oldest first,
    * with their keys, looking at no more than {@link PROBLEM_SCAN_LIMIT} entries; `scanned`
    * is the last key looked at, or `after` when there was none, so the next read starts
    * past the `debug` and `info` entries already passed over. Keys count up from the
@@ -1027,13 +1042,24 @@ export function createLogger(deps: LoggerDependencies) {
       looked += 1;
       scanned = cursor.key;
       const parsed = v.safeParse(entrySchema, cursor.value);
-      if (parsed.success && (parsed.output.level === "warn" || parsed.output.level === "error"))
+      if (parsed.success && sentToService(parsed.output))
         found.push({ key: cursor.key, entry: parsed.output });
       // oxlint-disable-next-line no-await-in-loop -- one cursor, one entry at a time
       cursor = found.length < limit ? await cursor.continue() : null;
     }
     await transaction.done;
-    return { entries: found, scanned };
+    // The cursor is left on an entry only when the read stopped at its scan limit.
+    return { entries: found, scanned, more: cursor !== null };
+  }
+
+  /** This log's random ID, made once per database, so its keys are told from a new log's. */
+  async function logId(): Promise<string> {
+    const stored = await meta(LOG_ID_KEY, logIdSchema);
+    if (stored) return stored;
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    const created = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+    await putMeta(LOG_ID_KEY, created);
+    return created;
   }
 
   /** The newest entry's key, or 0 when there is none. */
@@ -1071,6 +1097,8 @@ export function createLogger(deps: LoggerDependencies) {
     /** Problem entries to send to the service (ADR 0066). */
     problemsAfter: (after: number, limit: number) => serial(() => problemsAfter(after, limit)),
     lastKey: () => serial(lastKey),
+    /** The log's ID, sent with its problem entries so a recreated log's keys are new. */
+    logId: () => serial(logId),
     /** Where sending problem entries got to; kept in `meta`, so a log clear keeps it. */
     problemCursor: () => serial(() => meta(PROBLEM_CURSOR_KEY, v.unknown())),
     setProblemCursor: (cursor: unknown) => serial(() => putMeta(PROBLEM_CURSOR_KEY, cursor)),
@@ -1221,7 +1249,7 @@ function exportedFields(entry: LogEntry, substitute?: Substitute): Record<string
 }
 
 export type ProblemLine = {
-  level: "warn" | "error";
+  level: "info" | "warn" | "error";
   event: LogEventName;
   time: number;
   fields: Record<string, FieldValue>;
@@ -1247,17 +1275,53 @@ function emailSegment(segment: string): boolean {
 }
 
 /**
- * Whether a line's page is one after a submit, likely signed in, whose path may hold an
- * account's own identifier: a login watched for its result or settled (`login.attempt`),
- * a judged page and a signed-in page sample. The log cannot read the vault to hide a
- * username there, so such a line sends no path.
+ * Whether an entry goes to the service (ADR 0066): every `warn` and `error` entry, and an
+ * `info` entry that says why Pateat did nothing on a page (`PROBLEM_INFO_LINES`).
  */
-function afterSubmit(entry: LogEntry): boolean {
-  if (entry.event === "recipe.judge" || entry.event === "recipe.sample") return true;
-  return (
-    entry.event === "login.attempt" &&
-    (entry.fields["state"] === "watching" || entry.fields["settled"] === true)
-  );
+export function sentToService(entry: Pick<LogEntry, "level" | "event" | "fields">): boolean {
+  if (entry.level === "warn" || entry.level === "error") return true;
+  return entry.level === "info" && problemInfoLine(entry.event, entry.fields);
+}
+
+/** Generation reasons and details for a page whose path may hold the account's username. */
+const USERNAME_PAGE_REASONS: ReadonlySet<unknown> = new Set([
+  "after-sign-in",
+  "username-in-path",
+  "username-shown",
+]);
+
+/**
+ * Whether a line may carry its page's path: only events of pages known to come before a
+ * submit, as the start of a login, its steps, a refused start or entry press and a page
+ * sent for generation. A page after a submit is likely signed in and its path may hold the
+ * account's own identifier, which the log cannot read the vault to hide, so a line sends
+ * no path when its login is watched for its result (`state` `watching`) or settled, when
+ * its page was sent as signed in (`signedIn`), when a start was refused because the tab's
+ * login already finished (`logged-in`), when generation was skipped after a sign-in or
+ * because a username shows in the path, and for every other event, such as a judged page,
+ * a signed-in page sample, a sign-in state check, a move or the popup.
+ */
+function pathAllowed(entry: LogEntry): boolean {
+  const { fields } = entry;
+  if (fields["state"] === "watching" || fields["settled"] === true || fields["signedIn"] === true)
+    return false;
+  switch (entry.event) {
+    case "login.attempt":
+    case "login.exception":
+    case "login.start":
+    case "login.handler":
+    case "login.entry":
+    case "recipe.revoke":
+      return true;
+    case "login.refused":
+      return fields["detail"] !== "logged-in";
+    case "recipe.generate":
+      return (
+        !USERNAME_PAGE_REASONS.has(fields["reason"]) && !USERNAME_PAGE_REASONS.has(fields["detail"])
+      );
+    default:
+      return false;
+  }
 }
 
 /**
@@ -1277,15 +1341,14 @@ function problemPath(stored: string): string {
 }
 
 /**
- * A `warn` or `error` entry as it is sent to the service (ADR 0066), or nothing
- * for any other level: the fields a download carries with sites shown that the contract
+ * An entry as it is sent to the service (ADR 0066), or nothing for one that does not go
+ * ({@link sentToService}): the fields a download carries with sites shown that the contract
  * lets the event carry (`PROBLEM_EVENT_FIELDS`, which leaves out the item and connection
- * pseudonyms), with a page URL as {@link problemPath}, none for a page after a submit
- * ({@link afterSubmit}), and no value the log cut. Origins of sites not set up stay
- * pseudonyms.
+ * pseudonyms), with a page URL as {@link problemPath} only where {@link pathAllowed}, and
+ * no value the log cut. Origins of sites not set up stay pseudonyms.
  */
 export function problemLine(entry: LogEntry): ProblemLine | undefined {
-  if (entry.level !== "warn" && entry.level !== "error") return undefined;
+  if (!sentToService(entry) || entry.level === "debug") return undefined;
   const kinds: Readonly<Record<string, ProblemFieldKind>> = {
     ...PROBLEM_PAGE_FIELDS,
     ...(Object.hasOwn(PROBLEM_EVENT_FIELDS, entry.event) ? PROBLEM_EVENT_FIELDS[entry.event] : {}),
@@ -1295,7 +1358,7 @@ export function problemLine(entry: LogEntry): ProblemLine | undefined {
     const kind = Object.hasOwn(kinds, key) ? kinds[key] : undefined;
     if (!kind || value === TRUNCATED) continue;
     if (kind === "path") {
-      if (typeof value === "string" && !afterSubmit(entry)) fields[key] = problemPath(value);
+      if (typeof value === "string" && pathAllowed(entry)) fields[key] = problemPath(value);
     } else fields[key] = value;
   }
   return { level: entry.level, event: entry.event, time: entry.time, fields };

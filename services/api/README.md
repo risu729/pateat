@@ -41,7 +41,7 @@ and `generation.ts`.
 | `POST /v1/recipes/:recipeId/page-sample` | Log a repeat login's signed-in page for evaluation, without a model call; 201 when kept, 204 when a sample of the recipe and branch is from the last 30 days |
 | `GET /v1/device` | The calling device's paired time, the owner's live recipe count and settings revision, and whether recipe generation would run now, for the diagnostics page |
 | `DELETE /v1/device` | Revoke the calling device's own credential |
-| `POST /v1/device/problems` | Keep the calling device's `warn` and `error` local log lines as it lets them leave (ADR 0066), each line checked on its own; 204, or 429 past the owner's 2,000 lines in 24 hours |
+| `POST /v1/device/problems` | Keep the calling device's `warn` and `error` local log lines, and `info` lines that say why Pateat did nothing, as it lets them leave (ADR 0066), each line checked on its own; 204, or 429 past the owner's 2,000 lines in 24 hours |
 | `POST /pair` | Create a device for the signed-in owner from an allowed extension; 201 with the credential, once |
 | `GET /pair/signed-in` | The page the extension opens when pairing needs a sign-in; it asks the user to go back to Pateat's settings |
 | `GET /manage/dashboard`, `/manage`, `/manage/sites`, `/manage/sites/:scheme/:host`, `/manage/claude`, `/manage/problems`, `/manage/request-log` | Owner web UI (React app): the dashboard of login and request speed, counts, spend and failures; devices; the sites list with excluded sites, unreadable and revoked recipes; one origin's default account, recipes and bindings; Claude credentials, the connection test and each role's models; the newest problem lines devices sent; the request log with Delete all |
@@ -574,28 +574,33 @@ head's `last_used_at` to the service's time when the head is active and the revi
 at most its head, and answers 204; a recipe the owner does not hold, a revision above
 its head or a revoked recipe answers 404. Nothing else is stored.
 
-`POST /v1/device/problems` takes `{ version: 1, extensionBuild, entries }` with 1 to 100
-entries `{ seq, time, level, event, fields }`: the calling device's `warn` and `error`
-local log lines it has not sent yet
-([ADR 0066](../../docs/adr/0066-problem-lines-sent-to-the-service.md)). `seq` is the
-local log's key, `time` the device's, `level` `warn` or `error`, `event` a log event
-name of `PROBLEM_EVENT_FIELDS` (`packages/contracts/src/problems.ts`), and `fields` only
-the fields that event lists, each of its kind (`PROBLEM_FIELD_KINDS`): codes, error
-names, counts, flags, builds, recipe IDs, origins (a configured site's or an `origin:`
+`POST /v1/device/problems` takes `{ version: 1, extensionBuild, logId, entries }` with 1
+to 100 entries `{ seq, time, level, event, fields }`: the calling device's `warn` and
+`error` local log lines, and `info` lines that say why Pateat did nothing
+(`PROBLEM_INFO_LINES`), it has not sent yet
+([ADR 0066](../../docs/adr/0066-problem-lines-sent-to-the-service.md)).
+`extensionBuild` is the build that wrote every line, `logId` the device log's random ID
+(32 hex digits), `seq` the local log's key, `time` the device's, `level` `warn`, `error`
+or, for an event and outcome of `PROBLEM_INFO_LINES`, `info`, `event` a log event name
+of `PROBLEM_EVENT_FIELDS` (`packages/contracts/src/problems.ts`), and `fields` only the
+fields that event lists, each of its kind (`PROBLEM_FIELD_KINDS`): codes, error names,
+counts, flags, builds, recipe IDs, origins (a configured site's or an `origin:`
 pseudonym), RP IDs, script positions and page paths. No string but a stack holds
-whitespace, none `@`, `?` or `#`, and only an origin `://`, so free text, a URL with a
-query or an email address does not pass. Each entry is checked on its own
-(`problemReportEnvelopeSchema`): one that does not pass is left out and the others are
-kept, so a newer extension's line an older service does not know costs only that line; a
-report with no entry that passes, or whose envelope does not pass, answers 400, and a
-body over 64 KiB answers 413. Each kept line is one `problem_log` row: the owner, the
-device, `seq`, the build, the level, the event, the fields as JSON, the device's time
-and the service's own time. A line whose device and `seq` are already stored is ignored
-and not counted, so a retry changes nothing. A report whose new lines would take the
-owner past 2,000 lines received in the last 24 hours is refused whole with 429 and
-`Retry-After: 3600`; the count is read before the insert, so two reports at once may
-pass it by up to one report's lines. Rows are kept 30 days (deleted with the expired
-request log rows, also on each report) and go with the request log's Delete all.
+whitespace, none `@`, `?` or `#`, only an origin `://`, and no path `;` or `=`, so free
+text, a URL with a query or parameters or an email address does not pass. Each entry is
+checked on its own (`problemReportEnvelopeSchema`): one that does not pass is left out
+and the others are kept, so a newer extension's line an older service does not know
+costs only that line; a report with no entry that passes, or whose envelope does not
+pass, answers 400, and a body over 64 KiB answers 413. Each kept line is one
+`problem_log` row: the owner, the device, the log ID, `seq`, the build, the level, the
+event, the fields as JSON, the device's time and the service's own time. A line whose
+device, log ID and `seq` are already stored is ignored and not counted, so a retry
+changes nothing, and a log made again on the device never collides with the old one's
+rows. A report whose new lines would take the owner past 2,000 lines received in the
+last 24 hours is refused whole with 429 and `Retry-After: 3600`; the count is read
+before the insert, so two reports at once may pass it by up to one report's lines. Rows
+are kept a year, like the request log (deleted with its expired rows, also on each
+report), and go with the request log's Delete all.
 
 A Claude session reads them through the read-only D1 query tool, for example:
 

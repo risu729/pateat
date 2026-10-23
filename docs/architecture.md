@@ -2153,30 +2153,36 @@ such as one with a build it does not accept, is not sent and logs
 
 ### Problem lines on the service
 
-Status: the owner's decision of 2026-10-23 (12:28 UTC,
+Status: the owner's decisions of 2026-10-23 (12:28 and 13:00 UTC,
 [ADR 0066](adr/0066-problem-lines-sent-to-the-service.md)); implemented and tested
-locally, not deployed. The worker
-(`apps/extension/src/service/problems.ts`) sends the local log's `warn` and `error`
-entries to `POST /v1/device/problems`, oldest first and each once, 5 seconds after such
-an entry is stored, at worker start and after a successful recipe sync: at most 50 lines
-and 32 KiB a request and 4 requests a run. Each line is the event, level, device time
-and the fields `problemLine` lets leave: those a log download carries with sites shown
-that the contract's `PROBLEM_EVENT_FIELDS` lists for the event (the log's allowlist less
-the item and connection pseudonyms; a test holds the two equal), with a page URL as its
-path alone, token-like and email-like segments as `[id]`, and no path at all for a page
-after a submit (a watched or settled `login.attempt`, `recipe.judge`, `recipe.sample`).
-A line identical to the last one sent less than an hour before it is left out. A cursor
-in the diagnostics database's `meta` store, per service and device, holds the last key
-sent or passed over, the failures in a row, when the next run may send and the last line
-sent; pairing starts it after the newest entry. A failed request keeps the lines and
+locally, not deployed. The worker (`apps/extension/src/service/problems.ts`) sends the
+local log's `warn` and `error` entries, and the `info` entries that say why Pateat did
+nothing (`PROBLEM_INFO_LINES`: every `login.refused`, a `refused` `login.entry`, and a
+`recipe.generate` that was `skipped`, `abstained` or `unavailable`), to
+`POST /v1/device/problems`, oldest first and each once, 5 seconds after such an entry is
+stored, at worker start and after a successful recipe sync: at most 50 lines and 32 KiB
+a request and 4 requests a run, each request with one build's lines and the log's random
+ID. Each line is the event, level, device time and the fields `problemLine` lets leave:
+those a log download carries with sites shown that the contract's
+`PROBLEM_EVENT_FIELDS` lists for the event (the log's allowlist less the item and
+connection pseudonyms; a test holds the two equal), with a page URL as its path alone,
+token-like and email-like segments as `[id]`. A path leaves only for events of pages
+known to come before a submit (`pathAllowed`: a login's start, steps, handlers and
+exceptions, a refused start or entry press, a page sent for generation, a recipe revoked
+at a login's start), and never while the login is watched or settled, for a page sent as
+signed in, or for a page whose path may hold the username. A line identical to the last
+one sent less than an hour before it is left out. A cursor in the diagnostics database's
+`meta` store, per service and device, holds the last key sent or passed over, the
+failures in a row, when the next run may send and the last line sent; pairing starts it
+after the newest entry. A failed request, a 404 or 405 included, keeps the lines and
 holds off runs from 1 minute, doubling to an hour, or as long as a 429's `Retry-After`
-asks (at most an hour), across worker restarts; a refused batch is skipped. Each request
-logs `service.problems` at `debug` or `info`, never `warn`. The service checks each
-line on its own, each field against the event's kinds, leaves out a line that does not
-pass and keeps the others, so a newer extension loses only the lines an older service
-does not know; it keeps one `problem_log` row per line for 30 days (at
-most 2,000 new lines per owner in 24 hours), lists the newest on `/manage/problems` and
-deletes them with the request log.
+asks (at most an hour), across worker restarts; another refused batch is skipped. Each
+request logs `service.problems` at `debug` or `info`, never `warn`. The service checks
+each line on its own, each field against the event's kinds, leaves out a line that does
+not pass and keeps the others, so a newer extension loses only the lines an older
+service does not know; it keeps one `problem_log` row per line, keyed by device, log ID
+and `seq`, for a year (at most 2,000 new lines per owner in 24 hours), lists the newest
+on `/manage/problems` and deletes them with the request log.
 
 ### Recipe use on the service
 

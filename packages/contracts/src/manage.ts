@@ -94,7 +94,8 @@ export const manageRecipeConflictSchema = v.strictObject({
 
 /**
  * How long the service keeps each request log row, login result code and login record
- * (ADR 0012, ADR 0055; owner, 2026-10-18).
+ * (ADR 0012, ADR 0055; owner, 2026-10-18), and each problem line devices sent (ADR 0066;
+ * owner, 2026-10-23 13:00 UTC).
  */
 export const INFERENCE_LOG_RETENTION_MS = 365 * 24 * 60 * 60 * 1000;
 /**
@@ -102,11 +103,6 @@ export const INFERENCE_LOG_RETENTION_MS = 365 * 24 * 60 * 60 * 1000;
  * 2026-10-18 08:05 UTC: once in 30 days), on the service and on each device.
  */
 export const PAGE_SAMPLE_INTERVAL_MS = 30 * 24 * 60 * 60 * 1000;
-/**
- * How long the service keeps each problem line devices sent (ADR 0066): long enough
- * to find and fix a failure, shorter than the request log, since it is not for evaluation.
- */
-export const PROBLEM_LOG_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 const rowCount = v.pipe(v.number(), v.integer(), v.minValue(0));
 /**
  * The owner's request log (ADR 0012): how many requests it holds, how many login result

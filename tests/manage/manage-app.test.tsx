@@ -260,7 +260,11 @@ test("deletes the whole request log after a confirmation", async () => {
     )
     .toBeVisible();
   await expect
-    .element(page.getByText("Each request, login result and login record is kept for 365 days"))
+    .element(
+      page.getByText(
+        "Each request, login result, login record and problem line is kept for 365 days",
+      ),
+    )
     .toBeVisible();
 
   // Cancelling asks nothing of the service and gives the button back.
@@ -358,7 +362,7 @@ test("lists the problem lines devices sent, newest first (ADR 0066)", async () =
       `error.unhandled${formatted(PHONE_USED)}, Unnamed device, development` +
         "name=TypeError stack=background.js:1:2error",
     );
-  await expect.element(page.getByText(/^Each line is kept for 30 days/)).toBeVisible();
+  await expect.element(page.getByText(/^Each line is kept for 365 days/)).toBeVisible();
 });
 
 test("says when no problem line was sent", async () => {

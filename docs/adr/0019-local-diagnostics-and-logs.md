@@ -21,9 +21,10 @@ by [ADR 0055](0055-login-records-sent-to-the-service.md), implemented, and
 local tests only) and on 2026-10-19 (see
 [Amendment 2026-10-19: tab numbers and closed tabs that asked](#amendment-2026-10-19-tab-numbers-and-closed-tabs-that-asked)).
 Amended on 2026-10-23 by [ADR 0066](0066-problem-lines-sent-to-the-service.md): the
-log's `warn` and `error` lines are sent to the service (implemented, local tests only).
-The diagnostics page, the logs, the Bitwarden server information, recent log lines and
-the Pateat service's record for the device are implemented.
+log's `warn` and `error` lines, and its `info` lines that say why Pateat did nothing,
+are sent to the service (implemented, local tests only). The diagnostics page, the logs,
+the Bitwarden server information, recent log lines and the Pateat service's record for
+the device are implemented.
 
 Date: 2026-10-11
 
