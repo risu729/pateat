@@ -6,7 +6,9 @@ import {
   laterStartSteps,
   parseLoginRecipe,
   recipeStartSteps,
+  type DetailLink,
   type LocalSettings,
+  type LoginHandler,
   type SavedLoginBinding,
   type SettingsResponse,
   type SettingsSnapshot,
@@ -124,6 +126,8 @@ const fake = vi.hoisted(() => {
     faint: new Set<string>(),
     /** Elements that match more than once. */
     ambiguous: new Set<string>(),
+    /** The document's answer to the popup's fill of a personal detail (ADR 0061). */
+    detailFillReply: undefined as unknown,
     /** Tab-specific toolbar badge text and title. */
     badges: {} as Record<number, { text?: string; title?: string }>,
     /** Each `login.reconnect` and the document it was sent to. */
@@ -256,6 +260,7 @@ const fake = vi.hoisted(() => {
               : {}),
           };
         if (message["type"] === "login.switch") return state.switchReply;
+        if (message["type"] === "login.detail.fill") return state.detailFillReply ?? { ok: true };
         if (message["type"] === "login.choose") return state.chosen;
         if (message["type"] === "login.entry.hosts") return state.entry.hosts;
         if (message["type"] === "login.entry.inspect") return state.entry.inspect;
@@ -14583,42 +14588,58 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       );
     });
 
-    it("fills a linked PIN from another item as its digits, under the PIN's input rule", async () => {
-      // The owner decided that every linked value is filled, a PIN included (2026-10-23
-      // 11:41 UTC). Synthetic PIN only. The page asks for it in place of the sign-in form,
-      // on its path, as a lightbox does.
-      const pinned = parseLoginRecipe({
+    // The fake document keeps its URL when a click shows the next page, as a same-document
+    // URL change that has not reached the worker yet does: the login's document still
+    // names /signin while the page shows /confirm.
+    const linkTo = (detail: DetailLink["detail"], source: DetailLink["source"]): DetailLink => ({
+      origin,
+      provider: "bitwarden",
+      userId,
+      itemId,
+      detail,
+      source,
+    });
+    /** Makes the other item a card item, with a card's built-in fields. */
+    const asCard = (h: ReturnType<typeof harness>) => {
+      const original = h.store.handle.getMockImplementation()!;
+      h.store.handle.mockImplementation(async () => {
+        const response = await original();
+        if (response.ok)
+          response.catalog.connections[0]!.items[1]!.fields = [
+            "card.number",
+            "card.expMonth",
+            "card.expYear",
+          ].map((id) => ({ id, label: id.slice(5), name: null, kind: "text" as const }));
+        return response;
+      });
+    };
+    /** Synthetic values only. */
+    const cardValues: Record<string, string> = {
+      "card.number": "4000 0000 0000 0002",
+      "card.expMonth": "4",
+      "card.expYear": "2031",
+      "login.username": "synthetic-user@example.test",
+    };
+    const asking = (fields: Extract<LoginHandler, { kind: "detail" }>["fields"]) =>
+      parseLoginRecipe({
         ...unlearned,
         completion: home,
-        handlers: [
-          {
-            ...detailHandler,
-            path: "/signin",
-            fields: [{ detail: "pin", target: target("pin") }],
-          },
-        ],
+        handlers: [{ ...detailHandler, fields }],
       });
-      onClick({ login: { path: "/signin", present: ["pin", "confirm"] }, confirm: toHome });
+
+    it("fills the login item's linked PIN as its digits on a page shown by a same-document URL change", async () => {
+      // The owner decided that every linked value is filled, a PIN included (2026-10-23
+      // 11:41 UTC). Synthetic PIN only.
+      onClick({ login: { path: "/confirm", present: ["pin", "confirm"] }, confirm: toHome });
       const report = vi.fn<(report: LoginReport) => void>();
       const h = harness(
-        {
-          detailLinks: [
-            {
-              origin,
-              provider: "bitwarden",
-              userId,
-              itemId,
-              detail: "pin",
-              source: { itemId: otherItemId, field: { custom: "暗証番号" } },
-            },
-          ],
-        },
-        { passkeys: noPasskey, report, otherCustom: [{ name: "暗証番号", kind: "hidden" }] },
+        { detailLinks: [linkTo("pin", { itemId, field: { custom: "暗証番号" } })] },
+        { passkeys: noPasskey, report, custom: [{ name: "暗証番号", kind: "hidden" }] },
       );
       h.fields.mockImplementation(async (request) =>
         request.fieldId.startsWith("custom.") ? "０１２３" : "synthetic-secret",
       );
-      h.recipes.recipe.mockResolvedValue(pinned);
+      h.recipes.recipe.mockResolvedValue(asking([{ detail: "pin", target: target("pin") }]));
       expect(await h.hello()).toEqual({ ok: true });
       await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
         timeout: 6_000,
@@ -14627,12 +14648,29 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         [{ slot: "detail", value: "0123", secret: "pin" }],
       ]);
       expect(clicks("confirm")).toBe(1);
-      expect(h.fields.mock.calls.map(([request]) => request.account.itemId)).toEqual([
-        itemId,
-        otherItemId,
+      expect(h.fields.mock.calls.map(([request]) => request.fieldId)).toEqual([
+        "login.password",
+        expect.stringMatching(/^custom\./u),
       ]);
       expect(handlerReports(report)).toEqual([[0, "detail", "entered", 2]]);
     }, 10_000);
+
+    it("never reads a PIN linked to another login item", async () => {
+      onClick({ login: { path: "/confirm", present: ["pin", "confirm"] }, confirm: toHome });
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness(
+        { detailLinks: [linkTo("pin", { itemId: otherItemId, field: { custom: "PIN" } })] },
+        { passkeys: noPasskey, report, otherCustom: [{ name: "PIN", kind: "hidden" }] },
+      );
+      h.recipes.recipe.mockResolvedValue(asking([{ detail: "pin", target: target("pin") }]));
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(status()).toMatchObject([{ state: "watching", outcome: "challenge" }]),
+      );
+      expect(handlerReports(report)).toEqual([[0, "detail", "detail-unlinked", 2]]);
+      expect(h.fields.mock.calls.map(([request]) => request.fieldId)).toEqual(["login.password"]);
+      expect(detailFills()).toEqual([]);
+    });
 
     it.each([
       [
@@ -14652,50 +14690,16 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
     ])(
       "fills %s, read from the linked card item",
       async (_label, asked, field, filled, read) => {
-        const carded = parseLoginRecipe({
-          ...unlearned,
-          completion: home,
-          handlers: [
-            { ...detailHandler, path: "/signin", fields: [{ ...asked, target: target("card") }] },
-          ],
-        });
-        onClick({ login: { path: "/signin", present: ["card", "confirm"] }, confirm: toHome });
+        onClick({ login: { path: "/confirm", present: ["card", "confirm"] }, confirm: toHome });
         const h = harness(
-          {
-            detailLinks: [
-              {
-                origin,
-                provider: "bitwarden",
-                userId,
-                itemId,
-                detail: asked.detail,
-                source: { itemId: otherItemId, field },
-              },
-            ],
-          },
+          { detailLinks: [linkTo(asked.detail, { itemId: otherItemId, field })] },
           { passkeys: noPasskey },
         );
-        // The other item is a card item, with a card's built-in fields.
-        const original = h.store.handle.getMockImplementation()!;
-        h.store.handle.mockImplementation(async () => {
-          const response = await original();
-          if (response.ok)
-            response.catalog.connections[0]!.items[1]!.fields = [
-              "card.number",
-              "card.expMonth",
-              "card.expYear",
-            ].map((id) => ({ id, label: id.slice(5), name: null, kind: "text" as const }));
-          return response;
-        });
-        const values: Record<string, string> = {
-          "card.number": "4000 0000 0000 0002",
-          "card.expMonth": "4",
-          "card.expYear": "2031",
-        };
+        asCard(h);
         h.fields.mockImplementation(
-          async (request) => values[request.fieldId] ?? "synthetic-secret",
+          async (request) => cardValues[request.fieldId] ?? "synthetic-secret",
         );
-        h.recipes.recipe.mockResolvedValue(carded);
+        h.recipes.recipe.mockResolvedValue(asking([{ ...asked, target: target("card") }]));
         expect(await h.hello()).toEqual({ ok: true });
         await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
           timeout: 6_000,
@@ -14709,6 +14713,165 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       },
       10_000,
     );
+
+    describe("the popup's Fill", () => {
+      const popup = {
+        id: "synthetic-extension",
+        url: "chrome-extension://synthetic-extension/popup.html",
+      } as never;
+      const popupFills = () =>
+        fake.state.messages.filter((entry) => entry.type === "login.detail.fill");
+      /** A login that stops at the handler for want of a link, its offer kept for the tab. */
+      async function stopped(
+        fields: Extract<LoginHandler, { kind: "detail" }>["fields"],
+        live: Parameters<typeof harness>[1] = {},
+      ) {
+        fake.state.detailFillReply = undefined;
+        onClick({
+          login: {
+            path: "/confirm",
+            present: [...fields.map((entry) => entry.target.value), "confirm"],
+          },
+          confirm: toHome,
+        });
+        const h = harness({}, { passkeys: noPasskey, ...live });
+        h.recipes.recipe.mockResolvedValue(asking(fields));
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() =>
+          expect(status()).toMatchObject([{ state: "watching", outcome: "challenge" }]),
+        );
+        return h;
+      }
+      const fill = (
+        h: ReturnType<typeof harness>,
+        detail: DetailLink["detail"],
+        item: string,
+        fieldId: string,
+      ) =>
+        h.login.handle(
+          {
+            version: 1,
+            type: "login.detail.fill",
+            tabId: 1,
+            documentId: "synthetic-document",
+            detail,
+            connectionId,
+            itemId: item,
+            fieldId,
+          },
+          popup,
+        );
+
+      it.each([
+        [
+          "a card's expiry date, both reads from the same card item",
+          { detail: "card-expiry" as const, format: "mm/yy" as const },
+          "card.expMonth",
+          { value: "04/31", secret: "detail" },
+          ["card.expMonth", "card.expYear"],
+          "expMonth / expYear",
+        ],
+        [
+          "a card's whole number",
+          { detail: "card-number" as const },
+          "card.number",
+          { value: "4000000000000002", secret: "card-number" },
+          ["card.number"],
+          "number",
+        ],
+      ])(
+        "fills %s on the page's own path, with the login item's username",
+        async (_label, asked, fieldId, filled, read, fieldLabel) => {
+          const h = await stopped([{ ...asked, target: target("card") }], { username: true });
+          asCard(h);
+          h.fields.mockImplementation(
+            async (request) => cardValues[request.fieldId] ?? "synthetic-secret",
+          );
+          const offered = await h.login.handle(
+            { version: 1, type: "login.detail.get", tabId: 1 },
+            popup,
+          );
+          expect(offered).toMatchObject({
+            ok: true,
+            offer: {
+              details: [
+                {
+                  detail: asked.detail,
+                  candidates: [{ itemId: otherItemId, fieldId, fieldLabel }],
+                },
+              ],
+            },
+          });
+          h.fields.mockClear();
+          expect(await fill(h, asked.detail, otherItemId, fieldId)).toEqual({ ok: true });
+          expect(popupFills()).toEqual([
+            expect.objectContaining({
+              path: "/confirm",
+              target: target("card"),
+              ...filled,
+              account: { username: cardValues["login.username"] },
+            }),
+          ]);
+          expect(
+            h.fields.mock.calls.map(([request]) => [request.account.itemId, request.fieldId]),
+          ).toEqual([[itemId, "login.username"], ...read.map((id) => [otherItemId, id])]);
+          // The link is kept for the tab until the login is confirmed.
+          expect(
+            await h.login.handle({ version: 1, type: "login.detail.get", tabId: 1 }, popup),
+          ).toMatchObject({ links: [{ detail: asked.detail, fieldLabel, pending: true }] });
+        },
+        10_000,
+      );
+
+      it("fills the login item's PIN, and never another login item's", async () => {
+        const h = await stopped([{ detail: "pin", target: target("pin") }], {
+          custom: [{ name: "暗証番号", kind: "hidden" }],
+          otherCustom: [{ name: "PIN", kind: "hidden" }],
+        });
+        h.fields.mockImplementation(async (request) =>
+          request.fieldId.startsWith("custom.") ? "01-23" : "synthetic-secret",
+        );
+        const offered = await h.login.handle(
+          { version: 1, type: "login.detail.get", tabId: 1 },
+          popup,
+        );
+        expect(offered).toMatchObject({
+          offer: { details: [{ detail: "pin", candidates: [{ itemId, fieldLabel: "暗証番号" }] }] },
+        });
+        const fieldId = (offered as { offer: { details: { candidates: { fieldId: string }[] }[] } })
+          .offer.details[0]!.candidates[0]!.fieldId;
+        expect(await fill(h, "pin", otherItemId, fieldId)).toEqual({
+          ok: false,
+          reason: "not-a-candidate",
+        });
+        expect(popupFills()).toEqual([]);
+        expect(await fill(h, "pin", itemId, fieldId)).toEqual({ ok: true });
+        expect(popupFills()).toEqual([
+          expect.objectContaining({ path: "/confirm", value: "0123", secret: "pin" }),
+        ]);
+        // The item has no username, so the page is not asked to compare accounts.
+        expect(popupFills()[0]).not.toHaveProperty("account");
+      }, 10_000);
+
+      it("keeps no link when the page shows another account", async () => {
+        const h = await stopped([{ detail: "card-number", target: target("card") }], {
+          username: true,
+        });
+        asCard(h);
+        h.fields.mockImplementation(
+          async (request) => cardValues[request.fieldId] ?? "synthetic-secret",
+        );
+        fake.state.detailFillReply = { ok: false, reason: "other-account" };
+        expect(await fill(h, "card-number", otherItemId, "card.number")).toEqual({
+          ok: false,
+          reason: "other-account",
+        });
+        expect(
+          await h.login.handle({ version: 1, type: "login.detail.get", tabId: 1 }, popup),
+        ).toMatchObject({ links: [] });
+        fake.state.detailFillReply = undefined;
+      }, 10_000);
+    });
 
     it("is shown while one of its inputs is disabled, as a choice page may disable it", async () => {
       onClick({ login: toConfirm, confirm: toHome });

@@ -98,6 +98,8 @@ export const detailFillResponseSchema = v.variant("ok", [
       "unavailable",
       /** The page refused the fill. */
       "not-filled",
+      /** The page shows another account than the login item's. */
+      "other-account",
     ]),
   }),
 ]);
@@ -154,6 +156,7 @@ export function detailFillFailure(
     unreadable: "That field does not hold a value Pateat can use here.",
     unavailable: "Pateat cannot read that field now. Unlock the vault and try again.",
     "not-filled": "The page did not accept the value.",
+    "other-account": "This page shows another account, so nothing was filled.",
   }[reason];
 }
 

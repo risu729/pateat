@@ -43,7 +43,10 @@ const item = (
   fields,
 });
 const cardFields = ["card.number", "card.expMonth", "card.expYear", "card.code"];
-const card = item("card", "Synthetic card", cardFields.map(builtin));
+const card = item("card", "Synthetic card", [
+  ...cardFields.map(builtin),
+  custom(0, "Card PIN", "hidden"),
+]);
 // A card whose year is missing gives no expiry date.
 const yearless = item(
   "yearless",
@@ -56,10 +59,16 @@ const login = item("login", "Synthetic login", [
   custom(1, "Shipping note"),
   custom(2, "会員番号"),
 ]);
+// A PIN is a credential of one account: never read from an identity or another login.
 const identity = item("identity", "Synthetic identity", [
   custom(0, "Card PIN", "hidden"),
   custom(1, "Passcode"),
   custom(2, "PIN", "boolean"),
+  builtin("identity.phone"),
+]);
+const otherLogin = item("other-login", "Synthetic other login", [
+  { id: "login.password", label: "Password", name: null, kind: "hidden" },
+  custom(0, "PIN", "hidden"),
 ]);
 const connection: VaultConnectionMetadata = {
   id: connectionId,
@@ -67,7 +76,7 @@ const connection: VaultConnectionMetadata = {
   provider: "bitwarden",
   userId: "synthetic-user",
   groups: [],
-  items: [card, yearless, login, identity],
+  items: [card, yearless, login, identity, otherLogin],
 };
 const catalog: VaultCatalog = { connections: [connection] };
 const policy = (excludedFields: { itemId: string; fieldId: string }[] = []): LocalSettings => ({
@@ -113,7 +122,7 @@ describe("which fields give a card's number, its expiry date or a PIN", () => {
     expect(detailFieldIds("card-number", "card.number")).toEqual(["card.number"]);
   });
 
-  it("reads a PIN from a Text or Hidden field named as one, in any item", () => {
+  it("reads a PIN from a Text or Hidden field named as one", () => {
     for (const name of ["PIN", "Card PIN", "pin_1", "PIN番号", "ＰＩＮ", "暗証番号", "Passcode"]) {
       expect(givesDetail("pin", custom(0, name)), name).toBe(true);
       expect(givesDetail("pin", custom(0, name, "hidden")), name).toBe(true);
@@ -124,9 +133,16 @@ describe("which fields give a card's number, its expiry date or a PIN", () => {
     expect(givesDetail("pin", builtin("card.code"))).toBe(false);
   });
 
-  it("never reads a field named as a PIN as a member ID", () => {
+  it("never reads a field named as a PIN as a member ID, a birth date or a phone number", () => {
     for (const name of ["暗証番号", "PIN number", "Card PIN", "Passcode", "PIN番号"])
       expect(givesDetail("member-id", custom(0, name)), name).toBe(false);
+    for (const name of ["Phone PIN", "電話暗証番号", "Telephone passcode"])
+      expect(givesDetail("phone-last-4", custom(0, name)), name).toBe(false);
+    for (const name of ["Birth PIN", "生年月日の暗証番号", "DOB passcode"])
+      expect(givesDetail("birth-date", custom(0, name)), name).toBe(false);
+    // Fields named only as a phone or a birth date still give them.
+    expect(givesDetail("phone-last-4", custom(0, "Phone"))).toBe(true);
+    expect(givesDetail("birth-date", custom(0, "生年月日"))).toBe(true);
   });
 });
 
@@ -141,6 +157,15 @@ describe("the values made for a card or a PIN", () => {
     expect(detailValue("card-number", undefined, "1".repeat(11))).toBeUndefined();
     expect(detailValue("card-number", undefined, "1".repeat(20))).toBeUndefined();
     expect(detailValue("card-number", undefined, "")).toBeUndefined();
+    // Only digits, perhaps grouped by spaces or hyphens: any other text is no value.
+    for (const value of [
+      "4000 0000 0000 000x",
+      "4000/0000/0000/0002",
+      "Card 4000000000000002",
+      "4000000000000002 (old 4000000000000010)",
+      "-4000000000000002",
+    ])
+      expect(detailValue("card-number", undefined, value), value).toBeUndefined();
   });
 
   it("fills a PIN as its 4 to 12 digits", () => {
@@ -149,6 +174,10 @@ describe("the values made for a card or a PIN", () => {
     expect(detailValue("pin", undefined, "1".repeat(12))).toBe("1".repeat(12));
     expect(detailValue("pin", undefined, "123")).toBeUndefined();
     expect(detailValue("pin", undefined, "1".repeat(13))).toBeUndefined();
+    expect(detailValue("pin", undefined, "01-23")).toBe("0123");
+    expect(detailValue("pin", undefined, "０１ ２３")).toBe("0123");
+    for (const value of ["12ab34", "PIN 1234 (old 5678)", "1234.", "12_34", "#1234"])
+      expect(detailValue("pin", undefined, value), value).toBeUndefined();
   });
 
   it("writes a card's expiry month and year in the input's format", () => {
@@ -190,7 +219,8 @@ describe("links to card values and PINs", () => {
     expect(offered("card-number")).toEqual(["card/number", "yearless/number"]);
     // A card without a year gives no expiry date; the popup names both fields.
     expect(offered("card-expiry")).toEqual(["card/expMonth / expYear"]);
-    expect(offered("pin")).toEqual(["login/暗証番号", "identity/Card PIN", "identity/Passcode"]);
+    // A PIN only from the login item or a card item, never an identity or another login.
+    expect(offered("pin")).toEqual(["card/Card PIN", "login/暗証番号"]);
   });
 
   it("needs the card's year allowed too for its expiry date", () => {
@@ -211,13 +241,35 @@ describe("links to card values and PINs", () => {
     ).toBeUndefined();
   });
 
-  it("reads a PIN link only from a field named as one", () => {
-    const pin = link("pin", { itemId: "identity", field: { custom: "Card PIN" } });
+  it("reads a PIN link only from a field named as one, of the login item or a card", () => {
+    const pin = link("pin", { itemId: "card", field: { custom: "Card PIN" } });
     expect(linkedField(policy(), catalog, connection, pin)).toEqual({
-      itemId: "identity",
+      itemId: "card",
       fieldId: custom(0, "").id,
       name: "Card PIN",
     });
+    expect(
+      linkedField(policy(), catalog, connection, {
+        ...pin,
+        source: { itemId: "login", field: { custom: "暗証番号" } },
+      }),
+    ).toEqual({ itemId: "login", fieldId: custom(0, "").id, name: "暗証番号" });
+    for (const source of [
+      { itemId: "identity", field: { custom: "Card PIN" } },
+      { itemId: "other-login", field: { custom: "PIN" } },
+    ])
+      expect(linkedField(policy(), catalog, connection, { ...pin, source }), source.itemId).toBe(
+        undefined,
+      );
+    // An identity still gives a phone number.
+    expect(
+      linkedField(
+        policy(),
+        catalog,
+        connection,
+        link("phone-last-4", { itemId: "identity", field: "identity.phone" }),
+      ),
+    ).toEqual({ itemId: "identity", fieldId: "identity.phone", name: null });
     expect(
       linkedField(policy(), catalog, connection, {
         ...pin,
