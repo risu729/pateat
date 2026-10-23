@@ -1,4 +1,4 @@
-import type { LoginMarkerTarget } from "@pateat/contracts";
+import type { LoginHostChain, LoginMarkerTarget } from "@pateat/contracts";
 import {
   buttonText,
   controlName,
@@ -10,7 +10,7 @@ import {
   isScriptLink,
   linkText,
 } from "./text";
-import { queryAll } from "./shadow";
+import { queryAll, shadowRootOf } from "./shadow";
 
 const attributes = { id: "id", name: "name", "test-id": "data-testid" } as const;
 /** Every element an `accessible-name` locator may name ({@link isNamedControl}). */
@@ -96,8 +96,9 @@ const shownAmong = (found: Element[], hidden: boolean) =>
  * signed-in marker's `href` locator matches the links whose {@link linkPath} equals the
  * value, whatever their query or fragment (ADR 0029). Every locator looks in the
  * document and in every shadow tree in it, open or closed, so an ID or name counts once
- * for the whole page (ADR 0070). Callers reject anything but exactly one match rather
- * than taking the first.
+ * for the whole page (ADR 0070); one with `within` looks only in the shadow tree of the
+ * hosts it names ({@link hostScopes}). Callers reject anything but exactly one match
+ * rather than taking the first.
  */
 export function findTargets(
   document: Document,
@@ -120,22 +121,55 @@ export function findTargets(
       (element) => isRoleButton(element) && buttonText(element) === target.value,
     );
   }
-  if (target.by === "label")
-    return queryAll(document, "input").filter((input) => fieldName(input) === target.value);
   if (target.by === "accessible-name")
     return queryAll(document, namedControls).filter(
       (element) => controlName(element) === target.value,
     );
+  if (!target.within) return findIn(document, target, hidden);
+  const { within } = target;
+  return shownAmong(
+    hostScopes(document, within).flatMap((scope) => findIn(scope, target, true)),
+    hidden,
+  );
+}
+
+/** A locator that may look inside the hosts its `within` names. */
+type ScopedTarget = Exclude<LoginMarkerTarget, { by: "href" | "text" | "accessible-name" }>;
+
+/**
+ * The shadow trees a locator's `within` names (ADR 0070): the shadow tree of each element
+ * whose attribute equals the first host's value among the page's elements, then of each
+ * that equals the next one's among those trees' elements, and so on. A host that names
+ * several elements gives each one's tree, so the locator counts its element in all of
+ * them and is ambiguous rather than taking the first.
+ */
+export function hostScopes(document: Document, within: LoginHostChain): ShadowRoot[] {
+  let scopes: (Document | ShadowRoot)[] = [document];
+  for (const host of within) {
+    const attribute = attributes[host.by];
+    scopes = scopes.flatMap((scope) =>
+      queryAll(scope, `[${attribute}]`).flatMap((element) =>
+        element.getAttribute(attribute) === host.value ? (shadowRootOf(element) ?? []) : [],
+      ),
+    );
+  }
+  return scopes as ShadowRoot[];
+}
+
+/** The elements an attribute, `autocomplete` or `label` locator names under `scope`. */
+function findIn(scope: Document | ShadowRoot, target: ScopedTarget, hidden: boolean): Element[] {
+  if (target.by === "label")
+    return queryAll(scope, "input").filter((input) => fieldName(input) === target.value);
   if (target.by === "autocomplete")
     return shownAmong(
-      queryAll(document, "input[autocomplete]").filter((input) =>
+      queryAll(scope, "input[autocomplete]").filter((input) =>
         autocompleteTokens(input).includes(target.value),
       ),
       hidden,
     );
   const attribute = attributes[target.by];
   return shownAmong(
-    queryAll(document, `[${attribute}]`).filter(
+    queryAll(scope, `[${attribute}]`).filter(
       (element) => element.getAttribute(attribute) === target.value,
     ),
     hidden,

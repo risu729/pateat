@@ -12,6 +12,36 @@ afterEach(() => {
 });
 
 describe("findTargets", () => {
+  it("looks only inside the shadow trees of the hosts a locator names (ADR 0070)", () => {
+    page(`<x-field id="user"></x-field><x-field id="pass"></x-field><x-field id="twin"></x-field>
+      <x-field id="twin"></x-field>`);
+    const [user, pass, ...twins] = [...document.querySelectorAll("x-field")].map((host) => {
+      const root = host.attachShadow({ mode: "open" });
+      root.innerHTML = `<input id="input" name="field"><x-inner id="inner"></x-inner>`;
+      return root;
+    });
+    const nested = user!.querySelector("#inner")!.attachShadow({ mode: "open" });
+    nested.innerHTML = `<input id="deep">`;
+    const within = (...hosts: string[]) => hosts.map((value) => ({ by: "id" as const, value }));
+    expect(findTargets(document, { by: "id", value: "input" })).toHaveLength(4);
+    expect(findTargets(document, { by: "id", value: "input", within: within("pass") })).toEqual([
+      pass!.querySelector("input"),
+    ]);
+    // A host's tree includes the trees nested in it, and a later host is one of them.
+    expect(findTargets(document, { by: "id", value: "deep", within: within("user") })).toEqual([
+      nested.querySelector("input"),
+    ]);
+    expect(
+      findTargets(document, { by: "id", value: "deep", within: within("user", "inner") }),
+    ).toEqual([nested.querySelector("input")]);
+    expect(findTargets(document, { by: "id", value: "deep", within: within("pass") })).toEqual([]);
+    // Hosts that share an ID give both trees' matches, which the caller refuses.
+    expect(findTargets(document, { by: "name", value: "field", within: within("twin") })).toEqual(
+      twins.map((root) => root.querySelector("input")),
+    );
+    expect(findTargets(document, { by: "id", value: "input", within: within("none") })).toEqual([]);
+  });
+
   it("matches links to the page's own origin by their exact path, never script links", () => {
     page(
       `<a id="a" href="/my?tab=1#top">A</a><a id="b" href="/my/">B</a>

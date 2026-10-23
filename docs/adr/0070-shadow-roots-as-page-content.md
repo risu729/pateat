@@ -3,8 +3,10 @@
 Status: proposed. Built on assumed decisions under the owner's instruction of 2026-10-23
 05:28 UTC to set the phases aside, build on best guesses as unmerged PRs and judge them
 later. On 2026-10-23 about 11:15 UTC the owner chose to go on with it, to give a
-component's control the form that holds the component, and to read another extension's
-shadow roots as Bitwarden does; the locators are not decided yet. Implemented in the
+component's control the form that holds the component, to read another extension's
+shadow roots as Bitwarden does, and at 11:53 UTC to add a locator that names the hosts
+a field sits inside; when that locator is used (only when no other names the field, as
+assumed below) is not decided yet. Implemented in the
 extension (local and cloud Chromium tests only; not yet checked on the real sites or in
 the owner's Chrome). Amends the observation contract in [the plan](../plan.md) and, for
 the passkey page,
@@ -45,11 +47,26 @@ What the owner has not decided (see Status) is assumed.
   on a custom element or an element `attachShadow` accepts, as Bitwarden does. A shadow
   tree is read right after its host and before the host's own children, as Bitwarden's
   tree walker visits it; a selector still matches within one tree.
-- Locators do not change and no new kind is added: an `id`, `name`, `data-testid`,
-  `autocomplete` token, visible name or text names an element when exactly one element
-  of the whole page, shadow trees included, carries it. A recipe does not record which
-  component holds a field. An inner ID that every component reuses, as Reddit's do, is
-  no locator; the field's `name`, `autocomplete` token or visible name is used instead.
+- An `id`, `name`, `data-testid`, `autocomplete` token, visible name or text names an
+  element when exactly one element of the whole page, shadow trees included, carries it,
+  as before; Reddit's fields are `{ "by": "name", "value": "password" }`. Only an
+  element of a shadow tree that no such locator names gets one `within` its hosts
+  (owner, 2026-10-23 11:53 UTC; used only then by assumption): an `id`, `name`,
+  `data-testid`, `autocomplete` or visible-name locator with `within`, one to three
+  hosts outermost first, each named by its `id`, `name` or `data-testid`, as
+  `{ "by": "id", "value": "input", "within": [{ "by": "id", "value": "login-pw" }] }`
+  for an input whose ID every component reuses. The first host is the one element of the
+  page carrying its value, each later one the one element of the previous host's shadow
+  tree (nested trees included), and the field the one element of the last host's tree;
+  the extractor picks the fewest hosts, nearest the field first. A host's value follows
+  an element's own rules (no generated or changing ID, no token, no redacted text), the
+  username check, the passkey-wording checks and the account-text refusal read it as
+  well, and text, accessible-name and link-path locators take no hosts. An inner ID
+  another load may change is never looked for inside hosts; the element keeps it as the
+  last resort it was. The change only adds a field to the recipe format, so stored
+  recipes stay valid; the service, deployed from `main`, takes it before an extension
+  sends it, and an extension older than this change refuses a recipe that carries it,
+  as it refuses any recipe format it does not know.
 - A control in a shadow tree without a form owner of its own belongs to the `<form>`
   that holds its component's host, for the observation's groups, the login forms, the
   fill's one-form rule and the checks of a form's inputs. One with its own form in the
@@ -114,6 +131,7 @@ What the owner has not decided (see Status) is assumed.
 - Keep the gaps: Reddit and Rakuten are never generated, while Bitwarden fills both.
 - Open shadow roots only: simpler, but a closed root's fields, which Bitwarden fills,
   stay invisible and its controls cannot be told from the page's own.
-- A locator that names the component as well (for example the host's ID and then the
-  field's): a new recipe shape that Bitwarden does not need, and the existing locators
-  already name Reddit's fields once the whole page counts.
+- No locator with hosts (Bitwarden needs none, and Reddit's fields have unique names):
+  the owner chose to add one for fields that no other locator names.
+- Hosts on every shadow tree's element: a recipe would break whenever a site rebuilt
+  its components, and Reddit's recipes would change for nothing.

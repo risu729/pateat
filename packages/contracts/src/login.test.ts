@@ -38,6 +38,7 @@ import {
   loginFieldSource,
   loginRecipeSchema,
   loginTargetSchema,
+  sameLoginTarget,
   parseLoginAccountBinding,
   parseLoginOperation,
   parseLoginRecipe,
@@ -2992,5 +2993,56 @@ describe("the route a recipe lacks for the item (ADR 0058 A)", () => {
   it("names nothing for an item that holds neither", () => {
     expect(heldRouteMissing(plain(), facts(false, false), true)).toBeUndefined();
     expect(heldRouteMissing(button(), facts(false, false), true)).toBeUndefined();
+  });
+});
+
+describe("locators inside shadow hosts (ADR 0070)", () => {
+  const field = { by: "id", value: "input", within: [{ by: "id", value: "login-password" }] };
+  it("takes up to three hosts named by id, name or test ID on field and attribute locators", () => {
+    for (const target of [
+      field,
+      { by: "name", value: "password", within: [{ by: "test-id", value: "login.form" }] },
+      { by: "autocomplete", value: "username", within: [{ by: "name", value: "user" }] },
+      {
+        by: "label",
+        value: "Password",
+        within: [
+          { by: "id", value: "a" },
+          { by: "id", value: "b" },
+        ],
+      },
+      {
+        by: "test-id",
+        value: "submit",
+        within: [
+          { by: "id", value: "a" },
+          { by: "name", value: "b" },
+          { by: "test-id", value: "c" },
+        ],
+      },
+    ])
+      expect(v.is(loginTargetSchema, target), JSON.stringify(target)).toBe(true);
+  });
+
+  it("refuses hosts on text locators, too many hosts and hosts named by anything else", () => {
+    for (const target of [
+      { by: "text", value: "Log in", within: [{ by: "id", value: "a" }] },
+      { by: "accessible-name", value: "Select", within: [{ by: "id", value: "a" }] },
+      { ...field, within: [] },
+      { ...field, within: [field.within[0], field.within[0], field.within[0], field.within[0]] },
+      { ...field, within: [{ by: "label", value: "Password" }] },
+      { ...field, within: [{ by: "id", value: "a b" }] },
+      { ...field, within: [{ by: "id", value: "a", within: [{ by: "id", value: "b" }] }] },
+    ])
+      expect(v.is(loginTargetSchema, target), JSON.stringify(target)).toBe(false);
+  });
+
+  it("tells locators in other hosts apart", () => {
+    const parsed = v.parse(loginTargetSchema, field);
+    expect(sameLoginTarget(parsed, v.parse(loginTargetSchema, field))).toBe(true);
+    expect(sameLoginTarget(parsed, { by: "id", value: "input" })).toBe(false);
+    expect(
+      sameLoginTarget(parsed, { ...parsed, within: [{ by: "id", value: "login-username" }] }),
+    ).toBe(false);
   });
 });

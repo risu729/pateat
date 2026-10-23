@@ -62,16 +62,45 @@ export const loginAutocompleteTokens = [
  * names need; the executor compares attribute strings, so the value never becomes a
  * selector.
  */
+const attributeValue = v.pipe(
+  v.string(),
+  v.minLength(1),
+  v.maxLength(120),
+  v.regex(/^[\x21-\x7e]+$/u),
+);
+const testIdValue = v.pipe(
+  v.string(),
+  v.minLength(1),
+  v.maxLength(120),
+  v.regex(/^[a-zA-Z0-9_.:-]+$/),
+);
+/**
+ * The shadow hosts a locator looks inside (ADR 0070), outermost first: each the one
+ * element whose `id`, `name` or `data-testid` equals its value, the first among the
+ * page's elements and each later one among those of the shadow tree of the host before
+ * it, nested trees included. The locator then names the one element among those of the
+ * last host's shadow tree. Only for an element of a shadow tree that no locator names
+ * once in the whole page, as an input every component of a page reuses its inner ID for.
+ */
+export const loginHostChainSchema = v.pipe(
+  v.array(
+    v.variant("by", [
+      v.strictObject({ by: v.picklist(["id", "name"]), value: attributeValue }),
+      v.strictObject({ by: v.literal("test-id"), value: testIdValue }),
+    ]),
+  ),
+  v.minLength(1),
+  v.maxLength(3),
+);
+const within = v.optional(loginHostChainSchema);
 export const loginAttributeTargetSchema = v.variant("by", [
+  v.strictObject({ by: v.picklist(["id", "name"]), value: attributeValue, within }),
+  v.strictObject({ by: v.literal("test-id"), value: testIdValue, within }),
   v.strictObject({
-    by: v.picklist(["id", "name"]),
-    value: v.pipe(v.string(), v.minLength(1), v.maxLength(120), v.regex(/^[\x21-\x7e]+$/u)),
+    by: v.literal("autocomplete"),
+    value: v.picklist(loginAutocompleteTokens),
+    within,
   }),
-  v.strictObject({
-    by: v.literal("test-id"),
-    value: v.pipe(v.string(), v.minLength(1), v.maxLength(120), v.regex(/^[a-zA-Z0-9_.:-]+$/)),
-  }),
-  v.strictObject({ by: v.literal("autocomplete"), value: v.picklist(loginAutocompleteTokens) }),
 ]);
 /**
  * A button locator: the one button whose text equals the value. The text is a
@@ -108,6 +137,7 @@ export const loginTextTargetSchema = v.strictObject({
 export const loginLabelTargetSchema = v.strictObject({
   by: v.literal("label"),
   value: loginTextTargetSchema.entries.value,
+  within,
 });
 /**
  * A control locator by its accessible name (ADR 0048 amendment of 2026-10-19): the one
@@ -231,8 +261,7 @@ export const loginHandlerSchema = v.variant("kind", [
       target: loginTargetSchema,
     }),
     v.check(
-      (handler) =>
-        handler.field.by !== handler.target.by || handler.field.value !== handler.target.value,
+      (handler) => !sameLoginTarget(handler.field, handler.target),
       "The code field cannot be its submit button",
     ),
   ),
@@ -853,9 +882,25 @@ export const isStepTarget = (
   target: LoginMarkerTarget,
 ): target is Exclude<LoginTarget, { by: "accessible-name" }> =>
   target.by !== "href" && target.by !== "accessible-name";
-/** Whether two locators name the same element. */
+/** Whether two locators name the same element: the same kind and value, in the same hosts. */
 export const sameLoginTarget = (left: LoginMarkerTarget, right: LoginMarkerTarget) =>
-  left.by === right.by && left.value === right.value;
+  left.by === right.by &&
+  left.value === right.value &&
+  sameHosts(
+    "within" in left ? left.within : undefined,
+    "within" in right ? right.within : undefined,
+  );
+const sameHosts = (left?: LoginHostChain, right?: LoginHostChain) =>
+  (left?.length ?? 0) === (right?.length ?? 0) &&
+  (left ?? []).every(
+    (host, index) => host.by === right![index]!.by && host.value === right![index]!.value,
+  );
+export type LoginHostChain = v.InferOutput<typeof loginHostChainSchema>;
+/** A locator's value and the values of the hosts it looks inside (ADR 0070). */
+export const targetValues = (target: LoginMarkerTarget): string[] => [
+  target.value,
+  ...("within" in target ? (target.within ?? []) : []).map((host) => host.value),
+];
 export type LoginAttributeTarget = v.InferOutput<typeof loginAttributeTargetSchema>;
 export type LoginFieldTarget = v.InferOutput<typeof loginFieldTargetSchema>;
 export type LoginStep = v.InferOutput<typeof loginStepSchema>;

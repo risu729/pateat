@@ -11,6 +11,7 @@ import {
   recipeSlotIdSchema,
   reservedSlotIds,
   sameLoginTarget,
+  targetValues,
   type LoginEntryRecipe,
   type LoginObservation,
   type LoginStep,
@@ -220,11 +221,14 @@ function fieldText(candidate: ObservedCandidate): string | undefined {
   const placeholder = candidate.placeholder && tidy(candidate.placeholder);
   const description = candidate.description && tidy(candidate.description);
   const { by, value } = candidate.target;
+  // An attribute a component reuses inside every host (ADR 0070), such as `input`, names
+  // no field; its host's would, but a slot is named by the field's own text first.
+  const within = "within" in candidate.target && candidate.target.within;
   const sources = [
     candidate.label && ownLabel(tidy(candidate.label), [placeholder, description]),
     placeholder,
     description,
-    by === "id" || by === "name" || by === "test-id" ? tidy(value) : undefined,
+    (by === "id" || by === "name" || by === "test-id") && !within ? tidy(value) : undefined,
   ];
   for (const source of sources) {
     // Checked whole, so a mark or number past the cut still skips the text.
@@ -820,7 +824,9 @@ export function validateAccountList(
     )
       return "incompatible-role";
     if (
-      [candidate.label, target.value].some((text) => text !== undefined && accountText.test(text))
+      [candidate.label, ...targetValues(target)].some(
+        (text) => text !== undefined && accountText.test(text),
+      )
     )
       return "account-text";
     return { candidate: candidate.id, target };
@@ -897,7 +903,11 @@ export function validateEntry(
     target.by === "label"
   )
     return { ok: false, reason: "incompatible-role" };
-  if ([candidate.label, target.value].some((text) => text !== undefined && accountText.test(text)))
+  if (
+    [candidate.label, ...targetValues(target)].some(
+      (text) => text !== undefined && accountText.test(text),
+    )
+  )
     return { ok: false, reason: "account-text" };
   return { ok: true, entry: { entry: candidate.id, target } };
 }

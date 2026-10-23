@@ -3,6 +3,7 @@ import {
   namesPasskey,
   registersPasskey,
   loginAutocompleteTokens,
+  loginHostChainSchema,
   loginObservationSchema,
   loginLinkTargetSchema,
   loginTargetSchema,
@@ -10,6 +11,7 @@ import {
   observedAutocompleteTokens,
   type LoginObservation,
   type LoginMarkerTarget,
+  type LoginHostChain,
   type LoginTarget,
   type ObservedCandidate,
 } from "@pateat/contracts";
@@ -17,13 +19,20 @@ import * as v from "valibot";
 import { acceptsSecret, shortNumericInput } from "../login/inputs";
 import type { observationGaps } from "../login/wire";
 import { splitCodeInputs } from "../page/code-submission";
-import { autocompleteTokens, findTargets, linkPath, namedControls } from "../page/targets";
+import {
+  autocompleteTokens,
+  findTargets,
+  hostScopes,
+  linkPath,
+  namedControls,
+} from "../page/targets";
 import {
   closestAcross,
   composedOrder,
   composedParent,
   containsAcross,
   formOf,
+  hostOf,
   inputsOf,
   queryAll,
   readingPage,
@@ -456,8 +465,116 @@ function locate(
   return (
     (paths ? pathTarget(element, index, paths) : undefined) ??
     contentTarget(element, index, links, labels, roles, hidden) ??
+    chainedTarget(element, { redactAttributes, tokens, labels, hidden }) ??
     demoted
   );
+}
+
+/**
+ * `locate`'s locator for an element of a shadow tree that no locator names once in the
+ * whole page (ADR 0070): an attribute, `autocomplete` token or visible name (with
+ * `labels`) that names it once among the elements of a host's shadow tree, `within` the
+ * fewest hosts, at most three, that name that host alone (`hostScopes`), the hosts
+ * nearest it first. A host is named by its `id`, `name` or `data-testid` under the
+ * rules an element's own attribute follows in `locate`, and an ID another load may
+ * change names no host.
+ */
+function chainedTarget(
+  element: Element,
+  options: {
+    redactAttributes: boolean;
+    tokens: boolean;
+    labels: boolean | undefined;
+    hidden: boolean;
+  },
+): LoginTarget | undefined {
+  const inner = innerTargets(element, options);
+  if (!inner.length) return undefined;
+  const hosts: Element[] = [];
+  for (let host = hostOf(element); host; host = hostOf(host)) hosts.unshift(host);
+  const document = element.ownerDocument;
+  const names = hosts.map((host) => hostNames(host, options));
+  // The chains of one more host that name each host alone, grown from the shorter ones
+  // and pruned as they grow, so a deep page costs a few lookups per host.
+  let level: { within: LoginHostChain[number][]; at: number }[] = [{ within: [], at: -1 }];
+  for (let depth = 1; depth <= 3 && level.length; depth++) {
+    level = level.flatMap(({ within, at }) =>
+      hosts.flatMap((host, next) =>
+        next <= at
+          ? []
+          : names[next]!.flatMap((name) => {
+              const chain = [...within, name];
+              const scopes = hostScopes(document, chain as LoginHostChain);
+              return scopes.length === 1 && scopes[0] === shadowRootOf(host)
+                ? [{ within: chain, at: next }]
+                : [];
+            }),
+      ),
+    );
+    // The hosts nearest the element first.
+    for (const { within } of [...level].sort((left, right) => right.at - left.at))
+      for (const target of inner) {
+        const chained = { ...target, within };
+        if (!v.is(loginTargetSchema, chained)) continue;
+        const found = findTargets(document, chained, { hidden: options.hidden });
+        if (found.length === 1 && found[0] === element) return chained;
+      }
+  }
+  return undefined;
+}
+
+/** The `id`, `name` and `data-testid` a host may be named by in `chainedTarget`. */
+function hostNames(
+  host: Element,
+  { redactAttributes, tokens }: { redactAttributes: boolean; tokens: boolean },
+): LoginHostChain[number][] {
+  return locators.flatMap(([by, attribute]) => {
+    const value = host.getAttribute(attribute);
+    if (value === null) return [];
+    if (attribute === "id" && (generatedId.test(value) || changingId(value))) return [];
+    if ((redactAttributes || tokens) && tokenSegment(value)) return [];
+    if (redactAttributes && observedText(value) !== value) return [];
+    const name = { by, value };
+    return v.is(loginHostChainSchema, [name]) ? [name] : [];
+  });
+}
+
+/** The locators `chainedTarget` may name `element` by inside its hosts, in `locate`'s order. */
+function innerTargets(
+  element: Element,
+  {
+    redactAttributes,
+    tokens,
+    labels,
+  }: {
+    redactAttributes: boolean;
+    tokens: boolean;
+    labels: boolean | undefined;
+  },
+): LoginTarget[] {
+  const targets: LoginTarget[] = [];
+  for (const [by, attribute] of locators) {
+    const value = element.getAttribute(attribute);
+    if (value === null) continue;
+    // An ID another load may change is never looked for inside hosts: the element keeps
+    // it as `locate`'s demoted locator instead.
+    if (attribute === "id" && (generatedId.test(value) || changingId(value))) continue;
+    if ((redactAttributes || tokens) && tokenSegment(value)) continue;
+    if (redactAttributes && observedText(value) !== value) continue;
+    targets.push({ by, value });
+  }
+  if (!(element instanceof HTMLInputElement && fillTypes[element.type])) return targets;
+  for (const value of autocompleteTokens(element))
+    if ((loginAutocompleteTokens as readonly string[]).includes(value))
+      targets.push({ by: "autocomplete", value } as LoginTarget);
+  const name = labels ? fieldName(element) : undefined;
+  if (
+    name !== undefined &&
+    observedText(name) === name &&
+    (!/\p{Number}/u.test(name) || numbersCodeDigit(element, name))
+  )
+    targets.push({ by: "label", value: name });
+  return targets;
 }
 
 /**
@@ -1273,6 +1390,10 @@ function readLogin(document: Document, known: readonly LoginTarget[]): Observati
   const filled = (field: HTMLInputElement) =>
     (field.readOnly || field.disabled) &&
     known.some((target) => {
+      if ("within" in target && target.within) {
+        const found = findTargets(document, target, { hidden: true });
+        return found.length === 1 && found[0] === field;
+      }
       if (target.by === "label")
         return fieldName(field) === target.value && index.get("label")!.get(target.value) === 1;
       const attribute = locators.find(([by]) => by === target.by)?.[1];

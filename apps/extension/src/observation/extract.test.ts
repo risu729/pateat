@@ -1827,6 +1827,54 @@ describe("extractLoginObservation", () => {
     }
   });
 
+  it("names a shadow tree's field inside its host when nothing names it in the whole page (ADR 0070)", () => {
+    // Each component reuses its inner ID and has no name, token or label of its own.
+    page(
+      `<text-field id="user"></text-field><text-field id="pass"></text-field>
+      <button id="login">Log In</button>`,
+    );
+    shadow("#user", `<input id="input">`);
+    shadow("#pass", `<x-box><input id="input" type="password"></x-box>`, "closed");
+    const observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(summary(observation).map(({ target }) => target)).toEqual([
+      { by: "id", value: "input", within: [{ by: "id", value: "user" }] },
+      { by: "id", value: "input", within: [{ by: "id", value: "pass" }] },
+      { by: "id", value: "login" },
+    ]);
+    // The executor finds each one alone.
+    for (const { target } of observation.candidates)
+      expect(findTargets(document, target), JSON.stringify(target)).toHaveLength(1);
+
+    // A nested component without an ID of its own is looked inside through the nearest
+    // host that has one, the hosts nearest the field first.
+    page(
+      `<login-box id="box"></login-box><login-box id="other"></login-box><button id="go">Go</button>`,
+    );
+    for (const id of ["box", "other"])
+      shadow(`#${id}`, `<text-field></text-field>`)
+        .querySelector("text-field")!
+        .attachShadow({ mode: "open" }).innerHTML =
+        id === "box" ? `<input id="input" type="password">` : `<input id="input">`;
+    expect(summary(observe()).map(({ target }) => target)).toEqual([
+      { by: "id", value: "input", within: [{ by: "id", value: "box" }] },
+      { by: "id", value: "input", within: [{ by: "id", value: "other" }] },
+      { by: "id", value: "go" },
+    ]);
+
+    // Hosts that share their ID name no field.
+    page(
+      `<text-field id="f"></text-field><text-field id="f"></text-field><button id="go">Go</button>`,
+    );
+    for (const host of document.querySelectorAll("text-field"))
+      host.attachShadow({ mode: "open" }).innerHTML = `<input id="input" type="password">`;
+    expect(extractLoginObservation()).toMatchObject({
+      ok: true,
+      observation: { complete: false },
+      gap: "unlocated-field",
+    });
+  });
+
   it("sends each path segment that may carry a session ID or token as [id] on every page (ADR 0039)", () => {
     page(`<input id="u"><input id="p" type="password"><button id="go">Log in</button>`);
     const magento = btoa("https://shop.example/en/?SID=synthetic0session1&___SID=U")

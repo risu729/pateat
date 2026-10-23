@@ -63,3 +63,16 @@ describe("device unlock words of a passkey button (ADR 0053, owner 2026-10-19)",
     expect(registersPasskey(labelled(label))).toBe(true);
   });
 });
+
+describe("buttons inside shadow hosts (ADR 0070)", () => {
+  it("reads the hosts a locator looks inside too", () => {
+    const inside = (host: string) => ({
+      label: undefined,
+      target: { by: "id" as const, value: "button", within: [{ by: "id" as const, value: host }] },
+    });
+    expect(namesPasskey(inside("passkey-login"))).toBe(true);
+    expect(registersPasskey(inside("register-passkey"))).toBe(true);
+    expect(namesPasskey(inside("login"))).toBe(false);
+    expect(registersPasskey(inside("passkey-login"))).toBe(false);
+  });
+});

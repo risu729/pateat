@@ -2310,6 +2310,15 @@ ambiguous and an absent element's hidden copy still keeps it from proving the si
 A copy that shows later makes the step ambiguous, as for visible names; a copy hidden
 only from assistive technology, such as a page form behind a modal, still counts.
 
+An `id`, `name`, `data-testid`, `autocomplete` or visible-name locator may carry
+`within`, one to three shadow hosts outermost first, each named by its `id`, `name` or
+`data-testid` ([ADR 0070](adr/0070-shadow-roots-as-page-content.md)): the first host is
+looked up in the whole page, each later one in the previous host's shadow tree, and the
+element in the last host's tree, nested trees included. Hosts that share a value give
+each tree's matches, so the locator is ambiguous rather than taking the first. The
+extractor uses it only for an element of a shadow tree that no locator names in the
+whole page, such as an input every component reuses its inner ID for.
+
 A control is named by its accessible name only as a `password` handler's button (owner,
 2026-10-19 01:26 UTC, option A1,
 [ADR 0048's amendment](adr/0048-password-method-button.md#amendment-controls-told-apart-by-their-accessible-names)):

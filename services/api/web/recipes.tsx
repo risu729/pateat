@@ -26,7 +26,10 @@ export const isActive = (entry: ManageRecipe): entry is ActiveRecipe =>
 
 type Step = LoginRecipe["steps"][number];
 
-const describeTarget = (target: LoginMarkerTarget) => `${target.by} "${target.value}"`;
+const describeTarget = (target: LoginMarkerTarget) =>
+  [...("within" in target ? (target.within ?? []) : []), target]
+    .map(({ by, value }) => `${by} "${value}"`)
+    .join(" > ");
 
 /**
  * A slot name quoted and isolated, as a name taken from the page's text (ADR 0027) may hold
