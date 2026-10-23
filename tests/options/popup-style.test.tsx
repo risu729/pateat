@@ -76,6 +76,7 @@ test("long hostnames and usernames wrap inside the 360px popup", async () => {
     }),
     pick: vi.fn<ChoiceClient["pick"]>(),
     status: vi.fn<ChoiceClient["status"]>().mockResolvedValue({ ok: false, reason: "no-page" }),
+    reprompt: vi.fn<ChoiceClient["reprompt"]>(),
   };
   await render(
     <QueryClientProvider client={createMetadataQueryClient()}>
@@ -150,6 +151,7 @@ test("the page section's long log codes wrap inside the 360px popup", async () =
         page: "continuation",
       },
     }),
+    reprompt: vi.fn<ChoiceClient["reprompt"]>(),
   };
   await render(
     <QueryClientProvider client={createMetadataQueryClient()}>
@@ -306,6 +308,7 @@ test("forced colors keep the selected account and the switch position visible", 
     get: vi.fn<ChoiceClient["get"]>().mockResolvedValue({ ok: false, reason: "no-choice" }),
     pick: vi.fn<ChoiceClient["pick"]>(),
     status: vi.fn<ChoiceClient["status"]>().mockResolvedValue({ ok: false, reason: "no-page" }),
+    reprompt: vi.fn<ChoiceClient["reprompt"]>(),
   };
   await render(
     <QueryClientProvider client={createMetadataQueryClient()}>

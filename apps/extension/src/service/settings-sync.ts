@@ -36,6 +36,7 @@ type Binding = LocalSettings["bindings"][number];
  */
 export type SyncedSettings = {
   excludedSites: ExcludedSite[];
+  repromptSites: ExcludedSite[];
   siteDefaults: SiteDefault[];
   bindings: Binding[];
 };
@@ -43,12 +44,18 @@ export type SyncedSettings = {
 export function syncedSettings(settings: LocalSettings): SyncedSettings {
   return {
     excludedSites: settings.excludedSites,
+    repromptSites: settings.repromptSites,
     siteDefaults: settings.siteDefaults,
     bindings: settings.bindings,
   };
 }
 
-const emptySynced: SyncedSettings = { excludedSites: [], siteDefaults: [], bindings: [] };
+const emptySynced: SyncedSettings = {
+  excludedSites: [],
+  repromptSites: [],
+  siteDefaults: [],
+  bindings: [],
+};
 
 // The base of the next three-way merge. Normally both copies are the same; after an
 // upload whose local write has not happened yet, `local` is still the local copy the
@@ -155,6 +162,12 @@ export function mergeSyncedSettings(
       service.excludedSites,
       siteKey,
     ),
+    repromptSites: mergeEntries(
+      part("repromptSites"),
+      local.repromptSites,
+      service.repromptSites,
+      siteKey,
+    ),
     siteDefaults: mergeEntries(
       part("siteDefaults"),
       local.siteDefaults,
@@ -196,6 +209,7 @@ export function refreshDisplayNames(synced: SyncedSettings, catalog: VaultCatalo
   }
   return {
     excludedSites: synced.excludedSites,
+    repromptSites: synced.repromptSites,
     siteDefaults: synced.siteDefaults.map((entry) => refresh(entry, siteDefaultSchema)),
     bindings: synced.bindings.map((entry) => refresh(entry, savedLoginBindingSchema)),
   };
@@ -213,6 +227,7 @@ function equalSynced(left: SyncedSettings, right: SyncedSettings): boolean {
     entries.map((entry) => [key(entry), entry] as const).sort(([a], [b]) => (a < b ? -1 : 1));
   return (
     same(sorted(left.excludedSites, siteKey), sorted(right.excludedSites, siteKey)) &&
+    same(sorted(left.repromptSites, siteKey), sorted(right.repromptSites, siteKey)) &&
     same(sorted(left.siteDefaults, defaultKey), sorted(right.siteDefaults, defaultKey)) &&
     same(sorted(left.bindings, bindingKey), sorted(right.bindings, bindingKey))
   );

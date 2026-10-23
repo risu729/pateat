@@ -32,6 +32,7 @@ type AcceptedSettings = Extract<SettingsResponse, { ok: true }>;
 const emptySettings: LocalSettings = {
   connections: [],
   excludedSites: [],
+  repromptSites: [],
   siteDefaults: [],
   bindings: [],
 };
@@ -262,6 +263,7 @@ export function SettingsApp({
     // defaults would then replace the rebased draft on the next render.
     form.setFieldValue("connections", value.connections);
     form.setFieldValue("excludedSites", value.excludedSites);
+    form.setFieldValue("repromptSites", value.repromptSites);
     form.setFieldValue("siteDefaults", value.siteDefaults);
     form.setFieldValue("bindings", value.bindings);
     rebased.current = true;
@@ -330,6 +332,7 @@ export function SettingsApp({
     unsavedEdits.current.push(update);
     form.setFieldValue("connections", next.connections);
     form.setFieldValue("excludedSites", next.excludedSites);
+    form.setFieldValue("repromptSites", next.repromptSites);
     form.setFieldValue("siteDefaults", next.siteDefaults);
     edits.current += 1;
     setDirty(true);

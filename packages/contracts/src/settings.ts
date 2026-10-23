@@ -225,6 +225,16 @@ export const connectionSettingsSchema = v.strictObject({
   ),
 });
 
+/** Site rules by hostname, optionally with its subdomains, as the settings page lists them. */
+const siteRulesSchema = v.pipe(
+  v.array(v.strictObject({ hostname: hostnameSchema, includeSubdomains: v.boolean() })),
+  v.maxLength(1000),
+  v.check(
+    (sites) => new Set(sites.map((site) => site.hostname)).size === sites.length,
+    "Duplicate sites",
+  ),
+);
+
 export const localSettingsSchema = v.pipe(
   v.strictObject({
     connections: v.pipe(
@@ -236,14 +246,14 @@ export const localSettingsSchema = v.pipe(
         "Duplicate connections",
       ),
     ),
-    excludedSites: v.pipe(
-      v.array(v.strictObject({ hostname: hostnameSchema, includeSubdomains: v.boolean() })),
-      v.maxLength(1000),
-      v.check(
-        (sites) => new Set(sites.map((site) => site.hostname)).size === sites.length,
-        "Duplicate sites",
-      ),
-    ),
+    excludedSites: siteRulesSchema,
+    /**
+     * Sites where Pateat honours Bitwarden's master password re-prompt: it asks for the
+     * master password before it fills or signs with an item that has it (owner, 2026-10-23
+     * 12:46 UTC). Elsewhere such items are used as any other. A document written before
+     * the list existed has no sites.
+     */
+    repromptSites: v.optional(siteRulesSchema, []),
     siteDefaults: v.pipe(
       v.array(siteDefaultSchema),
       v.maxLength(1000),
@@ -388,6 +398,11 @@ export const vaultCatalogSchema = v.strictObject({
           /** In the trash or archived; no personal detail is read from it (ADR 0061). */
           inactive: v.optional(v.literal(true)),
           groupIds: identifiers,
+          /**
+           * Bitwarden asks for the master password again before the item is used. Pateat
+           * asks only on sites listed in `repromptSites` (owner, 2026-10-23 12:46 UTC).
+           */
+          reprompt: v.optional(v.literal(true)),
           fields: v.array(
             v.strictObject({
               id: identifier,
@@ -540,6 +555,7 @@ export function createDefaultSettings(catalog: VaultCatalog = DUMMY_VAULT_CATALO
       excludedFields: [],
     })),
     excludedSites: [],
+    repromptSites: [],
     siteDefaults: [],
     bindings: [],
   };
@@ -586,16 +602,41 @@ export function getItemEligibility(
   return { eligible: true, item, fieldIds };
 }
 
+function ruleMatches(rules: LocalSettings["excludedSites"], hostname: string): boolean {
+  return rules.some(
+    (site) =>
+      hostname === site.hostname ||
+      (site.includeSubdomains && hostname.endsWith(`.${site.hostname}`)),
+  );
+}
+
 export function isSiteExcluded(settings: LocalSettings, value: string): boolean {
   const url = parseSiteUrl(value);
   const hostname = url && normalizeHostname(url.hostname);
   // Invalid destinations are blocked, never treated as a permission grant.
   if (!hostname) return true;
-  return settings.excludedSites.some(
-    (site) =>
-      hostname === site.hostname ||
-      (site.includeSubdomains && hostname.endsWith(`.${site.hostname}`)),
-  );
+  return ruleMatches(settings.excludedSites, hostname);
+}
+
+/**
+ * Whether Pateat asks for the master password on this page's site before it fills or
+ * signs with an item that has Bitwarden's re-prompt. An invalid URL asks, so a doubt
+ * never skips the question.
+ */
+export function asksForMasterPassword(settings: LocalSettings, value: string): boolean {
+  const url = parseSiteUrl(value);
+  const hostname = url && normalizeHostname(url.hostname);
+  if (!hostname) return true;
+  return ruleMatches(settings.repromptSites, hostname);
+}
+
+/** Whether an item has to wait for the master password on this page's site. */
+export function itemAsksForMasterPassword(
+  settings: LocalSettings,
+  item: Pick<VaultItemMetadata, "reprompt"> | undefined,
+  value: string,
+): boolean {
+  return item?.reprompt === true && asksForMasterPassword(settings, value);
 }
 
 export type SiteAccountResolution =

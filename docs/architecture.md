@@ -104,20 +104,30 @@ vault connections from the start. Scope item and field IDs by connection.
 Adapters are developer-written and bundled with extension releases; no remotely
 loaded executable plugins or speculative second provider implementation.
 
-Bitwarden's master password re-prompt is not honoured. The adapter reads a cipher's
-`reprompt` (`0` or `1`) but carries it no further: an item with `reprompt: 1` is filled
-and its passkeys sign without the master password prompt the official clients show.
+Bitwarden's master password re-prompt is honoured per site. The adapter carries a
+cipher's `reprompt: 1` into the vault catalog as the item's `reprompt`. By default such
+an item is used like any other: it is filled and its passkeys sign without asking.
 Bitwarden describes re-prompt as "an interface-only guardrail" and "not an encryption
 mechanism"
 ([Master Password Re-prompt](https://bitwarden.com/help/master-password-re-prompt/),
-checked 2026-10-14), so the vault data does not enforce it. A setting to honour it
-is planned for [phase 3](plan.md#phase-3-public-release) (owner, 2026-10-13 21:57 UTC).
-For it, the crypto Worker checks a typed master password offline against the open
-session's account: the SDK unwraps the user key from the accepted record's encrypted
-master-password unlock data (`decrypt_user_key_with_master_password`), and the result
-must equal the session's user key. The answer is only `matches: true` or `false`;
-Pateat's code keeps nothing derived from the password, though copies in the SDK's
-native memory are not wiped (implemented, not used yet).
+checked 2026-10-14), so the vault data does not enforce it. On a site listed in the
+settings' `repromptSites` (the settings page's Sites section, or the popup's "Ask for
+the master password" switch), a login with such an item starts only after its master
+password is entered in Pateat's chooser window
+([ADR 0021](adr/0021-account-choice-outside-settings.md)), and a passkey request that
+such an item answers signs only after the same (owner, 2026-10-23 12:46 UTC). There is
+no per-item or per-field setting, and passkey UP and UV are unchanged. The window opens
+only for the active tab of the focused window outside incognito; elsewhere the login
+does not start until the popup's "Enter the master password" opens the window, and a
+passkey request goes to the browser. A started login goes on across its pages, and
+answers the site's passkey request with its item, without asking again. Five wrong
+passwords end the request. The crypto Worker checks a typed master password offline
+against the open session's account: the SDK unwraps the user key from the accepted
+record's encrypted master-password unlock data
+(`decrypt_user_key_with_master_password`), and the result must equal the session's
+user key. The answer is only `matches: true` or `false`; Pateat's code keeps nothing
+derived from the password, though copies in the SDK's native memory are not wiped
+(implemented).
 
 Expose authentication, unlock, sync, eligible references, field resolution, OTP
 generation and signing capabilities. Reserve create/update capabilities for

@@ -488,6 +488,10 @@ function harness(
     spin?: (tabId: number) => () => void;
     /** The toolbar badge, which keeps the tab's page status for the popup (ADR 0038). */
     badge?: LoginBadge;
+    /** The item has Bitwarden's master password re-prompt. */
+    reprompt?: boolean;
+    /** Asks for the master password of a re-prompt item. */
+    askMasterPassword?: Parameters<typeof createLoginRuntime>[1]["askMasterPassword"];
   } = {},
 ) {
   const customFields = (fields: CustomField[]) =>
@@ -508,6 +512,7 @@ function harness(
       },
     ],
     excludedSites: [],
+    repromptSites: [],
     siteDefaults: [{ origin, provider: "bitwarden", userId, itemId }],
     bindings: [savedBinding],
     ...overrides,
@@ -547,6 +552,7 @@ function harness(
               {
                 id: itemId,
                 label: "Synthetic item",
+                ...(live.reprompt ? { reprompt: true as const } : {}),
                 allowedOrigins: live.allowedOrigins ?? [origin],
                 groupIds: [],
                 fields: [
@@ -640,6 +646,7 @@ function harness(
     ...(live.passkeyItems ? { passkeyItems: live.passkeyItems } : {}),
     ...(live.vault ? { vault: live.vault } : {}),
     ...(live.signedIn ? { signedIn: live.signedIn } : {}),
+    ...(live.askMasterPassword ? { askMasterPassword: live.askMasterPassword } : {}),
     ...(live.badge
       ? { badge: live.badge }
       : live.spin
@@ -778,6 +785,89 @@ describe("production login document admission", () => {
     expect(
       fake.state.messages.filter((entry) => entry.type === "login.execute" && entry.account),
     ).toEqual([]);
+  });
+  describe("Bitwarden master password re-prompt", () => {
+    const executed = () => fake.state.messages.filter((entry) => entry.type === "login.execute");
+    const listed = { repromptSites: [{ hostname: "login.example", includeSubdomains: false }] };
+    const popupSender = {
+      id: "synthetic-extension",
+      url: "chrome-extension://synthetic-extension/popup.html",
+    } as never;
+
+    it("uses a re-prompt item as any other on a site that does not ask", async () => {
+      const askMasterPassword = vi.fn(async () => "verified" as const);
+      const h = harness({}, { reprompt: true, askMasterPassword });
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(executed()).toHaveLength(2));
+      expect(askMasterPassword).not.toHaveBeenCalled();
+    });
+
+    it("fills nothing until the master password is entered, then starts the login once", async () => {
+      realTime();
+      let answer!: (value: "verified") => void;
+      const askMasterPassword = vi.fn(
+        (_input: unknown) => new Promise<"verified">((resolve) => (answer = resolve)),
+      );
+      const h = harness(listed, { reprompt: true, askMasterPassword });
+      fake.state.onReconnect = () => h.hello();
+      await h.hello();
+      await vi.waitFor(() => expect(askMasterPassword).toHaveBeenCalledOnce());
+      expect(askMasterPassword.mock.calls[0]![0]).toMatchObject({
+        tabId: 1,
+        origin,
+        account: { connectionId, itemId },
+        connection: { id: connectionId },
+        item: { id: itemId, reprompt: true },
+      });
+      // A document announcing again while the window asks opens no second window.
+      await h.hello();
+      expect(askMasterPassword).toHaveBeenCalledOnce();
+      expect(executed()).toEqual([]);
+      expect(h.fields).not.toHaveBeenCalled();
+      expect(
+        await h.login.handle({ version: 1, type: "login.status.get", tabId: 1 }, popupSender),
+      ).toMatchObject({ page: { state: "denied", reason: "master-password-reprompt" } });
+      answer("verified");
+      await vi.waitFor(() => expect(fake.state.reconnects).toHaveLength(1));
+      await vi.waitFor(() => expect(executed()).toHaveLength(2));
+      expect(askMasterPassword).toHaveBeenCalledOnce();
+      // The grant is used up: the next page of the site asks again.
+      fake.state.messages = [];
+      await h.hello({ documentId: "second-document" });
+      await vi.waitFor(() => expect(askMasterPassword).toHaveBeenCalledTimes(2));
+    });
+
+    it("asks again from the popup after the window was closed", async () => {
+      realTime();
+      const askMasterPassword = vi
+        .fn<NonNullable<Parameters<typeof createLoginRuntime>[1]["askMasterPassword"]>>()
+        .mockResolvedValueOnce("closed")
+        .mockResolvedValueOnce("verified");
+      const h = harness(listed, { reprompt: true, askMasterPassword });
+      fake.state.onReconnect = () => h.hello();
+      await h.hello();
+      await vi.waitFor(() => expect(askMasterPassword).toHaveBeenCalledOnce());
+      expect(executed()).toEqual([]);
+      expect(
+        await h.login.handle({ version: 1, type: "login.reprompt.ask", tabId: 1 }, popupSender),
+      ).toEqual({ ok: true });
+      await vi.waitFor(() => expect(executed()).toHaveLength(2));
+      // Nothing waits any more.
+      expect(
+        await h.login.handle({ version: 1, type: "login.reprompt.ask", tabId: 1 }, popupSender),
+      ).toEqual({ ok: false, reason: "not-waiting" });
+    });
+
+    it("starts nothing when no window can ask", async () => {
+      realTime();
+      const h = harness(listed, { reprompt: true });
+      await h.hello();
+      expect(
+        await h.login.handle({ version: 1, type: "login.reprompt.ask", tabId: 1 }, popupSender),
+      ).toEqual({ ok: false, reason: "unavailable" });
+      expect(executed()).toEqual([]);
+      expect(h.fields).not.toHaveBeenCalled();
+    });
   });
   it("sends the username with a password-only fill and stops on a wrong displayed account", async () => {
     fake.state.executeReply = { ok: false, reason: "wrong-account" };
@@ -15080,6 +15170,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         const settings = (excludedSites: { hostname: string; includeSubdomains: boolean }[]) => ({
           connections: [],
           excludedSites,
+          repromptSites: [],
           siteDefaults: [],
           bindings: [],
         });

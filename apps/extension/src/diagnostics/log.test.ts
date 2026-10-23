@@ -1510,7 +1510,13 @@ describe("unhandled errors", () => {
       build: { version: "0.1.0", revision: "1c42ad3" },
       settings: async () => ({
         revision: 1,
-        settings: { connections: [], excludedSites: [], siteDefaults: [], bindings: [] },
+        settings: {
+          connections: [],
+          excludedSites: [],
+          repromptSites: [],
+          siteDefaults: [],
+          bindings: [],
+        },
       }),
       recipeCache: async () => ({ recipes: [] }),
       connections: async () => ({ ok: true, kind: "status", connections: [] }),
@@ -1558,7 +1564,13 @@ describe("unhandled errors", () => {
       build: { version: "0.1.0", revision: "1c42ad3" },
       settings: async () => ({
         revision: 7,
-        settings: { connections: [], excludedSites: [], siteDefaults: [], bindings: [] },
+        settings: {
+          connections: [],
+          excludedSites: [],
+          repromptSites: [],
+          siteDefaults: [],
+          bindings: [],
+        },
       }),
       recipeCache: async () => ({ recipes: [{ origin: recipeOrigin }] }),
       connections: async () => ({ ok: true, kind: "status", connections: [] }),
@@ -1608,7 +1620,13 @@ describe("unhandled errors", () => {
       build: { version: "0.1.0", revision: "1c42ad3" },
       settings: async () => ({
         revision: 7,
-        settings: { connections: [], excludedSites: [], siteDefaults: [], bindings: [] },
+        settings: {
+          connections: [],
+          excludedSites: [],
+          repromptSites: [],
+          siteDefaults: [],
+          bindings: [],
+        },
       }),
       recipeCache: async () => ({ recipes: [{ origin: recipeOrigin }] }),
       connections: async () => ({ ok: true, kind: "status", connections: [] }),
@@ -1660,7 +1678,13 @@ describe("unhandled errors", () => {
       build: { version: "0.1.0", revision: "1c42ad3" },
       settings: async () => ({
         revision: 7,
-        settings: { connections: [], excludedSites: [], siteDefaults: [], bindings: [] },
+        settings: {
+          connections: [],
+          excludedSites: [],
+          repromptSites: [],
+          siteDefaults: [],
+          bindings: [],
+        },
       }),
       recipeCache: async () => ({ recipes: [{ origin: recipeOrigin }] }),
       connections: async () => ({ ok: true, kind: "status", connections: [] }),
@@ -2122,7 +2146,13 @@ describe("unhandled errors", () => {
       build: { version: "0.1.0", revision: "1c42ad3" },
       settings: async () => ({
         revision: 1,
-        settings: { connections: [], excludedSites: [], siteDefaults: [], bindings: [] },
+        settings: {
+          connections: [],
+          excludedSites: [],
+          repromptSites: [],
+          siteDefaults: [],
+          bindings: [],
+        },
       }),
       recipeCache: async () => ({ recipes: [{ origin: recipeOrigin }] }),
       connections: async () => ({ ok: true, kind: "status", connections: [] }),

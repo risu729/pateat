@@ -59,6 +59,7 @@ const localConnection = {
 const settingsOf = (parts: Partial<LocalSettings> = {}): LocalSettings => ({
   connections: [],
   excludedSites: [],
+  repromptSites: [],
   siteDefaults: [],
   bindings: [],
   ...parts,
@@ -211,6 +212,7 @@ describe("settings sync on a new pairing", () => {
     expect(await sync.run(CONNECTION, never)).toBe("synced");
     const merged = {
       excludedSites: [site("intranet.example")],
+      repromptSites: [],
       siteDefaults: [account("https://bank.example"), account("https://shop.example")],
       bindings: [binding("https://bank.example")],
     };
@@ -337,6 +339,7 @@ describe("settings sync after the first", () => {
         ...agreed,
         // Removed on the service.
         excludedSites: [],
+        repromptSites: [],
         bindings: [...agreed.bindings, binding("https://shop.example")],
       }),
       base: baseOf(4, agreed),
@@ -344,6 +347,7 @@ describe("settings sync after the first", () => {
     expect(await sync.run(CONNECTION, never)).toBe("synced");
     const merged = settingsOf({
       excludedSites: [],
+      repromptSites: [],
       siteDefaults: [account("https://bank.example"), account("https://shop.example")],
       bindings: [binding("https://bank.example"), binding("https://shop.example")],
     });
@@ -367,9 +371,24 @@ describe("settings sync after the first", () => {
     });
     expect(mergeSyncedSettings({ service: base, local: base }, local, service)).toEqual({
       excludedSites: [site("intranet.example")],
+      repromptSites: [],
       siteDefaults: [account("https://bank.example", "item-service")],
       bindings: [binding("https://bank.example", "totp")],
     });
+  });
+
+  it("merges the sites that ask for the master password per site, like exclusions", () => {
+    const base = syncedSettings({ ...agreed, repromptSites: [site("bank.example")] });
+    // This device stopped asking on bank.example and started on shop.example; the service
+    // started on mail.example.
+    const local = syncedSettings({ ...agreed, repromptSites: [site("shop.example")] });
+    const service = syncedSettings({
+      ...agreed,
+      repromptSites: [site("bank.example"), site("mail.example")],
+    });
+    expect(
+      mergeSyncedSettings({ service: base, local: base }, local, service).repromptSites,
+    ).toEqual([site("mail.example"), site("shop.example")]);
   });
 
   it("applies a default that differs only in its item name once, then stays settled", async () => {
@@ -416,7 +435,9 @@ describe("settings sync after the first", () => {
     });
     expect(await sync.run(CONNECTION, never)).toBe("synced");
     expect(transport.saveSettings).toHaveBeenCalledTimes(2);
-    expect(service()).toEqual(state(6, { ...agreed, excludedSites: [], bindings: [] }));
+    expect(service()).toEqual(
+      state(6, { ...agreed, excludedSites: [], repromptSites: [], bindings: [] }),
+    );
   });
 
   it("merges again when local settings changed during the sync", async () => {

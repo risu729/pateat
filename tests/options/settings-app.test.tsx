@@ -684,6 +684,30 @@ test("an origin with a trailing dot is excluded by its hostname without the dot"
     .toBeVisible();
 });
 
+test("the add form makes the entered site ask for the master password, then stops", async () => {
+  const client = mockClient();
+  await mount(client);
+  await control("site-origin").fill("https://bank.example");
+  await control("site-subdomains").click();
+  await control("add-reprompt-site").click();
+  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 1");
+  const settings = client.saveSettings.mock.calls[0]?.[0].settings;
+  expect(settings?.repromptSites).toEqual([{ hostname: "bank.example", includeSubdomains: true }]);
+  expect(settings?.excludedSites).toEqual([]);
+  await expect.element(control("site-list")).toMatchTextContent("Asks for the master password");
+  await expect.element(control("site-origin")).toHaveValue("");
+  await expect.element(control("site-origin")).toHaveFocus();
+  await page
+    .getByRole("button", {
+      name: "Stop asking for the master password on bank.example and subdomains",
+      exact: true,
+    })
+    .click();
+  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 2");
+  expect(client.saveSettings.mock.calls[1]?.[0].settings.repromptSites).toEqual([]);
+  await expect.element(control("site-origin")).toHaveFocus();
+});
+
 test("the add form excludes the entered origin's host, with its subdomains when asked", async () => {
   const client = mockClient();
   await mount(client);

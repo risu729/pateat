@@ -14,7 +14,15 @@ import {
 } from "@pateat/contracts";
 import { useForm, useSelector } from "@tanstack/react-form";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { Ban, CircleCheck, Clock, Info, TriangleAlert, type LucideIcon } from "lucide-react";
+import {
+  Ban,
+  CircleCheck,
+  Clock,
+  Info,
+  LockKeyhole,
+  TriangleAlert,
+  type LucideIcon,
+} from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import * as v from "valibot";
 import { Button } from "./button";
@@ -379,7 +387,8 @@ export function SitePolicy({
     setAccountError("");
     originInput.current?.focus();
   }
-  function excludeEntered() {
+  /** Adds the entered site, with its subdomains if checked, to a site list. */
+  function addEntered(list: "excludedSites" | "repromptSites") {
     const entered = siteForm.state.values.origin.trim();
     const hostname = v.is(originSchema, entered)
       ? normalizeHostname(new URL(entered).hostname)
@@ -390,10 +399,8 @@ export function SitePolicy({
     }
     const includeSubdomains = siteForm.state.values.includeSubdomains;
     const added = edit((settings) => {
-      settings.excludedSites = settings.excludedSites.filter(
-        (entry) => entry.hostname !== hostname,
-      );
-      settings.excludedSites.push({ hostname, includeSubdomains });
+      settings[list] = settings[list].filter((entry) => entry.hostname !== hostname);
+      settings[list].push({ hostname, includeSubdomains });
     });
     if (!added) return;
     siteForm.reset();
@@ -665,12 +672,50 @@ export function SitePolicy({
     );
   }
 
+  /** A site that asks for the master password before a re-prompt item is used. */
+  function repromptRow(rule: ExcludedSite) {
+    const name = ruleName(rule);
+    return (
+      <SiteRow
+        key={`reprompt ${rule.hostname}`}
+        title={name}
+        badges={
+          <Badge muted icon={LockKeyhole}>
+            {t("Asks for the master password")}
+          </Badge>
+        }
+        controls={
+          <Button
+            type="button"
+            variant="outline"
+            aria-label={t("Stop asking for the master password on {{name}}", { name })}
+            onClick={() => {
+              edit((settings) => {
+                settings.repromptSites = settings.repromptSites.filter(
+                  (entry) => entry.hostname !== rule.hostname,
+                );
+              });
+              originInput.current?.focus();
+            }}
+          >
+            {t("Stop asking")}
+          </Button>
+        }
+      />
+    );
+  }
+
   // Rules and origins together, by hostname; a rule comes before the origins on its host.
   const rows = [
     ...draft.excludedSites.map((rule) => ({
       hostname: rule.hostname,
       order: `0 ${rule.hostname}`,
       row: () => ruleRow(rule),
+    })),
+    ...draft.repromptSites.map((rule) => ({
+      hostname: rule.hostname,
+      order: `2 ${rule.hostname}`,
+      row: () => repromptRow(rule),
     })),
     ...draft.siteDefaults
       .filter((entry) => !isSiteExcluded(draft, entry.origin))
@@ -801,7 +846,7 @@ export function SitePolicy({
                   checked={field.state.value}
                   onChange={(event) => field.handleChange(event.target.checked)}
                 />
-                {t("Exclude subdomains too")}
+                {t("Include subdomains")}
               </label>
             )}
           </siteForm.Field>
@@ -824,10 +869,19 @@ export function SitePolicy({
             id={`${idPrefix}add-site`}
             type="button"
             variant="outline"
-            onClick={excludeEntered}
+            onClick={() => addEntered("excludedSites")}
           >
             <Ban aria-hidden size={16} strokeWidth={2} />
             {t("Exclude site")}
+          </Button>
+          <Button
+            id={`${idPrefix}add-reprompt-site`}
+            type="button"
+            variant="outline"
+            onClick={() => addEntered("repromptSites")}
+          >
+            <LockKeyhole aria-hidden size={16} strokeWidth={2} />
+            {t("Ask for the master password")}
           </Button>
         </div>
       </form>
@@ -835,6 +889,13 @@ export function SitePolicy({
         muted
         lines={[
           { tone: "idle", icon: Ban, text: t("Excluding a site covers every scheme and port.") },
+          {
+            tone: "idle",
+            icon: LockKeyhole,
+            text: t(
+              "On a site that asks for the master password, a vault item with Bitwarden's master password re-prompt is used only after you enter it in Pateat's window. Elsewhere it is used like any other item.",
+            ),
+          },
           {
             tone: "idle",
             icon: Clock,

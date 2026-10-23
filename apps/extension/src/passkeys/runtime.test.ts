@@ -698,6 +698,67 @@ describe("passkey chooser window", () => {
     expect(remember).toHaveBeenCalledWith(origin, pair[1]);
   });
 
+  describe("Bitwarden master password re-prompt", () => {
+    const guarded = { ...candidate, reprompt: true, display: { item: "Bank" } };
+    const one = (overrides: Partial<PasskeySource> = {}) =>
+      source({
+        candidates: vi.fn(async () => ({ candidates: [guarded], complete: true })),
+        ...overrides,
+      });
+
+    it("signs with a re-prompt passkey only after its master password is checked", async () => {
+      const verifyMasterPassword = vi.fn(
+        async (_entry: unknown, password: string) => password === "right",
+      );
+      const backing = one({ verifyMasterPassword });
+      const choose = chooser(async (input) => {
+        expect(await input.verify!(0, "wrong")).toBe(false);
+        expect(await input.verify!(0, "right")).toBe(true);
+        return { kind: "chosen", index: 0, makeDefault: false };
+      });
+      const runtime = createPasskeyRuntime(backing, { extensionId, chooser: choose });
+      expect(await runtime.handle(get(), sender())).toMatchObject({
+        kind: "assertion",
+        assertion: { credentialId: "AQID" },
+      });
+      expect(choose.choose).toHaveBeenCalledWith(
+        expect.objectContaining({ entries: [{ item: "Bank", reprompt: true }] }),
+      );
+      expect(verifyMasterPassword).toHaveBeenCalledWith(guarded, "right");
+      expect(backing.sign).toHaveBeenCalledOnce();
+    });
+
+    it("never signs a re-prompt passkey when the window is closed or cannot check", async () => {
+      const closed = one({ verifyMasterPassword: vi.fn(async () => true) });
+      expect(
+        await createPasskeyRuntime(closed, {
+          extensionId,
+          chooser: chooser(async () => ({ kind: "closed" })),
+        }).handle(get(), sender()),
+      ).toEqual({ kind: "delegate", reason: "chooser-closed" });
+      expect(closed.sign).not.toHaveBeenCalled();
+      const unchecked = one();
+      const choose = chooser(async () => ({ kind: "chosen", index: 0, makeDefault: false }));
+      expect(
+        await createPasskeyRuntime(unchecked, { extensionId, chooser: choose }).handle(
+          get(),
+          sender(),
+        ),
+      ).toEqual({ kind: "delegate", reason: "master-password-reprompt" });
+      expect(choose.choose).not.toHaveBeenCalled();
+      expect(unchecked.sign).not.toHaveBeenCalled();
+      // Nor in a tab that cannot show the window.
+      const unfocused = one({ verifyMasterPassword: vi.fn(async () => true) });
+      expect(
+        await createPasskeyRuntime(unfocused, { extensionId, chooser: choose }).handle(
+          get(crypto.randomUUID(), true, false),
+          sender(),
+        ),
+      ).toEqual({ kind: "delegate", reason: "master-password-reprompt" });
+      expect(unfocused.sign).not.toHaveBeenCalled();
+    });
+  });
+
   it("does not save a one-time choice", async () => {
     const remember = vi.fn(async () => {});
     const runtime = createPasskeyRuntime(several(), {

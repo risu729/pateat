@@ -59,6 +59,23 @@ export const pickRequestSchema = v.strictObject({
   /** Save it as the site default once the login is confirmed `authenticated`. */
   makeDefault: v.boolean(),
 });
+/**
+ * The popup asks again for the master password a tab's login waits for: the window did not
+ * open by itself, as for a tab that was in the background, or it was closed.
+ */
+export const repromptRequestSchema = v.strictObject({
+  version: v.literal(1),
+  type: v.literal("login.reprompt.ask"),
+  tabId,
+});
+export const repromptResponseSchema = v.variant("ok", [
+  v.strictObject({ ok: v.literal(true) }),
+  v.strictObject({
+    ok: v.literal(false),
+    reason: v.picklist(["not-waiting", "unavailable", "closed", "document-gone"]),
+  }),
+]);
+export type RepromptResponse = v.InferOutput<typeof repromptResponseSchema>;
 export const choiceResponseSchema = v.variant("ok", [
   v.strictObject({
     ok: v.literal(true),
@@ -213,6 +230,8 @@ export interface ChoiceClient {
   pick(request: PickRequest): Promise<PickResponse>;
   /** What Pateat did on the tab's page, for the popup's page section (ADR 0038). */
   status(tabId: number): Promise<StatusResponse>;
+  /** Opens the master password window again for the tab's waiting login. */
+  reprompt(tabId: number): Promise<RepromptResponse>;
 }
 
 export function createChoiceClient(send: (message: unknown) => Promise<unknown>): ChoiceClient {
@@ -231,6 +250,11 @@ export function createChoiceClient(send: (message: unknown) => Promise<unknown>)
       v.parse(
         statusResponseSchema,
         await send({ version: 1, type: "login.status.get", tabId: tab }),
+      ),
+    reprompt: async (tab) =>
+      v.parse(
+        repromptResponseSchema,
+        await send({ version: 1, type: "login.reprompt.ask", tabId: tab }),
       ),
   };
 }

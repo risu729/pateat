@@ -43,6 +43,7 @@ function settings(
         },
       ],
       excludedSites: [],
+      repromptSites: [],
       siteDefaults: [],
       bindings: [],
       ...more,
