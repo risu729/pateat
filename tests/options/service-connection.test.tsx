@@ -96,10 +96,14 @@ test("validates the device name with the shared label rules", async () => {
   await name.fill("   ");
   await page.getByRole("button", { name: "Pair this device", exact: true }).click();
   await expect.element(page.getByRole("alert").getByText("Enter a device name.")).toBeVisible();
+  // A zero-width space alone shows as an empty name.
+  await name.fill("\u200b");
+  await page.getByRole("button", { name: "Pair this device", exact: true }).click();
+  await expect.element(page.getByRole("alert").getByText("Enter a device name.")).toBeVisible();
   await name.fill("Tab\tname");
   await page.getByRole("button", { name: "Pair this device", exact: true }).click();
   await expect
-    .element(page.getByRole("alert").getByText(/without control characters/))
+    .element(page.getByRole("alert").getByText(/without control characters, line breaks/))
     .toBeVisible();
   expect(client.requestSiteAccess).not.toHaveBeenCalled();
   expect(client.pair).not.toHaveBeenCalled();

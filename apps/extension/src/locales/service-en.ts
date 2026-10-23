@@ -34,8 +34,8 @@ export const serviceEn = {
   "Forget saved connection": "Forget saved connection",
   "Enter an HTTPS address such as https://pateat.example.com.":
     "Enter an HTTPS address such as https://pateat.example.com.",
-  "Use a device name of up to 64 characters without control characters.":
-    "Use a device name of up to 64 characters without control characters.",
+  "Use a device name of up to 64 characters without control characters, line breaks or text-direction marks.":
+    "Use a device name of up to 64 characters without control characters, line breaks or text-direction marks.",
   "Enter a device name.": "Enter a device name.",
   "Service address": "Service address",
   "Device name": "Device name",

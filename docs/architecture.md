@@ -1715,6 +1715,13 @@ pages allow inline script (the MV3 policy, and the owner web UI's `script-src 's
 the choice is applied from the page's module, so a page whose stored choice differs from
 the browser's scheme may paint one frame in the browser's scheme first.
 
+Forced colors, such as Windows contrast themes, replace the popup's accent colors and
+drop its shadows, so the popup gives its selected account card and its switch system
+colors of their own (owner, 2026-10-23 12:57 UTC): the selected card has a 2px
+`Highlight` border; the switch has a 1px `ButtonText` border and knob, a `Highlight`
+track with a `HighlightText` knob when on, and `GrayText` while disabled. Both keep
+their sizes.
+
 Deleting a Bitwarden connection in settings asks in a modal Base UI `AlertDialog`. It
 names the connection and explains removal of its local vault cache, unlock key and sync
 sign-in. Focus starts on **Keep connection**; Keep and Escape close without deleting,
@@ -3084,9 +3091,15 @@ planned change. Each is current behavior that the service does not handle.
 - Clock skew. Access tokens get no leeway: a token whose `iat` or `nbf` is ahead of
   the Worker's clock, or one forwarded in the second before its `exp`, is refused with
   403 rather than "sign in first".
-- Device labels. A label refuses every `\p{C}` character, which includes format
-  characters such as the zero-width joiner of emoji sequences and bidirectional marks,
-  and counts 64 UTF-16 code units, so an emoji takes two.
+- Device labels. A label is 1 to 64 UTF-16 code units after trimming, so an emoji
+  takes two and a joined emoji sequence more. It needs at least one letter, digit,
+  punctuation mark or symbol that shows (default-ignorable characters such as the Hangul
+  filler U+3164, and the blank Braille pattern U+2800, do not count); with one, format
+  and private-use characters such as the zero-width joiner of emoji sequences, the
+  zero-width space and the soft hyphen are accepted (owner, 2026-10-23 12:57 UTC).
+  Control characters, lone surrogates, line and paragraph separators and text-direction
+  marks are refused (`deviceLabelSchema` in `packages/contracts/src/pairing.ts`). The
+  settings page answers a name with nothing that shows with "Enter a device name.".
 - Upper-case IDs. Device IDs in management paths are compared exactly, so
   `/manage/api/devices/<ID in upper case>/revoke` answers 404 for an existing device.
 - Unaddressable recipe IDs. The recipe ID contract accepts `.`, `..` and `generate`,
@@ -3141,7 +3154,8 @@ steady-state API calls carry no cookie.
   try again later.
 - Pairing. **Pair this device** on the settings page asks for site access to the
   service, then the extension's background service worker sends one `POST /pair` with
-  the device label, `credentials: "include"`, `redirect: "manual"` and
+  the device label ([device labels](#unsupported-service-edge-cases)),
+  `credentials: "include"`, `redirect: "manual"` and
   `X-Requested-With: XMLHttpRequest`, so the browser's Access session travels with it.
   The route sits behind Access; the Worker verifies the token (the host-wide
   application's audience, or "pateat pair"'s, which also admits browsers without WARP,
