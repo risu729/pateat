@@ -10,7 +10,7 @@ import {
 } from "@pateat/contracts";
 import { env } from "cloudflare:workers";
 import * as v from "valibot";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { app } from "../src/app";
 import {
   claims,
@@ -18,6 +18,7 @@ import {
   forgedAccess,
   installAccessKeys,
   jwks,
+  type JwksMode,
   newSubject,
   ORIGIN,
   owner,
@@ -27,6 +28,7 @@ import {
   request,
   type Owner,
 } from "./access-helpers";
+import { writeRecipe } from "../src/recipe-store";
 import { OWNER_LIMIT, withLimiter } from "./limiter";
 
 // Synthetic Access keys, identities and extension IDs only. Every test uses fresh
@@ -152,15 +154,93 @@ describe("Access verification", () => {
     expect(listed.devices.map((entry) => entry.id)).toEqual([device.deviceId]);
   });
 
-  it("fails closed when the signing keys cannot be fetched", async () => {
-    jwks.available = false;
+  /** Runs `body` while the mocked key set answers as `mode`, then restores it. */
+  async function duringOutage<T>(mode: JwksMode, body: () => Promise<T>): Promise<T> {
+    jwks.mode = mode;
     try {
-      const response = await request("/manage", { access: (await owner()).token });
-      expect(response.status).toBe(403);
+      return await body();
     } finally {
-      jwks.available = true;
+      jwks.mode = "ok";
     }
-  });
+  }
+
+  const outages: [string, JwksMode][] = [
+    ["a non-OK response", "status"],
+    ["a JSON body that is not a key set", "malformed"],
+    ["a body that is not JSON", "not-json"],
+    ["a fetch that rejects", "reject"],
+  ];
+
+  it.each(outages)(
+    "treats %s for the signing keys as an outage, not a refused sign-in",
+    async (_, mode) => {
+      const viaHost = await owner();
+      const viaPair = await pairOwner();
+      const pages: [string, string][] = [
+        ["/manage", viaHost.token],
+        ["/manage/sites", viaHost.token],
+        ["/manage/sites/https/bank.example", viaHost.token],
+        ["/manage/assets/app.js", viaHost.token],
+        ["/manage/claude", viaHost.token],
+        ["/pair/signed-in", viaPair.token],
+      ];
+      const { pageResponses, apiResponses, missing } = await duringOutage(mode, async () => ({
+        pageResponses: await Promise.all(pages.map(([path, access]) => request(path, { access }))),
+        apiResponses: await Promise.all([
+          postPair(viaPair.token),
+          postPair(viaHost.token),
+          manageApi("/manage/api/devices", viaHost.token, "GET"),
+          manageApi("/manage/api/settings", viaHost.token, "GET"),
+          manageApi(`/manage/api/devices/${crypto.randomUUID()}/revoke`, viaHost.token, "POST"),
+        ]),
+        // A missing token is refused before any key is fetched.
+        missing: await Promise.all([request("/manage"), postPair(undefined)]),
+      }));
+
+      expect(pageResponses.map((response) => response.status)).toEqual(pages.map(() => 503));
+      for (const response of pageResponses)
+        expect(response.headers.get("Content-Type")).toMatch(/^text\/html/);
+      for (const body of await Promise.all(pageResponses.map((response) => response.text()))) {
+        expect(body).toContain("Your sign-in could not be checked. Try again later.");
+        expect(body).not.toContain("Access denied");
+        expect(body).not.toContain("Pateat test app");
+      }
+      expect(apiResponses.map((response) => response.status)).toEqual(apiResponses.map(() => 503));
+      expect(await Promise.all(apiResponses.map((response) => response.json()))).toEqual(
+        apiResponses.map(() => ({ error: "access_keys_unavailable" })),
+      );
+      expect(missing.map((response) => response.status)).toEqual([401, 401]);
+      // No owner was created by the pairing attempts.
+      expect(await ownerIdFor(viaPair.subject)).toBeNull();
+      expect(await ownerIdFor(viaHost.subject)).toBeNull();
+
+      // Once the keys answer again, the same tokens work.
+      expect((await request("/manage", { access: viaHost.token })).status).toBe(200);
+      expect((await postPair(viaPair.token)).status).toBe(201);
+    },
+  );
+
+  it("gives up on signing keys that never arrive after its timeout", async () => {
+    // The real timeout is 5 s; shorten the requested signal so the abort really fires.
+    const timeout = AbortSignal.timeout.bind(AbortSignal);
+    const requested: number[] = [];
+    const spy = vi.spyOn(AbortSignal, "timeout").mockImplementation((ms) => {
+      requested.push(ms);
+      return timeout(20);
+    });
+    try {
+      const responses = await duringOutage("hang", async () =>
+        Promise.all([
+          request("/manage", { access: (await owner()).token }),
+          postPair((await pairOwner()).token),
+        ]),
+      );
+      expect(responses.map((response) => response.status)).toEqual([503, 503]);
+      expect(requested).toEqual([5_000, 5_000]);
+    } finally {
+      spy.mockRestore();
+    }
+  }, 2_000);
 
   it("fails closed without Access configuration", async () => {
     const { token } = await owner();
@@ -960,15 +1040,57 @@ describe("owner web UI recipes", () => {
     ]).toEqual(["2000", "3000"]);
   });
 
-  it("keeps an idle layout generated as a verification, which never runs (ADR 0035, ADR 0060)", async () => {
+  it("keeps the idle layouts of a recipe generated as a verification, which never runs (ADR 0035, ADR 0060)", async () => {
     const by = await owner();
     const device = await pairDevice(by);
     const now = Date.now();
     const old = now - 91 * 24 * 60 * 60 * 1000;
+    const put = (layouts: { key: string; createdAt: number; pageKind?: PageKind }[]) =>
+      deviceApi(device.credential, "/v1/recipes/bank-signin", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          version: 1,
+          expectedRevision: 0,
+          state: "active",
+          recipe: recipe("bank-signin", 1, "https://bank.example", layouts),
+        }),
+      });
+    // Every layout of a recipe has its start page's kind, so a document mixing them is
+    // refused.
+    expect(
+      (
+        await put([
+          { key: "1000", createdAt: old, pageKind: "confirm" },
+          { key: "2000", createdAt: now },
+        ])
+      ).status,
+    ).toBe(400);
     const layouts = [
       { key: "1000", createdAt: old, pageKind: "confirm" as const },
-      { key: "2000", createdAt: old },
-      { key: "3000", createdAt: now },
+      { key: "2000", createdAt: now, pageKind: "confirm" as const },
+    ];
+    expect((await put(layouts)).status).toBe(200);
+    // No layout goes, and the recipe itself is never revoked as idle.
+    const { recipes } = await list(by);
+    expect(recipes.map((entry) => entry.change)).toEqual([
+      {
+        recipeId: "bank-signin",
+        revision: 1,
+        state: "active",
+        recipe: recipe("bank-signin", 1, "https://bank.example", layouts),
+      },
+    ]);
+  });
+
+  it("keeps an idle layout whose use arrives while it is removed (ADR 0060)", async () => {
+    const by = await owner();
+    const device = await pairDevice(by);
+    const now = Date.now();
+    const unusedBefore = now - 90 * 24 * 60 * 60 * 1000;
+    const layouts = [
+      { key: "1000", createdAt: unusedBefore - 1000 },
+      { key: "2000", createdAt: now },
     ];
     const stored = recipe("bank-signin", 1, "https://bank.example", layouts);
     const written = await deviceApi(device.credential, "/v1/recipes/bank-signin", {
@@ -977,16 +1099,46 @@ describe("owner web UI recipes", () => {
       body: JSON.stringify({ version: 1, expectedRevision: 0, state: "active", recipe: stored }),
     });
     expect(written.status).toBe(200);
-    // Only the idle sign-in layout goes; the recipe itself is never revoked as idle.
-    const { recipes } = await list(by);
-    expect(recipes.map((entry) => entry.change)).toEqual([
-      {
-        recipeId: "bank-signin",
-        revision: 2,
-        state: "active",
-        recipe: { ...stored, revision: 2, layouts: [stored.layouts[0], stored.layouts[2]] },
-      },
-    ]);
+    const ownerId = (await ownerIdFor(by.subject))!;
+    // The idle check read no use of layout 1000; a login reports one before it writes.
+    await env.DB.prepare(
+      "INSERT INTO recipe_layout_uses (owner_id, recipe_id, layout, last_used_at) VALUES (?, 'bank-signin', '1000', ?)",
+    )
+      .bind(ownerId, now)
+      .run();
+    const removal = (keys: string[]) =>
+      writeRecipe(
+        env.DB,
+        ownerId,
+        "bank-signin",
+        {
+          version: 1,
+          expectedRevision: 1,
+          state: "active",
+          recipe: { ...stored, revision: 2, layouts: stored.layouts.slice(1) },
+        },
+        null,
+        { used: false, idleLayouts: { keys, before: unusedBefore } },
+      );
+    expect(await removal(["1000"])).toMatchObject({ ok: false, limited: false });
+    const uses = () =>
+      env.DB.prepare("SELECT layout FROM recipe_layout_uses WHERE owner_id = ?")
+        .bind(ownerId)
+        .all()
+        .then(({ results }) => results);
+    expect(await uses()).toEqual([{ layout: "1000" }]);
+    // The refused removal keeps the layout's units, which the same batch would drop.
+    const layoutsWithUnits = async () => [
+      ...new Set((await unitSources(ownerId)).map((row) => row["layout"])),
+    ];
+    expect(await layoutsWithUnits()).toEqual(["1000", "2000"]);
+    // Once that use is old again, the removal wins and the use row goes with the layout.
+    await env.DB.prepare("UPDATE recipe_layout_uses SET last_used_at = ? WHERE owner_id = ?")
+      .bind(unusedBefore - 1, ownerId)
+      .run();
+    expect(await removal(["1000"])).toMatchObject({ ok: true, change: { revision: 2 } });
+    expect(await uses()).toEqual([]);
+    expect(await layoutsWithUnits()).toEqual(["2000"]);
   });
 
   it("lists the model and time of each layout's first page that the service generated (ADR 0060)", async () => {

@@ -324,7 +324,8 @@ async function generate(device: Device, page: LoginObservation, base?: unknown) 
   const response = await post(device, "/v1/recipes/generate", {
     version: 1,
     observation: page,
-    slots,
+    // A list of accounts is sent without slots (ADR 0028, owner 2026-10-23 11:48 UTC).
+    slots: page.accounts === undefined ? slots : [],
     // A first page that lists no accounts carries the signedIn hint (ADR 0035).
     ...(base === undefined ? (page.accounts === undefined ? { signedIn: false } : {}) : { base }),
   });
@@ -2017,7 +2018,8 @@ describe("custom-field slots (ADR 0027)", () => {
     const response = await post(device, "/v1/recipes/generate", {
       version: 1,
       observation: page,
-      slots: customSlots,
+      // A list of accounts is sent without slots (owner 2026-10-23 11:48 UTC).
+      slots: page.accounts ? [] : customSlots,
       ...(base === undefined ? (page.accounts ? {} : { signedIn: false }) : { base }),
     });
     expect(response.status).toBe(200);
@@ -2286,7 +2288,8 @@ describe("slot names carried from the saved bindings (ADR 0027, 2026-10-19)", ()
     const response = await post(device, "/v1/recipes/generate", {
       version: 1,
       observation: page,
-      slots: customSlots,
+      // A list of accounts is sent without slots (owner 2026-10-23 11:48 UTC).
+      slots: page.accounts ? [] : customSlots,
       ...(base === undefined ? (page.accounts ? {} : { signedIn: false }) : { base }),
       ...(branchName === undefined ? {} : { branch: branchName }),
     });
@@ -4790,6 +4793,9 @@ describe("account lists and chooser branches (ADR 0028)", () => {
     expect(JSON.parse(String(logged!["request"]))).toMatchObject({
       instructions: accountListGenerationInstructions,
     });
+    // It goes to the model, and to the log, without slots (owner 2026-10-23 11:48 UTC).
+    expect(JSON.stringify(sent[0]!.body)).toContain(String.raw`\"slots\":[]`);
+    expect(JSON.parse(String(logged!["request"]))).toMatchObject({ slots: [] });
     expect(await accountListGenerationPromptVersion()).not.toBe(await generationPromptVersion());
     expect(
       await rows(
@@ -5814,9 +5820,26 @@ describe("requests answered without a model call (ADR 0012)", () => {
       {
         version: 1,
         observation: { ...emailPage, accounts: ["[email]"] },
-        slots,
+        slots: [],
         signedIn: true,
       },
+      // A list of accounts carries no slot or value shape (owner 2026-10-23 11:48 UTC).
+      ...[
+        slots,
+        [
+          {
+            id: "username",
+            kind: "identifier",
+            description: "account username",
+            valueShape: { length: 8, classes: ["ascii-letter"], email: false },
+          },
+        ],
+        [{ id: "custom-1", kind: "identifier", description: "vault field", fieldName: "Branch" }],
+      ].map((offered) => ({
+        version: 1,
+        observation: { ...emailPage, accounts: ["[email]"] },
+        slots: offered,
+      })),
     ])
       // oxlint-disable-next-line no-await-in-loop -- Each body is refused on its own.
       expect((await post(device, "/v1/recipes/generate", body)).status).toBe(400);
@@ -6703,6 +6726,91 @@ describe("recipe layouts (ADR 0060)", () => {
     expect(
       await rows("SELECT layout, branch FROM inference_log WHERE owner_id = ?", device.ownerId),
     ).toEqual([{ layout: "1000", branch: "1000" }]);
+  });
+
+  it("keeps a continuation written during the call onto another layout's newer revision", async () => {
+    const device = await owner();
+    const { recipeId, document, together } = await twoLayouts(device);
+    const completion = [{ target: { by: "id" as const, value: "logout" } }];
+    // While the page of layout 1000 is generated, a judgement of layout 2000 on another
+    // device stores revision 2.
+    during = async () => {
+      const put = await post(
+        device,
+        `/v1/recipes/${recipeId}`,
+        {
+          version: 1,
+          expectedRevision: 1,
+          state: "active",
+          recipe: {
+            ...document,
+            revision: 2,
+            layouts: [document.layouts[0], { ...together, completion }],
+          },
+        },
+        "PUT",
+      );
+      expect(put.status).toBe(200);
+    };
+    replies.push({ text: plan([["password", "password"]], "sign-in", "submit") });
+    expect(await continueAs(device, recipeId, "1000")).toMatchObject({
+      status: "recipe",
+      change: { revision: 3 },
+    });
+    // The paid answer lands on the newer revision, which keeps the other layout's marker.
+    expect(await storedHead(device.ownerId, recipeId)).toMatchObject({
+      revision: 3,
+      layouts: [
+        { key: "1000", slots: ["email", "password"] },
+        { key: "2000", completion },
+      ],
+    });
+    expect(sent).toHaveLength(1);
+    // The rebased write records its page at the step it starts on, with the digest of that
+    // page in the revision it stored (ADR 0060).
+    const recorded = (await rows(
+      "SELECT layout, unit, digest FROM recipe_unit_sources WHERE owner_id = ? AND recipe_id = ? AND origin = 'generated' AND revision = 3",
+      device.ownerId,
+      recipeId,
+    )) as { layout: string | null; unit: string; digest: string }[];
+    expect(recorded.map(({ layout, unit }) => ({ layout, unit }))).toEqual([
+      { layout: "1000", unit: "page:2" },
+    ]);
+    const units = await documentUnits(
+      (await storedHead(device.ownerId, recipeId)) as StoredLoginRecipe,
+      recorded,
+    );
+    expect(units).toContainEqual(recorded[0]);
+    // A write of the continued layout itself meanwhile still wins over the page.
+    const other = await owner();
+    const second = await twoLayouts(other);
+    during = async () => {
+      const put = await post(
+        other,
+        `/v1/recipes/${second.recipeId}`,
+        {
+          version: 1,
+          expectedRevision: 1,
+          state: "active",
+          recipe: {
+            ...second.document,
+            revision: 2,
+            layouts: [{ ...second.email, completion }, second.together],
+          },
+        },
+        "PUT",
+      );
+      expect(put.status).toBe(200);
+    };
+    replies.push({ text: plan([["password", "password"]], "sign-in", "submit") });
+    expect(await continueAs(other, second.recipeId, "1000")).toMatchObject({
+      status: "recipe",
+      change: { revision: 2 },
+    });
+    expect(await storedHead(other.ownerId, second.recipeId)).toMatchObject({
+      revision: 2,
+      layouts: [{ key: "1000", slots: ["email"], completion }, { key: "2000" }],
+    });
   });
 
   it("refuses to continue a layout the recipe does not have, or one that submitted", async () => {

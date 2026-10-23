@@ -3,6 +3,7 @@ import * as v from "valibot";
 import {
   parseLoginRecipe,
   routeBodyOf,
+  storedLoginRecipeSchema,
   toLoginLayout,
   type LoginRecipe,
   type LoginRecipeDocument,
@@ -15,6 +16,9 @@ import {
   fillLoginBinding,
   findLoginBinding,
   loginDisplayNames,
+  languageDecides,
+  layoutFirstSteps,
+  layoutShown,
   layoutStartTargets,
   loginLayoutCandidates,
   loginRecipesForOrigin,
@@ -175,7 +179,7 @@ describe("recipe selection", () => {
     );
   });
 
-  it("ranks layouts by visible start elements, then the page's language, then age", () => {
+  it("ranks layouts by a first step shown whole, missing and shown elements, language, age", () => {
     const route = recipe("bank-signin", "/login");
     const candidates = loginLayoutCandidates({
       ...stored(route, 1000, 2000, 3000),
@@ -186,16 +190,52 @@ describe("recipe selection", () => {
       ],
     });
     expect(candidates.map((candidate) => candidate.language)).toEqual(["ja", "en", undefined]);
-    const order = (shown: number[], language?: "ja" | "en" | "mixed") =>
+    const shows = (starts: boolean, shown: number, missing = 0) => ({ starts, shown, missing });
+    const order = (shown: ReturnType<typeof shows>[], language?: "ja" | "en" | "mixed") =>
       rankLayouts(candidates, shown, language).map((candidate) => candidate.recipe.layout);
-    // The most visible start elements win; the rest drop out.
-    expect(order([2, 1, 1])).toEqual(["1000"]);
-    expect(order([1, 2, 2])).toEqual(["3000", "2000"]);
+    // A layout one of whose first steps shows whole goes first, whatever the counts.
+    expect(order([shows(false, 4, 1), shows(true, 2, 1), shows(false, 1)])).toEqual(["2000"]);
+    // Then the fewest missing start elements, however many more another shows.
+    expect(order([shows(true, 4, 1), shows(true, 3), shows(true, 3)])).toEqual(["3000", "2000"]);
+    // Then the most shown; the rest drop out.
+    expect(order([shows(true, 2), shows(true, 1), shows(true, 1)])).toEqual(["1000"]);
     // On a tie, the page's language first, then the newest.
-    expect(order([1, 1, 1], "ja")).toEqual(["1000", "3000", "2000"]);
-    expect(order([1, 1, 1], "en")).toEqual(["2000", "3000", "1000"]);
-    expect(order([1, 1, 1], "mixed")).toEqual(["3000", "2000", "1000"]);
-    expect(order([0, 0, 0])).toEqual(["3000", "2000", "1000"]);
+    const tie = [shows(true, 1), shows(true, 1), shows(true, 1)];
+    expect(order(tie, "ja")).toEqual(["1000", "3000", "2000"]);
+    expect(order(tie, "en")).toEqual(["2000", "3000", "1000"]);
+    expect(order(tie, "mixed")).toEqual(["3000", "2000", "1000"]);
+    expect(order([shows(false, 0), shows(false, 0), shows(false, 0)])).toEqual([
+      "3000",
+      "2000",
+      "1000",
+    ]);
+    // The language is read only when the best ones differ in it.
+    expect(languageDecides(rankLayouts(candidates, tie))).toBe(true);
+    expect(languageDecides(rankLayouts(candidates, [shows(true, 2), ...tie.slice(1)]))).toBe(false);
+  });
+
+  it("measures a layout against what the page shows", () => {
+    const route = parseLoginRecipe({
+      ...recipe("bank-signin", "/login"),
+      steps: [
+        { kind: "fill", path: "/login", fields: [{ slot: "username", target: target("user") }] },
+        { kind: "click", path: "/login", target: target("login"), purpose: "submit" },
+      ],
+      passkey: { path: "/login", target: target("passkey") },
+    });
+    expect(layoutFirstSteps(route)).toEqual([[target("passkey")], [target("user")]]);
+    const page =
+      (shown: string[], asked = ["passkey", "user", "login"]) =>
+      (asking: { value: string }) =>
+        asked.includes(asking.value) ? shown.includes(asking.value) : undefined;
+    const measure = (shown: string[], asked?: string[]) =>
+      layoutShown(layoutFirstSteps(route), layoutStartTargets(route), page(shown, asked));
+    expect(measure(["user", "login"])).toEqual({ starts: true, shown: 2, missing: 1 });
+    expect(measure(["login"])).toEqual({ starts: false, shown: 1, missing: 2 });
+    // An element the page was not asked about counts as neither.
+    expect(measure(["user"], ["user"])).toEqual({ starts: true, shown: 1, missing: 0 });
+    // A first step that waits for an element to go shows no start.
+    expect(layoutShown([[]], [], () => true)).toEqual({ starts: false, shown: 0, missing: 0 });
   });
 
   it("never lists or starts a recipe generated as confirm or unclear (ADR 0035)", () => {
@@ -212,7 +252,7 @@ describe("recipe selection", () => {
     });
   });
 
-  it("offers only the layouts generated as sign-in (ADR 0035, ADR 0060)", () => {
+  it("keeps one page kind for every layout of a recipe (ADR 0035, ADR 0060)", () => {
     const route = recipe("bank-signin", "/login");
     const mixed: LoginRecipeDocument = {
       ...stored(route, 1000),
@@ -221,12 +261,17 @@ describe("recipe selection", () => {
         toLoginLayout({ ...route, pageKind: "confirm" }, { key: "2000", createdAt: 2000 }),
       ],
     };
-    expect(loginLayoutCandidates(mixed).map((candidate) => candidate.recipe.layout)).toEqual([
-      "1000",
-    ]);
-    expect(selectLoginRecipe([mixed], origin, "/login")).toMatchObject({
-      ok: true,
-      recipe: { layout: "1000" },
+    // A document mixing kinds is never stored or synced, so a recipe runs, or not, whole.
+    expect(v.is(storedLoginRecipeSchema, mixed)).toBe(false);
+    const confirm: LoginRecipeDocument = {
+      ...mixed,
+      layouts: mixed.layouts.map((layout) => ({ ...layout, pageKind: "confirm" as const })),
+    };
+    expect(v.is(storedLoginRecipeSchema, confirm)).toBe(true);
+    expect(loginLayoutCandidates(confirm)).toEqual([]);
+    expect(selectLoginRecipe([confirm], origin, "/login")).toEqual({
+      ok: false,
+      reason: "recipe-not-found",
     });
   });
 

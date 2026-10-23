@@ -20,6 +20,8 @@ export const serviceEn = {
   "This service does not accept this build of Pateat. Its operator must add this extension's ID to PAIRING_EXTENSION_IDS.":
     "This service does not accept this build of Pateat. Its operator must add this extension's ID to PAIRING_EXTENSION_IDS.",
   "Pairing is not configured on this service.": "Pairing is not configured on this service.",
+  "The service could not check your sign-in. Try again later.":
+    "The service could not check your sign-in. Try again later.",
   "The connection changed elsewhere. This page now shows its current state.":
     "The connection changed elsewhere. This page now shows its current state.",
   "That request was not valid.": "That request was not valid.",

@@ -126,7 +126,8 @@ export type PairResult =
         | TransportFailure
         | "sign-in-rejected"
         | "extension-not-allowed"
-        | "pairing-unavailable";
+        | "pairing-unavailable"
+        | "access-keys-unavailable";
     };
 
 export type RevokeResult = { kind: "revoked" } | { kind: "failed"; error: TransportFailure };
@@ -488,6 +489,8 @@ export function createServiceTransport(
         return { kind: "failed", error: "sign-in-rejected" };
       if (response.status === 403 && code === "extension_not_allowed")
         return { kind: "failed", error: "extension-not-allowed" };
+      if (response.status === 503 && code === "access_keys_unavailable")
+        return { kind: "failed", error: "access-keys-unavailable" };
       if (response.status === 503) return { kind: "failed", error: "pairing-unavailable" };
       if (response.status === 429) return { kind: "failed", error: "rate-limited" };
       return { kind: "failed", error: "unexpected-response" };

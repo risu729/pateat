@@ -203,7 +203,29 @@ Pateat's rule is `besideForm` in `packages/inference/src/plan.ts`
   ([two-factor-auth-email.component.ts](https://github.com/bitwarden/clients/blob/86f41566aebe5a024796df8abfb3d4d89ec509c1/libs/auth/src/angular/two-factor-auth/child-components/two-factor-auth-email/two-factor-auth-email.component.ts#L121-L167)).
   Pateat shows that the server is limiting code emails, that it cannot send them, that
   it refused, or that the request failed.
-- A rejected code ends Pateat's sign-in, as it did before email codes were sent, so the
-  next attempt starts a new sign-in and sends a new code; the official page shows
-  "invalid verification code" and keeps the sign-in for another try
-  ([two-factor-auth.component.ts](https://github.com/bitwarden/clients/blob/86f41566aebe5a024796df8abfb3d4d89ec509c1/libs/auth/src/angular/two-factor-auth/two-factor-auth.component.ts#L338-L353)).
+
+## Two-step sign-in timeout
+
+Pateat's side is the settings page's Bitwarden panel
+([Architecture](architecture.md#unsupported-bitwarden-sign-in-cases)). Official code is
+pinned at
+[`86f4156`](https://github.com/bitwarden/clients/tree/86f41566aebe5a024796df8abfb3d4d89ec509c1).
+
+- Both end a sign-in that waits for a two-step or new-device code after 5 minutes,
+  counted once; a refused code keeps the same end in both. The official clients start
+  the 5 minutes when the password grant answers with a challenge
+  ([login-strategy.service.ts](https://github.com/bitwarden/clients/blob/86f41566aebe5a024796df8abfb3d4d89ec509c1/libs/auth/src/common/services/login-strategies/login-strategy.service.ts#L194-L200));
+  Pateat starts them at the press of Connect or Sign in and sync, before the prelogin,
+  the password derivation and the grant, so its wait is shorter by those seconds.
+- The official two-step page shows no end time
+  ([two-factor-auth.component.ts](https://github.com/bitwarden/clients/blob/86f41566aebe5a024796df8abfb3d4d89ec509c1/libs/auth/src/angular/two-factor-auth/two-factor-auth.component.ts#L270-L285));
+  Pateat's code screen says "Enter the code by 8:26 PM", because a person who leaves to
+  fetch an email code otherwise cannot tell that the sign-in will end.
+- When the time is up, the official extension opens a separate "Authentication timeout"
+  page that says "The authentication session timed out. Please restart the login
+  process." with a Log in button
+  ([authentication-timeout.component.ts](https://github.com/bitwarden/clients/blob/86f41566aebe5a024796df8abfb3d4d89ec509c1/libs/angular/src/auth/components/authentication-timeout.component.ts#L18-L25),
+  [messages.json](https://github.com/bitwarden/clients/blob/86f41566aebe5a024796df8abfb3d4d89ec509c1/apps/browser/src/_locales/en/messages.json#L1901-L1906)).
+  Pateat keeps the sign-in form, where the master password goes, and says next to it
+  when the sign-in timed out, or that it ended early because Pateat's background
+  stopped, since its waiting sign-in lives in a service worker Chrome can stop.

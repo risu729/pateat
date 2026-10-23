@@ -2,6 +2,7 @@ import { extensionIdSchema } from "@pateat/contracts";
 import type { Context } from "hono";
 import { createMiddleware } from "hono/factory";
 import { Jwt } from "hono/utils/jwt";
+import type { HonoJsonWebKey } from "hono/utils/jwt/jws";
 import * as v from "valibot";
 import type { ApiEnv } from "./auth";
 import { apiError } from "./http";
@@ -9,7 +10,42 @@ import { message } from "./pages";
 
 const TEAM_DOMAIN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.cloudflareaccess\.com$/;
 
-type AccessFailure = "unconfigured" | "missing" | "rejected";
+/** How long one fetch of the team's public keys may take before the request fails. */
+const KEYS_TIMEOUT_MS = 5_000;
+
+type AccessFailure = "unconfigured" | "missing" | "rejected" | "keys-unavailable";
+
+const keySetSchema = v.object({ keys: v.array(v.looseObject({ kty: v.string() })) });
+
+/**
+ * The team's public signing keys, or null when they cannot be fetched. An outage is not
+ * a refused sign-in: the request fails without verifying anything.
+ */
+async function accessKeys(issuer: string): Promise<HonoJsonWebKey[] | null> {
+  try {
+    const response = await fetch(`${issuer}/cdn-cgi/access/certs`, {
+      signal: AbortSignal.timeout(KEYS_TIMEOUT_MS),
+      // Edge-cache the public keys briefly instead of fetching them on every page.
+      // A rotated key may be refused for up to this long after first use.
+      cf: { cacheTtl: 300, cacheEverything: true },
+    });
+    if (!response.ok) {
+      await response.body?.cancel();
+      console.warn("Access signing keys unavailable", response.status);
+      return null;
+    }
+    const parsed = v.safeParse(keySetSchema, await response.json());
+    if (parsed.success) return parsed.output.keys as HonoJsonWebKey[];
+    console.warn("Access signing keys unavailable", "malformed");
+    return null;
+  } catch (error) {
+    console.warn(
+      "Access signing keys unavailable",
+      error instanceof Error ? error.name : "unknown",
+    );
+    return null;
+  }
+}
 
 /**
  * Verifies the Cloudflare Access application token on browser-facing owner routes.
@@ -35,19 +71,15 @@ function accessGuard(
     if (!token) return refuse(c, "missing");
 
     const issuer = `https://${teamDomain}`;
+    const keys = await accessKeys(issuer);
+    if (!keys) return refuse(c, "keys-unavailable");
     let subject: unknown;
     try {
-      const payload = await Jwt.verifyWithJwks(
-        token,
-        {
-          jwks_uri: `${issuer}/cdn-cgi/access/certs`,
-          allowedAlgorithms: ["RS256"],
-          verification: { iss: issuer, aud: audience },
-        },
-        // Edge-cache the public keys briefly instead of fetching them on every page.
-        // A rotated key may be refused for up to this long after first use.
-        { cf: { cacheTtl: 300, cacheEverything: true } },
-      );
+      const payload = await Jwt.verifyWithJwks(token, {
+        keys,
+        allowedAlgorithms: ["RS256"],
+        verification: { iss: issuer, aud: audience },
+      });
       // Hono checks `exp` only when present; Access tokens always carry it.
       subject = typeof payload.exp === "number" ? payload["sub"] : undefined;
     } catch (error) {
@@ -63,19 +95,29 @@ function accessGuard(
 }
 
 function refusePage(c: Context<ApiEnv>, failure: AccessFailure) {
-  return failure === "unconfigured"
-    ? message(c, 503, "Unavailable", "Owner sign-in is not configured for this service.")
-    : failure === "missing"
-      ? message(c, 401, "Sign in required", "Open this page through Cloudflare Access.")
-      : message(c, 403, "Access denied", "Your sign-in could not be verified.");
+  switch (failure) {
+    case "unconfigured":
+      return message(c, 503, "Unavailable", "Owner sign-in is not configured for this service.");
+    case "keys-unavailable":
+      return message(c, 503, "Unavailable", "Your sign-in could not be checked. Try again later.");
+    case "missing":
+      return message(c, 401, "Sign in required", "Open this page through Cloudflare Access.");
+    case "rejected":
+      return message(c, 403, "Access denied", "Your sign-in could not be verified.");
+  }
 }
 
 function refuseApi(c: Context<ApiEnv>, failure: AccessFailure) {
-  return failure === "unconfigured"
-    ? apiError(c, 503, { error: "access_unavailable" })
-    : failure === "missing"
-      ? apiError(c, 401, { error: "unauthorized" })
-      : apiError(c, 403, { error: "forbidden" });
+  switch (failure) {
+    case "unconfigured":
+      return apiError(c, 503, { error: "access_unavailable" });
+    case "keys-unavailable":
+      return apiError(c, 503, { error: "access_keys_unavailable" });
+    case "missing":
+      return apiError(c, 401, { error: "unauthorized" });
+    case "rejected":
+      return apiError(c, 403, { error: "forbidden" });
+  }
 }
 
 /** For server-rendered owner pages: failures are explained as pages. */

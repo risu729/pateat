@@ -78,6 +78,8 @@ export const serviceErrorCodeSchema = v.picklist([
   "extension-not-allowed",
   /** The service has no pairing configuration. */
   "pairing-unavailable",
+  /** The service could not fetch the keys it checks sign-ins with; try again later. */
+  "access-keys-unavailable",
 ]);
 
 export const serviceResponseSchema = v.variant("ok", [

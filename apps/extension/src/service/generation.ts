@@ -1,5 +1,6 @@
 import {
   customSlotIdSchema,
+  parseRecipeBranch,
   recipeBranchSchema,
   storedLayoutRecipe,
   PAGE_SAMPLE_INTERVAL_MS,
@@ -51,26 +52,18 @@ const failedBeforeModel = new Set<string>([
 
 /** The recipe revision a page continues after its final `advance` step (ADR 0018). */
 type GenerationBase = NonNullable<RecipeGenerationRequest["base"]>;
+/** The layout key a branch name holds (ADR 0060), if any. */
+const layoutOf = (branch: string | undefined) =>
+  branch === undefined ? undefined : parseRecipeBranch(branch)?.layout;
+/** Whether a branch name names a chooser's branch (ADR 0028). */
+const chooserBranchOf = (branch: string | undefined) =>
+  branch !== undefined && parseRecipeBranch(branch)?.branch !== undefined;
 /**
  * Each origin and path claimed for generation: `sending` while its request is in flight,
  * `sent` once an answer showed the request reached the model (ADR 0016). A page that
  * continues a recipe is claimed under that recipe revision, not under its path alone
  * (ADR 0018), as the service's own rule does.
  */
-/**
- * A branch name as `recipeBranch` gives it: a layout key, a chooser branch, or both (ADR
- * 0060); the service's contract takes only those with a layout.
- */
-const branchName = v.pipe(
-  v.string(),
-  v.regex(/^(?:\d{1,16}(?::(?:account|other))?|account|other)$/u),
-);
-/** The layout key a branch name holds, if any. */
-const layoutOf = (branch: string | undefined) =>
-  branch?.split(":").find((part) => /^\d+$/u.test(part));
-/** Whether a branch name names a chooser's branch (ADR 0028). */
-const chooserBranchOf = (branch: string | undefined) =>
-  branch !== undefined && /(?:^|:)(?:account|other)$/u.test(branch);
 const attemptsSchema = v.strictObject({
   version: v.literal(1),
   attempts: v.pipe(
@@ -89,7 +82,7 @@ const attemptsSchema = v.strictObject({
          * The layout it continues (ADR 0060), and for a chooser's page (ADR 0028) the branch,
          * as `recipeBranch` names them.
          */
-        branch: v.optional(branchName),
+        branch: v.optional(recipeBranchSchema),
         at: v.pipe(v.number(), v.integer(), v.minValue(0)),
       }),
     ),
@@ -152,7 +145,7 @@ const samplesSchema = v.strictObject({
         service: v.pipe(v.string(), v.maxLength(2048)),
         deviceId: v.pipe(v.string(), v.maxLength(200)),
         recipeId: syncRecipeIdSchema,
-        branch: v.optional(branchName),
+        branch: v.optional(recipeBranchSchema),
         at: v.pipe(v.number(), v.integer(), v.minValue(0)),
       }),
     ),
@@ -683,7 +676,9 @@ export function createLoginGeneration(options: {
       // `totp` is offered only for a page with a code field, so the slots never tell the
       // model whether an account has TOTP (ADR 0027).
       const slots = slotsForPage(input.observation, input.slots);
-      if (!slots.length && !input.passkeyOnly) return { outcome: "skipped", reason: "no-slots" };
+      // A passkey-only page and a list of accounts (ADR 0028) are sent without slots.
+      if (!slots.length && !input.passkeyOnly && input.observation.accounts === undefined)
+        return { outcome: "skipped", reason: "no-slots" };
       const request = { ...input, slots };
       const { base, branch } = request;
       const claim = await claimed(request.observation, base, branch, sent, (connection) =>

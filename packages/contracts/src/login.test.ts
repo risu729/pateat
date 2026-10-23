@@ -52,6 +52,7 @@ import {
   layoutRecipe,
   loginChooserDocumentSchema,
   loginRecipeDocumentSchema,
+  MAX_RECIPE_DOCUMENT_BYTES,
   MAX_RECIPE_LAYOUTS,
   newestLayout,
   newLayoutKey,
@@ -2692,6 +2693,118 @@ describe("recipe layouts (ADR 0060)", () => {
       );
   });
 
+  it("keeps one page kind, and slots one binding holds, over every layout", () => {
+    const one = document();
+    // All layouts share the start page, so they share its kind (ADR 0035).
+    expect(
+      v.is(storedLoginRecipeSchema, {
+        ...one,
+        layouts: [...one.layouts, second({ pageKind: "confirm" })],
+      }),
+    ).toBe(false);
+    expect(
+      v.is(storedLoginRecipeSchema, {
+        ...one,
+        layouts: [{ ...one.layouts[0]!, pageKind: "confirm" }, second({ pageKind: "confirm" })],
+      }),
+    ).toBe(true);
+    // A binding is kept per recipe and holds at most 20 slots, so the layouts' slots
+    // together fit one.
+    const filling = (names: string[], key: string) =>
+      toLoginLayout(
+        {
+          ...recipe(),
+          slots: names,
+          steps: [
+            {
+              kind: "fill",
+              effect: "prepare",
+              path: "/identity",
+              fields: names.map((name) => ({ slot: name, target: { by: "id", value: name } })),
+            },
+            {
+              kind: "click",
+              path: "/identity",
+              target: { by: "id", value: "next" },
+              purpose: "submit",
+            },
+          ],
+          completion: undefined,
+          rejection: undefined,
+          maxSubmissions: 1,
+        },
+        { key, createdAt: Number(key) },
+      );
+    const names = (prefix: string, count: number) =>
+      Array.from({ length: count }, (_, index) => `${prefix}${index + 1}`);
+    const fits = (left: number, right: number) =>
+      v.is(storedLoginRecipeSchema, {
+        ...one,
+        layouts: [filling(names("a", left), "1000"), filling(names("b", right), "2000")],
+      });
+    expect(fits(10, 10)).toBe(true);
+    expect(fits(10, 11)).toBe(false);
+    // A slot both layouts fill counts once.
+    expect(
+      v.is(storedLoginRecipeSchema, {
+        ...one,
+        layouts: [filling(names("a", 20), "1000"), filling(names("a", 20), "2000")],
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps a document small enough for a device to write back", () => {
+    // A start path and text targets at their longest, on every step of every variant.
+    const start = `/${"a".repeat(299)}`;
+    const text = (value: string) => ({ by: "text" as const, value: value.padEnd(120, "x") });
+    const variant = (name: string) => ({
+      slots: [name],
+      steps: [
+        {
+          kind: "fill" as const,
+          effect: "prepare" as const,
+          path: start,
+          fields: [{ slot: name, target: { by: "id" as const, value: name } }],
+        },
+        ...Array.from({ length: 30 }, (_, index) => ({
+          kind: "assert" as const,
+          path: start,
+          target: text(`${name}-${index}`),
+          present: true,
+        })),
+        {
+          kind: "click" as const,
+          path: start,
+          target: text(`${name}-go`),
+          purpose: "submit" as const,
+        },
+      ],
+    });
+    const layout = (key: string) => {
+      const [first, ...alternatives] = ["a", "b", "c", "d"].map((name) => variant(`${key}${name}`));
+      return toLoginLayout(
+        {
+          ...recipe(),
+          ...first!,
+          alternatives,
+          completion: undefined,
+          rejection: undefined,
+          maxSubmissions: 1,
+        },
+        { key, createdAt: Number(key) },
+      );
+    };
+    const sized = (keys: string[]) => ({ ...document(), layouts: keys.map(layout) });
+    expect(v.is(storedLoginRecipeSchema, sized(["1000"]))).toBe(true);
+    const large = sized(["1000", "2000", "3000"]);
+    expect(new TextEncoder().encode(JSON.stringify(large)).byteLength).toBeGreaterThan(
+      MAX_RECIPE_DOCUMENT_BYTES,
+    );
+    expect(
+      v.safeParse(storedLoginRecipeSchema, large).issues?.map((issue) => issue.message),
+    ).toContain("Recipe document too large");
+  });
+
   it("checks each layout's route by the rules of a recipe a login runs", () => {
     const one = document();
     const layout = one.layouts[0]!;
@@ -2752,6 +2865,9 @@ describe("recipe layouts (ADR 0060)", () => {
     for (const key of ["3000", "4000"])
       full = withLoginLayout(full, { ...second(), key, createdAt: Number(key) });
     expect(v.is(loginRecipeDocumentSchema, full)).toBe(false);
+    // A layout of another page kind replaces every layout: the start page is now that kind.
+    const confirm = second({ pageKind: "confirm" });
+    expect(withLoginLayout(added, confirm)).toEqual({ ...added, layouts: [confirm] });
   });
 
   it("removes a layout as the next revision, never the last one", () => {
@@ -2779,8 +2895,6 @@ describe("recipe layouts (ADR 0060)", () => {
   it("names a layout's route, and a chooser layout's branch, by one branch name", () => {
     expect(recipeBranch("1000")).toBe("1000");
     expect(recipeBranch("1000", "account")).toBe("1000:account");
-    expect(recipeBranch(undefined, "other")).toBe("other");
-    expect(recipeBranch(undefined)).toBeUndefined();
     expect(parseRecipeBranch("1000")).toEqual({ layout: "1000" });
     expect(parseRecipeBranch("1000:other")).toEqual({ layout: "1000", branch: "other" });
     for (const value of ["", "account", "1000:", "1000:both", "x1000"])
