@@ -1,8 +1,10 @@
 import { bitwardenJa } from "./bitwarden-ja";
 import type { en } from "./en";
+import { settingsJa } from "./settings-ja";
 
 export const ja = {
   ...bitwardenJa,
+  ...settingsJa,
   Language: "言語",
   "Browser setting": "ブラウザーの設定に従う",
   Pateat: "Pateat",
