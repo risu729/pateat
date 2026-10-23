@@ -59,6 +59,7 @@ const localConnection = {
 const settingsOf = (parts: Partial<LocalSettings> = {}): LocalSettings => ({
   connections: [],
   excludedSites: [],
+  passkeyBrowserSites: [],
   repromptSites: [],
   siteDefaults: [],
   bindings: [],
@@ -213,6 +214,7 @@ describe("settings sync on a new pairing", () => {
     const merged = {
       excludedSites: [site("intranet.example")],
       repromptSites: [],
+      passkeyBrowserSites: [],
       siteDefaults: [account("https://bank.example"), account("https://shop.example")],
       bindings: [binding("https://bank.example")],
     };
@@ -239,6 +241,7 @@ describe("settings sync on a new pairing", () => {
     const merged = {
       excludedSites: [site("intranet.example")],
       repromptSites: [],
+      passkeyBrowserSites: [],
       siteDefaults: [],
       bindings: [binding("https://bank.example"), binding("https://local.example")],
     };
@@ -341,6 +344,7 @@ describe("settings sync after the first", () => {
         // Removed on the service.
         excludedSites: [],
         repromptSites: [],
+        passkeyBrowserSites: [],
         bindings: [...agreed.bindings, binding("https://shop.example")],
       }),
       base: baseOf(4, agreed),
@@ -349,6 +353,7 @@ describe("settings sync after the first", () => {
     const merged = settingsOf({
       excludedSites: [],
       repromptSites: [],
+      passkeyBrowserSites: [],
       siteDefaults: [account("https://bank.example"), account("https://shop.example")],
       bindings: [binding("https://bank.example"), binding("https://shop.example")],
     });
@@ -372,6 +377,7 @@ describe("settings sync after the first", () => {
     });
     expect(mergeSyncedSettings({ service: base, local: base }, local, service)).toEqual({
       excludedSites: [site("intranet.example")],
+      passkeyBrowserSites: [],
       repromptSites: [],
       siteDefaults: [account("https://bank.example", "item-service")],
       bindings: [binding("https://bank.example", "totp")],
@@ -411,6 +417,35 @@ describe("settings sync after the first", () => {
     expect(await sync.run(CONNECTION, never)).toBe("synced");
     expect(transport.saveSettings).not.toHaveBeenCalled();
     expect(after()!.revision).toBe(revision);
+  });
+
+  it("syncs the sites whose passkey requests go to the browser, per hostname", async () => {
+    const withSites = {
+      ...agreed,
+      passkeyBrowserSites: [{ hostname: "bank.example" }, { hostname: "shop.example" }],
+    };
+    const {
+      sync,
+      service,
+      local: after,
+    } = setup({
+      // Added on this device by "Always for this site", and one removed in its settings.
+      local: { ...withSites, passkeyBrowserSites: [{ hostname: "new.example" }] },
+      // Another device added one meanwhile.
+      service: state(5, {
+        ...withSites,
+        passkeyBrowserSites: [...withSites.passkeyBrowserSites, { hostname: "other.example" }],
+      }),
+      base: baseOf(4, withSites),
+    });
+    expect(await sync.run(CONNECTION, never)).toBe("synced");
+    const sorted = (sites: { hostname: string }[] | undefined) =>
+      sites?.map((entry) => entry.hostname).sort();
+    expect(sorted(service().settings?.passkeyBrowserSites)).toEqual([
+      "new.example",
+      "other.example",
+    ]);
+    expect(sorted(after()?.settings.passkeyBrowserSites)).toEqual(["new.example", "other.example"]);
   });
 
   it("removes an entry deleted on this device from the service", async () => {

@@ -28,6 +28,7 @@ export const MAX_SETTINGS_DEFER_MS = 2 * 60 * 1000;
 
 type SiteDefault = LocalSettings["siteDefaults"][number];
 type ExcludedSite = LocalSettings["excludedSites"][number];
+type PasskeyBrowserSite = LocalSettings["passkeyBrowserSites"][number];
 type Binding = LocalSettings["bindings"][number];
 
 /**
@@ -36,6 +37,7 @@ type Binding = LocalSettings["bindings"][number];
  */
 export type SyncedSettings = {
   excludedSites: ExcludedSite[];
+  passkeyBrowserSites: PasskeyBrowserSite[];
   repromptSites: ExcludedSite[];
   siteDefaults: SiteDefault[];
   bindings: Binding[];
@@ -44,6 +46,7 @@ export type SyncedSettings = {
 export function syncedSettings(settings: LocalSettings): SyncedSettings {
   return {
     excludedSites: settings.excludedSites,
+    passkeyBrowserSites: settings.passkeyBrowserSites,
     repromptSites: settings.repromptSites,
     siteDefaults: settings.siteDefaults,
     bindings: settings.bindings,
@@ -52,6 +55,7 @@ export function syncedSettings(settings: LocalSettings): SyncedSettings {
 
 const emptySynced: SyncedSettings = {
   excludedSites: [],
+  passkeyBrowserSites: [],
   repromptSites: [],
   siteDefaults: [],
   bindings: [],
@@ -114,7 +118,7 @@ export type SettingsSyncOutcome =
   | "storage-unavailable"
   | TransportFailure;
 
-const siteKey = (entry: ExcludedSite) => entry.hostname;
+const siteKey = (entry: ExcludedSite | PasskeyBrowserSite) => entry.hostname;
 const defaultKey = (entry: SiteDefault) => entry.origin;
 const bindingKey = (entry: Binding) =>
   JSON.stringify([entry.recipeId, entry.origin, entry.provider, entry.userId, entry.itemId]);
@@ -160,6 +164,12 @@ export function mergeSyncedSettings(
       part("excludedSites"),
       local.excludedSites,
       service.excludedSites,
+      siteKey,
+    ),
+    passkeyBrowserSites: mergeEntries(
+      part("passkeyBrowserSites"),
+      local.passkeyBrowserSites,
+      service.passkeyBrowserSites,
       siteKey,
     ),
     repromptSites: mergeEntries(
@@ -209,6 +219,7 @@ export function refreshDisplayNames(synced: SyncedSettings, catalog: VaultCatalo
   }
   return {
     excludedSites: synced.excludedSites,
+    passkeyBrowserSites: synced.passkeyBrowserSites,
     repromptSites: synced.repromptSites,
     siteDefaults: synced.siteDefaults.map((entry) => refresh(entry, siteDefaultSchema)),
     bindings: synced.bindings.map((entry) => refresh(entry, savedLoginBindingSchema)),
@@ -227,6 +238,7 @@ function equalSynced(left: SyncedSettings, right: SyncedSettings): boolean {
     entries.map((entry) => [key(entry), entry] as const).sort(([a], [b]) => (a < b ? -1 : 1));
   return (
     same(sorted(left.excludedSites, siteKey), sorted(right.excludedSites, siteKey)) &&
+    same(sorted(left.passkeyBrowserSites, siteKey), sorted(right.passkeyBrowserSites, siteKey)) &&
     same(sorted(left.repromptSites, siteKey), sorted(right.repromptSites, siteKey)) &&
     same(sorted(left.siteDefaults, defaultKey), sorted(right.siteDefaults, defaultKey)) &&
     same(sorted(left.bindings, bindingKey), sorted(right.bindings, bindingKey))

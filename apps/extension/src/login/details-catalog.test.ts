@@ -43,6 +43,7 @@ const settings: LocalSettings = {
   ],
   excludedSites: [],
   repromptSites: [],
+  passkeyBrowserSites: [],
   siteDefaults: [],
   bindings: [],
 };
