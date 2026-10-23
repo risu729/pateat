@@ -90,6 +90,8 @@ export const app = new Hono<ApiEnv>()
   .all("/manage/request-log", methodNotAllowed("GET"))
   .get("/manage/models", requireAccess, appPage)
   .all("/manage/models", methodNotAllowed("GET"))
+  .get("/manage/profiles", requireAccess, appPage)
+  .all("/manage/profiles", methodNotAllowed("GET"))
   .get("/manage/sites", requireAccess, appPage)
   .all("/manage/sites", methodNotAllowed("GET"))
   // One site's page, for the origin `<scheme>://<host>`; the app checks the host.

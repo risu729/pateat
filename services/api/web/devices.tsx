@@ -79,25 +79,27 @@ export function DevicesPage({ client }: { client: ManageClient }) {
                   title={label}
                   sub={`Paired ${paired}, last used ${formatTime(device.lastUsedAt)}${revoked}`}
                 />
-                {device.revokedAt === null && profiles.data && (
-                  <label>
-                    Profile
-                    <select
-                      aria-label={`Profile for ${label}`}
-                      value={device.profileId}
-                      disabled={assign.isPending}
-                      onChange={(event) =>
-                        assign.mutate({ deviceId: device.id, profileId: event.target.value })
-                      }
-                    >
-                      {profiles.data.profiles.map((profile) => (
-                        <option key={profile.id} value={profile.id}>
-                          {profile.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                )}
+                {device.revokedAt === null &&
+                  profiles.data &&
+                  profiles.data.profiles.length > 1 && (
+                    <label>
+                      Profile
+                      <select
+                        aria-label={`Profile for ${label}`}
+                        value={device.profileId}
+                        disabled={assign.isPending}
+                        onChange={(event) =>
+                          assign.mutate({ deviceId: device.id, profileId: event.target.value })
+                        }
+                      >
+                        {profiles.data.profiles.map((profile) => (
+                          <option key={profile.id} value={profile.id}>
+                            {profile.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
                 {device.revokedAt !== null ? (
                   <Badge tone="muted">Revoked</Badge>
                 ) : expired ? (

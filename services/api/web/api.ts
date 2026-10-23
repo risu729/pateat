@@ -5,6 +5,7 @@ import {
   profileSchema,
   manageErrorSchema,
   manageModelsSchema,
+  manageProfileInUseSchema,
   manageRecipeConflictSchema,
   manageRecipesSchema,
   manageRequestLogDeletedSchema,
@@ -26,11 +27,15 @@ export class ManageApiError extends Error {
     | ManageErrorCode
     | "settings_conflict"
     | "recipe_conflict"
+    | "profile_in_use"
     | "network"
     | "unexpected-response";
-  constructor(code: ManageApiError["code"]) {
+  /** With `profile_in_use`: the labels of the devices that use the profile. */
+  readonly devices: string[];
+  constructor(code: ManageApiError["code"], devices: string[] = []) {
     super(code);
     this.code = code;
+    this.devices = devices;
   }
 }
 
@@ -58,6 +63,9 @@ async function call(fetcher: ManageFetch, path: string, init?: RequestInit) {
     throw new ManageApiError("settings_conflict");
   if (response.status === 409 && v.is(manageRecipeConflictSchema, body))
     throw new ManageApiError("recipe_conflict");
+  const inUse = v.safeParse(manageProfileInUseSchema, body);
+  if (response.status === 409 && inUse.success)
+    throw new ManageApiError("profile_in_use", inUse.output.devices);
   const error = v.safeParse(manageErrorSchema, body);
   throw new ManageApiError(error.success ? error.output.error : "unexpected-response");
 }
@@ -102,6 +110,20 @@ export function createManageClient(fetcher: ManageFetch = (input, init) => fetch
         }),
         profileSchema,
       );
+    },
+    async renameProfile(profileId: string, name: string) {
+      return read(
+        await call(fetcher, `/profiles/${encodeURIComponent(profileId)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ version: 1, name }),
+        }),
+        profileSchema,
+      );
+    },
+    /** Refused while a device uses the profile, or when it is the owner's only one. */
+    async deleteProfile(profileId: string) {
+      await call(fetcher, `/profiles/${encodeURIComponent(profileId)}`, { method: "DELETE" });
     },
     async assignProfile(deviceId: string, profileId: string) {
       await call(fetcher, `/devices/${encodeURIComponent(deviceId)}/profile`, {
@@ -193,6 +215,14 @@ export function describeError(error: unknown): string {
       return "The settings changed elsewhere, for example by a device sync. The page now shows the current settings; make the change again.";
     case "model_unavailable":
       return "A choice names a model, effort or speed that is no longer offered. The page now shows the current list; choose again.";
+    case "profile_name_taken":
+      return "Another profile already has that name. Choose another name.";
+    case "last_profile":
+      return "This is the only profile. An account always keeps one.";
+    case "profile_in_use": {
+      const names = (error as ManageApiError).devices.map((label) => label || "Unnamed device");
+      return `Devices still use this profile: ${new Intl.ListFormat("en", { type: "conjunction" }).format(names)}. Move them to another profile on the Devices page first.`;
+    }
     case "rate_limited":
       return "Too many requests in the last minute. Wait a minute and try again.";
     case "bad_request":

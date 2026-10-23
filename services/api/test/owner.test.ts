@@ -1082,3 +1082,14 @@ describe("device self-revocation", () => {
     expect((await deviceApi(staying.credential, "/v1/device", { method: "PUT" })).status).toBe(405);
   });
 });
+
+describe("profiles page", () => {
+  it("serves its page", async () => {
+    const { token } = await owner();
+    const page = await request("/manage/profiles", { access: token });
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain("Pateat test app");
+    expect((await request("/manage/profiles")).status).toBe(401);
+    expect((await request("/manage/profiles", { access: token, method: "POST" })).status).toBe(405);
+  });
+});

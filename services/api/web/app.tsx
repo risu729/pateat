@@ -1,13 +1,13 @@
 // The toolbar icon, emitted beside the bundle as the favicon is.
 import logo from "../../../apps/extension/icons/icon.svg?url";
 import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { describeError, type ManageClient } from "./api";
 import { DashboardPage } from "./dashboard";
 import { SETTINGS_QUERY_KEY } from "./settings";
-import { Button } from "./button";
 import { DevicesPage } from "./devices";
 import { ModelsPage } from "./models";
+import { PROFILES_QUERY_KEY, ProfilesPage, storedProfile, storeProfile } from "./profiles";
 import { RequestLogPage } from "./request-log";
 import { SitePage } from "./site";
 import { siteOrigin, SitesPage } from "./sites";
@@ -27,6 +27,7 @@ const licenseUrl = `https://github.com/risu729/pateat/blob/${sourceRef}/LICENSE-
 const PAGES = [
   { path: "/manage/dashboard", title: "Dashboard", Page: DashboardPage },
   { path: "/manage/sites", title: "Sites", Page: SitesPage },
+  { path: "/manage/profiles", title: "Profiles", Page: ProfilesPage },
   { path: "/manage", title: "Devices", Page: DevicesPage },
   { path: "/manage/models", title: "Models", Page: ModelsPage },
   { path: "/manage/request-log", title: "Request log", Page: RequestLogPage },
@@ -36,27 +37,26 @@ const linkClasses = "text-accent-ink underline hover:text-accent-hover";
 
 export function ManageApp({ client, path }: { client: ManageClient; path: string }) {
   const queryClient = useQueryClient();
-  const [selectedProfile, setSelectedProfile] = useState("");
-  const [name, setName] = useState("");
-  const profiles = useQuery({ queryKey: ["profiles"], queryFn: () => client.profiles() });
-  const profileId =
-    selectedProfile ||
-    client.profileId ||
-    (profiles.data?.profiles.length === 1 ? profiles.data.profiles[0]!.id : "");
-  if (profileId) client.selectProfile(profileId);
-  const copy = useMutation({
-    mutationFn: () => client.copyProfile(name.trim(), profileId),
-    onSuccess: async (profile) => {
-      setName("");
-      setSelectedProfile(profile.id);
-      client.selectProfile(profile.id);
-      await queryClient.invalidateQueries({ queryKey: ["profiles"] });
-      await queryClient.invalidateQueries({ queryKey: SETTINGS_QUERY_KEY });
-    },
-  });
+  const [chosen, setChosen] = useState(storedProfile);
   const site = siteOrigin(path);
   const current = PAGES.find((page) => page.path === (site ? "/manage/sites" : path));
   const title = site ?? current?.title;
+  const editsSites = Boolean(site) || current?.path === "/manage/sites";
+  const profiles = useQuery({
+    queryKey: PROFILES_QUERY_KEY,
+    queryFn: () => client.profiles(),
+    enabled: editsSites,
+  });
+  const list = profiles.data?.profiles ?? [];
+  // A choice of a deleted profile, or one from another account, is no choice.
+  const profileId = !editsSites
+    ? undefined
+    : list.some((profile) => profile.id === chosen)
+      ? chosen
+      : list.length === 1
+        ? list[0]!.id
+        : undefined;
+  if (profileId) client.selectProfile(profileId);
   return (
     <div className="mx-auto flex max-w-[880px] flex-col gap-6 px-4 pt-6 pb-12 text-[15px]/6 sm:px-6">
       <title>{title ? `${title} – Pateat` : "Pateat"}</title>
@@ -82,58 +82,47 @@ export function ManageApp({ client, path }: { client: ManageClient; path: string
           </ul>
         </nav>
       </header>
-      {profiles.data && profiles.data.profiles.length > 0 && (
-        <section aria-label="Settings profiles" className="flex flex-wrap items-end gap-3">
-          <label>
-            Editing profile
-            <select
-              aria-label="Editing profile"
-              value={profileId}
-              onChange={(event) => {
-                setSelectedProfile(event.target.value);
-                client.selectProfile(event.target.value);
-                queryClient.removeQueries({ queryKey: SETTINGS_QUERY_KEY });
-              }}
-            >
-              <option value="" disabled>
-                Choose a profile
-              </option>
-              {profiles.data.profiles.map((profile) => (
-                <option key={profile.id} value={profile.id}>
-                  {profile.name}
-                </option>
-              ))}
-            </select>
+      {editsSites && list.length > 1 && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-border bg-surface px-4 py-3">
+          <label htmlFor="settings-profile" className="text-sm font-semibold">
+            Settings profile
           </label>
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              copy.mutate();
+          <select
+            id="settings-profile"
+            aria-describedby="settings-profile-hint"
+            className="min-h-10 rounded-lg border border-border-strong bg-surface px-3 text-sm text-ink"
+            value={profileId ?? ""}
+            onChange={(event) => {
+              storeProfile(event.target.value);
+              setChosen(event.target.value);
+              client.selectProfile(event.target.value);
+              queryClient.removeQueries({ queryKey: SETTINGS_QUERY_KEY });
             }}
           >
-            <label>
-              New profile name{" "}
-              <input
-                aria-label="New profile name"
-                value={name}
-                maxLength={64}
-                onChange={(event) => setName(event.target.value)}
-              />
-            </label>
-            <Button type="submit" disabled={!profileId || !name.trim() || copy.isPending}>
-              Copy selected profile
-            </Button>
-          </form>
-          {copy.isError && <p role="alert">{describeError(copy.error)}</p>}
-        </section>
+            <option value="" disabled>
+              Choose a profile
+            </option>
+            {list.map((profile) => (
+              <option key={profile.id} value={profile.id}>
+                {profile.name}
+              </option>
+            ))}
+          </select>
+          <span id="settings-profile-hint" className="text-[13px]/5 text-ink-muted">
+            Exclusions and saved accounts below belong to this profile; bindings are shared.{" "}
+            <a className={linkClasses} href="/manage/profiles">
+              Manage profiles
+            </a>
+          </span>
+        </div>
       )}
       <main key={profileId}>
-        {(site || current?.path === "/manage/sites") && profiles.isPending ? (
+        {editsSites && profiles.isPending ? (
           <output>Loading settings profiles…</output>
-        ) : (site || current?.path === "/manage/sites") && profiles.isError ? (
+        ) : editsSites && profiles.isError ? (
           <p role="alert">{describeError(profiles.error)}</p>
-        ) : (site || current?.path === "/manage/sites") && !profileId ? (
-          <p>Choose a settings profile to edit.</p>
+        ) : editsSites && list.length > 1 && !profileId ? (
+          <p>Choose the settings profile to edit.</p>
         ) : site ? (
           <SitePage client={client} origin={site} />
         ) : current ? (

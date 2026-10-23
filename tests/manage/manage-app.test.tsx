@@ -67,6 +67,8 @@ function mockClient(initial = devices()) {
       profiles: [{ id: "00000000-0000-4000-8000-000000000001", name: "Default" }],
     })),
     copyProfile: vi.fn<ManageClient["copyProfile"]>(),
+    renameProfile: vi.fn<ManageClient["renameProfile"]>(),
+    deleteProfile: vi.fn<ManageClient["deleteProfile"]>(),
     assignProfile: vi.fn<ManageClient["assignProfile"]>(),
     devices: vi.fn<ManageClient["devices"]>(async () => structuredClone(current)),
     revokeDevice: vi.fn<ManageClient["revokeDevice"]>(async (id) => {

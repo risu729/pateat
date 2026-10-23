@@ -72,6 +72,13 @@ function mockClient(saveError?: ManageApiError) {
       view = { ...view, config: structuredClone(config), saved: true };
       return structuredClone(view);
     }),
+    profileId: undefined,
+    selectProfile: vi.fn<ManageClient["selectProfile"]>(),
+    profiles: vi.fn<ManageClient["profiles"]>(),
+    copyProfile: vi.fn<ManageClient["copyProfile"]>(),
+    renameProfile: vi.fn<ManageClient["renameProfile"]>(),
+    deleteProfile: vi.fn<ManageClient["deleteProfile"]>(),
+    assignProfile: vi.fn<ManageClient["assignProfile"]>(),
   } satisfies ManageClient;
 }
 
