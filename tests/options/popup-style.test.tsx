@@ -189,9 +189,6 @@ test("the page section's long log codes wrap inside the 360px popup", async () =
 
 test("forced colors keep the selected account and the switch position visible", async () => {
   await page.viewport(360, 800);
-  await cdp().send("Emulation.setEmulatedMedia", {
-    features: [{ name: "forced-colors", value: "active" }],
-  });
   const settings = createDefaultSettings();
   settings.siteDefaults.push({
     origin: ORIGIN,
@@ -240,11 +237,15 @@ test("forced colors keep the selected account and the switch position visible", 
       />
     </QueryClientProvider>,
   );
-  expect(matchMedia("(forced-colors: active)").matches).toBe(true);
   const radios = page.getByRole("group", { name: "Default account" }).getByRole("radio");
   await expect.element(radios).toHaveLength(2);
   const [unchecked, checked] = radios.elements().map((radio) => radio.closest("label")!);
   expect(checked!.querySelector("input")!.checked).toBe(true);
+  const height = checked!.getBoundingClientRect().height;
+  await cdp().send("Emulation.setEmulatedMedia", {
+    features: [{ name: "forced-colors", value: "active" }],
+  });
+  expect(matchMedia("(forced-colors: active)").matches).toBe(true);
   // Forced colors replace the accent border, tint and inset shadow with the same system
   // colors on every card, so the selection needs a mark of its own.
   const look = (element: Element) => {
@@ -259,7 +260,8 @@ test("forced colors keep the selected account and the switch position visible", 
     ].join(" ");
   };
   expect(look(checked!)).not.toBe(look(unchecked!));
-  expect(checked!.getBoundingClientRect().height).toBe(unchecked!.getBoundingClientRect().height);
+  // The thicker border takes the place of padding, so the selected card keeps its size.
+  expect(checked!.getBoundingClientRect().height).toBe(height);
 
   // The track and its knob both use background colors, which forced colors make Canvas.
   const toggle = page.getByRole("switch", { name: "Pateat on this site" }).element();
@@ -272,15 +274,20 @@ test("forced colors keep the selected account and the switch position visible", 
   expect(track.borderTopColor).not.toBe(canvas);
   const on = { track: track.backgroundColor, knob: knob.backgroundColor };
   expect(on.knob).not.toBe(on.track);
-  // Flip only the rendered state to read the off position's colors.
-  toggle.checked = false;
-  const off = { track: track.backgroundColor, knob: knob.backgroundColor };
-  toggle.checked = true;
+  // React owns the switch's checked state, so read the off and disabled looks from an
+  // uncontrolled copy beside it.
+  const probe = document.createElement("input");
+  probe.type = "checkbox";
+  probe.setAttribute("role", "switch");
+  toggle.after(probe);
+  const probeTrack = getComputedStyle(probe);
+  const probeKnob = getComputedStyle(probe, "::after");
+  const off = { track: probeTrack.backgroundColor, knob: probeKnob.backgroundColor };
   expect(off.knob).not.toBe(off.track);
   expect(off.track).not.toBe(on.track);
-  toggle.disabled = true;
-  const disabled = { track: track.backgroundColor, knob: knob.backgroundColor };
-  toggle.disabled = false;
+  probe.disabled = true;
+  const disabled = { track: probeTrack.backgroundColor, knob: probeKnob.backgroundColor };
   expect(disabled.knob).not.toBe(disabled.track);
+  probe.remove();
   expect(toggle.getBoundingClientRect()).toMatchObject({ width: 36, height: 20 });
 });
