@@ -44,6 +44,7 @@ export type HostOperation =
       ref: LocalFieldReference;
       allowedFieldIds: readonly string[];
       nowMs?: number;
+      code?: true;
     }
   | { kind: "match-uris"; session: HostSessionRef; targetUrl: string }
   | { kind: "verify-password"; session: HostSessionRef; password: string }
@@ -102,6 +103,7 @@ export const commandSchema = v.strictObject({
       nowMs: v.optional(
         v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(Number.MAX_SAFE_INTEGER)),
       ),
+      code: v.optional(v.literal(true)),
     }),
     v.strictObject({
       kind: v.literal("verify-password"),

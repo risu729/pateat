@@ -362,7 +362,12 @@ export function grantProbeOrigin(
 }
 
 /** Resolve one allowed field at a time; no values enter recipes, metadata or status. */
-export function resolveDummyField(fieldId: string): string | undefined {
+export function resolveDummyField(
+  fieldId: string,
+  options: { code?: true } = {},
+): string | undefined {
+  // Only the synthetic TOTP field answers a code request.
+  if (options.code && fieldId !== "totp") return undefined;
   if (fieldId === "branch") return "007";
   if (fieldId === "username") return "00001234";
   if (fieldId === "password") return "Pateat-synthetic-only!";

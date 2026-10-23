@@ -738,7 +738,12 @@ export function createLocalVaultManager(options: {
     async resolveField(
       handle: LocalVaultHandle,
       ref: LocalFieldReference,
-      grant: { snapshotId: string; allowedFieldIds: readonly string[]; nowMs?: number },
+      grant: {
+        snapshotId: string;
+        allowedFieldIds: readonly string[];
+        nowMs?: number;
+        code?: true;
+      },
       signal?: AbortSignal,
     ) {
       try {

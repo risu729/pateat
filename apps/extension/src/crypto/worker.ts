@@ -216,6 +216,7 @@ async function execute(command: HostCommand) {
             kind: field.kind,
             ...(field.linkedFieldId ? { linkedFieldId: field.linkedFieldId } : {}),
             ...(field.empty ? { empty: true as const } : {}),
+            ...(field.totpSeed ? { totpSeed: true as const } : {}),
           })),
         });
       } finally {
@@ -371,6 +372,7 @@ async function execute(command: HostCommand) {
     return snapshot.data.resolve(op.ref, {
       allowedFieldIds: op.allowedFieldIds,
       ...(op.nowMs === undefined ? {} : { nowMs: () => op.nowMs! }),
+      ...(op.code ? { code: true as const } : {}),
     });
   } finally {
     snapshot.data.dispose();

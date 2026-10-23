@@ -1163,10 +1163,6 @@ items the owner mentioned and gates still open on 2026-10-11.
   enough.
 - Signing in through an identity provider
   ([ADR 0026](adr/0026-sign-in-through-identity-providers.md), ADR 0027 delivery 5).
-- [ADR 0027](adr/0027-per-account-login-routes.md) delivery 4's deferred part: a `totp`
-  handler that reads a custom field a saved binding names for the code, once Pateat can
-  make a code from one. Until then such a binding ends `challenge`. The owner moved it
-  from phase 1 on 2026-10-12 (14:26 UTC).
 - Signing in with a code or link sent by email, which
   [ADR 0027](adr/0027-per-account-login-routes.md) does not handle today (such a code
   page ends `challenge`). It has the same priority as signing in through an identity
@@ -1599,9 +1595,13 @@ default. `steam://` gives a five-character Steam code. Any character outside the
 alphabet, `=` included, is skipped, and the bits after the last whole byte are dropped,
 so a short secret gives an empty key, which still yields a code. Only an empty key, an
 `otpauth://` URI that does not parse or has no `secret`, and a key over 8,192 characters
-(a memory bound) give `invalid-totp`. OTP seeds are not field values or
-inference inputs. Independent RFC 6238 and pinned upstream answers, clock boundaries and
-the packaged MV3 probe are the verification gates for this slice.
+(a memory bound) give `invalid-totp`. OTP seeds are not field values or inference
+inputs: a Text or Hidden custom field shaped like a key (`isTotpSeed`, a stricter test
+than the generator's) is flagged in the catalog, gives only codes for the `totp` slot
+and is never offered to generation or filled as text
+([ADR 0027 amendment](adr/0027-per-account-login-routes.md#amendment-2026-10-23-a-totp-code-from-a-custom-field),
+owner 2026-10-23). Independent RFC 6238 and pinned upstream answers, clock boundaries
+and the packaged MV3 probe are the verification gates for this slice.
 
 Connection setup, cache adoption and custom-field exclusion rebinding are now
 integrated, as described below. The remaining M3 integration gaps are listed after

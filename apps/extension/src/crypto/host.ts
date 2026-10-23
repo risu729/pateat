@@ -822,7 +822,7 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
     resolveField(
       session: HostSessionRef,
       ref: LocalFieldReference,
-      grant: { allowedFieldIds: readonly string[]; nowMs?: number },
+      grant: { allowedFieldIds: readonly string[]; nowMs?: number; code?: true },
       signal?: AbortSignal,
     ) {
       return request<LocalFieldValue>(
