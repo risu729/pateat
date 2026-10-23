@@ -1548,9 +1548,12 @@ uses the first English or Japanese browser preference, falling back to English.
 An open translated page follows another extension page's change. With storage
 unavailable, the choice applies to the current page until it closes.
 
-This is a partial rollout. The settings page has a language selector but its other
-content and HTML language remain English. Diagnostics, background toolbar titles,
-manifest metadata, service pages and user documentation still need translation.
+This is a partial rollout. The settings page's Bitwarden connections, vault-access
+controls, setup, verification, field review and connection notices follow the selected
+language; the rest of its content and HTML language remain English. Saved notices
+translate when rendered, without reloading clients or clearing drafts. Sync timestamps
+use the selected language with the browser's time zone. Diagnostics, background toolbar
+titles, manifest metadata, service pages and user documentation still need translation.
 The phase 3 wording review and complete Japanese-language acceptance gate remain open.
 
 ## Page styles and theme

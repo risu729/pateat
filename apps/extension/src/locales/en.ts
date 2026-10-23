@@ -1,4 +1,6 @@
+import { bitwardenEn } from "./bitwarden-en";
 export const en = {
+  ...bitwardenEn,
   Language: "Language",
   "Browser setting": "Browser setting",
   Pateat: "Pateat",
