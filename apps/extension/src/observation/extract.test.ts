@@ -927,6 +927,26 @@ describe("extractLoginObservation", () => {
     expect(extractLoginObservation()).toEqual({ ok: false, reason: "no-candidates" });
   });
 
+  it("names a button by data-test when its text is not unique (Duolingo, 2026-10-23)", () => {
+    // The page behind Duolingo's sign-in overlay keeps its own "ログイン" button.
+    page(
+      `<header><button data-test="have-account">ログイン</button></header>
+      <form><input data-test="email-input" id="web-ui1" type="text">
+        <input data-test="password-input" id="web-ui2" type="password">
+        <button data-test="register-button" type="submit">ログイン</button></form>`,
+    );
+    const observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(observation.candidates.map((candidate) => candidate.target)).toEqual([
+      { by: "id", value: "web-ui1" },
+      { by: "id", value: "web-ui2" },
+      { by: "data-test", value: "register-button" },
+    ]);
+    expect(findTargets(document, observation.candidates[2]!.target)).toEqual([
+      document.querySelector("form button"),
+    ]);
+  });
+
   it("produces targets the executor's exact-match lookup resolves to the same element", () => {
     page(
       `<form id="f"><input id="a"><input name="ctl00$Main$b"><input data-testid="c">

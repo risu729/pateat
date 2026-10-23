@@ -107,6 +107,8 @@ another also updates the other's `Status:`. Number a new ADR after the highest o
 - [0057: Pages without a sign-in input are decided once the DOM is quiet](adr/0057-decide-no-input-pages-when-the-dom-is-quiet.md)
 - [0058: Recipes that are not used or cannot run are removed automatically](adr/0058-automatic-recipe-removal.md)
 - [0059: The latest Vaultwarden release is a supported server](adr/0059-latest-vaultwarden-server.md)
+- [0071: Elements may be named by their `data-test` attribute](adr/0071-data-test-locators.md)
+  (proposed)
 
 This layout follows the useful separation in
 [Kogane ADR 0041](https://github.com/risu729/kogane/blob/main/docs/adr/0041-documentation-scope.md),

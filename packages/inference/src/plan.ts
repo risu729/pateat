@@ -224,7 +224,9 @@ function fieldText(candidate: ObservedCandidate): string | undefined {
     candidate.label && ownLabel(tidy(candidate.label), [placeholder, description]),
     placeholder,
     description,
-    by === "id" || by === "name" || by === "test-id" ? tidy(value) : undefined,
+    by === "id" || by === "name" || by === "test-id" || by === "data-test"
+      ? tidy(value)
+      : undefined,
   ];
   for (const source of sources) {
     // Checked whole, so a mark or number past the cut still skips the text.
