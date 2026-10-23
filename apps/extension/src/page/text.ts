@@ -294,17 +294,31 @@ export function shown(element: Element, opacity = true): element is HTMLElement 
  * rendering does: `<div>Customer</div><div>Number</div>` and
  * `<p>Customer</p><label>Number</label>`. With `everyElement`, every element boundary
  * separates words (`<span>a@example.com</span><a>Not you?</a>`), and elements matching
- * `skip` contribute nothing. A line-break opportunity never separates words: a `<wbr>`
- * adds nothing, and format characters such as a zero-width space or soft hyphen are
- * left out, so `taro@<wbr>example.com` and `taro@\u200Bexample.com` read as
- * `taro@example.com`.
+ * `skip`, and the elements in `leave`, contribute nothing; a root inside one has none. A
+ * line-break opportunity never separates words: a `<wbr>` adds nothing, and format
+ * characters such as a zero-width space or soft hyphen are left out, so
+ * `taro@<wbr>example.com` and `taro@\u200Bexample.com` read as `taro@example.com`. With `separator`, block and `<br>` boundaries are that character,
+ * removed from the text itself, so a caller can split the text into its blocks.
  */
 export function renderedText(
   root: Element,
   limit: number,
-  { everyElement = false, skip }: { everyElement?: boolean; skip?: string } = {},
+  {
+    everyElement = false,
+    skip,
+    leave,
+    separator = " ",
+  }: {
+    everyElement?: boolean;
+    skip?: string | undefined;
+    leave?: ReadonlySet<Element> | undefined;
+    separator?: string;
+  } = {},
 ): string | undefined {
   if (!shown(root) || textless.has(root.tagName)) return undefined;
+  if (leave?.size)
+    for (let node: Element | null = root; node; node = node.parentElement)
+      if (leave.has(node)) return undefined;
   const view = root.ownerDocument.defaultView;
   let text = "";
   // `undefined` marks the end of a block, so its text never joins the text after it.
@@ -315,20 +329,22 @@ export function renderedText(
   enqueue(root);
   while (pending.length > 0 && text.length <= limit) {
     const node = pending.pop();
-    if (node === undefined) text += " ";
-    else if (node instanceof Text) text += node.data.replace(/\p{Cf}+/gu, "");
+    if (node === undefined) text += separator;
+    else if (node instanceof Text)
+      text += node.data.replace(/\p{Cf}+/gu, "").replaceAll(separator, " ");
     else if (
       node instanceof Element &&
       !textless.has(node.tagName) &&
       shown(node) &&
-      !(skip && node.matches(skip))
+      !(skip && node.matches(skip)) &&
+      !leave?.has(node)
     ) {
-      if (node instanceof HTMLBRElement) text += " ";
+      if (node instanceof HTMLBRElement) text += separator;
       else if (
         node.localName !== "wbr" &&
         (everyElement || !view?.getComputedStyle(node).display.startsWith("inline"))
       ) {
-        text += " ";
+        text += separator;
         pending.push(undefined);
       }
       enqueue(node);
@@ -347,6 +363,17 @@ export function collapseText(raw: string): string {
     .replace(/[\p{Cc}\p{Zl}\p{Zp}]+/gu, " ")
     .replace(/\s+/gu, " ")
     .trim();
+}
+
+/**
+ * `text` with its full-width and half-width forms (U+3000 and U+FF01 to U+FFEF) folded
+ * as Unicode NFKC folds them, and composed, so `ｶﾞ`, `ガ` and `１Ａ`, `1A` fold alike.
+ * Other compatibility characters, such as `①` or `ﬁ`, stay as they are.
+ */
+export function widthFolded(text: string): string {
+  return text
+    .replace(/[\u3000\uFF01-\uFFEF]/gu, (character) => character.normalize("NFKC"))
+    .normalize("NFC");
 }
 
 const buttonInputTypes = new Set(["submit", "button", "image"]);

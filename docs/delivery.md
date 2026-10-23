@@ -51,10 +51,10 @@ by the real-Chrome checks, not by CI. `CI Check` requires `Changes` and `Verify`
 succeed and `Browser` to be `success`, or `skipped` exactly when `Changes` reported a
 documentation-only PR; it runs even when an upstream job failed. A `Changes` job (no
 checkout, on `ubuntu-slim`) decides whether a PR needs the browser tests: a PR whose
-changed files are all under `docs/` or are `AGENTS.md` or `README.md` skips the
-`Browser` job, runs only `Verify` (which still checks the documentation) and passes
-`CI Check` with the shards skipped; any other change, every main push and every manual
-run runs them. The owner chose
+changed files are all under `docs/` or are `AGENTS.md`, `README.md` or `README.ja.md`
+skips the `Browser` job, runs only `Verify` (which still checks the documentation) and
+passes `CI Check` with the shards skipped; any other change, every main push and every
+manual run runs them. The owner chose
 [dorny/paths-filter](https://github.com/dorny/paths-filter) (pinned at v4.0.3) on
 2026-10-12 because on a `pull_request` event it reads the changed files through the API,
 so the job needs no checkout and only `pull-requests: read`; workflow-level `paths`
@@ -63,14 +63,18 @@ job fails, `CI Check` fails. `Changes` adds a few seconds before the browser sha
 start. A newer push to a PR cancels its older run, but each main push finishes its own
 run; otherwise frequent merges would cancel every main run before it could package a
 release and deploy it. `codeql.yml` analyzes TypeScript/JavaScript and Actions
-separately. Linux jobs pin `ubuntu-26.04`; the `CI Check` aggregate only compares
-results, so it runs on the single-CPU `ubuntu-slim` runner. CodeQL needs no Actions
-cache: dependency caching is off by default in advanced setup and its TRAP cache is
-disabled, so the workflow sets `cache-mode: none`. In `ci.yml` the `Verify`, `Browser`
-and `Deploy tested server` jobs share their checkout, mise and aube install steps
-through YAML anchors (`&checkout`, `&mise`, `&install`), so those pins appear once in
-`ci.yml`; zizmor warns that it audits anchored workflows on a best-effort basis. GitHub
-Code Quality is not used: since its
+separately. `pricing.yml` refreshes the committed Claude rates daily (ADR 0014): on a
+change it commits through the contents API, so GitHub signs the commit, opens a PR from
+`pricing/claude-rates`, and starts `ci.yml` there by `workflow_dispatch`, since a push
+or PR made with the job token starts no workflow. Opening that PR needs the repository
+setting that allows GitHub Actions to create pull requests. Linux jobs pin
+`ubuntu-26.04`; the `CI Check` aggregate only compares results, so it runs on the
+single-CPU `ubuntu-slim` runner. CodeQL needs no Actions cache: dependency caching is
+off by default in advanced setup and its TRAP cache is disabled, so the workflow sets
+`cache-mode: none`. In `ci.yml` the `Verify`, `Browser` and `Deploy tested server` jobs
+share their checkout, mise and aube install steps through YAML anchors (`&checkout`,
+`&mise`, `&install`), so those pins appear once in `ci.yml`; zizmor warns that it audits
+anchored workflows on a best-effort basis. GitHub Code Quality is not used: since its
 [2026-07-20 general availability](https://github.blog/changelog/2026-06-16-github-code-quality-generally-available-july-20-2026)
 it is a paid product for GitHub Team and Enterprise Cloud organizations, and this
 repository is user-owned. On 2026-10-11 the owner removed its ruleset rule here and in
@@ -114,25 +118,26 @@ The owner decided these on 2026-10-11, following the kogane repository:
   verifies the Access token itself on the owner pages. `POST /pair` (direct pairing,
   [ADR 0020](adr/0020-direct-device-pairing.md)) must not be added to the Bypass
   application: it needs the owner's Access session.
-- Pairing without WARP: the owner decided on 2026-10-12 that browsers without WARP,
-  such as an agent's cloud computer, may pair permanently
+- Pairing without WARP: the owner decided on 2026-10-12 that browsers without WARP, such
+  as an agent's cloud computer, may pair permanently
   ([ADR 0030](adr/0030-pairing-without-warp.md)). A third self-hosted Access
   application, "pateat pair", covers `pateat.takuk.me` with path `pair` (and the paths
   below it) and takes precedence there. Its Login method is One-time PIN, the team's
-  only identity provider (checked 2026-10-12), as on the host-wide application.
-  Policy 1 is the same reusable policy as the host-wide application (email domain and
-  WARP); Policy 2 includes the owner's email address only and requires the One-time PIN
-  login method, without WARP.
-  Session Duration is 15 minutes, and Cookie Path Attribute and Binding Cookie are on.
-  Its Application Audience (AUD) Tag is the `ACCESS_PAIR_AUD` Worker secret; the
-  Worker accepts it on `/pair` and `/pair/signed-in` only, and an empty value turns
-  it off while "pateat pair" does not exist; once it exists, Access issues only its
-  audience on `/pair`, so emptying the secret then stops all pairing. `/manage` keeps
-  requiring WARP. If another identity provider is added under Integrations, Identity
-  providers, Policy 2 still admits One-time PIN sign-ins only. After pairing on a
-  vendor's machine, open `https://<team domain>/cdn-cgi/access/logout` there (the
-  `ACCESS_TEAM_DOMAIN` host); the service's own `/cdn-cgi/access/logout` finds no Access
-  cookie in that browser, because "pateat pair"'s cookie is sent below `/pair` only.
+  only identity provider (checked 2026-10-12), as on the host-wide application. Policy 1
+  is the same reusable policy as the host-wide application (email domain and WARP);
+  Policy 2 includes the owner's email address only and requires the One-time PIN login
+  method, without WARP. Session Duration is 15 minutes, and Cookie Path Attribute and
+  Binding Cookie are on. Its Application Audience (AUD) Tag is the `ACCESS_PAIR_AUD`
+  Worker secret; the Worker accepts it on `/pair` and `/pair/signed-in` only, and an
+  empty value turns it off while "pateat pair" does not exist; once it exists, Access
+  issues only its audience on `/pair`, so emptying the secret then stops all pairing.
+  `/manage`, and `/extension/profiles` where the extension edits other settings profiles
+  ([ADR 0076](adr/0076-settings-profiles-delivered.md)), keep requiring WARP. If another
+  identity provider is added under Integrations, Identity providers, Policy 2 still
+  admits One-time PIN sign-ins only. After pairing on a vendor's machine, open
+  `https://<team domain>/cdn-cgi/access/logout` there (the `ACCESS_TEAM_DOMAIN` host);
+  the service's own `/cdn-cgi/access/logout` finds no Access cookie in that browser,
+  because "pateat pair"'s cookie is sent below `/pair` only.
 - Pairing extension IDs: `PAIRING_EXTENSION_IDS` is a committed JSON variable in
   `cloudflare.config.ts` that lists Pateat's production extension ID. It is not a
   secret, workflows do not synchronize it, and it needs no GitHub environment variable

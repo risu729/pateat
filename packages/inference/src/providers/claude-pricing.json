@@ -1,0 +1,86 @@
+{
+  "source": "https://platform.claude.com/docs/en/about-claude/pricing.md",
+  "models": {
+    "Claude Fable 5.1": {
+      "input": 10,
+      "output": 50
+    },
+    "Claude Mythos 5.1": {
+      "input": 10,
+      "output": 50
+    },
+    "Claude Fable 5": {
+      "input": 10,
+      "output": 50
+    },
+    "Claude Mythos 5": {
+      "input": 10,
+      "output": 50
+    },
+    "Claude Opus 5.5": {
+      "input": 4,
+      "output": 20,
+      "fast": {
+        "input": 8,
+        "output": 40
+      }
+    },
+    "Claude Opus 5": {
+      "input": 5,
+      "output": 25,
+      "fast": {
+        "input": 10,
+        "output": 50
+      }
+    },
+    "Claude Opus 4.8": {
+      "input": 5,
+      "output": 25,
+      "fast": {
+        "input": 10,
+        "output": 50
+      }
+    },
+    "Claude Opus 4.7": {
+      "input": 5,
+      "output": 25
+    },
+    "Claude Opus 4.6": {
+      "input": 5,
+      "output": 25
+    },
+    "Claude Opus 4.5": {
+      "input": 5,
+      "output": 25
+    },
+    "Claude Sonnet 5.5": {
+      "input": 2,
+      "output": 10
+    },
+    "Claude Sonnet 5": {
+      "input": 2,
+      "output": 10
+    },
+    "Claude Sonnet 4.6": {
+      "input": 3,
+      "output": 15
+    },
+    "Claude Sonnet 4.5": {
+      "input": 3,
+      "output": 15
+    },
+    "Claude Haiku 5.5": {
+      "input": 0.1,
+      "output": 0.5,
+      "longPrompt": {
+        "input": 0.5,
+        "output": 2.5,
+        "overInputTokens": 100000
+      }
+    },
+    "Claude Haiku 4.5": {
+      "input": 1,
+      "output": 5
+    }
+  }
+}

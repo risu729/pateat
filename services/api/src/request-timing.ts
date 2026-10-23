@@ -11,12 +11,16 @@ import { keepServerTime, type RequestTrace } from "./claude/calls";
  * model call. The row is updated after the response is sent, so it never delays it.
  */
 export const traceRequest = createMiddleware<ApiEnv>(async (c, next) => {
-  const trace: RequestTrace = { startedAt: Date.now() };
+  const trace: RequestTrace = {
+    startedAt: Date.now(),
+    waitUntil: (promise) => c.executionCtx.waitUntil(promise),
+  };
   c.set("trace", trace);
   await next();
   const serverMs = Date.now() - trace.startedAt;
   const { call, logId } = trace;
-  if (call) {
+  // A call left to the device (ADR 0040) ran nothing here to time.
+  if (call && call.status !== "device-call") {
     // `token` once the credential step ran, whatever it answered; `model` once a request
     // was sent, which a role's local refusal never does.
     const tokenMs = call.status === "called" ? call.timings.tokenMs : call.tokenMs;

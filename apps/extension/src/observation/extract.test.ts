@@ -8,6 +8,7 @@ import {
   extractLoginObservation,
   extractPasskeyObservation,
   extractSignedInObservation,
+  fieldsMissDetail,
 } from "./extract";
 
 // Runs in Chromium (vitest browser mode) so layout, visibility and labels are real.
@@ -939,6 +940,41 @@ describe("extractLoginObservation", () => {
     expect(observe().candidates.map((candidate) => candidate.target.value)).toEqual(["pw", "go"]);
   });
 
+  it("never gives a role=button control and a link of another form the same text locator", () => {
+    // The login form's Help widget is named by its text there; the link of a form that is
+    // no login form, such as a newsletter form beside it, is not checked against it.
+    page(
+      `<form><input id="u"><input id="p" type="password"><button>Sign in</button>
+        <div role="button" tabindex="0">Help</div></form>
+      <form><input id="news" type="text"><a href="/help">Help</a></form>`,
+    );
+    const result = extractLoginObservation();
+    // Two candidates with one locator fail the observation's check.
+    expect(result.ok ? true : result.reason).toBe(true);
+    if (!result.ok) return;
+    const targets = result.observation.candidates.map(({ target }) => JSON.stringify(target));
+    expect(new Set(targets).size).toBe(targets.length);
+    // The login form's own control keeps the text.
+    expect(targets).toContain(JSON.stringify({ by: "text", value: "Help" }));
+    expect(
+      findTargets(document, { by: "text", value: "Help" }).map((element) => element.tagName),
+    ).toEqual(["DIV"]);
+  });
+
+  it("keeps a role=button login control's text when a header link shares it", () => {
+    page(
+      `<header><a href="/accounts/login/">Log in</a></header>
+      <form><input name="email" autocomplete="username"><input name="pass" type="password">
+        <div role="button" tabindex="0">Log in</div></form>`,
+    );
+    const observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(observation.candidates.map(({ target }) => target)).toContainEqual({
+      by: "text",
+      value: "Log in",
+    });
+  });
+
   it("locates a link without an id by its text, only when no other link or button shares it", () => {
     page(
       `<form><p>my2@example.com</p><input id="pw" type="password">
@@ -977,6 +1013,26 @@ describe("extractLoginObservation", () => {
     // A form with only a field that cannot be filled has nothing to locate.
     page(`<form><input id="pin" type="password" readonly></form>`);
     expect(extractLoginObservation()).toEqual({ ok: false, reason: "no-candidates" });
+  });
+
+  it("names a button by data-test when its text is not unique (Duolingo, 2026-10-23)", () => {
+    // The page behind Duolingo's sign-in overlay keeps its own "ログイン" button.
+    page(
+      `<header><button data-test="have-account">ログイン</button></header>
+      <form><input data-test="email-input" id="web-ui1" type="text">
+        <input data-test="password-input" id="web-ui2" type="password">
+        <button data-test="register-button" type="submit">ログイン</button></form>`,
+    );
+    const observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(observation.candidates.map((candidate) => candidate.target)).toEqual([
+      { by: "id", value: "web-ui1" },
+      { by: "id", value: "web-ui2" },
+      { by: "data-test", value: "register-button" },
+    ]);
+    expect(findTargets(document, observation.candidates[2]!.target)).toEqual([
+      document.querySelector("form button"),
+    ]);
   });
 
   it("produces targets the executor's exact-match lookup resolves to the same element", () => {
@@ -1067,6 +1123,38 @@ describe("extractLoginObservation", () => {
     expect(JSON.stringify(extractLoginObservation())).not.toContain("SYNTHETIC123");
     const detached = document.implementation.createHTMLDocument();
     expect(extractLoginObservation(detached)).toEqual({ ok: false, reason: "unsupported-page" });
+  });
+
+  it("redacts a whole email address, whatever its local part or domain holds", () => {
+    // A local part may hold ' and #, as HTML's valid email address allows, and a domain may
+    // be internationalized. Repeated headings are kept once, so each one differs.
+    page(
+      `<h1>o'brien@example.com</h1><h2>taro#1@example.com さん</h2><h3>taro@例え.jp でログイン</h3>
+      <h3>連絡先 taro@例え.日本 まで</h3><h3>ID: taro@例え.日本でログイン中</h3>
+      <h3>宛先 taro@mail.例え.日本</h3>
+      <form id="f"><input id="u"><input id="pw" type="password"><button id="go">Go</button></form>`,
+    );
+    // A last label that is not ASCII takes the text glued to it along.
+    expect(observe().headings).toEqual([
+      "[email]",
+      "[email] さん",
+      "[email] でログイン",
+      "連絡先 [email] まで",
+      "ID: [email]",
+      "宛先 [email]",
+    ]);
+  });
+
+  it("keeps the text around an email address, a handle in a URL and a key=value pair", () => {
+    page(
+      `<h1>taro@example.comでログイン中</h1><h2>youtube.com/@pateat</h2><h3>price=100@shop</h3>
+      <form id="f"><input id="u"><input id="pw" type="password"><button id="go">Go</button></form>`,
+    );
+    expect(observe().headings).toEqual([
+      "[email]でログイン中",
+      "youtube.com/@pateat",
+      "price=[email]",
+    ]);
   });
 
   it("skips hidden inputs and other controls' labels when reading adjacent text", () => {
@@ -1306,6 +1394,44 @@ describe("extractLoginObservation", () => {
       <form id="m"><input name="user"><input name="pass" type="password"><button id="mgo">Log in</button></form>`,
     );
     expect(observe().complete).toBe(false);
+  });
+
+  it("names a field by its name in the sign-in form when another form repeats it (Hacker News)", () => {
+    // Hacker News's /login (2026-10-23): a create-account form below repeats the names.
+    const form = (creating: string, password: string, submit: string) =>
+      `<form method="post">${creating}<table>
+        <tr><td>username:</td><td><input type="text" name="acct" autocomplete="username"></td></tr>
+        <tr><td>password:</td><td><input type="password" name="pw" autocomplete="${password}"></td></tr>
+      </table><input type="submit" value="${submit}"></form>`;
+    page(
+      `<b>Login</b>${form("", "current-password", "login")}
+      <b>Create Account</b>${form(`<input type="hidden" name="creating" value="t">`, "new-password", "create account")}`,
+    );
+    const observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(observation.candidates.map((candidate) => candidate.target)).toEqual([
+      { by: "password-form-name", value: "acct" },
+      { by: "autocomplete", value: "current-password" },
+      { by: "text", value: "login" },
+    ]);
+    expect(findTargets(document, observation.candidates[0]!.target)).toEqual([
+      document.querySelector("input[name=acct]"),
+    ]);
+    // Two sign-in forms that repeat the name stay ambiguous.
+    page(`${form("", "current-password", "login")}${form("", "current-password", "go")}`);
+    expect(observe().complete).toBe(false);
+    // Continuing a recipe, the filled field shown read-only again is left out.
+    page(
+      `${form("", "current-password", "login").replace('name="acct"', 'name="acct" readonly')}
+      ${form(`<input type="hidden" name="creating" value="t">`, "new-password", "create account")}`,
+    );
+    const result = extractLoginObservation(document, [{ by: "password-form-name", value: "acct" }]);
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.observation.complete).toBe(true);
+    expect(result.observation.candidates.map(({ target }) => target)).toEqual([
+      { by: "autocomplete", value: "current-password" },
+      { by: "text", value: "login" },
+    ]);
   });
 
   it("describes a pointer link without href as the login's button (IIJmio, 2026-10-23)", () => {
@@ -1672,6 +1798,224 @@ describe("extractLoginObservation", () => {
     ).toEqual([false, "unfillable-field"]);
   });
 
+  it("describes a read-only field beside a software keyboard with the keypad's locator and leaves its keys out (ADR 0067)", () => {
+    const keys = (characters: string) =>
+      [...characters].map((character) => `<input type="button" value="${character}">`).join("");
+    page(
+      `<form id="f"><label>暗証番号<input id="pin" type="password" readonly></label>
+      <div id="soft-keys" hidden><div>${keys("７３９１０２８４６５")}</div><button type="button">クリア</button></div>
+      <button id="go" type="button">ログイン</button></form>`,
+    );
+    const observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(summary(observation)).toEqual([
+      {
+        role: "password",
+        target: { by: "id", value: "pin" },
+        label: "暗証番号",
+        keypad: { by: "id", value: "soft-keys" },
+        group: "f1",
+      },
+      { role: "button", target: { by: "id", value: "go" }, label: "ログイン", group: "f1" },
+    ]);
+    // A shown keypad's keys are left out too, and its locator may be an ancestor's test ID.
+    page(
+      `<form id="f"><input id="pin" type="password" readonly>
+      <section data-testid="pad"><div>${keys("0123456789")}</div></section>
+      <button id="go" type="button">Log in</button></form>`,
+    );
+    expect(
+      summary(observe()).map((candidate) => [candidate.target.value, candidate.keypad]),
+    ).toEqual([
+      ["pin", { by: "test-id", value: "pad" }],
+      ["go", undefined],
+    ]);
+    // Without a keypad, a read-only field is still unfillable. So is one that holds a
+    // value, as a date or an email address shown again, or a read-only text input, as a
+    // search box beside an A-Z filter bar of buttons, and a keypad with neither every
+    // digit nor 26 letters is no keypad.
+    for (const html of [
+      `<input id="q" type="text" readonly><div id="pad">${keys("ABCDEFGHIJKLMNOPQRSTUVWXYZ")}</div>`,
+      `<input id="pin" type="password" readonly><div id="pad">${keys("012345678")}</div>`,
+      `<input id="pin" type="password" readonly><div id="pad">${keys("ABCDEFGHIJKLMNOPQRSTUVWXY")}</div>`,
+      `<input id="pin" type="password" readonly disabled><div id="pad">${keys("0123456789")}</div>`,
+      `<input id="day" readonly value="2026-10-23"><input id="pin" type="password" readonly><div id="pad">${keys("0123456789")}</div>`,
+    ]) {
+      page(`<form>${html}<button id="go" type="button">Log in</button></form>`);
+      const result = extractLoginObservation();
+      expect(result.ok && result.observation.complete, html).toBe(false);
+    }
+    // A keypad that shares no box with the field but the body belongs to something else.
+    page(
+      `<form><input id="pin" type="password" readonly><button id="go" type="button">Log in</button></form>
+      <div id="pad">${keys("0123456789")}</div>`,
+    );
+    const apart = extractLoginObservation();
+    expect(apart.ok && apart.observation.complete).toBe(false);
+  });
+
+  it("never sends a software keyboard's key labels or their order, in a label, description or anywhere else (ADR 0067)", () => {
+    // A shuffled letters-only keyboard of links, and a shuffled digit pad.
+    const order = "QWERTYUIOPASDFGHJKLZXCVBNM";
+    const digits = "7391028465";
+    const links = (characters: string) =>
+      [...characters].map((character) => `<a href="#">${character}</a>`).join(" ");
+    const sent = (keys: string) => {
+      const result = extractLoginObservation();
+      if (!result.ok) throw new Error(result.reason);
+      const text = JSON.stringify(result.observation).replaceAll(/\s/gu, "");
+      // No three keys in their order, with or without the spaces between them.
+      return [...keys].slice(0, -2).flatMap((_, at) => {
+        const run = keys.slice(at, at + 3);
+        return text.includes(run) ? [run] : [];
+      });
+    };
+    for (const [keys, html] of [
+      // The keys before the field in its row, where a label by layout would be read.
+      [
+        order,
+        `<form id="f"><div id="pad">${links(order)}</div><div><input id="pin" type="password" readonly></div><button id="go" type="button">Log in</button></form>`,
+      ],
+      [
+        digits,
+        `<form id="f"><table><tr><td id="pad">${links(digits)}</td><td><input id="pin" type="password" readonly></td></tr></table><button id="go" type="button">Log in</button></form>`,
+      ],
+      // The keys inside the field's label.
+      [
+        order,
+        `<form id="f"><label>Password <input id="pin" type="password" readonly><span id="pad">${links(order)}</span></label><button id="go" type="button">Log in</button></form>`,
+      ],
+      // The keypad named as the field's label or description.
+      [
+        digits,
+        `<form id="f"><input id="pin" type="password" readonly aria-labelledby="pad"><div id="pad">${links(digits)}</div><button id="go" type="button">Log in</button></form>`,
+      ],
+      [
+        digits,
+        `<form id="f"><label for="pin">PIN</label><input id="pin" type="password" readonly aria-describedby="pad"><div id="pad">${links(digits)}</div><button id="go" type="button">Log in</button></form>`,
+      ],
+    ] as const) {
+      page(html);
+      expect(
+        summary(observe()).map((candidate) => [candidate.target.value, candidate.keypad]),
+        html,
+      ).toEqual([
+        ["pin", { by: "id", value: "pad" }],
+        ["go", undefined],
+      ]);
+      expect(sent(keys), html).toEqual([]);
+    }
+  });
+
+  it("never sends the keys of an optional keyboard beside a writable field, or of a keypad for each of two fields (ADR 0067)", () => {
+    const order = "QWERTYUIOPASDFGHJKLZXCVBNM";
+    const digits = "7391028465";
+    const runs = (keys: string) => {
+      const result = extractLoginObservation();
+      if (!result.ok) throw new Error(result.reason);
+      const text = JSON.stringify(result.observation).replaceAll(/\s/gu, "");
+      return {
+        observation: result.observation,
+        runs: [...keys].slice(0, -2).flatMap((_, at) => {
+          const run = keys.slice(at, at + 3);
+          return text.includes(run) ? [run] : [];
+        }),
+      };
+    };
+    // A writable password field with an optional keyboard: full-width input buttons in a
+    // shuffled order, as SMBC Direct's, and links in a list, as MUFG's.
+    const full = (character: string) =>
+      /\d/u.test(character) ? String.fromCodePoint(character.codePointAt(0)! + 0xfee0) : character;
+    for (const [keys, pad] of [
+      [
+        digits + order,
+        `<div id="soft">${[...(digits + order)].map((key) => `<input type="button" value="${full(key)}">`).join("")}</div>`,
+      ],
+      [
+        order,
+        `<ul id="soft">${[...order].map((key) => `<li><a href="#">${key}</a></li>`).join("")}</ul>`,
+      ],
+    ] as const) {
+      page(
+        `<form id="f">${pad}<div><input id="pw" type="password"></div><button id="go" type="button">Log in</button></form>`,
+      );
+      const { observation, runs: found } = runs(keys);
+      expect(found, pad).toEqual([]);
+      expect(
+        observation.candidates.map((candidate) => [candidate.target.value, candidate.label]),
+        pad,
+      ).toEqual([
+        ["pw", undefined],
+        ["go", "Log in"],
+      ]);
+    }
+    // Two read-only fields, each beside its own keypad: each field names its own.
+    page(
+      `<form id="f"><label>PIN<input id="pin" type="password" readonly></label><div id="digits">${[...digits].map((key) => `<a href="#">${key}</a>`).join("")}</div>
+      <label>Word<input id="word" type="password" readonly></label><div id="letters">${[...order].map((key) => `<a href="#">${key}</a>`).join("")}</div>
+      <button id="go" type="button">Log in</button></form>`,
+    );
+    expect(runs(digits).runs).toEqual([]);
+    expect(runs(order).runs).toEqual([]);
+    expect(
+      summary(observe()).map((candidate) => [
+        candidate.target.value,
+        candidate.label,
+        candidate.keypad,
+      ]),
+    ).toEqual([
+      ["pin", "PIN", { by: "id", value: "digits" }],
+      ["word", "Word", { by: "id", value: "letters" }],
+      ["go", "Log in", undefined],
+    ]);
+  });
+
+  it("keeps the other labels of a form whose keys sit in the form itself (ADR 0067)", () => {
+    const keys = [..."7391028465"].map((key) => `<a href="#">${key}</a>`).join("");
+    page(
+      `<form id="f"><label>Customer number <input id="customer" inputmode="numeric"></label><label>PIN <input id="pin" type="password" readonly></label>${keys}<button id="go" type="button">Log in</button></form>`,
+    );
+    expect(
+      summary(observe()).map((candidate) => [
+        candidate.target.value,
+        candidate.label,
+        candidate.keypad,
+      ]),
+    ).toEqual([
+      ["customer", "Customer number", undefined],
+      ["pin", "PIN", expect.anything()],
+      ["go", "Log in", undefined],
+    ]);
+    expect(JSON.stringify(observe())).not.toMatch(/7\s*3\s*9/u);
+  });
+
+  it("names a keypad without an id or test ID by a class only it has, else by its position from the field (ADR 0067)", () => {
+    const keys = (characters: string) =>
+      [...characters].map((character) => `<input type="button" value="${character}">`).join("");
+    const keypadOf = () =>
+      summary(observe()).map((candidate) => [candidate.target.value, candidate.keypad]);
+    // A class only the keypad's box has, even a letters-only keyboard's (owner's choice,
+    // 2026-10-23 13:01 UTC).
+    page(
+      `<form><input id="pin" type="password" readonly><div class="soft-keys"><div>${keys("ABCDEFGHIJKLMNOPQRSTUVWXYZ")}</div></div>
+      <button id="go" type="button">Log in</button></form>`,
+    );
+    expect(keypadOf()).toEqual([
+      ["pin", { by: "class", value: "soft-keys" }],
+      ["go", undefined],
+    ]);
+    // A class two elements share, or one that looks generated, does not name it; the
+    // keypad's place from each field does.
+    page(
+      `<form><div><input id="pin" type="password" readonly></div><div class="row"><div class="css-1q2w3e4r5t">${keys("0123456789")}</div></div>
+      <div class="row"><button id="go" type="button">Log in</button></div></form>`,
+    );
+    expect(keypadOf()).toEqual([
+      ["pin", { by: "position", value: "2:1.0" }],
+      ["go", undefined],
+    ]);
+  });
+
   it("leaves out a field the continued recipe already fills when it is read-only or disabled", () => {
     // An email address shown again, read-only, beside the password (ADR 0018).
     const email = { by: "id" as const, value: "email" };
@@ -1964,11 +2308,51 @@ describe("extractSignedInObservation", () => {
       title: "Accounts",
       headings: ["Welcome back"],
     });
+    // A select is described by its label and place, never its options (ADR 0061, owner
+    // 2026-10-23 12:26 UTC); the text before it labels it, as for an input.
     expect(summary(observation)).toEqual([
       { role: "link", target: { by: "id", value: "home" }, label: "Home" },
       { role: "link", target: { by: "id", value: "account" }, label: "Account [number]-[number]" },
       { role: "button", target: { by: "id", value: "logout" }, label: "Sign out" },
+      { role: "select", target: { by: "id", value: "lang" }, label: "Welcome back" },
     ]);
+    expect(JSON.stringify(observation)).not.toContain("English");
+  });
+
+  it("describes a page's selects by their labels, for a split birth date (ADR 0061)", () => {
+    page(
+      `<form><p>Confirm your date of birth</p>
+        <label for="by">Year of birth</label>
+        <select id="by" name="by"><option value="">--</option><option>1990</option></select>
+        <label>Month <select name="bm"><option>4</option></select></label>
+        <label>Day <select name="bd"><option>5</option></select></label>
+        <select name="off" disabled><option>1</option></select>
+        <select name="many" multiple><option>1</option></select>
+        <select name="gone" hidden><option>1</option></select>
+        <button id="confirm" type="button">Confirm</button></form>`,
+    );
+    const observation = signedIn();
+    expect(observation.complete).toBe(true);
+    expect(summary(observation)).toEqual([
+      { role: "select", target: { by: "id", value: "by" }, label: "Year of birth", group: "f1" },
+      { role: "select", target: { by: "name", value: "bm" }, label: "Month", group: "f1" },
+      { role: "select", target: { by: "name", value: "bd" }, label: "Day", group: "f1" },
+      { role: "button", target: { by: "id", value: "confirm" }, label: "Confirm", group: "f1" },
+    ]);
+    // An option's text never reaches the description.
+    expect(JSON.stringify(observation)).not.toContain("1990");
+    // At most twelve selects, so the markers keep their room.
+    page(
+      `${Array.from({ length: 14 }, (_, at) => `<select name="s${at}"><option>1</option></select>`).join("")}
+      <button id="logout" type="button">Sign out</button>`,
+    );
+    const many = summary(signedIn());
+    expect(many.filter((entry) => entry.role === "select")).toHaveLength(12);
+    expect(many.at(-1)).toEqual({
+      role: "button",
+      target: { by: "id", value: "logout" },
+      label: "Sign out",
+    });
   });
 
   it("never names a marker by an ID that another load may change", () => {
@@ -3381,6 +3765,70 @@ describe("extractSignedInObservation", () => {
     expect(gap()).toEqual([true, undefined]);
   });
 
+  it("says when a signed-in page shows a choice or answer it leaves out (ADR 0065)", () => {
+    const flagged = (markup: string) => {
+      page(`<button id="logout">Sign out</button>${markup}`);
+      const result = extractSignedInObservation();
+      expect(result, markup).toMatchObject({ ok: true, observation: { complete: true } });
+      return (result as { inputLeftOut?: true }).inputLeftOut === true;
+    };
+    // "Send the code to: [SMS] [Email] [Continue]", however the choice is built.
+    const card = (input: string) =>
+      `<form><label class="card">${input.replaceAll("$", "sms")} Text message</label>` +
+      `<label class="card">${input.replaceAll("$", "email")} Email</label>` +
+      `<button id="continue">Continue</button></form>`;
+    for (const markup of [
+      card(`<input type="radio" name="via" value="$">`),
+      // A styled radio: transparent, tiny or not rendered under its label "card".
+      card(`<input type="radio" name="via" value="$" style="opacity: 0; position: absolute">`),
+      card(`<input type="radio" name="via" value="$" style="width: 1px; height: 1px">`),
+      card(`<input type="radio" name="via" value="$" style="display: none">`),
+      card(`<input type="radio" name="via" value="$" disabled>`),
+      // ARIA radios, and other ARIA widgets.
+      `<div role="radiogroup" aria-label="Send the code to">` +
+        `<div role="radio" aria-checked="true" tabindex="0">Text message</div>` +
+        `<div role="radio" aria-checked="false" tabindex="-1">Email</div></div>` +
+        `<button id="continue">Continue</button>`,
+      `<div role="combobox" aria-label="Method" tabindex="0">Text message</div>`,
+      `<ul role="listbox" aria-label="Method"><li role="option">Text message</li></ul>`,
+      `<div role="textbox" contenteditable="true" aria-label="Answer"></div>`,
+      // Selects and text areas, disabled ones too.
+      `<form><select id="via"><option>Text message</option><option>Email</option></select></form>`,
+      `<form><select id="via" disabled><option>Text message</option></select></form>`,
+      `<textarea id="answer"></textarea>`,
+      `<textarea id="answer" disabled></textarea>`,
+      // A site search box in the same form exempts only itself.
+      `<form><input type="search" id="q" aria-label="Search">` +
+        `<label><input type="radio" name="via" value="sms"> Text message</label>` +
+        `<label><input type="radio" name="via" value="email"> Email</label>` +
+        `<button id="continue">Continue</button></form>`,
+      // A footer exempts only a picker: its radios and text areas still count, and a
+      // card's or section's own footer is no page footer.
+      `<footer><label><input type="radio" name="via" value="sms"> Text message</label></footer>`,
+      `<div role="contentinfo"><textarea id="answer"></textarea></div>`,
+      `<section><footer><select id="via"><option>Text message</option></select></footer></section>`,
+      `<form><input type="search" id="q"><input id="email" type="email">` +
+        `<select id="via"><option>Text message</option></select><button id="go">Go</button></form>`,
+    ])
+      expect(flagged(markup), markup).toBe(true);
+    // Part of a site search, or hidden with its container, says nothing.
+    for (const markup of [
+      `<form role="search"><select id="in"><option>All</option></select></form>`,
+      `<search><select id="in"><option>All</option></select></search>`,
+      `<nav role="search"><input role="combobox" aria-label="Search"></nav>`,
+      `<form><input type="search" id="q"><select id="in"><option>All</option></select>` +
+        `<button id="go">Go</button></form>`,
+      `<input id="q" role="combobox" placeholder="Search the docs">`,
+      `<div hidden><select id="in"><option>All</option></select></div>`,
+      // A page footer's language picker.
+      `<footer><select id="lang"><option>English</option><option>日本語</option></select></footer>`,
+      `<div role="contentinfo"><div role="combobox" aria-label="Language" tabindex="0">English</div></div>`,
+      `<footer><form><select id="lang"><option>English</option></select></form></footer>`,
+      `<div style="display: none"><label><input type="radio" name="via"> Email</label></div>`,
+    ])
+      expect(flagged(markup), markup).toBe(false);
+  });
+
   it("reports a still-visible sign-in field so the service can refuse the page", () => {
     page(`<form><input id="pw" type="password"><button id="go">Sign in</button></form>`);
     expect(summary(signedIn())).toEqual([
@@ -4070,5 +4518,17 @@ describe("passkey-only start observation", () => {
   ])("does not qualify registration, hidden buttons or a fill form: %s", (html) => {
     page(html);
     expect(extractPasskeyObservation(document).ok).toBe(false);
+  });
+});
+
+describe("fieldsMissDetail", () => {
+  it("names the page's inputs and how each shows, as codes only", () => {
+    page(`<form><input type="email" value="me@example.com" aria-hidden="true">
+      <input type="password" style="opacity: 0"></form>
+      <input type="text" hidden><input type="text" name="q">`);
+    expect(fieldsMissDetail(document)).toBe(
+      "n4.d2.email-hidden-attr.password-transparent.text-hidden-attr-out",
+    );
+    expect(fieldsMissDetail(document)).not.toContain("example");
   });
 });

@@ -13,7 +13,12 @@ import type { CryptoHost } from "../crypto/host";
 import { boundedMessage } from "../crypto/wire";
 import { createLocalSettingsRuntime } from "../settings";
 import { createIndexedDbVaultStore } from "../vault/storage";
-import { createLocalVaultManager } from "../vault/manager";
+import {
+  createLocalVaultManager,
+  type KeyRetention,
+  type LocalVaultManager,
+} from "../vault/manager";
+import { createSessionKeyStore } from "../vault/session-key";
 import { vaultFailure } from "../vault/record";
 import {
   notifyingVaultManager,
@@ -35,6 +40,43 @@ import type { ConnectionRegistry, ConnectionSetupDependencies, SetupReply } from
 /** A diagnostics read must not hold the page as long as a sync may take. */
 const SERVER_CONFIG_TIMEOUT_MS = 5_000;
 
+export type SignInStep = "begin" | "continue" | "send-email-code" | "keep-alive";
+const signInSteps: Partial<Record<v.InferOutput<typeof setupRequestSchema>["type"], SignInStep>> = {
+  "connection.begin": "begin",
+  "connection.continue": "continue",
+  "connection.send-email-code": "send-email-code",
+  "connection.keep-alive": "keep-alive",
+};
+
+/**
+ * A vault manager that reports each field read and passkey signature as use of the vault
+ * timeout, and an unlock as the vault serving its snapshot again.
+ */
+function usedVaultManager(
+  manager: LocalVaultManager,
+  used: () => void,
+  opened: () => void,
+): LocalVaultManager {
+  return {
+    ...manager,
+    async resolveField(...args: Parameters<LocalVaultManager["resolveField"]>) {
+      const result = await manager.resolveField(...args);
+      if (result.ok) used();
+      return result;
+    },
+    async signPasskey(...args: Parameters<LocalVaultManager["signPasskey"]>) {
+      const result = await manager.signPasskey(...args);
+      if (result.ok) used();
+      return result;
+    },
+    async unlock(...args: Parameters<LocalVaultManager["unlock"]>) {
+      const result = await manager.unlock(...args);
+      if (result.ok) opened();
+      return result;
+    },
+  };
+}
+
 export function createConnectionRuntime(
   host: CryptoHost,
   options: {
@@ -53,8 +95,25 @@ export function createConnectionRuntime(
     onVaultOpened?: () => void;
     /** Called with each settings-page Sync result, for the local log. */
     onSync?: (connectionId: string, reply: SetupReply) => void;
+    /**
+     * Called with each settings-page sign-in step's result, for the local log: the password,
+     * the code, an email code send, and a heartbeat that found the sign-in gone.
+     */
+    onSignIn?: (step: SignInStep, reply: SetupReply) => void;
     /** Called with each Bitwarden refresh result, for the local log. */
     onRefresh?: (event: RefreshReport) => void;
+    /** Where an unlocked vault's key is kept, from the vault timeout (ADR 0075). */
+    retention?: () => Promise<KeyRetention>;
+    /**
+     * The vault timeout (ADR 0075): `check` runs before each vault use and locks the
+     * vaults once the timeout has passed; `used` is told of each field read, passkey
+     * signature, unlock and sign-in.
+     */
+    vaultTimeout?: {
+      check(): Promise<void>;
+      used(opened?: string): Promise<void>;
+      unclosed(connectionId: string): Promise<boolean>;
+    };
   } = {},
 ) {
   const registry = options.registry ?? createBrowserConnectionRegistry();
@@ -76,23 +135,49 @@ export function createConnectionRuntime(
     const store = notifyingVaultStore(createIndexedDbVaultStore({ profile }), () =>
       options.onVaultStateMayChange?.(),
     );
-    const manager = notifyingVaultManager(createLocalVaultManager({ profile, host, store }), () =>
-      options.onVaultOpened?.(),
+    const manager = usedVaultManager(
+      notifyingVaultManager(
+        createLocalVaultManager({
+          profile,
+          host,
+          store,
+          ...(options.retention ? { retention: options.retention } : {}),
+          sessionKey: createSessionKeyStore(profile.connectionId),
+        }),
+        () => options.onVaultOpened?.(),
+      ),
+      () => void options.vaultTimeout?.used().catch(() => undefined),
+      () => options.onVaultOpened?.(),
     );
     const value = { store, manager };
     vaults.set(profile.connectionId, value);
     return value;
   }
+  /** Vaults with an unlock or a sign-in running, by how many. */
+  const opening = new Map<string, number>();
+  /** The vault each sign-in waiting for a code signs in to. */
+  const flows = new Map<string, string>();
   async function current(connectionId: string) {
+    // A check that cannot tell whether the timeout passed keeps the vault closed.
+    await options.vaultTimeout?.check().catch(() => {
+      throw new Error("vault-unavailable");
+    });
+    // A vault the timeout could not close stays refused until it closes or is reopened.
+    if (await options.vaultTimeout?.unclosed(connectionId).catch(() => true))
+      throw new Error("vault-unavailable");
     const configuration = await registry.get(connectionId);
     if (!configuration) throw new Error("invalid-configuration");
     const vault = vaultFor(configuration.profile);
     const record = await vault.store.read();
-    if (!record.ok || record.data?.state !== "active") throw new Error("vault-unavailable");
+    if (!record.ok || !record.data || record.data.state === "disabled")
+      throw new Error("vault-unavailable");
     let handle = vault.manager.status().handle;
     if (!handle) {
       const restored = await vault.manager.restore();
-      if (!restored.ok) throw new Error("vault-unavailable");
+      if (!restored.ok)
+        throw new Error(
+          restored.error.code === "vault-locked" ? "vault-locked" : "vault-unavailable",
+        );
       handle = restored.data.handle;
     }
     const projected = await vault.manager.catalog(handle);
@@ -120,14 +205,15 @@ export function createConnectionRuntime(
           quarantinedItemIds: quarantine,
           state: quarantine.length ? "review-required" : "ready",
         });
-      } catch {
+      } catch (error) {
         connections.push({
           id: configuration.profile.connectionId,
           label: configuration.label,
           provider: "bitwarden",
           groups: [],
           items: [],
-          state: "unavailable",
+          state:
+            error instanceof Error && error.message === "vault-locked" ? "locked" : "unavailable",
         });
       }
     }
@@ -208,12 +294,37 @@ export function createConnectionRuntime(
       }
       pending += 1;
       let result: Promise<SetupReply>;
+      // The vault this request may open, which the timeout's retries leave alone meanwhile.
+      const opens =
+        request.type === "connection.unlock"
+          ? request.input.connectionId
+          : request.type === "connection.begin" && request.input.kind === "existing"
+            ? request.input.connectionId
+            : request.type === "connection.continue"
+              ? flows.get(request.input.flowId)
+              : undefined;
+      if (opens) opening.set(opens, (opening.get(opens) ?? 0) + 1);
       switch (request.type) {
         case "connection.begin":
-          result = caller.begin(request.input);
+          // A vault whose time already passed locks first; then the sign-in starts the time
+          // again, so a check while it runs cannot lock the vault it unlocks.
+          result = timeoutChecked()
+            .then(() => options.vaultTimeout?.used())
+            .then(() => caller.begin(request.input));
           break;
         case "connection.continue":
-          result = caller.continue(request.input);
+          // A second step can take a while; it starts the time again too.
+          result = Promise.resolve(options.vaultTimeout?.used()).then(() =>
+            caller.continue(request.input),
+          );
+          break;
+        case "connection.unlock":
+          result = timeoutChecked()
+            .then(() => options.vaultTimeout?.used())
+            .then(() => caller.unlock(request.input));
+          break;
+        case "connection.lock":
+          result = caller.lock(request.connectionId);
           break;
         case "connection.cancel":
           result = caller.cancel(request.flowId);
@@ -225,7 +336,17 @@ export function createConnectionRuntime(
           result = caller.keepAlive(request.flowId);
           break;
         case "connection.sync":
-          result = caller.sync(request.connectionId);
+          // A sync opens the next snapshot with the vault's key, so it waits for the check,
+          // and a vault the timeout could not close stays refused.
+          result = (options.vaultTimeout?.check() ?? Promise.resolve())
+            .then(() => options.vaultTimeout?.unclosed(request.connectionId))
+            .then(
+              (unclosed): Promise<SetupReply> | SetupReply =>
+                unclosed
+                  ? { ok: false, error: { code: "setup-unavailable" } }
+                  : caller.sync(request.connectionId),
+              () => ({ ok: false as const, error: { code: "setup-unavailable" as const } }),
+            );
           break;
         case "connection.disable":
           result = caller.disable(request.connectionId);
@@ -247,14 +368,42 @@ export function createConnectionRuntime(
         .catch(() => ({ ok: false as const, error: { code: "setup-unavailable" as const } }))
         .then((reply) => {
           pending -= 1;
+          // A sign-in or an unlock opens the vault, so the vault timeout counts from it. The
+          // vault stays out of the timeout's retries until that is recorded.
+          const counted =
+            reply.ok &&
+            (request.type === "connection.begin" ||
+              request.type === "connection.continue" ||
+              request.type === "connection.unlock")
+              ? options.vaultTimeout?.used(
+                  reply.kind === "ready" || reply.kind === "unlocked"
+                    ? reply.connectionId
+                    : undefined,
+                )
+              : undefined;
+          // A sign-in that waits for a code keeps its vault for the step that finishes it.
+          if (request.type === "connection.continue") flows.delete(request.input.flowId);
+          if (opens && reply.ok && "flowId" in reply && typeof reply.flowId === "string") {
+            flows.set(reply.flowId, opens);
+            if (flows.size > 16) flows.delete(flows.keys().next().value!);
+          }
+          void Promise.resolve(counted)
+            .catch(() => undefined)
+            .finally(() => {
+              if (!opens) return;
+              const left = (opening.get(opens) ?? 1) - 1;
+              if (left > 0) opening.set(opens, left);
+              else opening.delete(opens);
+            });
           // A heartbeat changes no vault state.
           if (request.type !== "connection.keep-alive") options.onVaultStateMayChange?.();
-          if (request.type === "connection.sync") {
-            try {
-              options.onSync?.(request.connectionId, reply);
-            } catch {
-              // Logging never holds back the reply.
-            }
+          try {
+            if (request.type === "connection.sync") options.onSync?.(request.connectionId, reply);
+            const step = signInSteps[request.type];
+            // A heartbeat is logged only when it found the sign-in gone.
+            if (step && (step !== "keep-alive" || !reply.ok)) options.onSignIn?.(step, reply);
+          } catch {
+            // Logging never holds back the reply.
           }
           send({ requestId: request.requestId, result: reply });
           return undefined;
@@ -262,13 +411,89 @@ export function createConnectionRuntime(
     });
     return true;
   }
+  /** A failed check still lets a sign-in or an unlock run; it starts the time again. */
+  function timeoutChecked(): Promise<void> {
+    return (options.vaultTimeout?.check() ?? Promise.resolve()).catch(() => undefined);
+  }
   async function vaultStates(): Promise<VaultRecordState[]> {
     const configurations = await registry.list();
     return Promise.all(
-      configurations.map(async (configuration) =>
-        vaultRecordState(await vaultFor(configuration.profile).store.read()),
-      ),
+      configurations.map(async (configuration) => {
+        const vault = vaultFor(configuration.profile);
+        const record = await vault.store.read();
+        // A locked record unlocked in this browser session is as usable as an active one.
+        if (record.ok && record.data?.state === "locked")
+          return (await vault.manager.keyFor(record.data)) ? "active" : "locked";
+        return vaultRecordState(record);
+      }),
     );
+  }
+  /**
+   * The vault timeout's action on every vault of this device, or on `only` (ADR 0075):
+   * `lock` keeps the sync sign-in, `log-out` also forgets it, as the settings page's Log
+   * out does. Every vault is tried; answers how many open vaults it closed and which it
+   * could not close.
+   */
+  async function timeOut(
+    action: "lock" | "log-out",
+    only?: string[],
+    retry?: { except?: string[] },
+  ): Promise<{ closed: number; failed: string[] }> {
+    const caller = service.createCaller();
+    let closed = 0;
+    const failed: string[] = [];
+    try {
+      for (const configuration of await registry.list()) {
+        const { connectionId } = configuration.profile;
+        if (only && !only.includes(connectionId)) continue;
+        if (retry?.except?.includes(connectionId)) continue;
+        // The person is unlocking or signing in to it; that answer decides, not a retry.
+        if (retry && opening.has(connectionId)) {
+          failed.push(connectionId);
+          continue;
+        }
+        try {
+          const vault = vaultFor(configuration.profile);
+          // oxlint-disable-next-line no-await-in-loop -- one connection at a time
+          const record = await vault.store.read();
+          if (record.ok && (!record.data || record.data.state === "disabled")) continue;
+          // Locking a locked vault changes nothing; a log out still forgets its sign-in. A
+          // record that no longer parses has nothing open.
+          const open =
+            (!record.ok && record.error.code !== "invalid-cache-record") ||
+            (record.ok && action === "log-out") ||
+            // oxlint-disable-next-line no-await-in-loop -- one connection at a time
+            (record.ok && Boolean(await vault.manager.keyFor(record.data)));
+          const reply =
+            action === "lock"
+              ? // oxlint-disable-next-line no-await-in-loop -- one connection at a time
+                await caller.lock(connectionId)
+              : // oxlint-disable-next-line no-await-in-loop -- one connection at a time
+                await caller.disable(connectionId);
+          if (!reply.ok) failed.push(connectionId);
+          else if (open) closed += 1;
+        } catch {
+          failed.push(connectionId);
+        }
+      }
+      return { closed, failed };
+    } finally {
+      caller.dispose();
+      options.onVaultStateMayChange?.();
+    }
+  }
+  /** Moves each unlocked vault's key to where the vault timeout now keeps it. */
+  async function keepKeys(retention: KeyRetention): Promise<boolean> {
+    let moved = true;
+    for (const configuration of await registry.list()) {
+      // oxlint-disable-next-line no-await-in-loop -- one connection at a time
+      const kept = await vaultFor(configuration.profile)
+        .manager.keepKey(retention)
+        .catch(() => ({ ok: false }));
+      if (!kept.ok) moved = false;
+    }
+    options.onVaultStateMayChange?.();
+    return moved;
   }
   return {
     settings,
@@ -278,6 +503,8 @@ export function createConnectionRuntime(
     vaultStates,
     current,
     attach,
+    timeOut,
+    keepKeys,
     /** Diagnostics only: the public `GET {api}/config`, behind the permission sync uses. */
     async serverConfig(
       connectionId: string,
@@ -298,8 +525,16 @@ export function createConnectionRuntime(
         ? transport.data.config({ connectionId: configuration.profile.connectionId })
         : transport;
     },
-    /** Internal only. No page/options API returns vault field values. */
-    async resolveField(connectionId: string, ref: LocalFieldReference) {
+    /**
+     * Internal only. No page/options API returns vault field values. `code` resolves the
+     * field as a TOTP code and never returns its raw value.
+     */
+    async resolveField(
+      connectionId: string,
+      ref: LocalFieldReference,
+      grant: { code?: true } = {},
+    ) {
+      const code = grant.code === true;
       let captured: LocalFieldReference;
       try {
         captured = structuredClone(ref);
@@ -331,6 +566,7 @@ export function createConnectionRuntime(
       const resolved = await vault.manager.resolveField(handle, captured, {
         snapshotId: captured.snapshotId,
         allowedFieldIds: item.fields.map((entry) => entry.id).filter((id) => !denied.includes(id)),
+        ...(code ? { code: true as const } : {}),
       });
       const latest = await settings.handle({ version: 1, type: "settings.get" });
       return latest.ok && latest.snapshot.revision === saved.snapshot.revision

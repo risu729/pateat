@@ -50,6 +50,17 @@ Bitwarden's master password re-prompt (`reprompt: 1`), as filling does
 ([vault adapter](../architecture.md#vault-adapter)). Settings for UP/UV and for
 re-prompt are planned for [phase 3](../plan.md#phase-3-public-release) (owner,
 2026-10-13 21:57 UTC); until then both stay as they are.
+Amended on 2026-10-23 (owner, 12:46 UTC): on a site listed in `repromptSites`, a passkey
+of an item with re-prompt signs only after its master password is entered in the
+chooser window ([ADR 0021](0021-account-choice-outside-settings.md),
+[vault adapter](../architecture.md#vault-adapter)); when no window can open, the request
+goes to the browser. Elsewhere such passkeys sign as before. UP and UV are unchanged
+(implemented).
+Amended on 2026-10-23 to match the code since
+[ADR 0021](0021-account-choice-outside-settings.md): [Bridge topology](#bridge-topology)
+said navigation does not cancel a request, but leaving a document cancels its pending
+requests. The owner accepted (option A) that a signature finishing just before that
+cancel arrives still counts as a sign-in ([plan](../plan.md#passkey-progress)).
 
 Amended on 2026-10-12 under the owner's passkey-first policy of 13:58 UTC
 ([ADR 0034](0034-answer-page-passkey-requests.md)), after a log from the Grok Bot's
@@ -141,16 +152,20 @@ and for `get` reports whether the document has transient user activation. The ba
 derives origin, tab, frame and document from the browser-supplied sender, never from
 page data, and accepts only frame 0 of an `https:` origin or `http://localhost`. Each
 `get` request has a short-lived operation ID bound to that document, and one document
-may hold only a few at once. Abort, timeout and a settings change cancel it; a late
-result is discarded. A registration check is not cancelled: the background runs at most
-16 at once across all tabs and hands any further one on as `busy`, and an abort or the
-page's 15-second limit only stops the page waiting. A lock or connection replacement
-during signing makes the Worker's signature unavailable, so the request is delegated as
-a failed assertion. Pages on an excluded site, or with no enabled connection, are
-answered from the settings metadata without reading the vault catalog, so they do not
-restore a vault. Navigation does not cancel it: Chrome drops a response addressed to a
-replaced document. The wrapper delegates if the relay does not acknowledge a request
-promptly, so an invalidated extension does not hold callers.
+may hold only a few at once. Abort, timeout, a settings change and leaving the document
+(the relay sends a cancel on `pagehide`) cancel it; a late result is discarded. A
+registration check is not cancelled: the background runs at most 16 at once across all
+tabs and hands any further one on as `busy`, and an abort or the page's 15-second limit
+only stops the page waiting. A lock or connection replacement during signing makes the
+Worker's signature unavailable, so the request is delegated as a failed assertion. Pages
+on an excluded site, or with no enabled connection, are answered from the settings
+metadata without reading the vault catalog, so they do not restore a vault. If signing
+finishes just before a left document's cancel arrives, the sign-in still counts: the tab
+is recorded as signed in, the login and the registration check are told and a chosen
+default is saved, while Chrome drops the response to the replaced document. The owner
+accepted this few-millisecond race on 2026-10-23. The wrapper delegates if the relay
+does not acknowledge a request promptly, so an invalidated extension does not hold
+callers.
 
 The background selects the credential and builds client data. Signing runs in the
 crypto host Worker that owns the decrypted vault session, so the private key is

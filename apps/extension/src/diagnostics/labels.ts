@@ -182,3 +182,14 @@ export function deviceFailureLabel(
       ? t("service record not read ({{error}})", { error })
       : `service record not read (${error})`;
 }
+
+/**
+ * Whether a sync could renew an expired sign-in: it needs the vault's key, kept on disk
+ * (automatic unlock on) or, while unlocked in this browser session, in memory (ADR 0075).
+ */
+export function syncKeyKept(item: { state: string; autoUnlock: string }): boolean {
+  return (
+    item.autoUnlock === "enabled" ||
+    (item.autoUnlock === "disabled" && !["locked", "disabled", "unavailable"].includes(item.state))
+  );
+}

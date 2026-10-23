@@ -89,7 +89,7 @@ test("a visible origin validation error translates live without submitting the r
   const value = await mount();
   await page.getByRole("textbox", { name: "Origin", exact: true }).fill("invalid origin");
   await page.getByRole("button", { name: "Save default", exact: true }).click();
-  const message = "Enter an exact HTTP(S) origin without a path or trailing slash.";
+  const message = "Enter an origin such as https://bank.example, without a path or trailing slash.";
   await expect.element(page.getByRole("alert")).toHaveTextContent(message);
   await i18n.changeLanguage("ja");
   await expect.element(page.getByRole("alert")).toHaveTextContent(japanese(message));
@@ -119,11 +119,14 @@ test("a save conflict arriving after a language change keeps the draft and trans
     ok: false,
     error: { code: "revision-conflict", message: "Synthetic stale revision" },
   });
+  // With no recorded cause the line names an unrecorded change (ADR 0025).
   const message =
-    "Settings changed in another window. Your unsaved draft has been preserved. Reload saved settings to review the latest version before saving. Reloading discards the draft.";
+    "The saved settings changed before this save: settings changed for a reason no longer recorded. Your unsaved changes are kept. Reload saved settings to see the latest ones before you change anything else; reloading drops them.";
   await expect
     .poll(() => document.getElementById("settings-status")?.textContent)
-    .toContain(japanese(message));
+    .toContain(
+      "この保存の前に保存済みの設定が変更されました（理由の記録が残っていない変更）。未保存の変更は保持されています。",
+    );
   expect(document.getElementById("site-list")?.textContent).toContain("draft.example");
   expect(value.saveSettings).toHaveBeenCalledOnce();
   await i18n.changeLanguage("en");

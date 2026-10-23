@@ -5,7 +5,9 @@ Status: accepted by the owner on 2026-10-11. Amends
 Anthropic API key as a Worker secret. The issuer, the per-owner identifiers and the
 token exchange are implemented in `services/api/src/claude/`, and owners enter their
 identifiers on `/manage/claude`. The recipe generation routes of
-[ADR 0018](0018-recipe-generation-route.md) use them.
+[ADR 0018](0018-recipe-generation-route.md) use them. Amended by
+[ADR 0040](0040-running-without-the-service.md): a paired device with its own Anthropic
+API key makes the model calls itself, and the service's spend stops do not count them.
 
 Date: 2026-10-11
 
@@ -54,8 +56,8 @@ The first credential type is WIF, used by the owner's own deployment first:
   (`fdrl_…`), `organizationId`, `serviceAccountId` (`svac_…`) and `workspaceId`
   (`wrkspc_…`). On 2026-10-11 the owner chose a temporary script-free
   `/manage/claude` page for entering them, with a button that tests the token
-  exchange, so WIF can be tried before the React web UI exists. The web UI replaces
-  that page.
+  exchange, so WIF can be tried before the React web UI exists. The web UI's Claude
+  tab replaced that page on 2026-10-23, together with each role's model choices.
 - For each exchange the Worker signs a fresh JWT `{ iss: <origin>, sub:
   "owner:<ownerId>", aud: "https://api.anthropic.com", iat, nbf, exp, jti }` with a
   lifetime of five minutes. It posts the JWT

@@ -21,6 +21,8 @@ import type { ServiceTransport, SettingsResult } from "./transport";
 
 const SERVICE = "https://pateat.example.com";
 const DEVICE = "6f1d3c1e-5d0b-4a52-9d55-3d7a8f0e2b41";
+const PROFILE = "00000000-0000-4000-8000-000000000010";
+const OTHER_PROFILE = "00000000-0000-4000-8000-000000000011";
 const OTHER_DEVICE = "7a2e4d2f-6e1c-4b63-8e66-4e8b9f1f3c52";
 const CREDENTIAL = `pateat_device_${"C".repeat(43)}`;
 const CONNECTION: ServiceConnection = {
@@ -57,12 +59,14 @@ const localConnection = {
 const settingsOf = (parts: Partial<LocalSettings> = {}): LocalSettings => ({
   connections: [],
   excludedSites: [],
+  repromptSites: [],
   siteDefaults: [],
   bindings: [],
   ...parts,
 });
 const state = (revision: number, settings: LocalSettings | null): SyncSettingsState => ({
   version: 1,
+  profileId: PROFILE,
   revision,
   settings,
 });
@@ -98,7 +102,7 @@ function setup(
     saveSettings: vi.fn<ServiceTransport["saveSettings"]>(async (_, __, write) => {
       if (write.expectedRevision !== service.revision)
         return { kind: "conflict", current: structuredClone(service) };
-      service = state(service.revision + 1, write.settings);
+      service = { ...state(service.revision + 1, write.settings), profileId: service.profileId };
       return { kind: "state", state: structuredClone(service) };
     }),
   };
@@ -157,7 +161,7 @@ const baseOf = (
   settings: LocalSettings,
   deviceId = DEVICE,
   local: LocalSettings = settings,
-) => ({ version: 1, origin: SERVICE, deviceId, revision, settings, local });
+) => ({ version: 1, origin: SERVICE, deviceId, profileId: PROFILE, revision, settings, local });
 
 describe("settings sync on a new pairing", () => {
   it("seeds a service that has never stored settings from this device", async () => {
@@ -190,7 +194,7 @@ describe("settings sync on a new pairing", () => {
     expect(base()).toMatchObject({ revision: 0 });
   });
 
-  it("keeps both sides' entries and lets the service win where they differ", async () => {
+  it("adopts an initialized selected profile without importing prior local policy", async () => {
     const local = settingsOf({
       connections: [localConnection],
       excludedSites: [site("local-only.example")],
@@ -207,14 +211,61 @@ describe("settings sync on a new pairing", () => {
     const { sync, service, local: after, applied } = setup({ local, service: state(3, remote) });
     expect(await sync.run(CONNECTION, never)).toBe("synced");
     const merged = {
-      excludedSites: [site("intranet.example"), site("local-only.example")],
+      excludedSites: [site("intranet.example")],
+      repromptSites: [],
       siteDefaults: [account("https://bank.example"), account("https://shop.example")],
       bindings: [binding("https://bank.example")],
     };
-    expect(service()).toEqual(state(4, { connections: [], ...merged }));
+    expect(service()).toEqual(state(3, { connections: [], ...merged }));
     expect(after()?.revision).toBe(8);
     expect(after()?.settings).toEqual({ connections: [localConnection], ...merged });
+    // A settings page save drafted before the merge names it (ADR 0025).
+    expect(after()?.changes).toEqual([{ revision: 8, cause: "service-sync" }]);
     expect(applied).toHaveBeenCalledOnce();
+  });
+
+  it("keeps this device's bindings when it adopts a profile's site settings", async () => {
+    // Bindings belong to the owner, not to a profile (ADR 0076).
+    const local = settingsOf({
+      excludedSites: [site("local-only.example")],
+      bindings: [binding("https://local.example")],
+    });
+    const remote = settingsOf({
+      excludedSites: [site("intranet.example")],
+      bindings: [binding("https://bank.example")],
+    });
+    const { sync, service, local: after } = setup({ local, service: state(3, remote) });
+    expect(await sync.run(CONNECTION, never)).toBe("synced");
+    const merged = {
+      excludedSites: [site("intranet.example")],
+      repromptSites: [],
+      siteDefaults: [],
+      bindings: [binding("https://bank.example"), binding("https://local.example")],
+    };
+    expect(service()).toEqual(state(4, { connections: [], ...merged }));
+    expect(after()?.settings).toEqual({ connections: [], ...merged });
+  });
+
+  it("uploads this device's site settings to a profile created for it", async () => {
+    const local = settingsOf({
+      excludedSites: [site("local-only.example")],
+      siteDefaults: [account("https://bank.example")],
+    });
+    // A profile created while pairing has no settings of its own yet; the bindings
+    // already on the service are the owner's.
+    const remote = settingsOf({ bindings: [binding("https://bank.example")] });
+    const {
+      sync,
+      service,
+      local: after,
+    } = setup({
+      local,
+      service: { ...state(3, remote), newProfile: true },
+    });
+    expect(await sync.run(CONNECTION, never)).toBe("synced");
+    const merged = { ...local, bindings: [binding("https://bank.example")] };
+    expect(service()).toEqual(state(4, merged));
+    expect(after()?.settings).toEqual(merged);
   });
 
   it("ignores the base of another pairing", async () => {
@@ -225,10 +276,7 @@ describe("settings sync on a new pairing", () => {
       base: baseOf(3, settingsOf({ excludedSites: [site("local-only.example")] }), OTHER_DEVICE),
     });
     await sync.run(CONNECTION, never);
-    expect(after()?.settings.excludedSites).toEqual([
-      site("intranet.example"),
-      site("local-only.example"),
-    ]);
+    expect(after()?.settings.excludedSites).toEqual([site("intranet.example")]);
   });
 
   it("removes nothing when the service went back to an older revision", async () => {
@@ -292,6 +340,7 @@ describe("settings sync after the first", () => {
         ...agreed,
         // Removed on the service.
         excludedSites: [],
+        repromptSites: [],
         bindings: [...agreed.bindings, binding("https://shop.example")],
       }),
       base: baseOf(4, agreed),
@@ -299,6 +348,7 @@ describe("settings sync after the first", () => {
     expect(await sync.run(CONNECTION, never)).toBe("synced");
     const merged = settingsOf({
       excludedSites: [],
+      repromptSites: [],
       siteDefaults: [account("https://bank.example"), account("https://shop.example")],
       bindings: [binding("https://bank.example"), binding("https://shop.example")],
     });
@@ -322,9 +372,24 @@ describe("settings sync after the first", () => {
     });
     expect(mergeSyncedSettings({ service: base, local: base }, local, service)).toEqual({
       excludedSites: [site("intranet.example")],
+      repromptSites: [],
       siteDefaults: [account("https://bank.example", "item-service")],
       bindings: [binding("https://bank.example", "totp")],
     });
+  });
+
+  it("merges the sites that ask for the master password per site, like exclusions", () => {
+    const base = syncedSettings({ ...agreed, repromptSites: [site("bank.example")] });
+    // This device stopped asking on bank.example and started on shop.example; the service
+    // started on mail.example.
+    const local = syncedSettings({ ...agreed, repromptSites: [site("shop.example")] });
+    const service = syncedSettings({
+      ...agreed,
+      repromptSites: [site("bank.example"), site("mail.example")],
+    });
+    expect(
+      mergeSyncedSettings({ service: base, local: base }, local, service).repromptSites,
+    ).toEqual([site("mail.example"), site("shop.example")]);
   });
 
   it("applies a default that differs only in its item name once, then stays settled", async () => {
@@ -371,7 +436,9 @@ describe("settings sync after the first", () => {
     });
     expect(await sync.run(CONNECTION, never)).toBe("synced");
     expect(transport.saveSettings).toHaveBeenCalledTimes(2);
-    expect(service()).toEqual(state(6, { ...agreed, excludedSites: [], bindings: [] }));
+    expect(service()).toEqual(
+      state(6, { ...agreed, excludedSites: [], repromptSites: [], bindings: [] }),
+    );
   });
 
   it("merges again when local settings changed during the sync", async () => {
@@ -387,7 +454,7 @@ describe("settings sync after the first", () => {
     });
     transport.settings.mockImplementationOnce(async () => {
       // An automatic account choice saved while the service was being read.
-      await store.update(undefined, (snapshot) => ({
+      await store.update(undefined, "account-choice", (snapshot) => ({
         ...snapshot,
         settings: {
           ...snapshot.settings,
@@ -463,7 +530,7 @@ describe("settings sync after the first", () => {
     const read = store.read.bind(store);
     vi.spyOn(store, "read").mockImplementationOnce(async () => {
       const snapshot = await read();
-      await store.update(undefined, (current) => ({
+      await store.update(undefined, "settings-save", (current) => ({
         ...current,
         settings: { ...current.settings, siteDefaults: [] },
       }));
@@ -490,7 +557,7 @@ describe("settings sync after the first", () => {
     transport.saveSettings.mockImplementationOnce(async (...args) => {
       const result = await save(...args);
       // An unrelated local edit after the upload makes the local write conflict.
-      await store.update(undefined, (current) => ({
+      await store.update(undefined, "settings-save", (current) => ({
         ...current,
         settings: { ...current.settings, bindings: [] },
       }));
@@ -518,7 +585,7 @@ describe("settings sync after the first", () => {
     const save = transport.saveSettings.getMockImplementation()!;
     transport.saveSettings.mockImplementationOnce(async (...args) => {
       const result = await save(...args);
-      await store.update(undefined, (current) => ({
+      await store.update(undefined, "settings-save", (current) => ({
         ...current,
         settings: {
           ...current.settings,
@@ -585,6 +652,7 @@ describe("settings sync after the first", () => {
     } = setup({
       local: settingsOf({ excludedSites: sites("local") }),
       service: state(4, settingsOf({ excludedSites: sites("service") })),
+      base: baseOf(3, settingsOf()),
     });
     expect(await sync.run(CONNECTION, never)).toBe("too-large");
     expect(transport.saveSettings).not.toHaveBeenCalled();
@@ -661,7 +729,7 @@ describe("settings sync after the first", () => {
       deferred: () => running,
     });
     expect(await sync.run(CONNECTION, never)).toBe("busy");
-    await store.update(undefined, (current) => ({
+    await store.update(undefined, "settings-save", (current) => ({
       ...current,
       settings: { ...current.settings, siteDefaults: [account("https://bank.example", "item-c")] },
     }));
@@ -689,7 +757,7 @@ describe("settings sync after the first", () => {
     expect(await sync.run(CONNECTION, never)).toBe("busy");
     expect(base()).toMatchObject({ revision: 6 });
     expect(service().settings?.siteDefaults).toEqual([account("https://bank.example", "item-s")]);
-    await store.update(undefined, (current) => ({
+    await store.update(undefined, "settings-save", (current) => ({
       ...current,
       settings: { ...current.settings, siteDefaults: [account("https://bank.example", "item-c")] },
     }));
@@ -1016,4 +1084,135 @@ describe("display names from this device's catalog", () => {
       refreshDisplayNames(refreshed, catalogOf(vault("connection-1", USER))).siteDefaults[0],
     ).toBe(refreshed.siteDefaults[0]);
   });
+});
+
+describe("device profile switches", () => {
+  it("never uploads the old profile cache after a deferred switch or a worker restart", async () => {
+    let running = true;
+    const old = settingsOf({
+      excludedSites: [site("old-profile.example")],
+      siteDefaults: [account("https://old.example")],
+    });
+    const next = settingsOf({ excludedSites: [site("new-profile.example")] });
+    const h = setup({
+      local: { ...old, connections: [localConnection] },
+      service: { ...state(8, next), profileId: OTHER_PROFILE },
+      base: baseOf(7, old),
+      deferred: () => running,
+    });
+    expect(await h.sync.run(CONNECTION, never)).toBe("busy");
+    expect(h.transport.saveSettings).not.toHaveBeenCalled();
+    expect(h.local()?.settings.excludedSites).toEqual(old.excludedSites);
+    // Keeping the prior identity prevents this cache becoming a new profile's edits.
+    expect(h.base()).toMatchObject({ profileId: PROFILE });
+    expect(await h.restart().run(CONNECTION, never)).toBe("busy");
+    expect(h.transport.saveSettings).not.toHaveBeenCalled();
+    running = false;
+    expect(await h.restart().run(CONNECTION, never)).toBe("synced");
+    expect(h.transport.saveSettings).not.toHaveBeenCalled();
+    expect(h.local()?.settings).toEqual({ ...next, connections: [localConnection] });
+    expect(h.base()).toMatchObject({ profileId: OTHER_PROFILE });
+  });
+});
+
+describe("profile switch with refreshed account names", () => {
+  it("retains the old profile marker through an upload and deferred local replacement", async () => {
+    let running = true;
+    const old = settingsOf({ excludedSites: [site("old-profile.example")] });
+    const remote = settingsOf({ siteDefaults: [account("https://bank.example")] });
+    const h = setup({
+      local: old,
+      service: { ...state(8, remote), profileId: OTHER_PROFILE },
+      base: baseOf(7, old),
+      deferred: () => running,
+      catalog: async () => ({
+        connections: [
+          {
+            id: "connection-1",
+            label: "Synthetic account",
+            provider: "bitwarden",
+            userId: USER,
+            state: "ready",
+            groups: [],
+            items: [
+              {
+                id: "item-1",
+                label: "Synthetic bank",
+                allowedOrigins: [],
+                groupIds: [],
+                fields: [],
+              },
+            ],
+          },
+        ],
+      }),
+    });
+    expect(await h.sync.run(CONNECTION, never)).toBe("busy");
+    expect(h.transport.saveSettings).toHaveBeenCalledOnce();
+    expect(h.base()).toMatchObject({ profileId: PROFILE });
+    expect(h.service().settings?.excludedSites).toEqual([]);
+    expect(await h.restart().run(CONNECTION, never)).toBe("busy");
+    expect(h.service().settings?.excludedSites).toEqual([]);
+    running = false;
+    expect(await h.restart().run(CONNECTION, never)).toBe("synced");
+    expect(h.local()?.settings.excludedSites).toEqual([]);
+    expect(h.local()?.settings.siteDefaults).toEqual([
+      expect.objectContaining({ itemName: "Synthetic bank" }),
+    ]);
+    expect(h.base()).toMatchObject({ profileId: OTHER_PROFILE });
+  });
+});
+
+describe("moves to a profile no device has written yet", () => {
+  it("keeps this device's entries when the move lands during an upload", async () => {
+    const agreed = settingsOf({ excludedSites: [site("agreed.example")] });
+    const local = settingsOf({
+      excludedSites: [site("agreed.example"), site("local-edit.example")],
+    });
+    const h = setup({ local, service: state(4, agreed), base: baseOf(4, agreed) });
+    // The owner moves the device before its upload lands.
+    h.transport.saveSettings.mockImplementationOnce(async () => {
+      const moved: SyncSettingsState = {
+        ...state(5, settingsOf()),
+        profileId: OTHER_PROFILE,
+        newProfile: true,
+      };
+      h.setService(moved);
+      return { kind: "conflict", current: structuredClone(moved) };
+    });
+    expect(await h.sync.run(CONNECTION, never)).toBe("synced");
+    expect(h.service().settings?.excludedSites).toEqual(local.excludedSites);
+    expect(h.local()?.settings.excludedSites).toEqual(local.excludedSites);
+  });
+
+  it("does not bring back a binding removed while this device was away", async () => {
+    const agreed = settingsOf({
+      bindings: [binding("https://kept.example"), binding("https://removed.example")],
+    });
+    const h = setup({
+      local: agreed,
+      // Another device removed one binding, then this device moved to a new profile.
+      service: {
+        ...state(6, settingsOf({ bindings: [binding("https://kept.example")] })),
+        profileId: OTHER_PROFILE,
+        newProfile: true,
+      },
+      base: baseOf(4, agreed),
+    });
+    expect(await h.sync.run(CONNECTION, never)).toBe("synced");
+    expect(h.local()?.settings.bindings).toEqual([binding("https://kept.example")]);
+    expect(h.service().settings?.bindings).toEqual([binding("https://kept.example")]);
+  });
+});
+
+it("changes nothing when the merge base cannot be read", async () => {
+  const local = settingsOf({ excludedSites: [site("local-only.example")] });
+  const h = setup({
+    local,
+    service: state(3, settingsOf({ excludedSites: [site("intranet.example")] })),
+  });
+  h.storage.read.mockRejectedValueOnce(new Error("synthetic storage failure"));
+  expect(await h.sync.run(CONNECTION, never)).toBe("storage-unavailable");
+  expect(h.transport.saveSettings).not.toHaveBeenCalled();
+  expect(h.local()?.settings.excludedSites).toEqual(local.excludedSites);
 });

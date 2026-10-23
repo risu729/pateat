@@ -30,6 +30,8 @@ function client() {
     cancel: vi.fn<ConnectionClient["cancel"]>(),
     sync: vi.fn<ConnectionClient["sync"]>(),
     disableAutoUnlock: vi.fn<ConnectionClient["disableAutoUnlock"]>(),
+    lock: vi.fn<ConnectionClient["lock"]>(),
+    unlock: vi.fn<ConnectionClient["unlock"]>(),
     forgetProviderSession: vi.fn<ConnectionClient["forgetProviderSession"]>(),
     deleteConnection: vi.fn<ConnectionClient["deleteConnection"]>(),
     review: vi.fn<ConnectionClient["review"]>(),
@@ -105,7 +107,7 @@ test("language changes preserve sign-in inputs and focus, then localize a pendin
   });
   await i18n.changeLanguage("en");
   finish(ready());
-  const notice = "Vault verified and local cache accepted. Check automatic-unlock status below.";
+  const notice = "Vault verified, unlocked and copied to this device.";
   await expect.element(page.getByText(notice, { exact: true })).toBeVisible();
   await i18n.changeLanguage("ja");
   await expect.element(page.getByText(japanese(notice), { exact: true })).toBeVisible();
@@ -123,6 +125,7 @@ test.each([0, 1] as const)(
       ok: true,
       kind: "mfa-required",
       flowId: FLOW,
+      expiresAt: Date.now() + 3_600_000,
       providers: [provider],
     });
     let finish!: (reply: SetupReply) => void;
@@ -158,7 +161,13 @@ test.each([0, 1] as const)(
 
 test("the email code's send result and Resend follow the language", async () => {
   const value = client();
-  value.begin.mockResolvedValue({ ok: true, kind: "mfa-required", flowId: FLOW, providers: [1] });
+  value.begin.mockResolvedValue({
+    ok: true,
+    kind: "mfa-required",
+    flowId: FLOW,
+    providers: [1],
+    expiresAt: Date.now() + 3_600_000,
+  });
   await mount(value);
   await credentials();
   await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
@@ -167,6 +176,10 @@ test("the email code's send result and Resend follow the language", async () => 
   expect(value.sendEmailCode).toHaveBeenCalledExactlyOnceWith(FLOW);
   await i18n.changeLanguage("ja");
   await expect.element(page.getByText(japanese(sent), { exact: true })).toBeVisible();
+  // The code screen's end is worded and formatted in the page's language.
+  await expect
+    .element(page.getByText(/^.+ までにコードを入力してください。それを過ぎるとログインが終了し/u))
+    .toBeVisible();
   value.sendEmailCode.mockResolvedValueOnce({
     ok: true,
     kind: "email-code",
@@ -223,7 +236,7 @@ test("self-hosted address validation translates in place before any provider req
     .fill("https://synthetic.example/path");
   await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
   const message =
-    "Enter a connection name, valid email and master password. Self-hosted addresses must be HTTPS roots, or HTTP on localhost or 127.0.0.1, without a path, credentials, query or fragment.";
+    "Enter a name, a valid email and the master password. A self-hosted server address is an HTTPS address such as https://vault.example.com, or HTTP on localhost or 127.0.0.1, with no path, credentials, query or fragment.";
   await expect.element(page.getByText(message, { exact: true })).toBeVisible();
   await i18n.changeLanguage("ja");
   await expect.element(page.getByText(japanese(message), { exact: true })).toBeVisible();

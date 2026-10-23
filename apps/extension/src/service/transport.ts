@@ -1,5 +1,6 @@
 import {
   devicePairResultSchema,
+  profileSchema,
   recipeCompletionResultSchema,
   entryGenerationResultSchema,
   recipeGenerationResultSchema,
@@ -7,6 +8,7 @@ import {
   syncDeviceStateSchema,
   syncRecipeChangeSchema,
   syncRecipeChangesSchema,
+  syncRecipeIdSchema,
   syncRecipeWriteResultSchema,
   syncSettingsStateSchema,
   type DevicePairResult,
@@ -14,6 +16,7 @@ import {
   type EntryGenerationResult,
   type LoginOutcomeReport,
   type LoginRecord,
+  type ProblemReport,
   type RecipeCompletionRequest,
   type RecipeCompletionResult,
   type RecipeGenerationRequest,
@@ -112,9 +115,22 @@ export function addTimings(
   };
 }
 
+type Profile = v.InferOutput<typeof profileSchema>;
+/** The profile a pairing device takes: an existing one, or a new one by name (ADR 0076). */
+export type PairProfile = { profileId: string } | { newProfile: string };
+
 /** `POST /pair`'s answer (ADR 0020). */
 export type PairResult =
   | { kind: "issued"; result: DevicePairResult }
+  /**
+   * The owner has profiles and the request chose none, or chose one that is gone or a new
+   * name another profile has; `profiles` lists them for the choice (ADR 0076).
+   */
+  | {
+      kind: "profile";
+      error: "profile-required" | "profile-not-found" | "profile-name-taken";
+      profiles: Profile[];
+    }
   /**
    * No login session reached the service: a redirect, a `401`, or a body that is not
    * JSON, such as the Access login page, with any status below 500 except 429.
@@ -126,7 +142,8 @@ export type PairResult =
         | TransportFailure
         | "sign-in-rejected"
         | "extension-not-allowed"
-        | "pairing-unavailable";
+        | "pairing-unavailable"
+        | "access-keys-unavailable";
     };
 
 export type RevokeResult = { kind: "revoked" } | { kind: "failed"; error: TransportFailure };
@@ -141,12 +158,85 @@ export type DeviceStateResult =
 type Timed = { timing?: ServiceTiming };
 
 export type RecipeChangesResult = (
-  | { kind: "page"; page: SyncRecipeChanges }
+  | {
+      kind: "page";
+      /** The page without the changes in `unreadable`. */
+      page: SyncRecipeChanges;
+      /**
+       * The recipe IDs of active changes whose recipe this build cannot read, as one the
+       * service stored with a locator a newer build added; left out of `page`.
+       */
+      unreadable?: string[];
+    }
   /** The service no longer accepts this device's credential. */
   | { kind: "rejected" }
   | { kind: "failed"; error: TransportFailure }
 ) &
   Timed;
+
+const writtenRevision = v.pipe(
+  v.number(),
+  v.integer(),
+  v.minValue(1),
+  v.maxValue(Number.MAX_SAFE_INTEGER - 1),
+);
+/**
+ * Each change read before its recipe: an active change's own fields and the recipe's
+ * identity must read and match, so only the recipe's body can be left out; a tombstone is
+ * read in full with the page.
+ */
+const recipeChangesPageSchema = v.strictObject({
+  ...syncRecipeChangesSchema.entries,
+  changes: v.pipe(
+    v.array(
+      v.union([
+        v.pipe(
+          v.strictObject({
+            recipeId: syncRecipeIdSchema,
+            revision: writtenRevision,
+            state: v.literal("active"),
+            recipe: v.looseObject({ id: v.unknown(), revision: v.unknown() }),
+          }),
+          v.check(
+            (change) =>
+              change.recipe.id === change.recipeId && change.recipe.revision === change.revision,
+          ),
+        ),
+        v.looseObject({ recipeId: syncRecipeIdSchema, state: v.literal("revoked") }),
+      ]),
+    ),
+    v.maxLength(SYNC_PAGE_LIMIT),
+  ),
+});
+/**
+ * A sync page read change by change: an active change whose recipe this build cannot read,
+ * as one stored by a service that is newer than the extension, is left out and named, so
+ * the rest of the page and every later page still reach the cache (#959). Undefined when the
+ * page itself, a change's own fields or its recipe's identity, or a tombstone does not read.
+ */
+function readRecipeChanges(
+  body: unknown,
+): { page: SyncRecipeChanges; unreadable: string[] } | undefined {
+  const envelope = v.safeParse(recipeChangesPageSchema, body);
+  if (!envelope.success) return undefined;
+  // Each change is checked as sent: the identity read drops keys a strict object refuses.
+  const sent = (body as { changes: unknown[] }).changes;
+  const changes: unknown[] = [];
+  const unreadable: string[] = [];
+  for (const [index, change] of envelope.output.changes.entries()) {
+    if (v.is(syncRecipeChangeSchema, sent[index])) changes.push(sent[index]);
+    else if (change.state === "active") unreadable.push(change.recipeId);
+    else return undefined;
+  }
+  // A recipe left out still counts once, so a page naming it twice stays refused.
+  if (
+    new Set(envelope.output.changes.map((change) => change.recipeId)).size !==
+    envelope.output.changes.length
+  )
+    return undefined;
+  const page = v.safeParse(syncRecipeChangesSchema, { ...envelope.output, changes });
+  return page.success ? { page: page.output, unreadable } : undefined;
+}
 
 export type SettingsResult = (
   | { kind: "state"; state: SyncSettingsState }
@@ -188,7 +278,8 @@ export type OutcomeResult =
   | { kind: "kept" }
   | { kind: "refused" }
   | { kind: "rejected" }
-  | { kind: "failed"; error: TransportFailure };
+  /** `retryAfterMs` when a 429 said how long to wait, by `Retry-After` in seconds. */
+  | { kind: "failed"; error: TransportFailure; retryAfterMs?: number };
 
 /**
  * `POST /v1/recipes/:recipeId/page-sample`'s answer (ADR 0029): `kept` when the service
@@ -207,7 +298,7 @@ export interface ServiceTransport {
    * `POST /pair` with the browser's login session to the service. The only call that
    * sends cookies; it sends no device credential.
    */
-  pair(origin: string, label: string): Promise<PairResult>;
+  pair(origin: string, label: string, profile?: PairProfile): Promise<PairResult>;
   revoke(origin: string, credential: string): Promise<RevokeResult>;
   /** `GET /v1/device`: what the service holds for this device's owner. */
   device(origin: string, credential: string): Promise<DeviceStateResult>;
@@ -266,6 +357,11 @@ export interface ServiceTransport {
     recipeId: string,
     report: RecipeUseReport,
   ): Promise<OutcomeResult>;
+  /**
+   * `POST /v1/device/problems`: the device's `warn` and `error` log lines, and `info` lines
+   * saying why Pateat did nothing, not sent yet, as they may leave the device (ADR 0066).
+   */
+  reportProblems(origin: string, credential: string, report: ProblemReport): Promise<OutcomeResult>;
   /**
    * A conditional `PUT /v1/recipes/:recipeId` that revokes the recipe whose head is
    * `expectedRevision`, as the owner's revoke on `/manage` does: for a recipe the chosen
@@ -425,6 +521,20 @@ export function createServiceTransport(
         void response.body?.cancel().catch(() => undefined);
         return { failed: "unexpected-response" as const, timing: timing() };
       }
+      // Every caller reads a 429 as "slow down" without its body, which may be an edge
+      // page that is not JSON, such as Cloudflare's rate-limit page.
+      if (response.status === 429) {
+        void response.body?.cancel().catch(() => undefined);
+        const retryAfter = response.headers.get("Retry-After");
+        return {
+          status: 429,
+          body: undefined,
+          timing: timing(),
+          ...(retryAfter && /^\d{1,6}$/u.test(retryAfter)
+            ? { retryAfterMs: Number(retryAfter) * 1000 }
+            : {}),
+        };
+      }
       const text = await readBounded(response, limit);
       if (text === undefined) return { failed: "unexpected-response" as const, timing: timing() };
       let body: unknown;
@@ -459,7 +569,7 @@ export function createServiceTransport(
   }
 
   return {
-    async pair(origin, label) {
+    async pair(origin, label, profile) {
       const response = await call(
         origin,
         "/pair",
@@ -470,7 +580,7 @@ export function createServiceTransport(
             // Asks Access to answer an expired session with a 401 instead of a redirect.
             "X-Requested-With": "XMLHttpRequest",
           },
-          body: JSON.stringify({ version: 1, label }),
+          body: JSON.stringify({ version: 1, label, ...profile }),
         },
         { session: true },
       );
@@ -483,11 +593,27 @@ export function createServiceTransport(
           : { kind: "failed", error: "unexpected-response" };
       }
       const code = errorCode(response.body);
+      const profileError =
+        response.status === 409 && code === "profile_required"
+          ? "profile-required"
+          : response.status === 404 && code === "profile_not_found"
+            ? "profile-not-found"
+            : response.status === 409 && code === "profile_name_taken"
+              ? "profile-name-taken"
+              : undefined;
+      if (profileError) {
+        const parsed = v.safeParse(v.object({ profiles: v.array(profileSchema) }), response.body);
+        return parsed.success
+          ? { kind: "profile", error: profileError, profiles: parsed.output.profiles }
+          : { kind: "failed", error: "unexpected-response" };
+      }
       if (response.status === 401) return { kind: "sign-in-needed" };
       if (response.status === 403 && code === "forbidden")
         return { kind: "failed", error: "sign-in-rejected" };
       if (response.status === 403 && code === "extension_not_allowed")
         return { kind: "failed", error: "extension-not-allowed" };
+      if (response.status === 503 && code === "access_keys_unavailable")
+        return { kind: "failed", error: "access-keys-unavailable" };
       if (response.status === 503) return { kind: "failed", error: "pairing-unavailable" };
       if (response.status === 429) return { kind: "failed", error: "rate-limited" };
       return { kind: "failed", error: "unexpected-response" };
@@ -532,10 +658,15 @@ export function createServiceTransport(
       const timed = { timing: response.timing };
       if ("failed" in response) return { kind: "failed", error: response.failed, ...timed };
       if (response.status === 200) {
-        const parsed = v.safeParse(syncRecipeChangesSchema, response.body);
+        const read = readRecipeChanges(response.body);
         // A page that moves the cursor backwards would replay or skip changes.
-        return parsed.success && parsed.output.cursor >= after
-          ? { kind: "page", page: parsed.output, ...timed }
+        return read && read.page.cursor >= after
+          ? {
+              kind: "page",
+              page: read.page,
+              ...(read.unreadable.length ? { unreadable: read.unreadable } : {}),
+              ...timed,
+            }
           : { kind: "failed", error: "unexpected-response", ...timed };
       }
       if (rejected(response)) return { kind: "rejected", ...timed };
@@ -601,6 +732,10 @@ export function createServiceTransport(
     reportUse(origin, credential, recipeId, report) {
       return post(origin, credential, `/v1/recipes/${encodeURIComponent(recipeId)}/use`, report);
     },
+    reportProblems(origin, credential, report) {
+      // Until the service has the route, its 404 keeps the lines for a later run.
+      return post(origin, credential, "/v1/device/problems", report, true);
+    },
     async revokeRecipe(origin, credential, recipeId, expectedRevision) {
       const response = await call(
         origin,
@@ -664,12 +799,17 @@ export function createServiceTransport(
     },
   };
 
-  /** A small report the service answers with 204 and no body. */
+  /**
+   * A small report the service answers with 204 and no body. With `routeMissingFails`, a
+   * 404 or 405, as from a service not yet deployed with the route, is a failure to retry
+   * rather than a refusal.
+   */
   async function post(
     origin: string,
     credential: string,
     path: string,
     body: unknown,
+    routeMissingFails = false,
   ): Promise<OutcomeResult> {
     const response = await call(
       origin,
@@ -684,7 +824,16 @@ export function createServiceTransport(
     if ("failed" in response) return { kind: "failed", error: response.failed };
     if (response.status === 204) return { kind: "kept" };
     if (rejected(response)) return { kind: "rejected" };
-    if (response.status === 429) return { kind: "failed", error: "rate-limited" };
+    if (response.status === 429)
+      return {
+        kind: "failed",
+        error: "rate-limited",
+        ...("retryAfterMs" in response && response.retryAfterMs !== undefined
+          ? { retryAfterMs: response.retryAfterMs }
+          : {}),
+      };
+    if (routeMissingFails && (response.status === 404 || response.status === 405))
+      return { kind: "failed", error: "unexpected-response" };
     if (response.status >= 400 && response.status < 500) return { kind: "refused" };
     return { kind: "failed", error: "unexpected-response" };
   }

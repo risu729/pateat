@@ -11,6 +11,14 @@ Amends [ADR 0013](0013-service-held-recipes-and-settings.md) (only the owner rev
 recipes) and [ADR 0016](0016-recipe-generation-trigger.md) (a page with a recipe is not
 generated again).
 
+Amended on 2026-10-23 by [ADR 0060](0060-recipe-layouts.md) (accepted by the owner on
+2026-10-23 at 11:41 UTC; implemented on a branch, local tests only): part B counts use
+per layout of a recipe
+([Amendment: use per layout](#amendment-2026-10-23-use-per-layout)). Part A is amended
+by [ADR 0041](0041-repair-stale-recipes.md) (accepted by the owner on 2026-10-23), which
+repairs the recipe instead of revoking it
+([Amendment: repair instead of revoke](#amendment-2026-10-23-repair-instead-of-revoke)).
+
 Date: 2026-10-19
 
 ## Context
@@ -109,6 +117,32 @@ Claude's choices beyond the owner's answer, not confirmed by the owner:
 - Existing recipes start from the newest of their last write and their last reported
   login.
 - One check revokes at most 50 recipes; the next sync revokes the rest.
+
+### Amendment 2026-10-23: use per layout
+
+Accepted with [ADR 0060](0060-recipe-layouts.md) by the owner on 2026-10-23 at 11:41
+UTC. A recipe now holds up to three layouts, and the service keeps each layout's last
+use in `recipe_layout_uses`: a login that starts on it (the use report names the
+layout), a login on it that ends, and a continuation, handler or marker the service
+writes into it. A write that changes one layout is no use of the others. A layout's last
+use is the newer of its creation and its last reported use. The same check that revokes
+an idle recipe removes a layout unused for 90 days, as a new revision without it, while
+another layout of the recipe is used; such a removal, like a removal of one layout on
+`/manage`, is no use of the recipe. When every layout is idle, the recipe is revoked as
+above.
+
+### Amendment 2026-10-23: repair instead of revoke
+
+Accepted with [ADR 0041](0041-repair-stale-recipes.md) on 2026-10-23.
+Part A no longer revokes the recipe: the device sends its start page for repair, which
+adds the route the item needs to a layout, or adds a layout, and keeps what the recipe
+learned. A newer revision pulled from the service is tried first, without a model call.
+The claim in `pateat.recipe-replacements.v1` bounds it to once per recipe, device and
+missing route (`passkey` or `password`) in 3 days, so at most two claims per recipe
+(owner, 2026-10-23 12:53 and 12:54 UTC: 30 days was too long, and one account's gap must
+not block another's). It is given back when the request never reached the model. The log
+event is `recipe.unfit`, and the request itself is `recipe.generate` with page `repair`.
+The Delivery section below describes part A before this amendment.
 
 ## Consequences
 

@@ -4,11 +4,13 @@ import {
   registersPasskey,
   loginAutocompleteTokens,
   loginObservationSchema,
+  loginKeypadTargetSchema,
   loginLinkTargetSchema,
   loginTargetSchema,
   namesPasswordControl,
   observedAutocompleteTokens,
   type LoginObservation,
+  type LoginKeypadTarget,
   type LoginMarkerTarget,
   type LoginTarget,
   type ObservedCandidate,
@@ -17,6 +19,14 @@ import * as v from "valibot";
 import { acceptsSecret, shortNumericInput } from "../login/inputs";
 import type { observationGaps } from "../login/wire";
 import { splitCodeInputs } from "../page/code-submission";
+import {
+  findKeypad,
+  findKeypads,
+  KEYPAD_MIN_KEYS,
+  keypadField,
+  keypadKeys,
+  keypadPosition,
+} from "../page/keypad";
 import { autocompleteTokens, findTargets, linkPath, namedControls } from "../page/targets";
 import { observedPath, redactsPath, tokenSegment } from "./path";
 import {
@@ -106,6 +116,13 @@ export type ObservationResult =
        * 2026-10-12, ADR 0029). Never sent to the service.
        */
       readonly disabledLeftOut?: true;
+      /**
+       * A signed-in page shows a radio button, select or text area, or an ARIA widget for
+       * one, that is no part of a site search (`leftOutInputs`), which its description
+       * has no role for: the page may ask for a choice or an answer, so an `optional`
+       * answer does not complete it (ADR 0065). Never sent to the service.
+       */
+      readonly inputLeftOut?: true;
     }
   | { readonly ok: false; readonly reason: ObservationRefusal };
 
@@ -153,6 +170,7 @@ const locators = [
   ["id", "id"],
   ["name", "name"],
   ["test-id", "data-testid"],
+  ["data-test", "data-test"],
 ] as const;
 /**
  * An ID React's `useId` generated (`:r1:`, `«r1»`, `_r_1_`, a hydrated `:R1aH1:`, also
@@ -195,9 +213,16 @@ const changingId = (value: string) => libraryId.test(value) || randomId(value);
  * more digits, ASCII or fullwidth, become `[number]`.
  */
 const redactions: readonly (readonly [RegExp, string])[] = [
-  // Fullwidth letters, digits and punctuation count too: `ｔａｒｏ＠ｅｘａｍｐｌｅ．ｃｏｍ`.
+  // Fullwidth letters, digits and punctuation count too: `ｔａｒｏ＠ｅｘａｍｐｌｅ．ｃｏｍ`. A
+  // local part holds what HTML's valid email address allows, such as `'` and `#`
+  // (`o'brien@`, `taro#1@`), except `/`, `=`, `?` and `&`, so `youtube.com/@pateat` and
+  // `price=100@shop` stay. A domain's labels may be internationalized (`taro@例え.jp`).
+  // An ASCII last label ends the address, so text right after it stays:
+  // `taro@example.comでログイン` becomes `[email]でログイン`. A last label that is not ASCII
+  // (`taro@例え.日本`, `taro@mail.例え.日本`) cannot be told apart from text glued to it,
+  // so the address and that text go together.
   [
-    /[A-Za-z0-9._%+\-*●•＊Ａ-Ｚａ-ｚ０-９．＿％＋－]+[@＠][A-Za-z0-9.\-*●•＊Ａ-Ｚａ-ｚ０-９．－]+/gu,
+    /[A-Za-z0-9.!#$%'*+^_`{|}~\-●•＊Ａ-Ｚａ-ｚ０-９．＿％＋－]+[@＠](?:(?:[\p{L}\p{M}\p{N}\-*●•＊－]+[.．])*[A-Za-z0-9\-*●•＊Ａ-Ｚａ-ｚ０-９－]+(?![A-Za-z0-9\-*●•＊Ａ-Ｚａ-ｚ０-９－]|[.．][\p{L}\p{M}\p{N}\-*●•＊－])|(?:[\p{L}\p{M}\p{N}\-*●•＊－]+[.．])+[\p{L}\p{M}\p{N}\-－]+)/gu,
     "[email]",
   ],
   [/[*●•＊]{3,}/gu, "[masked]"],
@@ -327,7 +352,7 @@ function locatorIndex(document: Document): LocatorIndex {
     const counts = index.get(key)!;
     counts.set(value, (counts.get(value) ?? 0) + 1);
   };
-  for (const element of document.querySelectorAll("[id], [name], [data-testid]"))
+  for (const element of document.querySelectorAll("[id], [name], [data-testid], [data-test]"))
     for (const [, attribute] of locators) {
       const value = element.getAttribute(attribute);
       if (value !== null) count(attribute, value);
@@ -556,18 +581,20 @@ function contentTarget(
       if (!v.is(loginTargetSchema, target)) continue;
       if (namesOnly(element, target, index.get("autocomplete")!.get(value), hidden)) return target;
     }
-    const name = labels ? fieldName(element) : undefined;
+    if (!labels) return undefined;
+    const name = fieldName(element);
     // A name holding a number may change as the person types, such as a counter "0/20",
     // unless it numbers an input of a split code.
     if (
-      name === undefined ||
-      observedText(name) !== name ||
-      index.get("label")!.get(name) !== 1 ||
-      (/\p{Number}/u.test(name) && !numbersCodeDigit(element, name))
-    )
-      return undefined;
-    const target = { by: "label" as const, value: name };
-    return v.is(loginTargetSchema, target) ? target : undefined;
+      name !== undefined &&
+      observedText(name) === name &&
+      index.get("label")!.get(name) === 1 &&
+      (!/\p{Number}/u.test(name) || numbersCodeDigit(element, name))
+    ) {
+      const target = { by: "label" as const, value: name };
+      if (v.is(loginTargetSchema, target)) return target;
+    }
+    return passwordFormNameTarget(element, hidden);
   }
   if (
     element instanceof HTMLAnchorElement &&
@@ -603,6 +630,25 @@ function contentTarget(
   if (!unique) return undefined;
   const target = { by: "text" as const, value: text };
   return v.is(loginTargetSchema, target) ? target : undefined;
+}
+
+/**
+ * The `password-form-name` locator of a field that no other locator names alone
+ * (ADR 0072): its `name`, when the executor finds it alone by that name among
+ * the elements of forms holding a shown password input not marked `new-password`, as
+ * Hacker News's account field `acct`, which its create-account form repeats. A name that
+ * may be a token, or that redaction would change, is never used.
+ */
+function passwordFormNameTarget(
+  element: HTMLInputElement,
+  hidden: boolean,
+): LoginTarget | undefined {
+  const value = element.getAttribute("name");
+  if (value === null || tokenSegment(value) || observedText(value) !== value) return undefined;
+  const target = { by: "password-form-name" as const, value };
+  if (!v.is(loginTargetSchema, target)) return undefined;
+  const found = findTargets(element.ownerDocument, target, { hidden });
+  return found.length === 1 && found[0] === element ? target : undefined;
 }
 
 /**
@@ -657,17 +703,19 @@ const idList = (element: Element, attribute: string) =>
 
 /**
  * Visible text of the elements `ids` name. With `skip`, the text of an element matching
- * it, or of one inside such an element, is left out.
+ * it, or of one inside such an element, is left out; with `keys`, the keys of a page's
+ * software keyboards (ADR 0067), so is their text, as the key labels and their order.
  */
 function referencedText(
   element: Element,
   ids: readonly string[],
   skip?: string,
+  keys?: ReadonlySet<Element>,
 ): string | undefined {
   const parts = ids.flatMap((id) => {
     const referenced = element.ownerDocument.getElementById(id);
     if (!referenced || (skip && referenced.closest(skip))) return [];
-    const text = uncutText(renderedText(referenced, rawLimit, skip ? { skip } : {}));
+    const text = uncutText(renderedText(referenced, rawLimit, { skip, leave: keys }));
     return text ? [text] : [];
   });
   return uncutText(parts.join(" "));
@@ -686,13 +734,18 @@ const liveRegions = [
  * description or inside it, never counts.
  * Text that repeats the label is left out.
  */
-function fieldDescription(input: HTMLInputElement, label: string | undefined) {
+function fieldDescription(
+  input: HTMLInputElement,
+  label: string | undefined,
+  keys?: ReadonlySet<Element>,
+) {
   if (input.getAttribute("aria-invalid")?.trim().toLowerCase() === "true") return undefined;
   const errors = new Set(idList(input, "aria-errormessage"));
   const text = referencedText(
     input,
     idList(input, "aria-describedby").filter((id) => !errors.has(id)),
     liveRegions,
+    keys,
   );
   return text === label ? undefined : text;
 }
@@ -992,15 +1045,21 @@ function otherControl(node: Element, element: Element): boolean {
 /**
  * Text of a nearby element that labels a field by layout, as table and form rows do:
  * the nearest preceding sibling with rendered text, at most three levels up, never
- * across another control's area or out of the field's form.
+ * across another control's area, a software keyboard's keys (`keys`, ADR 0067) or out of
+ * the field's form.
  */
-function adjacentText(element: Element): string | undefined {
+function adjacentText(element: Element, keys?: ReadonlySet<Element>): string | undefined {
   let node: Element | null = element;
   for (let depth = 0; node && depth <= labelDepth; depth += 1) {
     if (depth > 0 && node.querySelectorAll(fields).length > 1) return undefined;
     if (node instanceof HTMLFormElement || node === node.ownerDocument.body) return undefined;
     for (let sibling = node.previousElementSibling; sibling;) {
-      if (otherControl(sibling, element)) return undefined;
+      const before: Element = sibling;
+      if (
+        otherControl(before, element) ||
+        (keys?.size && [...keys].some((key) => before.contains(key) || key.contains(before)))
+      )
+        return undefined;
       const text = visibleText(sibling);
       if (text) return text;
       sibling = sibling.previousElementSibling;
@@ -1010,16 +1069,23 @@ function adjacentText(element: Element): string | undefined {
   return undefined;
 }
 
-function fieldLabel(input: HTMLInputElement): string | undefined {
+/**
+ * A field's label. The keys of a page's software keyboards (`keys`, ADR 0067), with their
+ * labels and order, are never part of it; the rest of a label around them is.
+ */
+function fieldLabel(
+  input: HTMLInputElement | HTMLSelectElement,
+  keys?: ReadonlySet<Element>,
+): string | undefined {
   const labels = [...(input.labels ?? [])].flatMap((label) => {
-    const text = visibleText(label);
+    const text = uncutText(renderedText(label, rawLimit, { leave: keys }));
     return text ? [text] : [];
   });
   return (
-    referencedText(input, idList(input, "aria-labelledby")) ??
+    referencedText(input, idList(input, "aria-labelledby"), undefined, keys) ??
     uncutText(input.getAttribute("aria-label")) ??
     uncutText(labels.join(" ")) ??
-    adjacentText(input) ??
+    adjacentText(input, keys) ??
     uncutText(input.title)
   );
 }
@@ -1039,7 +1105,9 @@ function actionLabel(element: HTMLElement): string | undefined {
   );
 }
 
-function autocomplete(input: HTMLInputElement): ObservedCandidate["autocomplete"] {
+function autocomplete(
+  input: HTMLInputElement | HTMLSelectElement,
+): ObservedCandidate["autocomplete"] {
   const tokens = autocompleteTokens(input);
   if (tokens.length === 1 && tokens[0] === "off") return "off";
   return observedAutocompleteTokens.find((token) => tokens.includes(token));
@@ -1082,15 +1150,47 @@ const actionControl = (element: HTMLElement) =>
   (element instanceof HTMLInputElement && actionTypes.has(element.type)) ||
   isScriptButton(element);
 
-function describe(element: Element): Found | undefined {
+/**
+ * A page's software keyboard (ADR 0067) and the locator that names it for every field,
+ * if any; without one, each field names it by its position from that field.
+ */
+interface Keypad {
+  readonly container: Element;
+  readonly target: LoginKeypadTarget | undefined;
+}
+
+/**
+ * The page's software keyboards (ADR 0067): each field's own (`of`), and the keys of
+ * every keyboard on the page, whatever field it serves, which are never described and
+ * whose text is never read.
+ */
+interface Keypads {
+  readonly of: (field: HTMLInputElement) => Keypad | undefined;
+  readonly keys: ReadonlySet<Element>;
+}
+
+/**
+ * Describes one element. With `keypads`, the page's software keyboards (ADR 0067), a
+ * visible, enabled, empty read-only field beside its keypad (`keypadField`) is a fill
+ * candidate entered on that keypad instead of a field that cannot be filled, and no
+ * label or description holds a key's text.
+ */
+function describe(element: Element, keypads?: Keypads): Found | undefined {
   if (!(element instanceof HTMLElement)) return undefined;
   // An action control the page keeps `inert` itself until its fields are filled stays a
   // candidate, as a disabled one does (`readOwnInert`, #853).
   const present = actionControl(element)
     ? readOwnInert(element, () => presence(element))
     : presence(element);
+  let keyed = false;
+  let keypadLocator: LoginKeypadTarget | undefined;
+  const keypad = element instanceof HTMLInputElement ? keypads?.of(element) : undefined;
   if (element instanceof HTMLInputElement && fillTypes[element.type] && present !== "absent") {
-    if (present === "faint" || element.readOnly || element.disabled)
+    keyed = keypad !== undefined && present === "visible" && keypadField(element, keypad.container);
+    if (keyed && keypad)
+      keypadLocator = keypad.target ?? keypadPositionTarget(element, keypad.container);
+    if (keyed && !keypadLocator) keyed = false;
+    if (!keyed && (present === "faint" || element.readOnly || element.disabled))
       return { kind: "unsupported", form: element.form, field: element, element };
   } else if (present !== "visible") return undefined;
   if (element instanceof HTMLInputElement) {
@@ -1100,9 +1200,9 @@ function describe(element: Element): Found | undefined {
     if (element.disabled && !actionTypes.has(type)) return undefined;
     const fillRole = fillTypes[type];
     if (fillRole) {
-      const label = fieldLabel(element);
+      const label = fieldLabel(element, keypads?.keys);
       const placeholder = uncutText(element.placeholder);
-      const description = fieldDescription(element, label);
+      const description = fieldDescription(element, label, keypads?.keys);
       const hint = autocomplete(element);
       return {
         kind: "candidate",
@@ -1115,11 +1215,12 @@ function describe(element: Element): Found | undefined {
           ...(description ? { description } : {}),
           ...(hint ? { autocomplete: hint } : {}),
           ...constraints(element, fillRole),
+          ...(keyed && keypadLocator ? { keypad: keypadLocator } : {}),
         },
       };
     }
     if (type === "checkbox" || actionTypes.has(type)) {
-      const label = type === "checkbox" ? fieldLabel(element) : actionLabel(element);
+      const label = type === "checkbox" ? fieldLabel(element, keypads?.keys) : actionLabel(element);
       return {
         kind: "candidate",
         form: element.form,
@@ -1165,9 +1266,214 @@ function describe(element: Element): Found | undefined {
   return undefined;
 }
 
+/** Radio buttons, selects, text areas and the ARIA widgets that stand for them. */
+const answerControls = [
+  "input[type='radio' i]",
+  "select",
+  "textarea",
+  ...["radio", "radiogroup", "combobox", "listbox", "textbox"].map((role) => `[role~='${role}' i]`),
+].join(", ");
+const searchWords = /\bsearch\b|検索|探す/iu;
+/** A search box: a search input, or an input whose name for the person says search. */
+const searchBox = (element: Element) =>
+  (element instanceof HTMLInputElement &&
+    (element.type === "search" || element.inputMode === "search")) ||
+  element.matches("[role~='searchbox' i]") ||
+  ["aria-label", "placeholder", "title"].some((name) =>
+    searchWords.test(element.getAttribute(name) ?? ""),
+  );
+/**
+ * Whether `form` is a small search form: at most four controls in all, as a box, a
+ * category select and a button, whose typed inputs are all search boxes, so a whole page
+ * wrapped in one form, or a sign-in form with a site search box, is none.
+ */
+function searchForm(form: HTMLFormElement): boolean {
+  const held = [...form.querySelectorAll(controls)];
+  const typed = held.filter(
+    (element) =>
+      element instanceof HTMLInputElement &&
+      !["checkbox", "radio", "submit", "button", "reset", "image"].includes(element.type),
+  );
+  return held.length <= 4 && typed.length > 0 && typed.every(searchBox);
+}
+/**
+ * Whether `element` is in the page's footer: `contentinfo`, or a `footer` that is no
+ * part of an article, section, dialog or form, as HTML maps it to that landmark.
+ */
+function pageFooter(element: HTMLElement): boolean {
+  if (element.closest("[role~='contentinfo' i]")) return true;
+  const footer = element.closest("footer");
+  return (
+    footer !== null &&
+    !footer.closest(
+      "article, aside, main, nav, section, dialog, form, [role~='dialog' i], [role~='alertdialog' i]",
+    )
+  );
+}
+/**
+ * Whether the page shows a radio button, select or text area, or an ARIA radio, radio
+ * group, combo box, list box or text box, that is no part of a site search: an answer
+ * the person may be asked for that the description has no role for (ADR 0065). A
+ * disabled one counts, and so does a transparent, tiny or unrendered one under a label
+ * or container that shows, as a styled radio under its label "card" is. One in a search
+ * landmark, a search box itself, a select or combo box of a small search form, and a
+ * select or combo box in the page footer, such as a language picker, do not.
+ */
+function leftOutInputs(document: Document): boolean {
+  // Each form is checked once per scan, however many selects it holds.
+  const searchForms = new Map<HTMLFormElement, boolean>();
+  for (const element of document.querySelectorAll<HTMLElement>(answerControls)) {
+    if (element.closest("search, [role~='search' i]")) continue;
+    if (searchBox(element)) continue;
+    const picker = element instanceof HTMLSelectElement || element.matches("[role~='combobox' i]");
+    // A page footer's select, as a language or region picker, asks nothing of the sign-in.
+    if (picker && pageFooter(element)) continue;
+    const choice = picker || element.matches("[role~='listbox' i]");
+    const form = element.closest("form");
+    if (choice && form) {
+      let search = searchForms.get(form);
+      if (search === undefined) searchForms.set(form, (search = searchForm(form)));
+      if (search) continue;
+    }
+    if (presence(element) !== "absent") return true;
+    // A styled control hides its input under a label or card that shows.
+    const labels =
+      element instanceof HTMLInputElement ||
+      element instanceof HTMLSelectElement ||
+      element instanceof HTMLTextAreaElement
+        ? [...(element.labels ?? [])]
+        : [];
+    const container = element.closest("label") ?? element.parentElement;
+    if ([...labels, ...(container ? [container] : [])].some((shownBy) => visible(shownBy)))
+      return true;
+  }
+  return false;
+}
+
 /** Every element the page shows that `describe` accepts, in document order. */
-const describeAll = (document: Document) =>
-  [...document.querySelectorAll(observed)].map(describe).filter((entry) => entry !== undefined);
+const describeAll = (document: Document, keypads?: Keypads) =>
+  [...document.querySelectorAll(observed)]
+    .map((element) => describe(element, keypads))
+    .filter((entry) => entry !== undefined);
+
+/**
+ * The locator of the page's software keyboard (`findKeypad`, ADR 0067): the `id`,
+ * `data-testid` or class of the keypad or its nearest ancestor below the body that names
+ * it alone in the document, skipping an ID React generated or another load may change, a
+ * class that looks generated the same way, and, with `tokens`, a value that may be a
+ * token. Without one, each field names the keypad by its position (`keypadPositionTarget`).
+ */
+function keypadTarget(
+  container: Element,
+  index: LocatorIndex,
+  tokens: boolean,
+): LoginKeypadTarget | undefined {
+  const { body } = container.ownerDocument;
+  for (let node: Element | null = container; node && node !== body; node = node.parentElement) {
+    for (const [by, attribute] of [
+      ["id", "id"],
+      ["test-id", "data-testid"],
+    ] as const) {
+      const value = node.getAttribute(attribute);
+      if (value === null) continue;
+      if (attribute === "id" && (generatedId.test(value) || changingId(value))) continue;
+      if (tokens && tokenSegment(value)) continue;
+      const target = { by, value };
+      if (v.is(loginKeypadTargetSchema, target) && index.get(attribute)!.get(value) === 1)
+        return target;
+    }
+    for (const value of node.classList) {
+      if (generatedId.test(value) || changingId(value) || (tokens && tokenSegment(value))) continue;
+      const target = { by: "class" as const, value };
+      if (
+        v.is(loginKeypadTargetSchema, target) &&
+        container.ownerDocument.getElementsByClassName(value).length === 1
+      )
+        return target;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The page's software keyboards (ADR 0067). Each input's own is the keypad beside it
+ * (`findKeypad`), described with its locator; the keys of every keypad on the page, those
+ * beside a writable field with an optional keyboard and those of the document's key
+ * groups (`findKeypads`) included, are left out of the candidates and of every label and
+ * description, as no step presses one by name and their labels and order never reach the
+ * service.
+ */
+function pageKeypads(document: Document, index: LocatorIndex, tokens: boolean): Keypads {
+  const own = new Map<Element, Keypad>();
+  const all = keypadKeys(document);
+  if (all.length < KEYPAD_MIN_KEYS) return { of: () => undefined, keys: new Set() };
+  const containers = new Set<Element>(findKeypads(document, all));
+  const targets = new Map<Element, LoginKeypadTarget | undefined>();
+  for (const field of document.querySelectorAll("input")) {
+    const container = findKeypad(document, field, all);
+    if (!container) continue;
+    if (!targets.has(container)) targets.set(container, keypadTarget(container, index, tokens));
+    containers.add(container);
+    own.set(field, { container, target: targets.get(container) });
+  }
+  return {
+    of: (field) => own.get(field),
+    keys: new Set([...containers].flatMap((container) => keypadKeys(container))),
+  };
+}
+
+/** The keypad's position from `field` (`keypadPosition`), as a locator. */
+function keypadPositionTarget(field: Element, container: Element): LoginKeypadTarget | undefined {
+  const value = keypadPosition(field, container);
+  return value === undefined ? undefined : { by: "position", value };
+}
+
+/** How many selects a judged page's description carries at most (ADR 0061). */
+const maxSelects = 12;
+/**
+ * The shown, enabled single-choice selects of a judged page (ADR 0061), each as a `select`
+ * with its label and `autocomplete`, never its options: the judge may name one as a split
+ * birth date's or card expiry date's part, and the fill matches an option by its number.
+ */
+function describeSelects(document: Document): { form: HTMLFormElement | null; draft: Draft }[] {
+  return [...document.querySelectorAll("select")].flatMap((select) => {
+    if (select.multiple || select.matches(":disabled") || presence(select) !== "visible") return [];
+    const label = fieldLabel(select);
+    const hint = autocomplete(select);
+    return [
+      {
+        form: select.form,
+        draft: {
+          element: select,
+          role: "select" as const,
+          ...(label ? { label } : {}),
+          ...(hint ? { autocomplete: hint } : {}),
+        },
+      },
+    ];
+  });
+}
+
+/**
+ * Why a page's description found no field, as a log code of codes only (ADR 0019): how
+ * many inputs other than hidden ones the page holds (`n`), how many fields `describe`
+ * accepted (`d`), and the first three such inputs as `type-presence`, the presence being
+ * `shown` or {@link presenceMiss}'s reason, with `-out` for one outside every form. Added
+ * after x.com's sign-in was described without its field in the owner's Chrome only
+ * (2026-10-23).
+ */
+export function fieldsMissDetail(document: Document): string {
+  const inputs = [...document.querySelectorAll<HTMLInputElement>("input:not([type='hidden'])")];
+  const described = describeAll(document).filter(
+    (entry) =>
+      (entry.kind === "candidate" && fillTypes[entry.draft.role]) ||
+      (entry.kind === "unsupported" && entry.field),
+  ).length;
+  const first = inputs
+    .slice(0, 3)
+    .map((input) => `${input.type}-${presenceMiss(input) ?? "shown"}${input.form ? "" : "-out"}`);
+  return [`n${inputs.length}`, `d${described}`, ...first].join(".");
+}
 
 /**
  * An icon button that never submits a form on its own, such as the eye that shows the
@@ -1301,6 +1607,10 @@ export function extractLoginObservation(
     known.some((target) => {
       if (target.by === "label")
         return fieldName(field) === target.value && index.get("label")!.get(target.value) === 1;
+      if (target.by === "password-form-name") {
+        const found = findTargets(document, target);
+        return found.length === 1 && found[0] === field;
+      }
       const attribute = locators.find(([by]) => by === target.by)?.[1];
       return (
         attribute !== undefined &&
@@ -1308,16 +1618,25 @@ export function extractLoginObservation(
         index.get(attribute)!.get(target.value) === 1
       );
     });
+  const keypads = pageKeypads(document, index, tokens);
+  const { keys } = keypads;
   // A field both faint and disabled takes input from no one, neither the person nor a
   // widget drawn over it, so a login page leaves it out as a decoy; Bitwarden never picks
   // a disabled field as the username or password field either. The signed-in page still
   // sees it, as a code field may wait there for a timer (`describeSignedIn`).
-  const found = describeAll(document).filter(
+  const found = describeAll(document, keypads).filter(
     (entry) =>
       !(
         entry.kind === "unsupported" &&
         entry.field &&
         (filled(entry.field) || (entry.field.disabled && presence(entry.field) === "faint"))
+      ) &&
+      !(
+        entry.kind === "candidate" &&
+        ((entry.draft.keypad &&
+          entry.draft.element instanceof HTMLInputElement &&
+          filled(entry.draft.element)) ||
+          keys.has(entry.draft.element))
       ),
   );
   const fieldForms = new Set(
@@ -1430,7 +1749,9 @@ export function extractLoginObservation(
   // Links and script buttons without a locator are left out without flawing their form.
   // A `role="button"` element is named by its text only inside a login form or beside a
   // password form, where it is the form's own control rather than a widget elsewhere; a
-  // search form beside the login form names none.
+  // search form beside the login form names none. A link never takes the text of such an
+  // element, whatever its form, since one observation's candidates need distinct targets
+  // and the login's own control needs that text more.
   let unlocated = false;
   // A login form's native button that nothing else names alone is named by its accessible
   // name, which a route step's click may press (ADR 0048 amendment of 2026-10-23).
@@ -1443,7 +1764,10 @@ export function extractLoginObservation(
         tokens,
         links: true,
         labels: true,
-        roles: near || (entry.form !== null && loginForms.has(entry.form)),
+        roles:
+          near ||
+          entry.draft.role === "link" ||
+          (entry.form !== null && loginForms.has(entry.form)),
         names: names && entry.draft.role === "button" && loginForms.has(entry.form),
       });
       if (!target) unlocated = true;
@@ -1973,7 +2297,14 @@ function mayBeSignIn(input: HTMLInputElement): boolean {
  * box with no ID, a password change form's field or a hotel search's read-only date
  * picker, is left out (owner, 2026-10-12, ADR 0029). A disabled one is left out too, but
  * the result says so (`disabledLeftOut`): it may be a code field waiting for a timer or a
- * sent code, so such a page completes only when the judge answers `signed-in`. Buttons
+ * sent code, so such a page completes only when the judge answers `signed-in`. Up to
+ * twelve shown single-choice selects follow the fields as `select`, by their label and
+ * `autocomplete` and never their options, located by a lasting attribute or left out, so
+ * the judge can name a split birth date's or card expiry date's parts (ADR 0061). A radio
+ * button or text area, or an ARIA widget for one, is left out as well, and the result
+ * says when the page shows one, or any select, that is no part of a site search
+ * (`inputLeftOut`, `leftOutInputs`): an `optional` answer does not complete such a page
+ * (ADR 0065). Buttons
  * and links are only possible markers; those past the limit or without a locator are
  * left out, and an ID another load may change (`changingId`) locates no element but a
  * field that may be a sign-in field. A link is located by its text too, as for an
@@ -2007,6 +2338,7 @@ function describeSignedIn(document: Document): ObservationResult {
     ? "shadow-field"
     : undefined;
   let disabledLeftOut = false;
+  const inputLeftOut = leftOutInputs(document);
   const fieldEntries: { form: HTMLFormElement | null; draft: Draft }[] = [];
   const markers: { form: HTMLFormElement | null; draft: Draft }[] = [];
   for (const entry of found) {
@@ -2046,6 +2378,9 @@ function describeSignedIn(document: Document): ObservationResult {
         : [];
     });
   const fieldsFound = located(fieldEntries);
+  // A select is no sign-in field: one without a lasting locator, or past the limit, is
+  // left out (ADR 0061).
+  const selectsFound = located(describeSelects(document)).slice(0, maxSelects);
   if (fieldsFound.length > maxCandidates) gap ??= "too-many-fields";
   // A field nothing can locate is left out unless it may be a sign-in field, as a search
   // box with no ID or a password change form's fields are not (S2 of ADR 0029: a new
@@ -2094,9 +2429,10 @@ function describeSignedIn(document: Document): ObservationResult {
     ];
   });
   const ranked = byLandmark(markersFound, openModals(document));
+  const fieldsShown = [...fieldsFound, ...selectsFound].slice(0, maxCandidates);
   const chosen = [
-    ...fieldsFound.slice(0, maxCandidates),
-    ...ranked.slice(0, Math.max(0, maxCandidates - fieldsFound.length)),
+    ...fieldsShown,
+    ...ranked.slice(0, Math.max(0, maxCandidates - fieldsShown.length)),
   ];
   if (chosen.length === 0) return { ok: false, reason: "no-candidates" };
   const result = observe(
@@ -2114,5 +2450,6 @@ function describeSignedIn(document: Document): ObservationResult {
     ...result,
     ...(gap ? { gap } : {}),
     ...(disabledLeftOut ? { disabledLeftOut: true as const } : {}),
+    ...(inputLeftOut ? { inputLeftOut: true as const } : {}),
   };
 }

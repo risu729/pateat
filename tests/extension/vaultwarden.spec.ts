@@ -92,7 +92,7 @@ async function verify(options: Page, code: string) {
   await options.getByRole("button", { name: "Verify code", exact: true }).click();
 }
 
-const ready = "Vault verified and local cache accepted. Check automatic-unlock status below.";
+const ready = "Vault verified, unlocked and copied to this device.";
 
 test("signs in over http://localhost and lists every item, an imported passkey's included", async () => {
   const account = await seedAccount();
@@ -128,7 +128,7 @@ test("shows a wrong master password as a rejected sign-in", async () => {
     await connect(options, account, `wrong-${randomUUID()}`);
     await expect(
       options.getByText(
-        "The provider rejected this sign-in. Review the account and password before starting again.",
+        "Bitwarden did not accept this sign-in. Check the email and master password, then try again.",
         { exact: true },
       ),
     ).toBeVisible({ timeout: 60_000 });
@@ -167,5 +167,67 @@ test("emails a two-step code on its own and signs in with it, then resends", asy
     expect(resent).toMatch(/^\d{6}$/);
     await verify(options, resent);
     await expect(options.getByText(ready, { exact: true })).toBeVisible({ timeout: 60_000 });
+  });
+});
+
+test("keeps the code screen after a wrong email code and signs in with the right one", async () => {
+  const account = await seedAccount();
+  await enableEmailTwoStep(account, server.mailpitUrl);
+  await withOptions(async (options) => {
+    await connect(options, account);
+    await expect(
+      options.getByText("The server sent a verification code to the account's two-step email.", {
+        exact: true,
+      }),
+    ).toBeVisible({ timeout: 60_000 });
+    const code = await readTwoStepCode(server.mailpitUrl, account.email);
+    // Six digits that are not the code.
+    await verify(options, code === "000000" ? "111111" : "000000");
+    await expect(
+      options.getByText(
+        "The code was not accepted: it is wrong or no longer valid. Enter the code from the latest email, or Resend code.",
+        { exact: true },
+      ),
+    ).toBeVisible({ timeout: 60_000 });
+    await expect(options.getByLabel("Master password", { exact: true })).toHaveCount(0);
+    await verify(options, code);
+    await expect(options.getByText(ready, { exact: true })).toBeVisible({ timeout: 60_000 });
+  });
+});
+
+test("says by the master password that a sign-in waiting for its code ended", async () => {
+  const account = await seedAccount();
+  await enableEmailTwoStep(account, server.mailpitUrl);
+  await withOptions(async (options) => {
+    await connect(options, account);
+    await expect(
+      options.getByText("The server sent a verification code to the account's two-step email.", {
+        exact: true,
+      }),
+    ).toBeVisible({ timeout: 60_000 });
+    await expect(
+      options.getByText(
+        /^Enter the code by .+\. After that the sign-in ends and needs the master password again\.$/u,
+      ),
+    ).toBeVisible();
+    // The waiting sign-in lives only in the worker; Chrome stopping it drops the sign-in, as
+    // its idle stop did in the owner's Chrome on 2026-10-23.
+    const cdp = await options.context().newCDPSession(options);
+    await cdp.send("ServiceWorker.enable");
+    await cdp.send("ServiceWorker.stopAllWorkers");
+    // As when the person comes back to the tab. A heartbeat sent while the worker still
+    // stops can be lost, so the next interval's, at most 20 seconds later, may be the one
+    // that answers; the options tests prove the visibility heartbeat itself.
+    await options.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    await expect(
+      options.getByText("The sign-in ended before the code was entered.", { exact: true }),
+    ).toBeVisible({ timeout: 30_000 });
+    await expect(
+      options.getByText(
+        /^The sign-in ended early, by .+, before its 5 minutes\. This usually means Chrome stopped Pateat's background\. Enter the master password to start again\.$/u,
+      ),
+    ).toBeVisible();
+    await expect(options.getByLabel("Verification code", { exact: true })).toHaveCount(0);
+    await expect(options.getByLabel("Master password", { exact: true })).toBeVisible();
   });
 });
