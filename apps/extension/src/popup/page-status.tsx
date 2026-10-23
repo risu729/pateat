@@ -1,4 +1,5 @@
 import { Bug, CircleCheck, CircleX, Info, LoaderCircle, TriangleAlert } from "lucide-react";
+import type { ReactNode } from "react";
 import type { StatusResponse } from "../login/choice-wire";
 
 type Status = Extract<StatusResponse, { ok: true }>;
@@ -286,31 +287,43 @@ const ICONS = {
   err: CircleX,
 } as const;
 
+/**
+ * The popup's "This page" section: the page's status when the worker describes the page,
+ * then what else the popup offers for it, such as its personal details (ADR 0061).
+ */
 export function PageStatusSection({
   status,
+  children,
   onOpenDiagnostics,
 }: {
-  status: Status;
+  status: Status | undefined;
+  children?: ReactNode;
   onOpenDiagnostics: () => void;
 }) {
   return (
     <section className="popup-section" aria-labelledby="popup-page-heading">
-      <h2 id="popup-page-heading">This page</h2>
-      <ul id="popup-page-status" className="popup-lines" aria-live="polite">
-        {pageStatusLines(status).map((line) => {
-          const Icon = ICONS[line.tone];
-          return (
-            <li
-              key={line.id}
-              id={`popup-page-${line.id}`}
-              className={`popup-line popup-line--${line.tone}`}
-            >
-              <Icon size={16} strokeWidth={2} aria-hidden="true" />
-              <span>{line.text}</span>
-            </li>
-          );
-        })}
-      </ul>
+      {/* Focused when the focused control goes away, as the button of a removed link. */}
+      <h2 id="popup-page-heading" tabIndex={-1}>
+        This page
+      </h2>
+      {status && (
+        <ul id="popup-page-status" className="popup-lines" aria-live="polite">
+          {pageStatusLines(status).map((line) => {
+            const Icon = ICONS[line.tone];
+            return (
+              <li
+                key={line.id}
+                id={`popup-page-${line.id}`}
+                className={`popup-line popup-line--${line.tone}`}
+              >
+                <Icon size={16} strokeWidth={2} aria-hidden="true" />
+                <span>{line.text}</span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {children}
       <div>
         <a
           id="popup-open-diagnostics"

@@ -4,29 +4,40 @@ import {
   parseSiteUrl,
   siteDefaultConnection,
   type LocalSettings,
+  type LoginDetail,
   type SettingsResponse,
   type SiteAccountsResponse,
 } from "@pateat/contracts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Ban,
+  CalendarDays,
   CircleCheck,
   CircleX,
   Clock,
+  CreditCard,
   Info,
   LoaderCircle,
   LogIn,
   Settings2,
+  Smartphone,
   Star,
+  TextCursorInput,
   TriangleAlert,
   UserRound,
 } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "../options/button";
 import { SETTINGS_QUERY_KEY, type SettingsClient } from "../options/client";
 import { siteAccountOptions } from "../options/site-policy";
 import { Logo } from "../logo";
 import { choiceReason, pickFailure, type ChoiceClient } from "../login/choice-wire";
+import {
+  detailFillFailure,
+  detailName,
+  type DetailClient,
+  type DetailResponse,
+} from "../login/detail-wire";
 import { PageStatusSection } from "./page-status";
 
 /**
@@ -247,6 +258,165 @@ function AccountChoices({
   );
 }
 
+type DetailOffer = NonNullable<Extract<DetailResponse, { ok: true }>["offer"]>;
+type DetailSource = DetailOffer["details"][number]["candidates"][number];
+type DetailLink = Extract<DetailResponse, { ok: true }>["links"][number];
+
+const DETAIL_ICON = {
+  "birth-date": CalendarDays,
+  "phone-last-4": Smartphone,
+  "card-last-4": CreditCard,
+  "card-code": CreditCard,
+} as const satisfies Record<LoginDetail, unknown>;
+
+const sourceValue = (source: DetailSource) =>
+  JSON.stringify([source.connectionId, source.itemId, source.fieldId]);
+/** How the popup names a vault field: only its item's and its own labels, never its value. */
+const sourceLabel = (source: { itemLabel: string; fieldLabel: string }) =>
+  `${source.itemLabel} › ${source.fieldLabel}`;
+const capitalized = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+
+/** The vault fields that could give a detail, as native radios styled as cards. */
+function DetailChoices({
+  detail,
+  candidates,
+  checked,
+  disabled,
+  onChange,
+}: {
+  detail: LoginDetail;
+  candidates: DetailSource[];
+  checked: string;
+  disabled: boolean;
+  onChange: (value: string) => void;
+}) {
+  const Icon = DETAIL_ICON[detail];
+  const seen = new Map<string, number>();
+  for (const source of candidates)
+    seen.set(sourceLabel(source), (seen.get(sourceLabel(source)) ?? 0) + 1);
+  return (
+    <div className="popup-choices">
+      {candidates.map((source) => {
+        const title = sourceLabel(source);
+        // Fields that would read the same add their item ID's first 8 characters.
+        const sub = (seen.get(title) ?? 0) > 1 ? `ID ${source.itemId.slice(0, 8)}` : undefined;
+        return (
+          <label key={sourceValue(source)} className="popup-choice">
+            <input
+              type="radio"
+              name={`popup-detail-${detail}`}
+              value={sourceValue(source)}
+              checked={checked === sourceValue(source)}
+              disabled={disabled}
+              aria-label={sub ? `${title}, ${sub}` : title}
+              onChange={() => onChange(sourceValue(source))}
+            />
+            <span className="popup-avatar">
+              <Icon size={16} strokeWidth={2} aria-hidden="true" />
+            </span>
+            <span className="popup-choice-main">
+              <span className="popup-choice-title">{title}</span>
+              {sub && <span className="popup-choice-sub">{sub}</span>}
+            </span>
+          </label>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * The page's personal details (ADR 0061): what the page asks for with the vault fields
+ * that could give it, the best guess selected, and the site's links, each removable.
+ */
+function DetailSection({
+  offer,
+  links,
+  picks,
+  busy,
+  onPick,
+  onFill,
+  onRemove,
+}: {
+  offer: DetailOffer | undefined;
+  links: DetailLink[];
+  picks: Partial<Record<LoginDetail, string>>;
+  busy: boolean;
+  onPick: (detail: LoginDetail, value: string) => void;
+  onFill: (detail: LoginDetail, source: DetailSource) => void;
+  onRemove: (detail: LoginDetail) => void;
+}) {
+  return (
+    <>
+      {offer?.details.map(({ detail, format, candidates }) => {
+        const picked = picks[detail];
+        const shown = candidates.find((source) => sourceValue(source) === picked) ?? candidates[0]!;
+        return (
+          <fieldset key={detail} className="popup-fieldset popup-detail">
+            <legend id={`popup-detail-${detail}`} className="popup-detail-ask">
+              {`This page asks for ${detailName(detail, format)}.`}
+            </legend>
+            <DetailChoices
+              detail={detail}
+              candidates={candidates}
+              checked={sourceValue(shown)}
+              disabled={busy}
+              onChange={(value) => onPick(detail, value)}
+            />
+            <Button
+              id={`popup-detail-fill-${detail}`}
+              type="button"
+              className="w-full gap-2"
+              // Kept focusable while a fill runs, since Chrome moves focus away from a
+              // focused control that becomes disabled.
+              disabled={busy}
+              focusableWhenDisabled
+              aria-describedby={`popup-detail-${detail}`}
+              onClick={() => onFill(detail, shown)}
+            >
+              <TextCursorInput size={16} strokeWidth={2} aria-hidden="true" />
+              Fill
+            </Button>
+          </fieldset>
+        );
+      })}
+      {links.length > 0 && (
+        <ul
+          id="popup-detail-links"
+          className="popup-rules"
+          aria-label="Personal details Pateat fills on this site"
+        >
+          {links.map((link) => {
+            const Icon = DETAIL_ICON[link.detail];
+            return (
+              <li key={link.detail} id={`popup-detail-link-${link.detail}`}>
+                <Icon className="popup-detail-icon" size={16} strokeWidth={2} aria-hidden="true" />
+                <span className="popup-choice-main">
+                  <span className="popup-choice-title">{capitalized(detailName(link.detail))}</span>
+                  <span className="popup-choice-sub">
+                    {`Filled from ${sourceLabel(link)}${link.pending ? " (not saved yet)" : ""}`}
+                  </span>
+                </span>
+                <Button
+                  id={`popup-detail-remove-${link.detail}`}
+                  type="button"
+                  variant="outline"
+                  disabled={busy}
+                  focusableWhenDisabled
+                  aria-label={`Remove the link for ${detailName(link.detail)}`}
+                  onClick={() => onRemove(link.detail)}
+                >
+                  Remove
+                </Button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </>
+  );
+}
+
 /** An icon-led status line. */
 function Line({
   tone,
@@ -273,16 +443,22 @@ function Line({
 export function SiteApp({
   client,
   choices,
+  details,
   host,
   listingWaitMs = SITE_ACCOUNTS_WAIT_MS,
 }: {
   client: SettingsClient;
   choices: ChoiceClient;
+  details: DetailClient;
   host: PopupHost;
   listingWaitMs?: number;
 }) {
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState(false);
+  // The vault field picked for each detail the page asks for; the best guess otherwise.
+  const [detailPicks, setDetailPicks] = useState<Partial<Record<LoginDetail, string>>>({});
+  // Set while a Fill or Remove runs from a focused button, which the answer may take away.
+  const refocus = useRef(false);
   const [notice, setNotice] = useState<{ text: string; tone: Tone }>({ text: "", tone: "success" });
   const [chosen, setChosen] = useState("");
   const [picked, setPicked] = useState("");
@@ -329,6 +505,26 @@ export function SiteApp({
     refetchInterval: 1000,
     staleTime: 0,
     gcTime: 0,
+  });
+  // The personal details the page asks for and the site's links (ADR 0061), read again
+  // while the popup is open, since the login may stop at the page after it opened.
+  const pageDetails = useQuery({
+    queryKey: ["popup", "details", tabId],
+    queryFn: () => details.get(tabId!),
+    enabled: tabId !== undefined && origin !== undefined,
+    refetchInterval: 1000,
+    staleTime: 0,
+    gcTime: 0,
+  });
+  // A button that a Fill or Remove took away leaves focus on the page's heading rather
+  // than on nothing.
+  useEffect(() => {
+    if (busy || !refocus.current) return;
+    refocus.current = false;
+    if (document.activeElement && document.activeElement !== document.body) return;
+    (
+      document.getElementById("popup-page-heading") ?? document.getElementById("popup-origin")
+    )?.focus();
   });
   // Only the connections, exclusions and each vault's sync, state and quarantine decide the
   // matches, so saving a default keeps the listed accounts instead of listing them again.
@@ -438,6 +634,53 @@ export function SiteApp({
       await choice.refetch();
     } catch {
       say("The login could not be started. Reopen this popup and try again.", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function fillDetail(documentId: string, detail: LoginDetail, source: DetailSource) {
+    if (tabId === undefined || busy) return;
+    refocus.current = true;
+    setBusy(true);
+    say("Filling…", "progress");
+    try {
+      const response = await details.fill({
+        tabId,
+        documentId,
+        detail,
+        connectionId: source.connectionId,
+        itemId: source.itemId,
+        fieldId: source.fieldId,
+      });
+      say(
+        response.ok
+          ? "Filled. Check it and submit the form; Pateat saves this choice once you are signed in."
+          : detailFillFailure(response.reason),
+        response.ok ? "success" : "error",
+      );
+      await pageDetails.refetch();
+    } catch {
+      say("Nothing was filled. Reopen this popup and try again.", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeDetail(detail: LoginDetail) {
+    if (tabId === undefined || busy) return;
+    refocus.current = true;
+    setBusy(true);
+    say("Removing…", "progress");
+    try {
+      const response = await details.remove(tabId, detail);
+      if (response.ok)
+        say(`Removed. Pateat no longer fills ${detailName(detail)} on this site.`, "success");
+      else if (response.reason === "no-link") say("This link was already removed.", "success");
+      else say("The link could not be removed. Reopen this popup and try again.", "error");
+      await pageDetails.refetch();
+    } catch {
+      say("The link may not have been removed. Reopen this popup to see the links.", "error");
     } finally {
       setBusy(false);
     }
@@ -617,10 +860,28 @@ export function SiteApp({
 
     const status =
       pageStatus.data?.ok && pageStatus.data.origin === origin ? pageStatus.data : undefined;
+    const detailState =
+      pageDetails.data?.ok && pageDetails.data.origin === origin ? pageDetails.data : undefined;
+    // An excluded site runs no login, so an offer the worker still keeps is not filled.
+    const detailOffer = excluded ? undefined : detailState?.offer;
+    const detailLinks = detailState?.links ?? [];
+    const detailSection = (detailOffer || detailLinks.length > 0) && (
+      <DetailSection
+        offer={detailOffer}
+        links={detailLinks}
+        picks={detailPicks}
+        busy={busy}
+        onPick={(detail, value) => setDetailPicks((picks) => ({ ...picks, [detail]: value }))}
+        onFill={(detail, source) => void fillDetail(detailOffer!.documentId, detail, source)}
+        onRemove={(detail) => void removeDetail(detail)}
+      />
+    );
     body = (
       <>
-        {status && (
-          <PageStatusSection status={status} onOpenDiagnostics={() => host.openDiagnostics()} />
+        {(status || detailSection) && (
+          <PageStatusSection status={status} onOpenDiagnostics={() => host.openDiagnostics()}>
+            {detailSection}
+          </PageStatusSection>
         )}
         {choice.isPending && choice.isEnabled && (
           <p id="popup-choice-checking" className="popup-muted">
@@ -819,7 +1080,9 @@ export function SiteApp({
       <header className="popup-header">
         <div className="popup-title">
           <Logo className="popup-logo" />
-          <h1 id="popup-origin">{origin ? hostnameOf(origin) : "This tab"}</h1>
+          <h1 id="popup-origin" tabIndex={-1}>
+            {origin ? hostnameOf(origin) : "This tab"}
+          </h1>
           <button
             id="popup-open-settings"
             type="button"
