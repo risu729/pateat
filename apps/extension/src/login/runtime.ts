@@ -58,6 +58,7 @@ import {
   siteDefaultConnection,
   templateLoginBinding,
   TOTP_HANDLER_SLOT,
+  totpFieldMismatch,
   totpFieldReference,
   transitionLoginAttempt,
   withdrawAccountSwitch,
@@ -1125,7 +1126,7 @@ export interface LoginGeneration {
 /**
  * Slot meanings sent for generation, each read from the vault item's built-in field of
  * the same name by `defaultLoginBinding`; `totp` reads a custom field holding a TOTP key
- * instead when the built-in one holds none (`totpFieldReference`, owner 2026-10-23).
+ * instead when the built-in one holds no value (`totpFieldReference`, owner 2026-10-23).
  */
 const generationSlots: { slot: SemanticSlot; fieldId: string }[] = [
   { slot: builtInLoginSlots.username, fieldId: "login.username" },
@@ -1159,7 +1160,7 @@ function offersGenerationField(
 /**
  * The field a `totp` handler makes its code from for the login's item (ADR 0027): the
  * field the item's saved binding for the recipe names for `totp`, else the one
- * `totpFieldReference` picks (the built-in TOTP field when it holds a key, else the one
+ * `totpFieldReference` picks (the built-in TOTP field when it holds a value, else the one
  * custom field flagged as holding a key, owner 2026-10-23), or the synthetic probe item's
  * `totp` field. A custom field counts only when it is a Text or Hidden field the catalog
  * flags as holding a TOTP key (`totpSeed`). The code is always generated from the field's
@@ -3533,7 +3534,9 @@ export function createLoginRuntime(
    * without one (amended 2026-10-19, `fillLoginBinding`), and the widened binding counts as
    * unsaved, so it is saved after `authenticated`; without, such a binding refuses
    * `binding-slots-mismatch`. It is mapped to this device's field IDs by the catalog's raw
-   * field names. Not to be confused with a fill-only login's `fill` (ADR 0021 D).
+   * field names. A binding that would fill a field holding a TOTP key as text, or make the
+   * code from a custom field holding none, refuses `totp-field-mismatch`
+   * (`totpFieldMismatch`). Not to be confused with a fill-only login's `fill` (ADR 0021 D).
    */
   async function bindingFor(
     catalog: VaultCatalog,
@@ -3584,6 +3587,17 @@ export function createLoginRuntime(
     }
     const resolved = resolveBindingFields(binding, slots, fieldNames);
     if (!resolved.ok) return { ok: false, reason: resolved.reason };
+    // A TOTP key is never filled as text and a code is made only from a key, so such a
+    // binding is refused before any step runs (ADR 0027, owner 2026-10-23).
+    if (
+      resolved.slots.some(({ slot, fieldId }) =>
+        totpFieldMismatch(
+          slot,
+          item.fields.find((field) => field.id === fieldId),
+        ),
+      )
+    )
+      return { ok: false, reason: "totp-field-mismatch" };
     return {
       ok: true,
       binding: {
@@ -3645,6 +3659,7 @@ export function createLoginRuntime(
     "field-missing",
     "field-ambiguous",
     "field-count-changed",
+    "totp-field-mismatch",
     "no-route",
   ]);
   /**
@@ -3864,7 +3879,7 @@ export function createLoginRuntime(
       });
       // The `totp` fact describes the field a `totp` handler makes its code from: a custom
       // field the saved binding names, or the one flagged as holding a key when the built-in
-      // TOTP holds none, counts when the account may read it, and the built-in TOTP then
+      // TOTP holds no value, counts when the account may read it, and the built-in TOTP then
       // does not. A binding naming a field no code is made from leaves none.
       const code = codeFieldOf(
         resolved.connection,

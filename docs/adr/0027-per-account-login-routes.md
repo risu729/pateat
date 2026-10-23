@@ -1254,32 +1254,41 @@ such a binding ends `challenge`, this section applies instead.
   - an `otpauth://totp/` or `otpauth://hotp/` URI, in any case, that parses as a URL and
     whose last `secret` parameter holds at least one Base32 character and nothing but
     Base32 characters, spaces and trailing `=`;
-  - `steam://`, in any case, followed by Base32 characters and optional trailing `=`;
+  - `steam://`, in any case, followed by at least 16 Base32 characters and optional
+    trailing `=`;
   - a bare key: Base32 letters and the digits 2 to 7, the letters all upper case or all
-    lower case, with at least one letter; unbroken, or in groups of four separated by
-    single spaces, the last group perhaps shorter; up to six `=` of padding at the end;
-    and at least 16 Base32 characters (80 bits).
+    lower case, with at least one letter and at least one digit; unbroken, or in groups
+    of four separated by single spaces, the last group perhaps shorter; up to six `=` of
+    padding at the end; and at least 16 Base32 characters (80 bits).
 
-  So words with other letters or punctuation, sentences and passphrases, PINs, digits
-  alone and short codes are not keys. A single word of 16 or more letters a to z in one
-  case is taken as a key. The exact rule is the agent's, not confirmed by the owner.
+  So words and passphrases (`correcthorsebatterystaple`, `nottinghamforest`,
+  `this goes very fast`), sentences, PINs, digits alone and short codes are not keys.
+  The digit is a tradeoff: without it such words were flagged, which blocked their value
+  and made the `totp` handler submit a wrong code. With it, a random bare key that
+  happens to have no digit 2 to 7 is not flagged: 3.6% of 16-character keys and 0.13% of
+  32-character ones. Such a key still makes codes from the built-in TOTP field or as an
+  `otpauth://` URI, and a custom field holding it bare is filled by name as text, as
+  before. The exact rule is the agent's, not confirmed by the owner.
 - **The catalog flag.** When the Worker lists an item's fields, a Text or Hidden custom
   field whose value has the key shape gets `totpSeed: true` in the field metadata and
   the settings catalog. It is a flag only: neither the value nor its format is carried.
-- **Never as text.** The Worker refuses to return such a field's value as text
-  (`unsupported-field`), so a slot other than `totp` bound to it, through a template or
-  a binding saved earlier, stops the login as a policy change (`field-unavailable`) and
-  types nothing. Generation never offers it as a custom-field slot
-  (`customFieldOffers`).
+- **Never as text.** Generation never offers such a field as a custom-field slot
+  (`customFieldOffers`). A binding that binds a slot other than `totp` to it, as a
+  binding saved earlier may, is refused when the login resolves its binding, before any
+  step runs (`totp-field-mismatch`, `totpFieldMismatch` in `packages/contracts`), and a
+  template that would bind one is skipped for the next template. So is a binding of the
+  `totp` slot to a custom field without the flag, which holds no key to make a code
+  from. Behind that, the Worker refuses to return a flagged field's value as text
+  (`unsupported-field`).
 - **The default `totp` field** (`totpFieldReference` in `packages/contracts`). Wherever
   no saved entry names a field for `totp` (the automatic binding, a binding built from
   templates and the gaps of a saved binding), the `totp` slot reads the built-in TOTP
-  field when it holds a key. Otherwise it reads the item's one named flagged custom
-  field, by its reference. With no flagged field, or with several, it reads the built-in
-  field as before. Generation still offers only the built-in `totp` slot, so a code
-  field generated for any matching item is filled from the flagged field of an item that
-  keeps its key there. After `authenticated`, the saved or widened binding records the
-  reference like any other.
+  field when it holds a value (the catalog does not flag it `empty`). Otherwise it reads
+  the item's one named flagged custom field, by its reference. With no flagged field, or
+  with several, it reads the built-in field as before. Generation still offers only the
+  built-in `totp` slot, so a code field generated for any matching item is filled from
+  the flagged field of an item that keeps its key there. After `authenticated`, the
+  saved or widened binding records the reference like any other.
 - **The code from a custom field.** The `totp` handler, and any fill of the `totp` slot
   bound to a custom field, makes the code from that field in the crypto Worker. The
   generator gets the trimmed value; the field's raw value never leaves the Worker. A
@@ -1309,8 +1318,9 @@ such a binding ends `challenge`, this section applies instead.
 
 Consequences: the catalog now carries one bit derived from a custom field's value. A
 field whose value changes into or out of the key shape changes how it fills after the
-next sync. An ordinary Text value that happens to have the key shape, such as one long
-word, is no longer filled as text, and an item's only such field becomes its TOTP field.
+next sync. An ordinary Text value that happens to have the key shape, such as a long
+reference code of capital letters and the digits 2 to 7, is no longer filled as text,
+and an item's only such field becomes its TOTP field.
 This differs from the official clients, which fill custom fields by name as they are and
 make codes only from the login TOTP
 ([differences](../bitwarden-differences.md#totp-keys-in-custom-fields)). Not verified

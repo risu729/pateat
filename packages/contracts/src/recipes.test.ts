@@ -13,6 +13,7 @@ import {
   saveLoginChoice,
   selectLoginRecipe,
   templateLoginBinding,
+  totpFieldMismatch,
   totpFieldReference,
   type LocalItemField,
 } from "./recipes";
@@ -938,6 +939,20 @@ describe("the totp slot's field (ADR 0027, owner 2026-10-23)", () => {
     });
   });
 
+  it("tells which fields a slot may not read under the TOTP key rule", () => {
+    const [, , builtin, branch, seed] = seeded;
+    // Only the totp slot reads a flagged field, and it reads no unflagged custom field.
+    expect(totpFieldMismatch("branch", seed)).toBe(true);
+    expect(totpFieldMismatch("password", seed)).toBe(true);
+    expect(totpFieldMismatch("totp", seed)).toBe(false);
+    expect(totpFieldMismatch("totp", branch)).toBe(true);
+    expect(totpFieldMismatch("branch", branch)).toBe(false);
+    // Built-in fields are left to the other checks.
+    expect(totpFieldMismatch("totp", builtin)).toBe(false);
+    expect(totpFieldMismatch("totp", { id: "login.password", name: null })).toBe(false);
+    expect(totpFieldMismatch("totp", undefined)).toBe(false);
+  });
+
   it("binds the automatic, template and gap-filled totp slot to the flagged field", () => {
     expect(defaultLoginBinding(["username", "totp"], bank, account, seeded)?.slots).toEqual([
       { slot: "username", field: "username" },
@@ -965,6 +980,27 @@ describe("the totp slot's field (ADR 0027, owner 2026-10-23)", () => {
         { slot: "username", fieldId: "login.username" },
         { slot: "totp", fieldId: custom(1) },
       ],
+    });
+    // A template that would fill the flagged field as text is skipped for the next one.
+    const seedTemplate = [{ slot: "branch", field: { custom: "Seed" } }];
+    const skipped = templateLoginBinding(
+      ["branch", "totp"],
+      bank,
+      account,
+      [seedTemplate, template],
+      seeded,
+    );
+    expect(skipped.ok && skipped.binding.slots).toEqual([
+      { slot: "branch", field: { custom: "Branch number" } },
+      { slot: "totp", field: { custom: "Seed" } },
+    ]);
+    expect(templateLoginBinding(["branch"], bank, account, [seedTemplate], seeded)).toEqual({
+      ok: false,
+      reason: "binding-not-found",
+    });
+    expect(fillLoginBinding(saved, ["username", "branch"], [seedTemplate], seeded)).toEqual({
+      ok: false,
+      reason: "binding-slots-mismatch",
     });
     // A saved binding that already names the flagged field under another slot is not
     // filled with it again.

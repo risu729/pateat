@@ -6314,6 +6314,12 @@ describe("production login document admission", () => {
         },
         "binding-field-excluded",
       ],
+      [
+        "the bound custom field holds a TOTP key (owner, 2026-10-23)",
+        { custom: [{ name: "Branch", kind: "text", totpSeed: true }] },
+        {},
+        "totp-field-mismatch",
+      ],
     ])(
       "refuses a synced binding before any field read when %s",
       async (_name, live, overrides, reason) => {
@@ -14206,6 +14212,34 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         expect(reads(h)).toEqual([{ fieldId: "login.password" }, { fieldId: seedId, code: true }]);
         expect(clicks("verify")).toBe(1);
       }, 10_000);
+
+      it("refuses before any step a route step's totp slot bound to a custom field holding no key", async () => {
+        const routeCoded = parseLoginRecipe({
+          ...unlearned,
+          completion: home,
+          slots: [...unlearned.slots, "totp"],
+          steps: [
+            ...unlearned.steps,
+            {
+              kind: "fill",
+              path: "/two-factor",
+              fields: [{ slot: "totp", target: target("app-code") }],
+            },
+            { kind: "click", path: "/two-factor", target: target("verify"), purpose: "submit" },
+          ],
+          maxSubmissions: 2,
+        });
+        onClick({ login: toCode, verify: toHome });
+        const h = harness(
+          { bindings: namedFor() },
+          { passkeys: noPasskey, custom: [{ name: "Seed", kind: "text" }] },
+        );
+        customCode(h);
+        h.recipes.recipe.mockResolvedValue(routeCoded);
+        expect(await h.hello()).toEqual({ ok: false, reason: "totp-field-mismatch" });
+        expect(h.fields).not.toHaveBeenCalled();
+        expect(executed()).toEqual([]);
+      });
 
       it("stops without a fill when no code can be made from the custom field", async () => {
         onClick({ login: toCode, verify: toHome });

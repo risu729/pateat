@@ -429,6 +429,10 @@ describe("TOTP key shape of a custom field value", () => {
     "ABCD EFGH IJKL MN OP",
     "abcd  efgh ijkl mnop",
     "JBSW\tY3DP EHPK 3PXP",
+    // Base32 letters alone, as dictionary words and passphrases are, need a digit 2-7.
+    "correcthorsebatterystaple",
+    "nottinghamforest",
+    "this goes very fast",
     // Characters outside Base32, or padding too long or not at the end.
     `${bitwardenTotpSecret}1`,
     `${bitwardenTotpSecret}8`,
@@ -444,8 +448,20 @@ describe("TOTP key shape of a custom field value", () => {
     `https://example.com/?secret=${rfcTotpSecrets.SHA1}`,
     "steam://",
     "steam://not base32",
+    "steam://JBSWY3DPEHPK3PX",
     `x${"A".repeat(8192)}`,
   ])("does not take value case %# as a TOTP key", (value) => {
     expect(isTotpSeed(value)).toBe(false);
+  });
+
+  it("leaves out a random key without a digit, which still makes codes elsewhere", () => {
+    // About 0.13% of random 32-character keys have no digit 2-7; such a key is not flagged
+    // (ADR 0027, amendment of 2026-10-23), but the generator still reads it, and it works
+    // from the built-in TOTP field or as an otpauth URI.
+    const digitFree = "QWERTYUIOPASDFGHJKLZXCVBNMQWERTY";
+    expect(digitFree).toHaveLength(32);
+    expect(isTotpSeed(digitFree)).toBe(false);
+    expect(isTotpSeed(`otpauth://totp/Synthetic?secret=${digitFree}`)).toBe(true);
+    expect(generateLocalTotp(digitFree, clock(59_000)).ok).toBe(true);
   });
 });

@@ -274,6 +274,6 @@ owner 2026-10-23). Official code is pinned at
   ([autofill.service.ts](https://github.com/bitwarden/clients/blob/8246ae9c9a484a0a69f8b27203034555fb872523/apps/browser/src/autofill/services/autofill.service.ts#L1153)).
   Pateat never fills a Text or Hidden custom field shaped like a TOTP key as text and
   never offers it to recipe generation: it makes codes from it for the `totp` slot, and
-  takes it as the item's TOTP field when the login's own TOTP holds no key. A key typed
-  into a page as it is would give the second factor away, and a person who keeps a key
-  in a custom field, as Bitwarden lets them, means it for codes.
+  takes it as the item's TOTP field when the login's own TOTP holds no value. A key
+  typed into a page as it is would give the second factor away, and a person who keeps a
+  key in a custom field, as Bitwarden lets them, means it for codes.

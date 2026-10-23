@@ -1317,10 +1317,13 @@ button once; it needs the TOTP fact and that field allowed for the account. When
 item's `totp` field is a custom field, the code is made from that field's key instead,
 in the crypto Worker, and the field's value is never typed. That field is the one a
 saved binding names for `totp`, or, when no saved entry names one and the built-in
-field holds no key, the item's one Text or Hidden custom field the catalog flags as
+field holds no value, the item's one Text or Hidden custom field the catalog flags as
 holding a TOTP key (`totpSeed`). A binding that names any other field for the code
-ends `challenge`. Every fill of the `totp` slot, a route step's too, asks the Worker for
-a code. A flagged field is never offered to generation and never filled as text
+ends `challenge`, and a route's binding that puts a flagged field in another slot, or an
+unflagged custom field in the `totp` slot, is refused before any step
+(`totp-field-mismatch`). Every fill of the `totp` slot, a route step's too, asks the
+Worker for a code. A flagged field is never offered to generation and never filled as
+text
 ([ADR 0027 amendment](adr/0027-per-account-login-routes.md#amendment-2026-10-23-a-totp-code-from-a-custom-field),
 owner 2026-10-23). The `password` handler
 ([ADR 0048](adr/0048-password-method-button.md), owner 2026-10-18 01:38 UTC) clicks a

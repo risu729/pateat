@@ -169,10 +169,11 @@ const builtinSlots = new Set<string>(["username", "password", "totp"]);
 
 /**
  * The field the `totp` slot reads when no saved entry names one (ADR 0027, owner
- * 2026-10-23): the item's built-in TOTP field when it holds a key; otherwise its one named
- * custom field the catalog flags as holding a TOTP key (`totpSeed`, set only on Text and
- * Hidden fields), by its reference; otherwise the built-in field. Several flagged fields
- * leave the built-in field, which then holds no key.
+ * 2026-10-23): the item's built-in TOTP field when it holds a value (not flagged
+ * `empty`); otherwise its one named custom field the catalog flags as holding a TOTP key
+ * (`totpSeed`, set only on Text and Hidden fields), by its reference; otherwise the
+ * built-in field. Several flagged fields leave the built-in field, which then holds no
+ * value.
  */
 export function totpFieldReference(fields: readonly LocalItemField[]): VaultFieldReference {
   const builtin = fields.find((field) => field.id === builtinFieldIds.totp);
@@ -180,6 +181,21 @@ export function totpFieldReference(fields: readonly LocalItemField[]): VaultFiel
   const seeds = fields.filter((field) => field.totpSeed === true && customFieldId.test(field.id));
   const reference = seeds.length === 1 ? customFieldReference(fields, seeds[0]!.id) : undefined;
   return reference ?? "totp";
+}
+
+/**
+ * Whether binding `slot` to `field` breaks the TOTP key rule (ADR 0027, owner
+ * 2026-10-23): a slot other than `totp` on a custom field the catalog flags as holding a
+ * TOTP key (`totpSeed`), whose value is never filled as text, or the `totp` slot on a
+ * custom field without that flag, which holds no key to make a code from. A login refuses
+ * such a binding before any step (`totp-field-mismatch`), and a template that would build
+ * one is skipped.
+ */
+export function totpFieldMismatch(slot: string, field: LocalItemField | undefined): boolean {
+  if (!field) return false;
+  return slot === "totp"
+    ? customFieldId.test(field.id) && field.totpSeed !== true
+    : field.totpSeed === true;
 }
 
 /** The reference a built-in slot reads by default: `totp` by `totpFieldReference`. */
@@ -287,7 +303,8 @@ export function templateLoginBinding(
 /**
  * The template loop of `templateLoginBinding`: each of `slots` named `username`,
  * `password` or `totp` reads the item's field as `defaultLoginBinding` picks it, and every
- * other slot takes the template's reference. The first template whose references all resolve on the
+ * other slot takes the template's reference. A template whose binding `totpFieldMismatch`
+ * refuses is skipped. The first template whose references all resolve on the
  * item and that `build` accepts wins; without one, the first resolution refusal, or
  * `binding-not-found` when no template covers every slot.
  */
@@ -310,14 +327,30 @@ function fromTemplates<T>(
     }));
     if (references.some((entry) => entry.field === undefined)) continue;
     const bound = references as { slot: string; field: VaultFieldReference }[];
-    const failed = bound.flatMap((entry) => {
-      const resolved = resolveField(entry.field, fields);
-      return "reason" in resolved ? [{ slot: entry.slot, reason: resolved.reason }] : [];
-    })[0];
+    const resolutions = bound.map((entry) => ({
+      slot: entry.slot,
+      resolved: resolveField(entry.field, fields),
+    }));
+    const failed = resolutions.flatMap(({ slot, resolved }) =>
+      "reason" in resolved ? [{ slot, reason: resolved.reason }] : [],
+    )[0];
     if (failed) {
       refusal ??= { ok: false, ...failed };
       continue;
     }
+    // A template that would fill a TOTP key as text, or make a code from a field holding
+    // none, is passed over for the next one.
+    if (
+      resolutions.some(
+        ({ slot, resolved }) =>
+          "fieldId" in resolved &&
+          totpFieldMismatch(
+            slot,
+            fields.find((field) => field.id === resolved.fieldId),
+          ),
+      )
+    )
+      continue;
     const value = build(bound);
     if (value !== undefined) return { ok: true, value };
   }
