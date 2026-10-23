@@ -349,6 +349,9 @@ describe("personal-detail inputs (ADR 0061)", () => {
   const phone = { detail: "phone-last-4" } as const;
   const cardLast = { detail: "card-last-4" } as const;
   const code = { detail: "card-code" } as const;
+  const cardNumber = { detail: "card-number" } as const;
+  const expiry = { detail: "card-expiry", format: "mm/yy" } as const;
+  const pin = { detail: "pin" } as const;
   const refusal = (entry: Parameters<typeof detailInputRefusal>[0], field: object, submit = {}) =>
     detailInputRefusal(entry, input(field), button(submit));
 
@@ -403,6 +406,25 @@ describe("personal-detail inputs (ADR 0061)", () => {
     expect(refusal(code, { role: "password", maxLength: 2 })).toBe("too-short");
   });
 
+  it("takes a whole card number or a PIN in a password, text, tel or number input", () => {
+    for (const role of ["password", "text", "tel", "number"]) {
+      expect(refusal(cardNumber, { role })).toBeUndefined();
+      expect(refusal(pin, { role })).toBeUndefined();
+    }
+    expect(refusal(cardNumber, { maxLength: 19 })).toBeUndefined();
+    expect(refusal(cardNumber, { maxLength: 12 })).toBeUndefined();
+    expect(refusal(pin, { role: "password", maxLength: 4 })).toBeUndefined();
+  });
+
+  it("takes a card's expiry date in a text, tel or number input that holds its format", () => {
+    for (const role of ["text", "tel", "number"]) expect(refusal(expiry, { role })).toBeUndefined();
+    expect(refusal(expiry, { maxLength: 5 })).toBeUndefined();
+    expect(refusal({ detail: "card-expiry", format: "mmyy" }, { maxLength: 4 })).toBeUndefined();
+    expect(refusal({ detail: "card-expiry", format: "mm/yyyy" }, { maxLength: 6 })).toBe(
+      "too-short",
+    );
+  });
+
   it.each([
     ["a birth date in a password input", birth, { role: "password" }, {}, "not-input"],
     ["a birth date in an email input", birth, { role: "email" }, {}, "not-input"],
@@ -453,6 +475,19 @@ describe("personal-detail inputs (ADR 0061)", () => {
       "too-short",
     ],
     ["the last four in 3 characters", phone, { maxLength: 3 }, {}, "too-short"],
+    ["a card number in 11 characters", cardNumber, { maxLength: 11 }, {}, "too-short"],
+    ["a PIN in 3 characters", pin, { role: "password", maxLength: 3 }, {}, "too-short"],
+    ["an expiry date with its slash in 4 characters", expiry, { maxLength: 4 }, {}, "too-short"],
+    ["an expiry date in a password input", expiry, { role: "password" }, {}, "not-input"],
+    ["a card number in an email input", cardNumber, { role: "email" }, {}, "not-input"],
+    ["a PIN in a checkbox", pin, { role: "checkbox" }, {}, "not-input"],
+    [
+      "a PIN in the account's password input",
+      pin,
+      { role: "password", autocomplete: "current-password" },
+      {},
+      "sign-in-field",
+    ],
     ["a submit that is a link", phone, {}, { role: "link" }, "submit-not-button"],
     ["a submit that is an input", phone, {}, { role: "text" }, "submit-not-button"],
     ["a submit in another form", phone, {}, { group: "form-2" }, "submit-other-form"],

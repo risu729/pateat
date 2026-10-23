@@ -1,4 +1,4 @@
-import { birthDateFormatSchema, loginDetailSchema, type LoginDetail } from "@pateat/contracts";
+import { detailFormatSchema, loginDetailSchema, type LoginDetail } from "@pateat/contracts";
 import * as v from "valibot";
 
 const id = v.pipe(v.string(), v.minLength(1), v.maxLength(120));
@@ -38,7 +38,7 @@ export const detailResponseSchema = v.variant("ok", [
           v.array(
             v.strictObject({
               detail: loginDetailSchema,
-              format: v.optional(birthDateFormatSchema),
+              format: v.optional(detailFormatSchema),
               candidates: v.pipe(v.array(sourceSchema), v.minLength(1), v.maxLength(20)),
               /**
                * The first candidate is no guess and is not selected, as for a member ID,
@@ -63,7 +63,7 @@ export const detailResponseSchema = v.variant("ok", [
           pending: v.optional(v.literal(true)),
         }),
       ),
-      v.maxLength(4),
+      v.maxLength(loginDetailSchema.options.length),
     ),
   }),
   v.strictObject({ ok: v.literal(false), reason: v.literal("no-page") }),
@@ -92,7 +92,7 @@ export const detailFillResponseSchema = v.variant("ok", [
       "document-gone",
       /** The offer is gone, or does not list this field for this detail. */
       "not-a-candidate",
-      /** The field's value is not a date, or has too few digits. */
+      /** The field's value is not a date, or has too few or too many digits. */
       "unreadable",
       /** The vault is locked or the field may no longer be used. */
       "unavailable",
@@ -136,6 +136,9 @@ export function detailName(detail: LoginDetail, format?: string): string {
     "phone-last-4": "the last 4 digits of your phone number",
     "card-last-4": "the last 4 digits of your card number",
     "card-code": "your card's security code",
+    "card-number": "your card number",
+    "card-expiry": "your card's expiry date",
+    pin: "your PIN",
     "secret-answer": "the answer to your secret question",
     "member-id": "your member or customer number",
   }[detail];

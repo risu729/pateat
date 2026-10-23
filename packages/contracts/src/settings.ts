@@ -85,14 +85,18 @@ const vaultNameSchema = v.pipe(v.string(), v.minLength(1), v.maxLength(200));
  * The personal details a `detail` handler's input may ask for (ADR 0061), each read from
  * a vault item the owner linked to the login and made into the value the page wants:
  * a birth date in the input's `format`, the last four digits of a phone number or of a
- * card number, a card's security code, or, from the login item's own custom fields, the
- * answer to a secret question or a member or customer number.
+ * card number, a card's security code, its whole number or its expiry date in the input's
+ * `format`, a PIN, or, from the login item's own custom fields, the answer to a secret
+ * question or a member or customer number.
  */
 export const loginDetailSchema = v.picklist([
   "birth-date",
   "phone-last-4",
   "card-last-4",
   "card-code",
+  "card-number",
+  "card-expiry",
+  "pin",
   "secret-answer",
   "member-id",
 ]);
@@ -104,6 +108,22 @@ export const birthDateFormatSchema = v.picklist([
   "yyyy/mm/dd",
   "mmdd",
 ]);
+/** How a `card-expiry` input wants the card's expiry month and year written (ADR 0061). */
+export const cardExpiryFormatSchema = v.picklist(["mmyy", "mm/yy", "mmyyyy", "mm/yyyy"]);
+/** An input's `format`: a birth date's or a card expiry date's. */
+export const detailFormatSchema = v.picklist([
+  ...birthDateFormatSchema.options,
+  ...cardExpiryFormatSchema.options,
+]);
+/**
+ * Whether `format` belongs to `detail` (ADR 0061): a birth date and a card's expiry date
+ * each need one of their own formats, and no other detail has one.
+ */
+export function detailFormatFits(detail: LoginDetail, format: DetailFormat | undefined): boolean {
+  if (detail === "birth-date") return v.is(birthDateFormatSchema, format);
+  if (detail === "card-expiry") return v.is(cardExpiryFormatSchema, format);
+  return format === undefined;
+}
 
 /**
  * A vault field named the same way on every device (ADR 0013). Custom fields are named;
@@ -151,10 +171,11 @@ export const savedLoginBindingSchema = v.strictObject({
 
 /**
  * Where a linked detail's value is read (ADR 0061): an identity's phone number, a card's
- * number or security code, or a custom field by name, as binding references name them.
+ * number, security code or expiry month (whose year the same card item gives), or a
+ * custom field by name, as binding references name them.
  */
 export const detailSourceFieldSchema = v.union([
-  v.picklist(["identity.phone", "card.number", "card.code"]),
+  v.picklist(["identity.phone", "card.number", "card.code", "card.expMonth"]),
   vaultFieldReferenceSchema.options[1],
 ]);
 /**
@@ -389,6 +410,8 @@ export type VaultFieldReference = v.InferOutput<typeof vaultFieldReferenceSchema
 export type SavedLoginBinding = v.InferOutput<typeof savedLoginBindingSchema>;
 export type LoginDetail = v.InferOutput<typeof loginDetailSchema>;
 export type BirthDateFormat = v.InferOutput<typeof birthDateFormatSchema>;
+export type CardExpiryFormat = v.InferOutput<typeof cardExpiryFormatSchema>;
+export type DetailFormat = v.InferOutput<typeof detailFormatSchema>;
 export type DetailLink = v.InferOutput<typeof detailLinkSchema>;
 export type VaultConnectionMetadata = VaultCatalog["connections"][number];
 export type VaultItemMetadata = VaultConnectionMetadata["items"][number];

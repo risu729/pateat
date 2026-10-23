@@ -1,5 +1,5 @@
 import { detailLength, loginMarkerTargetSchema, loginOriginSchema, loginStepSchema } from "./login";
-import { recipeSlotIdSchema, type BirthDateFormat, type LoginDetail } from "./settings";
+import { recipeSlotIdSchema, type DetailFormat, type LoginDetail } from "./settings";
 import * as v from "valibot";
 
 const identifier = v.pipe(
@@ -487,33 +487,41 @@ export function totpCodeRefusal(
   return undefined;
 }
 
+/** The input roles each detail's fill rule admits; `card-code` also limits the length. */
+function admitsDetail(detail: LoginDetail, field: ObservedCandidate): boolean {
+  if (detail === "card-code")
+    return (
+      field.role === "password" ||
+      ((field.role === "text" || field.role === "tel") &&
+        (field.maxLength === 3 || field.maxLength === 4))
+    );
+  if (detail === "secret-answer") return field.role === "text" || field.role === "password";
+  if (detail === "card-number" || detail === "pin")
+    return ["password", "text", "tel", "number"].includes(field.role);
+  return ["text", "tel", "number"].includes(field.role);
+}
+
 /**
  * Why `field` and `button` of this page may not be a `detail` handler's input for
  * `entry` and the button that submits it (ADR 0061), for the log, or undefined when they
  * may. The field must be an input the detail's fill rule admits (`not-input`): a text,
- * tel or number input for a birth date, the last four digits or a member ID; a password
- * input, or a text or tel input limited to 3 or 4 characters, for a card's security
- * code; a text or password input for a secret question's answer. No other detail takes a
- * password input, so a PIN or second password the judge mislabels is not kept. It must
- * not be located by its text (`text-locator`), an answer not by its label
- * (`label-locator`), nor be marked as a sign-in,
- * email or code field (`sign-in-field`), nor declare a `maxlength` shorter
- * than the value (`too-short`); the button must be a button (`submit-not-button`) of the
- * field's form (`submit-other-form`). The judge and the recipe assembly both check this.
+ * tel or number input for a birth date, the last four digits, a card's expiry date or a
+ * member ID; a password input, or a text or tel input limited to 3 or 4 characters, for
+ * a card's security code; a password, text, tel or number input for a whole card number
+ * or a PIN; a text or password input for a secret question's answer. No other detail
+ * takes a password input, so a second password the judge takes for the last four digits
+ * is not kept. It must not be located by its text (`text-locator`), an answer not by its
+ * label (`label-locator`), nor be marked as a sign-in, email or code field
+ * (`sign-in-field`), nor declare a `maxlength` shorter than the value (`too-short`); the
+ * button must be a button (`submit-not-button`) of the field's form
+ * (`submit-other-form`). The judge and the recipe assembly both check this.
  */
 export function detailInputRefusal(
-  entry: { detail: LoginDetail; format?: BirthDateFormat | undefined },
+  entry: { detail: LoginDetail; format?: DetailFormat | undefined },
   field: ObservedCandidate,
   button: ObservedCandidate,
 ): string | undefined {
-  const admitted =
-    entry.detail === "card-code"
-      ? field.role === "password" ||
-        ((field.role === "text" || field.role === "tel") &&
-          (field.maxLength === 3 || field.maxLength === 4))
-      : entry.detail === "secret-answer"
-        ? field.role === "text" || field.role === "password"
-        : ["text", "tel", "number"].includes(field.role);
+  const admitted = admitsDetail(entry.detail, field);
   if (!admitted) return "not-input";
   if (field.target.by === "text") return "text-locator";
   // An answer's label may be the account's own question, which a shared recipe never holds.

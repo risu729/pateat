@@ -59,7 +59,7 @@ import {
   templateLoginBinding,
   TOTP_HANDLER_SLOT,
   DETAIL_HANDLER_SLOT,
-  birthDateFormatSchema,
+  detailFormatSchema,
   customFieldReference,
   resolveDetailSourceField,
   detailLinkSchema,
@@ -200,6 +200,9 @@ import { loginMoveFits } from "@pateat/contracts/site";
 import { isoTime, isoTimeMs, isoTimeSchema } from "../time";
 import {
   detailCandidates,
+  detailFieldIds,
+  detailFieldLabel,
+  detailSecret,
   detailValue,
   linkedField,
   savedDetailLink,
@@ -630,7 +633,7 @@ const detailOfferSchema = v.strictObject({
     v.array(
       v.strictObject({
         detail: loginDetailSchema,
-        format: v.optional(birthDateFormatSchema),
+        format: v.optional(detailFormatSchema),
         target: loginFieldTargetSchema,
       }),
     ),
@@ -5237,10 +5240,39 @@ export function createLoginRuntime(
       );
   }
   /**
+   * The vault values a detail's value is made from (`detailFieldIds`), read one after
+   * another from `itemId`; undefined when any read fails.
+   */
+  async function readDetail(
+    login: LoginAccount,
+    connection: VaultConnectionMetadata,
+    detail: LoginDetail,
+    itemId: string,
+    fieldId: string,
+  ): Promise<[string, ...string[]] | undefined> {
+    const read: string[] = [];
+    for (const id of detailFieldIds(detail, fieldId)) {
+      let value: string | undefined;
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        value = await fields({ account: { ...login, itemId }, connection, fieldId: id });
+      } catch {
+        value = undefined;
+      }
+      if (value === undefined) {
+        read.fill("");
+        return undefined;
+      }
+      read.push(value);
+    }
+    return read as [string, ...string[]];
+  }
+  /**
    * The value an entered `detail` handler's fill types (ADR 0061): read from the linked
-   * field and made into what the input asks for, in this worker, so the whole phone or card
-   * number never reaches the page. A card code fills only a password or short numeric input;
-   * a secret question's answer only while the page still asks its field's question.
+   * field and made into what the input asks for, in this worker, so the whole phone number
+   * never reaches the page, nor the whole card number except for a `card-number` input.
+   * A card code fills only a password or short numeric input; a secret question's answer
+   * only while the page still asks its field's question.
    */
   async function detailFill(
     run: Execution,
@@ -5275,26 +5307,25 @@ export function createLoginRuntime(
           : undefined;
     }
     if (!source) return "unavailable";
-    let read: string | undefined;
-    try {
-      read = await fields({
-        account: { ...run.metadata.account, itemId: source.itemId },
-        connection: authorized.connection,
-        fieldId: source.fieldId,
-      });
-    } catch {
-      read = undefined;
-    }
+    const read = await readDetail(
+      run.metadata.account,
+      authorized.connection,
+      field.detail,
+      source.itemId,
+      source.fieldId,
+    );
     if (read === undefined) return "unavailable";
-    const value = detailValue(field.detail, field.format, read);
-    read = "";
+    const value = detailValue(field.detail, field.format, read[0], read[1]);
+    read.fill("");
     if (value === undefined) return "unreadable";
     if (question) {
       // Refused, the answer's link is removed by its question field.
       (run.answers ??= new Map()).set(index, question.field);
       return { value, secret: "answer", question: question.name };
     }
-    return { value, secret: field.detail === "card-code" ? "card-code" : "detail" };
+    // An answer always goes with its question.
+    if (field.detail === "secret-answer") return "unavailable";
+    return { value, secret: detailSecret(field.detail) };
   }
   /** The tab's page, when it is an HTTP(S) page the popup has a section for. */
   async function popupPage(tabId: number) {
@@ -5383,14 +5414,15 @@ export function createLoginRuntime(
         });
     }
     const kept = pendingDetails.get(tabId) ?? [];
-    const label = (itemId: string, field: DetailLink["source"]["field"]) => {
+    const label = (detail: LoginDetail, itemId: string, field: DetailLink["source"]["field"]) => {
       const item = found.connection.items.find((entry) => entry.id === itemId);
       const fieldId = item && resolveDetailSourceField(field, item.fields);
       return {
         itemLabel: item?.label ?? "An item no longer in the vault",
         fieldLabel:
-          (fieldId && item?.fields.find((entry) => entry.id === fieldId)?.label) ??
-          "A field no longer in the item",
+          item && fieldId
+            ? detailFieldLabel(detail, fieldId, item)
+            : "A field no longer in the item",
       };
     };
     // One row per detail; a secret question's answers, one link per question, share one.
@@ -5409,7 +5441,7 @@ export function createLoginRuntime(
       return [
         {
           detail,
-          ...label(first.source.itemId, first.source.field),
+          ...label(detail, first.source.itemId, first.source.field),
           ...(all.length > 1 ? { fieldLabel: `${all.length} questions` } : {}),
           ...(waiting.length ? { pending: true as const } : {}),
         },
@@ -5493,6 +5525,14 @@ export function createLoginRuntime(
         !(await askedCandidate(live, offer.path, field.target, found.connection, [chosen])))
     )
       return { ok: false, reason: "not-a-candidate" };
+    // Which inputs the value may fill; an answer goes only with its question.
+    const secret =
+      field.detail !== "secret-answer"
+        ? { secret: detailSecret(field.detail) }
+        : question
+          ? { secret: "answer" as const, question }
+          : undefined;
+    if (!secret) return { ok: false, reason: "not-a-candidate" };
     const item = found.connection.items.find((entry) => entry.id === request.itemId);
     const reference = request.fieldId.startsWith("custom.")
       ? item && customFieldReference(item.fields, request.fieldId)
@@ -5515,30 +5555,23 @@ export function createLoginRuntime(
       observed.output.targets.some((state) => state !== "unique")
     )
       return { ok: false, reason: "document-gone" };
-    let read: string | undefined;
-    try {
-      read = await fields({
-        account: { ...offer.account, itemId: request.itemId },
-        connection: found.connection,
-        fieldId: request.fieldId,
-      });
-    } catch {
-      read = undefined;
-    }
+    const read = await readDetail(
+      offer.account,
+      found.connection,
+      field.detail,
+      request.itemId,
+      request.fieldId,
+    );
     if (read === undefined) return { ok: false, reason: "unavailable" };
-    const value = detailValue(field.detail, field.format, read);
-    read = "";
+    const value = detailValue(field.detail, field.format, read[0], read[1]);
+    read.fill("");
     if (value === undefined) return { ok: false, reason: "unreadable" };
     const command = {
       type: "login.detail.fill",
       path: offer.path,
       target: field.target,
       value,
-      ...(question
-        ? { secret: "answer" as const, question }
-        : {
-            secret: field.detail === "card-code" ? ("card-code" as const) : ("detail" as const),
-          }),
+      ...secret,
     };
     const response = await send(live, command).catch(() => undefined);
     command.value = "";

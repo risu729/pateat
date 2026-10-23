@@ -50,6 +50,24 @@ describe("secret input rule", () => {
     ["hidden", oneTimeCode, false],
     ["hidden", longTel, false],
     ["hidden", unboundedTel, false],
+    // A whole card number or a PIN (ADR 0061): a password, text, tel or number input; the
+    // fill checks a declared `maxlength` against the value itself.
+    ["card-number", password, true],
+    ["card-number", declared, true],
+    ["card-number", text, true],
+    ["card-number", unboundedTel, true],
+    ["card-number", number, true],
+    ["card-number", input({ type: "email" }), false],
+    ["card-number", input({ type: "search" }), false],
+    ["pin", password, true],
+    ["pin", pin, true],
+    ["pin", text, true],
+    ["pin", number, true],
+    ["pin", input({ type: "email" }), false],
+    ["pin", input({ type: "url" }), false],
+    // A card's expiry date is a `detail`: no password input.
+    ["detail", password, false],
+    ["detail", text, true],
     [undefined, text, true],
   ] as const)("%s into %o is %s", (secret, field, expected) => {
     expect(acceptsSecret(field, secret)).toBe(expected);

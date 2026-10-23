@@ -14583,6 +14583,133 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       );
     });
 
+    it("fills a linked PIN from another item as its digits, under the PIN's input rule", async () => {
+      // The owner decided that every linked value is filled, a PIN included (2026-10-23
+      // 11:41 UTC). Synthetic PIN only. The page asks for it in place of the sign-in form,
+      // on its path, as a lightbox does.
+      const pinned = parseLoginRecipe({
+        ...unlearned,
+        completion: home,
+        handlers: [
+          {
+            ...detailHandler,
+            path: "/signin",
+            fields: [{ detail: "pin", target: target("pin") }],
+          },
+        ],
+      });
+      onClick({ login: { path: "/signin", present: ["pin", "confirm"] }, confirm: toHome });
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness(
+        {
+          detailLinks: [
+            {
+              origin,
+              provider: "bitwarden",
+              userId,
+              itemId,
+              detail: "pin",
+              source: { itemId: otherItemId, field: { custom: "暗証番号" } },
+            },
+          ],
+        },
+        { passkeys: noPasskey, report, otherCustom: [{ name: "暗証番号", kind: "hidden" }] },
+      );
+      h.fields.mockImplementation(async (request) =>
+        request.fieldId.startsWith("custom.") ? "０１２３" : "synthetic-secret",
+      );
+      h.recipes.recipe.mockResolvedValue(pinned);
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+        timeout: 6_000,
+      });
+      expect(detailFills().map((entry) => entry.values)).toEqual([
+        [{ slot: "detail", value: "0123", secret: "pin" }],
+      ]);
+      expect(clicks("confirm")).toBe(1);
+      expect(h.fields.mock.calls.map(([request]) => request.account.itemId)).toEqual([
+        itemId,
+        otherItemId,
+      ]);
+      expect(handlerReports(report)).toEqual([[0, "detail", "entered", 2]]);
+    }, 10_000);
+
+    it.each([
+      [
+        "a card's expiry date from its month and year",
+        { detail: "card-expiry" as const, format: "mm/yy" as const },
+        "card.expMonth" as const,
+        { value: "04/31", secret: "detail" },
+        ["card.expMonth", "card.expYear"],
+      ],
+      [
+        "a card's whole number",
+        { detail: "card-number" as const },
+        "card.number" as const,
+        { value: "4000000000000002", secret: "card-number" },
+        ["card.number"],
+      ],
+    ])(
+      "fills %s, read from the linked card item",
+      async (_label, asked, field, filled, read) => {
+        const carded = parseLoginRecipe({
+          ...unlearned,
+          completion: home,
+          handlers: [
+            { ...detailHandler, path: "/signin", fields: [{ ...asked, target: target("card") }] },
+          ],
+        });
+        onClick({ login: { path: "/signin", present: ["card", "confirm"] }, confirm: toHome });
+        const h = harness(
+          {
+            detailLinks: [
+              {
+                origin,
+                provider: "bitwarden",
+                userId,
+                itemId,
+                detail: asked.detail,
+                source: { itemId: otherItemId, field },
+              },
+            ],
+          },
+          { passkeys: noPasskey },
+        );
+        // The other item is a card item, with a card's built-in fields.
+        const original = h.store.handle.getMockImplementation()!;
+        h.store.handle.mockImplementation(async () => {
+          const response = await original();
+          if (response.ok)
+            response.catalog.connections[0]!.items[1]!.fields = [
+              "card.number",
+              "card.expMonth",
+              "card.expYear",
+            ].map((id) => ({ id, label: id.slice(5), name: null, kind: "text" as const }));
+          return response;
+        });
+        const values: Record<string, string> = {
+          "card.number": "4000 0000 0000 0002",
+          "card.expMonth": "4",
+          "card.expYear": "2031",
+        };
+        h.fields.mockImplementation(
+          async (request) => values[request.fieldId] ?? "synthetic-secret",
+        );
+        h.recipes.recipe.mockResolvedValue(carded);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+          timeout: 6_000,
+        });
+        expect(detailFills().map((entry) => entry.values)).toEqual([
+          [{ slot: "detail", ...filled }],
+        ]);
+        expect(
+          h.fields.mock.calls.map(([request]) => [request.account.itemId, request.fieldId]),
+        ).toEqual([[itemId, "login.password"], ...read.map((id) => [otherItemId, id])]);
+      },
+      10_000,
+    );
+
     it("is shown while one of its inputs is disabled, as a choice page may disable it", async () => {
       onClick({ login: toConfirm, confirm: toHome });
       fake.state.unusable = new Set(["phone"]);

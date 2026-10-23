@@ -13,6 +13,9 @@ describe("how the popup names a personal detail (ADR 0061)", () => {
     expect(detailName("phone-last-4")).toBe("the last 4 digits of your phone number");
     expect(detailName("card-last-4")).toBe("the last 4 digits of your card number");
     expect(detailName("card-code")).toBe("your card's security code");
+    expect(detailName("card-number")).toBe("your card number");
+    expect(detailName("card-expiry", "mm/yy")).toBe("your card's expiry date");
+    expect(detailName("pin")).toBe("your PIN");
   });
 });
 

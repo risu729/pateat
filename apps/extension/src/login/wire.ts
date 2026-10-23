@@ -18,6 +18,8 @@ export const loginSecretKinds = [
   "otp",
   "hidden",
   "card-code",
+  "card-number",
+  "pin",
   "detail",
   "answer",
 ] as const;

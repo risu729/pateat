@@ -980,7 +980,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                 (entry) =>
                   entry.secret === "password" ||
                   entry.secret === "hidden" ||
-                  entry.secret === "card-code",
+                  entry.secret === "card-code" ||
+                  entry.secret === "card-number" ||
+                  entry.secret === "pin",
               ),
             },
           );
