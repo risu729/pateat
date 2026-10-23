@@ -467,35 +467,40 @@ the plan check's code (such as `incompatible-role`).
   code is logged as not kept (`stop`), and `signed-in` or `rejected` stores no marker
   and answers `unclear`.
 
-Judgements are limited under the lock, before credentials are resolved:
-`page_judgements` holds one row per recipe revision, page origin and path and judge
-prompt version (its instructions and output schema; a stop's page has its own), so a
-repeat answers `judged-signed-in` when the model answered `signed-in`, `already-judged`
-when it abstained (`unclear`), and `judged-challenge`, `judged-rejected` or
-`judgement-unanswered` when it judged the page `challenge` or `rejected` or the row has
-no verdict, as after the request failed or while it still runs past the owner's lock
-(the row's `verdict`, ADR 0029). An abstention on a `partial` request is kept as
-`partial`: another `partial` request for the path answers `already-judged`, and one
-without it is judged again on the same row, which counts in the day it was first taken;
-that adds at most one model call per path, as the new verdict is never `partial`. A
-recipe judged 20 times since the start of the UTC day answers `judgement-limit`. A row
-of another judge prompt version does not answer a repeat, so a changed prompt judges the
-page again, as one that can now name a handler an earlier prompt could not. A change to
-the local checks that keep a handler alone does not; it needs a prompt change to reach
-pages already judged. The row is written just before the first model request, so a
-request the role refuses locally (`input-too-large`) gives the page back
+Judgements are limited once the request holds a call slot, before credentials are
+resolved: `page_judgements` holds one row per recipe revision, page origin and path and
+judge prompt version (its instructions and output schema; a stop's page has its own), so
+a repeat answers `judged-signed-in` when the model answered `signed-in`,
+`already-judged` when it abstained (`unclear`), and `judged-challenge`,
+`judged-rejected` or `judgement-unanswered` when it judged the page `challenge` or
+`rejected` or the row has no verdict, as after the request failed or while it still runs
+(the row's `verdict`, ADR 0029). Of two requests for the same page that pass the gate at
+once, only the one that writes the row is sent; the other answers as the row does, or
+`judgement-unanswered`. An
+abstention on a `partial` request is kept as `partial`: another `partial` request for
+the path answers `already-judged`, and one without it is judged again on the same row,
+which counts in the day it was first taken; that adds at most one model call per path,
+as the new verdict is never `partial`. A recipe judged 20 times since the start of the
+UTC day answers `judgement-limit`. A row of another judge prompt version does not answer
+a repeat, so a changed prompt judges the page again, as one that can now name a handler
+an earlier prompt could not. A change to the local checks that keep a handler alone does
+not; it needs a prompt change to reach pages already judged. The row is written just
+before the first model request, so a request the role refuses locally
+(`input-too-large`) gives the page back
 ([ADR 0027](../../docs/adr/0027-per-account-login-routes.md)). A stop's row is kept as
 `challenge` or undecided, so it answers only later stops' pages, and a stop's judgement
 counts toward the 20 a day. Rows of older revisions or of judge prompt versions other
 than the two current ones are deleted once their UTC day is over.
 
-`src/claude/calls.ts` wraps every model call. Per owner it takes a 90-second lock
-(`busy` otherwise), refuses past $100 of estimated spend a month or $5 a day (UTC, both
-roles counted), and only then resolves credentials: missing, refused or failed
-credentials answer `credentials-not-configured`, `credentials-rejected`,
-`issuer-unavailable` or `token-exchange-failed`. Generation also re-reads the recipe
-under the lock, answering with a recipe another device stored meanwhile, and refuses a
-page tried in the previous 10 minutes (ADR 0016), abstentions and failures included. The
+`src/claude/calls.ts` wraps every model call. Per owner it takes one of five call slots
+(`inference_locks`, freed after 90 seconds if never released; `busy` when all are held,
+[ADR 0018](../../docs/adr/0018-recipe-generation-route.md#five-calls-at-a-time)),
+refuses past $100 of estimated spend a month or $5 a day (UTC, both roles counted), and
+only then resolves credentials: missing, refused or failed credentials answer
+`credentials-not-configured`, `credentials-rejected`, `issuer-unavailable` or
+`token-exchange-failed`. Generation also re-reads the recipe once it holds the slot,
+answering with a recipe another device stored meanwhile, and refuses a page tried in the
+previous 10 minutes (ADR 0016), abstentions and failures included. The
 attempt key is the generated recipe ID, the path and the revision being continued (0 for
 a first page, the tombstone's revision for a revoked recipe generated again), so two
 recipes of one origin that lead to the same page do not block each other. A request that
@@ -506,9 +511,10 @@ role asks the owner's model choices in order
 0014; by default Claude Opus 5.5 then Claude Sonnet 5.5, both at effort `low`): a
 refusal asks the next choice, a fast mode call that fails `rate-limited`,
 `provider-error` or `timeout` asks the same model at the standard speed, and any other
-failure ends the request. Every call runs under the same lock, checks the spend stops
-first, and is charged and logged on its own. Nothing is reserved: a call is charged
-after it returns from reported usage, or at its upper bound (64 KiB of input as tokens
+failure ends the request. Every call runs in the same slot, checks the spend stops
+first, and is charged and logged on its own. Nothing is reserved, so a stop is passed by
+at most the calls running when it is crossed: a call is charged after it returns from
+reported usage, or at its upper bound (64 KiB of input as tokens
 plus 1,024 output tokens at its rates, about $0.28 for Opus 5.5) when usage is unknown.
 The `inference_log` row stores the provider, model, `effort` and `speed`, the role's
 prompt version
@@ -536,21 +542,21 @@ lost to a device leaves it null, and a failed update is logged as
 `Inference log revision not kept` and never fails the request. Since the
 [timings amendment](../../docs/adr/0012-inference-request-log.md#amendment-2026-10-18-request-timings),
 `pre_model_ms` (from the Worker receiving the request to just before the model call:
-authentication, the request limit, the route's reads, the lock and checks, the model
-configuration and the credential; a later call of the same request includes the calls
-before it), `token_ms` (resolving the credential: its D1 read,
-signing the assertion and the token exchange, new on every call) and `model_ms` (the
-model call and its output checks) are written with the row. `server_ms` (to the
-response, the recipe write included) is set on every logged row, also one answered
-without a model call, by an owner-scoped update through `waitUntil` once the route
-answered, so it never delays the response. It stays null when that update failed,
-logged as `Inference log server time not kept`, or when releasing the owner's lock threw
+authentication, the request limit, the route's reads, the call slot and checks, the
+model configuration and the credential; a later call of the same request includes the
+calls before it), `token_ms` (resolving the credential: its D1 read, signing the
+assertion and the token exchange, new on every call) and `model_ms` (the model call and
+its output checks) are written with the row. `server_ms` (to the response, the recipe
+write included) is set on every logged row, also one answered without a model call, by
+an owner-scoped update through `waitUntil` once the route answered, so it never delays
+the response. It stays null when that update failed, logged as
+`Inference log server time not kept`, or when releasing the owner's call slot threw
 after the row was written, which fails the request. `src/request-timing.ts` does this
-and adds the call's `token` and `model` to `Server-Timing`. `answer` holds
-the model's own answer for every decision, `unclear` and refused output included, before
-the local checks: `{ "decision": "signed-in", "marker": "c7" }`, or a generated plan
-with a passkey button the plan check dropped. A candidate or slot it names that is not
-one of the request's IDs is `?`, as for a refused plan below; output the response format
+and adds the call's `token` and `model` to `Server-Timing`. `answer` holds the model's
+own answer for every decision, `unclear` and refused output included, before the local
+checks: `{ "decision": "signed-in", "marker": "c7" }`, or a generated plan with a
+passkey button the plan check dropped. A candidate or slot it names that is not one of
+the request's IDs is `?`, as for a refused plan below; output the response format
 refused has no answer. For `invalid-output`, the result is `{ rejection }` when a check
 named it (the judge role's check of its marker refuses without one, leaving the result
 empty) and, when the plan check refused a plan, that plan as `output`: a candidate or

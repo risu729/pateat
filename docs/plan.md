@@ -3548,9 +3548,10 @@ support for every site or vault format. Keep observed limitations explicit.
   ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). Pricing (ADR 0014's $4
   and $20 per million tokens) and the spending limits are settled: the owner confirmed
   $200 of monthly Claude API credit, ADR 0014 sets the monthly limit to $100, and the
-  service also stops at $5 a day. Calls run one at a time per owner, and each is charged
-  its maximum cost before it starts and corrected afterwards
-  (`services/api/src/claude/calls.ts`), so a limit is passed by at most one call.
+  service also stops at $5 a day. Up to five requests per owner make calls at a time
+  ([ADR 0018](adr/0018-recipe-generation-route.md#five-calls-at-a-time)), and each call
+  is charged from its usage once it returns (`services/api/src/claude/calls.ts`), so a
+  limit is passed by at most the calls running when it is crossed.
 - Benchmark generation/repair and finite-choice roles separately on the same
   Japanese/English synthetic login corpus. Measure the ADR 0014 Claude configuration for
   generation; for decisions, the owner chose Clef for

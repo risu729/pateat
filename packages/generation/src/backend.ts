@@ -99,13 +99,18 @@ export type GenerationCall<T> = {
     baseRevision: number;
     page?: RecipePage;
   };
-  /** Checked under the owner's lock, before credentials are resolved. */
+  /**
+   * Checked once the request holds one of the owner's call slots, before credentials are
+   * resolved. Other requests of the owner may run their own checks and calls meanwhile.
+   */
   gate?: (now: number) => Promise<GenerationUnavailableReason | undefined>;
   /**
    * Written just before the first model request is sent, so a request the role refuses
-   * before sending, as `input-too-large`, writes nothing (ADR 0016, ADR 0027).
+   * before sending, as `input-too-large`, writes nothing (ADR 0016, ADR 0027). A reason
+   * stops the request there, unsent and uncharged: another request of the owner, running
+   * at the same time, took what `gate` found free (ADR 0018).
    */
-  beforeSend?: (now: number) => Promise<void>;
+  beforeSend?: (now: number) => Promise<GenerationUnavailableReason | void>;
   invoke: (model: ClaudeModel) => Promise<InferenceOutcome<T>>;
   /** The structured result to log for an `ok` outcome. */
   logValue: (value: T) => unknown;
@@ -248,19 +253,20 @@ export interface GenerationBackend {
    * `partial` or `optional`, which takes today's slot again. With it, forgets the recipe's
    * rows judged before `expired` whose revision is below `revision` or whose prompt version
    * is none of `versions`. Both happen in one write; a row with any other verdict, or an
-   * unanswered one, is left as it is.
+   * unanswered one, is left as it is. Returns whether this request took the row: false
+   * when another request's row was there, as one written since this request's gate.
    */
   recordJudgement(
     key: JudgementKey,
     now: number,
     stale: { expired: number; versions: readonly string[] },
-  ): Promise<void>;
+  ): Promise<boolean>;
   /** Keeps the page's verdict on its row; a failure only costs that. */
   keepVerdict(key: JudgementKey, verdict: PageJudgementVerdict): Promise<void>;
 
   /**
-   * Makes a route's model calls: under one lock per owner, after `gate`, with the spend
-   * stops and the request log of where it runs.
+   * Makes a route's model calls: in one of the owner's call slots, after `gate`, with the
+   * spend stops and the request log of where it runs.
    */
   call<T>(call: GenerationCall<T>): Promise<GenerationCallResult<T>>;
   /** Logs a request answered without a model call under its code (ADR 0012). */
