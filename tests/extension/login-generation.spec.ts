@@ -5,6 +5,7 @@ import { startLoginFixture } from "./login-server";
 import { startSyncService } from "./sync-service";
 import { withVaultProfile, type VaultBrowser } from "./vault-fixture";
 import { sendToBackground as send } from "./background-message";
+import type { LoginRecipeDocument } from "../../packages/contracts/src/index";
 
 // The synthetic Bitwarden item stores the URI https://synthetic.example.test/login, the
 // username "test_username" and the login password "test_password". The site has no recipe;
@@ -26,6 +27,8 @@ async function serveSite(context: BrowserContext, fixture: { origin: string }) {
   });
 }
 
+/** `GET /v1/recipes` as these tests read it: each login recipe with its layouts (ADR 0060). */
+type RecipeChanges = { changes: { recipe?: LoginRecipeDocument }[] };
 /**
  * Gives the probe a 2-second step wait in place of the 10-second one, for a test whose login
  * runs past an advance's wait; the loopback origin is the probe's default.
@@ -62,8 +65,9 @@ type Prompt = {
  * the fixture pages: fill the password and press "Log in", or on a page without a password
  * input fill the account and press "Next", then mark "Sign out" as the signed-in evidence.
  * A judged page that asks how to verify names its "Select Password." control as the
- * button that goes on to the password (ADR 0048). The page descriptions it receives, and
- * when each arrived, are recorded.
+ * button that goes on to the password (ADR 0048), and an optional page after the sign-in,
+ * one with a "Remind me later" button, is `optional` (ADR 0065). The page descriptions it
+ * receives, and when each arrived, are recorded.
  */
 function syntheticClaude({ abstainOnPassword = false }: { abstainOnPassword?: boolean } = {}) {
   const prompts: Prompt[] = [];
@@ -116,6 +120,9 @@ function syntheticClaude({ abstainOnPassword = false }: { abstainOnPassword?: bo
     const choice = prompt.observation.candidates.some(
       ({ target }) => target.by === "accessible-name" && target.value === "Select Password.",
     );
+    const optional = prompt.observation.candidates.some(
+      ({ target }) => target.by === "id" && target.value === "remind-later",
+    );
     // A page without a login form (ADR 0031): its "Login" link opens the sign-in page.
     const result =
       prompt.task === "entry"
@@ -126,14 +133,16 @@ function syntheticClaude({ abstainOnPassword = false }: { abstainOnPassword?: bo
                 decision: "challenge",
                 passwordButton: byTarget("Select Password.", "accessible-name"),
               }
-            : signedIn
-              ? { decision: "signed-in", marker: byTarget("sign-out") }
-              : prompt.observation.candidates.some(
-                    ({ target }) => target.by === "text" && target.value === "My page",
-                  )
-                ? // The `link` marker variant's account link has no id, so only its text names it.
-                  { decision: "signed-in", marker: byTarget("My page", "text") }
-                : { decision: "rejected" }
+            : optional
+              ? { decision: "optional" }
+              : signedIn
+                ? { decision: "signed-in", marker: byTarget("sign-out") }
+                : prompt.observation.candidates.some(
+                      ({ target }) => target.by === "text" && target.value === "My page",
+                    )
+                  ? // The `link` marker variant's account link has no id, so only its text names it.
+                    { decision: "signed-in", marker: byTarget("My page", "text") }
+                  : { decision: "rejected" }
           : passwordPage && abstainOnPassword
             ? { decision: "abstain", reason: "ambiguous" }
             : passwordPage
@@ -277,19 +286,22 @@ for (const [button, marker] of [
           // recipe is stored as a sign-in page (ADR 0035).
           expect(claude.prompts[0]).toMatchObject({ signedIn: false });
           expect(JSON.stringify(claude.prompts)).not.toContain(password);
-          const recipes = (await (await service.request("/v1/recipes")).json()) as {
-            changes: { recipe?: { revision: number; completion?: unknown } }[];
-          };
+          // The judgement learned the marker into the recipe's one layout.
+          const recipes = (await (await service.request("/v1/recipes")).json()) as RecipeChanges;
           expect(recipes.changes.map((change) => change.recipe)).toMatchObject([
             {
               revision: 2,
-              pageKind: "sign-in",
-              completion: [
+              layouts: [
                 {
-                  target:
-                    marker === "link"
-                      ? { by: "text", value: "My page" }
-                      : { by: "id", value: "sign-out" },
+                  pageKind: "sign-in",
+                  completion: [
+                    {
+                      target:
+                        marker === "link"
+                          ? { by: "text", value: "My page" }
+                          : { by: "id", value: "sign-out" },
+                    },
+                  ],
                 },
               ],
             },
@@ -371,14 +383,16 @@ for (const { name, prefix, tenants } of [
           expect(await service.generationAttempts()).toEqual([
             { path: redactedPath, base_revision: 0 },
           ]);
-          const recipes = (await (await service.request("/v1/recipes")).json()) as {
-            changes: { recipe?: { steps: unknown[] } }[];
-          };
+          const recipes = (await (await service.request("/v1/recipes")).json()) as RecipeChanges;
           expect(recipes.changes.map((change) => change.recipe)).toMatchObject([
             {
-              steps: [
-                { kind: "fill", path: redactedPath },
-                { kind: "click", path: redactedPath },
+              layouts: [
+                {
+                  steps: [
+                    { kind: "fill", path: redactedPath },
+                    { kind: "click", path: redactedPath },
+                  ],
+                },
               ],
             },
           ]);
@@ -485,24 +499,29 @@ for (const { name, start, query, passwordPath } of [
             { path: start, base_revision: 0 },
             { path: passwordPath, base_revision: 1 },
           ]);
-          const recipes = (await (await service.request("/v1/recipes")).json()) as {
-            changes: { recipe?: { revision: number; steps: unknown[]; completion?: unknown } }[];
-          };
+          // The continuation and the marker were both written into the one layout.
+          const recipes = (await (await service.request("/v1/recipes")).json()) as RecipeChanges;
           expect(recipes.changes.map((change) => change.recipe)).toMatchObject([
             {
               revision: 3,
-              steps: [
-                { kind: "fill", path: start },
+              layouts: [
                 {
-                  kind: "click",
-                  path: start,
-                  purpose: "advance",
-                  ...(noButton ? { target: { by: "id", value: "account" }, press: "enter" } : {}),
+                  steps: [
+                    { kind: "fill", path: start },
+                    {
+                      kind: "click",
+                      path: start,
+                      purpose: "advance",
+                      ...(noButton
+                        ? { target: { by: "id", value: "account" }, press: "enter" }
+                        : {}),
+                    },
+                    { kind: "fill", path: passwordPath },
+                    { kind: "click", path: passwordPath, purpose: "submit" },
+                  ],
+                  completion: [{ target: { by: "id", value: "sign-out" } }],
                 },
-                { kind: "fill", path: passwordPath },
-                { kind: "click", path: passwordPath, purpose: "submit" },
               ],
-              completion: [{ target: { by: "id", value: "sign-out" } }],
             },
           ]);
           // The "Use phone" button beside the account was never pressed.
@@ -524,6 +543,100 @@ for (const { name, start, query, passwordPath } of [
       await fixture.close();
     }
   });
+
+test("an optional page after the sign-in completes the login as signed in, presses nothing and learns no marker there (ADR 0065)", async () => {
+  test.setTimeout(120_000);
+  const fixture = await startLoginFixture(0, { password });
+  const claude = syntheticClaude();
+  const service = await startSyncService({ claude: claude.answer });
+  try {
+    await withVaultProfile(
+      async (open) => {
+        const browser = await open();
+        await serveSite(browser.context, fixture);
+        const options = await connect(browser, service);
+        const clicks = (page: Page) =>
+          page.evaluate(() => ({
+            submitClicks: Number(sessionStorage.getItem("submitClicks") || 0),
+            verifyClicks: Number(sessionStorage.getItem("verifyClicks") || 0),
+            laterClicks: Number(sessionStorage.getItem("laterClicks") || 0),
+          }));
+        const signedIn = () =>
+          expect
+            .poll(() => send(options, { version: 1, type: "login.probe.status" }), {
+              timeout: 30_000,
+            })
+            .toMatchObject({
+              attempts: [{ state: "authenticated", outcome: "authenticated", handlers: [] }],
+            });
+        const unconfirmed = async () =>
+          (
+            (await send(options, { version: 1, type: "login.probe.status" })) as {
+              attempts: { unconfirmed?: true }[];
+            }
+          ).attempts[0]?.unconfirmed;
+        const recipe = async () =>
+          (
+            (await (await service.request("/v1/recipes")).json()) as {
+              changes: { recipe?: { layouts: { handlers?: unknown; completion?: unknown }[] } }[];
+            }
+          ).changes.map((change) => change.recipe);
+
+        const page = await browser.context.newPage();
+        await page.goto(`${site}/sign-in?optional`);
+        // The password goes in and /checkup is judged optional: the login ends there as
+        // signed in, and the page stays as it is.
+        await expect(page.locator("#optional-page")).toBeVisible({ timeout: 60_000 });
+        await signedIn();
+        expect(await unconfirmed()).toBeUndefined();
+        expect(await clicks(page)).toEqual({ submitClicks: 1, verifyClicks: 0, laterClicks: 0 });
+        expect(new URL(page.url()).pathname).toBe("/checkup");
+        expect(claude.prompts.map((prompt) => [prompt.task, prompt.observation.path])).toEqual([
+          ["generate", "/sign-in"],
+          ["judge-sign-in", "/checkup"],
+        ]);
+        expect(JSON.stringify(claude.prompts)).not.toContain(password);
+        // Nothing is learned on the optional page.
+        const [learned] = await recipe();
+        expect(learned?.layouts).toHaveLength(1);
+        expect(learned?.layouts[0]).not.toHaveProperty("completion");
+        expect(learned?.layouts[0]).not.toHaveProperty("handlers");
+
+        // The next login that meets it is judged again, as the path may ask for a step
+        // then, and completes the same way.
+        await page.close();
+        const next = await browser.context.newPage();
+        await next.goto(`${site}/sign-in?optional`);
+        await expect(next.locator("#optional-page")).toBeVisible({ timeout: 30_000 });
+        await signedIn();
+        expect(await unconfirmed()).toBeUndefined();
+        expect(await clicks(next)).toEqual({ submitClicks: 1, verifyClicks: 0, laterClicks: 0 });
+        expect(claude.prompts.map((prompt) => prompt.observation.path)).toEqual([
+          "/sign-in",
+          "/checkup",
+          "/checkup",
+        ]);
+
+        // A login that reaches the usual signed-in page learns its marker there.
+        await next.close();
+        const usual = await browser.context.newPage();
+        await usual.goto(`${site}/sign-in`);
+        await expect(usual.locator("#signed-in")).toBeVisible({ timeout: 30_000 });
+        await signedIn();
+        expect(claude.prompts.map((prompt) => prompt.observation.path).at(-1)).toBe("/account");
+        await expect
+          .poll(recipe)
+          .toMatchObject([
+            { layouts: [{ completion: [{ target: { by: "id", value: "sign-out" } }] }] },
+          ]);
+      },
+      { args: ["--ignore-certificate-errors"] },
+    );
+  } finally {
+    await service.close();
+    await fixture.close();
+  }
+});
 
 test("a generated identifier page learns the password choice, presses it and continues on the password form it shows (ADR 0048)", async () => {
   test.setTimeout(90_000);
@@ -765,11 +878,12 @@ test("an identifier form shown again where it posted is never continued (ADR 001
         expect(await page.locator("#fixture-status").textContent()).toContain(
           "Identity clicks: 1; Submit clicks: 0",
         );
-        const recipes = (await (await service.request("/v1/recipes")).json()) as {
-          changes: { recipe?: { revision: number; steps: unknown[] } }[];
-        };
+        const recipes = (await (await service.request("/v1/recipes")).json()) as RecipeChanges;
         expect(recipes.changes.map((change) => change.recipe)).toMatchObject([
-          { revision: 1, steps: [{ kind: "fill" }, { kind: "click", purpose: "advance" }] },
+          {
+            revision: 1,
+            layouts: [{ steps: [{ kind: "fill" }, { kind: "click", purpose: "advance" }] }],
+          },
         ]);
         expect([...new Set(externalRequests)].sort()).toEqual(["https://127.0.0.1", site]);
       },
@@ -826,13 +940,14 @@ test("an abstained continuation settles unknown without judging the page (ADR 00
         expect(JSON.stringify(claude.prompts)).not.toContain(password);
         expect(JSON.stringify(claude.prompts)).not.toContain(username);
         // The stored recipe still ends at the identifier page's Next.
-        const recipes = (await (await service.request("/v1/recipes")).json()) as {
-          changes: { recipe?: { revision: number; steps: unknown[]; completion?: unknown } }[];
-        };
+        const recipes = (await (await service.request("/v1/recipes")).json()) as RecipeChanges;
         expect(recipes.changes.map((change) => change.recipe)).toMatchObject([
-          { revision: 1, steps: [{ kind: "fill" }, { kind: "click", purpose: "advance" }] },
+          {
+            revision: 1,
+            layouts: [{ steps: [{ kind: "fill" }, { kind: "click", purpose: "advance" }] }],
+          },
         ]);
-        expect(recipes.changes[0]!.recipe!.steps).toHaveLength(2);
+        expect(recipes.changes[0]!.recipe!.layouts[0]!.steps).toHaveLength(2);
         expect([...new Set(externalRequests)].sort()).toEqual(["https://127.0.0.1", site]);
       },
       { args: ["--ignore-certificate-errors"] },

@@ -890,10 +890,14 @@ export async function startLoginFixture(
       // into a hidden input and submits the form, as SMBC Trust Bank's, so only the hidden
       // input reaches the server.
       // `?marker=link` makes /account show an account link without an id instead of a
-      // sign-out button, as ポイントインカム's header.
+      // sign-out button, as ポイントインカム's header. `?optional` signs in to /checkup, an
+      // optional page that can be put off (ADR 0065).
       const variant = fixtureUrl.searchParams.get("button");
-      const account =
-        fixtureUrl.searchParams.get("marker") === "link" ? "/account?marker=link" : "/account";
+      const account = fixtureUrl.searchParams.has("optional")
+        ? "/checkup"
+        : fixtureUrl.searchParams.get("marker") === "link"
+          ? "/account?marker=link"
+          : "/account";
       const button =
         variant === "anchor"
           ? '<a id="login" onclick="return false">Log in</a>'
@@ -922,6 +926,23 @@ export async function startLoginFixture(
           const runId = new URLSearchParams(location.search).get('runId');
           if (runId) void fetch('/effect/' + encodeURIComponent(runId), {method:'POST', keepalive:true, body:new URLSearchParams({source:'click', password:document.getElementById('password').value})});
           location.href = ${JSON.stringify(account)};
+        });`,
+        ),
+      );
+    } else if (path === "/checkup") {
+      // An optional page after the sign-in, as a periodic prompt to verify two-factor
+      // settings (ADR 0065): each button is counted, and "Remind me later" opens /account.
+      response.end(
+        html(
+          "<h1>Synthetic checkup</h1>",
+          `document.body.insertAdjacentHTML('afterbegin', sessionStorage.getItem('passwordMatched') === 'true'
+          ? '<h2 id="optional-page">Verify your two-factor authentication settings</h2><button id="verify-now" type="button">Verify now</button><button id="remind-later" type="button">Remind me later</button>'
+          : '<h2 id="rejected">Credentials rejected</h2>');
+        const count = (key) => sessionStorage.setItem(key, String(Number(sessionStorage.getItem(key) || 0) + 1));
+        document.getElementById('verify-now')?.addEventListener('click', () => count('verifyClicks'));
+        document.getElementById('remind-later')?.addEventListener('click', () => {
+          count('laterClicks');
+          location.href = '/account';
         });`,
         ),
       );

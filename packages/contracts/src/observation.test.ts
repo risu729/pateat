@@ -7,6 +7,7 @@ import {
   loginObservationSchema,
   semanticSlotsSchema,
   isCodeField,
+  showsBesideForm,
   showsCodeField,
   slotsForPage,
 } from "./observation";
@@ -601,5 +602,75 @@ describe("custom-field slots (ADR 0027)", () => {
   it("bounds a slot ID at 60 characters", () => {
     expect(v.is(customSlotIdSchema, "店".repeat(60))).toBe(true);
     expect(v.is(customSlotIdSchema, "店".repeat(61))).toBe(false);
+  });
+});
+
+// ADR 0061: a sign-in sidebar left shown behind a lightbox form that asks for a detail.
+// Synthetic page, shaped like a card site's.
+describe("a form beside the sign-in form (ADR 0061)", () => {
+  const id = (value: string) => ({ by: "id", value }) as const;
+  const sidebar = [
+    { id: "c1", role: "text", target: id("user"), group: "side" },
+    { id: "c2", role: "password", target: id("pw"), group: "side" },
+    { id: "c3", role: "button", target: id("login"), group: "side" },
+  ] as const;
+  const lightbox = [
+    { id: "c4", role: "text", target: id("birth"), group: "box", maxLength: 6 },
+    { id: "c5", role: "tel", target: id("phone"), group: "box", maxLength: 4 },
+    { id: "c6", role: "button", target: id("submit"), group: "box" },
+  ] as const;
+  const fills = [id("user"), id("pw")];
+  const page = (candidates: readonly object[]) =>
+    v.parse(loginObservationSchema, { ...base, candidates });
+
+  it("finds a text-like input with its own button in another form", () => {
+    expect(showsBesideForm(page([...sidebar, ...lightbox]), fills)).toBe(true);
+    // A number input counts as a text-like one.
+    expect(
+      showsBesideForm(
+        page([
+          ...sidebar,
+          { id: "c4", role: "number", target: id("birth"), group: "box" },
+          lightbox[2],
+        ]),
+        fills,
+      ),
+    ).toBe(true);
+  });
+
+  it("needs a route fill field shown, another form, a text-like input and its button", () => {
+    // No fill field of the route shows.
+    expect(showsBesideForm(page(lightbox), fills)).toBe(false);
+    // The other inputs are in the sign-in form.
+    expect(
+      showsBesideForm(
+        page([...sidebar, ...lightbox.map((entry) => ({ ...entry, group: "side" }))]),
+        fills,
+      ),
+    ).toBe(false);
+    // Nor when one fill field of the route is in that form too.
+    expect(
+      showsBesideForm(page([sidebar[0], { ...sidebar[1], group: "box" }, ...lightbox]), fills),
+    ).toBe(false);
+    // Nor without a button of that form.
+    expect(showsBesideForm(page([...sidebar, lightbox[0], lightbox[1]]), fills)).toBe(false);
+    // Nor with only a password input there, nor with inputs outside any form.
+    expect(
+      showsBesideForm(page([...sidebar, { ...lightbox[0], role: "password" }, lightbox[2]]), fills),
+    ).toBe(false);
+    expect(
+      showsBesideForm(
+        page([
+          ...sidebar,
+          { id: "c4", role: "text", target: id("birth") },
+          { id: "c6", role: "button", target: id("submit") },
+        ]),
+        fills,
+      ),
+    ).toBe(false);
+    // A route fill field is never the other form's input.
+    expect(
+      showsBesideForm(page([sidebar[1], { ...sidebar[0], group: "box" }, lightbox[2]]), fills),
+    ).toBe(false);
   });
 });

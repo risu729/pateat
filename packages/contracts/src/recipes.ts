@@ -1,5 +1,20 @@
 import * as v from "valibot";
-import { isLoginRouteRecipe, runsLogin, type LoginRecipe, type StoredLoginRecipe } from "./login";
+import {
+  isLoginRecipeDocument,
+  newestLayout,
+  passwordVariants,
+  recipeLayouts,
+  routeSteps,
+  runsLogin,
+  sameLoginTarget,
+  type LoginRecipe,
+  type LoginStep,
+  type LoginTarget,
+  type LoginRecipeDocument,
+  type RecipeLanguage,
+  type StoredLoginRecipe,
+} from "./login";
+import type { LoginObservation } from "./observation";
 import {
   savedLoginBindingSchema,
   type DetailLink,
@@ -12,29 +27,185 @@ import {
 // bindings come from the service cache; these functions only read them.
 
 /**
- * Every recipe with a login route for one exact origin that may start a login, in cache
- * order. An entry recipe (ADR 0031) or a chooser recipe (ADR 0028) is left out: nothing
- * starts either yet, and neither starts or resumes a login. So is a route recipe generated
- * as `confirm` or `unclear` (ADR 0035).
+ * Every login recipe for one exact origin with a layout that may start a login, in cache
+ * order. An entry recipe (ADR 0031) or a chooser recipe (ADR 0028) is left out: neither is
+ * a login recipe with layouts. So is a recipe whose every layout was generated as `confirm`
+ * or `unclear` (ADR 0035).
  */
 export function loginRecipesForOrigin(
   recipes: readonly StoredLoginRecipe[],
   origin: string,
-): LoginRecipe[] {
+): LoginRecipeDocument[] {
   return recipes.filter(
-    (recipe): recipe is LoginRecipe =>
-      isLoginRouteRecipe(recipe) && recipe.origin === origin && runsLogin(recipe),
+    (recipe): recipe is LoginRecipeDocument =>
+      isLoginRecipeDocument(recipe) &&
+      recipe.origin === origin &&
+      recipe.layouts.some((layout) => runsLogin(layout)),
   );
 }
 
+/** One layout a new login may run (ADR 0060), with what the choice between layouts reads. */
+export type LayoutCandidate<Recipe> = {
+  recipe: Recipe;
+  language?: RecipeLanguage | undefined;
+  createdAt: number;
+};
+
+/**
+ * Each layout of a stored login recipe that may start a login as a candidate, in stored
+ * order: a layout generated as `confirm` or `unclear` never runs (ADR 0035).
+ */
+export function loginLayoutCandidates(recipe: LoginRecipeDocument): LayoutCandidate<LoginRecipe>[] {
+  return recipeLayouts(recipe).flatMap((projected, index) =>
+    runsLogin(projected)
+      ? [
+          {
+            recipe: projected,
+            ...(recipe.layouts[index]!.language
+              ? { language: recipe.layouts[index]!.language }
+              : {}),
+            createdAt: recipe.layouts[index]!.createdAt,
+          },
+        ]
+      : [],
+  );
+}
+
+/** The elements a step needs to show; a step that waits for an element to go names none. */
+const shownTargets = (step: LoginStep): LoginTarget[] =>
+  step.kind === "fill"
+    ? step.fields.map((field) => field.target)
+    : step.kind === "click" || step.present
+      ? [step.target]
+      : [];
+
+/** The passkey route's steps and each password variant's, in that order. */
+const startRoutes = (recipe: LoginRecipe): LoginStep[][] => [
+  ...(recipe.passkey ? [routeSteps(recipe, { route: "passkey" })] : []),
+  ...passwordVariants(recipe).map((variant) => variant.steps),
+];
+
+/**
+ * The elements a layout's start page shows (ADR 0060): those of every route's and
+ * variant's steps on the recipe's start path, each once, the passkey button first; a
+ * `passkey` route without a button names the first step's element. A new
+ * login counts which of them show and which are missing to tell layouts of one start path
+ * apart.
+ */
+export function layoutStartTargets(recipe: LoginRecipe): LoginTarget[] {
+  const start = recipe.steps[0]!.path;
+  const targets = startRoutes(recipe)
+    .flat()
+    .filter((step) => step.path === start)
+    .flatMap(shownTargets);
+  return targets.filter(
+    (target, index) => targets.findIndex((other) => sameLoginTarget(other, target)) === index,
+  );
+}
+
+/**
+ * The elements of each route's and variant's first step (ADR 0060), when it is on the
+ * start path: a layout whose page shows every element of one of them can start a login.
+ * A first step that waits for an element to go names none, so it shows no start.
+ */
+export function layoutFirstSteps(recipe: LoginRecipe): LoginTarget[][] {
+  const start = recipe.steps[0]!.path;
+  return startRoutes(recipe).flatMap((steps) =>
+    steps[0]?.path === start ? [shownTargets(steps[0])] : [],
+  );
+}
+
+/**
+ * What a page shows of one layout (ADR 0060): whether every element of one of its first
+ * steps shows (`starts`), and how many of its start-page elements show and are missing.
+ */
+export type LayoutShown = { starts: boolean; shown: number; missing: number };
+
+/**
+ * `LayoutShown` for one layout from what the page shows of each element: `true` shown,
+ * `false` missing, `undefined` not asked, which counts as neither.
+ */
+export function layoutShown(
+  firstSteps: readonly (readonly LoginTarget[])[],
+  targets: readonly LoginTarget[],
+  shows: (target: LoginTarget) => boolean | undefined,
+): LayoutShown {
+  const states = targets.map(shows);
+  return {
+    starts: firstSteps.some(
+      (step) => step.length > 0 && step.every((target) => shows(target) === true),
+    ),
+    shown: states.filter((state) => state === true).length,
+    missing: states.filter((state) => state === false).length,
+  };
+}
+
+/** Negative when `left` fits the page better: one that starts, then fewer missing, then more shown. */
+const compareShown = (left: LayoutShown, right: LayoutShown) =>
+  Number(right.starts) - Number(left.starts) ||
+  left.missing - right.missing ||
+  right.shown - left.shown;
+
+/**
+ * The layouts a new login may run, best first (ADR 0060): only those that fit the page
+ * best (`shown`, one entry per candidate): a layout one of whose first steps shows whole,
+ * then the fewest missing start-page elements, then the most shown. Among those, a layout
+ * of the page's language comes before the others, then the newest first. The caller takes
+ * the first whose plan for the account passes, which puts the plan between the elements
+ * and the language; when none passes, the first one's refusal stands. A `mixed` or unknown
+ * page language prefers none.
+ */
+export function rankLayouts<Recipe>(
+  candidates: readonly LayoutCandidate<Recipe>[],
+  shown: readonly LayoutShown[],
+  language?: LoginObservation["language"],
+): LayoutCandidate<Recipe>[] {
+  const none: LayoutShown = { starts: false, shown: 0, missing: 0 };
+  const of = (index: number) => shown[index] ?? none;
+  const best = candidates
+    .map((_, index) => of(index))
+    .reduce<LayoutShown | undefined>(
+      (top, entry) => (!top || compareShown(entry, top) < 0 ? entry : top),
+      undefined,
+    );
+  const speaks = (candidate: LayoutCandidate<Recipe>) =>
+    language !== undefined && language !== "mixed" && candidate.language === language ? 1 : 0;
+  return candidates
+    .map((candidate, index) => ({ candidate, index }))
+    .filter(({ index }) => best !== undefined && compareShown(of(index), best) === 0)
+    .sort(
+      (left, right) =>
+        speaks(right.candidate) - speaks(left.candidate) ||
+        right.candidate.createdAt - left.candidate.createdAt ||
+        right.index - left.index,
+    )
+    .map(({ candidate }) => candidate);
+}
+
+/**
+ * Whether the page's language can change `rankLayouts`'s order: the best-fitting layouts
+ * are of more than one language. Only then is the page's language read.
+ */
+export function languageDecides<Recipe>(ranked: readonly LayoutCandidate<Recipe>[]): boolean {
+  return new Set(ranked.map((candidate) => candidate.language)).size > 1;
+}
+
 export type LoginRecipeSelection =
-  | { ok: true; recipe: LoginRecipe; stepIndex: number }
+  | {
+      ok: true;
+      /** The newest layout, which a login takes when nothing tells the layouts apart. */
+      recipe: LoginRecipe;
+      /** Every layout of the recipe, for the choice of ADR 0060. */
+      layouts: LayoutCandidate<LoginRecipe>[];
+      stepIndex: number;
+    }
   | { ok: false; reason: "recipe-not-found" | "recipe-ambiguous" };
 
 /**
  * Chooses the recipe and step a new attempt starts on. For now only a recipe's first
  * step can start an attempt, and two recipes starting on one page refuse rather than
- * guess. On-screen step detection can replace this without changing stored data.
+ * guess. The layouts of the one recipe that starts there are all offered (ADR 0060); the
+ * runtime chooses between them from what the page shows.
  */
 export function selectLoginRecipe(
   recipes: readonly StoredLoginRecipe[],
@@ -42,11 +213,13 @@ export function selectLoginRecipe(
   path: string,
 ): LoginRecipeSelection {
   const starting = loginRecipesForOrigin(recipes, origin).filter(
-    (recipe) => recipe.steps[0]?.path === path,
+    (recipe) => recipe.layouts[0]?.steps[0]?.path === path,
   );
   if (starting.length > 1) return { ok: false, reason: "recipe-ambiguous" };
   const [recipe] = starting;
-  return recipe ? { ok: true, recipe, stepIndex: 0 } : { ok: false, reason: "recipe-not-found" };
+  if (!recipe) return { ok: false, reason: "recipe-not-found" };
+  const layouts = loginLayoutCandidates(recipe);
+  return { ok: true, recipe: newestLayout(layouts)!.recipe, layouts, stepIndex: 0 };
 }
 
 /** The synced binding of one recipe for one vault item, if any. */

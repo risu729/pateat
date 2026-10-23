@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { SetupReply } from "../connections/types";
 import type { VaultEntry, VaultResult } from "../vault/record";
 import { createPseudonyms } from "./pseudonym";
-import { formatReport } from "./report";
+import { formatReport, vaultTimeoutText } from "./report";
 import {
   DIAGNOSTICS_TIMEOUT_MS,
   collectDiagnostics,
@@ -299,11 +299,16 @@ describe("diagnostics status", () => {
   });
 
   it("explains an expired sync token that the next Sync tries to renew", async () => {
-    const collect = (autoUnlock: "enabled" | "disabled") =>
+    const collect = (autoUnlock: "enabled" | "disabled", state?: "locked" | "ready") =>
       collectDiagnostics(
         dependencies({
           connections: {
-            status: async () => setupStatus({ providerSession: "refresh-required", autoUnlock }),
+            status: async () =>
+              setupStatus({
+                providerSession: "refresh-required",
+                autoUnlock,
+                ...(state ? { state } : {}),
+              }),
             read: async () => record(),
             server,
             check: async () => undefined,
@@ -322,15 +327,21 @@ describe("diagnostics status", () => {
     ).toMatch(
       /^Pateat .* · unpacked install \(development\)\n[\s\S]*sync sign-in kept, next Sync tries to renew it \(refresh-required\)/u,
     );
-    // Sync reads the stored unlock key, so without auto-unlock the token cannot be renewed.
+    // Sync needs the vault's key: kept on disk, or in memory while it is unlocked (ADR 0075).
     expect(v.is(diagnosticsStatusSchema, status)).toBe(true);
-    const manual = await collect("disabled");
+    const session = await collect("disabled", "ready");
+    expect(session.checks).toContainEqual({
+      id: `sync:${session.connections[0]!.id}`,
+      level: "ok",
+      detail: `${session.connections[0]!.id} sync sign-in kept, next Sync tries to renew it (refresh-required)`,
+    });
+    const manual = await collect("disabled", "locked");
     expect(v.is(diagnosticsStatusSchema, manual)).toBe(true);
     const manualId = manual.connections[0]!.id;
     expect(manual.checks).toContainEqual({
       id: `sync:${manualId}`,
       level: "info",
-      detail: `${manualId} sync sign-in kept, next Sync tries to renew it (refresh-required); Sync needs auto-unlock`,
+      detail: `${manualId} sync sign-in kept, next Sync tries to renew it (refresh-required); Sync needs the vault unlocked`,
     });
   });
 
@@ -445,6 +456,65 @@ describe("diagnostics status", () => {
     expect(
       formatReport(thrown, { name: "Chrome", version: "156", installType: "normal" }),
     ).toContain("Service record: service record not read (unavailable)");
+  });
+
+  it("reports the vault timeout and a locked vault (ADR 0075)", async () => {
+    const browser = { name: "Chrome", version: "156", installType: "normal" };
+    const status = await collectDiagnostics(
+      dependencies({
+        vaultTimeout: async () => ({ timeout: 15, action: "lock" }),
+        connections: {
+          status: async () => setupStatus({ state: "locked", autoUnlock: "disabled" }),
+          read: async () => record(),
+          server,
+          check: async () => undefined,
+        },
+      }),
+    );
+    expect(status.vaultTimeout).toEqual({ timeout: 15, action: "lock" });
+    expect(v.is(diagnosticsStatusSchema, status)).toBe(true);
+    const id = status.connections[0]?.id ?? "";
+    expect(status.connections[0]?.state).toBe("locked");
+    expect(status.checks).toContainEqual({
+      id: `vault:${id}`,
+      level: "info",
+      detail: `${id} locked`,
+    });
+    expect(formatReport(status, browser)).toContain("\nVault timeout: 15 min · lock\n");
+    for (const [vaultTimeout, line] of [
+      [{ timeout: "system-idle", action: "log-out" }, "Vault timeout: system-idle · log-out"],
+      [{ timeout: "never", action: "lock" }, "Vault timeout: never · lock"],
+      [{ timeout: 525_600, action: "log-out" }, "Vault timeout: 525600 min · log-out"],
+    ] as const)
+      expect(formatReport({ ...status, vaultTimeout }, browser)).toContain(line);
+    expect(vaultTimeoutText({ timeout: "restart", action: "lock" }, (code) => `<${code}>`)).toBe(
+      "<restart> · <lock>",
+    );
+    expect(vaultTimeoutText({ timeout: 30, action: "log-out" }, (code) => `<${code}>`)).toBe(
+      "30 min · <log-out>",
+    );
+  });
+
+  it("leaves the vault timeout out when it cannot be read", async () => {
+    for (const vaultTimeout of [undefined, async () => Promise.reject(new Error("storage"))]) {
+      // oxlint-disable-next-line no-await-in-loop -- one case at a time
+      const status = await collectDiagnostics(dependencies(vaultTimeout ? { vaultTimeout } : {}));
+      expect(status).not.toHaveProperty("vaultTimeout");
+      expect(v.is(diagnosticsStatusSchema, status)).toBe(true);
+      expect(
+        formatReport(status, { name: "Chrome", version: "156", installType: "normal" }),
+      ).not.toContain("Vault timeout");
+    }
+  });
+
+  it("refuses a summary with a damaged vault timeout", async () => {
+    const status = await collectDiagnostics(dependencies());
+    for (const vaultTimeout of [
+      { timeout: 0, action: "lock" },
+      { timeout: "immediately", action: "lock" },
+      { timeout: 15, action: "lock", key: "c2VjcmV0" },
+    ])
+      expect(v.is(diagnosticsStatusSchema, { ...status, vaultTimeout })).toBe(false);
   });
 
   it("names a vault storage failure and an expired sign-in", async () => {

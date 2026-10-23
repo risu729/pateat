@@ -64,6 +64,7 @@ function mockClient(saveError?: ManageApiError) {
     saveSettings: vi.fn<ManageClient["saveSettings"]>(),
     recipes: vi.fn<ManageClient["recipes"]>(),
     revokeRecipe: vi.fn<ManageClient["revokeRecipe"]>(),
+    revokeLayout: vi.fn<ManageClient["revokeLayout"]>(),
     requestLog: vi.fn<ManageClient["requestLog"]>(),
     deleteRequestLog: vi.fn<ManageClient["deleteRequestLog"]>(),
     claude: vi.fn<ManageClient["claude"]>(async () => ({
@@ -84,6 +85,7 @@ function mockClient(saveError?: ManageApiError) {
       view = { ...view, config: structuredClone(config), saved: true };
       return structuredClone(view);
     }),
+    problems: vi.fn<ManageClient["problems"]>(),
   } satisfies ManageClient;
 }
 

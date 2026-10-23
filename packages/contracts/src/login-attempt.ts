@@ -12,6 +12,7 @@ import {
   loginRouteSchema,
   loginStepEffect,
   MAX_PASSWORD_ALTERNATIVES,
+  recipeLayoutKeySchema,
   parseLoginRecipe,
   passwordVariants,
   routeSlots,
@@ -121,6 +122,11 @@ export const attemptMetadataSchema = v.pipe(
     id: identifier,
     recipeId: identifier,
     recipeRevision: integer(Number.MAX_SAFE_INTEGER - 1),
+    /**
+     * The layout of the recipe the login runs, chosen when it started (ADR 0060); a resumed
+     * login and a later revision it takes over keep it.
+     */
+    layout: v.optional(recipeLayoutKeySchema),
     policyRevision: integer(Number.MAX_SAFE_INTEGER - 1),
     account: loginAccountSchema,
     /** The route chosen when the login started (ADR 0027). */
@@ -1431,6 +1437,7 @@ export function createAttemptMetadata(input: {
     id: input.id,
     recipeId: recipe.id,
     recipeRevision: recipe.revision,
+    ...(recipe.layout === undefined ? {} : { layout: recipe.layout }),
     policyRevision: input.policyRevision,
     account: input.account,
     route: input.choice.route,
@@ -1756,6 +1763,7 @@ export function nextLoginOperation(
     !sameLoginDocument(metadata.document, document) ||
     metadata.recipeId !== recipe.id ||
     metadata.recipeRevision !== recipe.revision ||
+    metadata.layout !== recipe.layout ||
     metadata.account.origin !== recipe.origin ||
     metadata.usedOperationIds.includes(operationId)
   )

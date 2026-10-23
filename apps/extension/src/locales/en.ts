@@ -345,4 +345,7 @@ export const en = {
   "This page shows another account, so nothing was filled.":
     "This page shows another account, so nothing was filled.",
   "ID {{id}}": "ID {{id}}",
+  vaultsLocked_one: "{{count}} vault is locked, so its logins and passkeys wait.",
+  vaultsLocked_other: "{{count}} vaults are locked, so their logins and passkeys wait.",
+  "Unlock in settings": "Unlock in settings",
 } as const;

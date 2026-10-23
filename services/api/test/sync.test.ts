@@ -3,7 +3,7 @@ import {
   DEVICE_IDLE_LIMIT_MS,
   MAX_ACTIVE_RECIPE_BYTES,
   type LocalSettings,
-  type LoginRecipe,
+  type LoginRecipeDocument,
   type SyncRecipeChanges,
 } from "@pateat/contracts";
 import type { D1Migration } from "cloudflare:test";
@@ -75,30 +75,54 @@ function settings(hostname = "excluded.example"): LocalSettings {
   };
 }
 
-function recipe(id: string, revision: number): LoginRecipe {
+/** A stored recipe with one layout (ADR 0060). */
+function recipe(id: string, revision: number): LoginRecipeDocument {
   return {
     version: 1,
     id,
     revision,
     origin: "https://bank.example",
-    pageKind: "sign-in",
-    slots: ["username", "password"],
-    steps: [
+    layouts: [
       {
-        kind: "fill",
-        effect: "prepare",
-        path: "/login",
-        fields: [
-          { slot: "username", target: { by: "id", value: "username" } },
-          { slot: "password", target: { by: "id", value: "password" } },
+        key: "1000",
+        language: "en",
+        createdAt: 1000,
+        pageKind: "sign-in",
+        slots: ["username", "password"],
+        steps: [
+          {
+            kind: "fill",
+            effect: "prepare",
+            path: "/login",
+            fields: [
+              { slot: "username", target: { by: "id", value: "username" } },
+              { slot: "password", target: { by: "id", value: "password" } },
+            ],
+          },
+          {
+            kind: "click",
+            path: "/login",
+            target: { by: "id", value: "submit" },
+            purpose: "submit",
+          },
         ],
+        completion: [{ target: { by: "id", value: "welcome" } }],
+        maxSubmissions: 1,
       },
-      { kind: "click", path: "/login", target: { by: "id", value: "submit" }, purpose: "submit" },
     ],
-    completion: [{ target: { by: "id", value: "welcome" } }],
-    maxSubmissions: 1,
   };
 }
+
+/** The fixture's one layout's route, as a chooser branch stores it. */
+const routeBody = () => {
+  const {
+    key: _key,
+    language: _language,
+    createdAt: _createdAt,
+    ...body
+  } = recipe("body", 1).layouts[0]!;
+  return body;
+};
 
 function publish(device: Device, id: string, expectedRevision: number) {
   return put(device, `/v1/recipes/${id}`, {
@@ -674,7 +698,8 @@ describe("recipe sync", () => {
         },
       ],
     };
-    const varied = { ...recipe("bank-variants", 1), alternatives: [contract] };
+    const base = recipe("bank-variants", 1);
+    const varied = { ...base, layouts: [{ ...base.layouts[0]!, alternatives: [contract] }] };
     const written = await put(device, "/v1/recipes/bank-variants", {
       version: 1,
       expectedRevision: 0,
@@ -687,14 +712,23 @@ describe("recipe sync", () => {
       changes: [{ recipeId: "bank-variants", recipe: varied }],
     });
     // A variant on another start path is refused like any other invalid recipe.
+    const other = recipe("bank-elsewhere", 1);
     const elsewhere = await put(device, "/v1/recipes/bank-elsewhere", {
       version: 1,
       expectedRevision: 0,
       state: "active",
       recipe: {
-        ...recipe("bank-elsewhere", 1),
-        alternatives: [
-          { ...contract, steps: contract.steps.map((step) => ({ ...step, path: "/contract" })) },
+        ...other,
+        layouts: [
+          {
+            ...other.layouts[0]!,
+            alternatives: [
+              {
+                ...contract,
+                steps: contract.steps.map((step) => ({ ...step, path: "/contract" })),
+              },
+            ],
+          },
         ],
       },
     });
@@ -720,12 +754,12 @@ describe("recipe sync", () => {
     expect(await (await api(device, "/v1/recipes")).json()).toMatchObject({
       changes: [{ recipeId: "bank-entry", revision: 1, state: "active", recipe: entry }],
     });
-    const { slots, steps, maxSubmissions } = recipe("bank-mixed", 1);
+    const { layouts } = recipe("bank-mixed", 1);
     const mixed = await put(device, "/v1/recipes/bank-mixed", {
       version: 1,
       expectedRevision: 0,
       state: "active",
-      recipe: { ...entry, id: "bank-mixed", slots, steps, maxSubmissions },
+      recipe: { ...entry, id: "bank-mixed", layouts },
     });
     expect(mixed.status).toBe(400);
     const revoked = await put(device, "/v1/recipes/bank-entry", {
@@ -741,16 +775,18 @@ describe("recipe sync", () => {
 
   it("stores and syncs a chooser recipe (ADR 0028) with a branch", async () => {
     const device = await enrollOwner();
+    const layout = (key: string) => ({
+      key,
+      createdAt: Number(key),
+      other: { by: "text", value: "Use another account" },
+      afterAccount: routeBody(),
+    });
     const chooser = {
       version: 1,
       id: "bank-chooser",
       revision: 1,
       origin: "https://bank.example",
-      chooser: {
-        path: "/login",
-        other: { by: "text", value: "Use another account" },
-        afterAccount: recipe("bank-chooser", 1),
-      },
+      chooser: { path: "/login", layouts: [layout("1000")] },
     };
     const written = await put(device, "/v1/recipes/bank-chooser", {
       version: 1,
@@ -762,14 +798,18 @@ describe("recipe sync", () => {
     expect(await (await api(device, "/v1/recipes")).json()).toMatchObject({
       changes: [{ recipeId: "bank-chooser", revision: 1, state: "active", recipe: chooser }],
     });
-    const stray = await put(device, "/v1/recipes/bank-stray", {
+    const crowded = await put(device, "/v1/recipes/bank-crowded", {
       version: 1,
       expectedRevision: 0,
       state: "active",
-      recipe: { ...chooser, id: "bank-stray" },
+      recipe: {
+        ...chooser,
+        id: "bank-crowded",
+        chooser: { path: "/login", layouts: ["1", "2", "3", "4"].map(layout) },
+      },
     });
-    // Its branch still carries the chooser's own ID.
-    expect(stray.status).toBe(400);
+    // A recipe holds at most three layouts (ADR 0060).
+    expect(crowded.status).toBe(400);
   });
 
   it("rejects an invalid recipe identifier and unsupported methods", async () => {
@@ -826,11 +866,11 @@ describe("per-owner limits", () => {
   it("caps UTF-8 head bytes for creates and growth, while equal, shrinking and revoke writes pass", async () => {
     const device = await enrollOwner();
     const japanese = recipe("japanese", 1);
-    japanese.completion = [{ target: { by: "text", value: "ようこそ".repeat(20) } }];
+    japanese.layouts[0]!.completion = [{ target: { by: "text", value: "ようこそ".repeat(20) } }];
     const bytes = documentBytes(japanese);
     expect(bytes).toBeGreaterThan(JSON.stringify(japanese).length);
     await seedRecipeBytes(device.ownerId, MAX_ACTIVE_RECIPE_BYTES - bytes);
-    const write = (document: LoginRecipe, expectedRevision: number) =>
+    const write = (document: LoginRecipeDocument, expectedRevision: number) =>
       put(device, `/v1/recipes/${document.id}`, {
         version: 1,
         state: "active",
@@ -842,7 +882,12 @@ describe("per-owner limits", () => {
     const growing = {
       ...japanese,
       revision: 2,
-      completion: [{ target: { by: "text" as const, value: "ようこそ".repeat(21) } }],
+      layouts: [
+        {
+          ...japanese.layouts[0]!,
+          completion: [{ target: { by: "text" as const, value: "ようこそ".repeat(21) } }],
+        },
+      ],
     };
     const refused = await write(growing, 1);
     expect(refused.status).toBe(409);
@@ -1002,7 +1047,14 @@ describe("per-owner limits", () => {
 
 // ADR 0019 and ADR 0012, amended 2026-10-18: how the first login of a revision ended.
 describe("login outcomes", () => {
-  const report = { version: 1, revision: 1, outcome: "unknown-submit", cause: "settled", step: 1 };
+  const report = {
+    version: 1,
+    revision: 1,
+    branch: "1000",
+    outcome: "unknown-submit",
+    cause: "settled",
+    step: 1,
+  };
   const send = (device: Device | undefined, id: string, body: unknown, type = "application/json") =>
     api(device, `/v1/recipes/${id}/outcome`, {
       method: "POST",
@@ -1036,19 +1088,25 @@ describe("login outcomes", () => {
         await send(other, "bank-login", {
           version: 1,
           revision: 2,
+          branch: "1000",
           outcome: "authenticated",
           step: 2,
         })
       ).status,
     ).toBe(204);
     expect(
-      (await send(device, "bank-login", { ...report, branch: "other", cause: "target-missing" }))
-        .status,
+      (
+        await send(device, "bank-login", {
+          ...report,
+          branch: "1000:other",
+          cause: "target-missing",
+        })
+      ).status,
     ).toBe(204);
     expect(await stored(device.ownerId)).toEqual([
       {
         recipe_id: "bank-login",
-        branch: "",
+        branch: "1000",
         revision: 1,
         outcome: "unknown-submit",
         cause: "settled",
@@ -1056,7 +1114,7 @@ describe("login outcomes", () => {
       },
       {
         recipe_id: "bank-login",
-        branch: "other",
+        branch: "1000:other",
         revision: 1,
         outcome: "unknown-submit",
         cause: "target-missing",
@@ -1064,7 +1122,7 @@ describe("login outcomes", () => {
       },
       {
         recipe_id: "bank-login",
-        branch: "",
+        branch: "1000",
         revision: 2,
         outcome: "authenticated",
         cause: null,
@@ -1122,6 +1180,8 @@ describe("login outcomes", () => {
       { ...report, outcome: "wrong password" },
       { ...report, cause: "Wrong password" },
       { ...report, branch: "list" },
+      { ...report, branch: "other" },
+      { version: 1, revision: 1, outcome: "unknown-submit", step: 1 },
       { ...report, revision: 0 },
       { ...report, step: 41 },
       { ...report, version: 2 },
@@ -1175,6 +1235,7 @@ describe("login records", () => {
   const record = {
     version: 1,
     revision: 1,
+    branch: "1000",
     outcome: "authenticated",
     extensionBuild: "1c42ad3",
     totalMs: 9000,
@@ -1214,7 +1275,7 @@ describe("login records", () => {
         await send(other, "bank-login", {
           ...record,
           revision: 2,
-          branch: "other",
+          branch: "1000:other",
           outcome: "structural-mismatch",
           cause: "target-missing",
           totalMs: 12_000,
@@ -1225,7 +1286,7 @@ describe("login records", () => {
     expect(rows).toHaveLength(3);
     expect(rows[0]).toEqual({
       recipe_id: "bank-login",
-      branch: "",
+      branch: "1000",
       revision: 1,
       origin: "https://bank.example",
       outcome: "authenticated",
@@ -1238,7 +1299,7 @@ describe("login records", () => {
       page_ms: 1800,
     });
     expect(rows.find((row) => row["revision"] === 2)).toMatchObject({
-      branch: "other",
+      branch: "1000:other",
       origin: "https://bank.example",
       outcome: "structural-mismatch",
       cause: "target-missing",
@@ -1400,6 +1461,7 @@ describe("unused recipe revocation (ADR 0058)", () => {
   const loginRecord = {
     version: 1,
     revision: 1,
+    branch: "1000",
     outcome: "structural-mismatch",
     cause: "target-missing",
     extensionBuild: "1c42ad3",
@@ -1506,7 +1568,11 @@ describe("unused recipe revocation (ADR 0058)", () => {
         version: 1,
         expectedRevision: 0,
         state: "active",
-        recipe: { ...recipe(id, 1), pageKind },
+        // The layout keeps the page kind (ADR 0060).
+        recipe: {
+          ...recipe(id, 1),
+          layouts: recipe(id, 1).layouts.map((layout) => ({ ...layout, pageKind })),
+        },
       });
       expect(written.status).toBe(200);
     }
@@ -1730,7 +1796,7 @@ describe("unused recipe revocation (ADR 0058)", () => {
         headers: { "Content-Type": type },
         body: typeof body === "string" ? body : JSON.stringify(body),
       });
-    const use = { version: 1, revision: 1 };
+    const use = { version: 1, revision: 1, layout: "1000" };
     const rowCount = async (table: string, ownerId: string) =>
       (
         await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE owner_id = ?`)
@@ -1744,8 +1810,14 @@ describe("unused recipe revocation (ADR 0058)", () => {
       origin: "https://bank.example",
       chooser: {
         path: "/login",
-        other: { by: "text", value: "Use another account" },
-        afterAccount: recipe("bank-chooser", 1),
+        layouts: [
+          {
+            key: "1000",
+            createdAt: 1000,
+            other: { by: "text", value: "Use another account" },
+            afterAccount: routeBody(),
+          },
+        ],
       },
     };
 
@@ -1838,6 +1910,8 @@ describe("unused recipe revocation (ADR 0058)", () => {
         { version: 1 },
         { ...use, version: 2 },
         { revision: 1 },
+        { version: 1, revision: 1 },
+        { ...use, layout: "1000:account" },
         { ...use, origin: "https://bank.example" },
         { ...use, url: "https://bank.example/login?user=someone" },
         { ...use, branch: "other" },
@@ -1898,7 +1972,7 @@ describe("unused recipe revocation (ADR 0058)", () => {
           version: 1,
           expectedRevision: 0,
           state: "active",
-          recipe: { ...chooser, id, chooser: { ...chooser.chooser, afterAccount: recipe(id, 1) } },
+          recipe: { ...chooser, id },
         });
         // oxlint-disable-next-line no-await-in-loop -- each write takes the next owner sequence
         expect((await written).status).toBe(200);
@@ -1911,7 +1985,8 @@ describe("unused recipe revocation (ADR 0058)", () => {
       );
       // A login that ran the chooser's `other` branch.
       expect(
-        (await reportLogin(device, "bank-chooser", { ...loginRecord, branch: "other" })).status,
+        (await reportLogin(device, "bank-chooser", { ...loginRecord, branch: "1000:other" }))
+          .status,
       ).toBe(204);
       // A login that started on the other chooser, whatever branch it took.
       expect((await reportUse(device, "shop-chooser", use)).status).toBe(204);
@@ -1984,5 +2059,99 @@ describe("unused recipe revocation (ADR 0058)", () => {
       expect(await rowCount("login_timings", device.ownerId)).toBe(1);
       expect(await head(device.ownerId, "bank-login")).toEqual(revoked);
     });
+  });
+});
+
+describe("migration 0029 (ADR 0060)", () => {
+  it("discards old-shape recipes and the rows that named their branches, keeping the logs", async () => {
+    const device = await enrollOwner();
+    const other = await enrollOwner();
+    // A recipe as stored before layouts: one route at the top level, with its revisions,
+    // a judged page, a generation attempt and a first-login result naming a bare branch.
+    const old = JSON.stringify({
+      version: 1,
+      id: "gen-old",
+      revision: 2,
+      origin: "https://bank.example",
+      pageKind: "sign-in",
+      slots: ["username"],
+      steps: [
+        {
+          kind: "fill",
+          path: "/login",
+          fields: [{ slot: "username", target: { by: "id", value: "user" } }],
+        },
+      ],
+      maxSubmissions: 1,
+    });
+    const seed = (by: Device) => [
+      env.DB.prepare(
+        "INSERT INTO recipe_heads (owner_id, recipe_id, revision, state, sequence, write_id, updated_at, last_used_at) VALUES (?, 'gen-old', 2, 'active', 1, ?, 0, 0)",
+      ).bind(by.ownerId, `write-${crypto.randomUUID()}`),
+      env.DB.prepare(
+        "INSERT INTO recipe_revisions (owner_id, recipe_id, revision, state, document, created_at, created_by_device_id) VALUES (?, 'gen-old', 1, 'active', ?, 0, ?), (?, 'gen-old', 2, 'active', ?, 0, ?)",
+      ).bind(by.ownerId, old, by.deviceId, by.ownerId, old, by.deviceId),
+      env.DB.prepare(
+        "INSERT INTO page_judgements (owner_id, recipe_id, branch, revision, origin, path, prompt_version, judged_at, verdict) VALUES (?, 'gen-old', 'account', 2, 'https://bank.example', '/home', 'v', 0, 'signed-in')",
+      ).bind(by.ownerId),
+      env.DB.prepare(
+        "INSERT INTO generation_attempts (owner_id, recipe_id, branch, origin, path, base_revision, attempted_at) VALUES (?, 'gen-old', 'other', 'https://bank.example', '/password', 1, 0)",
+      ).bind(by.ownerId),
+      env.DB.prepare(
+        "INSERT INTO login_outcomes (owner_id, recipe_id, branch, revision, outcome, cause, step, created_at) VALUES (?, 'gen-old', 'account', 2, 'unknown-submit', 'settled', 1, 0)",
+      ).bind(by.ownerId),
+      env.DB.prepare(
+        "INSERT INTO login_timings (id, owner_id, recipe_id, branch, revision, origin, outcome, extension_build, total_ms, service_ms, network_ms, person_ms, page_ms, created_at) VALUES (?, ?, 'gen-old', '', 2, 'https://bank.example', 'authenticated', 'development', 4000, 0, 0, 0, 0, 0)",
+      ).bind(`login-${crypto.randomUUID()}`, by.ownerId),
+      env.DB.prepare(
+        "INSERT INTO inference_log (id, owner_id, role, provider, model_id, origin, path, request, outcome, recipe_id, cost_micro_usd, created_at) VALUES (?, ?, 'generate', 'anthropic', 'm', 'https://bank.example', '/login', '{}', 'ok', 'gen-old', 0, 0)",
+      ).bind(`log-${crypto.randomUUID()}`, by.ownerId),
+    ];
+    await env.DB.batch([...seed(device), ...seed(other)]);
+    const migration = (env as unknown as { TEST_MIGRATIONS: D1Migration[] }).TEST_MIGRATIONS.find(
+      ({ name }) => name.startsWith("0029_recipe_layouts"),
+    );
+    // The committed deletions in their order, without comments, scoped to this owner so
+    // they leave other tests' rows alone.
+    const deletions = (migration?.queries ?? [])
+      .map((query) => query.replaceAll(/^--.*$/gm, "").trim())
+      .filter((query) => query.startsWith("DELETE"));
+    const tables = ["login_outcomes", "page_judgements", "generation_attempts"];
+    expect(deletions.map((query) => /^DELETE FROM `(\w+)`/.exec(query)?.[1])).toEqual(
+      expect.arrayContaining(["recipe_revisions", "recipe_heads", ...tables]),
+    );
+    // Revisions refer to their head, so they go first.
+    expect(deletions.findIndex((query) => query.includes("`recipe_revisions`"))).toBeLessThan(
+      deletions.findIndex((query) => query.includes("`recipe_heads`")),
+    );
+    await env.DB.batch(
+      deletions.map((query) =>
+        env.DB.prepare(`${query.replace(/;$/, "")} WHERE owner_id = ?`).bind(device.ownerId),
+      ),
+    );
+    const count = async (table: string, ownerId: string) =>
+      (
+        await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE owner_id = ?`)
+          .bind(ownerId)
+          .first<{ n: number }>()
+      )?.n;
+    for (const table of ["recipe_heads", "recipe_revisions", ...tables]) {
+      // oxlint-disable-next-line no-await-in-loop -- one count per table
+      expect(await count(table, device.ownerId)).toBe(0);
+      // oxlint-disable-next-line no-await-in-loop -- one count per table
+      expect(await count(table, other.ownerId)).toBeGreaterThan(0);
+    }
+    // The request log and login records stay.
+    expect(await count("login_timings", device.ownerId)).toBe(1);
+    expect(await count("inference_log", device.ownerId)).toBe(1);
+    // The owner's recipes start again from the first sequence number and revision.
+    const written = await writeRecipe(
+      env.DB,
+      device.ownerId,
+      "gen-old",
+      { version: 1, expectedRevision: 0, state: "active", recipe: recipe("gen-old", 1) },
+      device.deviceId,
+    );
+    expect(written).toMatchObject({ ok: true, change: { revision: 1 } });
   });
 });
