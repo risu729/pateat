@@ -1307,6 +1307,44 @@ describe("extractLoginObservation", () => {
     expect(observe().complete).toBe(false);
   });
 
+  it("names a field by its name in the sign-in form when another form repeats it (Hacker News)", () => {
+    // Hacker News's /login (2026-10-23): a create-account form below repeats the names.
+    const form = (creating: string, password: string, submit: string) =>
+      `<form method="post">${creating}<table>
+        <tr><td>username:</td><td><input type="text" name="acct" autocomplete="username"></td></tr>
+        <tr><td>password:</td><td><input type="password" name="pw" autocomplete="${password}"></td></tr>
+      </table><input type="submit" value="${submit}"></form>`;
+    page(
+      `<b>Login</b>${form("", "current-password", "login")}
+      <b>Create Account</b>${form(`<input type="hidden" name="creating" value="t">`, "new-password", "create account")}`,
+    );
+    const observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(observation.candidates.map((candidate) => candidate.target)).toEqual([
+      { by: "password-form-name", value: "acct" },
+      { by: "autocomplete", value: "current-password" },
+      { by: "text", value: "login" },
+    ]);
+    expect(findTargets(document, observation.candidates[0]!.target)).toEqual([
+      document.querySelector("input[name=acct]"),
+    ]);
+    // Two sign-in forms that repeat the name stay ambiguous.
+    page(`${form("", "current-password", "login")}${form("", "current-password", "go")}`);
+    expect(observe().complete).toBe(false);
+    // Continuing a recipe, the filled field shown read-only again is left out.
+    page(
+      `${form("", "current-password", "login").replace('name="acct"', 'name="acct" readonly')}
+      ${form(`<input type="hidden" name="creating" value="t">`, "new-password", "create account")}`,
+    );
+    const result = extractLoginObservation(document, [{ by: "password-form-name", value: "acct" }]);
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.observation.complete).toBe(true);
+    expect(result.observation.candidates.map(({ target }) => target)).toEqual([
+      { by: "autocomplete", value: "current-password" },
+      { by: "text", value: "login" },
+    ]);
+  });
+
   it("describes a pointer link without href as the login's button (IIJmio, 2026-10-23)", () => {
     page(
       `<div><input name="j_username"><input name="j_password" type="password">

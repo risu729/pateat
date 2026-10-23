@@ -2979,8 +2979,10 @@ as the executor resolves it, skipping an `id` React's `useId` generated and tryi
 holding a random-looking run or Mantine's `mantine-` prefix (2026-10-13) last, and for
 an input without one, its first `autocomplete` token that is `username`, `email`,
 `current-password`, `one-time-code` or `webauthn` and that no other input carries, then
-its visible name when no other shown fillable input has it, before such an `id`
-([ADR 0037](adr/0037-fields-by-visible-name.md)); a button without one gets a text
+its visible name when no other shown fillable input has it, then its `name` when it is
+the one shown element with that name in a form with a shown password input not marked
+`new-password` ([ADR 0072](adr/0072-field-name-in-the-sign-in-form.md)), before such an
+`id` ([ADR 0037](adr/0037-fields-by-visible-name.md)); a button without one gets a text
 locator when its text matches exactly one button and redaction leaves it unchanged, and
 a script link when its text matches no button and exactly one script link. In a login
 form, a field, button or required checkbox without a target (a checkbox is context

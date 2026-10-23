@@ -128,10 +128,25 @@ export const loginAccessibleNameTargetSchema = v.strictObject({
   by: v.literal("accessible-name"),
   value: loginTextTargetSchema.entries.value,
 });
-/** A locator a fill names its field by: an attribute one, or the field's visible name. */
+/**
+ * A field locator by its `name` within the sign-in form (ADR 0072): the one shown
+ * element whose `name` equals the value and whose form also holds a shown password input
+ * not marked `new-password`, as the account field beside Hacker News's password, whose
+ * create-account form below shares the names `acct` and `pw`. It names fields only, for a
+ * field that no other locator names alone.
+ */
+export const loginPasswordFormNameTargetSchema = v.strictObject({
+  by: v.literal("password-form-name"),
+  value: loginAttributeTargetSchema.options[0].entries.value,
+});
+/**
+ * A locator a fill names its field by: an attribute one, the field's visible name, or its
+ * name within the sign-in form.
+ */
 export const loginFieldTargetSchema = v.variant("by", [
   ...loginAttributeTargetSchema.options,
   loginLabelTargetSchema,
+  loginPasswordFormNameTargetSchema,
 ]);
 /**
  * An allowlisted element locator; recipes cannot supply CSS, code, URLs or values. A recipe
@@ -142,6 +157,7 @@ export const loginTargetSchema = v.variant("by", [
   loginTextTargetSchema,
   loginLabelTargetSchema,
   loginAccessibleNameTargetSchema,
+  loginPasswordFormNameTargetSchema,
 ]);
 /**
  * A signed-in marker's link locator (ADR 0029): the one `<a href>` link to the page's own
