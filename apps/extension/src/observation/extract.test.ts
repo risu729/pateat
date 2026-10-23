@@ -930,6 +930,41 @@ describe("extractLoginObservation", () => {
     expect(observe().candidates.map((candidate) => candidate.target.value)).toEqual(["pw", "go"]);
   });
 
+  it("never gives a role=button control and a link of another form the same text locator", () => {
+    // The login form's Help widget is named by its text there; the link of a form that is
+    // no login form, such as a newsletter form beside it, is not checked against it.
+    page(
+      `<form><input id="u"><input id="p" type="password"><button>Sign in</button>
+        <div role="button" tabindex="0">Help</div></form>
+      <form><input id="news" type="text"><a href="/help">Help</a></form>`,
+    );
+    const result = extractLoginObservation();
+    // Two candidates with one locator fail the observation's check.
+    expect(result.ok ? true : result.reason).toBe(true);
+    if (!result.ok) return;
+    const targets = result.observation.candidates.map(({ target }) => JSON.stringify(target));
+    expect(new Set(targets).size).toBe(targets.length);
+    // The login form's own control keeps the text.
+    expect(targets).toContain(JSON.stringify({ by: "text", value: "Help" }));
+    expect(
+      findTargets(document, { by: "text", value: "Help" }).map((element) => element.tagName),
+    ).toEqual(["DIV"]);
+  });
+
+  it("keeps a role=button login control's text when a header link shares it", () => {
+    page(
+      `<header><a href="/accounts/login/">Log in</a></header>
+      <form><input name="email" autocomplete="username"><input name="pass" type="password">
+        <div role="button" tabindex="0">Log in</div></form>`,
+    );
+    const observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(observation.candidates.map(({ target }) => target)).toContainEqual({
+      by: "text",
+      value: "Log in",
+    });
+  });
+
   it("locates a link without an id by its text, only when no other link or button shares it", () => {
     page(
       `<form><p>my2@example.com</p><input id="pw" type="password">
@@ -1078,6 +1113,38 @@ describe("extractLoginObservation", () => {
     expect(JSON.stringify(extractLoginObservation())).not.toContain("SYNTHETIC123");
     const detached = document.implementation.createHTMLDocument();
     expect(extractLoginObservation(detached)).toEqual({ ok: false, reason: "unsupported-page" });
+  });
+
+  it("redacts a whole email address, whatever its local part or domain holds", () => {
+    // A local part may hold ' and #, as HTML's valid email address allows, and a domain may
+    // be internationalized. Repeated headings are kept once, so each one differs.
+    page(
+      `<h1>o'brien@example.com</h1><h2>taro#1@example.com さん</h2><h3>taro@例え.jp でログイン</h3>
+      <h3>連絡先 taro@例え.日本 まで</h3><h3>ID: taro@例え.日本でログイン中</h3>
+      <h3>宛先 taro@mail.例え.日本</h3>
+      <form id="f"><input id="u"><input id="pw" type="password"><button id="go">Go</button></form>`,
+    );
+    // A last label that is not ASCII takes the text glued to it along.
+    expect(observe().headings).toEqual([
+      "[email]",
+      "[email] さん",
+      "[email] でログイン",
+      "連絡先 [email] まで",
+      "ID: [email]",
+      "宛先 [email]",
+    ]);
+  });
+
+  it("keeps the text around an email address, a handle in a URL and a key=value pair", () => {
+    page(
+      `<h1>taro@example.comでログイン中</h1><h2>youtube.com/@pateat</h2><h3>price=100@shop</h3>
+      <form id="f"><input id="u"><input id="pw" type="password"><button id="go">Go</button></form>`,
+    );
+    expect(observe().headings).toEqual([
+      "[email]でログイン中",
+      "youtube.com/@pateat",
+      "price=[email]",
+    ]);
   });
 
   it("skips hidden inputs and other controls' labels when reading adjacent text", () => {
@@ -3368,6 +3435,70 @@ describe("extractSignedInObservation", () => {
     expect(gap()).toEqual([false, "shadow-field"]);
     page(`<button id="logout">Sign out</button><input id="q">`);
     expect(gap()).toEqual([true, undefined]);
+  });
+
+  it("says when a signed-in page shows a choice or answer it leaves out (ADR 0065)", () => {
+    const flagged = (markup: string) => {
+      page(`<button id="logout">Sign out</button>${markup}`);
+      const result = extractSignedInObservation();
+      expect(result, markup).toMatchObject({ ok: true, observation: { complete: true } });
+      return (result as { inputLeftOut?: true }).inputLeftOut === true;
+    };
+    // "Send the code to: [SMS] [Email] [Continue]", however the choice is built.
+    const card = (input: string) =>
+      `<form><label class="card">${input.replaceAll("$", "sms")} Text message</label>` +
+      `<label class="card">${input.replaceAll("$", "email")} Email</label>` +
+      `<button id="continue">Continue</button></form>`;
+    for (const markup of [
+      card(`<input type="radio" name="via" value="$">`),
+      // A styled radio: transparent, tiny or not rendered under its label "card".
+      card(`<input type="radio" name="via" value="$" style="opacity: 0; position: absolute">`),
+      card(`<input type="radio" name="via" value="$" style="width: 1px; height: 1px">`),
+      card(`<input type="radio" name="via" value="$" style="display: none">`),
+      card(`<input type="radio" name="via" value="$" disabled>`),
+      // ARIA radios, and other ARIA widgets.
+      `<div role="radiogroup" aria-label="Send the code to">` +
+        `<div role="radio" aria-checked="true" tabindex="0">Text message</div>` +
+        `<div role="radio" aria-checked="false" tabindex="-1">Email</div></div>` +
+        `<button id="continue">Continue</button>`,
+      `<div role="combobox" aria-label="Method" tabindex="0">Text message</div>`,
+      `<ul role="listbox" aria-label="Method"><li role="option">Text message</li></ul>`,
+      `<div role="textbox" contenteditable="true" aria-label="Answer"></div>`,
+      // Selects and text areas, disabled ones too.
+      `<form><select id="via"><option>Text message</option><option>Email</option></select></form>`,
+      `<form><select id="via" disabled><option>Text message</option></select></form>`,
+      `<textarea id="answer"></textarea>`,
+      `<textarea id="answer" disabled></textarea>`,
+      // A site search box in the same form exempts only itself.
+      `<form><input type="search" id="q" aria-label="Search">` +
+        `<label><input type="radio" name="via" value="sms"> Text message</label>` +
+        `<label><input type="radio" name="via" value="email"> Email</label>` +
+        `<button id="continue">Continue</button></form>`,
+      // A footer exempts only a picker: its radios and text areas still count, and a
+      // card's or section's own footer is no page footer.
+      `<footer><label><input type="radio" name="via" value="sms"> Text message</label></footer>`,
+      `<div role="contentinfo"><textarea id="answer"></textarea></div>`,
+      `<section><footer><select id="via"><option>Text message</option></select></footer></section>`,
+      `<form><input type="search" id="q"><input id="email" type="email">` +
+        `<select id="via"><option>Text message</option></select><button id="go">Go</button></form>`,
+    ])
+      expect(flagged(markup), markup).toBe(true);
+    // Part of a site search, or hidden with its container, says nothing.
+    for (const markup of [
+      `<form role="search"><select id="in"><option>All</option></select></form>`,
+      `<search><select id="in"><option>All</option></select></search>`,
+      `<nav role="search"><input role="combobox" aria-label="Search"></nav>`,
+      `<form><input type="search" id="q"><select id="in"><option>All</option></select>` +
+        `<button id="go">Go</button></form>`,
+      `<input id="q" role="combobox" placeholder="Search the docs">`,
+      `<div hidden><select id="in"><option>All</option></select></div>`,
+      // A page footer's language picker.
+      `<footer><select id="lang"><option>English</option><option>日本語</option></select></footer>`,
+      `<div role="contentinfo"><div role="combobox" aria-label="Language" tabindex="0">English</div></div>`,
+      `<footer><form><select id="lang"><option>English</option></select></form></footer>`,
+      `<div style="display: none"><label><input type="radio" name="via"> Email</label></div>`,
+    ])
+      expect(flagged(markup), markup).toBe(false);
   });
 
   it("reports a still-visible sign-in field so the service can refuse the page", () => {

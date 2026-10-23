@@ -1,4 +1,11 @@
-import { loginMarkerTargetSchema, loginOriginSchema, loginStepSchema } from "./login";
+import {
+  detailLength,
+  loginMarkerTargetSchema,
+  loginOriginSchema,
+  loginStepSchema,
+  type BirthDateFormat,
+  type LoginDetail,
+} from "./login";
 import { recipeSlotIdSchema } from "./settings";
 import * as v from "valibot";
 
@@ -446,12 +453,13 @@ export function splitCodeInputs(
  * {@link isCodeField} accepts, either with at least 6 characters when it limits them and
  * the only such input in its form, or the first of a code split into one input per digit
  * ({@link splitCodeInputs}), which the executor fills one digit per input; and a button
- * of that form. The judge and the recipe assembly both check this.
+ * of that form, or no button on a page that submits the code once it is in (ADR 0027
+ * amendment of 2026-10-23). The judge and the recipe assembly both check this.
  */
 export function isTotpCode(
   page: Pick<LoginObservation, "candidates">,
   field: ObservedCandidate,
-  button: ObservedCandidate,
+  button: ObservedCandidate | undefined,
 ): boolean {
   return totpCodeRefusal(page, field, button) === undefined;
 }
@@ -462,12 +470,15 @@ export function isTotpCode(
  * (`text-locator`), is no code input (`not-code-field`), limits the code below 6
  * characters (`code-too-short`), is one of several code inputs of its form that are no
  * split code, or not the first of one (`several-code-fields`), or the button is no button
- * (`submit-not-button`) or not of the field's form (`submit-other-form`).
+ * (`submit-not-button`) or not of the field's form (`submit-other-form`). Without a button,
+ * the field's form must show none (`submit-unnamed`): a form with a button is taken to
+ * submit the code with it, so a code typed there without its click would wait for the
+ * person.
  */
 export function totpCodeRefusal(
   page: Pick<LoginObservation, "candidates">,
   field: ObservedCandidate,
-  button: ObservedCandidate,
+  button: ObservedCandidate | undefined,
 ): string | undefined {
   if (!(fillRoles as readonly string[]).includes(field.role)) return "not-input";
   if (field.target.by === "text") return "text-locator";
@@ -484,6 +495,54 @@ export function totpCodeRefusal(
     )
       return "several-code-fields";
   }
+  if (!button)
+    return field.group !== undefined &&
+      page.candidates.some(
+        (candidate) => candidate.role === "button" && candidate.group === field.group,
+      )
+      ? "submit-unnamed"
+      : undefined;
+  if (button.role !== "button") return "submit-not-button";
+  if (button.group !== field.group) return "submit-other-form";
+  return undefined;
+}
+
+/**
+ * Why `field` and `button` of this page may not be a `detail` handler's input for
+ * `entry` and the button that submits it (ADR 0061), for the log, or undefined when they
+ * may. The field must be an input the detail's fill rule admits (`not-input`): a text,
+ * tel or number input for a birth date or the last four digits; a password input, or a
+ * text or tel input limited to 3 or 4 characters, for a card's security code, the only
+ * detail a password input takes, so a PIN or second password the judge mislabels is not
+ * kept. It must not be located by its text (`text-locator`) or marked as a sign-in,
+ * email or code field (`sign-in-field`), nor declare a `maxlength` shorter
+ * than the value (`too-short`); the button must be a button (`submit-not-button`) of the
+ * field's form (`submit-other-form`). The judge and the recipe assembly both check this.
+ */
+export function detailInputRefusal(
+  entry: { detail: LoginDetail; format?: BirthDateFormat | undefined },
+  field: ObservedCandidate,
+  button: ObservedCandidate,
+): string | undefined {
+  const admitted =
+    entry.detail === "birth-date"
+      ? ["text", "tel", "number"].includes(field.role)
+      : entry.detail === "card-code"
+        ? field.role === "password" ||
+          ((field.role === "text" || field.role === "tel") &&
+            (field.maxLength === 3 || field.maxLength === 4))
+        : ["text", "tel", "number"].includes(field.role);
+  if (!admitted) return "not-input";
+  if (field.target.by === "text") return "text-locator";
+  if (
+    field.autocomplete === "username" ||
+    field.autocomplete === "email" ||
+    field.autocomplete === "current-password" ||
+    field.autocomplete === "new-password" ||
+    field.autocomplete === "one-time-code"
+  )
+    return "sign-in-field";
+  if (field.maxLength !== undefined && field.maxLength < detailLength(entry)) return "too-short";
   if (button.role !== "button") return "submit-not-button";
   if (button.group !== field.group) return "submit-other-form";
   return undefined;

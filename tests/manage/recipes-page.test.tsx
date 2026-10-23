@@ -87,6 +87,7 @@ function mockClient(initial: Listed) {
     claude: vi.fn<ManageClient["claude"]>(),
     saveClaude: vi.fn<ManageClient["saveClaude"]>(),
     testClaude: vi.fn<ManageClient["testClaude"]>(),
+    problems: vi.fn<ManageClient["problems"]>(),
     replace(next: Listed) {
       current = { unreadable: [], ...next };
     },

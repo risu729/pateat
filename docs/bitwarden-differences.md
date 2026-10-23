@@ -258,3 +258,52 @@ pinned at
   Pateat keeps the sign-in form, where the master password goes, and says next to it
   when the sign-in timed out, or that it ended early because Pateat's background
   stopped, since its waiting sign-in lives in a service worker Chrome can stop.
+
+## TOTP keys in custom fields
+
+Pateat's side is `isTotpSeed` in `packages/bitwarden/src/totp.ts` and
+`totpFieldReference` in `packages/contracts/src/recipes.ts`
+([ADR 0027](adr/0027-per-account-login-routes.md#amendment-2026-10-23-a-totp-code-from-a-custom-field),
+owner 2026-10-23). Official code is pinned at
+[`8246ae9`](https://github.com/bitwarden/clients/tree/8246ae9c9a484a0a69f8b27203034555fb872523).
+
+- The official extension fills a custom field by its name with the field's value as it
+  is, whatever that value holds
+  ([autofill.service.ts](https://github.com/bitwarden/clients/blob/8246ae9c9a484a0a69f8b27203034555fb872523/apps/browser/src/autofill/services/autofill.service.ts#L844-L893)),
+  and makes TOTP codes only from the login's TOTP key
+  ([autofill.service.ts](https://github.com/bitwarden/clients/blob/8246ae9c9a484a0a69f8b27203034555fb872523/apps/browser/src/autofill/services/autofill.service.ts#L1153)).
+  Pateat never fills a Text or Hidden custom field shaped like a TOTP key as text and
+  never offers it to recipe generation: it makes codes from it for the `totp` slot, and
+  takes it as the item's TOTP field when the login's own TOTP holds no value. A key
+  typed into a page as it is would give the second factor away, and a person who keeps a
+  key in a custom field, as Bitwarden lets them, means it for codes.
+
+## Vault timeout
+
+Pateat's side is [ADR 0075](adr/0075-vault-lock-and-timeout.md) and
+`apps/extension/src/vault/timeout.ts`. Official code is pinned at
+[`8246ae9`](https://github.com/bitwarden/clients/tree/8246ae9c9a484a0a69f8b27203034555fb872523).
+
+- Both offer Lock and Log out as the timeout action, and the minute presets, a custom
+  number of minutes, On system lock, On browser restart and Never. The official browser
+  extension also offers Immediately and does not offer On system idle
+  ([browser-session-timeout-type.service.ts](https://github.com/bitwarden/clients/blob/8246ae9c9a484a0a69f8b27203034555fb872523/apps/browser/src/key-management/session-timeout/services/browser-session-timeout-type.service.ts#L13-L34)).
+  Pateat leaves out Immediately and offers On system idle, both as the owner chose on
+  2026-10-23 (12:44 UTC). It acts on
+  Chrome's `idle` state after the official extension's 5-minute detection interval, and
+  on `locked` too
+  ([idle.background.ts](https://github.com/bitwarden/clients/blob/8246ae9c9a484a0a69f8b27203034555fb872523/apps/browser/src/background/idle.background.ts#L15-L82)).
+- The official default is On browser restart
+  ([main.background.ts](https://github.com/bitwarden/clients/blob/8246ae9c9a484a0a69f8b27203034555fb872523/apps/browser/src/background/main.background.ts#L889)).
+  Pateat's is Never, so a vault keeps unlocking after a restart as the owner required
+  before the setting existed ([ADR 0006](adr/0006-atomic-local-vault-cache.md)); an
+  agent's choice, to be reconsidered.
+- The official extension counts the minutes from the last account activity it records
+  ([vault-timeout.service.ts](https://github.com/bitwarden/clients/blob/8246ae9c9a484a0a69f8b27203034555fb872523/libs/common/src/key-management/vault-timeout/services/vault-timeout.service.ts#L84-L126)).
+  Pateat counts from the last field filled, passkey signed, unlock or sign-in, since it
+  has no vault view to be active in.
+- The timeout acts on every vault on the device; the official extension sets it per
+  account. Pateat's setting is per device and never synced, as the owner chose.
+- Log out keeps Pateat's encrypted vault cache and forgets only the unlock key and the
+  sync sign-in, so the connection and its field settings stay; the official logout
+  removes the account from the extension.

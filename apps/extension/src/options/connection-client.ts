@@ -17,7 +17,12 @@ export interface ConnectionClient {
   /** Keeps the worker, and the sign-in waiting in it, running while a challenge shows. */
   keepAlive(flowId: string): Promise<SetupReply>;
   sync(connectionId: string): Promise<SetupReply>;
+  /** Logs out on this device: removes the unlock key and the sync sign-in. */
   disableAutoUnlock(connectionId: string): Promise<SetupReply>;
+  /** Locks the vault and keeps its sync sign-in (ADR 0075). */
+  lock(connectionId: string): Promise<SetupReply>;
+  /** Unlocks a locked vault offline with its master password. */
+  unlock(connectionId: string, password: string): Promise<SetupReply>;
   /** Local only: removes saved sync sign-in, not a provider logout. */
   forgetProviderSession(connectionId: string): Promise<SetupReply>;
   /** Local only: removes the connection and its local data, with no provider revocation. */
@@ -124,6 +129,9 @@ export function createConnectionClient(api: {
     keepAlive: (flowId) => send({ type: "connection.keep-alive", flowId }),
     sync: (connectionId) => send({ type: "connection.sync", connectionId }),
     disableAutoUnlock: (connectionId) => send({ type: "connection.disable", connectionId }),
+    lock: (connectionId) => send({ type: "connection.lock", connectionId }),
+    unlock: (connectionId, password) =>
+      send({ type: "connection.unlock", input: { connectionId, password } }),
     forgetProviderSession: (connectionId) => send({ type: "connection.forget", connectionId }),
     deleteConnection: (connectionId) => send({ type: "connection.delete", connectionId }),
     review: (input) => send({ type: "connection.review", input }),

@@ -83,6 +83,7 @@ function mockClient(initial: ManageClaude = stateOf(null)) {
       version: 1,
       result: { status: "ready", expiresInSeconds: 600 },
     })),
+    problems: vi.fn<ManageClient["problems"]>(),
     replace(next: ManageClaude) {
       state = next;
     },

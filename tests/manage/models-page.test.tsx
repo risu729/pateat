@@ -85,6 +85,7 @@ function mockClient(saveError?: ManageApiError) {
       view = { ...view, config: structuredClone(config), saved: true };
       return structuredClone(view);
     }),
+    problems: vi.fn<ManageClient["problems"]>(),
   } satisfies ManageClient;
 }
 

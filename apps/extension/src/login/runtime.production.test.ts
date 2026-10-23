@@ -37,6 +37,7 @@ import {
 } from "./badge";
 import type { GenerationOutcome, LoginGeneration, LoginRecipeStart, LoginReport } from "./runtime";
 import type { LoginFieldSource } from "./vault";
+import { loginReadiness } from "./wire";
 import type { ConditionalDecision, PasskeyItem } from "../passkeys/runtime";
 
 const fake = vi.hoisted(() => {
@@ -124,6 +125,11 @@ const fake = vi.hoisted(() => {
     session: {} as Record<string, unknown>,
     /** Present elements that are hidden or disabled, for an observation that asks. */
     unusable: new Set<string>(),
+    /**
+     * Present elements that still show but are disabled or busy: unusable for every
+     * requirement but `present` and `shown`, as a "Verifying" button is.
+     */
+    disabled: new Set<string>(),
     /**
      * Present elements that a step's wait counts as usable but the page's description does
      * not see: hidden from assistive technology, transparent, tiny or off-screen, as a
@@ -224,6 +230,8 @@ const fake = vi.hoisted(() => {
             : state.ambiguous.has(value)
               ? "ambiguous"
               : ([undefined, "present"].includes(require) === false && state.unusable.has(value)) ||
+                  ([undefined, "present", "shown"].includes(require) === false &&
+                    state.disabled.has(value)) ||
                   (require?.startsWith("described-") === true && state.faint.has(value))
                 ? "unusable"
                 : "unique";
@@ -356,7 +364,8 @@ const sender = (overrides: Record<string, unknown> = {}) => {
   const parsed = typeof url === "string" ? URL.parse(url) : null;
   return {
     id: "synthetic-extension",
-    tab: { id: 1 },
+    // Chrome always says whether the tab is in an incognito window.
+    tab: { id: 1, incognito: false },
     frameId: 0,
     documentId: "synthetic-document",
     ...(parsed ? { origin: parsed.origin } : {}),
@@ -409,6 +418,8 @@ type CustomField = {
   name: string | null;
   kind: "text" | "hidden" | "linked";
   linkedFieldId?: string;
+  /** The catalog's flag for a field shaped like a TOTP key (ADR 0027, owner 2026-10-23). */
+  totpSeed?: true;
 };
 
 function harness(
@@ -704,6 +715,7 @@ describe("production login document admission", () => {
     fake.state.present = undefined;
     fake.state.unusable = new Set();
     fake.state.unobservable = new Set();
+    fake.state.disabled = new Set();
     fake.state.awaited = { ok: true };
     fake.state.onAwait = undefined;
     fake.state.executeReply = undefined;
@@ -1376,6 +1388,8 @@ describe("production login document admission", () => {
       route: "password",
       state: expect.any(String),
       stepIndex: 1,
+      // Before the click: nothing was submitted, in the document the login began in.
+      unsubmitted: true,
       name: "SyntaxError",
       message: "synthetic settings answer",
       stack: expect.any(String),
@@ -1622,6 +1636,51 @@ describe("production login document admission", () => {
       fake.browser.tabs.query = query;
     }
   });
+  it.each([
+    { state: "retryable", outcome: "structural-mismatch", retries: 1, retryRequired: true },
+    { state: "ready", retries: 1 },
+  ])(
+    "never settles as unknown a $state attempt whose page no longer shows the step",
+    async (left) => {
+      // A restarted worker finds the attempt between steps or waiting to be tried again, on a
+      // page without its step: nothing was submitted, so there is no result to wait for, and
+      // the step's own wait and the retries decide (ADR 0022).
+      fake.state.awaited = { ok: false, reason: "timeout" };
+      const first = harness();
+      expect(await first.hello()).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
+          { state: "blocked", outcome: "retry-limit" },
+        ]),
+      );
+      const [record] = fake.state.storage["pateat.login-attempts.v5"] as Record<string, unknown>[];
+      const { outcome: _outcome, retryRequired: _retryRequired, ...between } = record!;
+      fake.state.storage["pateat.login-attempts.v5"] = [{ ...between, ...left }];
+      fake.state.present = new Set();
+      const report = vi.fn<(report: LoginReport) => void>();
+      const query = fake.browser.tabs.query;
+      fake.browser.tabs.query = async () => [{ id: 1 }] as never;
+      try {
+        const restarted = harness({}, { report });
+        expect(await restarted.hello({ documentId: "after-restart" })).toEqual({ ok: true });
+        await vi.waitFor(
+          () =>
+            expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
+              { state: "blocked", outcome: "retry-limit", retries: 2, submissions: 0 },
+            ]),
+          { timeout: 4_500 },
+        );
+        expect(
+          report.mock.calls.some(
+            ([entry]) => entry.type === "attempt" && entry.outcome === "unknown-submit",
+          ),
+        ).toBe(false);
+        expect(fake.state.messages.filter((entry) => entry.type === "login.execute")).toEqual([]);
+      } finally {
+        fake.browser.tabs.query = query;
+      }
+    },
+  );
   describe("how long a login took (ADR 0019)", () => {
     const attemptReports = (report: ReturnType<typeof vi.fn<(report: LoginReport) => void>>) =>
       report.mock.calls
@@ -2975,6 +3034,8 @@ describe("production login document admission", () => {
           await vi.waitFor(() => expect(executes()).toHaveLength(2));
           fake.state.signs = quiet;
           fake.state.extracted = { "signed-in": movedHome };
+          // The moved page shows the path it is described on.
+          fake.state.observedPath = "/home";
           const judgements = () =>
             report.mock.calls.flatMap(([entry]) => (entry.type === "judge" ? [entry] : []));
           return { h, judge, judgements };
@@ -3005,6 +3066,53 @@ describe("production login document admission", () => {
           }));
           await navigate(h, `${www}/home`, "home-document", false);
           expect(at(origin)).toMatchObject({ state: "authenticated" });
+        }, 15_000);
+        it("completes when the judge answers optional (ADR 0065)", async () => {
+          const { h } = await judged(async () => ({ verdict: "optional" }));
+          await navigate(h, `${www}/home`, "home-document", false);
+          expect(at(origin)).toMatchObject({ state: "authenticated", outcome: "authenticated" });
+          expect(at(origin)).not.toHaveProperty("unconfirmed");
+        }, 15_000);
+        it("ends left-origin on an optional page after the identifier alone", async () => {
+          // The recipe submits the account's identifier only; the password comes later.
+          const identifierOnly = parseLoginRecipe({
+            ...recipe,
+            slots: ["username"],
+            steps: [
+              {
+                kind: "fill",
+                path: "/signin",
+                fields: [{ slot: "username", target: target("password") }],
+              },
+              recipe.steps[1]!,
+            ],
+          });
+          const { h, judge } = await judged(async () => ({ verdict: "optional" }), identifierOnly);
+          await navigate(h, `${www}/home`, "home-document", false);
+          expect(judge).toHaveBeenCalledTimes(1);
+          expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+        }, 15_000);
+        it("ends left-origin when an optional page moved to another path", async () => {
+          const { h } = await judged(async () => {
+            fake.state.observedPath = "/verify";
+            return { verdict: "optional" };
+          });
+          await navigate(h, `${www}/home`, "home-document", false);
+          expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+        }, 15_000);
+        it("ends left-origin on an optional page whose description left out a choice", async () => {
+          const { h } = await judged(async () => ({ verdict: "optional" }));
+          fake.state.extracted = { "signed-in": { ...movedHome, inputLeftOut: true } };
+          await navigate(h, `${www}/home`, "home-document", false);
+          expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+        }, 15_000);
+        it("ends left-origin when an optional page then shows a code field", async () => {
+          const { h } = await judged(async () => {
+            fake.state.signs = { ...quiet, code: true };
+            return { verdict: "optional" };
+          });
+          await navigate(h, `${www}/home`, "home-document", false);
+          expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
         }, 15_000);
         it.each([
           ["cannot decide", { verdict: "unclear" }],
@@ -3728,7 +3836,7 @@ describe("production login document admission", () => {
         reason: "origin-busy",
       });
       expect(fake.state.badges[2]?.title).toBe(
-        "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait 5 minutes and reload this page, to log in here.",
+        "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait up to 10 minutes and reload this page, to log in here.",
       );
       expect(executes()).toHaveLength(2);
       // Once that tab closes, this tab logs in and its tooltip is reset.
@@ -5820,7 +5928,8 @@ describe("production login document admission", () => {
           expect(attempts()).toEqual([]);
           expect(fake.state.badges[1]).toEqual({
             text: "2",
-            title: "Pateat: you logged out of this site in this tab. Click to choose an account.",
+            title:
+              "Pateat: you were logged out of this site in this tab. Click to choose an account.",
           });
           expect(await ask(h)).toEqual({
             ok: true,
@@ -5894,7 +6003,7 @@ describe("production login document admission", () => {
             await h.login.handle({ version: 1, type: "login.choice.get", tabId: 2 }, popup),
           ).toMatchObject({ documentId: "restored", logout: "this-tab" });
           expect(fake.state.badges[2]?.title).toBe(
-            "Pateat: you logged out of this site in this tab. Click to choose an account.",
+            "Pateat: you were logged out of this site in this tab. Click to choose an account.",
           );
         });
         it("keeps the tab's login with it after Chrome replaces the tab", async () => {
@@ -6151,10 +6260,17 @@ describe("production login document admission", () => {
           fake.state.pageUrl = `${origin}/verify`;
           // The page announces its first step ready, as one that read the origin's starts
           // before its recipe was generated again as `confirm` would: a logout before.
+          // The reply names the page's first step, so the document reports it shown at once.
+          const confirming = {
+            path: "/verify",
+            require: "writable",
+            targets: [target("password")],
+          };
           expect(await h.hello({ documentId: "verify" })).toEqual({
             ok: false,
             reason: "logged-in",
             starts: [signinStart],
+            confirm: confirming,
           });
           expect(report).not.toHaveBeenCalledWith(expect.objectContaining({ type: "logout" }));
           expect(attempts()).toMatchObject([{ state: "authenticated" }]);
@@ -6162,26 +6278,55 @@ describe("production login document admission", () => {
             ok: false,
             reason: "logged-in",
             starts: [signinStart],
+            confirm: confirming,
           });
-          expect(
-            report.mock.calls.map(([entry]) => entry).filter((entry) => entry.type === "refused"),
-          ).toEqual([
-            {
-              type: "refused",
-              tabId: 1,
-              origin,
-              reason: "not-started",
-              detail: "confirm-unsupported",
-              recipeId: "gen-confirm",
-              recipeRevision: confirm.revision,
-              pageKind: "confirm",
-            },
-          ]);
+          // It logs what the page showed, never a value: the recipes' signed-in marker (E1),
+          // and the tab's previous page of the origin, where the action was chosen.
+          const refusals = () =>
+            report.mock.calls.map(([entry]) => entry).filter((entry) => entry.type === "refused");
+          await vi.waitFor(() =>
+            expect(refusals()).toEqual([
+              {
+                type: "refused",
+                tabId: 1,
+                origin,
+                reason: "not-started",
+                detail: "confirm-unsupported",
+                recipeId: "gen-confirm",
+                recipeRevision: confirm.revision,
+                pageKind: "confirm",
+                e1: true,
+                e2: false,
+                previousUrl: `${origin}/signin`,
+              },
+            ]),
+          );
           // Nothing is filled, and the login stays signed in.
           expect(fake.state.messages.filter((entry) => entry.type === "login.execute")).toEqual(
             executed,
           );
           expect(attempts()).toMatchObject([{ state: "authenticated" }]);
+          // The tab leaves the page without the person's submit. E1 showed there, so the
+          // next page is not read for it.
+          fake.state.pageUrl = `${origin}/home`;
+          await h.hello({ documentId: "home" }, false);
+          await vi.waitFor(() =>
+            expect(
+              report.mock.calls
+                .map(([entry]) => entry)
+                .filter((entry) => entry.type === "confirm-left"),
+            ).toEqual([
+              {
+                type: "confirm-left",
+                tabId: 1,
+                origin,
+                recipeId: "gen-confirm",
+                recipeRevision: confirm.revision,
+                pageKind: "confirm",
+                personSubmitted: false,
+              },
+            ]),
+          );
         });
         it("asks in other tabs of the site while it asks, and a pick there logs in", async () => {
           const h = await loggedOut();
@@ -6192,7 +6337,7 @@ describe("production login document admission", () => {
           expect(fake.state.badges[2]).toEqual({
             text: "2",
             title:
-              "Pateat: you logged out of this site in another tab. Click to choose an account.",
+              "Pateat: you were logged out of this site in another tab, or the site did not accept a login there. Click to choose an account.",
           });
           expect(h.fields).toHaveBeenCalledTimes(3);
           fake.state.onReconnect = () => h.hello({ tab: { id: 2 }, documentId: "other-tab" });
@@ -6208,6 +6353,32 @@ describe("production login document admission", () => {
           expect(await pick(h, { documentId: "signed-out", itemId })).toEqual({ ok: true });
           await vi.waitFor(() => expect(attempts()).toHaveLength(2));
           expect(logouts()).toEqual([]);
+        });
+        it("never asks in an incognito tab, which keeps its own cookies", async () => {
+          const h = await loggedOut();
+          const before = steps().length;
+          // An incognito window's session did not log out (owner, 2026-10-23).
+          fake.state.tabUrls[2] = fake.state.pageUrl;
+          expect(
+            await h.hello({ tab: { id: 2, incognito: true }, documentId: "incognito" }),
+          ).toEqual({ ok: true });
+          await vi.waitFor(() =>
+            expect(attempts()).toContainEqual(
+              expect.objectContaining({
+                state: "authenticated",
+                document: expect.objectContaining({ tabId: 2 }),
+              }),
+            ),
+          );
+          expect(
+            steps()
+              .slice(before)
+              .map((step) => step.kind),
+          ).toContain("click");
+          expect(fake.state.badges[2]?.title).not.toBe(
+            "Pateat: you were logged out of this site in another tab, or the site did not accept a login there. Click to choose an account.",
+          );
+          expect(logouts()).toEqual([{ tabId: 1, origin }]);
         });
       });
     });
@@ -6326,6 +6497,12 @@ describe("production login document admission", () => {
           ],
         },
         "binding-field-excluded",
+      ],
+      [
+        "the bound custom field holds a TOTP key (owner, 2026-10-23)",
+        { custom: [{ name: "Branch", kind: "text", totpSeed: true }] },
+        {},
+        "totp-field-mismatch",
       ],
     ])(
       "refuses a synced binding before any field read when %s",
@@ -7021,34 +7198,350 @@ describe("production login document admission", () => {
         generation: service,
         report,
       });
-      const confirm = parseLoginRecipe({ ...generated, pageKind: "unclear" });
+      const confirm = parseLoginRecipe({
+        ...generated,
+        pageKind: "unclear",
+        completion: [{ target: target("account") }],
+      });
+      // Nothing of the recipe shows yet, so its signed-in marker does not either.
+      fake.state.present = new Set();
       h.recipes.recipe.mockResolvedValue(undefined);
       h.recipes.starts.mockResolvedValue(startsOf([]));
       h.recipes.routes.mockResolvedValue([confirm]);
-      expect(await h.hello({}, false)).toEqual({
-        ok: false,
-        reason: "recipe-not-found",
-        starts: [],
-      });
-      expect(await shownHello(h)).toEqual({ ok: false, reason: "recipe-not-found", starts: [] });
-      expect(await h.signIn()).toEqual({ ok: false, reason: "recipe-not-found", starts: [] });
+      const confirming = loginReadiness(confirm.steps[0]!);
+      const watching = { ok: false, reason: "recipe-not-found", starts: [], confirm: confirming };
+      expect(await h.hello({}, false)).toEqual(watching);
+      // The document reports the page's first step shown, and whether its form shows an amount.
+      expect(
+        await h.login.handle(
+          {
+            version: 1,
+            type: "login.document.ready",
+            token: "synthetic-token",
+            shown: { path: reportedPath(fake.state.pageUrl), amount: true },
+          },
+          sender(),
+        ),
+      ).toEqual(watching);
+      expect(await h.signIn()).toEqual(watching);
       expect(service.available).not.toHaveBeenCalled();
       expect(service.generate).not.toHaveBeenCalled();
-      expect(h.fields).not.toHaveBeenCalled();
-      expect(
-        report.mock.calls.map(([entry]) => entry).filter((entry) => entry.type === "refused"),
-      ).toEqual([
-        {
-          type: "refused",
-          tabId: 1,
-          origin,
-          reason: "not-started",
-          detail: "confirm-unsupported",
-          recipeId: generated.id,
-          recipeRevision: generated.revision,
-          pageKind: "unclear",
-        },
-      ]);
+      await vi.waitFor(() =>
+        expect(
+          report.mock.calls.map(([entry]) => entry).filter((entry) => entry.type === "refused"),
+        ).toEqual([
+          {
+            type: "refused",
+            tabId: 1,
+            origin,
+            reason: "not-started",
+            detail: "confirm-unsupported",
+            recipeId: generated.id,
+            recipeRevision: generated.revision,
+            pageKind: "unclear",
+            amount: true,
+            e1: false,
+            e2: false,
+          },
+        ]),
+      );
+      // Only the matching item's username is read, for E2; nothing is filled.
+      expect(h.fields.mock.calls.map(([source]) => source.fieldId)).toEqual(["login.username"]);
+      expect(fake.state.messages.filter((entry) => entry.type === "login.execute")).toEqual([]);
+      // The person submits the page's form; a message from another document counts for nothing.
+      const submitted = {
+        version: 1,
+        type: "login.document.person-submitted",
+        token: "synthetic-token",
+      };
+      await h.login.handle(submitted, sender({ documentId: "other" }));
+      await h.login.handle(submitted, sender());
+      // Neither E1 nor E2 showed, so the tab's next page is read for E1, here once it renders.
+      fake.state.pageUrl = `${origin}/done`;
+      await h.hello({ documentId: "done" }, false);
+      fake.state.present = new Set(["account"]);
+      await vi.waitFor(() =>
+        expect(
+          report.mock.calls
+            .map(([entry]) => entry)
+            .filter((entry) => entry.type === "confirm-left"),
+        ).toEqual([
+          {
+            type: "confirm-left",
+            tabId: 1,
+            origin,
+            recipeId: generated.id,
+            recipeRevision: generated.revision,
+            pageKind: "unclear",
+            personSubmitted: true,
+            nextE1: true,
+          },
+        ]),
+      );
+    });
+
+    it("logs a page Pateat does not fill as left without a next page when its tab closes (ADR 0035)", async () => {
+      fake.state.extracted = { login: loginPage };
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness(unsaved, {
+        allowedOrigins: [],
+        uris,
+        username: true,
+        custom: [],
+        generation: generation(),
+        report,
+      });
+      const confirm = parseLoginRecipe({
+        ...generated,
+        pageKind: "confirm",
+        completion: [{ target: target("account") }],
+      });
+      fake.state.present = new Set();
+      h.recipes.recipe.mockResolvedValue(undefined);
+      h.recipes.starts.mockResolvedValue(startsOf([]));
+      h.recipes.routes.mockResolvedValue([confirm]);
+      await h.hello({}, false);
+      // Without its first step shown, the page is not logged, nor is its visit.
+      fake.state.pageUrl = `${origin}/other`;
+      await h.hello({ documentId: "other" }, false);
+      fake.state.pageUrl = `${origin}/signin`;
+      await h.hello({ documentId: "again" }, false);
+      await shownHello(h, { documentId: "again" });
+      await vi.waitFor(() =>
+        expect(report).toHaveBeenCalledWith(
+          expect.objectContaining({ type: "refused", detail: "confirm-unsupported" }),
+        ),
+      );
+      for (const removed of fake.state.removed) removed(1);
+      await vi.waitFor(() =>
+        expect(
+          report.mock.calls
+            .map(([entry]) => entry)
+            .filter((entry) => entry.type === "confirm-left"),
+        ).toEqual([
+          {
+            type: "confirm-left",
+            tabId: 1,
+            origin,
+            recipeId: generated.id,
+            recipeRevision: generated.revision,
+            pageKind: "confirm",
+            personSubmitted: false,
+          },
+        ]),
+      );
+    });
+
+    /** A harness whose `/signin` is the first page of a recipe generated as `confirm`. */
+    function confirmHarness(live: { urls?: boolean; matched?: boolean } = {}) {
+      fake.state.extracted = { login: loginPage };
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness(unsaved, {
+        allowedOrigins: [],
+        uris: async () => ({
+          ok: true as const,
+          data: live.matched === false ? uriMatch({ candidates: [] }) : uriMatch(),
+        }),
+        username: true,
+        custom: [],
+        generation: generation(),
+        report,
+        ...(live.urls ? { urls: true } : {}),
+      });
+      const confirm = parseLoginRecipe({
+        ...generated,
+        pageKind: "confirm",
+        completion: [{ target: target("account") }],
+      });
+      // Nothing of the recipe shows, so neither does its signed-in marker.
+      fake.state.present = new Set();
+      h.recipes.recipe.mockResolvedValue(undefined);
+      h.recipes.starts.mockResolvedValue(startsOf([]));
+      h.recipes.routes.mockResolvedValue([confirm]);
+      const entries = <T extends LoginReport["type"]>(type: T) =>
+        report.mock.calls.flatMap(([entry]) =>
+          entry.type === type ? [entry as Extract<LoginReport, { type: T }>] : [],
+        );
+      /** The page at `url` in a new document, its first step shown, and its entry logged. */
+      const visit = async (documentId: string, url = `${origin}/signin`) => {
+        const logged = entries("refused").length;
+        fake.state.pageUrl = url;
+        await h.hello({ documentId }, false);
+        await shownHello(h, { documentId });
+        await vi.waitFor(() => expect(entries("refused")).toHaveLength(logged + 1), 7_000);
+        return entries("refused").at(-1);
+      };
+      const left = {
+        type: "confirm-left",
+        tabId: 1,
+        origin,
+        recipeId: generated.id,
+        recipeRevision: generated.revision,
+        pageKind: "confirm",
+      } as const;
+      const refused = {
+        type: "refused",
+        tabId: 1,
+        origin,
+        reason: "not-started",
+        detail: "confirm-unsupported",
+        recipeId: generated.id,
+        recipeRevision: generated.revision,
+        pageKind: "confirm",
+        e1: false,
+      } as const;
+      return { h, entries, visit, left, refused };
+    }
+
+    it("logs the URL of a page Pateat does not fill and of the tab's previous page of its origin only (ADR 0035)", async () => {
+      const { h, entries, visit, left, refused } = confirmHarness({ urls: true });
+      // The previous page is the same document before its path changed in place.
+      fake.state.pageUrl = `${origin}/home?tab=1`;
+      await h.hello({ documentId: "home" }, false);
+      expect(await visit("home")).toEqual({
+        ...refused,
+        e2: false,
+        url: `${origin}/signin`,
+        previousUrl: `${origin}/home?tab=1`,
+      });
+      // A page of another origin next is no sign-in on this one.
+      fake.state.pageUrl = "https://elsewhere.example/";
+      await h.hello({ documentId: "elsewhere" }, false);
+      await vi.waitFor(() =>
+        expect(entries("confirm-left")).toEqual([
+          { ...left, personSubmitted: false, nextE1: false, url: `${origin}/signin` },
+        ]),
+      );
+      // Nor is it the previous page of the next one on this origin.
+      expect(await visit("back")).toEqual({ ...refused, e2: false, url: `${origin}/signin` });
+      // A page Pateat does not admit in between is not read, so it ends the visit without a
+      // next page, and the page before it is not the previous page of the one after.
+      fake.state.granted = false;
+      fake.state.pageUrl = `${origin}/home`;
+      expect(await h.hello({ documentId: "blocked" }, false)).toEqual({
+        ok: false,
+        reason: "unauthorized-document",
+      });
+      await vi.waitFor(() =>
+        expect(entries("confirm-left").at(-1)).toEqual({
+          ...left,
+          personSubmitted: false,
+          url: `${origin}/signin`,
+        }),
+      );
+      fake.state.granted = true;
+      expect(await visit("after")).toEqual({ ...refused, e2: false, url: `${origin}/signin` });
+      // A discarded tab loads its page again in a new tab, so the page was not left.
+      for (const replaced of fake.state.replaced) replaced(5, 1);
+      for (let flush = 0; flush < 5; flush++)
+        // oxlint-disable-next-line no-await-in-loop -- each turn lets a pending log run
+        await new Promise((resolve) => setImmediate(resolve));
+      expect(entries("confirm-left")).toHaveLength(2);
+    });
+
+    it("reads the next page for E1 without a vault match, but not one that went before its first reading (ADR 0035)", async () => {
+      const { h, entries, visit, left, refused } = confirmHarness({ matched: false });
+      // E2 is not read without a matching item, so the next page is read for E1.
+      expect(await visit("verify")).toEqual(refused);
+      const submitted = {
+        version: 1,
+        type: "login.document.person-submitted",
+        token: "synthetic-token",
+      };
+      // A frame's submit is not the page's.
+      await h.login.handle(submitted, sender({ documentId: "verify", frameId: 2 }));
+      fake.state.pageUrl = `${origin}/done`;
+      await h.hello({ documentId: "done" }, false);
+      fake.state.present = new Set(["account"]);
+      await vi.waitFor(() =>
+        expect(entries("confirm-left")).toEqual([
+          { ...left, personSubmitted: false, nextE1: true },
+        ]),
+      );
+      // On the real clock, the next page goes while the page's own readings wait a second.
+      realTime();
+      fake.state.present = new Set();
+      fake.state.pageUrl = `${origin}/signin`;
+      await h.hello({ documentId: "again" }, false);
+      await shownHello(h, { documentId: "again" });
+      // The left page's late submit counts for nothing.
+      await h.login.handle(submitted, sender({ documentId: "verify" }));
+      fake.state.pageUrl = `${origin}/done`;
+      await h.hello({ documentId: "done-again" }, false);
+      fake.state.pageUrl = `${origin}/gone`;
+      await h.hello({ documentId: "gone" }, false);
+      await vi.waitFor(
+        () =>
+          expect(entries("confirm-left")).toEqual([
+            { ...left, personSubmitted: false, nextE1: true },
+            { ...left, personSubmitted: false },
+          ]),
+        3_000,
+      );
+      expect(entries("refused")).toHaveLength(2);
+    });
+
+    it("logs neither E1 nor E2 for a page gone before its first reading, nor reads its next page (ADR 0035)", async () => {
+      const { h, entries, left, refused } = confirmHarness();
+      // The matching item's username is read slowly, and the person leaves meanwhile.
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      h.fields.mockImplementation(async () => {
+        await held;
+        return "synthetic-user";
+      });
+      fake.state.pageUrl = `${origin}/signin`;
+      await h.hello({ documentId: "verify" }, false);
+      await shownHello(h, { documentId: "verify" });
+      await vi.waitFor(() => expect(h.fields).toHaveBeenCalled());
+      fake.state.present = new Set(["account"]);
+      fake.state.pageUrl = `${origin}/done`;
+      await h.hello({ documentId: "done" }, false);
+      release();
+      await vi.waitFor(() =>
+        expect(entries("confirm-left")).toEqual([{ ...left, personSubmitted: false }]),
+      );
+      const { e1: _unread, ...unread } = refused;
+      expect(entries("refused")).toEqual([unread]);
+    });
+
+    it("logs a return in place to a page Pateat does not fill as a new visit (ADR 0035)", async () => {
+      const { h, entries, visit, left, refused } = confirmHarness({ urls: true });
+      expect(await visit("app")).toEqual({ ...refused, e2: false, url: `${origin}/signin` });
+      await h.login.handle(
+        { version: 1, type: "login.document.person-submitted", token: "synthetic-token" },
+        sender({ documentId: "app" }),
+      );
+      // The same document moves on in place, as the content script announces.
+      fake.state.present = new Set(["account"]);
+      fake.state.pageUrl = `${origin}/done`;
+      await h.hello({ documentId: "app" }, false);
+      await vi.waitFor(() =>
+        expect(entries("confirm-left")).toEqual([
+          { ...left, personSubmitted: true, nextE1: true, url: `${origin}/signin` },
+        ]),
+      );
+      // Back on the page in place: a new visit, whose previous page is the one it left.
+      fake.state.present = new Set();
+      expect(await visit("app")).toEqual({
+        ...refused,
+        e2: false,
+        url: `${origin}/signin`,
+        previousUrl: `${origin}/done`,
+      });
+      fake.state.pageUrl = `${origin}/home`;
+      await h.hello({ documentId: "app" }, false);
+      await vi.waitFor(() =>
+        expect(entries("confirm-left").at(-1)).toEqual({
+          ...left,
+          personSubmitted: false,
+          nextE1: false,
+          url: `${origin}/signin`,
+        }),
+      );
+      expect(entries("confirm-left")).toHaveLength(2);
     });
 
     it("still sends a page on a chooser branch's first-page path, which is a sign-in page (ADR 0028)", async () => {
@@ -7128,6 +7621,9 @@ describe("production login document admission", () => {
     });
 
     it("tells the popup that the page went to the AI, then what came back", async () => {
+      // The popup is polled while the request is out; on the fake clock the spin's own limit
+      // could pass between two polls.
+      realTime();
       fake.state.extracted = { login: loginPage };
       let answer!: (outcome: GenerationOutcome) => void;
       const service = generation({
@@ -10733,9 +11229,115 @@ describe("production login document admission", () => {
             tab: { id: 1, url: "https://login.example/" },
           }),
         ),
-      ).toEqual({ ok: false, reason: "recipe-not-found" });
+        // A frame is never sent, only asked to report a verification it shows (ADR 0035).
+      ).toEqual({ ok: false, reason: "recipe-not-found", frame: true });
       expect(service.generate).not.toHaveBeenCalled();
     }, 10_000);
+
+    it("counts a frame or a secret answer that looks like a verification, never sending it (ADR 0035)", async () => {
+      const service = generation();
+      const report = vi.fn<(report: LoginReport) => void>();
+      let matched = true;
+      const h = harness(unsaved, {
+        allowedOrigins: [],
+        uris: async () =>
+          matched
+            ? { ok: true as const, data: uriMatch() }
+            : { ok: true as const, data: uriMatch({ candidates: [] }) },
+        username: true,
+        generation: service,
+        report,
+      });
+      h.recipes.recipe.mockResolvedValue(undefined);
+      h.recipes.starts.mockResolvedValue(startsOf([]));
+      const skips = () =>
+        report.mock.calls.flatMap(([value]) =>
+          value.type === "generation" && value.outcome === "skipped" ? [value] : [],
+        );
+      const unoffered = (why: string, from: Record<string, unknown> = {}) =>
+        h.login.handle(
+          {
+            version: 1,
+            type: "login.document.ready",
+            token: String(from["token"] ?? "synthetic-token"),
+            unoffered: { path: String(from["path"] ?? "/signin"), why },
+          },
+          sender(from),
+        );
+      // A page offered for generation that ends its wait with a `type="text"` answer.
+      expect(await h.hello({}, false)).toMatchObject({ generate: true });
+      expect(await unoffered("text-answer")).toMatchObject({ generate: true });
+      expect(skips()).toEqual([
+        { type: "generation", tabId: 1, origin, outcome: "skipped", reason: "text-answer" },
+      ]);
+      // A frame inside another site's page: asked to report, then counted, never sent.
+      fake.state.tabUrls = { 1: "https://top.example/" };
+      const frame = {
+        frameId: 3,
+        documentId: "frame-document",
+        token: "frame-token",
+        path: "/",
+        url: "https://login.example/",
+        tab: { id: 1, url: "https://top.example/" },
+      };
+      expect(
+        await h.login.handle(
+          { version: 1, type: "login.document.ready", token: "frame-token" },
+          sender(frame),
+        ),
+      ).toEqual({ ok: false, reason: "recipe-not-found", frame: true });
+      expect(await unoffered("frame", frame)).toMatchObject({ frame: true });
+      expect(skips().at(-1)).toEqual({
+        type: "generation",
+        tabId: 1,
+        origin,
+        outcome: "skipped",
+        reason: "frame",
+      });
+      // A frame whose page would not be sent now, as one sent recently, is not asked.
+      service.available.mockResolvedValueOnce("sent");
+      expect(
+        await h.login.handle(
+          { version: 1, type: "login.document.ready", token: "held-token" },
+          sender({ ...frame, documentId: "held-frame", token: "held-token", frameId: 4 }),
+        ),
+      ).toEqual({ ok: false, reason: "recipe-not-found" });
+      // Without a vault match neither counts: the answer is logged as nothing offered.
+      matched = false;
+      fake.state.tabUrls = {};
+      expect(await h.hello({ documentId: "other-page" }, false)).toMatchObject({ generate: true });
+      expect(await unoffered("text-answer", { documentId: "other-page" })).toMatchObject({
+        generate: true,
+      });
+      expect(skips().at(-1)).toEqual({
+        type: "generation",
+        tabId: 1,
+        origin,
+        outcome: "skipped",
+        reason: "nothing-offered",
+        detail: "text-answer",
+      });
+      // Right after this tab's password submit, the answer is part of that sign-in: not counted.
+      matched = true;
+      await h.login.handle(
+        { version: 1, type: "login.document.submitted", token: "synthetic-token" },
+        sender({ documentId: "other-page" }),
+      );
+      expect(await h.hello({ documentId: "question" }, false)).toMatchObject({ generate: true });
+      await unoffered("text-answer", { documentId: "question" });
+      expect(skips().at(-1)).toEqual({
+        type: "generation",
+        tabId: 1,
+        origin,
+        outcome: "skipped",
+        reason: "nothing-offered",
+        detail: "after-sign-in",
+      });
+      expect(skips().filter((skip) => skip.reason === "text-answer")).toHaveLength(1);
+      expect(skips().filter((skip) => skip.reason === "frame")).toHaveLength(1);
+      expect(service.generate).not.toHaveBeenCalled();
+      expect(h.fields).not.toHaveBeenCalled();
+    });
 
     it("offers the page an account switch leads to when no recipe starts on its path", async () => {
       const service = generation();
@@ -12905,6 +13507,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
     fake.state.present = new Set(["password", "login"]);
     fake.state.unusable = new Set();
     fake.state.unobservable = new Set();
+    fake.state.disabled = new Set();
     fake.state.awaited = { ok: true };
     fake.state.onAwait = undefined;
     fake.state.executeReply = undefined;
@@ -14156,6 +14759,8 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         "login.password",
         "login.totp-code",
       ]);
+      // The code is asked for as a code; the password is not.
+      expect(h.fields.mock.calls.map(([request]) => request.code)).toEqual([undefined, true]);
       expect(status()![0]).toMatchObject({
         facts: { totp: true },
         handlers: [{ index: 0, start: 2 }],
@@ -14174,6 +14779,71 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       // The binding saved after the login names the route's slots only.
       expect(h.store.update).not.toHaveBeenCalled();
     }, 10_000);
+
+    describe("without a button, on a page that submits the code itself (#916)", () => {
+      // Slack's two-factor page: six one-digit inputs and no Verify button.
+      const { target: _, ...buttonless } = codeHandler;
+      const typed = parseLoginRecipe({ ...unlearned, completion: home, handlers: [buttonless] });
+      const toBoxes = { path: "/two-factor", present: ["app-code"] };
+
+      it("types the code as its submission and settles the page it leads to", async () => {
+        onClick({ login: toBoxes });
+        onCodeFill(() => {
+          // The page signs in once the last digit is in.
+          fake.state.observedPath = "/home";
+          fake.state.present = new Set(["logout"]);
+        });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness({}, { passkeys: noPasskey, report });
+        withTotp(h);
+        codes(h);
+        h.recipes.recipe.mockResolvedValue(typed);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+          timeout: 6_000,
+        });
+        expect(executed().map((step) => step.kind)).toEqual(["fill", "click", "fill"]);
+        // One fill that submits through the code's own input, typed as a code; no click.
+        expect(codeFills()).toHaveLength(1);
+        expect(codeFills()[0]).toMatchObject({
+          values: [{ slot: "totp", value: "012345", secret: "otp" }],
+          code: {},
+          operation: { step: { kind: "fill", effect: "submit", event: "input" } },
+        });
+        expect(status()![0]).toMatchObject({
+          handlers: [{ index: 0, start: 2 }],
+          stepCount: 3,
+          submissions: 2,
+          maxSubmissions: 2,
+        });
+        // Only the code field is observed before it is entered.
+        expect(fake.state.messages).toContainEqual(
+          expect.objectContaining({ type: "login.observe", targets: [target("app-code")] }),
+        );
+        expect(handlerReports(report)).toEqual([[0, "totp", "entered", 1]]);
+      }, 10_000);
+
+      it("leaves a code page that keeps its inputs to the person and never types again", async () => {
+        vi.useFakeTimers();
+        // A wrong code, or a page that waits for Enter: the inputs stay in the same document.
+        onClick({ login: toBoxes });
+        const service = generation(async () => ({ verdict: "signed-in" }));
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness({}, { passkeys: noPasskey, report, generation: service });
+        withTotp(h);
+        codes(h);
+        h.recipes.recipe.mockResolvedValue(typed);
+        expect(await h.hello()).toEqual({ ok: true });
+        await until(() => codeFills().length === 1);
+        await vi.advanceTimersByTimeAsync(100_000);
+        await until(settled("watching", "challenge"), 30_000);
+        expect(codeFills()).toHaveLength(1);
+        expect(executed().filter((step) => step.kind === "click")).toHaveLength(1);
+        // The page still asking for the code is never judged.
+        expect(service.judge).not.toHaveBeenCalled();
+        expect(handlerReports(report)).toEqual([[0, "totp", "entered", 1]]);
+      });
+    });
 
     describe("when the tab moves to another site after the code (ADR 0022)", () => {
       const other = "https://portal.example";
@@ -14350,28 +15020,385 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       }, 10_000);
     });
 
-    it("never types a custom field a saved binding names for the code", async () => {
-      onClick({ login: toCode, verify: toHome });
-      const report = vi.fn<(report: LoginReport) => void>();
-      const bindings = [
+    describe("with a custom field a saved binding names for the code", () => {
+      const seedId = `custom.${snapshotId}.0`;
+      /** The saved binding names the custom field `Seed` (or `field`) for the code. */
+      const namedFor = (
+        field: "password" | "username" | "totp" | { custom: string } = { custom: "Seed" },
+      ) => [
         {
           ...savedBinding,
           slots: [
             { slot: "password", field: "password" as const },
-            { slot: "totp", field: { custom: "Branch" } },
+            { slot: "totp", field },
           ],
         },
       ];
-      const h = harness({ bindings }, { passkeys: noPasskey, report });
-      withTotp(h);
-      h.recipes.recipe.mockResolvedValue(coded);
-      expect(await h.hello()).toEqual({ ok: true });
-      await vi.waitFor(() =>
-        expect(status()).toMatchObject([{ state: "watching", outcome: "challenge" }]),
+      /** A generated code for a code request only; never the field's raw value. */
+      const customCode = (h: ReturnType<typeof harness>) =>
+        h.fields.mockImplementation(async ({ fieldId, code }) =>
+          code ? (fieldId === seedId ? "654321" : undefined) : "synthetic-secret",
+        );
+      const reads = (h: ReturnType<typeof harness>) =>
+        h.fields.mock.calls.map(([request]) => ({
+          fieldId: request.fieldId,
+          ...(request.code ? { code: request.code } : {}),
+        }));
+
+      it.each(["hidden", "text"] as const)(
+        "fills a code made from a %s custom field and clicks the button once",
+        async (kind) => {
+          onClick({ login: toCode, verify: toHome });
+          const report = vi.fn<(report: LoginReport) => void>();
+          const h = harness(
+            { bindings: namedFor() },
+            { passkeys: noPasskey, report, custom: [{ name: "Seed", kind, totpSeed: true }] },
+          );
+          // The item's built-in TOTP is not what the code is made from.
+          withTotp(h);
+          customCode(h);
+          h.recipes.recipe.mockResolvedValue(coded);
+          expect(await h.hello()).toEqual({ ok: true });
+          await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+            timeout: 6_000,
+          });
+          expect(executed().map((step) => step.kind)).toEqual(["fill", "click", "fill", "click"]);
+          expect(clicks("verify")).toBe(1);
+          expect(codeFills().map((entry) => entry.values)).toEqual([
+            [{ slot: "totp", value: "654321", secret: "otp" }],
+          ]);
+          expect(reads(h)).toEqual([
+            { fieldId: "login.password" },
+            { fieldId: seedId, code: true },
+          ]);
+          expect(status()![0]).toMatchObject({
+            facts: { totp: true },
+            handlers: [{ index: 0, start: 2 }],
+          });
+          expect(handlerReports(report)).toEqual([[0, "totp", "entered", 2]]);
+        },
+        10_000,
       );
-      expect(codeFills()).toEqual([]);
-      expect(h.fields.mock.calls.map(([request]) => request.fieldId)).toEqual(["login.password"]);
-      expect(handlerReports(report)).toEqual([[0, "totp", "missing-fact", 2]]);
+
+      it.each([
+        ["a Boolean custom field", { custom: "Seed" }, "boolean"],
+        ["a Linked custom field", { custom: "Seed" }, "linked"],
+        ["the username", "username", undefined],
+        ["the password", "password", undefined],
+      ] as const)(
+        "is not entered when the binding names %s for the code",
+        async (_label, field, kind) => {
+          onClick({ login: toCode, verify: toHome });
+          const report = vi.fn<(report: LoginReport) => void>();
+          const h = harness(
+            { bindings: namedFor(field) },
+            {
+              passkeys: noPasskey,
+              report,
+              username: true,
+              ...(kind === "linked"
+                ? { custom: [{ name: "Seed", kind, linkedFieldId: "login.password" }] }
+                : {}),
+            },
+          );
+          if (kind === "boolean")
+            editFields(h, (fields) => [
+              ...fields.filter((entry) => !String(entry["id"]).startsWith("custom.")),
+              { id: seedId, label: "Seed", name: "Seed", kind: "boolean" },
+            ]);
+          withTotp(h);
+          customCode(h);
+          h.recipes.recipe.mockResolvedValue(coded);
+          expect(await h.hello()).toEqual({ ok: true });
+          await vi.waitFor(() =>
+            expect(status()).toMatchObject([{ state: "watching", outcome: "challenge" }]),
+          );
+          // The built-in TOTP does not count when the binding names another field.
+          expect(status()![0]).toMatchObject({ facts: { totp: false } });
+          expect(codeFills()).toEqual([]);
+          // Nothing is read for the code: no code request, and neither code field.
+          expect(reads(h).filter((read) => read.code)).toEqual([]);
+          expect(reads(h).map((read) => read.fieldId)).not.toContain(seedId);
+          expect(reads(h).map((read) => read.fieldId)).not.toContain("login.totp-code");
+          expect(handlerReports(report)).toEqual([[0, "totp", "missing-fact", 2]]);
+        },
+      );
+
+      it("is not entered when the account excludes the custom field, despite a built-in TOTP", async () => {
+        onClick({ login: toCode, verify: toHome });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(
+          {
+            bindings: namedFor(),
+            connections: [
+              {
+                connectionId,
+                enabled: true,
+                selection: { mode: "all", groupIds: [], itemIds: [] },
+                excludedItemIds: [],
+                excludedFields: [{ itemId, fieldId: seedId }],
+              },
+            ],
+          },
+          {
+            passkeys: noPasskey,
+            report,
+            custom: [{ name: "Seed", kind: "hidden", totpSeed: true }],
+          },
+        );
+        withTotp(h);
+        customCode(h);
+        h.recipes.recipe.mockResolvedValue(coded);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() =>
+          expect(status()).toMatchObject([{ state: "watching", outcome: "challenge" }]),
+        );
+        expect(status()![0]).toMatchObject({ facts: { totp: false } });
+        expect(codeFills()).toEqual([]);
+        expect(reads(h)).toEqual([{ fieldId: "login.password" }]);
+        expect(handlerReports(report)).toEqual([[0, "totp", "missing-fact", 2]]);
+      });
+
+      it("fills a route step's totp slot bound to a custom field with a code", async () => {
+        const routeCoded = parseLoginRecipe({
+          ...unlearned,
+          completion: home,
+          slots: [...unlearned.slots, "totp"],
+          steps: [
+            ...unlearned.steps,
+            {
+              kind: "fill",
+              path: "/two-factor",
+              fields: [{ slot: "totp", target: target("app-code") }],
+            },
+            { kind: "click", path: "/two-factor", target: target("verify"), purpose: "submit" },
+          ],
+          maxSubmissions: 2,
+        });
+        onClick({ login: toCode, verify: toHome });
+        const h = harness(
+          { bindings: namedFor() },
+          { passkeys: noPasskey, custom: [{ name: "Seed", kind: "hidden", totpSeed: true }] },
+        );
+        customCode(h);
+        h.recipes.recipe.mockResolvedValue(routeCoded);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+          timeout: 6_000,
+        });
+        expect(codeFills().map((entry) => entry.values)).toEqual([
+          [{ slot: "totp", value: "654321", secret: "otp" }],
+        ]);
+        expect(reads(h)).toEqual([{ fieldId: "login.password" }, { fieldId: seedId, code: true }]);
+        expect(clicks("verify")).toBe(1);
+      }, 10_000);
+
+      it("refuses before any step a route step's totp slot bound to a custom field holding no key", async () => {
+        const routeCoded = parseLoginRecipe({
+          ...unlearned,
+          completion: home,
+          slots: [...unlearned.slots, "totp"],
+          steps: [
+            ...unlearned.steps,
+            {
+              kind: "fill",
+              path: "/two-factor",
+              fields: [{ slot: "totp", target: target("app-code") }],
+            },
+            { kind: "click", path: "/two-factor", target: target("verify"), purpose: "submit" },
+          ],
+          maxSubmissions: 2,
+        });
+        onClick({ login: toCode, verify: toHome });
+        const h = harness(
+          { bindings: namedFor() },
+          { passkeys: noPasskey, custom: [{ name: "Seed", kind: "text" }] },
+        );
+        customCode(h);
+        h.recipes.recipe.mockResolvedValue(routeCoded);
+        expect(await h.hello()).toEqual({ ok: false, reason: "totp-field-mismatch" });
+        expect(h.fields).not.toHaveBeenCalled();
+        expect(executed()).toEqual([]);
+      });
+
+      it("stops without a fill when no code can be made from the custom field", async () => {
+        onClick({ login: toCode, verify: toHome });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(
+          { bindings: namedFor() },
+          {
+            passkeys: noPasskey,
+            report,
+            custom: [{ name: "Seed", kind: "hidden", totpSeed: true }],
+          },
+        );
+        withTotp(h);
+        // As an invalid seed: the source answers the code request with nothing.
+        h.fields.mockImplementation(async ({ code }) => (code ? undefined : "synthetic-secret"));
+        h.recipes.recipe.mockResolvedValue(coded);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(
+          () => expect(status()).toMatchObject([{ state: "blocked", outcome: "policy-changed" }]),
+          { timeout: 6_000 },
+        );
+        expect(codeFills()).toEqual([]);
+        expect(clicks("verify")).toBe(0);
+        expect(reads(h)).toEqual([{ fieldId: "login.password" }, { fieldId: seedId, code: true }]);
+        expect(
+          report.mock.calls.flatMap(([entry]) => (entry.type === "attempt" ? [entry] : [])).at(-1),
+        ).toMatchObject({
+          state: "blocked",
+          outcome: "policy-changed",
+          cause: "field-unavailable",
+        });
+      }, 10_000);
+
+      it("is not entered when the named Text field is not shaped like a TOTP key", async () => {
+        onClick({ login: toCode, verify: toHome });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(
+          { bindings: namedFor() },
+          { passkeys: noPasskey, report, custom: [{ name: "Seed", kind: "text" }] },
+        );
+        withTotp(h);
+        customCode(h);
+        h.recipes.recipe.mockResolvedValue(coded);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() =>
+          expect(status()).toMatchObject([{ state: "watching", outcome: "challenge" }]),
+        );
+        expect(status()![0]).toMatchObject({ facts: { totp: false } });
+        expect(codeFills()).toEqual([]);
+        expect(reads(h)).toEqual([{ fieldId: "login.password" }]);
+        expect(handlerReports(report)).toEqual([[0, "totp", "missing-fact", 2]]);
+      });
+    });
+
+    describe("with a custom field holding a TOTP key and no saved entry for the code (owner, 2026-10-23)", () => {
+      const seedId = `custom.${snapshotId}.1`;
+      // `Branch` is an ordinary Text field; `Seed` is flagged as holding a TOTP key.
+      const seeded = [
+        { name: "Branch", kind: "text" as const },
+        { name: "Seed", kind: "hidden" as const, totpSeed: true as const },
+      ];
+      const customCode = (h: ReturnType<typeof harness>) =>
+        h.fields.mockImplementation(async ({ fieldId, code }) =>
+          code
+            ? fieldId === seedId
+              ? "654321"
+              : fieldId === "login.totp-code"
+                ? "012345"
+                : undefined
+            : "synthetic-secret",
+        );
+      const reads = (h: ReturnType<typeof harness>) =>
+        h.fields.mock.calls.map(([request]) => ({
+          fieldId: request.fieldId,
+          ...(request.code ? { code: request.code } : {}),
+        }));
+
+      it("makes the handler's code from that field when the built-in TOTP holds no key", async () => {
+        onClick({ login: toCode, verify: toHome });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness({}, { passkeys: noPasskey, report, custom: seeded });
+        withTotp(h, true);
+        customCode(h);
+        h.recipes.recipe.mockResolvedValue(coded);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+          timeout: 6_000,
+        });
+        expect(status()![0]).toMatchObject({ facts: { totp: true } });
+        expect(codeFills().map((entry) => entry.values)).toEqual([
+          [{ slot: "totp", value: "654321", secret: "otp" }],
+        ]);
+        expect(reads(h)).toEqual([{ fieldId: "login.password" }, { fieldId: seedId, code: true }]);
+        expect(handlerReports(report)).toEqual([[0, "totp", "entered", 2]]);
+      }, 10_000);
+
+      it("keeps the built-in TOTP when it holds a key", async () => {
+        onClick({ login: toCode, verify: toHome });
+        const h = harness({}, { passkeys: noPasskey, custom: seeded });
+        withTotp(h);
+        customCode(h);
+        h.recipes.recipe.mockResolvedValue(coded);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+          timeout: 6_000,
+        });
+        expect(codeFills().map((entry) => entry.values)).toEqual([
+          [{ slot: "totp", value: "012345", secret: "otp" }],
+        ]);
+        expect(reads(h).map((read) => read.fieldId)).not.toContain(seedId);
+      }, 10_000);
+
+      it("is not entered when the account excludes that field", async () => {
+        onClick({ login: toCode, verify: toHome });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(
+          {
+            connections: [
+              {
+                connectionId,
+                enabled: true,
+                selection: { mode: "all", groupIds: [], itemIds: [] },
+                excludedItemIds: [],
+                excludedFields: [{ itemId, fieldId: seedId }],
+              },
+            ],
+          },
+          { passkeys: noPasskey, report, custom: seeded },
+        );
+        withTotp(h, true);
+        customCode(h);
+        h.recipes.recipe.mockResolvedValue(coded);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() =>
+          expect(status()).toMatchObject([{ state: "watching", outcome: "challenge" }]),
+        );
+        expect(status()![0]).toMatchObject({ facts: { totp: false } });
+        expect(codeFills()).toEqual([]);
+        expect(reads(h)).toEqual([{ fieldId: "login.password" }]);
+        expect(handlerReports(report)).toEqual([[0, "totp", "missing-fact", 2]]);
+      });
+
+      it("fills a route step's totp slot with a code from that field and saves it", async () => {
+        const routeCoded = parseLoginRecipe({
+          ...unlearned,
+          completion: home,
+          slots: [...unlearned.slots, "totp"],
+          steps: [
+            ...unlearned.steps,
+            {
+              kind: "fill",
+              path: "/two-factor",
+              fields: [{ slot: "totp", target: target("app-code") }],
+            },
+            { kind: "click", path: "/two-factor", target: target("verify"), purpose: "submit" },
+          ],
+          maxSubmissions: 2,
+        });
+        onClick({ login: toCode, verify: toHome });
+        const h = harness({}, { passkeys: noPasskey, custom: seeded });
+        withTotp(h, true);
+        customCode(h);
+        h.recipes.recipe.mockResolvedValue(routeCoded);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+          timeout: 6_000,
+        });
+        expect(codeFills().map((entry) => entry.values)).toEqual([
+          [{ slot: "totp", value: "654321", secret: "otp" }],
+        ]);
+        expect(reads(h)).toEqual([{ fieldId: "login.password" }, { fieldId: seedId, code: true }]);
+        // The widened binding names the field by its vault name.
+        expect(h.settings.settings.bindings).toEqual([
+          {
+            ...savedBinding,
+            slots: [...savedBinding.slots, { slot: "totp", field: { custom: "Seed" } }],
+          },
+        ]);
+      }, 10_000);
     });
 
     it.each([
@@ -14669,35 +15696,91 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         expect(status()![0]).toMatchObject({ stepIndex: 3, submissions: 2, maxSubmissions: 2 });
       }, 10_000);
 
-      it("holds a page that reports its own submission while the button still shows", async () => {
+      it.each([
+        ["", false],
+        [", disabled", true],
+      ])(
+        "holds a page that reports its own submission while the button still shows%s",
+        async (_label, disabled) => {
+          onClick({ login: toCode, verify: toHome });
+          onCodeFill(() => {
+            // The content script saw the page submit the code; the form now says "Verifying".
+            fake.state.executeReply = { ok: false, reason: "submitted", mutation: "possible" };
+            // A button the page disables while it verifies still shows.
+            if (disabled) fake.state.disabled = new Set(["verify"]);
+            // Stop the clock at the fill, so it cannot run past the held click's wait
+            // (HELD_CLICK_WAIT_MS) while the test still waits for the fill.
+            vi.setTimerTickMode("manual");
+          });
+          const report = vi.fn<(report: LoginReport) => void>();
+          const h = harness({}, { passkeys: noPasskey, report });
+          withTotp(h);
+          codes(h);
+          h.recipes.recipe.mockResolvedValue(coded);
+          expect(await h.hello()).toEqual({ ok: true });
+          await vi.waitFor(() => expect(codeFills()).toHaveLength(1), { timeout: 6_000 });
+          // The fill named the button, so the page's own submission is watched for.
+          expect(codeFills()[0]).toMatchObject({ code: { submit: target("verify") } });
+          await vi.advanceTimersByTimeAsync(1_500);
+          expect(status()).toMatchObject([{ state: "reconciling", stepIndex: 3 }]);
+          expect(handlerReports(report)).toEqual([[0, "totp", "entered", 2]]);
+          fake.state.observedPath = "/home";
+          fake.state.present = new Set(["logout"]);
+          vi.setTimerTickMode("nextTimerAsync");
+          await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+            timeout: 6_000,
+          });
+          expect(clicks("verify")).toBe(0);
+        },
+        15_000,
+      );
+
+      it("settles a page that hid its button when it submitted the code itself", async () => {
+        vi.useFakeTimers();
         onClick({ login: toCode, verify: toHome });
         onCodeFill(() => {
-          // The content script saw the page submit the code; the form now says "Verifying".
+          // The content script saw the button go hidden: the app moved on in the same
+          // document and kept its code form there, hidden.
           fake.state.executeReply = { ok: false, reason: "submitted", mutation: "possible" };
-          // Stop the clock at the fill, so it cannot run past the held click's wait
-          // (HELD_CLICK_WAIT_MS) while the test still waits for the fill.
-          vi.setTimerTickMode("manual");
+          fake.state.observedPath = "/home";
+          fake.state.unusable = new Set(["app-code", "verify"]);
+          fake.state.extracted = { "signed-in": homePage };
         });
-        const report = vi.fn<(report: LoginReport) => void>();
-        const h = harness({}, { passkeys: noPasskey, report });
+        const service = generation(async () => ({ verdict: "signed-in" }));
+        const h = harness({}, { passkeys: noPasskey, generation: service });
         withTotp(h);
         codes(h);
         h.recipes.recipe.mockResolvedValue(coded);
         expect(await h.hello()).toEqual({ ok: true });
-        await vi.waitFor(() => expect(codeFills()).toHaveLength(1), { timeout: 6_000 });
-        // The fill named the button, so the page's own submission is watched for.
-        expect(codeFills()[0]).toMatchObject({ code: { submit: target("verify") } });
-        await vi.advanceTimersByTimeAsync(1_500);
-        expect(status()).toMatchObject([{ state: "reconciling", stepIndex: 3 }]);
-        expect(handlerReports(report)).toEqual([[0, "totp", "entered", 2]]);
-        fake.state.observedPath = "/home";
-        fake.state.present = new Set(["logout"]);
-        vi.setTimerTickMode("nextTimerAsync");
+        await until(() => codeFills().length === 1, 10_000);
+        // Well before the held click's two minutes.
+        await until(settled("authenticated"), 20_000);
+        expect(status()![0]).toMatchObject({ stepIndex: 3, submissions: 2 });
+        expect(codeFills()).toHaveLength(1);
+        expect(clicks("verify")).toBe(0);
+        expect(service.judge).toHaveBeenCalledTimes(1);
+      });
+
+      it("settles a page that hid its button beside the completion before the click", async () => {
+        onClick({ login: toCode, verify: toHome });
+        onCodeFill(() => {
+          // The code went in without a sign of a submission; the page then signs in on the
+          // same path, keeping its code form there, hidden, so the click's wait never ends.
+          fake.state.present = new Set(["app-code", "verify", "logout"]);
+          fake.state.unusable = new Set(["app-code", "verify"]);
+          fake.state.awaited = { ok: false, reason: "timeout" };
+        });
+        const h = harness({}, { passkeys: noPasskey });
+        withTotp(h);
+        codes(h);
+        h.recipes.recipe.mockResolvedValue(coded);
+        expect(await h.hello()).toEqual({ ok: true });
         await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
           timeout: 6_000,
         });
+        expect(codeFills()).toHaveLength(1);
         expect(clicks("verify")).toBe(0);
-      }, 15_000);
+      }, 10_000);
 
       it("settles a page that moved to another path before the click", async () => {
         onClick({ login: toCode, verify: toHome });
@@ -15309,6 +16392,107 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
     }, 10_000);
   });
 
+  describe("the detail handler (ADR 0061)", () => {
+    // A synthetic page after the password that asks for the birth year and month or the
+    // last four digits of a phone.
+    const detailHandler = {
+      kind: "detail" as const,
+      path: "/confirm",
+      fields: [
+        { detail: "birth-date" as const, format: "yyyymm" as const, target: target("birth") },
+        { detail: "phone-last-4" as const, target: target("phone") },
+      ],
+      target: target("confirm"),
+    };
+    const detailed = parseLoginRecipe({
+      ...unlearned,
+      completion: home,
+      handlers: [detailHandler],
+    });
+    const toConfirm = { path: "/confirm", present: ["birth", "phone", "confirm"] };
+    const noPasskey = vi.fn(async () => ({ passkey: false, discoverable: false }));
+    const detailFills = () =>
+      fake.state.messages.filter(
+        (entry) =>
+          entry.type === "login.execute" && entry.values?.some((value) => value.slot === "detail"),
+      );
+    const handlerReports = (report: ReturnType<typeof vi.fn<(report: LoginReport) => void>>) =>
+      report.mock.calls.flatMap(([value]) =>
+        value.type === "handler" ? [[value.handler, value.kind, value.outcome, value.steps]] : [],
+      );
+
+    it("ends as a challenge without a read, fill or click while no login links the details", async () => {
+      onClick({ login: toConfirm, confirm: toHome });
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness({}, { passkeys: noPasskey, report });
+      h.recipes.recipe.mockResolvedValue(detailed);
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(status()).toMatchObject([{ state: "watching", outcome: "challenge" }]),
+      );
+      expect(status()![0]).toMatchObject({ handlers: [] });
+      expect(h.fields.mock.calls.map(([request]) => request.fieldId)).toEqual(["login.password"]);
+      expect(detailFills()).toEqual([]);
+      expect(clicks("confirm")).toBe(0);
+      expect(report).toHaveBeenCalledWith({
+        type: "handler",
+        tabId: 1,
+        origin,
+        recipeId: detailed.id,
+        recipeRevision: detailed.revision,
+        handler: 0,
+        kind: "detail",
+        outcome: "detail-unlinked",
+        steps: 2,
+      });
+      expect(handlerReports(report)).toEqual([[0, "detail", "detail-unlinked", 2]]);
+      // Its inputs and button are observed apart from the recipe's own result targets.
+      expect(fake.state.messages).toContainEqual(
+        expect.objectContaining({
+          type: "login.observe",
+          targets: [target("birth"), target("phone"), target("confirm")],
+        }),
+      );
+    });
+
+    it("is shown while one of its inputs is disabled, as a choice page may disable it", async () => {
+      onClick({ login: toConfirm, confirm: toHome });
+      fake.state.unusable = new Set(["phone"]);
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness({}, { passkeys: noPasskey, report });
+      h.recipes.recipe.mockResolvedValue(detailed);
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(status()).toMatchObject([{ state: "watching", outcome: "challenge" }]),
+      );
+      expect(handlerReports(report)).toEqual([[0, "detail", "detail-unlinked", 2]]);
+      expect(detailFills()).toEqual([]);
+      expect(clicks("confirm")).toBe(0);
+    });
+
+    it.each([
+      ["its inputs", ["birth", "phone"]],
+      ["its button and one input", ["birth", "confirm"]],
+    ])(
+      "is not entered while only %s show",
+      async (_label, present) => {
+        onClick({ login: { path: "/confirm", present } });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness({}, { passkeys: noPasskey, report });
+        h.recipes.recipe.mockResolvedValue(detailed);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(
+          () =>
+            expect(status()).toMatchObject([{ state: "reconciling", outcome: "unknown-submit" }]),
+          { timeout: 6_000 },
+        );
+        expect(detailFills()).toEqual([]);
+        expect(handlerReports(report)).toEqual([]);
+      },
+      10_000,
+    );
+  });
+
   describe("generation slots", () => {
     const unsaved = { siteDefaults: [], bindings: [] };
     const loginPage = observation("/signin", [
@@ -15869,6 +17053,17 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       );
     });
 
+    it("completes as signed in on a later page the judge finds optional (ADR 0065)", async () => {
+      const { h, service } = await watched(["optional"]);
+      const steps = executed().length;
+      await open(h, "/checkup");
+      expect(service.judge).toHaveBeenCalledTimes(2);
+      expect(status()).toMatchObject([{ state: "authenticated", outcome: "authenticated" }]);
+      expect(status()![0]).not.toHaveProperty("unconfirmed");
+      expect(executed()).toHaveLength(steps);
+      expect(judges().at(-1)).toMatchObject({ verdict: "optional", watched: true });
+    });
+
     it("hides the account's username from a watched page it judges", async () => {
       const { h, service } = await watched(
         ["signed-in"],
@@ -16100,33 +17295,71 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       );
     });
 
-    it("ends the watch when the person starts over in another tab, which logs in as before", async () => {
+    it("keeps the site from another tab while the watch lasts, so no second code is sent", async () => {
       const { h } = await watched();
       const steps = executed().length;
-      // The approval expired and the person opened the sign-in page in a new tab.
-      expect(await signInPage(h, 2, "other-tab")).toEqual({ ok: true });
-      expect(reports).not.toHaveBeenCalledWith(expect.objectContaining({ type: "logout" }));
-      expect(reports).toHaveBeenCalledWith(abandoned("challenge-abandoned", 1));
-      expect(fake.state.session["pateat.login-logouts.v1"]).toEqual([]);
-      // Only the watched tab asks if its own sign-in page shows again.
-      expect(fake.state.session["pateat.login-stopped-asks.v1"]).toEqual([{ tabId: 1, origin }]);
-      // The new tab logs in and presses the button.
+      // While the first tab waits for its code, the person opens the sign-in page in a new
+      // tab (Instagram on Real Chrome, 2026-10-23): it neither logs in nor ends the watch.
+      expect(await signInPage(h, 2, "other-tab")).toEqual({ ok: false, reason: "origin-busy" });
+      expect(executed().slice(steps)).toEqual([]);
+      expect(reports).not.toHaveBeenCalledWith(abandoned("challenge-abandoned", 1));
+      expect(status()).toMatchObject([{ state: "watching", document: { tabId: 1 } }]);
+      // Past the hold's 5 minutes the watch still keeps it.
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      expect(await signInPage(h, 2, "other-tab-later")).toEqual({
+        ok: false,
+        reason: "origin-busy",
+      });
+      expect(executed().slice(steps)).toEqual([]);
+      // Once the watch's 10 minutes are over, the other tab logs in as before.
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      expect(await signInPage(h, 2, "other-tab-after")).toEqual({ ok: true });
       expect(
         executed()
           .slice(steps)
           .map((step) => step.kind),
       ).toEqual(["fill", "click"]);
-      expect(reports).not.toHaveBeenCalledWith(
-        expect.objectContaining({ type: "start", tabId: 2, fillOnly: true }),
-      );
-      // The watched tab's own sign-in page then only fills.
-      const before = executed().length;
-      expect(await signInPage(h, 1, "document-signin")).toEqual({ ok: true });
+    });
+
+    it("lets another tab log in once the watched tab closes", async () => {
+      const { h } = await watched();
+      const steps = executed().length;
+      expect(await signInPage(h, 2, "other-tab")).toEqual({ ok: false, reason: "origin-busy" });
+      for (const listener of fake.state.removed) listener(1);
+      await vi.waitFor(() => expect(status() ?? []).toEqual([]));
+      expect(await signInPage(h, 2, "other-tab-again")).toEqual({ ok: true });
       expect(
         executed()
-          .slice(before)
+          .slice(steps)
           .map((step) => step.kind),
-      ).toEqual(["fill"]);
+      ).toEqual(["fill", "click"]);
+    });
+
+    it("never keeps an incognito tab from logging in while a normal tab's login is watched", async () => {
+      const { h } = await watched();
+      const steps = executed().length;
+      // An incognito window keeps its own cookies, so its login sends no second code to
+      // the same session (owner, 2026-10-23).
+      fake.state.pageUrl = `${origin}/signin`;
+      fake.state.observedPath = "/signin";
+      fake.state.present = new Set(["password", "login"]);
+      fake.state.tabUrls[2] = fake.state.pageUrl;
+      expect(await h.hello({ tab: { id: 2, incognito: true }, documentId: "incognito" })).toEqual({
+        ok: true,
+      });
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(
+        executed()
+          .slice(steps)
+          .map((step) => step.kind),
+      ).toEqual(["fill", "click"]);
+      // The normal tab's login is still watched.
+      expect(status()).toContainEqual(
+        expect.objectContaining({
+          state: "watching",
+          document: expect.objectContaining({ tabId: 1 }),
+        }),
+      );
     });
 
     it("keeps holding the site against another tab's page left open from before", async () => {
@@ -16996,6 +18229,7 @@ describe("the start page's passkey route (ADR 0027)", () => {
     fake.state.gone = new Set();
     fake.state.extracted = {};
     fake.state.signs = undefined;
+    fake.state.unusable = new Set();
   });
 
   const button = { by: "text" as const, value: "Sign in with a passkey" };
@@ -17218,6 +18452,36 @@ describe("the start page's passkey route (ADR 0027)", () => {
     expect(read.filter((entry) => entry.button).length).toBeGreaterThan(0);
     expect(read.filter((entry) => entry.button && inputs.includes(entry.require!))).toEqual([]);
     expect(read.some((entry) => !entry.button && inputs.includes(entry.require!))).toBe(true);
+    expect(clicks(button.value)).toBe(1);
+    expect(fills()).toBe(0);
+  });
+
+  it("ends challenge on the passkey route when the judge answers optional (ADR 0065)", async () => {
+    vi.useFakeTimers();
+    const checkup = observation("/checkup", [
+      { id: "c1", role: "button", target: target("remind-later"), label: "Remind me later" },
+    ]);
+    onClick({ [button.value]: { path: "/checkup", present: [], extracted: checkup } });
+    const clicked = fake.state.onExecute!;
+    fake.state.onExecute = async (message, tabId) => {
+      await clicked(message, tabId);
+      // No sign of a sign-in step and no evidence of one (ADR 0029).
+      if (fake.state.observedPath === "/checkup")
+        fake.state.signs = {
+          password: false,
+          code: false,
+          captcha: false,
+          invalid: false,
+          alert: false,
+        };
+    };
+    const service = generation(async () => ({ verdict: "optional" }));
+    const { h } = start(routed, { generation: service });
+    expect(await h.hello()).toEqual({ ok: true });
+    // A page the route's own checks do not prove ends the passkey route `challenge`.
+    await until(settled("blocked", "challenge"));
+    expect(service.judge).toHaveBeenCalledTimes(1);
+    expect(status()![0]).toMatchObject({ route: "passkey" });
     expect(clicks(button.value)).toBe(1);
     expect(fills()).toBe(0);
   });
@@ -17527,29 +18791,74 @@ describe("the start page's passkey route (ADR 0027)", () => {
       expect(h.settings.settings.bindings).toEqual([savedBinding]);
     }, 10_000);
 
-    it("never types a custom field a saved binding names for the code on this route", async () => {
+    const namedFor = (field: "username" | { custom: string }) => [
+      {
+        ...savedBinding,
+        recipeId: withCode.id,
+        slots: [
+          { slot: "password", field: "password" as const },
+          { slot: "totp", field },
+        ],
+      },
+    ];
+    const branchId = `custom.${snapshotId}.0`;
+
+    it("types a code made from a custom field a saved binding names on this route", async () => {
       onClick({ [button.value]: toCode, verify: toHome });
-      const bindings = [
-        {
-          ...savedBinding,
-          recipeId: withCode.id,
-          slots: [
-            { slot: "password", field: "password" as const },
-            { slot: "totp", field: { custom: "Branch" } },
-          ],
-        },
-      ];
-      const { h, report } = start(withCode, {}, { bindings });
-      withTotp(h);
-      expect(await h.hello()).toEqual({ ok: true });
-      await vi.waitFor(() =>
-        expect(status()).toMatchObject([{ state: "blocked", outcome: "challenge" }]),
+      // The item's custom field `Branch` is a Text field holding a TOTP key.
+      const { h, report } = start(
+        withCode,
+        { custom: [{ name: "Branch", kind: "text", totpSeed: true }] },
+        { bindings: namedFor({ custom: "Branch" }) },
       );
-      expect(status()![0]).toMatchObject({ route: "passkey" });
-      expect(h.fields).not.toHaveBeenCalled();
-      expect(codeFills()).toEqual([]);
-      expect(handlerOutcomes(report)).toEqual([[0, "totp", "missing-fact"]]);
-    });
+      withTotp(h);
+      h.fields.mockImplementation(async ({ fieldId, code }) =>
+        code && fieldId === branchId ? "654321" : undefined,
+      );
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+        timeout: 6_000,
+      });
+      expect(status()![0]).toMatchObject({ route: "passkey", facts: { totp: true } });
+      expect(codeFills().map((entry) => entry.values)).toEqual([
+        [{ slot: "totp", value: "654321", secret: "otp" }],
+      ]);
+      // Only the code is read, as a code from the named field; no password is.
+      expect(h.fields.mock.calls.map(([request]) => [request.fieldId, request.code])).toEqual([
+        [branchId, true],
+      ]);
+      expect(clicks("verify")).toBe(1);
+      expect(handlerOutcomes(report)).toEqual([[0, "totp", "entered"]]);
+    }, 10_000);
+
+    it.each([
+      ["a Linked custom field", { custom: "Branch" }, true],
+      ["the username", "username", false],
+    ] as const)(
+      "never makes a code from %s a saved binding names on this route",
+      async (_label, field, linked) => {
+        onClick({ [button.value]: toCode, verify: toHome });
+        const { h, report } = start(
+          withCode,
+          {
+            username: true,
+            ...(linked
+              ? { custom: [{ name: "Branch", kind: "linked", linkedFieldId: "login.password" }] }
+              : {}),
+          },
+          { bindings: namedFor(field) },
+        );
+        withTotp(h);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() =>
+          expect(status()).toMatchObject([{ state: "blocked", outcome: "challenge" }]),
+        );
+        expect(status()![0]).toMatchObject({ route: "passkey", facts: { totp: false } });
+        expect(h.fields).not.toHaveBeenCalled();
+        expect(codeFills()).toEqual([]);
+        expect(handlerOutcomes(report)).toEqual([[0, "totp", "missing-fact"]]);
+      },
+    );
 
     it("takes over a revision that adds a totp handler on the passkey route", async () => {
       vi.useFakeTimers();
@@ -17720,6 +19029,26 @@ describe("the start page's passkey route (ADR 0027)", () => {
         expect(service.judge).not.toHaveBeenCalled();
       },
     );
+
+    it("judges the page once the clicked button is only hidden in its document", async () => {
+      vi.useFakeTimers();
+      // An app that signs in with the passkey and keeps its sign-in view in the DOM, hidden.
+      onClick({ [button.value]: { path: "/home", present: [button.value], extracted: homePage } });
+      const clicked = fake.state.onExecute!;
+      fake.state.onExecute = async (message, tabId) => {
+        await clicked(message, tabId);
+        fake.state.unusable = new Set([button.value]);
+      };
+      const service = generation(async () => ({ verdict: "signed-in" }));
+      const { h } = start(routed, { generation: service });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => clicks(button.value) === 1);
+      // Well before the held click's two minutes.
+      await until(settled("authenticated"), 20_000);
+      expect(status()![0]).toMatchObject({ route: "passkey", submissions: 1 });
+      expect(clicks(button.value)).toBe(1);
+      expect(service.judge).toHaveBeenCalledTimes(1);
+    });
 
     it("names the login's item for the passkey bridge while the click is held", async () => {
       vi.useFakeTimers();
@@ -17929,6 +19258,45 @@ describe("an advance whose next step is on the same path (ADR 0013)", () => {
       undefined,
       undefined,
     ]);
+  });
+
+  describe("marks a login that submitted nothing yet in its first document (ADR 0066)", () => {
+    const blockedReports = (report: ReturnType<typeof vi.fn<(report: LoginReport) => void>>) =>
+      report.mock.calls.flatMap(([value]) =>
+        value.type === "attempt" && value.state === "blocked" ? [value] : [],
+      );
+
+    it("on a wrong account at the email fill", async () => {
+      fake.state.executeReply = { ok: false, reason: "wrong-account" };
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = start(identifierFirst(), { report });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("blocked", "wrong-account"));
+      expect(blockedReports(report)).toEqual([
+        expect.objectContaining({ outcome: "wrong-account", stepIndex: 0, unsubmitted: true }),
+      ]);
+    });
+
+    it("but not on a wrong account at the password fill after Next", async () => {
+      swapForms();
+      const onExecute = fake.state.onExecute!;
+      fake.state.onExecute = async (message, tabId) => {
+        await onExecute(message, tabId);
+        const step = (
+          message["operation"] as { step: { kind: string; fields?: { slot: string }[] } }
+        ).step;
+        if (step.fields?.some((field) => field.slot === "password"))
+          fake.state.executeReply = { ok: false, reason: "wrong-account" };
+      };
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = start(identifierFirst(), { report });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("blocked", "wrong-account"));
+      expect(executed()).toEqual(["fill:email", "click:next", "fill:password"]);
+      const [blocked] = blockedReports(report);
+      expect(blocked).toMatchObject({ outcome: "wrong-account", stepIndex: 2 });
+      expect(blocked).not.toHaveProperty("unsubmitted");
+    });
   });
 
   it("continues once a password input the email form kept for the browser shows", async () => {
@@ -19981,12 +21349,14 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
     /**
      * Next shows the choice page, with the elements `beside` it, or the password form with
      * `skip`; the Password button shows the password form, beside the choice with `keep`,
-     * or does nothing with `dead`; Log in signs in on `/home`.
+     * or does nothing with `dead`; with `hide` it hides the choice, kept in the document,
+     * and shows the password form a moment later; Log in signs in on `/home`.
      */
     const choosing = ({
       skip = false,
       dead = false,
       keep = false,
+      hide = false,
       beside = [] as string[],
     } = {}) => {
       const passwordForm = () => {
@@ -20009,7 +21379,13 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
           fake.state.signIn = false;
           fake.state.extracted = { "signed-in": choicePage };
         }
-        if (step.target?.value === "choose-password" && !dead) passwordForm();
+        if (step.target?.value === "choose-password" && hide) {
+          fake.state.unusable = new Set(["choose-password", "mobile"]);
+          setTimeout(() => {
+            passwordForm();
+            fake.state.present!.add("choose-password").add("mobile");
+          }, 300);
+        } else if (step.target?.value === "choose-password" && !dead) passwordForm();
         if (step.target?.value === "login") {
           fake.state.observedPath = "/home";
           fake.state.present = new Set(["logout"]);
@@ -20073,6 +21449,21 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
       await until(settled("authenticated"), 60_000);
       expect(executed()).toEqual(withPress);
       expect(service.generate).toHaveBeenCalledTimes(1);
+    });
+
+    it("continues on the password form after the page hid the button it pressed", async () => {
+      // The choice stays in the document, hidden, which is no sign of it shown again.
+      choosing({ hide: true });
+      let h!: ReturnType<typeof harness>;
+      const service = generation(
+        answering(() => h, continued),
+        async (_id, revision) =>
+          revision === 1 ? { verdict: "challenge", recipe: withHandler } : { verdict: "signed-in" },
+      );
+      h = start(service);
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("authenticated"), 60_000);
+      expect(executed()).toEqual(withPress);
     });
 
     it("presses it on a later login when the page shows, then types the password", async () => {
@@ -20332,6 +21723,115 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
       await until(() => executed().length === withPress.length + 1);
       await vi.advanceTimersByTimeAsync(20_000);
       expect(executed()).toEqual([...withPress, "fill:email"]);
+    });
+  });
+
+  describe("an optional page after the sign-in (ADR 0065)", () => {
+    /** The page after Log in: a prompt to verify two-factor settings that can be put off. */
+    const checkupPage = describedPage("/checkup", [
+      { id: "c1", role: "button", target: target("verify-now"), label: "Verify now" },
+      { id: "c2", role: "button", target: target("remind-later"), label: "Remind me later" },
+    ]);
+    const passwordRecipe = continuedOn("/signin");
+    const steps = ["fill:email", "click:next", "fill:password", "click:login"];
+    /** The page signs of ADR 0029 with none shown. */
+    const noSigns = { password: false, code: false, captcha: false, invalid: false, alert: false };
+    /** Next shows the password form; Log in shows the optional page. */
+    const checkup = (signs: Partial<typeof noSigns> = {}) => {
+      fake.state.onExecute = async (message) => {
+        const step = (
+          message["operation"] as { step: { kind: string; target?: { value: string } } }
+        ).step;
+        if (step.kind !== "click") return;
+        if (step.target?.value === "next") {
+          fake.state.present = new Set(["password", "login"]);
+          fake.state.signIn = true;
+        }
+        if (step.target?.value === "login") {
+          fake.state.observedPath = "/checkup";
+          fake.state.present = new Set(["verify-now", "remind-later"]);
+          fake.state.signIn = false;
+          fake.state.extracted = { "signed-in": checkupPage };
+          // No sign of a sign-in step and no evidence of one (ADR 0029), unless given.
+          fake.state.signs = { ...noSigns, ...signs };
+        }
+      };
+    };
+
+    it("completes as signed in, presses nothing and leaves the page", async () => {
+      checkup();
+      const service = generation(undefined, async () => ({ verdict: "optional" }));
+      const h = start(service, { recipe: passwordRecipe });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("authenticated"));
+      expect(executed()).toEqual(steps);
+      expect(service.judge.mock.calls.map((call) => call[3])).toEqual([checkupPage.observation]);
+      expect(status()![0]).toMatchObject({ state: "authenticated", handlers: [] });
+      // Signed in, not the yellow mark of an unconfirmed sign-in.
+      expect(status()![0]!["unconfirmed"]).toBeUndefined();
+    });
+
+    it("does not complete on an optional page before the password was sent", async () => {
+      // The identifier's button submits; the page after it offers a passkey or the password.
+      const identifierOnly = parseLoginRecipe({
+        ...emailFirst,
+        steps: [
+          emailFirst.steps[0]!,
+          { kind: "click", path: "/signin", target: target("next"), purpose: "submit" },
+        ],
+      });
+      const choicePage = describedPage("/options", [
+        { id: "c1", role: "button", target: target("use-passkey"), label: "Use a passkey" },
+        { id: "c2", role: "button", target: target("use-password"), label: "Use your password" },
+      ]);
+      fake.state.onExecute = async (message) => {
+        const step = (
+          message["operation"] as { step: { kind: string; target?: { value: string } } }
+        ).step;
+        if (step.kind !== "click" || step.target?.value !== "next") return;
+        fake.state.observedPath = "/options";
+        fake.state.present = new Set(["use-passkey", "use-password"]);
+        fake.state.extracted = { "signed-in": choicePage };
+        fake.state.signs = noSigns;
+      };
+      const service = generation(undefined, async () => ({ verdict: "optional" }));
+      const h = start(service, { recipe: identifierOnly });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => service.judge.mock.calls.length === 1);
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(executed()).toEqual(["fill:email", "click:next"]);
+      // Not known to be signed in: it settles as an undecided page that does not complete.
+      expect(status()![0]).toMatchObject({ state: "reconciling", outcome: "unknown-submit" });
+    });
+
+    it("fails closed as a challenge when its description left out a choice", async () => {
+      checkup();
+      const service = generation(undefined, async () => ({ verdict: "optional" }));
+      // The page offers how to receive a code as radio buttons, which no candidate names.
+      fake.state.onExecute = (
+        (inner) => async (message: Record<string, unknown>, tabId: number) => {
+          await inner!(message, tabId);
+          if (fake.state.observedPath === "/checkup")
+            fake.state.extracted = { "signed-in": { ...checkupPage, inputLeftOut: true } };
+        }
+      )(fake.state.onExecute);
+      const h = start(service, { recipe: passwordRecipe });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("watching"));
+      expect(executed()).toEqual(steps);
+      expect(service.judge).toHaveBeenCalledTimes(1);
+      expect(status()![0]).toMatchObject({ outcome: "challenge" });
+    });
+
+    it("fails closed as a challenge when the page shows a code field", async () => {
+      checkup({ code: true });
+      const service = generation(undefined, async () => ({ verdict: "optional" }));
+      const h = start(service, { recipe: passwordRecipe });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("watching"));
+      expect(executed()).toEqual(steps);
+      expect(service.judge).toHaveBeenCalledTimes(1);
+      expect(status()![0]).toMatchObject({ outcome: "challenge" });
     });
   });
 
@@ -25184,7 +26684,7 @@ describe("an item without a password, up to its password (ADR 0036)", () => {
           tabId: 1,
           text: "!",
           title:
-            "Pateat: the login did not succeed (no-route: password-empty:no-passkey). Open Pateat for details.",
+            "Pateat: the login did not succeed (no-route: password-empty:no-passkey). Click for details.",
         }),
       ),
     );
@@ -25317,6 +26817,93 @@ describe("an item without a password, up to its password (ADR 0036)", () => {
       expect(passwordRead(h)).toBe(false);
     },
   );
+
+  it("judges a later page of the login watched at its stop and completes it signed in", async () => {
+    vi.useFakeTimers();
+    // Watched at the stop with nothing in flight, the login judges the watch's own pages as
+    // any watched login does (ADR 0036 rules 4 and 5, ADR 0027).
+    const { judge, generation } = judging({ verdict: "signed-in" });
+    const { h, report } = start({ generation });
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => status()?.[0]?.["state"] === "watching");
+    expect(status()![0]).toMatchObject({ outcome: "challenge", stepIndex: 2, stopAt: 2 });
+    expect(status()![0]!["operationId"]).toBeUndefined();
+    const sent = judge.mock.calls.length;
+    // The person signs in some other way; the tab opens a page of the origin.
+    fake.state.signs = quiet;
+    fake.state.pageUrl = `${origin}/home`;
+    fake.state.observedPath = "/home";
+    fake.state.present = new Set();
+    fake.state.extracted = { "signed-in": described("/home") };
+    expect(await h.hello({ documentId: "home-document" }, false)).toMatchObject({ ok: true });
+    await until(() => status()?.[0]?.["state"] !== "watching");
+    expect(judge).toHaveBeenCalledTimes(sent + 1);
+    expect(status()![0]).toMatchObject({ state: "authenticated", outcome: "authenticated" });
+    expect(judgements(report).at(-1)).toMatchObject({ verdict: "signed-in", watched: true });
+    expect(executed().map((step) => step.kind)).toEqual(["fill", "click"]);
+    expect(passwordRead(h)).toBe(false);
+  });
+
+  it("keeps the login watched at its stop when a later page is judged rejected", async () => {
+    vi.useFakeTimers();
+    // No password was submitted, so the judge's rejection refuses none (ADR 0036).
+    const { judge, generation } = judging({ verdict: "rejected" });
+    const { h, report } = start({ generation });
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => status()?.[0]?.["state"] === "watching");
+    const sent = judge.mock.calls.length;
+    fake.state.signs = quiet;
+    fake.state.pageUrl = `${origin}/home`;
+    fake.state.observedPath = "/home";
+    fake.state.present = new Set();
+    fake.state.extracted = { "signed-in": described("/home") };
+    expect(await h.hello({ documentId: "home-document" }, false)).toMatchObject({ ok: true });
+    await until(() => judge.mock.calls.length === sent + 1);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(status()![0]).toMatchObject({ state: "watching", outcome: "challenge" });
+    expect(judgements(report).at(-1)).toMatchObject({ verdict: "rejected", watched: true });
+    expect(passwordRead(h)).toBe(false);
+  });
+
+  it("stays watched at its stop when a later page is judged optional (ADR 0065)", async () => {
+    vi.useFakeTimers();
+    // No password was submitted, so an optional page proves no sign-in.
+    const { judge, generation } = judging({ verdict: "optional" });
+    const { h, report } = start({ generation });
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => status()?.[0]?.["state"] === "watching");
+    const sent = judge.mock.calls.length;
+    fake.state.signs = quiet;
+    fake.state.pageUrl = `${origin}/home`;
+    fake.state.observedPath = "/home";
+    fake.state.present = new Set();
+    fake.state.extracted = { "signed-in": described("/home") };
+    expect(await h.hello({ documentId: "home-document" }, false)).toMatchObject({ ok: true });
+    await until(() => judge.mock.calls.length === sent + 1);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(status()![0]).toMatchObject({ state: "watching", outcome: "challenge" });
+    expect(judgements(report).at(-1)).toMatchObject({ verdict: "optional", watched: true });
+    expect(passwordRead(h)).toBe(false);
+  });
+
+  it("ends challenge, watched, at the stop on an optional answer (ADR 0065)", async () => {
+    vi.useFakeTimers();
+    const { judge, generation } = judging({ verdict: "optional" });
+    const { h, report } = start({ generation });
+    nextLeadsTo("/verify");
+    fake.state.signs = quiet;
+    fake.state.extracted = { "signed-in": described("/verify") };
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => status()?.[0]?.["state"] === "watching");
+    expect(status()![0]).toMatchObject({ outcome: "challenge", stepIndex: 1 });
+    expect(judge).toHaveBeenCalledTimes(1);
+    expect(judgements(report).at(-1)).toMatchObject({
+      verdict: "optional",
+      notCompleted: "password-empty",
+    });
+    expect(judgements(report).at(-1)).not.toHaveProperty("completed");
+    expect(passwordRead(h)).toBe(false);
+  });
 
   it("ends at the stop when the attempt refuses the answer", async () => {
     vi.useFakeTimers();

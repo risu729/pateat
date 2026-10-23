@@ -7,6 +7,10 @@ import {
   chooserRoute,
   CHOOSER_ENTRY_TARGET,
   continuesRecipe,
+  DETAIL_HANDLER_SLOT,
+  detailLength,
+  handlerFact,
+  manualDetails,
   extendsRecipe,
   refillsLoginSlot,
   handlerSteps,
@@ -42,6 +46,7 @@ import {
   parseLoginOperation,
   parseLoginRecipe,
   resolveLoginPlan,
+  type ChooserClick,
   type LoginAccountBinding,
   type LoginRecipe,
   type LoginTarget,
@@ -994,6 +999,184 @@ describe("second-factor page handlers (ADR 0027)", () => {
             expiresAt: 15_000,
           }).step,
         ).toEqual(step);
+    });
+
+    it("types the code as its submission when the page shows no button (#916)", () => {
+      const { target: _, ...buttonless } = code();
+      const parsed = parseLoginRecipe(withHandlers([buttonless])).handlers![0]!;
+      expect(parsed).toEqual({
+        kind: "totp",
+        path: "/two-factor",
+        field: { by: "id", value: "otp" },
+      });
+      expect(handlerTargets(parsed)).toEqual([{ by: "id", value: "otp" }]);
+      expect(handlerSteps(parsed)).toEqual([
+        {
+          kind: "fill",
+          path: "/two-factor",
+          fields: [{ slot: "totp", target: { by: "id", value: "otp" } }],
+          effect: "submit",
+          event: "input",
+        },
+      ]);
+    });
+  });
+
+  describe("the detail handler (ADR 0061)", () => {
+    // A synthetic page that asks for a birth year and month or a phone's last four digits.
+    const birth = { detail: "birth-date" as const, format: "yyyymm" as const, target: id("birth") };
+    const phone = { detail: "phone-last-4" as const, target: id("phone") };
+    const confirm = id("confirm");
+    function id(value: string) {
+      return { by: "id" as const, value };
+    }
+    const detail = (change: Record<string, unknown> = {}) => ({
+      kind: "detail" as const,
+      path: "/verify",
+      fields: [birth, phone],
+      target: confirm,
+      ...change,
+    });
+    const parses = (handlers: unknown[]) =>
+      v.safeParse(loginRecipeSchema, withHandlers(handlers)).success;
+
+    it("accepts one to three inputs and their button beside other handlers on one path", () => {
+      const handlers = [detail(), passkeyHandler("/verify")];
+      expect(parseLoginRecipe(withHandlers(handlers)).handlers).toEqual(handlers);
+      const card = { detail: "card-last-4" as const, target: id("card") };
+      const code = { detail: "card-code" as const, target: { by: "label" as const, value: "CVC" } };
+      for (const fields of [[phone], [birth, phone, card], [code]])
+        expect(parses([detail({ fields })])).toBe(true);
+      for (const format of ["yyyymmdd", "yyyymm", "yyyy-mm-dd", "yyyy/mm/dd", "mmdd"])
+        expect(parses([detail({ fields: [{ ...birth, format }] })])).toBe(true);
+      // A totp handler on the same path is a handler of another kind.
+      expect(
+        parses([
+          detail(),
+          { kind: "totp", path: "/verify", field: id("otp"), target: id("verify") },
+        ]),
+      ).toBe(true);
+    });
+
+    it("refuses a birth date without a format and another detail with one", () => {
+      const { format: _format, ...unformatted } = birth;
+      expect(parses([detail({ fields: [unformatted] })])).toBe(false);
+      expect(parses([detail({ fields: [{ ...phone, format: "yyyymm" }] })])).toBe(false);
+      expect(parses([detail({ fields: [{ ...birth, format: "ddmmyyyy" }] })])).toBe(false);
+      expect(parses([detail({ fields: [{ ...phone, detail: "pin" }] })])).toBe(false);
+    });
+
+    it("refuses no input, four inputs, a duplicate input and an input that is its button", () => {
+      const card = { detail: "card-last-4" as const, target: id("card") };
+      const code = { detail: "card-code" as const, target: id("code") };
+      expect(parses([detail({ fields: [] })])).toBe(false);
+      expect(parses([detail({ fields: [birth, phone, card, code] })])).toBe(false);
+      // The same input twice, even for two details.
+      expect(parses([detail({ fields: [phone, { ...card, target: id("phone") }] })])).toBe(false);
+      expect(parses([detail({ fields: [birth, { ...phone, target: confirm }] })])).toBe(false);
+      // A text locator names no input, and a second detail handler per path is refused.
+      expect(
+        parses([detail({ fields: [{ ...phone, target: { by: "text", value: "Phone" } }] })]),
+      ).toBe(false);
+      expect(parses([detail(), detail({ fields: [phone], target: id("other") })])).toBe(false);
+      // An input or button named by its accessible name, or a handler without a button.
+      expect(
+        parses([detail({ target: { by: "accessible-name", value: "Confirm the details." } })]),
+      ).toBe(false);
+      const { target: _target, ...buttonless } = detail();
+      expect(parses([buttonless])).toBe(false);
+    });
+
+    it("refuses an input or button that a route step uses on its path, not elsewhere", () => {
+      // The route fills branch and account and clicks next on /identity, and types the
+      // password and clicks login on /password.
+      for (const handler of [
+        detail({ path: "/identity", fields: [{ ...phone, target: id("account") }] }),
+        detail({ path: "/identity", target: id("next") }),
+        detail({ path: "/password", fields: [birth, { ...phone, target: id("password") }] }),
+        detail({ path: "/password", target: id("login") }),
+      ])
+        expect(() => parseLoginRecipe(withHandlers([handler]))).toThrow(
+          "The code field or a detail handler's element is a route step target",
+        );
+      // On a route path, inputs and a button of its own are allowed.
+      expect(parses([detail({ path: "/identity" })])).toBe(true);
+      // On another path the same locators name other elements.
+      expect(
+        parses([detail({ fields: [{ ...phone, target: id("account") }], target: id("login") })]),
+      ).toBe(true);
+    });
+
+    it("refuses a route step that fills a slot named as a detail handler's", () => {
+      const base = recipe();
+      const named = {
+        ...base,
+        slots: ["branch", "detail", "password"],
+        steps: base.steps.map((step) =>
+          step.kind === "fill" && step.path === "/identity"
+            ? {
+                ...step,
+                fields: step.fields.map((field) =>
+                  field.slot === "account" ? { ...field, slot: "detail" } : field,
+                ),
+              }
+            : step,
+        ),
+      };
+      expect(() => parseLoginRecipe(named)).toThrow("a route slot is named as a detail handler's");
+    });
+
+    it("lists its inputs, then its button, and fills the input at field before the click", () => {
+      expect(handlerTargets(detail())).toEqual([birth.target, phone.target, confirm]);
+      const fill = (target: unknown) => ({
+        kind: "fill",
+        path: "/verify",
+        fields: [{ slot: DETAIL_HANDLER_SLOT, target }],
+        effect: "prepare",
+      });
+      const click = { kind: "click", path: "/verify", target: confirm, purpose: "submit" };
+      expect(DETAIL_HANDLER_SLOT).toBe("detail");
+      expect(handlerSteps(detail())).toEqual([fill(birth.target), click]);
+      expect(handlerSteps(detail(), 0)).toEqual([fill(birth.target), click]);
+      expect(handlerSteps(detail(), 1)).toEqual([fill(phone.target), click]);
+      // A field past the inputs falls back to the first.
+      expect(handlerSteps(detail(), 5)).toEqual([fill(birth.target), click]);
+      // Both are valid recipe steps.
+      for (const step of handlerSteps(detail(), 1))
+        expect(
+          parseLoginOperation({
+            version: 1,
+            attemptId: "attempt-one",
+            operationId: "operation-one",
+            policyRevision: 4,
+            document: {
+              origin: "https://bank.example",
+              tabId: 11,
+              frameId: 0,
+              documentId: "document-one",
+            },
+            stepIndex: 2,
+            step,
+            expiresAt: 15_000,
+          }).step,
+        ).toEqual(step);
+    });
+
+    it("requires no item fact, fills no detail by hand yet, and sizes each detail's value", () => {
+      expect(handlerFact.detail).toBeUndefined();
+      expect(manualDetails).toEqual([]);
+      expect(detailLength({ detail: "phone-last-4" })).toBe(4);
+      expect(detailLength({ detail: "card-last-4" })).toBe(4);
+      expect(detailLength({ detail: "card-code" })).toBe(3);
+      expect(detailLength({ detail: "birth-date" })).toBe(8);
+      for (const [format, length] of [
+        ["yyyymmdd", 8],
+        ["yyyymm", 6],
+        ["yyyy-mm-dd", 10],
+        ["yyyy/mm/dd", 10],
+        ["mmdd", 4],
+      ] as const)
+        expect(detailLength({ detail: "birth-date", format })).toBe(length);
     });
   });
 
@@ -2620,6 +2803,106 @@ describe("chooser recipes (ADR 0028)", () => {
       revision: 2,
     });
     expect(chooserRoute(elsewhere, "other-shown")).toBeUndefined();
+  });
+
+  it("never holds a branch whose route with the click on the list is no recipe", () => {
+    const base = v.parse(
+      loginChooserRecipeSchema,
+      chooser({ continue: { by: "text", value: "Log back in" } }),
+    );
+    const clickStep = (index: number, purpose: "advance" | "submit" = "advance") => ({
+      kind: "click" as const,
+      path: `/page-${index}`,
+      target: { by: "id" as const, value: `next-${index}` },
+      purpose,
+    });
+    const password = (index: number) => ({
+      kind: "fill" as const,
+      effect: "prepare" as const,
+      path: `/page-${index}`,
+      fields: [{ slot: "password", target: { by: "id" as const, value: "password" } }],
+    });
+    const branch = (steps: LoginRecipe["steps"], maxSubmissions: number, extra = {}) => ({
+      ...recipe(),
+      slots: ["password"],
+      steps,
+      maxSubmissions,
+      ...extra,
+    });
+    // As many effects as a recipe may have: the click on the list adds one more.
+    const effects = (count: number) =>
+      branch(
+        [
+          password(0),
+          ...Array.from({ length: count }, (_, index) =>
+            clickStep(index, index === count - 1 ? "submit" : "advance"),
+          ),
+        ],
+        count,
+      );
+    // As many steps as a recipe may have: the click on the list adds one more.
+    const steps = (count: number) =>
+      branch(
+        [
+          ...Array.from({ length: count - 1 }, (_, index) => password(index)),
+          clickStep(count - 1, "submit"),
+        ],
+        1,
+      );
+    // A marker on the button the login clicks on the list would prove the sign-in there.
+    const marked = (target: LoginTarget) =>
+      branch([password(0), clickStep(0, "submit")], 1, {
+        completion: [{ target }],
+      });
+    const cases: [ChooserClick, ReturnType<typeof branch>][] = [
+      ["entry", effects(8)],
+      ["other", effects(8)],
+      ["entry", steps(32)],
+      ["other", steps(32)],
+      ["entry", marked(CHOOSER_ENTRY_TARGET)],
+      ["continue", marked(base.chooser.continue!)],
+      ["other", marked(base.chooser.other!)],
+    ];
+    for (const [click, invalid] of cases) {
+      expect(v.is(loginRecipeSchema, invalid)).toBe(true);
+      const held = withChooserBranch(base, chooserClickBranch(click), invalid);
+      expect(chooserRoute(held, click)).toBeUndefined();
+      expect
+        .soft(v.is(loginChooserRecipeSchema, held), `${click} after ${invalid.steps.length} steps`)
+        .toBe(false);
+      // The stored chooser holds the same branch in its layout (ADR 0060).
+      const stored = {
+        ...chooser(),
+        chooser: { path: "/login", layouts: [toChooserLayout(held, { key: "1", createdAt: 1 })] },
+      };
+      expect.soft(v.is(loginChooserDocumentSchema, stored)).toBe(false);
+      expect.soft(v.is(storedLoginRecipeSchema, stored)).toBe(false);
+      // A second layout that runs does not make the stored chooser hold the first.
+      const valid = {
+        ...stored,
+        chooser: {
+          path: "/login",
+          layouts: [toChooserLayout(base, { key: "2", createdAt: 2 }), ...stored.chooser.layouts],
+        },
+      };
+      expect.soft(v.is(storedLoginRecipeSchema, valid)).toBe(false);
+    }
+    // One effect or step fewer runs with the click.
+    for (const member of ["account", "other"] as const)
+      for (const valid of [effects(7), steps(31), marked({ by: "id", value: "signed-in" })]) {
+        const held = withChooserBranch(base, member, valid);
+        expect(v.is(loginChooserRecipeSchema, held)).toBe(true);
+        expect(chooserRoute(held, member === "account" ? "entry" : "other")).toBeDefined();
+        expect(
+          v.is(storedLoginRecipeSchema, {
+            ...chooser(),
+            chooser: {
+              path: "/login",
+              layouts: [toChooserLayout(held, { key: "1", createdAt: 1 })],
+            },
+          }),
+        ).toBe(true);
+      }
   });
 });
 

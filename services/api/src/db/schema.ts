@@ -306,7 +306,8 @@ export const inferenceLog = sqliteTable(
     /**
      * The validated result (a plan, a judgement or an abstention reason); for
      * `invalid-output`, the check that refused the output and the refused plan reduced to
-     * references (`{ rejection, output? }`); otherwise null.
+     * references (`{ rejection, output? }`); for `refused`, the provider's refusal
+     * category code when it reported one (`{ refusalCategory }`); otherwise null.
      */
     result: text("result", { mode: "json" }),
     /**
@@ -498,6 +499,44 @@ export const loginTimings = sqliteTable(
 );
 
 /**
+ * The `warn` and `error` lines of devices' local logs, and the `info` lines that say why
+ * Pateat did nothing (ADR 0066), as the extension let them leave: the event, its level,
+ * the device's time and its allowlisted fields as JSON, such as `origin`, `recipe`,
+ * `outcome` and `cause`. One row per line; a device's retry repeats its log ID and `seq`
+ * and changes nothing. Kept a year, and deleted with the request log.
+ */
+export const problemLog = sqliteTable(
+  "problem_log",
+  {
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => owners.id),
+    deviceId: text("device_id")
+      .notNull()
+      .references(() => devices.id),
+    /** The device log's random ID; a log made again on the device has another. */
+    logId: text("log_id").notNull(),
+    /** The local log's own key in that log. */
+    seq: integer("seq").notNull(),
+    /** The extension commit that wrote the line, or `development`. */
+    extensionBuild: text("extension_build").notNull(),
+    level: text("level", { enum: ["info", "warn", "error"] }).notNull(),
+    /** A local log event name, such as `login.attempt`. */
+    event: text("event").notNull(),
+    /** The line's fields as a JSON object of strings, integers and booleans. */
+    fields: text("fields").notNull(),
+    /** When the device wrote the line, by its clock. */
+    loggedAt: integer("logged_at").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.deviceId, table.logId, table.seq] }),
+    index("problem_log_owner_created").on(table.ownerId, table.createdAt),
+    index("problem_log_created").on(table.createdAt),
+  ],
+);
+
+/**
  * Model calls and estimated spend per owner and period: a `YYYY-MM` row for the monthly
  * spend stop and a `YYYY-MM-DD` row for the daily one (UTC).
  */
@@ -548,12 +587,14 @@ export const generationAttempts = sqliteTable(
 /**
  * What the judge answered for a page; `unclear` when the model abstained (ADR 0029), and
  * `partial` when it abstained on a description that left out a disabled field, so the
- * path is judged again once it is described in full.
+ * path is judged again once it is described in full; `optional` for a page after the
+ * sign-in that the person may put off (ADR 0065).
  */
 export const pageJudgementVerdicts = [
   "signed-in",
   "challenge",
   "rejected",
+  "optional",
   "unclear",
   "partial",
 ] as const;

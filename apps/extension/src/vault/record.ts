@@ -14,6 +14,7 @@ export type VaultErrorCode =
   | "invalid-cache-record"
   | "cache-missing"
   | "auto-unlock-disabled"
+  | "vault-locked"
   | "cache-quota-exceeded"
   | "storage-failed"
   | "storage-uncertain"
@@ -40,6 +41,10 @@ export type VaultEntry = {
   profile: BitwardenProfile;
 } & (
   | { state: "active"; accepted: AcceptedVaultContext; userKey: string }
+  /** Locked (ADR 0075): the sign-in and encrypted context stay, the key is not on disk.
+   * An unlock in this browser session keeps the key in `storage.session` only. */
+  | { state: "locked"; accepted: AcceptedVaultContext }
+  /** Logged out: unlocking needs a password sign-in to the server again. */
   | { state: "disabled"; accepted?: AcceptedVaultContext }
 );
 const uuid = v.pipe(v.string(), v.uuid());
@@ -66,6 +71,7 @@ const entrySchema = v.variant("state", [
       v.check((value) => decodeBase64(value) !== undefined),
     ),
   }),
+  v.strictObject({ ...base, state: v.literal("locked"), accepted: acceptedSchema }),
   v.strictObject({ ...base, state: v.literal("disabled"), accepted: v.optional(acceptedSchema) }),
 ]);
 export function vaultRecordBytes(input: unknown): number {

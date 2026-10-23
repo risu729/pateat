@@ -2062,7 +2062,7 @@ describe("unused recipe revocation (ADR 0058)", () => {
   });
 });
 
-describe("migration 0028 (ADR 0060)", () => {
+describe("migration 0029 (ADR 0060)", () => {
   it("discards old-shape recipes and the rows that named their branches, keeping the logs", async () => {
     const device = await enrollOwner();
     const other = await enrollOwner();
@@ -2109,7 +2109,7 @@ describe("migration 0028 (ADR 0060)", () => {
     ];
     await env.DB.batch([...seed(device), ...seed(other)]);
     const migration = (env as unknown as { TEST_MIGRATIONS: D1Migration[] }).TEST_MIGRATIONS.find(
-      ({ name }) => name.startsWith("0028_"),
+      ({ name }) => name.startsWith("0029_recipe_layouts"),
     );
     // The committed deletions in their order, without comments, scoped to this owner so
     // they leave other tests' rows alone.

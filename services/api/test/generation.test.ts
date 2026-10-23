@@ -432,6 +432,14 @@ async function twoPageRecipe(device: Device) {
   return second.change;
 }
 
+/** Eight offers, each naming a different vault field, at their bounds. */
+const bigSlots = Array.from({ length: 8 }, (_, index) => ({
+  id: `${"s".repeat(62)}${index}`,
+  kind: "identifier" as const,
+  description: WIDE,
+  fieldName: `${"\u3042".repeat(119)}${index}`,
+}));
+
 describe("recipe generation", () => {
   it("stores the first page's kind, which a continuation keeps (ADR 0035)", async () => {
     const device = await owner();
@@ -751,6 +759,23 @@ describe("recipe generation", () => {
     ).toEqual([
       { model_id: "claude-opus-5-5", outcome: "refused" },
       { model_id: "claude-sonnet-5-5", outcome: "refused" },
+    ]);
+  });
+
+  it("logs the provider's refusal category code with a refused call (ADR 0014)", async () => {
+    const device = await owner();
+    replies.push({ refusal: "cyber" }, { refusal: "general_harms" });
+    expect(await generate(device, emailPage)).toMatchObject({ error: "refused" });
+    // The owner approved recording the category code, never the provider's explanation.
+    const logged = await rows(
+      "SELECT outcome, result FROM inference_log WHERE owner_id = ? ORDER BY created_at",
+      device.ownerId,
+    );
+    expect(
+      logged.map(({ outcome, result }) => ({ outcome, result: JSON.parse(String(result)) })),
+    ).toEqual([
+      { outcome: "refused", result: { refusalCategory: "cyber" } },
+      { outcome: "refused", result: { refusalCategory: "general_harms" } },
     ]);
   });
 
@@ -1402,13 +1427,6 @@ describe("recipe generation", () => {
   it("refuses an oversized page locally: no call and no charge, and logs it unsent", async () => {
     const device = await owner();
     const big = bigPage();
-    const bigSlots = Array.from({ length: 8 }, (_, index) => ({
-      id: `${"s".repeat(62)}${index}`,
-      kind: "identifier" as const,
-      description: WIDE,
-      // Each offer names a different vault field.
-      fieldName: `${"\u3042".repeat(119)}${index}`,
-    }));
     const response = await post(device, "/v1/recipes/generate", {
       version: 1,
       observation: big,
@@ -1466,10 +1484,21 @@ describe("recipe generation", () => {
         device.ownerId,
       ),
     ).toEqual([]);
-    // The refusal is deterministic, so it counts toward the retry window.
+    // Nothing reached the model, so the page is not held for the retry window (ADR 0016).
     expect(
       await rows("SELECT path FROM generation_attempts WHERE owner_id = ?", device.ownerId),
-    ).toEqual([{ path: big.path }]);
+    ).toEqual([]);
+  });
+
+  it("gives an oversized page back: a resend is refused again, not recently-tried", async () => {
+    const device = await owner();
+    const request = { version: 1, observation: bigPage(), slots: bigSlots, signedIn: false };
+    const refused = { version: 1, status: "failed", error: "input-too-large" };
+    expect(await (await post(device, "/v1/recipes/generate", request)).json()).toEqual(refused);
+    // No model call was made, so the extension frees the page for its next visit (ADR
+    // 0016); `recently-tried` would tell it the model was called.
+    expect(await (await post(device, "/v1/recipes/generate", request)).json()).toEqual(refused);
+    expect(sent).toEqual([]);
   });
 
   it("answers a conflict when this origin's recipe ID holds another origin", async () => {
@@ -3343,6 +3372,22 @@ describe("page judgement (ADR 0027)", () => {
     expect(sent).toHaveLength(calls + 1);
   });
 
+  it("gives an oversized page back without a verdict row or a judgement of the day", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    const calls = sent.length;
+    const big = bigPage();
+    const refused = { version: 1, status: "failed", error: "input-too-large" };
+    expect(await complete(device, change.recipeId, 2, big)).toEqual({ status: 200, body: refused });
+    expect(sent).toHaveLength(calls);
+    // Nothing reached the model, so the page gives the judgement back (ADR 0027): its
+    // resend is refused locally again, not `judgement-unanswered`, and no row holds the
+    // path without a verdict or counts toward the recipe's 20 a day.
+    expect((await complete(device, change.recipeId, 2, big)).body).toEqual(refused);
+    expect(sent).toHaveLength(calls);
+    expect(await judgements(device)).toEqual([]);
+  });
+
   it("judges a recipe at most 20 times a UTC day, whatever the path", async () => {
     const device = await owner();
     const change = await twoPageRecipe(device);
@@ -3475,6 +3520,72 @@ describe("page judgement (ADR 0027)", () => {
       status: "challenge",
     });
     expect(await head(device, change.recipeId)).toBe(3);
+  });
+
+  describe("an optional page after the sign-in (ADR 0065)", () => {
+    const checkupPage = observation("/checkup", [
+      element("verify", "button", "Verify now"),
+      element("remind-later", "button", "Remind me later"),
+      element("logout", "button", "Sign out"),
+    ]);
+
+    it("answers optional, learns nothing and judges the path again on a later login", async () => {
+      const device = await owner();
+      const change = await twoPageRecipe(device);
+      replies.push(judgeReply({ decision: "optional" }));
+      expect((await complete(device, change.recipeId, 2, checkupPage)).body).toEqual({
+        version: 1,
+        status: "optional",
+      });
+      // No marker from a page whose elements may never show on the usual signed-in page.
+      expect(await head(device, change.recipeId)).toBe(2);
+      const verdicts = () =>
+        rows(
+          "SELECT verdict FROM page_judgements WHERE owner_id = ? AND path = '/checkup'",
+          device.ownerId,
+        );
+      expect(await verdicts()).toEqual([{ verdict: "optional" }]);
+      // The judge was told what such a page is.
+      expect(JSON.stringify(sent.at(-1)!.body)).toContain("is optional, not a challenge");
+      // The same path later shows the password form again, as a single-page sign-in does:
+      // the earlier answer is not reused, and the new one replaces it.
+      const calls = sent.length;
+      replies.push(judgeReply({ decision: "challenge" }));
+      expect((await complete(device, change.recipeId, 2, checkupPage)).body).toEqual({
+        version: 1,
+        status: "challenge",
+      });
+      expect(sent).toHaveLength(calls + 1);
+      expect(await verdicts()).toEqual([{ verdict: "challenge" }]);
+    });
+
+    it("stores an optional answer as partial when a disabled field was left out", async () => {
+      const device = await owner();
+      const change = await twoPageRecipe(device);
+      replies.push(judgeReply({ decision: "optional" }));
+      const body = await complete(device, change.recipeId, 2, checkupPage, true);
+      expect(body.body).toEqual({ version: 1, status: "optional" });
+      expect(
+        await rows(
+          "SELECT verdict FROM page_judgements WHERE owner_id = ? AND path = '/checkup'",
+          device.ownerId,
+        ),
+      ).toEqual([{ verdict: "partial" }]);
+    });
+
+    it("answers a challenge for an optional answer on a page with a code field", async () => {
+      const device = await owner();
+      const change = await twoPageRecipe(device);
+      const withCode = observation("/checkup", [
+        element("verify", "button", "Verify now"),
+        { ...element("otp", "text", "Code"), autocomplete: "one-time-code" },
+      ]);
+      replies.push(judgeReply({ decision: "optional" }));
+      expect((await complete(device, change.recipeId, 2, withCode)).body).toEqual({
+        version: 1,
+        status: "challenge",
+      });
+    });
   });
 
   describe("a page that asks how to confirm the sign-in (ADR 0048)", () => {
@@ -3816,6 +3927,116 @@ describe("page judgement (ADR 0027)", () => {
     });
   });
 
+  describe("detail handlers (ADR 0061)", () => {
+    // A synthetic page that asks for the birth year and month or a phone's last 4 digits.
+    const birth = { ...element("birth", "text", "Year and month of birth"), maxLength: 6 };
+    const phone = { ...element("phone", "tel", "Last 4 digits of your phone"), maxLength: 4 };
+    const cardCode = element("card-code", "text", "Security code");
+    const confirm = element("confirm", "button", "Next");
+    const details = [
+      { field: "birth", value: "birth-date", format: "yyyymm" },
+      { field: "phone", value: "phone-last-4" },
+    ];
+
+    it("keeps the inputs that pass their checks with their button, and logs each dropped one", async () => {
+      const device = await owner();
+      const change = await twoPageRecipe(device);
+      const info = vi.spyOn(console, "info").mockImplementation(() => {});
+      replies.push(
+        judgeReply({
+          decision: "challenge",
+          // A security code in a text input without a length is no detail input.
+          details: [...details, { field: "card-code", value: "card-code" }],
+          detailSubmit: "confirm",
+        }),
+      );
+      const page = observation("/login/confirm", [birth, phone, cardCode, confirm]);
+      expect((await complete(device, change.recipeId, 2, page)).body).toMatchObject({
+        status: "challenge",
+        change: {
+          revision: 3,
+          recipe: {
+            revision: 3,
+            steps: route(change.recipe).steps,
+            handlers: [
+              {
+                kind: "detail",
+                path: "/login/confirm",
+                fields: [
+                  { detail: "birth-date", format: "yyyymm", target: { by: "id", value: "birth" } },
+                  { detail: "phone-last-4", target: { by: "id", value: "phone" } },
+                ],
+                target: { by: "id", value: "confirm" },
+              },
+            ],
+          },
+        },
+      });
+      expect(await head(device, change.recipeId)).toBe(3);
+      // Kinds and reasons only: never an element, label or value.
+      expect(info).toHaveBeenCalledWith("Judged page handlers", {
+        recipeId: change.recipeId,
+        handlers: [
+          { kind: "detail", kept: true },
+          { kind: "detail", kept: false, reason: "not-input" },
+        ],
+      });
+      info.mockRestore();
+    });
+
+    it("keeps a detail beside a passkey handler in one revision", async () => {
+      const device = await owner();
+      const change = await twoPageRecipe(device);
+      replies.push(
+        judgeReply({
+          decision: "challenge",
+          passkeyButton: "key",
+          details: [details[1]],
+          detailSubmit: "confirm",
+        }),
+      );
+      const page = observation("/login/confirm", [
+        phone,
+        confirm,
+        element("key", "button", "Use security key"),
+      ]);
+      const judged = await complete(device, change.recipeId, 2, page);
+      expect(judged.body).toMatchObject({ status: "challenge", change: { revision: 3 } });
+      if (!("change" in judged.body) || !judged.body.change) throw new Error("no change");
+      expect(route(judged.body.change.recipe).handlers?.map((handler) => handler.kind)).toEqual([
+        "passkey",
+        "detail",
+      ]);
+    });
+
+    it("answers a plain challenge when no input passes, logging why", async () => {
+      const device = await owner();
+      const change = await twoPageRecipe(device);
+      const info = vi.spyOn(console, "info").mockImplementation(() => {});
+      replies.push(
+        judgeReply({
+          decision: "challenge",
+          details: [{ field: "birth", value: "birth-date" }, details[1]],
+          detailSubmit: "missing",
+        }),
+      );
+      const page = observation("/login/confirm", [birth, phone, confirm]);
+      expect((await complete(device, change.recipeId, 2, page)).body).toEqual({
+        version: 1,
+        status: "challenge",
+      });
+      expect(await head(device, change.recipeId)).toBe(2);
+      expect(info).toHaveBeenCalledWith("Judged page handlers", {
+        recipeId: change.recipeId,
+        handlers: [
+          { kind: "detail", kept: false, reason: "unknown-submit" },
+          { kind: "detail", kept: false, reason: "unknown-submit" },
+        ],
+      });
+      info.mockRestore();
+    });
+  });
+
   it("names a revoked, moved or missing head as stale", async () => {
     const device = await owner();
     const change = await twoPageRecipe(device);
@@ -3978,6 +4199,72 @@ describe("page judgement (ADR 0027)", () => {
           verdict: "challenge",
         },
       ]);
+    });
+
+    it("keeps no detail handler for inputs beside the password field (ADR 0061)", async () => {
+      const device = await owner();
+      const change = await twoPageRecipe(device);
+      const info = vi.spyOn(console, "info").mockImplementation(() => {});
+      const page = observation("/password", [
+        ...stopPage.candidates,
+        { ...element("phone", "tel", "Last 4 digits of your phone"), maxLength: 4 },
+        { ...element("birth", "text", "Year and month of birth"), maxLength: 6 },
+        element("confirm", "button", "Next"),
+      ]);
+      replies.push(
+        judgeReply({
+          decision: "challenge",
+          passkeyButton: "passkey",
+          // One input that passes, and one that its local checks drop.
+          details: [
+            { field: "phone", value: "phone-last-4" },
+            { field: "birth", value: "birth-date" },
+          ],
+          detailSubmit: "confirm",
+        }),
+      );
+      expect(await atStop(device, change.recipeId, 2, page)).toMatchObject({
+        status: 200,
+        body: {
+          version: 1,
+          status: "challenge",
+          change: {
+            revision: 3,
+            recipe: { handlers: [{ kind: "passkey", path: "/password", target: passkey.target }] },
+          },
+        },
+      });
+      // The kept detail is logged as refused at the stop; the dropped input is not logged.
+      expect(info).toHaveBeenCalledWith("Judged page handlers", {
+        recipeId: change.recipeId,
+        handlers: [
+          { kind: "passkey", kept: true },
+          { kind: "detail", kept: false, reason: "stop" },
+        ],
+      });
+      info.mockRestore();
+    });
+
+    it("answers a plain challenge for a stop's page that asks only for a detail", async () => {
+      const device = await owner();
+      const change = await twoPageRecipe(device);
+      const page = observation("/password", [
+        ...stopPage.candidates,
+        { ...element("phone", "tel", "Last 4 digits of your phone"), maxLength: 4 },
+        element("confirm", "button", "Next"),
+      ]);
+      replies.push(
+        judgeReply({
+          decision: "challenge",
+          details: [{ field: "phone", value: "phone-last-4" }],
+          detailSubmit: "confirm",
+        }),
+      );
+      expect((await atStop(device, change.recipeId, 2, page)).body).toEqual({
+        version: 1,
+        status: "challenge",
+      });
+      expect(await head(device, change.recipeId)).toBe(2);
     });
 
     it("keeps no marker, rejection or registration button from the stop's page", async () => {
@@ -7070,6 +7357,44 @@ describe("generation provenance (ADR 0060)", () => {
       "test-revision",
     ])
       expect(document).not.toContain(value);
+  });
+
+  it("records a judged detail handler (ADR 0061) as a handler unit of its layout", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    const { recipeId } = change;
+    const key = (await layoutKey(device.ownerId, recipeId))!;
+    // One judgement keeps a passkey handler and a detail handler: one row each, under the
+    // judge's request log row, in the order they are appended.
+    replies.push(
+      judgeReply({
+        decision: "challenge",
+        passkeyButton: "key",
+        details: [{ field: "phone", value: "phone-last-4" }],
+        detailSubmit: "confirm",
+      }),
+    );
+    const page = observation("/login/confirm", [
+      { ...element("phone", "tel", "Last 4 digits of your phone"), maxLength: 4 },
+      element("confirm", "button", "Next"),
+      element("key", "button", "Use security key"),
+    ]);
+    const judged = await complete(device, recipeId, 2, page);
+    expect(judged.body).toMatchObject({ status: "challenge", change: { revision: 3 } });
+    if (!("change" in judged.body) || !judged.body.change) throw new Error("no change");
+    expect(route(judged.body.change.recipe).handlers?.map((handler) => handler.kind)).toEqual([
+      "passkey",
+      "detail",
+    ]);
+    const written = await sources(device.ownerId, recipeId);
+    expect(written.map(({ unit }) => unit)).toEqual(["page:0", "page:2", "handler:0", "handler:1"]);
+    const unit = (id: string) => written.find((row) => row.unit === id)!;
+    for (const id of ["handler:0", "handler:1"])
+      // oxlint-disable-next-line no-await-in-loop -- Each row is read on its own.
+      await fromCall(device, unit(id), { layout: key, unit: id, origin: "judged", revision: 3 });
+    expect(unit("handler:1").log_id).toBe(unit("handler:0").log_id);
+    expect(unit("handler:1").prompt_version).toBe(await completionPromptVersion());
+    await digestsMatch(device.ownerId, recipeId);
   });
 
   it("names a chooser's list and each branch's units under the branch", async () => {

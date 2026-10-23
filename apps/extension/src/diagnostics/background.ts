@@ -2,6 +2,7 @@
 import type { LocalSettings } from "@pateat/contracts";
 import * as v from "valibot";
 import type { VaultSyncOutcome } from "../connections/auto-sync";
+import type { VaultTimeoutReport } from "../vault/timeout";
 import type { SignInStep } from "../connections/runtime";
 import type { RefreshReport } from "../connections/sessions";
 import type { SetupReply } from "../connections/types";
@@ -10,6 +11,7 @@ import type { PasskeyCreateReport } from "../passkeys/create";
 import type { PasskeyRequestReport } from "../passkeys/runtime";
 import type { LoginRecordSent } from "../service/login-records";
 import type { LoginOutcomeSent } from "../service/outcomes";
+import type { ProblemsSent } from "../service/problems";
 import type { RecipeUseSent } from "../service/recipe-use";
 import type { RecipeSyncChanges, RecipeSyncOutcome } from "../service/recipes";
 import type { ServiceTiming } from "../service/transport";
@@ -83,6 +85,8 @@ export function createDiagnosticsLog(options: {
   settings(): Promise<{ revision: number; settings: LocalSettings }>;
   recipeCache(): Promise<unknown>;
   connections(): Promise<SetupReply>;
+  /** Told after each entry is stored that goes to the service (ADR 0066). */
+  onProblem?: () => void;
   /** For tests: another database and event target than the worker's. */
   databaseName?: string;
   scope?: Pick<typeof globalThis, "addEventListener">;
@@ -92,6 +96,7 @@ export function createDiagnosticsLog(options: {
   );
   const logger = createLogger({
     pseudonym: pseudonyms,
+    ...(options.onProblem ? { onProblem: options.onProblem } : {}),
     ...(options.databaseName ? { databaseName: options.databaseName } : {}),
     build: options.build,
     async knownSites(): Promise<KnownSites> {
@@ -259,6 +264,12 @@ export function createDiagnosticsLog(options: {
         },
       );
     },
+    /** The vault timeout acted (ADR 0075): info when every vault closed, else warn. */
+    vaultTimeout(event: VaultTimeoutReport) {
+      void logger.log("vault.timeout", event, {
+        level: event.outcome === "done" ? "info" : "warn",
+      });
+    },
     /**
      * A Bitwarden refresh request: debug when it succeeded, info when none was sent and why,
      * else warn.
@@ -367,6 +378,17 @@ export function createDiagnosticsLog(options: {
       );
     },
     /**
+     * Warning and error lines sent to the service (ADR 0066): debug when kept, else
+     * info, never warn, so a failed send does not become a line to send in turn.
+     */
+    problemsSent(sent: ProblemsSent) {
+      void logger.log(
+        "service.problems",
+        { lines: sent.lines, result: sent.result },
+        { level: sent.result === "kept" ? "debug" : "info" },
+      );
+    },
+    /**
      * Settings were synced from the service or saved on the settings page: running logins
      * and passkey requests stop. The entry carries the settings revision read when it is written.
      */
@@ -393,6 +415,10 @@ export function createDiagnosticsLog(options: {
             recipe: report.recipeId,
             recipeRevision: report.recipeRevision,
             pageKind: report.pageKind,
+            amount: report.amount,
+            e1: report.e1,
+            e2: report.e2,
+            previousUrl: report.previousUrl,
             frame: report.frame,
           },
           {
@@ -452,6 +478,20 @@ export function createDiagnosticsLog(options: {
           },
           { source },
         );
+      else if (report.type === "confirm-left")
+        void logger.log(
+          "login.confirm-left",
+          {
+            origin: report.origin,
+            recipe: report.recipeId,
+            recipeRevision: report.recipeRevision,
+            pageKind: report.pageKind,
+            personSubmitted: report.personSubmitted,
+            nextE1: report.nextE1,
+            url: report.url,
+          },
+          { source },
+        );
       else if (report.type === "ask-ended")
         void logger.log(
           "login.ask-ended",
@@ -503,6 +543,7 @@ export function createDiagnosticsLog(options: {
             route: report.route,
             state: report.state,
             step: report.stepIndex,
+            unsubmitted: report.unsubmitted,
             name: report.name,
             // Engine messages can quote input; only Pateat's own codes are kept.
             message:
@@ -749,6 +790,7 @@ export function createDiagnosticsLog(options: {
             reason: report.reason,
             settled: report.settled,
             unconfirmed: report.unconfirmed,
+            unsubmitted: report.unsubmitted,
             routeChange: report.routeChange,
             stop: report.stop,
             ...report.times,

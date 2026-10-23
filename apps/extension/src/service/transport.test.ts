@@ -1,3 +1,4 @@
+import type { ProblemReport } from "@pateat/contracts";
 import { describe, expect, it, vi } from "vitest";
 import {
   DEVICE_TIMEOUT_MS,
@@ -814,6 +815,45 @@ describe("reportUse", () => {
       throw new TypeError("Failed to fetch");
     });
     expect(await send(fetch)).toEqual({ kind: "failed", error: "unreachable" });
+  });
+});
+
+describe("reportProblems (ADR 0066)", () => {
+  const report: ProblemReport = {
+    version: 1,
+    extensionBuild: "1c42ad3",
+    logId: "0123456789abcdef0123456789abcdef",
+    entries: [{ seq: 1, time: 1, level: "warn", event: "vault.sync", fields: {} }],
+  };
+  const send = (fetch: typeof globalThis.fetch) =>
+    createServiceTransport({ fetch }).reportProblems(ORIGIN, CREDENTIAL, report);
+
+  it("posts the lines with the device credential", async () => {
+    const fetch = respond(204);
+    expect(await send(fetch)).toEqual({ kind: "kept" });
+    const [url, init] = fetch.mock.calls[0]!;
+    expect(url).toBe(`${ORIGIN}/v1/device/problems`);
+    expect(init).toMatchObject({ method: "POST", credentials: "omit" });
+    expect(JSON.parse(init!.body as string)).toEqual(report);
+  });
+
+  it("passes on how long a rate limit asks to wait", async () => {
+    expect(
+      await send(respond(429, { error: "rate_limited" }, { headers: { "Retry-After": "3600" } })),
+    ).toEqual({ kind: "failed", error: "rate-limited", retryAfterMs: 3_600_000 });
+    expect(
+      await send(respond(429, { error: "rate_limited" }, { headers: { "Retry-After": "soon" } })),
+    ).toEqual({ kind: "failed", error: "rate-limited" });
+    expect(await send(respond(400, { error: "bad_request" }))).toEqual({ kind: "refused" });
+  });
+
+  it("keeps the lines when the service does not have the route yet", async () => {
+    for (const status of [404, 405])
+      // oxlint-disable-next-line no-await-in-loop -- one answer at a time
+      expect(await send(respond(status, { error: "not_found" }))).toEqual({
+        kind: "failed",
+        error: "unexpected-response",
+      });
   });
 });
 

@@ -6,6 +6,7 @@ import {
   problemCounts,
   plural,
   serverLabel,
+  syncKeyKept,
   syncSignIn,
   type DiagnosticTranslator,
 } from "./labels";
@@ -28,7 +29,7 @@ export function diagnosticsCheckLabel(
   if (item) {
     if (check.id === `vault:${item.id}`) {
       if (item.storageError) return `${item.id} ${item.storageError}`;
-      if (["review-required", "unavailable", "disabled"].includes(item.state))
+      if (["review-required", "unavailable", "locked", "disabled"].includes(item.state))
         return `${item.id} ${diagnosticsCode(item.state, t)}`;
       return t("{{id}} vault cache {{state}}", {
         id: item.id,
@@ -39,12 +40,12 @@ export function diagnosticsCheckLabel(
       if (
         item.state === "disabled" &&
         item.providerSession !== "active" &&
-        !(item.providerSession === "refresh-required" && item.autoUnlock === "enabled")
+        !(item.providerSession === "refresh-required" && syncKeyKept(item))
       )
         return t("{{id}} sync sign-in not used", { id: item.id });
       const label = `${item.id} ${syncSignIn(item.providerSession, t)}`;
-      return item.providerSession === "refresh-required" && item.autoUnlock !== "enabled"
-        ? t("{{label}}; Sync needs auto-unlock", { label })
+      return item.providerSession === "refresh-required" && !syncKeyKept(item)
+        ? t("{{label}}; Sync needs the vault unlocked", { label })
         : label;
     }
     if (check.id === `vault-age:${item.id}` && item.acceptedAt !== undefined) {

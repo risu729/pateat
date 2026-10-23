@@ -413,6 +413,76 @@ describe("password button on a page that asks how to verify (ADR 0048)", () => {
   });
 });
 
+describe("optional page after the sign-in (ADR 0065)", () => {
+  // A synthetic page shown after the sign-in that asks to check two-factor settings and can
+  // be put off.
+  const checkup = {
+    ...signedIn,
+    path: "/checkup",
+    title: "Verify your two-factor settings",
+    headings: ["Verify your two-factor authentication settings"],
+    candidates: [
+      { id: "verify", role: "button", target: { by: "id", value: "verify" }, label: "Verify now" },
+      {
+        id: "later",
+        role: "button",
+        target: { by: "id", value: "later" },
+        label: "Remind me later",
+      },
+    ],
+  };
+  const optional = { ...request, observation: checkup };
+  const withField = (field: Record<string, unknown>) => ({
+    ...optional,
+    observation: {
+      ...checkup,
+      candidates: [...checkup.candidates, { target: { by: "id", value: "f" }, ...field }],
+    },
+  });
+
+  it("passes an optional page through, logged without any element", async () => {
+    const outcome = await judgeReturning({ decision: "optional" }).judge(optional);
+    expect(outcome).toMatchObject({ status: "ok", value: { decision: "optional" } });
+    expect(outcome.answer).toEqual({ decision: "optional" });
+  });
+
+  it.each([
+    ["a password field", { id: "pw", role: "password", label: "Password" }],
+    ["a username field", { id: "user", role: "email", autocomplete: "username" }],
+    ["a one-time-code field", { id: "otp", role: "text", autocomplete: "one-time-code" }],
+    ["a numeric code field", { id: "otp", role: "text", inputMode: "numeric", maxLength: 6 }],
+    ["a plain email field", { id: "mail", role: "email", label: "Recovery email" }],
+    ["a phone field", { id: "phone", role: "tel", label: "Phone number" }],
+    ["a text field", { id: "answer", role: "text", label: "Your answer" }],
+  ])("reads an optional answer on a page with %s as a challenge", async (_name, field) => {
+    const outcome = await judgeReturning({ decision: "optional" }).judge(withField(field));
+    expect(outcome).toMatchObject({ status: "ok", value: { decision: "challenge" } });
+    // The log keeps the model's own answer.
+    expect(outcome.answer).toEqual({ decision: "optional" });
+  });
+
+  it.each([
+    ["by its label", { label: "Search" }],
+    ["by its placeholder", { placeholder: "サイト内検索" }],
+    ["by its input mode", { inputMode: "search" }],
+  ])("keeps an optional page with a search box %s optional", async (_name, extra) => {
+    const field = { id: "q", role: "text", ...extra };
+    expect(await judgeReturning({ decision: "optional" }).judge(withField(field))).toMatchObject({
+      status: "ok",
+      value: { decision: "optional" },
+    });
+  });
+
+  it("tells the model what such a page is and what stays a challenge", () => {
+    expect(completionInstructions).toMatch(
+      /A page shown after the sign-in whose content is only an offer or reminder the person may put off, .* is optional, not a challenge and not signed-in, but only when the person is already signed in and could reach the account without acting on the page\./u,
+    );
+    expect(completionInstructions).toMatch(
+      /A page that asks for a choice of how to sign in, a password, a code, a CAPTCHA, an approval on another device, a confirmation of the sign-in or another step before the account opens is a challenge, never optional, and so is a security notice about this sign-in, .* even one with Dismiss\./u,
+    );
+  });
+});
+
 describe("TOTP code on a challenge page (ADR 0027)", () => {
   const codeField = {
     id: "code",
@@ -529,7 +599,7 @@ describe("TOTP code on a challenge page (ADR 0027)", () => {
   it("tells the model to say where the code comes from", () => {
     // A bare challenge on a code page left no handler and no reason (Resend, 2026-10-12).
     expect(completionInstructions).toMatch(
-      /A challenge that asks for a code always fills code: its field, submit and source\./u,
+      /A challenge that asks for a code always fills code: its field, source and submit, which is left out only when no button on the page submits the code/u,
     );
     // A page that says neither answers unknown, which keeps the code (owner, 2026-10-13).
     expect(completionInstructions).toMatch(
@@ -720,6 +790,53 @@ describe("code answers checked locally, probed independently (ADR 0027)", () => 
       ).toMatchObject({ value: { totp: first } });
     });
 
+    // Slack's two-factor page (#916): six one-digit inputs and no button; the page submits
+    // the code once its last digit is in.
+    describe("a page that shows no button for the code (ADR 0027 amendment of 2026-10-23)", () => {
+      const noSubmit = (code: Record<string, unknown> = {}) => {
+        const { submit: _, ...rest } = answer(code).code;
+        return { decision: "challenge", code: rest };
+      };
+
+      it("keeps the code's first input without a button outside any form", async () => {
+        const loose = boxes(6, { group: undefined });
+        // Exactly: the handler has no button.
+        expect(await judged(loose, noSubmit({ field: "d3" }))).toEqual(
+          expect.objectContaining({
+            status: "ok",
+            value: { decision: "challenge", totp: { field: { by: "id", value: "otp-1" } } },
+          }),
+        );
+      });
+
+      it("keeps one code input of a form that shows no button", async () => {
+        expect(await judged([field()], noSubmit())).toMatchObject({
+          value: { totp: { field: { by: "id", value: "otp" } } },
+        });
+      });
+
+      it("drops a code without a button in a form that shows one", async () => {
+        const outcome = await judged([...boxes(6), submit()], noSubmit({ field: "d1" }));
+        expect(hasTotp(outcome)).toBe(false);
+        expect(outcome).toMatchObject({ value: { totpDropped: "submit-unnamed" } });
+        // A button outside the form does not keep the form's code from submitting itself.
+        expect(
+          await judged([...boxes(6), submit({ group: undefined })], noSubmit({ field: "d1" })),
+        ).toMatchObject({ value: { totp: { field: { by: "id", value: "otp-1" } } } });
+      });
+
+      it("still drops a code sent to the person", async () => {
+        const outcome = await judged(boxes(6, { group: undefined }), noSubmit({ source: "sms" }));
+        expect(hasTotp(outcome)).toBe(false);
+      });
+
+      it("tells the model when to leave submit out", () => {
+        expect(completionInstructions).toContain(
+          "left out only when no button on the page submits",
+        );
+      });
+    });
+
     it("drops a split code whose button is in another form", async () => {
       expect(
         hasTotp(await judged([...boxes(6), submit({ group: "form-2" })], answer({ field: "d1" }))),
@@ -835,5 +952,301 @@ describe("sign-in judge at a stop before the password", () => {
     expect(
       await judge({ observation: passwordPage, loginPaths: ["/login"], stop: true }),
     ).toMatchObject({ status: "failed", error: "invalid-output" });
+  });
+});
+
+describe("personal-detail inputs on a challenge page (ADR 0061)", () => {
+  // A synthetic bank page after the password that asks for the birth year and month or the
+  // last four digits of the registered phone. No real site or account data.
+  const birth = {
+    id: "birth",
+    role: "text",
+    target: { by: "id", value: "birth_ym" },
+    label: "Year and month of birth",
+    inputMode: "numeric",
+    maxLength: 6,
+    group: "form-1",
+  };
+  const phone = {
+    id: "phone",
+    role: "tel",
+    target: { by: "name", value: "tel_last4" },
+    label: "Last 4 digits of your phone",
+    maxLength: 4,
+    group: "form-1",
+  };
+  const next = {
+    id: "next",
+    role: "button",
+    target: { by: "id", value: "next" },
+    label: "Next",
+    group: "form-1",
+  };
+  const judged = (candidates: Record<string, unknown>[], result: Record<string, unknown>) =>
+    judgeReturning(result).judge({
+      ...request,
+      observation: {
+        ...signedIn,
+        path: "/login/confirm",
+        title: "Confirm it's you",
+        headings: ["Enter one of the following"],
+        candidates,
+      },
+    });
+  const both = [
+    { field: "birth", value: "birth-date", format: "yyyymm" },
+    { field: "phone", value: "phone-last-4" },
+  ];
+  const answer = (details: unknown[] = both, detailSubmit = "next") => ({
+    decision: "challenge",
+    details,
+    detailSubmit,
+  });
+  const kept = {
+    detail: "birth-date",
+    format: "yyyymm",
+    target: { by: "id", value: "birth_ym" },
+  };
+  const keptPhone = { detail: "phone-last-4", target: { by: "name", value: "tel_last4" } };
+  const hasDetail = (outcome: Awaited<ReturnType<typeof judged>>) =>
+    outcome.status === "ok" && "detail" in outcome.value;
+
+  it("names each input, the detail it asks for, and the button that submits them", async () => {
+    const outcome = await judged([birth, phone, next], answer());
+    expect(outcome).toEqual(
+      expect.objectContaining({
+        status: "ok",
+        value: {
+          decision: "challenge",
+          detail: { fields: [kept, keptPhone], target: { by: "id", value: "next" } },
+        },
+      }),
+    );
+    // The answer is logged as the model gave it.
+    expect(outcome.answer).toEqual(answer());
+  });
+
+  it("keeps a detail beside a code and a passkey button", async () => {
+    const code = {
+      id: "code",
+      role: "text",
+      target: { by: "id", value: "otp" },
+      autocomplete: "one-time-code",
+      group: "form-2",
+    };
+    const verify = {
+      ...next,
+      id: "verify",
+      target: { by: "id", value: "verify" },
+      group: "form-2",
+    };
+    const key = { id: "key", role: "button", target: { by: "id", value: "key" }, label: "Key" };
+    expect(
+      await judged([birth, phone, next, code, verify, key], {
+        ...answer([both[1]]),
+        passkeyButton: "key",
+        code: { field: "code", submit: "verify", source: "authenticator-app" },
+      }),
+    ).toMatchObject({
+      status: "ok",
+      value: {
+        decision: "challenge",
+        passkey: { by: "id", value: "key" },
+        totp: { field: { by: "id", value: "otp" }, target: { by: "id", value: "verify" } },
+        detail: { fields: [keptPhone], target: { by: "id", value: "next" } },
+      },
+    });
+  });
+
+  it("drops the input the page's code is typed into, even a code sent to the person", async () => {
+    expect(
+      await judged([birth, phone, next], {
+        ...answer(),
+        code: { field: "phone", submit: "next", source: "sms" },
+      }),
+    ).toEqual(
+      expect.objectContaining({
+        status: "ok",
+        value: {
+          decision: "challenge",
+          totpDropped: "source-sms",
+          detail: { fields: [kept], target: { by: "id", value: "next" } },
+          detailsDropped: ["code-field"],
+        },
+      }),
+    );
+  });
+
+  it.each([
+    [
+      "an input the page lacks",
+      [birth, phone, next],
+      answer([{ field: "missing", value: "phone-last-4" }, both[0]]),
+      ["unknown-field"],
+      [kept],
+    ],
+    [
+      "a birth date without a format",
+      [birth, phone, next],
+      answer([{ field: "birth", value: "birth-date" }, both[1]]),
+      ["format"],
+      [keptPhone],
+    ],
+    [
+      "another detail with a format",
+      [birth, phone, next],
+      answer([both[0], { field: "phone", value: "phone-last-4", format: "mmdd" }]),
+      ["format"],
+      [kept],
+    ],
+    [
+      "an input named twice",
+      [birth, phone, next],
+      answer([...both, { field: "phone", value: "card-last-4" }]),
+      ["duplicate"],
+      [kept, keptPhone],
+    ],
+    [
+      "an input shorter than its value",
+      [birth, { ...phone, maxLength: 3 }, next],
+      answer(),
+      ["too-short"],
+      [kept],
+    ],
+    [
+      "a sign-in field",
+      [birth, { ...phone, autocomplete: "one-time-code" }, next],
+      answer(),
+      ["sign-in-field"],
+      [kept],
+    ],
+    [
+      "a card's security code in a text input without a length",
+      [birth, { ...phone, role: "text", maxLength: undefined }, next],
+      answer([both[0], { field: "phone", value: "card-code" }]),
+      ["not-input"],
+      [kept],
+    ],
+    [
+      "an input of another form",
+      [birth, { ...phone, group: "form-2" }, next],
+      answer(),
+      ["submit-other-form"],
+      [kept],
+    ],
+  ])("drops %s, saying why", async (_label, candidates, result, why, fields) => {
+    expect(await judged(candidates, result)).toEqual(
+      expect.objectContaining({
+        status: "ok",
+        value: {
+          decision: "challenge",
+          detail: { fields, target: { by: "id", value: "next" } },
+          detailsDropped: why,
+        },
+      }),
+    );
+  });
+
+  it.each([
+    ["a button the page lacks", [birth, phone, next], answer(both, "missing"), "unknown-submit"],
+    [
+      "a button named by its accessible name",
+      [
+        birth,
+        phone,
+        { ...next, target: { by: "accessible-name", value: "Next, confirm the details." } },
+      ],
+      answer(),
+      "step-locator",
+    ],
+    [
+      "a link as the button",
+      [birth, phone, { ...next, role: "link" }],
+      answer(),
+      "submit-not-button",
+    ],
+    [
+      "the input as its own button",
+      [birth, phone, next],
+      answer(both, "phone"),
+      "submit-not-button",
+    ],
+  ])("keeps no detail for %s", async (_label, candidates, result, why) => {
+    const outcome = await judged(candidates, result);
+    expect(outcome).toEqual(
+      expect.objectContaining({
+        status: "ok",
+        value: { decision: "challenge", detailsDropped: [why, why] },
+      }),
+    );
+    expect(hasDetail(outcome)).toBe(false);
+  });
+
+  it("keeps a plain challenge for details without a button, or a button without details", async () => {
+    for (const [result, dropped] of [
+      [{ decision: "challenge", details: both }, ["unknown-submit", "unknown-submit"]],
+      [{ decision: "challenge", detailSubmit: "next" }, undefined],
+      [{ decision: "challenge", details: [], detailSubmit: "next" }, undefined],
+    ] as const) {
+      // oxlint-disable-next-line no-await-in-loop -- Each answer is judged on its own.
+      const outcome = await judged([birth, phone, next], result);
+      expect(outcome).toEqual(
+        expect.objectContaining({
+          status: "ok",
+          value: { decision: "challenge", ...(dropped ? { detailsDropped: dropped } : {}) },
+        }),
+      );
+      expect(hasDetail(outcome)).toBe(false);
+    }
+  });
+
+  it("fails closed on an unknown detail or format, more than three, or details beside another decision", async () => {
+    for (const result of [
+      answer([{ field: "phone", value: "pin" }]),
+      answer([{ field: "birth", value: "birth-date", format: "ddmmyyyy" }]),
+      answer([...both, both[0], both[1]]),
+      { decision: "rejected", details: both, detailSubmit: "next" },
+      { decision: "signed-in", marker: "next", detailSubmit: "next" },
+    ])
+      // oxlint-disable-next-line no-await-in-loop -- Each answer is judged on its own.
+      expect(await judged([birth, phone, next], result)).toMatchObject({
+        status: "failed",
+        error: "invalid-output",
+      });
+  });
+
+  it("logs the answer with IDs the page lacks as ?", async () => {
+    const outcome = await judged(
+      [birth, phone, next],
+      answer(
+        [
+          { field: "birth", value: "birth-date", format: "yyyymm" },
+          { field: "Phone number", value: "phone-last-4" },
+        ],
+        "Next",
+      ),
+    );
+    expect(outcome.answer).toEqual({
+      decision: "challenge",
+      details: [
+        { field: "birth", value: "birth-date", format: "yyyymm" },
+        { field: "?", value: "phone-last-4" },
+      ],
+      detailSubmit: "?",
+    });
+  });
+
+  it("tells the model the four details, their formats, and that a security code is never code", () => {
+    expect(completionInstructions).toMatch(
+      /A challenge that asks for a fact about the person instead of a code fills details and detailSubmit\./u,
+    );
+    expect(completionInstructions).toMatch(
+      /value is birth-date for a birth date asked in one input, whole or as its year and month or its month and day, with format yyyymmdd, yyyymm, yyyy-mm-dd, yyyy\/mm\/dd or mmdd as the page says or shows; a birth date split over several inputs, or written in a form none of these formats match, such as a two-digit or era year or a separator the format lacks, is no detail; phone-last-4 for the last four digits of a phone number; card-last-4 for the last four digits of a card number; card-code for a card's security code\./u,
+    );
+    expect(completionInstructions).toMatch(
+      /Any other fact, a whole phone or card number, a PIN, a password, a secret question or a code sent to the person is no detail\. A card's security code is a detail, never code\./u,
+    );
+    // The stop's instructions extend them.
+    expect(completionStopInstructions.startsWith(completionInstructions)).toBe(true);
   });
 });

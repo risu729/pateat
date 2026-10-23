@@ -23,7 +23,9 @@ import {
   isSiteExcluded,
   loginFieldFacts,
   loginFieldSource,
+  manualDetails,
   pagesLeft,
+  watchedAtStop,
   loginDocumentSchema,
   loginDisplayNames,
   loginObservationSchema,
@@ -64,6 +66,8 @@ import {
   siteDefaultConnection,
   templateLoginBinding,
   TOTP_HANDLER_SLOT,
+  totpFieldMismatch,
+  totpFieldReference,
   transitionLoginAttempt,
   withdrawAccountSwitch,
   validateLoginOperation,
@@ -134,6 +138,7 @@ import {
   statusSchema,
   submittedSchema,
   logoutClickedSchema,
+  personSubmittedSchema,
   chooseResultSchema,
   type ListMissReport as ListMiss,
   probeControlSchema,
@@ -482,6 +487,14 @@ type LiveDocument = {
   /** Why this document's sign-in input last did not start a login, logged once. */
   notStarted?: string;
   /**
+   * For the tab's own page: the URL of the tab's previous page of the same origin, or of
+   * this document before it changed its path in place, for the log of a page Pateat does
+   * not fill (ADR 0035).
+   */
+  previousUrl?: string;
+  /** The tab's top page went on to a page Pateat does not admit, so it is no previous page. */
+  leftUnread?: true;
+  /**
    * When this worker first saw the document. Only a page first seen after another tab's
    * login began to be watched ends that login (ADR 0027).
    */
@@ -502,6 +515,25 @@ type LiveDocument = {
   moveMiss?: MoveMiss;
   /** Probe build only: how many observations of the page a login got back, for its status. */
   observations?: number;
+};
+/**
+ * A tab's page on whose path a recipe generated as `confirm` or `unclear` starts, which
+ * Pateat only watches (ADR 0035), for the log entry written when the tab leaves it.
+ */
+type ConfirmVisit = {
+  document: LoginDocument;
+  path: string;
+  url: string;
+  recipe: Pick<LoginRecipe, "id" | "revision" | "pageKind">;
+  /** The recipe's first step, for the document to report once it shows. */
+  first: LoginReadiness;
+  /** The person submitted the page's form themselves (a trusted `submit` event). */
+  submitted: boolean;
+  /**
+   * Once the page was logged `confirm-unsupported`: resolves after that entry is written, to
+   * whether the tab's next page is read for E1 (neither its own E1 nor E2 showed).
+   */
+  logged?: Promise<boolean>;
 };
 /**
  * Why a login's move to another origin did not complete it (ADR 0022): no step or second
@@ -556,6 +588,13 @@ const holdsSite = (entry: LoginAttemptMetadata, now: number) =>
   // A clock set back ends the hold rather than prolonging it.
   now - (entry.changedAt ?? 0) >= 0 &&
   now - (entry.changedAt ?? 0) < HOLD_MS;
+/**
+ * Whether a record holds its origin against the site's other tabs at `now` (ADR 0022): as
+ * {@link holdsSite}, and a watched login for as long as its watch, as while its tab waits
+ * for a code, so a second tab does not log in and send a second code (owner, 2026-10-23).
+ */
+const holdsOthers = (entry: LoginAttemptMetadata, now: number) =>
+  holdsSite(entry, now) || (entry.watch !== undefined && !watchOver(entry, now));
 /** Documents are tracked per frame; a tab still runs at most one attempt. */
 const frameKey = (document: { tabId: number; frameId: number }) =>
   `${document.tabId}:${document.frameId}`;
@@ -1124,9 +1163,10 @@ export interface LoginGeneration {
      * `retry` for a temporary refusal before any model call, which gives the page back:
      * no paired service, a rejected device, an unreachable or busy service, the service's
      * own request limit, or a request that failed before the model. `unclear` covers
-     * every other answer, including permanent refusals and failed model calls.
+     * every other answer, including permanent refusals and failed model calls. `optional`
+     * is a page after the sign-in that the person may put off (ADR 0065).
      */
-    verdict: "signed-in" | "rejected" | "challenge" | "unclear" | "retry";
+    verdict: "signed-in" | "rejected" | "challenge" | "optional" | "unclear" | "retry";
     /** For `retry` and `unclear`: the refusal or failure code, for the local log. */
     reason?: string;
     /** A chooser login's is the whole chooser (ADR 0028); either is the judged layout. */
@@ -1165,7 +1205,8 @@ export interface LoginGeneration {
 
 /**
  * Slot meanings sent for generation, each read from the vault item's built-in field of
- * the same name by `defaultLoginBinding`.
+ * the same name by `defaultLoginBinding`; `totp` reads a custom field holding a TOTP key
+ * instead when the built-in one holds no value (`totpFieldReference`, owner 2026-10-23).
  */
 const generationSlots: { slot: SemanticSlot; fieldId: string }[] = [
   { slot: builtInLoginSlots.username, fieldId: "login.username" },
@@ -1197,11 +1238,14 @@ function offersGenerationField(
   );
 }
 /**
- * The field a `totp` handler fills for the login's item (ADR 0027): its built-in TOTP
- * field, or the synthetic probe item's `totp` field. Undefined when the item has none, or
- * when the item's saved binding for the recipe names another field for `totp`: Pateat
- * cannot make a code from a custom field yet, so it never types such a field's raw value,
- * which could be a TOTP seed.
+ * The field a `totp` handler makes its code from for the login's item (ADR 0027): the
+ * field the item's saved binding for the recipe names for `totp`, else the one
+ * `totpFieldReference` picks (the built-in TOTP field when it holds a value, else the one
+ * custom field flagged as holding a key, owner 2026-10-23), or the synthetic probe item's
+ * `totp` field. A custom field counts only when it is a Text or Hidden field the catalog
+ * flags as holding a TOTP key (`totpSeed`). The code is always generated from the field's
+ * key; its raw value is never typed. Undefined when the item has no such field, or when
+ * the binding names any other field for `totp`.
  */
 function codeFieldOf(
   connection: VaultConnectionMetadata,
@@ -1219,8 +1263,23 @@ function codeFieldOf(
     userId: connection.userId,
     itemId,
   });
-  if (saved?.slots.some((entry) => entry.slot === TOTP_HANDLER_SLOT && entry.field !== "totp"))
-    return undefined;
+  const reference =
+    saved?.slots.find((entry) => entry.slot === TOTP_HANDLER_SLOT)?.field ??
+    totpFieldReference(item.fields);
+  if (reference !== "totp") {
+    const resolved = resolveBindingFields(
+      { slots: [{ slot: TOTP_HANDLER_SLOT, field: reference }] },
+      [TOTP_HANDLER_SLOT],
+      item.fields,
+    );
+    const fieldId = resolved.ok ? resolved.slots[0]!.fieldId : undefined;
+    const field = item.fields.find((entry) => entry.id === fieldId);
+    return field?.id.startsWith("custom.") &&
+      (field.kind === "text" || field.kind === "hidden") &&
+      field.totpSeed === true
+      ? field.id
+      : undefined;
+  }
   return item.fields.some((field) => field.id === "login.totp-code")
     ? "login.totp-code"
     : undefined;
@@ -1245,7 +1304,8 @@ function passwordMiss(
  * Where the plan step at `index` stands in a TOTP code's entry (ADR 0027): the code fill
  * of an entered `totp` handler or of a route step that fills only the `totp` slot, or
  * the click on its button that follows the fill on the same path. A route's code fill
- * counts only when that click, a submit, follows it.
+ * counts only when that click, a submit, follows it. A `totp` handler without a button
+ * has only its fill, which submits by itself (ADR 0027 amendment of 2026-10-23).
  */
 function codeStep(
   recipe: LoginRecipe,
@@ -1434,7 +1494,7 @@ type AdvanceMiss = {
  * login that types its password goes on to it rather than to a passkey beside it (ADR
  * 0048), then a passkey, which types nothing.
  */
-const handlerOrder = { password: 0, passkey: 1, totp: 2 } as const satisfies Record<
+const handlerOrder = { password: 0, passkey: 1, totp: 2, detail: 3 } as const satisfies Record<
   LoginHandler["kind"],
   number
 >;
@@ -1532,6 +1592,11 @@ export type LoginReport = (
       watched?: true;
       /** A new document of the tab resumed the attempt without changing its state or outcome. */
       repeat?: true;
+      /**
+       * Nothing was submitted yet, and the login is still in the document it began in, so
+       * the page is the one it started on or the same document after a fill (ADR 0066).
+       */
+      unsubmitted?: true;
       /** Why the login just changed route (ADR 0034). */
       routeChange?: RouteChange;
       /** The login stops before the password its item lacks (ADR 0036). */
@@ -1561,6 +1626,18 @@ export type LoginReport = (
       recipeId?: string;
       recipeRevision?: number;
       pageKind?: PageKind;
+      /**
+       * Also for `confirm-unsupported`, what the page showed for the evaluation of page
+       * kinds, never a value or page text (ADR 0035): whether an amount shows in the form of
+       * its first step (absent when that step is in no form), whether a signed-in marker of
+       * the origin's recipes shows (ADR 0029's E1), whether a matching item's username shows
+       * in the header or navigation (E2, absent when the usernames could not be read), and
+       * the URL of the tab's previous page of the origin.
+       */
+      amount?: boolean;
+      e1?: boolean;
+      e2?: boolean;
+      previousUrl?: string;
       /** The same reason was already logged for this page (ADR 0019). */
       repeat?: true;
       /**
@@ -1636,6 +1713,27 @@ export type LoginReport = (
     }
   | {
       /**
+       * The tab left a page logged `not-started` with `confirm-unsupported`, for its next
+       * page or by closing (ADR 0035). `url` is that page's.
+       */
+      type: "confirm-left";
+      tabId: number;
+      origin: string;
+      recipeId: string;
+      recipeRevision: number;
+      pageKind: PageKind;
+      /** The person submitted the page's form themselves: a trusted `submit` event. */
+      personSubmitted: boolean;
+      /**
+       * For a page that showed neither E1 nor E2 (E2 also when unread), read as the
+       * `signedIn` false its generation request carried: whether the tab's next page shows a
+       * signed-in marker of the origin's recipes (E1). Absent when the tab closed or its next
+       * page was not read.
+       */
+      nextE1?: boolean;
+    }
+  | {
+      /**
        * Whether an automatic or picked account choice was saved after the login
        * authenticated (ADR 0013), and why not.
        */
@@ -1682,6 +1780,8 @@ export type LoginReport = (
       /** The state the login was left in, and the step it stopped at. */
       state: LoginAttemptMetadata["state"];
       stepIndex: number;
+      /** As for `attempt`: nothing was submitted yet, in the document the login began in. */
+      unsubmitted?: true;
       name: string;
       /** Logged only when it is one of Pateat's own error codes. */
       message?: string;
@@ -1755,15 +1855,23 @@ export type LoginReport = (
        * `sent` when the page goes out; the service's verdict when it answers; `not-sent`,
        * with the reason, when the page is not sent or could not be described for it.
        */
-      verdict: "sent" | "not-sent" | "signed-in" | "rejected" | "challenge" | "unclear" | "retry";
+      verdict:
+        | "sent"
+        | "not-sent"
+        | "signed-in"
+        | "rejected"
+        | "challenge"
+        | "optional"
+        | "unclear"
+        | "retry";
       reason?: string;
       /** For a returned revision: whether this login took it over. */
       takenOver?: boolean;
       /** A page of a watched login, judged from the watch's own pages (ADR 0027). */
       watched?: true;
       /**
-       * The judge could not decide a page with no sign and no evidence, so the login
-       * completed on it (ADR 0029).
+       * The judge could not decide a page with no sign and no evidence, or found it an
+       * optional page after the sign-in, so the login completed on it (ADR 0029, ADR 0065).
        */
       completed?: true;
       /**
@@ -1869,11 +1977,21 @@ export type LoginReport = (
       kind: string;
       /**
        * `entered`; `shown-again` after this login already ran it; `missing-fact` when the
-       * item lacks what the handler needs, including a `totp` handler's built-in field;
+       * item lacks what the handler needs, including a `totp` handler's code field;
        * `code-used` when the login already types a TOTP code; `no-room` when the attempt's
-       * budget is spent, or the login is at its stop before a missing password (ADR 0036).
+       * budget is spent, or the login is at its stop before a missing password (ADR 0036);
+       * for a `detail` handler (ADR 0061), `detail-manual` when its inputs ask only for
+       * details Pateat never fills, such as a card's security code, and `detail-unlinked`
+       * when no vault item is linked for any of the others.
        */
-      outcome: "entered" | "shown-again" | "missing-fact" | "code-used" | "no-room";
+      outcome:
+        | "entered"
+        | "shown-again"
+        | "missing-fact"
+        | "code-used"
+        | "no-room"
+        | "detail-manual"
+        | "detail-unlinked";
       steps: number;
     }
 ) & {
@@ -2101,6 +2219,7 @@ export function createLoginRuntime(
       ...(metadata.outcome ? { outcome: metadata.outcome } : {}),
       ...(metadata.unconfirmed ? { unconfirmed: true as const } : {}),
       ...(metadata.watch ? { watched: true as const } : {}),
+      ...(unsubmitted(metadata) ? { unsubmitted: true as const } : {}),
       ...(metadata.fillOnly ? { reason: "fill-only" } : {}),
       ...(metadata.stopAt === undefined ? {} : { stop: "password" as const }),
       ...(policy && metadata.outcome === "policy-changed" ? policy : {}),
@@ -2118,6 +2237,14 @@ export function createLoginRuntime(
   const stepWaitMs = () => (probeMode ? probeStepWaitMs : undefined) ?? LOGIN_STEP_WAIT_MS;
   const documents = new Map<string, LiveDocument>();
   const attempts = new Map<number, Execution>();
+  /**
+   * By attempt ID, the document each new login of this worker began in; a resumed or
+   * recovered one has none, so it never counts as unsubmitted (ADR 0066).
+   */
+  const begunIn = new Map<string, string>();
+  /** Nothing was submitted yet, and the login is still in the document it began in. */
+  const unsubmitted = (metadata: LoginAttemptMetadata) =>
+    metadata.submissions === 0 && begunIn.get(metadata.id) === metadata.document.documentId;
   // ADR 0029's sign-in state reads these, kept in memory only and never stored.
   /**
    * By tab: when the attempt last delivered an effect step, the document it ran in, whether
@@ -2397,6 +2524,12 @@ export function createLoginRuntime(
       };
     });
   }
+  /**
+   * By tab: whether it is in an incognito window, as Chrome reported it. Incognito windows
+   * keep their own cookies, so a tab there never shares a site's session with a tab
+   * outside them, and neither holds the other back (owner, 2026-10-23).
+   */
+  const incognitoTabs = new Map<number, boolean>();
   const loaded = (async () => {
     try {
       const [config, stored] = await Promise.all([probeConfig.read(), attemptRecords.read()]);
@@ -2423,6 +2556,9 @@ export function createLoginRuntime(
       // Complete startup reconciliation before accepting any hello or checking
       // ownership. Closing a tab can wake a worker whose in-memory map is empty.
       const openTabs = await browser.tabs.query({});
+      for (const tab of openTabs)
+        if (tab.id !== undefined && !incognitoTabs.has(tab.id))
+          incognitoTabs.set(tab.id, tab.incognito);
       const liveIds = new Set(openTabs.map((tab) => tab.id));
       for (const [key, metadata] of persisted)
         if (!liveIds.has(metadata.document.tabId) && !replacedTabs.has(metadata.document.tabId))
@@ -2442,6 +2578,11 @@ export function createLoginRuntime(
    */
   const passwordSubmits = new Map<number, { origin: string; documentId: string; at: number }>();
   const afterSignIn = new Map<number, string>();
+  /**
+   * Per tab, its page on whose path a recipe generated as `confirm` or `unclear` starts
+   * (ADR 0035), until the tab leaves it: kept in memory only, so a worker restart loses it.
+   */
+  const confirmVisits = new Map<number, ConfirmVisit>();
   /** The latest announcement of each frame while it is admitted, by the same key. */
   const admitting = new Map<string, Promise<unknown>>();
   /** The site count's crypto job in flight (ADR 0021), which an admission waits for. */
@@ -2471,6 +2612,7 @@ export function createLoginRuntime(
       senderDocumentOrigin(sender) === undefined
     )
       return undefined;
+    if (sender.tab.incognito !== undefined) incognitoTabs.set(sender.tab.id, sender.tab.incognito);
     try {
       const url = new URL(sender.url);
       if (!(await admitted(url))) return undefined;
@@ -2521,11 +2663,23 @@ export function createLoginRuntime(
         (entry) =>
           entry.account.origin === siteOrigin &&
           entry.document.tabId !== tabId &&
-          holdsSite(entry, now),
+          sharesCookies(entry.document.tabId, tabId) &&
+          holdsOthers(entry, now),
       );
   }
   /**
-   * Whether another tab's login of the origin authenticated within the last hour. A list of
+   * Whether two tabs may share a site's cookies: unless one is known to be in an incognito
+   * window and the other known not to be (owner, 2026-10-23).
+   */
+  function sharesCookies(tabId: number, otherTabId: number): boolean {
+    const incognito = incognitoTabs.get(tabId);
+    const other = incognitoTabs.get(otherTabId);
+    return incognito === undefined || other === undefined || incognito === other;
+  }
+  /** The tab of a `recordKey`. */
+  const keyTab = (key: string) => Number(key.slice(0, key.indexOf(" ")));
+  /**
+   * Whether another tab sharing its cookies logged in to the origin within the last hour. A list of
    * accounts showing then is most likely the signed-in site's own, such as its accounts or
    * workspaces, so it is not sent for generation (ADR 0028, owner 2026-10-17). The record
    * stays until that tab shows the recipe's first step again or closes, so the hour bounds
@@ -2538,6 +2692,7 @@ export function createLoginRuntime(
       return (
         entry.account.origin === siteOrigin &&
         entry.document.tabId !== tabId &&
+        sharesCookies(entry.document.tabId, tabId) &&
         entry.state === "authenticated" &&
         // A clock set back ends the skip rather than prolonging it.
         age >= 0 &&
@@ -2548,21 +2703,27 @@ export function createLoginRuntime(
   /** Whether another tab asks for an account after a logout of the origin (ADR 0021 D). */
   function askedElsewhere(tabId: number, siteOrigin: string): boolean {
     return [...logouts].some(
-      (key) => key !== recordKey(tabId, siteOrigin) && key.endsWith(` ${siteOrigin}`),
+      (key) =>
+        key !== recordKey(tabId, siteOrigin) &&
+        key.endsWith(` ${siteOrigin}`) &&
+        sharesCookies(keyTab(key), tabId),
     );
   }
   /** Whether another tab still asks after the site rejected its login (ADR 0021). */
   function rejectedElsewhere(tabId: number, siteOrigin: string): boolean {
     return [...rejectedAsks].some(
       (key) =>
-        key !== recordKey(tabId, siteOrigin) && key.endsWith(` ${siteOrigin}`) && logouts.has(key),
+        key !== recordKey(tabId, siteOrigin) &&
+        key.endsWith(` ${siteOrigin}`) &&
+        logouts.has(key) &&
+        sharesCookies(keyTab(key), tabId),
     );
   }
   /** Tells the tab why it does not log in while another tab's login holds the site (a key). */
   function showHeld(tabId: number): void {
     badge.note(
       tabId,
-      "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait 5 minutes and reload this page, to log in here.",
+      "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait up to 10 minutes and reload this page, to log in here.",
     );
   }
   /** The attempt a tab runs, else the one it last recorded. */
@@ -3583,7 +3744,9 @@ export function createLoginRuntime(
    * without one (amended 2026-10-19, `fillLoginBinding`), and the widened binding counts as
    * unsaved, so it is saved after `authenticated`; without, such a binding refuses
    * `binding-slots-mismatch`. It is mapped to this device's field IDs by the catalog's raw
-   * field names. Not to be confused with a fill-only login's `fill` (ADR 0021 D).
+   * field names. A binding that would fill a field holding a TOTP key as text, or make the
+   * code from a custom field holding none, refuses `totp-field-mismatch`
+   * (`totpFieldMismatch`). Not to be confused with a fill-only login's `fill` (ADR 0021 D).
    */
   async function bindingFor(
     catalog: VaultCatalog,
@@ -3603,7 +3766,13 @@ export function createLoginRuntime(
     if (!connection?.userId || !item) return { ok: false, reason: "vault-unavailable" };
     const owner = { provider: connection.provider, userId: connection.userId, itemId: item.id };
     const named = { ...owner, itemName: item.label, accountName: connection.label };
-    const fieldNames = item.fields.map((field) => ({ id: field.id, name: field.name }));
+    // Names, and the flags that pick the `totp` slot's field (`totpFieldReference`).
+    const fieldNames = item.fields.map(({ id, name, empty, totpSeed }) => ({
+      id,
+      name,
+      ...(empty ? { empty } : {}),
+      ...(totpSeed ? { totpSeed } : {}),
+    }));
     // Sibling bindings were proven by an authenticated login, so they go first.
     const templates = async () => {
       const found: LoginBindingTemplate[] = settingsValue.bindings
@@ -3614,7 +3783,7 @@ export function createLoginRuntime(
       return found;
     };
     const saved = findLoginBinding(settingsValue.bindings, recipe, owner);
-    let binding = saved ?? defaultLoginBinding(slots, recipe, named);
+    let binding = saved ?? defaultLoginBinding(slots, recipe, named, fieldNames);
     let widened = false;
     if (saved && fillGaps && bindingGaps(saved, slots).length > 0) {
       const filled = fillLoginBinding(saved, slots, await templates(), fieldNames);
@@ -3628,6 +3797,17 @@ export function createLoginRuntime(
     }
     const resolved = resolveBindingFields(binding, slots, fieldNames);
     if (!resolved.ok) return { ok: false, reason: resolved.reason };
+    // A TOTP key is never filled as text and a code is made only from a key, so such a
+    // binding is refused before any step runs (ADR 0027, owner 2026-10-23).
+    if (
+      resolved.slots.some(({ slot, fieldId }) =>
+        totpFieldMismatch(
+          slot,
+          item.fields.find((field) => field.id === fieldId),
+        ),
+      )
+    )
+      return { ok: false, reason: "totp-field-mismatch" };
     return {
       ok: true,
       binding: {
@@ -3689,6 +3869,7 @@ export function createLoginRuntime(
     "field-missing",
     "field-ambiguous",
     "field-count-changed",
+    "totp-field-mismatch",
     "no-route",
   ]);
   /**
@@ -3734,7 +3915,7 @@ export function createLoginRuntime(
       /** While asking after a logout, the single account to use may fill the page. */
       fill?: boolean;
       route?: LoginRouteChoice;
-      /** Slots of the handlers a running login entered; `totp` reads the built-in field. */
+      /** Slots of the handlers a running login entered; `totp` reads the code field. */
       handlerSlots?: readonly string[];
       /** The document asked for a passkey by itself, with conditional mediation (ADR 0034). */
       pageRequest?: boolean;
@@ -3847,8 +4028,9 @@ export function createLoginRuntime(
             ...(chosen.pick?.makeDefault ? { replace: true } : {}),
           };
       }
-      // An entered `totp` handler reads the item's built-in TOTP field (ADR 0027), for this
-      // login only: the binding saved after it authenticates covers the route's slots.
+      // An entered `totp` handler makes its code from the item's code field (`codeFieldOf`,
+      // ADR 0027), for this login only: the binding saved after it authenticates covers the
+      // route's slots.
       let planSlots = slots;
       if (request.handlerSlots?.includes(TOTP_HANDLER_SLOT)) {
         const owner = catalog.connections.find((entry) => entry.id === binding.connectionId);
@@ -3898,8 +4080,28 @@ export function createLoginRuntime(
     // A running or resumed login checks its recorded route alone.
     if (request.route) return resolveRoute(request.route);
     let facts: LoginItemFacts | undefined;
-    const factsOf = (resolved: Extract<Awaited<ReturnType<typeof resolveRoute>>, { ok: true }>) =>
-      itemFacts(resolved.connection, { ...resolved.account, origin: live.document.origin });
+    const factsOf = async (
+      resolved: Extract<Awaited<ReturnType<typeof resolveRoute>>, { ok: true }>,
+    ): Promise<LoginItemFacts> => {
+      const read = await itemFacts(resolved.connection, {
+        ...resolved.account,
+        origin: live.document.origin,
+      });
+      // The `totp` fact describes the field a `totp` handler makes its code from: a custom
+      // field the saved binding names, or the one flagged as holding a key when the built-in
+      // TOTP holds no value, counts when the account may read it, and the built-in TOTP then
+      // does not. A binding naming a field no code is made from leaves none.
+      const code = codeFieldOf(
+        resolved.connection,
+        resolved.account.itemId,
+        snapshot.snapshot.settings.bindings,
+        recipe,
+      );
+      if (!code) return { ...read, totp: false };
+      return code.startsWith("custom.")
+        ? { ...read, totp: resolved.account.fieldIds.includes(code) }
+        : read;
+    };
     const pageRequest =
       request.pageRequest === true && !chosen?.fillOnly && passkeyAnswersRequest(recipe);
     const { passkey: _button, ...buttonless } = recipe;
@@ -4401,9 +4603,16 @@ export function createLoginRuntime(
         inFlight &&
         (run.heldClick === run.metadata.stepIndex || routeClick)
       ) {
-        const clicked = await observe(run, stepTargets(inFlight.step));
+        // A button the page only hid counts as gone, as an app that moved on in the same
+        // document and kept its old view there hidden.
+        const clickTargets = stepTargets(inFlight.step);
+        const clicked = await observe(
+          run,
+          clickTargets,
+          clickTargets.map(() => "shown" as const),
+        );
         if (!clicked) return undefined;
-        if (clicked.targets.some((state) => state !== "missing")) {
+        if (clicked.targets.some((state) => state !== "missing" && state !== "unusable")) {
           if (run.heldClick === run.metadata.stepIndex) return "held";
           if (clicked.path === inFlight.step.path) {
             await change(run, {
@@ -4742,6 +4951,8 @@ export function createLoginRuntime(
         signs: SignInSigns;
         decision: SignInDecision;
         loaded: boolean;
+        /** The path the reading was taken on. */
+        path: string;
         /** Why S1 is not read as the form shown again, or F2 not on it, for the log. */
         misses: { reshownMiss?: ReshownMiss; alertMiss?: AlertMiss };
       }
@@ -4871,14 +5082,20 @@ export function createLoginRuntime(
         : reshown && !signs.f2 && page.alertMiss !== undefined
           ? { alertMiss: page.alertMiss }
           : {};
-    return { signs, decision: decideSignInState(signs), loaded: parsed.output.loaded, misses };
+    return {
+      signs,
+      decision: decideSignInState(signs),
+      loaded: parsed.output.loaded,
+      path: observed.path,
+      misses,
+    };
   }
   /**
    * Enters a handler of the recipe on this path all of whose elements show (ADR 0027).
    * Several shown: the first not yet entered whose fact the item has, a `passkey` handler
    * before a `totp` handler, as the routes put the passkey first and it types nothing. A
    * `totp` handler is never entered by a login that already types a code, and needs the
-   * item's built-in TOTP field. Returns whether the attempt moved on: to the handler's
+   * item's code field (`codeFieldOf`). Returns whether the attempt moved on: to the handler's
    * steps, or to `challenge` when no shown handler qualifies or the attempt's budget has
    * no room for it. At a login's stop before its item's missing password (`stop`, ADR
    * 0036), only a `passkey` handler is entered, before the stop step, and the login ends
@@ -4898,7 +5115,8 @@ export function createLoginRuntime(
     // button is also a route step's on this path, as in a form that asks for the code after
     // the password, needs every fill field of the route there gone: while one shows, the
     // page is still the sign-in page. A handler that already ran counts as shown again
-    // whenever its elements are there, hidden or disabled, so it never runs twice.
+    // whenever its elements are there, hidden or disabled, so it never runs twice; only in
+    // the document that holds its click is one the page hid gone instead.
     const routeFields = passwordVariants(run.recipe)
       .flatMap((variant) => variant.steps)
       .filter((step) => step.path === path)
@@ -4948,6 +5166,10 @@ export function createLoginRuntime(
           entry.step.kind === "fill" &&
           entry.step.fields.some((field) => field.slot === "password"),
       );
+    // The handler whose click this document performed and holds: its button the page only
+    // hid is gone, as for the hold, not shown again (ADR 0027).
+    const held =
+      run.heldClick === run.metadata.stepIndex ? plan[run.metadata.stepIndex]?.handler : undefined;
     const entries = (run.recipe.handlers ?? []).flatMap((handler, index) => {
       if (
         handler.path !== path ||
@@ -4962,7 +5184,9 @@ export function createLoginRuntime(
       const sameForm =
         !ran &&
         ((handler.kind === "totp" &&
-          routeClicks.some((target) => sameLoginTarget(target, handler.target))) ||
+          routeClicks.some(
+            (target) => handler.target !== undefined && sameLoginTarget(target, handler.target),
+          )) ||
           (handler.kind === "passkey" && typesPassword) ||
           handler.kind === "password");
       const targets = handlerTargets(handler);
@@ -4973,13 +5197,17 @@ export function createLoginRuntime(
           targets: [...targets, ...(sameForm ? routeFields : [])],
           require: [
             ...(ran
-              ? targets.map(() => "present" as const)
+              ? targets.map(() => (index === held ? ("shown" as const) : ("present" as const)))
               : handler.kind === "totp"
-                ? (["writable", "shown"] as const)
-                : handler.kind === "password"
-                  ? // Shown, and its rendered text names the password choice (ADR 0048).
-                    (["password-choice"] as const)
-                  : (["shown"] as const)),
+                ? (["writable", "shown"] as const).slice(0, targets.length)
+                : handler.kind === "detail"
+                  ? // Its inputs present, as a choice page may disable all but one, and its
+                    // button shown (ADR 0061).
+                    ([...handler.fields.map(() => "present" as const), "shown"] as const)
+                  : handler.kind === "password"
+                    ? // Shown, and its rendered text names the password choice (ADR 0048).
+                      (["password-choice"] as const)
+                    : (["shown"] as const)),
             ...(sameForm ? routeFields.map(() => "writable" as const) : []),
           ],
           own: targets.length,
@@ -5036,14 +5264,23 @@ export function createLoginRuntime(
         : change(run, { type: "OBSERVED", result: "challenge", document: run.live.document });
     // A handler page shown again after its handler ran is left to the person, and so is a
     // second code in one login, so a wrong code or key is never retried into a lockout.
-    const refusal = (entry: (typeof entries)[number]) =>
-      run.metadata.handlers.some((entered) => entered.index === entry.index)
-        ? ("shown-again" as const)
-        : !run.metadata.facts[handlerFact[entry.handler.kind]]
-          ? ("missing-fact" as const)
-          : entry.handler.kind === "totp" && attemptUsesCode(run.recipe, run.metadata)
-            ? ("code-used" as const)
-            : undefined;
+    const refusal = (entry: (typeof entries)[number]) => {
+      if (run.metadata.handlers.some((entered) => entered.index === entry.index))
+        return "shown-again" as const;
+      const { handler } = entry;
+      // A `detail` handler fills a value of a vault item linked to the login (ADR 0061),
+      // which no login links yet: one that asks only for a detail Pateat never fills is
+      // left to the person as such.
+      if (handler.kind === "detail")
+        return handler.fields.every((field) => manualDetails.includes(field.detail))
+          ? ("detail-manual" as const)
+          : ("detail-unlinked" as const);
+      const fact = handlerFact[handler.kind];
+      if (!run.metadata.facts[fact]) return "missing-fact" as const;
+      return handler.kind === "totp" && attemptUsesCode(run.recipe, run.metadata)
+        ? ("code-used" as const)
+        : undefined;
+    };
     // A `password` handler goes first; refused, as when its button shows again after its
     // press, it ends the login there, so the passkey button beside it is never pressed by a
     // login that types its password (ADR 0048).
@@ -5057,7 +5294,8 @@ export function createLoginRuntime(
       return true;
     }
     if (fresh.handler.kind === "totp") {
-      // The code comes from the item's built-in TOTP field, which the account must allow.
+      // The code is made from the item's code field: its built-in TOTP, or the Text or
+      // Hidden custom field its saved binding names, which the account must allow.
       const authorized = await allowed(run);
       if (!authorized) return true;
       const code = codeFieldOf(
@@ -5108,7 +5346,7 @@ export function createLoginRuntime(
     const observed = await observe(
       run,
       [click.target, ...proof.targets, ...(rejection ? [rejection] : [])],
-      ["present", ...proof.shown, ...(rejection ? ["present" as const] : [])],
+      ["shown", ...proof.shown, ...(rejection ? ["present" as const] : [])],
       proof.links.length > 0
         ? { links: [false, ...proof.links], hidden: [false, ...proof.hidden] }
         : {},
@@ -5201,11 +5439,14 @@ export function createLoginRuntime(
     run: Execution,
     path: string,
   ): Promise<
-    { observation: LoginObservation; disabledLeftOut: boolean } | { unsent: string } | undefined
+    | { observation: LoginObservation; disabledLeftOut: boolean; inputLeftOut: boolean }
+    | { unsent: string }
+    | undefined
   > {
     let observation: LoginObservation | undefined;
     let unsent = "unreachable";
     let disabledLeftOut = false;
+    let inputLeftOut = false;
     try {
       const extracted = v.safeParse(
         extractResultSchema,
@@ -5229,6 +5470,7 @@ export function createLoginRuntime(
       else {
         observation = parsed.output;
         disabledLeftOut = extracted.output.ok && extracted.output.disabledLeftOut === true;
+        inputLeftOut = extracted.output.ok && extracted.output.inputLeftOut === true;
       }
     } catch {
       // The page could not be asked: `unreachable`.
@@ -5241,7 +5483,7 @@ export function createLoginRuntime(
     const hidden = hideUsernames(observation, usernames, run.live);
     if (!current(run)) return undefined;
     if ("reason" in hidden) return { unsent: hidden.reason };
-    return { observation: hidden.observation, disabledLeftOut };
+    return { observation: hidden.observation, disabledLeftOut, inputLeftOut };
   }
   /**
    * Sends the page a login ended on, once its recipe's signed-in marker completed it with no
@@ -5341,10 +5583,34 @@ export function createLoginRuntime(
       )
       .catch(() => undefined);
   }
+  /**
+   * Whether this attempt has sent the account's credential (ADR 0065): its latest effect
+   * step submitted, after a route step that typed the password or a second factor's
+   * handler (a handler missing from the recipe does not count). The page after an
+   * identifier's Next, or after a `password` handler's button, is no page after the
+   * sign-in. The `passkey` route never completes on an optional page (ADR 0027), so its
+   * own step does not count.
+   */
+  function credentialSent(run: Execution): boolean {
+    const { metadata, recipe } = run;
+    if (metadata.operationEffect !== "submit") return false;
+    const ran = metadata.operationId === undefined ? metadata.stepIndex : metadata.stepIndex + 1;
+    return (attemptPlan(recipe, metadata) ?? [])
+      .slice(0, ran)
+      .some((entry) =>
+        entry.handler === undefined
+          ? entry.step.kind === "fill" &&
+            entry.step.fields.some((field) => field.slot === "password")
+          : ![undefined, "password"].includes(recipe.handlers?.[entry.handler]?.kind),
+      );
+  }
   async function learn(run: Execution, reading?: SignInReading): Promise<boolean> {
     const { recipe, metadata } = run;
     const { operationId } = metadata;
-    if (!generation || !effectful(metadata) || !operationId) return false;
+    // A login watched at its stop has no step in flight; its watch's pages are judged as any
+    // watched login's are (ADR 0036, ADR 0027).
+    const stopWatched = watchedAtStop(metadata);
+    if (!generation || (!stopWatched && (!effectful(metadata) || !operationId))) return false;
     const notSent = (reason: string) => notJudged(run, reason);
     if (pagesLeft(metadata, operationId) <= 0) return notSent("page-limit");
     // Every variant's fill fields and paths count, as on the service, which is never told
@@ -5398,7 +5664,7 @@ export function createLoginRuntime(
     if (!described) return true;
     // A page that cannot be described completely is not sent and does not count.
     if ("unsent" in described) return notSent(described.unsent);
-    const { observation, disabledLeftOut } = described;
+    const { observation, disabledLeftOut, inputLeftOut } = described;
     const left = pagesLeft(run.metadata, operationId);
     await change(run, { type: "JUDGING", operationId });
     if (!current(run)) return true;
@@ -5469,7 +5735,12 @@ export function createLoginRuntime(
     if (verdict === "retry") await change(run, { type: "UNJUDGED", operationId });
     // A page with no sign and no evidence completes when the judge cannot decide, unless
     // the login is watched (ADR 0027); one with a sign of another sign-in step goes to the
-    // person, as does a page judged `challenge` before (ADR 0029).
+    // person, as does a page judged `challenge` before (ADR 0029). An optional page after
+    // the sign-in completes as signed in, watched or not, and is left as it is (ADR 0065),
+    // but only on the `password` route once this attempt sent the credential, without a
+    // stop before a missing password and with no radio button, select or text area left
+    // out of its description; on the same path once read again.
+    const sent = credentialSent(run);
     const candidate = undecidedCandidate({
       verdict,
       reason,
@@ -5477,6 +5748,8 @@ export function createLoginRuntime(
       watched: run.metadata.watch !== undefined,
       route: run.metadata.route,
       stopAt: run.metadata.stopAt,
+      sent,
+      inputLeftOut,
     });
     let again: Awaited<ReturnType<typeof readSignInState>>;
     // The judge's answer can take a while: the page completes only if, once the answer is
@@ -5492,6 +5765,9 @@ export function createLoginRuntime(
       ...candidate,
       again,
       disabledLeftOut,
+      // Only an optional page must still be on its path: an undecided one keeps ADR 0029's
+      // rule, as on a single-page app that routes on while it is judged.
+      ...(verdict === "optional" ? { path: remaining.path } : {}),
     });
     // Reported before the takeover's own entries, once whether it is taken over is known.
     let reported = false;
@@ -5521,11 +5797,15 @@ export function createLoginRuntime(
       stopHeld: candidate.stopHeld,
       route: run.metadata.route,
       stopAt: run.metadata.stopAt,
+      sent,
     });
     // The page after the final advance before a stop just past the plan's last step, not
     // found signed in or rejected and with no handler taken over, takes the login to its
     // stop, where the page's passkey request is answered (ADR 0036).
     if (result === "challenge" && (await toStop(run))) return true;
+    // A login watched at its stop submitted no password, so a page judged rejected refuses
+    // none: the login stays watched (ADR 0036).
+    if (stopWatched && result === "credential-rejected") return true;
     const unconfirmed = result === "authenticated" && !confirmed;
     if (unconfirmed) delete run.choice;
     await change(run, {
@@ -6218,8 +6498,8 @@ export function createLoginRuntime(
       return;
     }
     // Only a page with no sign of a sign-in going on is judged; an undecided answer never
-    // completes a watched login.
-    if (state?.decision === "judge") await learn(run);
+    // completes a watched login, an optional page after the sign-in does (ADR 0065).
+    if (state?.decision === "judge") await learn(run, state);
   }
   async function drive(run: Execution): Promise<void> {
     if (run.running) return;
@@ -6256,6 +6536,7 @@ export function createLoginRuntime(
             route: run.metadata.route,
             state: run.metadata.state,
             stepIndex: run.metadata.stepIndex,
+            ...(unsubmitted(run.metadata) ? { unsubmitted: true as const } : {}),
             name: error instanceof Error ? error.name : typeof error,
             ...(error instanceof Error ? { message: error.message } : {}),
             ...(error instanceof Error && error.stack ? { stack: error.stack } : {}),
@@ -6441,12 +6722,15 @@ export function createLoginRuntime(
               return;
             }
             // Vault reads are serial so a denial stops before any later field is released.
+            // The `totp` slot always fills a code made from its field, never the raw value.
+            const code = field.slot === TOTP_HANDLER_SLOT;
             let value: string | undefined;
             try {
               value = await fields({
                 account: run.metadata.account,
                 connection: authorized.connection,
                 fieldId: reference.fieldId,
+                ...(code ? { code: true as const } : {}),
               });
             } catch {
               // A failed read is not a page mutation; never reclassify it as uncertain.
@@ -6458,10 +6742,11 @@ export function createLoginRuntime(
               await change(run, { type: "POLICY_CHANGED" }, { cause: "field-unavailable" });
               return;
             }
-            // A `totp` handler's code fills only a code input, whatever field it reads.
+            // A code, as any `totp` handler's fill, fills only a code input.
             const secret: LoginSecretKind | undefined =
-              codeStep(run.recipe, run.metadata, operation.stepIndex) === "fill" &&
-              attemptPlan(run.recipe, run.metadata)?.[operation.stepIndex]?.handler !== undefined
+              code ||
+              (codeStep(run.recipe, run.metadata, operation.stepIndex) === "fill" &&
+                attemptPlan(run.recipe, run.metadata)?.[operation.stepIndex]?.handler !== undefined)
                 ? "otp"
                 : loginSecretKind(
                     authorized.connection,
@@ -6537,6 +6822,7 @@ export function createLoginRuntime(
         const after = attemptPlan(run.recipe, run.metadata)?.[operation.stepIndex + 1]?.step;
         const codeSubmit =
           codeStep(run.recipe, run.metadata, operation.stepIndex) === "fill" &&
+          codeStep(run.recipe, run.metadata, operation.stepIndex + 1) === "click" &&
           after?.kind === "click"
             ? after.target
             : undefined;
@@ -6600,8 +6886,15 @@ export function createLoginRuntime(
           !run.metadata.fillOnly
             ? { accountSwitch: run.recipe.accountSwitch }
             : {}),
-          // A `totp` handler's code fill watches for the page submitting the code itself.
-          ...(codeSubmit ? { code: { submit: codeSubmit } } : {}),
+          // A `totp` handler's code fill watches for the page submitting the code itself; a
+          // handler's without a button types the code as its submission (ADR 0027).
+          ...(codeSubmit
+            ? { code: { submit: codeSubmit } }
+            : operation.step.kind === "fill" &&
+                operation.step.effect === "submit" &&
+                codeStep(run.recipe, run.metadata, operation.stepIndex) === "fill"
+              ? { code: {} }
+              : {}),
           ...(passwordChoice ? { passwordChoice: true as const } : {}),
           // An advance whose next step is on its path has the document measure that step
           // just before its effect, in the same task (ADR 0013).
@@ -6678,29 +6971,42 @@ export function createLoginRuntime(
         }
         return;
       }
-      // The page would not accept the values; the same values would fail again.
+      // The page would not accept the values; the same values would fail again. A code
+      // typed as its own submission whose character the page kept out never went in whole.
+      const codeRefused =
+        operation.step.kind === "fill" &&
+        operation.step.effect === "submit" &&
+        codeStep(run.recipe, run.metadata, operation.stepIndex) === "fill";
       if (
         matchedResult &&
         !result.output.ok &&
         operation.step.kind === "fill" &&
         ((result.output.reason === "value-mismatch" && result.output.mutation === "none") ||
-          (result.output.reason === "fill-rejected" && operation.step.effect === "prepare"))
+          (result.output.reason === "fill-rejected" &&
+            (operation.step.effect === "prepare" || codeRefused)))
       ) {
         await change(run, {
           type: "VALUE_REJECTED",
           operationId: operation.operationId,
           document: run.live.document,
-          stage: result.output.reason === "value-mismatch" ? "before-fill" : "after-fill",
+          stage:
+            result.output.reason === "value-mismatch"
+              ? "before-fill"
+              : codeRefused
+                ? "code-refused"
+                : "after-fill",
         });
         return;
       }
       // The code page showed that it submits the code by itself, or replaced its form
-      // once the code was in.
+      // once the code was in. A code typed as its own submission is settled as one below.
       if (
         matchedResult &&
         !result.output.ok &&
         (result.output.reason === "submitted" || result.output.reason === "structural-mismatch") &&
         result.output.mutation === "possible" &&
+        operation.step.kind === "fill" &&
+        operation.step.effect === "prepare" &&
         codeStep(run.recipe, run.metadata, operation.stepIndex) === "fill" &&
         (await codeSubmitted(run))
       )
@@ -6806,10 +7112,15 @@ export function createLoginRuntime(
    * there count too), and whose path was not sent within the retry window (ADR 0016). An
    * entry recipe's path counts as a start (ADR 0031); it is added here only, since
    * `startsFor` leaves out a path several starts share. So does the first page of a recipe
-   * generated as `confirm` or `unclear`, which never starts (ADR 0035).
+   * generated as `confirm` or `unclear`, which never starts (ADR 0035). A frame is never
+   * sent; one that would be offered as the tab's page is `frame`, asked to report a sign-in
+   * input or a secret answer so that such pages are counted (ADR 0035).
    */
-  async function offersGeneration(live: LiveDocument): Promise<true | GenerationHold | undefined> {
-    if (!generation || !uris || live.document.frameId !== 0 || live.topUrl) return undefined;
+  async function offersGeneration(
+    live: LiveDocument,
+  ): Promise<true | "frame" | GenerationHold | undefined> {
+    const framed = live.document.frameId !== 0;
+    if (!generation || !uris || (!framed && live.topUrl)) return undefined;
     if (probeMode && live.document.origin === origin) return undefined;
     const starts = await recipes.starts(live.document.origin).catch(() => undefined);
     if (starts === undefined || starts.some((start) => start.path === live.path)) return undefined;
@@ -6822,7 +7133,10 @@ export function createLoginRuntime(
       routes.some((recipe) => !runsLogin(recipe) && recipe.steps[0]?.path === live.path)
     )
       return undefined;
-    return generation.available(live.document.origin, live.path).catch(() => undefined);
+    const hold = await generation.available(live.document.origin, live.path).catch(() => undefined);
+    // A frame counts only where its page would be sent now.
+    if (framed) return hold === true ? "frame" : undefined;
+    return hold;
   }
   /**
    * Every route recipe of the origin whatever its kind, and each chooser branch (ADR 0035),
@@ -7268,32 +7582,58 @@ export function createLoginRuntime(
    * the flag leaves the device; a page that cannot be read shows neither.
    */
   async function signedInHint(live: LiveDocument, usernames: readonly string[]): Promise<boolean> {
+    return (
+      (await showsMarkers(live, await markerProofs(live.document.origin, live.document.origin))) ||
+      (await showsUsername(live, usernames))
+    );
+  }
+  /**
+   * The signed-in markers of every route recipe of `recipesOrigin` that a page of
+   * `pageOrigin` may show (ADR 0029's E1), within the wire's bound of 24 targets.
+   */
+  async function markerProofs(
+    recipesOrigin: string,
+    pageOrigin: string,
+  ): Promise<ReturnType<typeof markerProof>[]> {
     const proofs: ReturnType<typeof markerProof>[] = [];
     let bound = 24;
-    for (const recipe of (await routesOf(live.document.origin)) ?? []) {
-      const proof = markerProof(recipe, live.document.origin);
+    for (const recipe of (await routesOf(recipesOrigin)) ?? []) {
+      const proof = markerProof(recipe, pageOrigin);
       if (!proof.targets.length || proof.targets.length > bound) continue;
       bound -= proof.targets.length;
       proofs.push(proof);
     }
-    if (proofs.length) {
-      const parsed = v.safeParse(
-        observationSchema,
-        await send(live, {
-          type: "login.observe",
-          path: live.path,
-          targets: proofs.flatMap((proof) => proof.targets),
-          require: proofs.flatMap((proof) => proof.shown),
-          links: proofs.flatMap((proof) => proof.links),
-          hidden: proofs.flatMap((proof) => proof.hidden),
-        }).catch(() => undefined),
-      );
-      let offset = 0;
-      for (const proof of proofs) {
-        if (parsed.success && proof.proves(parsed.output.targets, offset)) return true;
-        offset += proof.targets.length;
-      }
+    return proofs;
+  }
+  /** Whether the document shows one of `proofs`' markers (E1); one that cannot be read does not. */
+  async function showsMarkers(
+    live: LiveDocument,
+    proofs: readonly ReturnType<typeof markerProof>[],
+  ): Promise<boolean> {
+    if (!proofs.length) return false;
+    const parsed = v.safeParse(
+      observationSchema,
+      await send(live, {
+        type: "login.observe",
+        path: live.path,
+        targets: proofs.flatMap((proof) => proof.targets),
+        require: proofs.flatMap((proof) => proof.shown),
+        links: proofs.flatMap((proof) => proof.links),
+        hidden: proofs.flatMap((proof) => proof.hidden),
+      }).catch(() => undefined),
+    );
+    let offset = 0;
+    for (const proof of proofs) {
+      if (parsed.success && proof.proves(parsed.output.targets, offset)) return true;
+      offset += proof.targets.length;
     }
+    return false;
+  }
+  /**
+   * Whether one of `usernames`, the matching items', shows in the document's header or
+   * navigation (E2); one that cannot be read shows none. Only the flag is kept.
+   */
+  async function showsUsername(live: LiveDocument, usernames: readonly string[]): Promise<boolean> {
     for (const username of usernames.slice(0, MAX_HINT_USERNAMES)) {
       if (!username) continue;
       // Serial reads of one page, as for a login's own check.
@@ -7305,6 +7645,138 @@ export function createLoginRuntime(
       if (parsed.success && parsed.output.ok && parsed.output.signs.username === true) return true;
     }
     return false;
+  }
+  /**
+   * The tab's visit of its page `live`, on whose path `confirm`, a recipe generated as
+   * `confirm` or `unclear`, starts (ADR 0035), logged when the tab leaves it. Admission
+   * already left a visit of another document or path.
+   */
+  function confirmPage(live: LiveDocument, confirm: LoginRecipe): ConfirmVisit {
+    const { tabId, documentId } = live.document;
+    const kept = confirmVisits.get(tabId);
+    const visit = (kept?.document.documentId === documentId && kept.path === live.path
+      ? kept
+      : undefined) ?? {
+      document: live.document,
+      path: live.path,
+      url: live.url,
+      recipe: { id: confirm.id, revision: confirm.revision, pageKind: confirm.pageKind },
+      first: loginReadiness(confirm.steps[0]!),
+      submitted: false,
+    };
+    confirmVisits.set(tabId, visit);
+    return visit;
+  }
+  /**
+   * What a page Pateat does not fill shows, for the evaluation of page kinds (ADR 0035),
+   * never a value or page text: whether a signed-in marker of the origin's recipes shows (E1)
+   * and whether a matching item's username shows in its header or navigation (E2, absent
+   * when the vault matched nothing or a username could not be read), read as the `signedIn`
+   * hint is, and the tab's previous page of the origin. A header rendered after the form is
+   * waited for as on the next page: read a second apart at most `SITE_MOVE_READINGS` times
+   * until either shows or the page goes, both from the last reading.
+   */
+  async function confirmSigns(
+    live: LiveDocument,
+  ): Promise<{ e1?: boolean; e2?: boolean; previousUrl?: string }> {
+    const proofs = await markerProofs(live.document.origin, live.document.origin);
+    const scope = await generationSlotsFor(live).catch(() => undefined);
+    const usernames = scope && (await readUsernames(live.document.origin, usernameReads(scope)));
+    // Unset until the page is read: one gone before its first reading shows neither.
+    let e1: boolean | undefined;
+    let e2: boolean | undefined;
+    // Each reading waits for the one before, as the page goes on rendering.
+    /* eslint-disable no-await-in-loop */
+    for (let reading = 0; reading < SITE_MOVE_READINGS; reading++) {
+      if (reading > 0)
+        await new Promise<void>((resolve) => setTimeout(resolve, SIGN_IN_RECHECK_MS));
+      const page = documents.get(frameKey(live.document));
+      if (page?.document.documentId !== live.document.documentId || page.path !== live.path) break;
+      e1 = await showsMarkers(page, proofs);
+      e2 = usernames && (await showsUsername(page, usernames));
+      if (e1 || e2) break;
+    }
+    /* eslint-enable no-await-in-loop */
+    usernames?.fill("");
+    return {
+      ...(e1 === undefined ? {} : { e1 }),
+      ...(e2 === undefined ? {} : { e2 }),
+      ...(live.previousUrl ? { previousUrl: live.previousUrl } : {}),
+    };
+  }
+  /**
+   * Logs the tab leaving `visit`'s page, once that page was logged (ADR 0035): whether the
+   * person submitted its form and, when it showed neither E1 nor E2, whether `next`, the
+   * tab's next page, shows E1. Without `next` (the tab closed, or its next page is not read)
+   * that is left out.
+   */
+  function leaveConfirm(visit: ConfirmVisit, next?: LiveDocument): void {
+    const { tabId, origin: visitOrigin } = visit.document;
+    if (confirmVisits.get(tabId) === visit) confirmVisits.delete(tabId);
+    void visit.logged
+      ?.then(async (watchNext) => {
+        const nextE1 = watchNext && next ? await nextShowsMarker(visitOrigin, next) : undefined;
+        report(
+          { frameId: 0 },
+          {
+            type: "confirm-left",
+            tabId,
+            origin: visitOrigin,
+            recipeId: visit.recipe.id,
+            recipeRevision: visit.recipe.revision,
+            pageKind: visit.recipe.pageKind,
+            personSubmitted: visit.submitted,
+            ...(nextE1 === undefined ? {} : { nextE1 }),
+            url: visit.url,
+          },
+        );
+        return undefined;
+      })
+      .catch(() => undefined);
+  }
+  /**
+   * Whether `next`, the tab's next top page after a page of `recipesOrigin` Pateat does not
+   * fill, shows a signed-in marker of that origin's recipes (ADR 0035), read a second apart
+   * at most `SITE_MOVE_READINGS` times while the document stays, as a page that renders its
+   * header late does; undefined when it went before its first reading.
+   */
+  async function nextShowsMarker(
+    recipesOrigin: string,
+    next: LiveDocument,
+  ): Promise<boolean | undefined> {
+    const proofs = await markerProofs(recipesOrigin, next.document.origin);
+    if (!proofs.length) return false;
+    const key = frameKey(next.document);
+    // Each reading waits for the one before, as the page goes on rendering.
+    /* eslint-disable no-await-in-loop */
+    for (let reading = 0; reading < SITE_MOVE_READINGS; reading++) {
+      if (reading > 0)
+        await new Promise<void>((resolve) => setTimeout(resolve, SIGN_IN_RECHECK_MS));
+      const nextLive = documents.get(key);
+      if (nextLive?.document.documentId !== next.document.documentId)
+        return reading ? false : undefined;
+      if (await showsMarkers(nextLive, proofs)) return true;
+    }
+    /* eslint-enable no-await-in-loop */
+    return false;
+  }
+  /**
+   * The URL of the tab's previous page for its top `document`, newly announced on `path`,
+   * for the log of a page Pateat does not fill (ADR 0035): `oldLive`, the tab's last read
+   * top page, when it was another page of the same origin or this document before its path
+   * changed in place, and what `oldLive` had when this is the same page again. A page of
+   * another origin, or one Pateat did not admit in between, leaves it out.
+   */
+  function previousPage(
+    document: LoginDocument,
+    oldLive: LiveDocument | undefined,
+    sameDocument: boolean,
+    path: string,
+  ): string | undefined {
+    if (document.frameId !== 0 || !oldLive) return undefined;
+    if (sameDocument && oldLive.path === path) return oldLive.previousUrl;
+    if (oldLive.leftUnread || oldLive.document.origin !== document.origin) return undefined;
+    return oldLive.url;
   }
   /** Whether the document shows a step's elements now, without waiting for them. */
   async function showsNow(live: LiveDocument, readiness: LoginReadiness): Promise<boolean> {
@@ -7959,15 +8431,21 @@ export function createLoginRuntime(
     starts?: LoginReadiness[];
     generate?: true;
     entry?: true;
+    /** A recipe generated as `confirm` or `unclear` starts here: its first step (ADR 0035). */
+    confirm?: LoginReadiness;
+    /** A frame asked to report a sign-in input or a secret answer (ADR 0035). */
+    frame?: true;
   };
   type Announced = { path: string } | undefined;
   type Unoffered = { path: string; why: (typeof unofferedReasons)[number] } | undefined;
+  /** A `shown` report, with `amount` on a page Pateat does not fill (ADR 0035). */
+  type Shown = { path: string; amount?: boolean | undefined };
   async function ready(
     sender: Sender,
     token: string,
     start?: { path: string },
     signIn?: { path: string; identifier?: true | undefined; passkey?: true | undefined },
-    shown?: { path: string },
+    shown?: Shown,
     list?: ListOffer,
     entryHello?: Announced,
     unoffered?: Unoffered,
@@ -8019,7 +8497,7 @@ export function createLoginRuntime(
     sequence: number,
     start?: { path: string },
     signIn?: { path: string; identifier?: true | undefined; passkey?: true | undefined },
-    shown?: { path: string },
+    shown?: Shown,
     list?: ListOffer,
     entryHello?: Announced,
     unoffered?: Unoffered,
@@ -8067,7 +8545,7 @@ export function createLoginRuntime(
     sequence: number,
     start?: { path: string },
     signIn?: { path: string; identifier?: true | undefined; passkey?: true | undefined },
-    shown?: { path: string },
+    shown?: Shown,
     list?: ListOffer,
     entryHello?: Announced,
     unoffered?: Unoffered,
@@ -8078,6 +8556,14 @@ export function createLoginRuntime(
     await Promise.all(clicksNoting);
     const document = await identify(sender);
     if (!document || !sender.url) {
+      if (sender.frameId === 0 && sender.tab?.id !== undefined) {
+        // A page Pateat does not fill was left for a page it does not read, which is also
+        // the tab's previous page for the next one it reads (ADR 0035).
+        const visit = confirmVisits.get(sender.tab.id);
+        if (visit && visit.document.documentId !== sender.documentId) leaveConfirm(visit);
+        const top = documents.get(frameKey({ tabId: sender.tab.id, frameId: 0 }));
+        if (top && top.document.documentId !== sender.documentId) top.leftUnread = true;
+      }
       await noteUnadmitted(sender);
       return { ok: false, reason: "unauthorized-document" };
     }
@@ -8213,12 +8699,14 @@ export function createLoginRuntime(
     if (oldLive && !sameDocument)
       await send(oldLive, { type: "login.cancel" }).catch(() => undefined);
     const path = observedPath(new URL(url).pathname);
+    const previousUrl = previousPage(document, oldLive, sameDocument, path);
     const live: LiveDocument = {
       document,
       token,
       url,
       path,
       ...(topUrl ? { topUrl } : {}),
+      ...(previousUrl ? { previousUrl } : {}),
       // A document announcing again on the same path logs each generation skip once.
       ...(sameDocument && oldLive.path === path && oldLive.generationSkip
         ? { generationSkip: oldLive.generationSkip }
@@ -8238,6 +8726,14 @@ export function createLoginRuntime(
         : {}),
     };
     documents.set(key, live);
+    // The tab's next page after a page Pateat does not fill (ADR 0035).
+    const earlier = confirmVisits.get(document.tabId);
+    if (
+      earlier &&
+      document.frameId === 0 &&
+      (earlier.document.documentId !== document.documentId || earlier.path !== path)
+    )
+      leaveConfirm(earlier, live);
     // The first other top document of the tab after an effect step, when it comes soon
     // enough to be the site's answer to it (ADR 0029). One announced later, as after the
     // person's own retry in a page the login settled on, is never read as that answer.
@@ -8264,24 +8760,40 @@ export function createLoginRuntime(
     };
     // A sign-in input shows on this path, but the page only watches: logged once per
     // document and path, so a login that silently does not start can be told apart.
-    const notStarted = (detail: string, confirm?: LoginRecipe) => {
+    const notStarted = (detail: string, visit?: ConfirmVisit) => {
       if (shown?.path !== live.path || live.notStarted === detail) return;
       live.notStarted = detail;
-      report(document, {
-        type: "refused",
+      const refused = {
+        type: "refused" as const,
         tabId: document.tabId,
         origin: document.origin,
         reason: "not-started",
         detail,
-        ...(confirm
-          ? {
-              recipeId: confirm.id,
-              recipeRevision: confirm.revision,
-              pageKind: confirm.pageKind,
-            }
-          : {}),
         ...(document.frameId === 0 ? {} : { frame: true as const }),
+      };
+      if (!visit) {
+        report(document, refused);
+        return;
+      }
+      // A page Pateat does not fill also logs what it shows for the evaluation of page kinds
+      // (ADR 0035), read first, so the entry names this page's URL; its visit logs the
+      // person's submission and the next page once the tab leaves it.
+      const amount = shown?.amount;
+      visit.logged = confirmSigns(live).then((signs) => {
+        report(document, {
+          ...refused,
+          recipeId: visit.recipe.id,
+          recipeRevision: visit.recipe.revision,
+          pageKind: visit.recipe.pageKind,
+          ...(amount === undefined ? {} : { amount }),
+          ...signs,
+          url: live.url,
+        });
+        // Read as the `signedIn` hint false: the page was read and neither shows, E2 also
+        // when it was not read.
+        return signs.e1 === false && signs.e2 !== true;
       });
+      void visit.logged.catch(() => undefined);
     };
     // The page after a sign-in entry press is checked before anything else runs on it, and
     // one that blocked the entry is neither sent for generation nor logged in to (ADR 0031).
@@ -8555,9 +9067,9 @@ export function createLoginRuntime(
     /**
      * Ends a watched login, which never signed in, once the recipe's first step shows again,
      * as after a code or an approval expired (ADR 0027): no logout (ADR 0021 D). Only the
-     * watched login's tab asks and fills, as after a stopped login, while the site's other
-     * tabs log in as before (owner, 2026-10-13). Returns a refusal when it could not, else
-     * undefined.
+     * watched login's tab asks and fills, as after a stopped login (owner, 2026-10-13). Only
+     * its own tab's page ends it: until the watch ends, the site's other tabs that share its
+     * cookies wait (owner, 2026-10-23). Returns a refusal when it could not, else undefined.
      */
     const abandonWatch = async (
       watchedLogin: LoginAttemptMetadata,
@@ -8656,9 +9168,15 @@ export function createLoginRuntime(
         const starts = await startsFor(document.origin);
         if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
         // Not a recipe's first step on its path, so not taken as a logout (ADR 0021 D).
-        if (confirm) notStarted("confirm-unsupported", confirm);
+        const visit = confirm && confirmPage(live, confirm);
+        if (visit) notStarted("confirm-unsupported", visit);
         else notStarted("logged-in");
-        return { ok: false, reason: "logged-in", starts };
+        return {
+          ok: false,
+          reason: "logged-in",
+          starts,
+          ...(visit ? { confirm: visit.first } : {}),
+        };
       }
       // It shows again after a finished login: a logout. Only this tab's record for this
       // origin is released, and the tab asks for an account (ADR 0021 D).
@@ -8717,9 +9235,15 @@ export function createLoginRuntime(
       if (start?.path !== live.path || confirm) {
         const starts = await startsFor(document.origin);
         if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
-        if (confirm) notStarted("confirm-unsupported", confirm);
+        const visit = confirm && confirmPage(live, confirm);
+        if (visit) notStarted("confirm-unsupported", visit);
         else notStarted("stopped-login");
-        return { ok: false, reason: "login-stopped", starts };
+        return {
+          ok: false,
+          reason: "login-stopped",
+          starts,
+          ...(visit ? { confirm: visit.first } : {}),
+        };
       }
       const released = recorded;
       if (attempts.get(document.tabId)?.metadata.id === released.id)
@@ -8739,34 +9263,6 @@ export function createLoginRuntime(
       }
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
       recorded = undefined;
-    }
-    // The same holds when the person starts over in another tab, such as after closing a
-    // code page that expired: another tab's watched login of the site ends, so this tab logs
-    // in as before instead of waiting for that login's hold to end, and only the watched
-    // tab asks if its own first step shows again (ADR 0027). Only a page first seen during
-    // the watch does, not one left open from before.
-    if (!recorded && document.frameId === 0 && start?.path === live.path) {
-      const keys = [...persisted.keys()];
-      // One at a time, each read again: ending one awaits, and another watched login may
-      // have moved on meanwhile.
-      /* eslint-disable no-await-in-loop */
-      for (const entryKey of keys) {
-        const entry = persisted.get(entryKey);
-        if (!entry) continue;
-        const run = attempts.get(entry.document.tabId);
-        const latest = run?.metadata.id === entry.id ? run.metadata : entry;
-        if (
-          !latest.watch ||
-          watchOver(latest, Date.now()) ||
-          latest.account.origin !== document.origin ||
-          latest.document.tabId === document.tabId ||
-          live.seenAt < latest.watch.since
-        )
-          continue;
-        const refused = await abandonWatch(latest);
-        if (refused) return refused;
-      }
-      /* eslint-enable no-await-in-loop */
     }
     // A control that logs out was clicked in this tab on this site, after a login the tab
     // does not know, such as one in another tab or before a browser restart: the recipe's
@@ -9041,11 +9537,12 @@ export function createLoginRuntime(
           : await confirmRecipeOn(document.origin, live.path);
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
       if (confirm) {
-        notStarted("confirm-unsupported", confirm);
+        const visit = confirmPage(live, confirm);
+        notStarted("confirm-unsupported", visit);
         live.state = "watching";
         delete live.reason;
         await publish(live);
-        return { ok: false, reason: "recipe-not-found", starts };
+        return { ok: false, reason: "recipe-not-found", starts, confirm: visit.first };
       }
       // The chooser's path shows a sign-in form instead of its list, and the chooser has no
       // `other` branch yet, as after the person pressed its button for another account: the
@@ -9245,18 +9742,47 @@ export function createLoginRuntime(
       }
       // A page offered for generation that showed nothing to send by the end of the step
       // wait is logged with why; mostly ordinary browsing, so at debug level (ADR 0019).
-      // The tab's next document after a submitted password form is known only here.
-      if (offer && unoffered?.path === live.path && !signIn && !shownList && !entryOffer)
+      // The tab's next document after a submitted password form is known only here. A page
+      // that looks like a verification but is never sent, a secret answer of `type="text"` or
+      // a frame, is counted by reason at info level when a vault item matches it, as it
+      // would for a page that is sent (ADR 0035).
+      // A secret answer on the tab's next document after a password submit is part of that
+      // sign-in, so it is not counted.
+      const framed = availability === "frame";
+      const afterSubmit = afterSignIn.get(document.tabId) === document.documentId;
+      const unsendable =
+        unoffered?.path === live.path &&
+        ((offer && unoffered.why === "text-answer" && !afterSubmit) ||
+          (framed && unoffered.why === "frame"))
+          ? unoffered.why
+          : undefined;
+      let counted = false;
+      if (unsendable) {
+        counted = (await generationSlotsFor(live).catch(() => undefined)) !== undefined;
+        if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+        if (counted) skipGeneration(live, unsendable);
+      }
+      if (
+        !counted &&
+        offer &&
+        unoffered?.path === live.path &&
+        !signIn &&
+        !shownList &&
+        !entryOffer
+      )
         skipGeneration(
           live,
           "nothing-offered",
           undefined,
-          unoffered.why === "no-list" && afterSignIn.get(document.tabId) === document.documentId
+          (unoffered.why === "no-list" || unoffered.why === "text-answer") && afterSubmit
             ? "after-sign-in"
             : unoffered.why,
         );
       // No recipe of the origin and no login in the tab: ordinary browsing (ADR 0019).
-      if (!recipe && !starts.length && !offer) return refuse("recipe-not-found", undefined, true);
+      if (!recipe && !starts.length && !offer) {
+        const refused = await refuse("recipe-not-found", undefined, true);
+        return framed ? { ...refused, frame: true as const } : refused;
+      }
       // Only an origin with a recipe: elsewhere every sign-in page would be logged.
       if (starts.length) notStarted(recipe ? "first-step-missing" : "no-recipe-on-path");
       live.state = "watching";
@@ -9268,6 +9794,7 @@ export function createLoginRuntime(
         starts,
         ...(offer || otherOffer === true ? { generate: true as const } : {}),
         ...(offer && entryPage ? { entry: true as const } : {}),
+        ...(framed ? { frame: true as const } : {}),
       };
     }
     // A resumed attempt keeps its own recipe revision; a replaced or different recipe never
@@ -9649,6 +10176,12 @@ export function createLoginRuntime(
         }),
         { type: "RESOLVE" },
       );
+      begunIn.delete(metadata.id);
+      begunIn.set(metadata.id, document.documentId);
+      for (const old of begunIn.keys()) {
+        if (begunIn.size <= 256) break;
+        begunIn.delete(old);
+      }
       // No listed account fits, and the list has no button for another one (ADR 0028).
       if (click === "none") metadata = transitionLoginAttempt(metadata, { type: "NOT_LISTED" });
     }
@@ -9777,9 +10310,14 @@ export function createLoginRuntime(
         .some((entry) => entry.document.tabId === tabId && siteOf(entry.account.origin) === site)
     );
   }
-  /** Whether any tab keeps a logout state for an origin of `site` (ADR 0021 D). */
-  const siteLoggedOut = (site: string) =>
-    scopes(logouts).some((entry) => siteOf(entry.origin) === site);
+  /**
+   * Whether `tabId`, or a tab sharing its cookies, keeps a logout state for an origin of
+   * `site` (ADR 0021 D).
+   */
+  const siteLoggedOut = (tabId: number, site: string) =>
+    scopes(logouts).some(
+      (entry) => siteOf(entry.origin) === site && sharesCookies(entry.tabId, tabId),
+    );
   /** Whether another tab's login of an origin of `site` holds it (ADR 0022). */
   function siteHeldElsewhere(tabId: number, site: string): boolean {
     const now = Date.now();
@@ -9789,7 +10327,8 @@ export function createLoginRuntime(
         (entry) =>
           entry.document.tabId !== tabId &&
           siteOf(entry.account.origin) === site &&
-          holdsSite(entry, now),
+          sharesCookies(entry.document.tabId, tabId) &&
+          holdsOthers(entry, now),
       );
   }
   /**
@@ -10119,7 +10658,7 @@ export function createLoginRuntime(
     if (afterSignIn.get(live.document.tabId) === live.document.documentId)
       return { refusal: "after-sign-in" };
     if (siteRecorded(live.document.tabId, site)) return { refusal: "site-record" };
-    if (siteLoggedOut(site)) return { refusal: "logged-out" };
+    if (siteLoggedOut(live.document.tabId, site)) return { refusal: "logged-out" };
     const matched = await vaultMatches(live).catch(() => undefined);
     return matched?.items.length ? { matched } : { refusal: "no-vault-match" };
   }
@@ -10268,7 +10807,7 @@ export function createLoginRuntime(
     if (site === undefined) return "no-site";
     if (siteRecorded(tabId, site)) return "site-record";
     if (siteHeldElsewhere(tabId, site)) return "site-held";
-    if (siteLoggedOut(site)) return "logged-out";
+    if (siteLoggedOut(tabId, site)) return "logged-out";
     // The person just logged out in this tab and may want another account (ADR 0021 D).
     if (pendingClick(tabId, site)) return "logout-clicked";
     const last = entryPresses.get(tabId);
@@ -10481,6 +11020,19 @@ export function createLoginRuntime(
       await noting;
       return undefined;
     }
+    if (v.safeParse(personSubmittedSchema, message).success) {
+      // Recorded at once, before the tab's next page announces: the page's own document,
+      // as the browser names it, of a page Pateat does not fill (ADR 0035).
+      const visit = sender.tab?.id === undefined ? undefined : confirmVisits.get(sender.tab.id);
+      if (
+        visit &&
+        sender.id === browser.runtime.id &&
+        sender.frameId === 0 &&
+        sender.documentId === visit.document.documentId
+      )
+        visit.submitted = true;
+      return undefined;
+    }
     if (v.safeParse(submittedSchema, message).success) {
       const document = await identify(sender);
       // A sign-in in a frame counts for the tab's page, whose next page is skipped.
@@ -10663,6 +11215,8 @@ export function createLoginRuntime(
   browser.tabs.onReplaced.addListener((added, removed) => {
     if (added === removed) return;
     replacedTabs.add(removed);
+    const incognito = incognitoTabs.get(removed);
+    if (incognito !== undefined && !incognitoTabs.has(added)) incognitoTabs.set(added, incognito);
     const moved = (key: string) =>
       key.startsWith(`${removed} `) ? `${added}${key.slice(String(removed).length)}` : key;
     void sessionLoaded.then(async () => {
@@ -10721,10 +11275,14 @@ export function createLoginRuntime(
       .catch(() => {
         storageHealthy = false;
       });
+    // The discarded page was not left: it loads again in the new tab and is logged there.
+    confirmVisits.delete(removed);
     forgetTab(removed);
   });
   /** Forgets a closed tab, or the gone page of a replaced one. */
   function forgetTab(tabId: number): void {
+    const visit = confirmVisits.get(tabId);
+    if (visit) leaveConfirm(visit);
     passwordSubmits.delete(tabId);
     passwordFills.delete(tabId);
     afterSignIn.delete(tabId);
@@ -10775,6 +11333,8 @@ export function createLoginRuntime(
         if (click.tabId === tabId) changed = logoutClicks.delete(key) || changed;
       for (const key of noted.keys())
         if (key.startsWith(`${tabId} `)) changed = noted.delete(key) || changed;
+      // Kept until here, so `elsewhere` above compares the closed tab's window.
+      incognitoTabs.delete(tabId);
       if (changed) await quietly(saveSession);
       return undefined;
     });
@@ -10976,12 +11536,14 @@ export function createLoginRuntime(
    * For a `password` login whose tab moved to `live`, a quiet page of another origin
    * (`passwordMoveFits`) that does not show the account's username (ADR 0022): whether a
    * signed-in marker learned on that origin shows, or else the judge of ADR 0029, asked
-   * once, answers `signed-in` for the page or found it signed in before. A judge that
-   * cannot decide, a page that cannot be described or sent, and any other verdict end the
-   * login `left-origin` (a watched one where it stopped), each logged. Once the answer is
-   * back, the page must still be
-   * loaded and quiet, with no passkey request since `since`, the step the move follows.
-   * `username` is the login's own, hidden from the page as for any judged page.
+   * once, answers `signed-in` for the page or found it signed in before, or answers
+   * `optional` (ADR 0065) for a page described without leaving a disabled field out, once
+   * the attempt submitted the password or a TOTP code and without a stop (ADR 0036). A
+   * judge that cannot decide, a page that cannot be described or sent, and any other
+   * verdict end the login `left-origin` (a watched one where it stopped), each logged.
+   * Once the answer is back, the page must still be loaded and show no password field,
+   * code input or CAPTCHA, with no passkey request since `since`, the step the move
+   * follows. `username` is the login's own, hidden from the page as for any judged page.
    */
   async function judgeMove(
     record: LoginAttemptMetadata,
@@ -10992,6 +11554,7 @@ export function createLoginRuntime(
     const { document } = live;
     const recipe = await attemptRecipe(record);
     let disabledLeftOut = false;
+    let inputLeftOut = false;
     // The answer's timing, once it came (ADR 0019).
     let timed: { timing?: ServiceTiming } = {};
     const reportJudge = (
@@ -11076,6 +11639,7 @@ export function createLoginRuntime(
       else {
         observation = parsed.output;
         disabledLeftOut = extracted.output.ok && extracted.output.disabledLeftOut === true;
+        inputLeftOut = extracted.output.ok && extracted.output.inputLeftOut === true;
       }
     } catch {
       // The page could not be asked: `unreachable`.
@@ -11112,7 +11676,7 @@ export function createLoginRuntime(
         hidden.observation,
         spin.sent(() => reportJudge("sent")),
         // A description that left out a disabled field says so (ADR 0029); only `signed-in`
-        // completes a moved login anyway.
+        // completes a moved login then.
         branchOf(record),
         ...(disabledLeftOut ? [true as const] : []),
       )
@@ -11120,8 +11684,34 @@ export function createLoginRuntime(
     spend(record.id, Date.now() - asked, timing);
     if (timing) timed = { timing };
     reportJudge(verdict, reason);
-    if (verdict !== "signed-in" && !(verdict === "unclear" && reason === "judged-signed-in"))
+    // `optional` (ADR 0065) completes it only on a full description with no radio button,
+    // select or text area left out, once the attempt submitted the item's password or a
+    // TOTP code (a move within the site may follow an identifier's Next), and not for a
+    // login stopped before its missing password, which only `signed-in` proves (ADR 0036).
+    const fill = passwordFills.get(document.tabId);
+    const effect = effects.get(document.tabId);
+    const sent =
+      (fill?.attemptId === record.id && fill.submitted) ||
+      (effect?.attemptId === record.id && effect.code !== undefined);
+    const optional = verdict === "optional";
+    if (
+      verdict !== "signed-in" &&
+      !(verdict === "unclear" && reason === "judged-signed-in") &&
+      !(optional && !disabledLeftOut && !inputLeftOut && record.stopAt === undefined && sent)
+    )
       return false;
+    // An optional page must still be on the path it was judged on.
+    if (optional) {
+      let at: unknown;
+      try {
+        at = await send(live, { type: "login.observe", path: live.path, targets: [] });
+      } catch {
+        return false;
+      }
+      const shown = v.safeParse(observationSchema, at);
+      if (stale() || !shown.success || observedPath(shown.output.path) !== observation.path)
+        return false;
+    }
     // The answer can take a while: the page must still be loaded and show no sign-in step.
     let again: unknown;
     try {

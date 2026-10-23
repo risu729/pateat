@@ -861,6 +861,43 @@ describe("judged totp handler (ADR 0027)", () => {
     });
   });
 
+  it("adds a handler without a button for a code page that shows none (#916)", () => {
+    // Slack's two-factor page: six one-digit inputs outside any form and no button.
+    const boxes = Array.from({ length: 6 }, (_, index) =>
+      codeInput(`otp-${index + 1}`, { maxLength: 1 }),
+    );
+    const loose = { origin, path: "/two-factor", candidates: boxes };
+    const added = addHandler(recipe, loose, { kind: "totp", field: target("otp-1") });
+    if (!added.ok) throw new Error(added.reason);
+    expect(added.recipe.handlers).toEqual([
+      { kind: "totp", path: "/two-factor", field: target("otp-1") },
+    ]);
+    expect(extendsRecipe(recipe, added.recipe)).toBe(true);
+    // A form that shows a button submits the code with it.
+    const withButton = {
+      origin,
+      path: "/two-factor",
+      candidates: [
+        ...boxes.map((box) => ({ ...box, group: "code" })),
+        { ...candidate("verify", verify), group: "code" },
+      ],
+    };
+    expect(addHandler(recipe, withButton, { kind: "totp", field: target("otp-1") })).toEqual({
+      ok: false,
+      reason: "not-code-field",
+    });
+    // Its inputs are still never a route step's elements.
+    const routed = {
+      origin,
+      path: "/pw",
+      candidates: [...boxes.slice(0, 5), codeInput("pw", { maxLength: 1 })],
+    };
+    expect(addHandler(recipe, routed, { kind: "totp", field: target("otp-1") })).toEqual({
+      ok: false,
+      reason: "step-target",
+    });
+  });
+
   it("accepts the route's submit button on that path when the code field is new", () => {
     // A sign-in form that asks for the code after the password, with the same button.
     const sameForm = {
@@ -906,6 +943,207 @@ describe("judged totp handler (ADR 0027)", () => {
         totp(target("account")),
       ),
     ).toEqual({ ok: false, reason: "step-target" });
+  });
+});
+
+describe("judged detail handler (ADR 0061)", () => {
+  const signIn = { by: "text", value: "Sign in" } as const;
+  const recipe = built([
+    ...page("/login", "username", "advance"),
+    {
+      kind: "fill",
+      path: "/pw",
+      effect: "prepare",
+      fields: [{ slot: "pw", target: target("pw") }],
+    },
+    { kind: "click", path: "/pw", target: signIn, purpose: "submit" },
+  ]);
+  // A synthetic page that asks for the birth year and month or a phone's last four digits.
+  const confirm = target("confirm");
+  const input = (
+    id: string,
+    role: ObservedCandidate["role"],
+    extra: Partial<Omit<ObservedCandidate, "target">> = {},
+  ) => ({ ...candidate(id, target(id), role), group: "form-1", ...extra });
+  const birthInput = input("birth", "text", { maxLength: 6 });
+  const phoneInput = input("phone", "tel", { maxLength: 4 });
+  const button = (locator: LoginTarget = confirm) => ({
+    ...candidate("confirm", locator),
+    group: "form-1",
+  });
+  const detailPage = (path = "/verify", ...candidates: ObservedCandidate[]) => ({
+    origin,
+    path,
+    candidates: [birthInput, phoneInput, button(), ...candidates],
+  });
+  const birth = {
+    detail: "birth-date" as const,
+    format: "yyyymm" as const,
+    target: target("birth"),
+  };
+  const phone = { detail: "phone-last-4" as const, target: target("phone") };
+  const detail = (
+    fields: {
+      detail: "birth-date" | "phone-last-4";
+      format?: "yyyymm";
+      target: LoginAttributeTarget;
+    }[] = [birth, phone],
+    locator: LoginTarget = confirm,
+  ) => ({ kind: "detail" as const, fields, target: locator });
+
+  it("adds a handler for the inputs and their button, which extends the recipe", () => {
+    const added = addHandler(recipe, detailPage(), detail());
+    if (!added.ok) throw new Error(added.reason);
+    expect(added.recipe.handlers).toEqual([
+      { kind: "detail", path: "/verify", fields: [birth, phone], target: confirm },
+    ]);
+    expect(added.recipe.revision).toBe(recipe.revision + 1);
+    expect(added.recipe.steps).toEqual(recipe.steps);
+    expect(extendsRecipe(recipe, added.recipe)).toBe(true);
+    // A passkey handler on the same path is a handler of another kind.
+    const key = { by: "text", value: "Use security key" } as const;
+    const both = addHandler(added.recipe, detailPage("/verify", candidate("key", key)), {
+      kind: "passkey",
+      target: key,
+    });
+    expect(both.ok && both.recipe.handlers?.map((handler) => handler.kind)).toEqual([
+      "detail",
+      "passkey",
+    ]);
+    // On a route path, the route's sign-in form may show beside inputs of its own.
+    const onRoute = addHandler(
+      recipe,
+      detailPage("/pw", input("pw", "password"), candidate("in", signIn)),
+      detail([phone]),
+    );
+    expect(onRoute.ok && onRoute.recipe.handlers).toEqual([
+      { kind: "detail", path: "/pw", fields: [phone], target: confirm },
+    ]);
+  });
+
+  it("refuses an input or button the page does not show", () => {
+    for (const handler of [
+      detail([birth, { ...phone, target: target("missing") }]),
+      detail([birth], target("missing")),
+    ])
+      expect(addHandler(recipe, detailPage(), handler)).toEqual({
+        ok: false,
+        reason: "not-on-page",
+      });
+    // The button must be a button, and each input an input.
+    const linked = { ...detailPage(), candidates: [birthInput, input("confirm", "link")] };
+    expect(addHandler(recipe, linked, detail([birth]))).toEqual({
+      ok: false,
+      reason: "not-on-page",
+    });
+    const pressed = { ...detailPage(), candidates: [{ ...button(target("birth")) }, button()] };
+    expect(addHandler(recipe, pressed, detail([birth]))).toEqual({
+      ok: false,
+      reason: "not-on-page",
+    });
+  });
+
+  it("refuses an input that detailInputRefusal refuses with its button", () => {
+    for (const candidates of [
+      // Shorter than the value, a password input for a birth date, a sign-in field, and a
+      // button of another form.
+      [birthInput, input("phone", "tel", { maxLength: 3 }), button()],
+      [input("birth", "password"), phoneInput, button()],
+      [birthInput, input("phone", "tel", { autocomplete: "one-time-code" }), button()],
+      [birthInput, input("phone", "tel", { group: "form-2" }), button()],
+    ])
+      expect(addHandler(recipe, { ...detailPage(), candidates }, detail())).toEqual({
+        ok: false,
+        reason: "not-detail-field",
+      });
+  });
+
+  it("refuses a route field or button, and another handler's element on that path", () => {
+    // The route's password field on its path, and a field the route fills on any path.
+    for (const [path, field] of [
+      ["/pw", "pw"],
+      ["/verify", "username"],
+    ] as const)
+      expect(
+        addHandler(
+          recipe,
+          detailPage(path, input(field, "text")),
+          detail([birth, { ...phone, target: target(field) }]),
+        ),
+      ).toEqual({ ok: false, reason: "step-target" });
+    // The route's button on its path.
+    expect(
+      addHandler(
+        recipe,
+        { ...detailPage("/pw"), candidates: [birthInput, { ...button(signIn) }] },
+        detail([birth], signIn),
+      ),
+    ).toEqual({ ok: false, reason: "step-target" });
+    // A totp handler's code field on the same path.
+    const codeInput = input("otp", "tel", { maxLength: 6 });
+    const coded = addHandler(
+      recipe,
+      { origin, path: "/verify", candidates: [codeInput, { ...button(target("verify")) }] },
+      { kind: "totp", field: target("otp"), target: target("verify") },
+    );
+    if (!coded.ok) throw new Error(coded.reason);
+    expect(
+      addHandler(
+        coded.recipe,
+        detailPage("/verify", codeInput),
+        detail([{ ...phone, target: target("otp") }]),
+      ),
+    ).toEqual({ ok: false, reason: "step-target" });
+    // On another path it is another element.
+    expect(
+      addHandler(
+        coded.recipe,
+        detailPage("/other", codeInput),
+        detail([{ ...phone, target: target("otp") }]),
+      ).ok,
+    ).toBe(true);
+    // Nor the account switch, rejection or a marker.
+    const extended: LoginRecipe = {
+      ...recipe,
+      rejection: target("error"),
+      completion: [{ target: target("account") }],
+    };
+    expect(
+      addHandler(
+        extended,
+        detailPage("/verify", { ...button(target("error")) }),
+        detail([birth], target("error")),
+      ),
+    ).toEqual({ ok: false, reason: "step-target" });
+    expect(
+      addHandler(
+        extended,
+        detailPage("/verify", input("account", "tel")),
+        detail([{ ...phone, target: target("account") }]),
+      ),
+    ).toEqual({ ok: false, reason: "step-target" });
+  });
+
+  it("refuses a second detail handler on the same path", () => {
+    const added = addHandler(recipe, detailPage(), detail([birth]));
+    if (!added.ok) throw new Error(added.reason);
+    expect(addHandler(added.recipe, detailPage(), detail([phone]))).toEqual({
+      ok: false,
+      reason: "duplicate",
+    });
+    // On another path it is another page.
+    expect(addHandler(added.recipe, detailPage("/verify-2"), detail([phone])).ok).toBe(true);
+    // One input named twice breaks the recipe contract.
+    expect(addHandler(recipe, detailPage(), detail([phone, phone]))).toEqual({
+      ok: false,
+      reason: "invalid-recipe",
+    });
+  });
+
+  it("refuses another origin", () => {
+    expect(
+      addHandler(recipe, { ...detailPage(), origin: "https://www.bank.example" }, detail()),
+    ).toEqual({ ok: false, reason: "origin-mismatch" });
   });
 });
 

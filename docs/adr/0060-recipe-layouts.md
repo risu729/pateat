@@ -16,8 +16,10 @@ name), [ADR 0028](0028-account-chooser-login-pages.md) (the chooser's shape and 
 names), [ADR 0029](0029-local-sign-in-state.md) (E1 reads every layout's markers),
 [ADR 0035](0035-page-kinds-per-site.md) (the page kind is kept per layout),
 [ADR 0049](0049-start-at-a-later-step.md) (which recipe a later step starts),
-[ADR 0055](0055-login-records-sent-to-the-service.md) (`branch` names the layout) and
-[ADR 0058](0058-automatic-recipe-removal.md) (part B counts use per layout).
+[ADR 0055](0055-login-records-sent-to-the-service.md) (`branch` names the layout),
+[ADR 0058](0058-automatic-recipe-removal.md) (part B counts use per layout) and
+[ADR 0061](0061-personal-details-during-a-login.md) (a `detail` handler is kept per
+layout).
 
 Date: 2026-10-23
 
@@ -141,7 +143,7 @@ accounts in another language fails the same way.
 Existing recipes are discarded, not converted. The rule of
 [Compatibility before release](../development.md#compatibility-before-release) forbids
 a migration whose only purpose is older data, and wrapping each recipe as
-`layouts: [body]` would be one. Migration 0028 deletes every recipe revision and head,
+`layouts: [body]` would be one. Migration 0029 deletes every recipe revision and head,
 and every judged page, generation attempt and first-login result, since their `branch`
 named a route the old way. The request log and login records stay. The device's recipe
 cache moves to version 2, so a version 1 cache is ignored and the device syncs from the
@@ -192,6 +194,8 @@ the owner has not tapped the card yet.
     `i`. The judge only appends them (`addHandler`, `addCompletion`), and continuations
     and `withLoginLayout` keep them. One judgement may add several handlers: each gets
     its row, all naming the same request log row. The judge never writes `rejection`.
+    A `detail` handler ([ADR 0061](0061-personal-details-during-a-login.md)) is one of
+    them.
   - `list`: a chooser layout's list buttons (`other`, `continue`).
   - `account/<unit>` and `other/<unit>`: the units of a chooser layout's branch, such
     as `account/page:0`.
@@ -318,7 +322,7 @@ Recorded on 2026-10-23 from the owner; not designed or decided here:
 - Service: `services/api/src/recipes/generate.ts`, `recipe-store.ts` (`markLayoutUsed`,
   `removeUnusedLayouts`, the unit rows of `writeRecipe`), `recipe-units.ts` (unit IDs),
   `routes/recipes.ts`, `routes/manage-api.ts`, `db/schema.ts` (`recipe_unit_sources`),
-  migration `0028_recipe_layouts.sql`, and the management page
+  migration `0029_recipe_layouts.sql`, and the management page
   (`services/api/web/recipes.tsx`).
 
 ## Alternatives

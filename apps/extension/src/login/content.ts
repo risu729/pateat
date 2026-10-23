@@ -17,7 +17,8 @@ import {
   targetState,
   writable,
 } from "../page/target-state";
-import { identifierInput } from "../page/identifier-field";
+import { answerInput, identifierInput } from "../page/identifier-field";
+import { showsAmount } from "../page/amount";
 import {
   CODE_SETTLE_MS,
   splitCodeInputs,
@@ -75,6 +76,8 @@ import { newId } from "@pateat/contracts/ids";
  * reads this, so a step on `/[id]/login` runs on the same page of any tenant.
  */
 const pagePath = () => observedPath(location.pathname);
+/** When a frame the worker asks about is read for a sign-in input or a secret answer. */
+const FRAME_READINGS_MS = [0, 1_000, 3_000, 6_000, LOGIN_STEP_WAIT_MS];
 /** Fixed locators deliberately reject duplicates rather than taking the first match. */
 function matches(target: LoginMarkerTarget, links = false): Element[] {
   return findTargets(document, target, { links });
@@ -304,6 +307,15 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   // each so the background can log a login that did not start.
   const shown = new Set<string>();
   let shownTimer: ReturnType<typeof setTimeout> | undefined;
+  // A recipe generated as `confirm` or `unclear` starts on this path, so the page only
+  // watches (ADR 0035): its first step is reported with `shown` as soon as it shows, and
+  // the person's own submission of its form once per path.
+  let confirmPage: LoginReadiness | undefined;
+  const personSubmits = new Set<string>();
+  // A frame the worker asked to report a sign-in input or a secret answer (ADR 0035): the
+  // watch's stop while it runs, and whether it reported one.
+  let frameWatch: (() => void) | undefined;
+  let frameReported = false;
   // The pending offer's timers: its decision once the DOM is quiet (`offerQuiet`) or at the
   // latest (`offerCap`, ADR 0057), and the end of its window for a sign-in input
   // (`offerWindow`, ADR 0016). The decision is pending while `offerCap` is set.
@@ -359,9 +371,14 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     const bare = !cancelled && !starts.some(ready) && !showsSignIn() && !afterSubmitted();
     const noInput = bare ? noInputOffer(document, entryWanted && !entryOffered) : undefined;
     // Nothing to send yet, or a list announced only for the log, which waits for the window.
+    // Short texts beside the button of a page asking a secret answer name no account: the
+    // page waits for the window too, which counts it (ADR 0035).
     if (
       !noInput ||
-      (noInput.kind === "list" && !noInput.entry && noInput.accounts && logOnly(noInput.accounts))
+      (noInput.kind === "list" &&
+        !noInput.entry &&
+        noInput.accounts &&
+        (logOnly(noInput.accounts) || (noInput.accounts.names && answerInput(document))))
     )
       return;
     if (noInput.kind !== "identifier" && noInput.entry) entryOffered = true;
@@ -383,9 +400,11 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     offered = true;
     watch(starts);
     const bare = !cancelled && !starts.some(ready) && !showsSignIn() && !afterSubmitted();
-    const accounts = bare ? listedAccounts(document) : undefined;
+    const accounts = bare && !answerInput(document) ? listedAccounts(document) : undefined;
     if (accounts && logOnly(accounts)) void announce(false, false, accounts).catch(() => undefined);
-    // Nothing was sent: the log says why (ADR 0019).
+    // Nothing was sent: the log says why (ADR 0019). A secret answer of `type="text"` looks
+    // like a verification that is never sent, so it is counted (ADR 0035) when no sign-in
+    // reason holds, also on a page with a list of accounts.
     else if (!cancelled && !starts.some(ready))
       void sendMessage("login", {
         version: 1,
@@ -393,9 +412,46 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         token,
         unoffered: {
           path: pagePath(),
-          why: afterSubmitted() ? "after-sign-in" : showsSignIn() ? "sign-in-shown" : "no-list",
+          why: afterSubmitted()
+            ? "after-sign-in"
+            : showsSignIn()
+              ? "sign-in-shown"
+              : answerInput(document)
+                ? "text-answer"
+                : "no-list",
         },
       }).catch(() => undefined);
+  }
+  /**
+   * Reports once, for the count of pages that look like a verification but are not sent, a
+   * sign-in input or a secret answer this frame shows within the step wait (ADR 0035). The
+   * frame is read a few times, never watched, as many frames are ads that keep changing.
+   */
+  function watchFrame(): void {
+    if (frameWatch || frameReported || cancelled) return;
+    let left = FRAME_READINGS_MS.length;
+    const timers = FRAME_READINGS_MS.map((delay) => setTimeout(look, delay));
+    function stop(): void {
+      for (const reading of timers) clearTimeout(reading);
+      frameWatch = undefined;
+    }
+    function look(): void {
+      left -= 1;
+      if (cancelled || frameReported) return stop();
+      if (!showsSignIn() && !answerInput(document)) {
+        if (!left) stop();
+        return;
+      }
+      frameReported = true;
+      stop();
+      void sendMessage("login", {
+        version: 1,
+        type: "login.document.ready",
+        token,
+        unoffered: { path: pagePath(), why: "frame" },
+      }).catch(() => undefined);
+    }
+    frameWatch = stop;
   }
   function watch(list: LoginReadiness[], offer = false, entryPage = false): void {
     starts = list;
@@ -407,7 +463,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       offerCap = setTimeout(decideOffer, offerWaitMs);
       offerWindow = setTimeout(endOffer, LOGIN_STEP_WAIT_MS);
     }
-    if ((!starts.length && !generate) || cancelled) {
+    // A page Pateat does not fill keeps watching until its first step is reported (ADR 0035).
+    const confirmWaiting = confirmPage !== undefined && !shown.has(confirmPage.path);
+    if ((!starts.length && !generate && !confirmWaiting) || cancelled) {
       unwatch();
       return;
     }
@@ -465,6 +523,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     clearTimeout(timer);
     timer = undefined;
     if (!observer) return;
+    noteConfirm();
     const startable = starts.some(ready);
     // A step that shows on another path of the same document is a new appearance too, as
     // the password step a single-page app renders in place of its email step (ADR 0049).
@@ -512,9 +571,79 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         version: 1,
         type: "login.document.ready",
         token,
-        shown: { path },
+        shown: shownReport(path),
       }).catch(() => undefined);
     }, LOGIN_STEP_WAIT_MS);
+  }
+  /**
+   * Reports, for the log only, the first step of a page Pateat does not fill as soon as it
+   * shows, once per path (ADR 0035).
+   */
+  function noteConfirm(): void {
+    const path = pagePath();
+    if (!confirmPage || cancelled || shown.has(path) || !ready(confirmPage)) return;
+    shown.add(path);
+    void sendMessage("login", {
+      version: 1,
+      type: "login.document.ready",
+      token,
+      shown: shownReport(path),
+    }).catch(() => undefined);
+    // Nothing else to watch: only the path is followed, for a return to the page.
+    if (!starts.length && !generate) unwatch();
+  }
+  /**
+   * Follows the path of a page Pateat does not fill (ADR 0035), `followed`, from `at`, the
+   * path last seen. Left in place, the page announces its new path, so the worker logs the
+   * visit as left with that page next; back on it, the page announces again, and the
+   * worker's answer names its first step, which with the person's submit is reported again
+   * as a new visit.
+   */
+  let followed: string | undefined;
+  let at: string | undefined;
+  const confirmPathChanged = () => {
+    const path = pagePath();
+    if (!followed || cancelled || path === at) return;
+    const leaving = at === followed;
+    at = path;
+    if (leaving) {
+      shown.delete(followed);
+      personSubmits.delete(followed);
+    }
+    if (leaving || path === followed) void announce(false).catch(() => undefined);
+  };
+  function followConfirmPath(path: string | undefined): void {
+    removeEventListener("popstate", confirmPathChanged);
+    navigation?.removeEventListener("currententrychange", confirmPathChanged);
+    followed = path;
+    at = pagePath();
+    if (!path) return;
+    addEventListener("popstate", confirmPathChanged);
+    navigation?.addEventListener("currententrychange", confirmPathChanged);
+  }
+  /**
+   * A `shown` report of `path`: on a page Pateat does not fill, with whether an amount shows
+   * in the form of its first step, never the amount; nothing when that step is in no form
+   * (ADR 0035).
+   */
+  function shownReport(path: string): { path: string; amount?: boolean } {
+    const forms = confirmForms();
+    return forms.length ? { path, amount: forms.some((form) => showsAmount(form)) } : { path };
+  }
+  /** The forms that hold the first step's elements of a page Pateat does not fill (ADR 0035). */
+  function confirmForms(): HTMLFormElement[] {
+    if (!confirmPage || pagePath() !== confirmPage.path) return [];
+    const forms = confirmPage.targets
+      .flatMap((target) => matches(target))
+      .flatMap((element) => {
+        // `form` also follows a control's `form` attribute.
+        const form =
+          element instanceof HTMLInputElement || element instanceof HTMLButtonElement
+            ? element.form
+            : element.closest("form");
+        return form ? [form] : [];
+      });
+    return [...new Set(forms)];
   }
   /** Whether this path is the one this document showed next after a submitted password form. */
   function afterSubmitted(): boolean {
@@ -549,6 +678,15 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       ...(entryPage ? { entry: { path: pagePath() } } : {}),
     });
     const parsed = v.safeParse(readySchema, result);
+    if (parsed.success) {
+      // A page Pateat does not fill stays one until an answer on another path (ADR 0035).
+      if (parsed.output.confirm) confirmPage = parsed.output.confirm;
+      else if (confirmPage?.path !== announcedPath) confirmPage = undefined;
+      // Its path stays followed after the page moves on, for a return in place.
+      if (cancelled) followConfirmPath(undefined);
+      else if (confirmPage && followed !== confirmPage.path) followConfirmPath(confirmPage.path);
+      if (parsed.output.frame) watchFrame();
+    }
     if (parsed.success && parsed.output.ok && parsed.output.starts) {
       // A page of a watched login: its recipe's first step showing releases the login
       // (ADR 0027).
@@ -596,6 +734,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     if (command.type === "login.cancel") {
       cancelled = true;
       unwatch();
+      frameWatch?.();
+      followConfirmPath(undefined);
       respond({ ok: true });
       return false;
     }
@@ -1120,10 +1260,17 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             return fail("wrong-account");
           }
         }
+        // A `totp` handler without a button types its code as the submission: the page
+        // submits it once it is in (ADR 0027 amendment of 2026-10-23).
+        const buttonless =
+          command.code !== undefined &&
+          command.code.submit === undefined &&
+          step.effect === "submit" &&
+          step.fields.length === 1;
         // A `totp` handler's code split into one input per digit goes in one digit per
         // input (ADR 0027, owner decision 2026-10-12 19:21 UTC).
         const split =
-          command.code && step.effect === "prepare" && step.fields.length === 1
+          command.code && (step.effect === "prepare" || buttonless) && step.fields.length === 1
             ? splitCodeInputs(writableInputs[0]!, command.values[0]!.value.length, writable)
             : undefined;
         const fits = (input: HTMLInputElement, value: string) =>
@@ -1148,7 +1295,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           step.effect === "prepare" ? fillBaseline(split ?? writableInputs) : undefined;
         // A code field fills alone; its watch starts before the code goes in (ADR 0027).
         const code =
-          command.code && step.effect === "prepare" && step.fields.length === 1
+          command.code?.submit && step.effect === "prepare" && step.fields.length === 1
             ? watchCodeSubmission(
                 writableInputs[0]!,
                 step.fields[0]!.target,
@@ -1156,7 +1303,18 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                 step.path,
               )
             : undefined;
-        if (command.code && !code) return fail("structural-mismatch", "code-watch-failed");
+        if (command.code && !code && !buttonless)
+          return fail("structural-mismatch", "code-watch-failed");
+        // Once the code's last character went in, the page has it: a page that then disables,
+        // clears or removes the input, or leaves the path, has taken the code. A character the
+        // page kept out of an input it still shows as it was refuses the code as before.
+        let codeIn = false;
+        const lastIn = () => {
+          codeIn = true;
+        };
+        const taken = (input: HTMLInputElement, stopped: string) =>
+          codeIn &&
+          (stopped !== "refused" || !input.isConnected || !writable(input) || input.value === "");
         try {
           for (const [index, field] of step.fields.entries()) {
             const input = inputs[index] as HTMLInputElement;
@@ -1227,23 +1385,25 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                 filled.add(digit);
                 // eslint-disable-next-line no-await-in-loop
                 const stopped = await typeValue(digit, value.value[place]!, setter, {
-                  beforeInput: place === split.length - 1 ? code?.typed : undefined,
+                  beforeInput:
+                    place === split.length - 1 ? (buttonless ? lastIn : code?.typed) : undefined,
                   between: scope,
                 });
                 // A page that took the code with its last digit may change or clear its
                 // form at once; the code watch says so first.
                 if (stopped && code?.submitted()) return fail("submitted");
+                if (stopped && taken(digit, stopped)) break;
                 // A digit the page kept out is never followed by the rest.
                 if (stopped === "refused") return fail("fill-rejected");
                 if (stopped) return fail("cancelled", stopped);
               }
-            } else if (step.effect === "prepare") {
+            } else if (step.effect === "prepare" || buttonless) {
               filled.add(input);
               // The code goes in now; the page's own reaction is measured from here. The
               // page may change between characters, so each one repeats the checks.
               // eslint-disable-next-line no-await-in-loop
               const stopped = await typeValue(input, value.value, setter, {
-                beforeInput: code?.typed,
+                beforeInput: buttonless ? lastIn : code?.typed,
                 between: () => {
                   if (cancelled) return "document-cancelled";
                   if (pagePath() !== step.path) return "page-changed";
@@ -1260,8 +1420,10 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
               });
               if (stopped && code?.submitted()) return fail("submitted");
               // A value the page kept a character of out is never submitted.
-              if (stopped === "refused") return fail("fill-rejected");
-              if (stopped) return fail("cancelled", stopped);
+              if (stopped && !taken(input, stopped)) {
+                if (stopped === "refused") return fail("fill-rejected");
+                return fail("cancelled", stopped);
+              }
             } else {
               // An advance or a submission through the page's own event gets that one event
               // alone, with no focus, keys or blur that could run its effect again.
@@ -1475,8 +1637,24 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
    */
   const onSubmit = (event: Event) => {
     const form = event.target;
+    if (!(form instanceof HTMLFormElement)) return;
+    // The person submitted the form of a page Pateat does not fill: only the fact, once per
+    // path, before the page leaves (ADR 0035).
+    const path = pagePath();
     if (
-      !(form instanceof HTMLFormElement) ||
+      event.isTrusted &&
+      !cancelled &&
+      !personSubmits.has(path) &&
+      confirmForms().includes(form)
+    ) {
+      personSubmits.add(path);
+      void sendMessage("login", {
+        version: 1,
+        type: "login.document.person-submitted",
+        token,
+      }).catch(() => undefined);
+    }
+    if (
       ![...form.elements].some(
         (element) => element instanceof HTMLInputElement && element.type === "password",
       )
@@ -1509,6 +1687,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   return () => {
     cancelled = true;
     unwatch();
+    frameWatch?.();
+    followConfirmPath(undefined);
     document.removeEventListener("submit", onSubmit, true);
     removeEventListener("click", onClick, true);
     browser.runtime.onMessage.removeListener(listener);

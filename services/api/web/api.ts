@@ -5,6 +5,7 @@ import {
   manageDevicesSchema,
   manageErrorSchema,
   manageModelsSchema,
+  manageProblemsSchema,
   manageRecipeConflictSchema,
   manageRecipesSchema,
   manageRequestLogDeletedSchema,
@@ -159,6 +160,10 @@ export function createManageClient(fetcher: ManageFetch = (input, init) => fetch
     /** Exchanges one token with the saved identifiers; the token never reaches the page. */
     async testClaude() {
       return read(await call(fetcher, "/claude/test", { method: "POST" }), manageClaudeTestSchema);
+    },
+    /** The newest problem lines devices sent (ADR 0066). */
+    async problems() {
+      return read(await call(fetcher, "/problems"), manageProblemsSchema);
     },
   };
 }

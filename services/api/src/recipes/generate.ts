@@ -67,7 +67,7 @@ import {
   type InferenceOutcome,
   type ValidatedGeneratedPage,
 } from "@pateat/inference";
-import { and, count, eq, gt, gte, lt, notInArray, or } from "drizzle-orm";
+import { and, count, eq, gt, gte, inArray, lt, notInArray, or } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import * as v from "valibot";
 import type { DeviceScope } from "../auth";
@@ -1118,8 +1118,9 @@ export async function judgeCompletion(
       // could not decide on a description that left out a disabled field, as a code field
       // waiting for its code may be, is judged again once the path is described in full; a
       // description that leaves one out again is `already-judged`, which the extension
-      // never completes on.
-      if (judged && !(judged.verdict === "partial" && !partial))
+      // never completes on. A page judged `optional` is judged again each time: another
+      // page of the same path, as a single-page sign-in shows, may ask for a step (ADR 0065).
+      if (judged && !(judged.verdict === "partial" && !partial) && judged.verdict !== "optional")
         return judged.verdict === "challenge"
           ? "judged-challenge"
           : judged.verdict === "rejected"
@@ -1135,9 +1136,10 @@ export async function judgeCompletion(
         .where(and(ofRecipe, gte(pageJudgements.judgedAt, utcDayStart(now))));
       return (today?.value ?? 0) >= JUDGEMENTS_PER_RECIPE_DAY ? "judgement-limit" : undefined;
     },
-    // A request the role refuses before sending still uses its slot, as a generation
-    // attempt does; a `partial` row judged again takes today's slot and waits for its new
-    // verdict. Rows of older revisions or judges go once their day is over.
+    // A request the role refuses before sending gives the slot back, as a generation
+    // attempt does (ADR 0027); a `partial` or `optional` row judged again takes today's
+    // slot and waits for its new verdict. Rows of older revisions or judges go once their
+    // day is over.
     beforeSend: (db, now) => [
       db
         .insert(pageJudgements)
@@ -1162,7 +1164,7 @@ export async function judgeCompletion(
             pageJudgements.promptVersion,
           ],
           set: { judgedAt: now, verdict: null },
-          setWhere: eq(pageJudgements.verdict, "partial"),
+          setWhere: inArray(pageJudgements.verdict, ["partial", "optional"]),
         }),
       db
         .delete(pageJudgements)
@@ -1242,16 +1244,25 @@ export async function judgeCompletion(
     await keepVerdict("unclear");
     return { version: 1, status: "unclear" };
   }
-  await keepVerdict(judgement.decision);
+  // An optional answer on a description that left out a disabled field is kept as
+  // `partial`, as an abstention there is (ADR 0029, ADR 0065).
+  await keepVerdict(partial && judgement.decision === "optional" ? "partial" : judgement.decision);
   if (judgement.decision === "rejected") return { version: 1, status: "rejected" };
+  // A page the person may put off is signed in, but nothing is learned there (ADR 0065):
+  // its elements may never show on the usual signed-in page, so a marker comes only from a
+  // page judged `signed-in`, and the path is judged again on the next login.
+  if (judgement.decision === "optional") return { version: 1, status: "optional" };
   if (judgement.decision === "challenge") {
     // A page may offer both a security key and a TOTP code, or a button that goes on to
     // the password (ADR 0048); each handler that passes its checks is kept, in one revision
     // (ADR 0027).
     let changed: LoginRecipe | undefined;
     // Kinds and refusal reasons only: never an element, label or value.
-    const handlers: { kind: "passkey" | "password" | "totp"; kept: boolean; reason?: string }[] =
-      [];
+    const handlers: {
+      kind: "passkey" | "password" | "totp" | "detail";
+      kept: boolean;
+      reason?: string;
+    }[] = [];
     /** The handler added to the revision after the judged one, with what came before. */
     const keep = (handler: Parameters<typeof addHandler>[2]) => {
       const base = changed ?? recipe;
@@ -1274,6 +1285,12 @@ export async function judgeCompletion(
     // A code the judge named but its local checks refused is logged with why (ADR 0027).
     if (judgement.totpDropped && !stop)
       handlers.push({ kind: "totp", kept: false, reason: judgement.totpDropped });
+    // Nor are a stop's details (ADR 0036, ADR 0061); each dropped input is logged by why.
+    if (judgement.detail && stop) handlers.push({ kind: "detail", kept: false, reason: "stop" });
+    else if (judgement.detail) keep({ kind: "detail", ...judgement.detail });
+    if (!stop)
+      for (const reason of judgement.detailsDropped ?? [])
+        handlers.push({ kind: "detail", kept: false, reason });
     if (handlers.length) console.info("Judged page handlers", { recipeId, handlers });
     const withHandlers = changed && stored(head.recipe, branch, changed);
     if (!withHandlers) return { version: 1, status: "challenge" };

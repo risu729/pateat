@@ -59,6 +59,12 @@ holds up to three layouts, and E1 counts a signed-in marker of any layout of the
 recipe, read as the login's own markers are; a page where another layout's markers
 cannot be read gives no sign-in state.
 
+Amended on 2026-10-23 by [ADR 0065](0065-optional-pages-after-a-sign-in.md) (owner,
+12:27 UTC): the judge may answer `optional` for a page after the sign-in that the person
+may put off; once the password or a second factor was sent, with no sign and no
+evidence, it completes the login as signed in, confirmed, and learns no marker,
+otherwise it ends `challenge` (implemented, local tests only).
+
 Date: 2026-10-12
 
 ## Context
