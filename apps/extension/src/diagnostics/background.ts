@@ -2,6 +2,7 @@
 import type { LocalSettings } from "@pateat/contracts";
 import * as v from "valibot";
 import type { VaultSyncOutcome } from "../connections/auto-sync";
+import type { VaultTimeoutReport } from "../vault/timeout";
 import type { SignInStep } from "../connections/runtime";
 import type { RefreshReport } from "../connections/sessions";
 import type { SetupReply } from "../connections/types";
@@ -258,6 +259,12 @@ export function createDiagnosticsLog(options: {
                 : "warn",
         },
       );
+    },
+    /** The vault timeout acted (ADR 0075): info when every vault closed, else warn. */
+    vaultTimeout(event: VaultTimeoutReport) {
+      void logger.log("vault.timeout", event, {
+        level: event.outcome === "done" ? "info" : "warn",
+      });
     },
     /**
      * A Bitwarden refresh request: debug when it succeeded, info when none was sent and why,

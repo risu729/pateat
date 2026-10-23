@@ -7,6 +7,7 @@ import * as v from "valibot";
 import type { SetupReply } from "../connections/types";
 import type { DeviceStateResult } from "../service/transport";
 import type { VaultEntry, VaultResult } from "../vault/record";
+import type { VaultTimeoutSetting } from "../vault/timeout";
 import type { LogSummary, RecentLog } from "./log";
 import type { Pseudonyms } from "./pseudonym";
 import {
@@ -17,6 +18,7 @@ import {
   plural,
   problemCounts,
   serverLabel,
+  syncKeyKept,
   syncSignIn,
 } from "./labels";
 import type {
@@ -60,6 +62,8 @@ export type DiagnosticsDependencies = {
   cryptoHost(): { ready: boolean; sessions: number };
   /** The toolbar icon's own rule (`actionIconState`). */
   actionIcon(): Promise<"unlocked" | "locked">;
+  /** This device's vault timeout (ADR 0075). */
+  vaultTimeout?(): Promise<VaultTimeoutSetting>;
   serviceState(): Promise<ServiceState | undefined>;
   /** Only the paired origin is read, for its site access and health. */
   serviceOrigin(): Promise<string | undefined>;
@@ -341,13 +345,13 @@ function connectionChecks(item: DiagnosticsConnection, now: number): Diagnostics
     ? { id: `vault:${item.id}`, level: "error", detail: `${item.id} ${item.storageError}` }
     : item.state === "review-required" || item.state === "unavailable"
       ? { id: `vault:${item.id}`, level: "warn", detail: `${item.id} ${item.state}` }
-      : item.state === "disabled"
-        ? { id: `vault:${item.id}`, level: "info", detail: `${item.id} disabled` }
+      : item.state === "disabled" || item.state === "locked"
+        ? { id: `vault:${item.id}`, level: "info", detail: `${item.id} ${item.state}` }
         : { id: `vault:${item.id}`, level: "ok", detail: `${item.id} vault cache ${item.state}` };
-  // Sync needs the stored unlock key, so an expired token renews only with auto-unlock on.
+  // Sync needs the vault's key, so an expired token renews only while it is kept.
   const session: DiagnosticsCheck =
     item.providerSession === "active" ||
-    (item.providerSession === "refresh-required" && item.autoUnlock === "enabled")
+    (item.providerSession === "refresh-required" && syncKeyKept(item))
       ? {
           id: `sync:${item.id}`,
           level: "ok",
@@ -359,7 +363,7 @@ function connectionChecks(item: DiagnosticsConnection, now: number): Diagnostics
           ? {
               id: `sync:${item.id}`,
               level: "info",
-              detail: `${item.id} ${syncSignIn(item.providerSession)}; Sync needs auto-unlock`,
+              detail: `${item.id} ${syncSignIn(item.providerSession)}; Sync needs the vault unlocked`,
             }
           : {
               id: `sync:${item.id}`,
@@ -487,17 +491,27 @@ export async function collectDiagnostics(
   deps: DiagnosticsDependencies,
 ): Promise<DiagnosticsStatus> {
   const now = deps.now ?? Date.now;
-  const [platform, permissions, siteAccess, setup, settings, localBytes, logs, recent] =
-    await Promise.all([
-      deps.platform().catch(() => ({ os: "unknown", arch: "unknown" })),
-      deps.permissions().catch((): { permissions?: string[]; origins?: string[] } => ({})),
-      deps.hasAllSiteAccess().catch(() => false),
-      deps.connections.status().catch(() => undefined),
-      deps.settings().catch(() => undefined),
-      deps.storage.localBytes().catch(() => undefined),
-      deps.logs().catch(() => undefined),
-      deps.recentLog().catch(() => undefined),
-    ]);
+  const [
+    platform,
+    permissions,
+    siteAccess,
+    setup,
+    settings,
+    localBytes,
+    logs,
+    recent,
+    vaultTimeout,
+  ] = await Promise.all([
+    deps.platform().catch(() => ({ os: "unknown", arch: "unknown" })),
+    deps.permissions().catch((): { permissions?: string[]; origins?: string[] } => ({})),
+    deps.hasAllSiteAccess().catch(() => false),
+    deps.connections.status().catch(() => undefined),
+    deps.settings().catch(() => undefined),
+    deps.storage.localBytes().catch(() => undefined),
+    deps.logs().catch(() => undefined),
+    deps.recentLog().catch(() => undefined),
+    deps.vaultTimeout?.().catch(() => undefined),
+  ]);
   const listed = setup?.ok && setup.kind === "status" ? setup.connections : [];
   // Network reads run together; each has its own timeout. Neither promise may reject,
   // since a failing store read below would leave them unawaited.
@@ -553,6 +567,7 @@ export async function collectDiagnostics(
     },
     // Unlocked only when every configured connection auto-unlocks, as the toolbar icon shows.
     actionIcon: await deps.actionIcon().catch(() => "locked" as const),
+    ...(vaultTimeout ? { vaultTimeout } : {}),
     cryptoHost: { ready: host.ready, sessions: host.sessions },
     connections,
     service: serviceStatus,

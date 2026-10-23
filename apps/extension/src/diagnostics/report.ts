@@ -16,6 +16,16 @@ import type { DiagnosticsConnection, DiagnosticsStatus } from "./wire";
 
 export type BrowserInfo = { name: string; version: string; installType: string };
 
+/** The vault timeout as codes: `15 min · lock`, `system-idle · log-out`. */
+export function vaultTimeoutText(
+  setting: NonNullable<DiagnosticsStatus["vaultTimeout"]>,
+  code: (value: string) => string = (value) => value,
+): string {
+  const timeout =
+    typeof setting.timeout === "number" ? `${setting.timeout} min` : code(setting.timeout);
+  return `${timeout} · ${code(setting.action)}`;
+}
+
 export function shortRevision(revision: string): string {
   return /^[0-9a-f]{40}$/u.test(revision) ? revision.slice(0, 7) : revision;
 }
@@ -78,6 +88,7 @@ export function formatReport(status: DiagnosticsStatus, browser: BrowserInfo): s
       `Settings: excluded sites ${status.settings.excludedSites} · site defaults ${status.settings.siteDefaults} · bindings ${status.settings.bindings}`,
     );
   lines.push(`Toolbar icon: ${status.actionIcon}`);
+  if (status.vaultTimeout) lines.push(`Vault timeout: ${vaultTimeoutText(status.vaultTimeout)}`);
   const counts = { ok: 0, info: 0, warn: 0, error: 0 };
   for (const check of status.checks) counts[check.level] += 1;
   const problems = status.checks.filter(

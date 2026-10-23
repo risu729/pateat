@@ -6,6 +6,7 @@ import { SettingsApp } from "../../src/options/settings-app";
 import { createMetadataQueryClient, createSettingsClient } from "../../src/options/client";
 import { createConnectionClient } from "../../src/options/connection-client";
 import { createServiceClient } from "../../src/options/service-client";
+import { createVaultTimeoutClient } from "../../src/options/vault-timeout";
 import { sendMessage } from "../../src/messaging/protocol";
 import { followThemePreference } from "../../src/theme";
 // oxlint-disable-next-line import/no-unassigned-import -- Bundle the options page stylesheet.
@@ -29,6 +30,7 @@ createRoot(root).render(
     <SettingsApp
       client={createSettingsClient((message) => sendMessage("settings", message))}
       connectionClient={connectionClient}
+      vaultTimeoutClient={createVaultTimeoutClient()}
       serviceClient={createServiceClient({
         send: (message) => sendMessage("service", message),
         openTab: (url) => browser.tabs.create({ url }),

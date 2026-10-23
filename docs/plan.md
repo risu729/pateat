@@ -344,13 +344,13 @@ than in this repository.
     default, follows the browser's `prefers-color-scheme` (owner, 2026-10-12 20:54 UTC).
     The choice is presentation only, kept in each program's `localStorage`
     (`pateat.theme`), and an open extension page follows a change made on another.
-  - Done: the extension's settings page has the approved layout: a section list with
-    the Theme select at its foot, panels, icon-led status lines and no intro
-    paragraphs. Each Bitwarden connection is a row with its vault, sync sign-in and
-    automatic-unlock lines, one main action (Sync, or Sign in again when syncing needs
-    a sign-in first) and the other actions in a menu. Adding a connection is a
-    disclosure, open while there is none, and the paired sync service is a row with its
-    last sync.
+  - Done: the extension's settings page has the approved layout: a section list with the
+    Theme select at its foot, panels, icon-led status lines and no intro paragraphs.
+    Each Bitwarden connection is a row with its vault, sync sign-in and automatic-unlock
+    lines, one main action (Sync, Unlock when the vault is locked, or Sign in again when
+    syncing needs a sign-in first) and the other actions in a menu. Adding a connection
+    is a disclosure, open while there is none, and the paired sync service is a row with
+    its last sync.
   - Done: the settings page's Sites list. An exclusion rule matches a hostname, or a
     hostname and its subdomains, on every scheme and port, and a default names one
     exact origin, so the list has two kinds of row, sorted together by hostname. An
@@ -1191,7 +1191,8 @@ items the owner mentioned and gates still open on 2026-10-11.
   quotas come with it.
 - Settings to limit Pateat as an extension that handles personal data: only allowed
   sites (an allowlist), and a choice of how long the vault stays unlocked, as the
-  official Bitwarden extension offers.
+  official Bitwarden extension offers. The second is done: Lock, Log out and the vault
+  timeout ([ADR 0075](adr/0075-vault-lock-and-timeout.md)).
 - Answering Chrome's Immediate UI requests (`navigator.credentials.get` with
   `uiMode: "immediate"`, made when the person presses a site's sign-in button) like
   other passkey get requests, chooser window included: decided and implemented on

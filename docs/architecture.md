@@ -276,14 +276,16 @@ with the same two sessions per connection. Past 5 connections the options page w
 that the official extension allows 5 accounts and that each unlocked vault uses more
 memory ([differences](bitwarden-differences.md#connections-and-key-derivation)). The
 vault manager forgets a live session the host has ended (a timeout, cancellation, Worker
-failure or a lost offscreen document), so while automatic unlock is enabled the next
-vault read restores it from the retained key instead of failing until the service worker
-restarts; with it off, the restore fails `auto-unlock-disabled`. The initial caller
-remains a synthetic compatibility probe. Durable cache, retained unlock material and
-production connection setup are separate gates. Opening a new snapshot does not itself
-accept it or retire older sessions. The future cache manager must explicitly retire
-superseded handles and invalidate affected policy/recipe references before accepting a
-replacement snapshot for credential release.
+failure or a lost offscreen document), so while the vault is unlocked the next vault
+read restores it from the key kept on disk or in the browser session instead of failing
+until the service worker restarts; a locked vault's restore fails `vault-locked`, and a
+logged-out one's `auto-unlock-disabled`
+([ADR 0075](adr/0075-vault-lock-and-timeout.md)). The initial caller remains a synthetic
+compatibility probe. Durable cache, retained unlock material and production connection
+setup are separate gates. Opening a new snapshot does not itself accept it or retire
+older sessions. The future cache manager must explicitly retire superseded handles and
+invalidate affected policy/recipe references before accepting a replacement snapshot for
+credential release.
 
 Design later personal API key, SSO, device approval and Bitwarden passkey login
 flows without assuming every user has a master password. Authentication and
@@ -344,7 +346,10 @@ first-visit confirmation: eligible provider matches may automatically enter
 candidate scope under the agreed settings contract. URI matching alone neither
 updates settings nor authorizes a page operation.
 
-Persistent automatic unlock across browser restarts is a requirement. Store
+Persistent automatic unlock across browser restarts is a requirement while the vault
+timeout is **Never**, the default; any other timeout keeps the key in memory only and
+locks the vault after that timeout, a browser restart included
+([ADR 0075](adr/0075-vault-lock-and-timeout.md)). Store
 encrypted vault data and the necessary unlock material locally, not in browser
 sync. Restrict storage access to trusted extension contexts, exclude secrets from
 logs/backups/telemetry, and define revoke/lock/delete behavior. This intentionally
@@ -514,7 +519,7 @@ guess:
   minutes." once `expiresAt` passed, else "The sign-in ended early, by 8:24 PM, before
   its 5 minutes. This usually means Chrome stopped Pateat's background." (the time is
   when the page found out; Chrome restarting the worker is the usual cause, but a
-  permission removal or a second settings page's Turn off automatic unlock ends it the
+  permission removal or a second settings page's Log out ends it the
   same way); any other error that ends a waiting sign-in is said there too; the panel
   status says "The sign-in timed out waiting for the code." or "The sign-in ended before
   the code was entered." The local log records it as `vault.sign-in` with step

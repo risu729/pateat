@@ -45,7 +45,8 @@ export default defineConfig({
       // Until the worker reads the vault records, show the locked icon.
       default_icon: { 16: "icon-locked/16.png", 32: "icon-locked/32.png" },
     },
-    permissions: ["storage", "offscreen", "alarms"],
+    // `idle` for the vault timeout's "On system idle" and "On system lock" (ADR 0075).
+    permissions: ["storage", "offscreen", "alarms", "idle"],
     // Owner-approved install-time site access (ADR 0009, HTTP since ADR 0050). The login
     // content script runs on every HTTP(S) page; only non-excluded sites with a cached
     // recipe can execute. Chrome can still re-request these hosts if the user withholds

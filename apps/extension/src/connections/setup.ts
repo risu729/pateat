@@ -246,7 +246,8 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
       const current = await vault.store.read();
       if (
         !current.ok ||
-        current.data?.state !== "active" ||
+        !current.data ||
+        current.data.state === "disabled" ||
         current.data.revision !== accepted.data.summary.revision
       )
         return error("storage-uncertain");
@@ -434,15 +435,21 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
           : (reviews.get(configuration.profile.connectionId) ?? []);
       // eslint-disable-next-line no-await-in-loop
       const providerSession = await deps.sessions.status(configuration.profile);
+      // A locked record unlocked in this browser session has its key in memory (ADR 0075).
+      const locked =
+        // eslint-disable-next-line no-await-in-loop
+        known?.state === "locked" && !(await vault.manager.keyFor(known));
       const state = !record.ok
         ? "unavailable"
         : known?.state === "disabled"
           ? "disabled"
-          : quarantine.length
-            ? "review-required"
-            : vault.manager.status().ready
-              ? "ready"
-              : "configured";
+          : locked
+            ? "locked"
+            : quarantine.length
+              ? "review-required"
+              : vault.manager.status().ready
+                ? "ready"
+                : "configured";
       connections.push({
         connectionId: configuration.profile.connectionId,
         label: configuration.label,
@@ -452,7 +459,7 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
         autoUnlock:
           known?.state === "active"
             ? "enabled"
-            : known?.state === "disabled"
+            : known?.state === "disabled" || known?.state === "locked"
               ? "disabled"
               : "unknown",
         providerSession,
@@ -503,8 +510,11 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
     if (!configuration) return "skipped";
     const vault = deps.vaultFor(configuration.profile);
     const prior = await vault.store.read();
-    if (!prior.ok || prior.data?.state !== "active") return "skipped";
+    if (!prior.ok || !prior.data) return "skipped";
     const entry = prior.data;
+    // A locked vault has no key to open the next snapshot with; it syncs once unlocked.
+    const userKey = await vault.manager.keyFor(entry);
+    if (!userKey) return "skipped";
     const session = await deps.sessions.status(configuration.profile);
     if (session === "reauthentication-required") return "reauthentication-required";
     if (session !== "active" && session !== "refresh-required") return "skipped";
@@ -549,7 +559,7 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
       const reply = await acceptSync(
         current,
         authorization.data.authenticated,
-        { kind: "decrypted-key", userKey: entry.userKey },
+        { kind: "decrypted-key", userKey },
         { kind: "session", revision: authorization.data.revision },
         { stored: await deps.revisions?.revision(connectionId), hold },
       );
@@ -708,11 +718,8 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
               active.size >= 4
             )
               return error("resource-limit");
-            const current = flow(
-              configuration,
-              value.password,
-              value.kind === "new" ? "enable" : value.autoUnlock,
-            );
+            // A password sign-in unlocks the vault, as in the official extension.
+            const current = flow(configuration, value.password, "enable");
             if (!(await permitted(current)))
               return alive(current) ? error("provider-permission-required") : error("cancelled");
             if (value.kind === "new") {
@@ -848,7 +855,11 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
             const vault = deps.vaultFor(configuration.profile);
             const prior = await vault.store.read();
             if (!prior.ok) return prior;
-            if (prior.data?.state !== "active") return error("auto-unlock-disabled");
+            const userKey = await vault.manager.keyFor(prior.data);
+            if (!prior.data || !userKey)
+              return error(
+                prior.data?.state === "locked" ? "vault-locked" : "auto-unlock-disabled",
+              );
             const transport = deps.transportFor(configuration.profile);
             if (!transport.ok) return transport;
             const authorization = await deps.sessions.acquire(configuration.profile, {
@@ -862,7 +873,7 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
             return acceptSync(
               current,
               authorization.data.authenticated,
-              { kind: "decrypted-key", userKey: prior.data.userKey },
+              { kind: "decrypted-key", userKey },
               { kind: "session", revision: authorization.data.revision },
             ) as Promise<SetupReply>;
           }).finally(() => releaseAuto?.());
@@ -937,6 +948,38 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
             disabling.delete(connectionId);
           }
         },
+        /** Unlocks a locked vault offline with its master password (ADR 0075). */
+        unlock(input: { connectionId: string; password: string }): Promise<SetupReply> {
+          let releaseAuto: (() => void) | undefined;
+          return run(async () => {
+            if (waiting()) return error("resource-limit");
+            const { connectionId, password } = input;
+            releaseAuto = await excludeAuto(connectionId, false);
+            const configuration = await deps.registry.get(connectionId);
+            if (!configuration) return error("invalid-request");
+            if (closed || disabling.has(connectionId) || active.has(connectionId))
+              return error("resource-limit");
+            const unlocked = await deps.vaultFor(configuration.profile).manager.unlock(password);
+            if (!unlocked.ok) return unlocked;
+            handles.set(connectionId, unlocked.data.handle);
+            return { ok: true, kind: "unlocked", connectionId };
+          }).finally(() => releaseAuto?.());
+        },
+        /** Locks the vault and keeps its sync sign-in, as the official extension's Lock. */
+        async lock(connectionId: string): Promise<SetupReply> {
+          if (closed || disabling.has(connectionId)) return error("resource-limit");
+          disabling.add(connectionId);
+          try {
+            const configuration = await deps.registry.get(connectionId);
+            if (!configuration) return error("invalid-request");
+            stopAuto(connectionId);
+            const locked = await deps.vaultFor(configuration.profile).manager.lockVault();
+            handles.delete(connectionId);
+            return locked.ok ? { ok: true, kind: "locked", connectionId } : locked;
+          } finally {
+            disabling.delete(connectionId);
+          }
+        },
         async disable(connectionId: string): Promise<SetupReply> {
           if (closed || disabling.has(connectionId)) return error("resource-limit");
           disabling.add(connectionId);
@@ -994,6 +1037,9 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
         sync: (connectionId: string) => caller.sync(connectionId).then(replyOf),
         forget: (connectionId: string) => caller.forget(connectionId).then(replyOf),
         disable: (connectionId: string) => caller.disable(connectionId).then(replyOf),
+        unlock: (input: { connectionId: string; password: string }) =>
+          caller.unlock(input).then(replyOf),
+        lock: (connectionId: string) => caller.lock(connectionId).then(replyOf),
         remove: (connectionId: string) => caller.remove(connectionId).then(replyOf),
         review: (input: Parameters<typeof caller.review>[0]) => caller.review(input).then(replyOf),
         dispose: caller.dispose,
