@@ -5,6 +5,7 @@ import {
   PROBLEM_EVENT_FIELDS,
   PROBLEM_PAGE_FIELDS,
   problemInfoLine,
+  problemLocalOnly,
   REDACTED_PATH_SEGMENT,
   type ProblemFieldKind,
 } from "@pateat/contracts";
@@ -193,6 +194,8 @@ export const LOG_EVENTS = {
       unconfirmed: "flag",
       // Nothing submitted yet, in the document the login began in (ADR 0066).
       unsubmitted: "flag",
+      // A fill-only login after a logout (ADR 0021 D), whose lines stay local (ADR 0066).
+      fillOnly: "flag",
       routeChange: "code",
       layout: "code",
       layoutFrom: "code",
@@ -383,6 +386,7 @@ export const LOG_EVENTS = {
       state: "code",
       step: "count",
       unsubmitted: "flag",
+      fillOnly: "flag",
       name: "name",
       message: "code",
       stack: "stack",
@@ -1298,9 +1302,11 @@ function emailSegment(segment: string): boolean {
 
 /**
  * Whether an entry goes to the service (ADR 0066): every `warn` and `error` entry, and an
- * `info` entry that says why Pateat did nothing on a page (`PROBLEM_INFO_LINES`).
+ * `info` entry that says why Pateat did nothing on a page (`PROBLEM_INFO_LINES`), except a
+ * passkey report or a fill-only login's line, which stay local (`problemLocalOnly`).
  */
 export function sentToService(entry: Pick<LogEntry, "level" | "event" | "fields">): boolean {
+  if (problemLocalOnly(entry.event, entry.fields)) return false;
   if (entry.level === "warn" || entry.level === "error") return true;
   return entry.level === "info" && problemInfoLine(entry.event, entry.fields);
 }
@@ -1435,9 +1441,11 @@ function problemPath(stored: string): string {
  */
 export function problemLine(entry: LogEntry): ProblemLine | undefined {
   if (!sentToService(entry) || entry.level === "debug") return undefined;
+  const events: Readonly<Record<string, Readonly<Record<string, ProblemFieldKind>>>> =
+    PROBLEM_EVENT_FIELDS;
   const kinds: Readonly<Record<string, ProblemFieldKind>> = {
     ...PROBLEM_PAGE_FIELDS,
-    ...(Object.hasOwn(PROBLEM_EVENT_FIELDS, entry.event) ? PROBLEM_EVENT_FIELDS[entry.event] : {}),
+    ...(Object.hasOwn(events, entry.event) ? events[entry.event] : {}),
   };
   const fields: Record<string, FieldValue> = {};
   for (const [key, value] of Object.entries(exportedFields(entry))) {

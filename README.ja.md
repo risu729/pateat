@@ -20,4 +20,4 @@ Auto Login for Chrome（Chrome 向けの自動ログイン）。
 
 利用者向けのページ（インストール、初期設定、権限、プライバシーポリシーの草案）は、[apps/docs/src/ja](apps/docs/src/ja/index.md) にあるドキュメントサイトです。まだ公開していません。
 
-まず[ドキュメントの目次](docs/README.md)を読み、続いて[アーキテクチャ](docs/architecture.md)と[実装計画](docs/plan.md)を読んでください。リポジトリでの作業の決まりは [AGENTS.md](AGENTS.md) にあります。リンク先の文書は英語です。
+まず[ドキュメントの目次](docs/README.md)を読み、続いて[アーキテクチャ](docs/architecture.md)と[実装計画](docs/plan.md)を読んでください。リポジトリでの作業の決まりは [AGENTS.md](AGENTS.md) にあります。不具合を報告する前に [CONTRIBUTING.md](CONTRIBUTING.md) を読んでください。リンク先の文書は英語です。

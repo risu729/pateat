@@ -57,6 +57,11 @@ export function createRecipeUse(options: {
   transport: Pick<ServiceTransport, "reportUse">;
   /** Told of each request sent, for the local log; never changes the sending. */
   report?: (sent: RecipeUseSent) => void;
+  /**
+   * Marks the layout used on this device while no service is paired (ADR 0040), as the
+   * service marks it for a report, so a repair keeps the layout logins run (ADR 0060).
+   */
+  local?: (recipeId: string, layout: string) => Promise<void>;
   now?: () => number;
 }) {
   const { service, transport } = options;
@@ -71,16 +76,28 @@ export function createRecipeUse(options: {
     }
   };
   async function send(found: { recipeId: string; report: RecipeUseReport }) {
-    const connection = await service.connection().catch(() => undefined);
-    if (!connection || connection.rejected) return;
+    let connection: ServiceConnection | undefined;
+    try {
+      connection = await service.connection();
+    } catch {
+      return;
+    }
+    if (connection?.rejected || (!connection && !options.local)) return;
     const { recipeId, report } = found;
-    const key = JSON.stringify([connection.origin, recipeId, report.revision, report.layout]);
+    const key = JSON.stringify([connection?.origin, recipeId, report.revision, report.layout]);
     const at = now();
     const sentAt = recent.get(key);
     if (sentAt !== undefined && at - sentAt < RECIPE_USE_REPEAT_MS) return;
     recent.delete(key);
     recent.set(key, at);
     while (recent.size > MAX_RECENT_RECIPE_USES) recent.delete(recent.keys().next().value!);
+    if (!connection) {
+      // Nothing leaves the device, so nothing is logged as sent.
+      await options.local!(recipeId, report.layout).catch(() => {
+        if (recent.get(key) === at) recent.delete(key);
+      });
+      return;
+    }
     let result: OutcomeResult | undefined;
     try {
       result = await transport.reportUse(

@@ -10,17 +10,20 @@ import {
   type DeviceModelCall,
 } from "@pateat/contracts";
 import {
+  choiceAttempts,
   MAX_OUTPUT_TOKENS,
+  nextAttempt,
   ROLE_LIMITS,
+  roleChoices,
+  servedModel,
   type GenerationCall,
   type GenerationCallResult,
   type GenerationCallTimings,
-  type ServedModel,
+  type RoleChoice,
   type UnsentOutcome,
   type UnsentRequest,
 } from "@pateat/generation";
 import {
-  claudeModelRates,
   claudeWorstCaseRates,
   createClaudeGenerationModel,
   estimateClaudeCostUsd,
@@ -44,7 +47,7 @@ import {
   problemLog,
 } from "../db/schema";
 import { resolveClaudeCredential } from "./credentials";
-import { fastFailingModels, readModelConfig, roleChoices, type RoleChoice } from "./models";
+import { fastFailingModels, readModelConfig } from "./models";
 import { newId } from "@pateat/contracts/ids";
 
 // Every Claude call the service makes goes through here (ADR 0018): one call at a time
@@ -517,23 +520,6 @@ function reserveOnce(write: () => Promise<void>): Reservation {
   return reservation;
 }
 
-/** The failures after which fast mode asks the same model at the standard speed. */
-const FAST_RETRY = new Set(["rate-limited", "provider-error", "timeout"]);
-
-/** A choice's calls in order: fast mode is followed by the same model at the standard speed. */
-function attempts(choice: RoleChoice): RoleChoice[] {
-  if (choice.speed !== "fast") return [choice];
-  const rates = claudeModelRates(choice.modelId);
-  return rates === undefined ? [choice] : [choice, { ...choice, rates, speed: "standard" }];
-}
-
-const servedModel = (choice: RoleChoice): ServedModel => ({
-  provider: "anthropic",
-  model: choice.modelId,
-  effort: choice.effort,
-  speed: choice.speed,
-});
-
 /** Whose key a request's calls use: the owner's credential, or the device's (ADR 0040). */
 type CallerKey =
   | { credential: ClaudeCredential }
@@ -633,18 +619,14 @@ async function runCall<T>(
     ): Promise<Called<T> | Extract<GenerationCallResult<T>, { status: "device-call" }>> => {
       let last: Called<T> | undefined;
       let key = caller;
-      for (const attempt of choices.flatMap(attempts)) {
+      for (const attempt of choices.flatMap(choiceAttempts)) {
         if (last !== undefined) {
-          const { outcome, served } = last;
-          if (outcome.status !== "failed") break;
-          const sameModel = attempt.modelId === served.model;
-          // A refusal skips the same model at the standard speed and asks the next choice.
-          if (outcome.error === "refused" && sameModel) continue;
-          const retry =
-            outcome.error === "refused" ||
-            (served.speed === "fast" && sameModel && FAST_RETRY.has(outcome.error));
+          const next = nextAttempt(last, attempt);
+          if (next === "skip") continue;
           // oxlint-disable-next-line no-await-in-loop
-          if (!retry || (!device && (await limitReached(db, ownerId, Date.now())))) break;
+          if (next === "stop" || (!device && (await limitReached(db, ownerId, Date.now())))) {
+            break;
+          }
         }
         // Later calls' time before the model includes the calls before; they run no exchange.
         // oxlint-disable-next-line no-await-in-loop
