@@ -68,6 +68,8 @@ export const bitwardenEn = {
     "The sign-in ended early, by {{time}}, before its 5 minutes. This usually means Chrome stopped Pateat's background. Enter the master password to start again.",
   "The sign-in timed out at {{time}}: no code was entered within 5 minutes. Enter the master password to start again.":
     "The sign-in timed out at {{time}}: no code was entered within 5 minutes. Enter the master password to start again.",
+  "The sign-in reached its 5-minute end before it finished. Enter the master password to start again.":
+    "The sign-in reached its 5-minute end before it finished. Enter the master password to start again.",
   "The code was not accepted.": "The code was not accepted.",
   "The code was not accepted: it is wrong or no longer valid. Enter the current code from the authenticator app.":
     "The code was not accepted: it is wrong or no longer valid. Enter the current code from the authenticator app.",

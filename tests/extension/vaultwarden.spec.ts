@@ -215,8 +215,9 @@ test("says by the master password that a sign-in waiting for its code ended", as
     const cdp = await options.context().newCDPSession(options);
     await cdp.send("ServiceWorker.enable");
     await cdp.send("ServiceWorker.stopAllWorkers");
-    // As when the person comes back to the tab; a heartbeat sent while the worker still
-    // stopped is lost, and the next one, at most 20 seconds later, answers.
+    // As when the person comes back to the tab. A heartbeat sent while the worker still
+    // stops can be lost, so the next interval's, at most 20 seconds later, may be the one
+    // that answers; the options tests prove the visibility heartbeat itself.
     await options.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
     await expect(
       options.getByText("The sign-in ended before the code was entered.", { exact: true }),

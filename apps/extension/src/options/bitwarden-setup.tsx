@@ -415,15 +415,19 @@ export function BitwardenSetup({
     if (!result.ok) {
       setChallenge(undefined);
       const now = Date.now();
-      // A code sent just before the end can come back stopped by the end itself.
-      if (
-        expiresAt !== undefined &&
-        (result.error.code === "setup-expired" ||
-          (result.error.code === "cancelled" && now >= expiresAt))
-      ) {
+      if (expiresAt !== undefined && result.error.code === "setup-expired") {
         const text = endedText(expiresAt, now);
         setEnded(text.reason);
         say(text.status);
+      } else if (expiresAt !== undefined && result.error.code === "cancelled" && now >= expiresAt) {
+        // The end stopped the work after a code, which may have been accepted: the vault
+        // download and unlock still count against the 5 minutes.
+        setEnded(
+          "The sign-in reached its 5-minute end before it finished. Enter the master password to start again.",
+        );
+        say(
+          "The sign-in reached its 5-minute end before it finished. Enter the master password to start again.",
+        );
       } else {
         const text = errorMessage(result.error.code, result.error.check);
         say(text);

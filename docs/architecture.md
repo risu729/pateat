@@ -454,25 +454,28 @@ guess:
   after (the interval of Chrome's own heartbeat examples). A tab Chrome froze or slowed,
   or a computer that slept, hears late, so the page also sends one at `expiresAt` and
   whenever it becomes visible; of several answers that find the end at once, only the
-  first ends the challenge. A request that the end itself aborts answers
-  `setup-expired`, not `cancelled`. An answer that the flow is gone ends the challenge,
-  a first sign-in then offers "Sign in again", and the sign-in form says why next to the
-  master password (the field's `aria-describedby`): "The sign-in timed out at 8:26 PM:
-  no code was entered within 5 minutes." once `expiresAt` passed, else "The sign-in
-  ended early, by 8:24 PM, before its 5 minutes. This usually means Chrome stopped
-  Pateat's background." (the time is when the page found out; Chrome restarting the
-  worker is the usual cause, but a permission removal or a second settings page's
-  Disable automatic unlock ends it the same way); any other error that ends a waiting
-  sign-in is said there too; the panel status says "The sign-in timed out waiting for
-  the code." or "The sign-in ended before the code was entered." The local log records
-  it as `vault.sign-in` with step `keep-alive`, `continue` or `send-email-code` and
-  outcome `setup-expired`. Closing the settings page ends the sign-in. Before the
-  heartbeat, on 2026-10-22 in the owner's Chrome with a local Vaultwarden and email
-  two-step, diagnostics recorded four worker starts while the code was fetched, and the
-  sign-in asked for the master password again. With it, on 2026-10-23 the owner left the
-  code screen for about 10 minutes, and the form asked for the master password again;
-  the only explanation was "This verification session expired. Start sign-in again." in
-  the panel status above the connection rows.
+  first ends the challenge. A provider request that the end itself aborts answers
+  `setup-expired`, not `cancelled`; the vault download and unlock after an accepted code
+  still count against the 5 minutes, and work the end stops there answers `cancelled`,
+  which the form shows as "The sign-in reached its 5-minute end before it finished." An
+  answer that the flow is gone ends the challenge, a first sign-in then offers "Sign in
+  again", and the sign-in form says why next to the master password (the field's
+  `aria-describedby`): "The sign-in timed out at 8:26 PM: no code was entered within 5
+  minutes." once `expiresAt` passed, else "The sign-in ended early, by 8:24 PM, before
+  its 5 minutes. This usually means Chrome stopped Pateat's background." (the time is
+  when the page found out; Chrome restarting the worker is the usual cause, but a
+  permission removal or a second settings page's Disable automatic unlock ends it the
+  same way); any other error that ends a waiting sign-in is said there too; the panel
+  status says "The sign-in timed out waiting for the code." or "The sign-in ended before
+  the code was entered." The local log records it as `vault.sign-in` with step
+  `keep-alive`, `continue` or `send-email-code` and outcome `setup-expired`. Closing the
+  settings page ends the sign-in. Before the heartbeat, on 2026-10-22 in the owner's
+  Chrome with a local Vaultwarden and email two-step, diagnostics recorded four worker
+  starts while the code was fetched, and the sign-in asked for the master password
+  again. With it, on 2026-10-23 the owner left the code screen for about 10 minutes, and
+  the form asked for the master password again; the only explanation was "This
+  verification session expired. Start sign-in again." in the panel status above the
+  connection rows.
 - A second sign-in step or sync from one settings page while one runs, a new sign-in
   or sync while that page's verification challenge waits (the challenge stays usable),
   a sign-in or sync of a connection that already has one, or a fifth at once across

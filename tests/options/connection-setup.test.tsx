@@ -554,7 +554,7 @@ test("heartbeats that find the end at once end the challenge once", async () => 
   expect(client.list).toHaveBeenCalledTimes(reads + 1);
 });
 
-test("a code stopped by the end itself says the sign-in timed out", async () => {
+test("work the end stopped after a code says it reached the end", async () => {
   const client = mockClient();
   const pending = held<SetupReply>();
   const end = Date.now() + 1_000;
@@ -572,12 +572,12 @@ test("a code stopped by the end itself says the sign-in timed out", async () => 
   await page.getByLabelText("Verification code", { exact: true }).fill("000123");
   await page.getByRole("button", { name: "Verify code", exact: true }).click();
   await vi.waitFor(() => expect(Date.now()).toBeGreaterThanOrEqual(end), { timeout: 3_000 });
-  // An older worker answered a request its end aborted as cancelled.
+  // The server took the code, but the vault download and unlock ran past the end.
   pending.resolve({ ok: false, error: { code: "cancelled" } });
-  await expect
-    .element(page.getByText("The sign-in timed out waiting for the code.", { exact: true }))
-    .toBeVisible();
-  expect(endedLine()).toMatch(/^The sign-in timed out at /u);
+  const late =
+    "The sign-in reached its 5-minute end before it finished. Enter the master password to start again.";
+  await expect.element(page.getByText(late, { exact: true }).first()).toBeVisible();
+  expect(endedLine()).toBe(late);
 });
 
 test("a refused new-device code keeps its screen until Verify", async () => {
