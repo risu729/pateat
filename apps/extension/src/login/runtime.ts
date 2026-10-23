@@ -4496,9 +4496,16 @@ export function createLoginRuntime(
         inFlight &&
         (run.heldClick === run.metadata.stepIndex || routeClick)
       ) {
-        const clicked = await observe(run, stepTargets(inFlight.step));
+        // A button the page only hid counts as gone, as an app that moved on in the same
+        // document and kept its old view there hidden.
+        const clickTargets = stepTargets(inFlight.step);
+        const clicked = await observe(
+          run,
+          clickTargets,
+          clickTargets.map(() => "shown" as const),
+        );
         if (!clicked) return undefined;
-        if (clicked.targets.some((state) => state !== "missing")) {
+        if (clicked.targets.some((state) => state !== "missing" && state !== "unusable")) {
           if (run.heldClick === run.metadata.stepIndex) return "held";
           if (clicked.path === inFlight.step.path) {
             await change(run, {
@@ -4965,7 +4972,8 @@ export function createLoginRuntime(
     // button is also a route step's on this path, as in a form that asks for the code after
     // the password, needs every fill field of the route there gone: while one shows, the
     // page is still the sign-in page. A handler that already ran counts as shown again
-    // whenever its elements are there, hidden or disabled, so it never runs twice.
+    // whenever its elements are there, hidden or disabled, so it never runs twice; only in
+    // the document that holds its click is one the page hid gone instead.
     const routeFields = passwordVariants(run.recipe)
       .flatMap((variant) => variant.steps)
       .filter((step) => step.path === path)
@@ -5015,6 +5023,10 @@ export function createLoginRuntime(
           entry.step.kind === "fill" &&
           entry.step.fields.some((field) => field.slot === "password"),
       );
+    // The handler whose click this document performed and holds: its button the page only
+    // hid is gone, as for the hold, not shown again (ADR 0027).
+    const held =
+      run.heldClick === run.metadata.stepIndex ? plan[run.metadata.stepIndex]?.handler : undefined;
     const entries = (run.recipe.handlers ?? []).flatMap((handler, index) => {
       if (
         handler.path !== path ||
@@ -5040,7 +5052,7 @@ export function createLoginRuntime(
           targets: [...targets, ...(sameForm ? routeFields : [])],
           require: [
             ...(ran
-              ? targets.map(() => "present" as const)
+              ? targets.map(() => (index === held ? ("shown" as const) : ("present" as const)))
               : handler.kind === "totp"
                 ? (["writable", "shown"] as const)
                 : handler.kind === "password"
@@ -5176,7 +5188,7 @@ export function createLoginRuntime(
     const observed = await observe(
       run,
       [click.target, ...proof.targets, ...(rejection ? [rejection] : [])],
-      ["present", ...proof.shown, ...(rejection ? ["present" as const] : [])],
+      ["shown", ...proof.shown, ...(rejection ? ["present" as const] : [])],
       proof.links.length > 0
         ? { links: [false, ...proof.links], hidden: [false, ...proof.hidden] }
         : {},
