@@ -27618,6 +27618,37 @@ describe("account switching from the popup (ADR 0063)", () => {
     expect(await h.login.defaultUnset(origin, false)).toBe(false);
   });
 
+  it.each([
+    ["stopped", "pateat.login-stopped-asks.v1", "stopped-login"],
+    ["rejected", "pateat.login-rejected-asks.v1", "rejected"],
+  ])(
+    "fills nothing on a site that asks every time, also while the tab's login %s",
+    async (_name, key, ask) => {
+      const { siteDefaultsMark } = await import("./switch");
+      fake.state.session["pateat.login-ask-every-time.v1"] = [
+        {
+          site: "login.example",
+          incognito: false,
+          defaults: siteDefaultsMark(
+            [{ origin, provider: "bitwarden", userId, itemId }],
+            "login.example",
+            (value) => new URL(value).hostname.split(".").slice(-2).join("."),
+          ),
+        },
+      ];
+      // The tab also asks for that reason, which alone would fill the page once.
+      fake.state.session[key] = [{ tabId: 1, origin }];
+      const h = harness({}, { allowedOrigins: [], uris: async () => ({ ok: true, data: both }) });
+      expect(await h.hello()).toEqual({ ok: false, reason: "account-asked" });
+      expect(h.fields).not.toHaveBeenCalled();
+      expect(fake.state.messages.filter((entry) => entry.type === "login.execute")).toEqual([]);
+      expect(attempts() ?? []).toEqual([]);
+      expect(
+        await h.login.handle({ version: 1, type: "login.choice.get", tabId: 1 }, popup),
+      ).toMatchObject({ ok: true, ask });
+    },
+  );
+
   it("stops asking once a pick makes its account the default", async () => {
     const { siteDefaultsMark } = await import("./switch");
     // Kept before the worker starts, as after a restart in the same browser session.
