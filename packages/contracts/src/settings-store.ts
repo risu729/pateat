@@ -1,10 +1,15 @@
 import * as v from "valibot";
 import {
+  connectionAccount,
   createDefaultSettings,
+  customFieldReviewFor,
+  customFieldReviewState,
   DUMMY_VAULT_CATALOG,
+  itemPolicyFor,
   SETTINGS_CHANGE_HISTORY,
   settingsRequestSchema,
   settingsSnapshotSchema,
+  type LocalSettings,
   type SettingsChangeCause,
   type SettingsConflictCause,
   type SettingsError,
@@ -49,6 +54,71 @@ export function conflictCauses(
   return current.revision - expected > recorded.length || expected > current.revision
     ? ["unknown", ...causes]
     : causes;
+}
+
+const isCustom = (reference: LocalSettings["itemPolicies"][number]["excludedFields"][number]) =>
+  typeof reference !== "string";
+
+/**
+ * A settings page save, applied to the stored settings (ADR 0023). Custom-field review
+ * state changes only through a review, so the stored review records are kept; an item
+ * waiting for review or for a vault sync keeps its custom-field exclusions as stored; and
+ * an item's first custom-field exclusion records its current evidence as reviewed, but
+ * only when the page's draft was edited against the snapshot that evidence belongs to
+ * (`shown`). Otherwise the item waits for review, so a record never vouches for custom
+ * fields the page did not show.
+ */
+function reviewedSettings(
+  stored: LocalSettings,
+  next: LocalSettings,
+  catalog: VaultCatalog,
+  shown: readonly { connectionId: string; snapshotId: string }[],
+): LocalSettings {
+  const settings = structuredClone({ ...next, customFieldReviews: stored.customFieldReviews });
+  for (const connection of catalog.connections) {
+    const resolved = connectionAccount(stored, catalog, connection.id);
+    if (!resolved.ok) continue;
+    const { account } = resolved;
+    for (const item of connection.items) {
+      const state = customFieldReviewState(stored, account, item);
+      if (state === "review-required" || state === "vault-stale") {
+        const prior = itemPolicyFor(stored, account, item.id);
+        const kept = (prior?.excludedFields ?? []).filter(isCustom);
+        const policy = itemPolicyFor(settings, account, item.id);
+        if (policy)
+          policy.excludedFields = [
+            ...policy.excludedFields.filter((ref) => !isCustom(ref)),
+            ...kept,
+          ];
+        else if (prior && kept.length)
+          settings.itemPolicies.push({
+            ...prior,
+            selected: false,
+            excluded: false,
+            excludedFields: kept,
+          });
+        continue;
+      }
+      const policy = itemPolicyFor(settings, account, item.id);
+      const shownSnapshot = shown.find((entry) => entry.connectionId === connection.id);
+      if (
+        policy?.excludedFields.some(isCustom) &&
+        connection.snapshotId !== undefined &&
+        shownSnapshot?.snapshotId === connection.snapshotId &&
+        // The record built so far: an account connected twice is recorded once.
+        !customFieldReviewFor(settings, account, item.id) &&
+        item.evidence !== undefined &&
+        item.revisionDate !== undefined
+      )
+        settings.customFieldReviews.push({
+          ...account,
+          itemId: item.id,
+          evidence: item.evidence,
+          revisionDate: item.revisionDate,
+        });
+    }
+  }
+  return settings;
 }
 
 /** One worker-owned queue serializes read/check/write; no other context writes storage. */
@@ -98,88 +168,23 @@ export function createSettingsStore(
           };
         if (snapshot.revision >= Number.MAX_SAFE_INTEGER - 1)
           return failure("storage-corrupt", "The settings revision cannot be advanced.");
-        const nextSettings = request.settings;
         const displayed = await catalogFor(snapshot);
-        // Only deliberate snapshot-bound review may remove unresolved custom denies.
-        for (const prior of snapshot.settings.connections) {
-          const policy = snapshot.fieldPolicies?.find(
-            (entry) => entry.connectionId === prior.connectionId,
-          );
-          const metadata = displayed.connections.find((entry) => entry.id === prior.connectionId);
-          const quarantine = new Set([
-            ...(policy?.quarantinedItemIds ?? []),
-            ...(metadata?.quarantinedItemIds ?? []),
-            ...(!metadata?.snapshotId || policy?.snapshotId !== metadata.snapshotId
-              ? [
-                  ...(policy?.protectedItemIds ?? []),
-                  ...prior.excludedFields
-                    .filter((ref) => ref.fieldId.startsWith("custom."))
-                    .map((ref) => ref.itemId),
-                ]
-              : []),
-          ]);
-          let next = nextSettings.connections.find(
-            (entry) => entry.connectionId === prior.connectionId,
-          );
-          if (quarantine.size && !next) {
-            next = structuredClone(prior);
-            nextSettings.connections.push(next);
-          }
-          if (!next) continue;
-          for (const ref of prior.excludedFields) {
-            if (
-              quarantine.has(ref.itemId) &&
-              ref.fieldId.startsWith("custom.") &&
-              !next.excludedFields.some(
-                (entry) => entry.itemId === ref.itemId && entry.fieldId === ref.fieldId,
-              )
-            )
-              next.excludedFields.push(ref);
-          }
-        }
-        const policies = [...(snapshot.fieldPolicies ?? [])];
-        for (const connection of nextSettings.connections) {
-          const prior = snapshot.settings.connections.find(
-            (entry) => entry.connectionId === connection.connectionId,
-          );
-          const history = [
-            ...new Set(
-              [...(prior?.excludedFields ?? []), ...connection.excludedFields]
-                .filter((ref) => ref.fieldId.startsWith("custom."))
-                .map((ref) => ref.itemId),
-            ),
-          ];
-          if (!history.length) continue;
-          const policy = policies.find((entry) => entry.connectionId === connection.connectionId);
-          if (policy)
-            policy.protectedItemIds = [
-              ...new Set([...(policy.protectedItemIds ?? []), ...history]),
-            ];
-          else {
-            const metadata = displayed.connections.find(
-              (entry) => entry.id === connection.connectionId,
-            );
-            if (metadata?.snapshotId)
-              policies.push({
-                connectionId: connection.connectionId,
-                snapshotId: metadata.snapshotId,
-                quarantinedItemIds: [],
-                protectedItemIds: history,
-              });
-          }
-        }
         snapshot = {
-          version: 1,
+          ...snapshot,
           revision: snapshot.revision + 1,
-          settings: nextSettings,
-          ...(policies.length ? { fieldPolicies: policies } : {}),
+          settings: reviewedSettings(
+            snapshot.settings,
+            request.settings,
+            displayed,
+            request.shownSnapshots ?? [],
+          ),
           changes: recordChange(snapshot, snapshot.revision + 1, "settings-save"),
         };
         const finalSnapshot = v.safeParse(settingsSnapshotSchema, snapshot);
         if (!finalSnapshot.success)
           return failure(
             "invalid-settings",
-            "The protected exclusions exceed the supported settings limits.",
+            "The kept custom-field exclusions exceed the supported settings limits.",
           );
         snapshot = finalSnapshot.output;
         await storage.write(snapshot);

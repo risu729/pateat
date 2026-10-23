@@ -420,29 +420,30 @@ Metadata lists never include field values or OTP seeds. The trusted host must as
 fresh snapshot UUID whenever captured item state changes; caller-supplied identifiers do
 not prove freshness or authorization.
 
-Snapshot-bound references alone do not preserve persistent exclusions. Persist
-the accepted policy-to-snapshot binding. On replacement, rebind custom-field
-exclusions only when the captured encrypted custom-field sequence is exactly
-unchanged, including encrypted values and linked source identifiers. Equal names
-and types cannot establish identity when names repeat. For a sealed item, require
-the whole captured encrypted blob to match. A changed or ambiguous sequence with
-an existing custom exclusion blocks that item's secret release until explicit
-review; unrelated items and stable built-in exclusions retain their policies.
-Bitwarden re-encrypts the whole item on every save, so when a sync replaces a
-snapshot that is still open, the crypto host also compares the decrypted custom
-fields (name, value, type and linked source, in order) of each protected item;
-equal fields rebind as an unchanged sequence would. Each Worker
+Snapshot-bound references alone do not preserve persistent exclusions, so synced
+exclusions name custom fields by name, position and count, and a synced
+`customFieldReviews` record keeps the item's custom-field evidence (a SHA-256 of its
+encrypted custom-field material, or of the whole sealed blob) and revision date at its
+last review ([ADR 0023](adr/0023-synced-vault-policy.md)). An item with a custom
+exclusion or a record whose current evidence differs waits for review before any secret
+release; when its revision date is older than the record's, it waits for its vault to
+sync instead. Equal names and types cannot establish identity when names repeat, so a
+changed or ambiguous sequence always needs review; unrelated items and built-in
+exclusions keep their policies. Bitwarden re-encrypts the whole item on every save, so
+when a sync replaces a snapshot that is still open, the crypto host also compares the
+decrypted custom fields (name, value, type and linked source, in order) of each
+protected item; equal fields move the record to the new evidence. Each Worker
 returns HMAC-SHA-256 digests under a key the offscreen document creates and keeps,
 so no value leaves the crypto host and a digest cannot be tested offline against
 guesses of a short value; it is no defense against a compromised background
 ([ADR 0025](adr/0025-automatic-vault-sync.md#protected-items-after-a-sync)).
 
-Review must identify the current snapshot and settings revision. Start every
-current custom field excluded, and require a deliberate save of that item's
-reviewed choices. Reloading metadata or saving unrelated settings must not clear
-the old exclusions or count as review. Retain an item's snapshot binding after
-review even when every field is allowed; an empty exclusion list must not let
-an interrupted review authorize a newer, unreviewed field sequence.
+Review must identify the current snapshot. Start every current custom field excluded,
+and require a deliberate save of that item's reviewed choices, which records the new
+evidence. Reloading metadata or saving unrelated settings must not clear the old
+exclusions or count as review. Keep the record after review even when every field is
+allowed; an empty exclusion list must not let an interrupted review authorize a newer,
+unreviewed field sequence.
 Cache and settings use separate stores:
 an interrupted update can leave mismatched records, which must deny release
 until reconciled. Do not claim an atomic transaction across both stores.
@@ -639,25 +640,33 @@ request in flight, the tab's login record for whether a `reconciling` login's re
 settled as unknown (`settled`), and the last login and model request the badge keeps
 from the log reports, with the badge's lifetime: a top page of another origin or the
 tab's closing drops them, and `chrome.storage.session` keeps them across a worker
-restart. Item selection, field exclusions and custom-field review stay on the
-extension's settings page once synced ([ADR 0023](adr/0023-synced-vault-policy.md)).
-The service keeps excluded sites and site defaults per settings profile and bindings per
-owner, under one owner revision ([ADR 0024](adr/0024-settings-profiles.md),
+restart. Item selection, field exclusions and custom-field review are synced and stay on
+the extension's settings page ([ADR 0023](adr/0023-synced-vault-policy.md)); the popup
+does not report items waiting for review or repair bindings yet. The service keeps
+excluded sites, site defaults and the synced vault policy per settings profile and
+bindings per owner, under one owner revision ([ADR 0024](adr/0024-settings-profiles.md),
 [ADR 0076](adr/0076-settings-profiles-delivered.md)). Each device uses one profile,
 chosen when it pairs or on the management page's Devices page; `/manage/profiles`
 renames, copies and deletes profiles, and the Sites pages edit one profile at a time.
 The extension's settings page can edit another profile with its own vault catalog
 through `/extension/profiles`, behind the host-wide Access application, which requires
 WARP; that does not move its device. When a device's profile changes, the extension
-replaces its exclusions and saved accounts with the new profile's and drops its merge
-base for them, while bindings keep merging. Chrome use access to these pages is not
-assumed. Keep settings and execution operations independent of their UI.
+replaces its exclusions, saved accounts and vault policy with the new profile's and
+drops its merge base for them, while bindings keep merging. Chrome use access to these
+pages is not assumed. Keep settings and execution operations independent of their UI.
 
-Each connection supports all items except exclusions or selected
-folders/collections/items only. Use existing Bitwarden metadata; independent
-Pateat tags are deferred. Item and field exclusions win over inclusions. Excluded
-fields are neither inference candidates nor fill sources. These are Pateat use
-restrictions, not reduced Bitwarden server permissions or decryption access.
+Each provider account (provider, server and user ID, synced in `accountPolicies`) is
+either used or not, and supports all items except exclusions or selected
+folders/collections/items only; `itemPolicies` keep per-item selection, exclusion and
+excluded fields, built-in fields by ID and custom fields by name, position and count
+([ADR 0023](adr/0023-synced-vault-policy.md)). A connection added on a device keeps its
+add-form choice in local `connections` until its account is known; a synced account
+policy wins over it. Use existing Bitwarden metadata; independent Pateat tags are
+deferred. Item and field exclusions win over inclusions. Excluded fields are neither
+inference candidates nor fill sources. An item whose custom fields changed since their
+last review (`customFieldReviews`) waits for review before Pateat uses it, and until a
+device's first settings sync no vault item is used. These are Pateat use restrictions,
+not reduced Bitwarden server permissions or decryption access.
 
 Provider URL matching plus eligibility makes a site automatically in scope,
 without first-visit approval. Site exclusions use host matching with an explicit
@@ -3594,13 +3603,14 @@ field exclusions and custom-field review, which need the device's vault catalog
 
 - Pages. A React app under `/manage`, built with the same approved stack as the
   extension's pages ([ADR 0004](adr/0004-library-composition.md)) and served by the
-  Worker as static assets. Its header shows the logo and five tabs, Dashboard, Sites,
-  Devices, Claude and Request log, and its footer the version, links to the source and
-  the GPL text at the built commit and to the third-party notices, and the Theme select.
-  React's rendered `<title>` sets the tab title to `Dashboard – Pateat`,
-  `Devices – Pateat`, `Sites – Pateat`, `Claude – Pateat`, `Request log – Pateat` or
-  `<origin> – Pateat`; the static HTML keeps `Pateat` before the app renders. Each page
-  is its own path, a full page load that the Worker serves only for these paths:
+  Worker as static assets. Its header shows the logo and six tabs, Dashboard, Sites,
+  Vaults, Devices, Claude and Request log, and its footer the version, links to the
+  source and the GPL text at the built commit and to the third-party notices, and the
+  Theme select. React's rendered `<title>` sets the tab title to `Dashboard – Pateat`,
+  `Devices – Pateat`, `Sites – Pateat`, `Vaults – Pateat`, `Claude – Pateat`,
+  `Request log – Pateat` or `<origin> – Pateat`; the static HTML keeps `Pateat` before
+  the app renders. Each page is its own path, a full page load that the Worker serves
+  only for these paths:
   - Dashboard (`/manage/dashboard`): the owner's request log, login records, login
     result codes, recipes and spend over 24 hours, 7 days or 30 days (7 days first),
     aggregated by the Worker from the owner's rows (`GET /manage/api/dashboard`). Speed
@@ -3639,6 +3649,7 @@ field exclusions and custom-field review, which need the device's vault catalog
     only recorded times; every number comes with its count, and below 20 values the
     values are shown instead of a p90. Each chart is hidden from assistive technology
     and repeated as a table; Recharts loads only with this page.
+  - Vaults (`/manage/vaults`): the synced vault policy, read-only (see below).
   - Devices (`/manage`): the current list and revocation, moved into the app.
   - Claude (`/manage/claude`, owner decision of 2026-10-23, 12:46 UTC): everything the
     service needs to call Claude for the owner, in one page. Claude Console lists the
@@ -3700,9 +3711,12 @@ field exclusions and custom-field review, which need the device's vault catalog
   The UI does not pick vault items or fields, because the item list exists only on
   devices. Choices are saved by login or by AI generation, and bindings come from AI
   generation. Creating or editing recipe JSON is not offered; development keeps using
-  `PUT /v1/recipes/:recipeId`. Item selection and field exclusions are not shown yet;
-  once synced ([ADR 0023](adr/0023-synced-vault-policy.md)) the web UI first only lists
-  them, and they are edited on the extension's settings page.
+  `PUT /v1/recipes/:recipeId`. Item selection and field exclusions
+  ([ADR 0023](adr/0023-synced-vault-policy.md)) are only listed, on Vaults
+  (`/manage/vaults`, a read-only tab the owner approved on 2026-10-23): each provider
+  account with its server, whether it is used, its selection, its item entries and how
+  many items have reviewed custom fields. They are edited on the extension's settings
+  page.
 - Data. The app calls a JSON API under `/manage/api/*`. It does not call `/v1`, whose
   routes accept only device credentials. The API shares the owner-scoped read and write
   code of `/v1/settings` and `/v1/recipes/:recipeId`. Settings and recipe writes carry

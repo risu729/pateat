@@ -15,8 +15,9 @@ owner parts and described profiles as later work. This change builds them for th
 that exist today: `excludedSites` and `siteDefaults` are per profile, and `bindings`
 stay the owner's. `repromptSites` (the sites that ask for the master password, ADR 0021)
 joined the profile parts on 2026-10-23, and so did `passkeyBrowserSites` (the sites
-whose passkey requests go to the browser, ADR 0007). ADR 0023's lists and ADR 0035's
-page permissions are not built yet; when they land, they add their fields to the profile
+whose passkey requests go to the browser, ADR 0007) and ADR 0023's lists
+(`accountPolicies`, `itemPolicies` and `customFieldReviews`). ADR 0035's page
+permissions are not built yet; when they land, they add their fields to the profile
 document (`profileDocument` in `services/api/src/settings-store.ts`) and to the
 extension's merge.
 
@@ -70,8 +71,8 @@ extension's merge.
 - Names follow device labels' rules and are unique per owner, ignoring case
   (implementation).
 - The devices page moves a device to another profile; the Sites pages edit one profile
-  at a time and show which only when there are several, remembering the choice for the
-  browser tab (implementation).
+  at a time, and the read-only Vaults page lists one, showing which only when there are
+  several and remembering the choice for the browser tab (implementation).
 
 ### Editing another profile from the extension
 
@@ -81,6 +82,8 @@ extension's merge.
   pairing allowlist names (owner, root A on 2026-10-19). The "pateat pair" application
   of [ADR 0030](0030-pairing-without-warp.md) is not accepted there, so a browser
   without WARP can pair but cannot edit other profiles. ADR 0030 is unchanged.
+- The editor changes a profile's exclusions and saved accounts; a save keeps the
+  profile's vault policy (ADR 0023) as it was (implementation).
 - When the sign-in is missing or expired, the editor shows **Open sign-in page**, which
   opens `/extension/signed-in` behind the same application.
 - A device credential never selects or edits another profile.

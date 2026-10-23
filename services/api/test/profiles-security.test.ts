@@ -364,6 +364,7 @@ describe("settings profile isolation", () => {
       recipeId: "synthetic-login",
       origin: "https://bank.example",
       provider: "bitwarden",
+      server: "cloud-us",
       userId: USER,
       itemId: "synthetic-item",
       itemName: "Synthetic account",

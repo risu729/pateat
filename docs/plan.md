@@ -559,6 +559,13 @@ than in this repository.
   - A vault item edit picked up by the automatic sync
     ([#222](https://github.com/risu729/pateat/pull/222),
     [#224](https://github.com/risu729/pateat/pull/224)).
+  - Added on 2026-10-23, not moved by the owner: synced vault policy
+    ([ADR 0023](adr/0023-synced-vault-policy.md)), implemented and tested with
+    synthetic vaults and an in-memory service only. On the deployed service, with the
+    owner's real vault: a device's first settings sync after the update, item
+    selection and a custom-field exclusion made on one device applying on a second,
+    and a custom-field edit in Bitwarden making the item wait for review on the
+    settings page until it is reviewed.
   - Added on 2026-10-13, not moved by the owner: a security-key second factor behind a
     button labelled only "Verify", as on Oracle Cloud. Confirmed in the owner's Chrome
     on `8b60ff2` (2026-10-13 06:48 UTC), after the Oracle recipe was revoked: the judge
@@ -1314,10 +1321,12 @@ items the owner mentioned and gates still open on 2026-10-11.
     [phase 2](#phase-2-use-it-and-fix-what-comes-up); deliveries 2 to 4 (the settings
     and fill-only `sign-in`, filling `confirm` pages, personal details) are here.
 - The items under [later work](#initial-delivery-and-later-scope) and the ADRs' later
-  sections, including synced vault policy ([ADR 0023](adr/0023-synced-vault-policy.md)),
-  profile inheritance ([ADR 0076](adr/0076-settings-profiles-delivered.md)), the ADR
-  0025 later work and the ADR 0027 cases it does not handle. Generation for passkey-only
-  start pages moved to [phase 2](#phase-2-use-it-and-fix-what-comes-up) on 2026-10-19.
+  sections, including the toolbar popup's part of synced vault policy (reporting items
+  that wait for review, and binding review;
+  [ADR 0023](adr/0023-synced-vault-policy.md)), profile inheritance
+  ([ADR 0076](adr/0076-settings-profiles-delivered.md)), the ADR 0025 later work and the
+  ADR 0027 cases it does not handle. Generation for passkey-only start pages moved to
+  [phase 2](#phase-2-use-it-and-fix-what-comes-up) on 2026-10-19.
 - Real-account checks of individual Bitwarden two-step methods, other KDFs, V2 keys and
   organization items. The owner moved them after the public release on 2026-10-11
   (18:35 UTC), since few users are expected to need them; each needs the owner's
@@ -1782,6 +1791,12 @@ Protected snapshot bindings survive even a review choosing no exclusions. Generi
 cannot clear unresolved exclusions or that binding history. Separate cache/settings
 stores detect mismatched state after interruption; they do not provide one atomic
 combined commit. Catalog bounds are validated before unlock-key export and cache commit.
+Since 2026-10-23 ([ADR 0023](adr/0023-synced-vault-policy.md)) the snapshot-scoped
+references and `fieldPolicies` are gone: custom fields are excluded by name, position
+and count in synced `itemPolicies`, and a synced `customFieldReviews` record keeps the
+encrypted custom-field evidence and revision date of the last review. An item whose
+evidence differs waits for review on the settings page, or for its vault to sync when
+its revision date is older than the record's.
 
 The settings page can delete a connection locally, as
 [Development](development.md#manual-bitwarden-setup-preview) describes. Unit, options
@@ -2116,8 +2131,12 @@ in-memory storage; sync against the deployed service has no recorded check yet.
 
 The fifth slice syncs the device-independent settings in the same run, after recipes:
 site exclusions, site defaults that name a provider account and item, and account
-bindings. Vault connections, item selection and field exclusions stay on the device; the
-service document always has an empty `connections` list. The background reads
+bindings. Vault connections stay on the device; the service document always has an
+empty `connections` list. Since 2026-10-15 the same run also syncs `accountPolicies`,
+`itemPolicies` (merged per provider account and item) and `customFieldReviews`, keyed by
+provider, server and user ID ([ADR 0023](adr/0023-synced-vault-policy.md)); the dummy
+provider's entries stay local, and no vault item is used before a device's first
+settings sync. The background reads
 `GET /v1/settings` and merges three copies per entry (exclusions by hostname, defaults
 by origin, bindings by recipe, origin and account): the last agreed base, stored under
 `pateat.sync-settings.v1`, the local settings and the service's. A side that changed an
@@ -2183,10 +2202,11 @@ tests cover it.
   page while signed in to Access finished in one click with "This device is paired.",
   and `/manage` listed the new device "risu-thinkpad Chrome" as paired at 14:00 UTC
   (check step 2). Step 3 (signed out) and the cookie settings are not recorded yet.
-- Settings that use device-local connection IDs, such as item selection and field
-  exclusions, are not synced yet.
-  [ADR 0023](adr/0023-synced-vault-policy.md) decides their synced form and custom-field
-  review; it is not implemented.
+- Done on 2026-10-23, except the popup's part: item selection, field exclusions and
+  custom-field review are synced per provider account
+  ([ADR 0023](adr/0023-synced-vault-policy.md) and its implementation notes, which the
+  owner approved on 2026-10-23). Not checked against the deployed service or a real
+  vault yet (see [phase 2](#phase-2-use-it-and-fix-what-comes-up)).
 - Done: the [owner web UI](architecture.md#owner-web-ui) serves its React app, assets
   and JSON API behind Access, with the devices, sites, account bindings and recipes
   pages. Settings edits and recipe revocations there use the same revision checks as
@@ -3505,7 +3525,7 @@ support for every site or vault format. Keep observed limitations explicit.
 - Per [ADR 0013](adr/0013-service-held-recipes-and-settings.md), decide how to choose
   among several URI-matched items. How synced field exclusions move to
   device-independent references, and where custom-field review happens, are decided in
-  [ADR 0023](adr/0023-synced-vault-policy.md).
+  [ADR 0023](adr/0023-synced-vault-policy.md) and implemented since 2026-10-23.
 - Pairing and device credential lifetime (90 days unused, renewed on use; see
   [service sync progress](#service-sync-progress)) are settled, and a lost
   device is replaced by pairing a new one, since the service holds settings and recipes

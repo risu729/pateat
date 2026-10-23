@@ -1,5 +1,12 @@
 import { expect, test, type Page, type Worker } from "@playwright/test";
-import { beginInput, settingsRequest, setupProbe, setupRequest } from "./connection-fixture";
+import {
+  beginInput,
+  catalogAccount,
+  settingsRequest,
+  setupProbe,
+  setupRequest,
+  useOnly,
+} from "./connection-fixture";
 import { withVaultProfile } from "./vault-fixture";
 
 const site = "https://synthetic.example.test";
@@ -11,11 +18,7 @@ async function connect(options: Page) {
   if (!accepted.ok || accepted.kind !== "ready")
     throw new Error(`Synthetic setup failed: ${JSON.stringify(accepted)}`);
   const current = await settingsRequest(options);
-  const settings = current.snapshot.settings;
-  settings.connections = settings.connections.map((entry) => ({
-    ...entry,
-    enabled: entry.connectionId === accepted.connectionId,
-  }));
+  const settings = useOnly(current.snapshot.settings, current.catalog, accepted.connectionId);
   const saved = await settingsRequest(options, {
     version: 1,
     type: "settings.save",
@@ -89,9 +92,14 @@ test("the toolbar badge counts the vault items that match each site", async () =
     // Excluding the item counts the settled page again, in gray, with no reload.
     const current = await settingsRequest(options);
     const settings = current.snapshot.settings;
-    settings.connections = settings.connections.map((entry) =>
-      entry.connectionId === connectionId ? { ...entry, excludedItemIds: [itemId] } : entry,
-    );
+    settings.itemPolicies.push({
+      ...catalogAccount(current.catalog, connectionId),
+      itemId,
+      itemName: "Synthetic login",
+      selected: false,
+      excluded: true,
+      excludedFields: [],
+    });
     await settingsRequest(options, {
       version: 1,
       type: "settings.save",

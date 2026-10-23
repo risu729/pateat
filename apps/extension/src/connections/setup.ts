@@ -9,6 +9,7 @@ import type { LocalVaultHandle } from "../vault/manager";
 import type { VaultEntry } from "../vault/record";
 import type { VaultApplyHold, VaultSyncEntry, VaultSyncOutcome } from "./auto-sync";
 import { setupBeginSchema, setupContinuationSchema } from "./wire";
+import { profileServer } from "./policy";
 import type {
   BitwardenConnectionConfiguration,
   ConnectionSetupDependencies,
@@ -262,6 +263,7 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
         id: profile.connectionId,
         label: flow.configuration.label,
         provider: "bitwarden",
+        server: profileServer(profile),
         userId: metadata.data.userId,
         groups: metadata.data.groups,
         items: metadata.data.items.map((item) => ({
@@ -427,14 +429,17 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
       // eslint-disable-next-line no-await-in-loop
       const record = await vault.store.read();
       const known = record.ok ? record.data : null;
+      // A vault status does not open is answered from this worker's last sync.
       const quarantine =
-        known?.accepted && deps.policy.quarantined
+        (known?.accepted && deps.policy.quarantined
           ? // eslint-disable-next-line no-await-in-loop
             await deps.policy.quarantined(
               configuration.profile.connectionId,
               known.accepted.snapshotId,
             )
-          : (reviews.get(configuration.profile.connectionId) ?? []);
+          : undefined) ??
+        reviews.get(configuration.profile.connectionId) ??
+        [];
       // eslint-disable-next-line no-await-in-loop
       const providerSession = await deps.sessions.status(configuration.profile);
       // A locked record unlocked in this browser session has its key in memory (ADR 0075).
@@ -942,6 +947,8 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
             } catch {
               return error("storage-failed");
             }
+            // Best effort: a choice left behind only waits for a connection that is gone.
+            await deps.policy.forget?.(connectionId).catch(() => undefined);
             return { ok: true, kind: "deleted", connectionId };
           } finally {
             // A begin or sync that read the registry while this ran saw the stale entry;

@@ -5,6 +5,7 @@ import type { LocalizedMessage } from "./ui";
 const reasons = {
   "settings-save": "settings were saved in another window or the toolbar popup",
   "vault-added": "a Bitwarden vault was added",
+  "vault-removed": "a Bitwarden vault was removed",
   "vault-sync": "a Bitwarden vault was synced after a sign-in or Sync",
   "automatic-vault-sync": "a Bitwarden vault was synced automatically",
   "field-review": "custom fields were reviewed",

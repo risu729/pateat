@@ -1034,6 +1034,7 @@ describe("URI candidate matching is separate from the existing destination grant
       settings.siteDefaults.push({
         origin: new URL(targetUrl).origin,
         provider: "dummy",
+        server: "cloud-us",
         userId: "demo-personal-account",
         itemId: "primary",
       });

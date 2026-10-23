@@ -1,4 +1,5 @@
 import { BITWARDEN_READ_PROTOCOL } from "@pateat/bitwarden";
+import { accountPolicy } from "@pateat/contracts";
 import { browser } from "wxt/browser";
 import { defineBackground } from "wxt/utils/define-background";
 import { createProbeCatalog } from "../src/login/dummy";
@@ -142,6 +143,8 @@ export default defineBackground(() => {
     onSync: diagnosticsLog.vaultSync,
     onSignIn: diagnosticsLog.vaultSignIn,
     onRefresh: diagnosticsLog.vaultRefresh,
+    // A paired device uses no vault item until its first settings sync (ADR 0023).
+    settingsSyncPending: () => service.settingsSyncPending(),
     retention: async () => keyRetention(parseVaultTimeout(await vaultTimeoutSetting.read())),
     vaultTimeout: {
       check: () => vaultTimeout.check(),
@@ -203,7 +206,7 @@ export default defineBackground(() => {
   // A count reads only vaults already open, through the login runtime's vault path.
   const siteCounter = createSiteCounter({
     scope: createCountScope(
-      connections,
+      { ...connections, settingsSyncPending: () => service.settingsSyncPending() },
       { uris: vaultUris, passkeys: vaultPasskeyFinder },
       catalog,
     ),
@@ -324,6 +327,11 @@ export default defineBackground(() => {
     schedule: recipeScheduleStorage,
     settings: settingsSync,
     device: deviceRecipes,
+    // Vault items become usable here, so the badge and passkey requests read them again.
+    settingsSynced: () => {
+      void siteCounter.refresh();
+      passkeys.settingsChanged();
+    },
     build: PATEAT_BUILD_REVISION,
     report: (outcome, changes) => {
       diagnosticsLog.recipeSync(outcome, changes);
@@ -358,11 +366,17 @@ export default defineBackground(() => {
         connections.registry.list(),
         settings.read(),
       ]);
-      return configurations
-        .map((configuration) => configuration.profile.connectionId)
-        .filter(
-          (id) => snapshot.settings.connections.find((entry) => entry.connectionId === id)?.enabled,
-        );
+      // A disabled account is left out of automatic sync (ADR 0023); one whose account is
+      // not known yet waits for its first sync by hand.
+      const enabled = await Promise.all(
+        configurations.map(async (configuration) => {
+          const id = configuration.profile.connectionId;
+          const account = await connections.account(id).catch(() => undefined);
+          const use = account && accountPolicy(snapshot.settings, account);
+          return use?.ok && use.policy?.enabled ? [id] : [];
+        }),
+      );
+      return enabled.flat();
     },
     // A stopped worker would leave a refresh claimed and require password sign-in (ADR 0008).
     // A sync opens the next snapshot with the vault's key, so it waits for the timeout's check.

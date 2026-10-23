@@ -19,6 +19,7 @@ import {
   givesDetail,
   linkedField,
 } from "./details";
+import { connectionPolicy } from "../connections/__fixtures__/policy";
 
 // Whole card numbers, card expiry dates and PINs (ADR 0061, owner 2026-10-23 11:41 UTC).
 // Synthetic vault data only.
@@ -79,21 +80,15 @@ const connection: VaultConnectionMetadata = {
   id: connectionId,
   label: "Synthetic vault",
   provider: "bitwarden",
+  server: "cloud-us",
   userId: "synthetic-user",
   groups: [],
   items: [card, yearless, login, identity, otherLogin],
 };
 const catalog: VaultCatalog = { connections: [connection] };
 const policy = (excludedFields: { itemId: string; fieldId: string }[] = []): LocalSettings => ({
-  connections: [
-    {
-      connectionId,
-      enabled: true,
-      selection: { mode: "all", groupIds: [], itemIds: [] },
-      excludedItemIds: [],
-      excludedFields,
-    },
-  ],
+  connections: [{ connectionId, enabled: true }],
+  ...connectionPolicy(connection, { excludedFields }),
   excludedSites: [],
   repromptSites: [],
   passkeyBrowserSites: [],
@@ -103,6 +98,7 @@ const policy = (excludedFields: { itemId: string; fieldId: string }[] = []): Loc
 const link = (detail: DetailLink["detail"], source: DetailLink["source"]): DetailLink => ({
   origin: "https://card.example",
   provider: "bitwarden",
+  server: "cloud-us",
   userId: "synthetic-user",
   itemId: "login",
   detail,
@@ -503,8 +499,10 @@ describe("the popup's guess of a card (owner 2026-10-23 12:26 UTC)", () => {
         "branded",
       ),
     ).toEqual(["card.brand"]);
-    const excluded = policy();
-    excluded.connections[0]!.excludedItemIds = ["branded"];
+    const excluded = {
+      ...policy(),
+      ...connectionPolicy(withBrand, { excludedItemIds: ["branded"] }),
+    };
     expect(cardGuessFields(excluded, all, withBrand, "branded")).toEqual([]);
     expect(cardGuessFields(policy(), all, withBrand, "login")).toEqual([]);
     expect(cardGuessFields(policy(), all, withBrand, "missing")).toEqual([]);

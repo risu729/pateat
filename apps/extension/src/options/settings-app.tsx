@@ -3,7 +3,6 @@ import { i18n } from "../i18n";
 import {
   conflictCauses,
   localSettingsSchema,
-  type ConnectionSettings,
   type LocalSettings,
   type SettingsConflictCause,
   type SettingsResponse,
@@ -18,6 +17,7 @@ import {
   Link,
   Shield,
   Timer,
+  TriangleAlert,
   Vault,
   type LucideIcon,
 } from "lucide-react";
@@ -42,6 +42,9 @@ import { Panel, StatusLines, type LocalizedMessage } from "./ui";
 type AcceptedSettings = Extract<SettingsResponse, { ok: true }>;
 const emptySettings: LocalSettings = {
   connections: [],
+  accountPolicies: [],
+  itemPolicies: [],
+  customFieldReviews: [],
   excludedSites: [],
   passkeyBrowserSites: [],
   repromptSites: [],
@@ -82,6 +85,9 @@ export function SettingsApp({
   // The edits not yet in a saved revision, oldest first, so they can be applied again to a
   // revision that only background work wrote (ADR 0025).
   const unsavedEdits = useRef<((value: LocalSettings) => void)[]>([]);
+  // The vault snapshots the oldest unsaved edit was made against; a rebase keeps them, so
+  // a save never vouches for custom fields the page did not show (ADR 0023).
+  const draftSnapshots = useRef<{ connectionId: string; snapshotId: string }[]>([]);
   // Set once a conflict's edits were applied to the newer revision, so the next save runs
   // even with no new edit; `retried` allows that once until a save or reload succeeds.
   const rebased = useRef(false);
@@ -140,6 +146,7 @@ export function SettingsApp({
           type: "settings.save",
           expectedRevision: previous.snapshot.revision,
           settings: structuredClone(value),
+          shownSnapshots: draftSnapshots.current,
         });
         if (epoch !== catalogGeneration.current) {
           setSaveBlocked(true);
@@ -277,6 +284,8 @@ export function SettingsApp({
     // Field updates, not reset: a reset leaves the form untouched, and the new accepted
     // defaults would then replace the rebased draft on the next render.
     form.setFieldValue("connections", value.connections);
+    form.setFieldValue("accountPolicies", value.accountPolicies);
+    form.setFieldValue("itemPolicies", value.itemPolicies);
     form.setFieldValue("excludedSites", value.excludedSites);
     form.setFieldValue("repromptSites", value.repromptSites);
     form.setFieldValue("siteDefaults", value.siteDefaults);
@@ -295,6 +304,7 @@ export function SettingsApp({
     setAccepted(next);
     form.reset(structuredClone(next.snapshot.settings));
     unsavedEdits.current = [];
+    draftSnapshots.current = [];
     retried.current = false;
     setDirty(false);
     dirtyRef.current = false;
@@ -344,8 +354,16 @@ export function SettingsApp({
     if (operation.current === "load" || !acceptedRef.current) return false;
     const next = structuredClone(form.state.values);
     update(next);
+    if (!unsavedEdits.current.length)
+      draftSnapshots.current = acceptedRef.current.catalog.connections.flatMap((connection) =>
+        connection.snapshotId === undefined
+          ? []
+          : [{ connectionId: connection.id, snapshotId: connection.snapshotId }],
+      );
     unsavedEdits.current.push(update);
     form.setFieldValue("connections", next.connections);
+    form.setFieldValue("accountPolicies", next.accountPolicies);
+    form.setFieldValue("itemPolicies", next.itemPolicies);
     form.setFieldValue("excludedSites", next.excludedSites);
     form.setFieldValue("passkeyBrowserSites", next.passkeyBrowserSites);
     form.setFieldValue("repromptSites", next.repromptSites);
@@ -469,11 +487,6 @@ export function SettingsApp({
     }
     void reload();
   }
-  const changeConnection = (id: string, update: (value: ConnectionSettings) => void) =>
-    edit((value) => {
-      const connection = value.connections.find((entry) => entry.connectionId === id);
-      if (connection) update(connection);
-    });
   const exclusionsWin = (
     <StatusLines
       muted
@@ -548,6 +561,19 @@ export function SettingsApp({
               ]}
             />
           )}
+          {accepted?.catalog.settingsSyncPending && (
+            <StatusLines
+              lines={[
+                {
+                  tone: "warn",
+                  icon: TriangleAlert,
+                  text: t(
+                    "Pateat uses no vault item until this device completes its first settings sync with the sync service.",
+                  ),
+                },
+              ]}
+            />
+          )}
           {connectionClient && (
             <BitwardenSetup
               client={connectionClient}
@@ -556,16 +582,16 @@ export function SettingsApp({
               reviewBlocked={dirty || busy || saveBlocked}
               unsavedChanges={dirty}
               renderAccess={(id) => {
-                const connection = draft.connections.find((entry) => entry.connectionId === id);
                 const metadata = accepted?.catalog.connections.find((entry) => entry.id === id);
                 return (
-                  connection &&
+                  accepted &&
                   metadata && (
                     <VaultAccess
-                      connection={connection}
+                      draft={draft}
+                      catalog={accepted.catalog}
                       metadata={metadata}
-                      disabled={busy || !accepted}
-                      edit={(update) => changeConnection(id, update)}
+                      disabled={busy}
+                      edit={edit}
                     />
                   )
                 );
@@ -579,12 +605,12 @@ export function SettingsApp({
                     >
                       <legend className="visually-hidden">{t("Other saved vault settings")}</legend>
                       <VaultRows
-                        ids={draft.connections
-                          .map((entry) => entry.connectionId)
+                        ids={accepted.catalog.connections
+                          .map((entry) => entry.id)
                           .filter((id) => !listed.includes(id))}
                         draft={draft}
                         catalog={accepted.catalog}
-                        change={changeConnection}
+                        edit={edit}
                       />
                     </fieldset>
                   )}
@@ -604,10 +630,10 @@ export function SettingsApp({
               <Panel id="demo-vaults" headingId="connections-heading" title={t("Demo vaults")}>
                 {accepted ? (
                   <VaultRows
-                    ids={draft.connections.map((entry) => entry.connectionId)}
+                    ids={accepted.catalog.connections.map((entry) => entry.id)}
                     draft={draft}
                     catalog={accepted.catalog}
-                    change={changeConnection}
+                    edit={edit}
                   />
                 ) : (
                   <ul id="connections" className="hidden" />

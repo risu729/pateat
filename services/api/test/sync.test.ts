@@ -458,6 +458,35 @@ describe("settings sync", () => {
     expect(await response.json()).toEqual({ error: "internal_error" });
   });
 
+  it("fails closed when a stored document's policy list is over its limit", async () => {
+    const device = await enrollOwner();
+    const over = {
+      ...settings(),
+      accountPolicies: Array.from({ length: 101 }, (_, index) => ({
+        provider: "bitwarden",
+        server: "cloud-us",
+        userId: `user-${index}`,
+        accountName: "Vault",
+        enabled: true,
+        selection: { mode: "all" },
+      })),
+    };
+    // The lists are profile parts (ADR 0024), kept in the device's Default profile.
+    await env.DB.batch([
+      env.DB.prepare(
+        "INSERT INTO settings (owner_id, revision, document, updated_at, updated_by_device_id) VALUES (?, 1, ?, 0, ?)",
+      ).bind(device.ownerId, JSON.stringify({ bindings: [] }), device.deviceId),
+      env.DB.prepare("UPDATE profiles SET document = ? WHERE owner_id = ? AND id = ?").bind(
+        JSON.stringify(over),
+        device.ownerId,
+        device.ownerId,
+      ),
+    ]);
+    const response = await api(device, "/v1/settings");
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "internal_error" });
+  });
+
   it("limits each path to its supported methods", async () => {
     const device = await enrollOwner();
     const response = await api(device, "/v1/settings", { method: "DELETE" });

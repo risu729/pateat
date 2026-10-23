@@ -20,6 +20,7 @@ export const settingsJa = {
   "settings were saved in another window or the toolbar popup":
     "別のウィンドウかツールバーのポップアップでの保存",
   "a Bitwarden vault was added": "Bitwarden 保管庫の追加",
+  "a Bitwarden vault was removed": "Bitwarden 保管庫の削除",
   "a Bitwarden vault was synced after a sign-in or Sync":
     "サインインか同期ボタンによる Bitwarden 保管庫の同期",
   "a Bitwarden vault was synced automatically": "Bitwarden 保管庫の自動同期",
@@ -67,6 +68,8 @@ export const settingsJa = {
   Sections: "セクション",
   Diagnostics: "診断",
   "Other saved vault settings": "ほかの保管庫の保存済み設定",
+  "Pateat uses no vault item until this device completes its first settings sync with the sync service.":
+    "このデバイスが同期サービスとの最初の設定同期を終えるまで、Pateat は保管庫のアイテムを使いません。",
   "Local settings": "ローカル設定",
   "This preview cannot collect credentials, connect to Bitwarden or an AI service, fill forms, or sign passkey requests.":
     "このプレビューでは、認証情報の取得、Bitwarden や AI サービスへの接続、フォームの入力、パスキーのリクエストへの署名はできません。",
