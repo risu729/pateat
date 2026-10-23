@@ -64,6 +64,9 @@ export function createProbePasskeySource<TOther extends PasskeyCandidate>(
   let policy = INITIAL_PASSKEY_POLICY;
   let count = 1;
   let signatures = 0;
+  // Delayed signatures that started, and those the request's cancellation or deadline stopped.
+  let delayed = 0;
+  let stopped = 0;
   let remembered: string[] = [];
   let keyPromise: Promise<CryptoKey> | undefined;
   const key = () => {
@@ -91,15 +94,17 @@ export function createProbePasskeySource<TOther extends PasskeyCandidate>(
   };
   const delay = (ms: number, signal: AbortSignal) =>
     new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(resolve, ms);
-      signal.addEventListener(
-        "abort",
-        () => {
-          clearTimeout(timer);
-          reject(signal.reason);
-        },
-        { once: true },
-      );
+      delayed += 1;
+      const stop = () => {
+        clearTimeout(timer);
+        stopped += 1;
+        reject(signal.reason);
+      };
+      const timer = setTimeout(() => {
+        signal.removeEventListener("abort", stop);
+        resolve();
+      }, ms);
+      signal.addEventListener("abort", stop, { once: true });
     });
   const others = new WeakSet<PasskeyCandidate>();
   const source: PasskeySource = {
@@ -161,7 +166,7 @@ export function createProbePasskeySource<TOther extends PasskeyCandidate>(
       const parsed = v.safeParse(probeControlSchema, message);
       if (!parsed.success) return { ok: false };
       if (parsed.output.type === "passkey.probe.status")
-        return { ok: true, signatures, remembered };
+        return { ok: true, signatures, delayed, stopped, remembered };
       enabled = parsed.output.enabled ?? true;
       counter = parsed.output.counter ?? 0;
       discoverable = parsed.output.discoverable ?? true;
@@ -173,7 +178,7 @@ export function createProbePasskeySource<TOther extends PasskeyCandidate>(
         presence: parsed.output.presence ?? INITIAL_PASSKEY_POLICY.presence,
         verification: parsed.output.verification ?? INITIAL_PASSKEY_POLICY.verification,
       });
-      return { ok: true, signatures, remembered };
+      return { ok: true, signatures, delayed, stopped, remembered };
     },
   };
 }

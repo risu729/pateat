@@ -902,7 +902,11 @@ since a late click could submit an expired code; its failure ends the attempt
 `retry-limit` at once (ADR 0027). Initiated or possibly initiated effects remain
 counted, not proven server requests: one page handler can itself issue more than one
 request. Each fill step writes only inputs inside one form (or only inputs outside any
-form). Where the values go is checked in the page, as the browser would submit the form:
+form). A plan's click is in the same form, except a button outside every form for the
+fields of the page's only password form when that form lists no button of its own and
+the button is the only one outside every form (`besideForm` in
+`packages/inference/src/plan.ts`, owner's choice 2026-10-23). Where the values go is
+checked in the page, as the browser would submit the form:
 before a fill step writes into a form, the form's `action` attribute, and before a click
 on a submit button or image input, that control's `formaction` attribute or else its
 form's `action`, resolved against the document's base URL (so a `<base href>` counts; an
@@ -1568,6 +1572,30 @@ behind the same Access check as the page. The Worker's own HTML pages
 a `data:` URL and allow only `img-src data:`, so the icon never needs a request to a
 path that another Access application, or none, guards.
 
+## Extension UI language
+
+Every extension page (the popup, the passkey chooser, the settings page with its
+Bitwarden, sites, sync service and theme sections, and the diagnostics page) and the
+toolbar tooltips bundle English and Japanese catalogs with the owner-chosen i18next and
+react-i18next libraries (`apps/extension/src/locales/`). Labels, status explanations,
+notices, accessible names, `<html lang>` and document titles follow the language
+selected on the settings page. Vault names, usernames and hostnames are interpolated as
+text; unknown status codes remain visible as codes. The setting does not change login
+policy.
+
+As [ADR 0043](adr/0043-extension-language-preference.md) records, `chrome.storage.local`
+holds `pateat.language` as `system`, `en` or `ja`, per browser profile and outside
+service sync; `system` takes the first English or Japanese entry of
+`navigator.languages`, else English. Each page reads it before its first render and
+follows changes made on another page; the worker reads it at start and rewrites every
+tab's tooltip when it changes. A notice already on screen keeps its catalog key and
+values, so a language change translates it again without resetting drafts, focus or a
+running operation.
+
+Bug report text, exported log entries and diagnostic codes stay English. The manifest
+description comes from `public/_locales` by Chrome's own UI language. The service's
+pages, such as `/manage`, are not translated yet.
+
 ## Page styles and theme
 
 The extension's pages (settings, popup, diagnostics and the passkey chooser) and the
@@ -1949,6 +1977,14 @@ failure condition, and provenance. The vocabulary is packaged code such as fill,
 wait-for-state, and assert-state. There is no eval, remote JavaScript, arbitrary fetch,
 or model-selected secret destination.
 
+A generated page plan fills its fields and clicks the one button that advances or
+submits. When the form shows no such button, as x.com's sign-in before a username is
+typed, the plan's action is its last field, and the click step carries `press: "enter"`
+with that field as its target: the executor then submits the field's form as Enter does,
+through the form's default button or `requestSubmit()`, never through a default button
+that showed when the fill began, is disabled or sits outside the form
+([ADR 0064](adr/0064-enter-in-a-form-without-a-button.md)).
+
 A stored recipe is either a login recipe, with `pageKind`, `slots`, `steps`,
 `maxSubmissions` and the optional route members, or an entry recipe
 ([ADR 0031](adr/0031-sign-in-entry-pages.md#recipe-contract)) whose only member besides
@@ -2120,9 +2156,13 @@ failure only loses the sample, logged as `recipe.sample`.
 
 A step names its element with an allowlisted locator, never CSS: an `id` or `name` (any
 ASCII except whitespace and control characters, as in `ctl00$Main$txtUserId` or
-`user[login]`), a `data-testid` (`[A-Za-z0-9_.:-]`), an `<input>`'s `autocomplete`
+`user[login]`), a `data-testid` or, after it, a `data-test` (`[A-Za-z0-9_.:-]`;
+`data-test` since [ADR 0071](adr/0071-data-test-locators.md)), an `<input>`'s
+`autocomplete`
 token, a fillable input's visible name
-([ADR 0037](adr/0037-fields-by-visible-name.md), below), a `password` handler's
+([ADR 0037](adr/0037-fields-by-visible-name.md), below) or its `name` within the
+sign-in form ([ADR 0072](adr/0072-field-name-in-the-sign-in-form.md), below), a
+`password` handler's
 button's accessible name (ADR 0048's amendment, below), or, for a click or a state
 check only, a button's text:
 `{ "by": "text", "value": "ログイン" }` names the `<button>` whose rendered text (or,
@@ -2148,7 +2188,12 @@ that shows such an input cannot become the completion. A script button is a cont
 scripts make clickable: a script link, or another element with `role="button"`, but
 never a form control or anything inside an `<a href>`. A script link is an `<a>` without
 `href` that has an `onclick` attribute or `role="button"`, such as
-`<a id="login" onclick="document.loginForm.submit()">`, or an `<a href>` that runs a
+`<a id="login" onclick="document.loginForm.submit()">`, or sets a pointer cursor
+itself (CSS `cursor: pointer` that its parent does not have), such as IIJmio's
+`<a class="pink_btn">ログイン</a>`, whose script listener leaves no attribute
+(owner-approved 2026-10-23); the cursor is read as computed when the page is read,
+so one set only on hover or once the fields are filled does not count, or an `<a href>`
+that runs a
 script instead of following the link: a `javascript:` URL (or a `data:` or `vbscript:`
 one, which Chrome never follows from a page), such as
 `<a href="javascript:;" onclick="login()">ログイン</a>`, or an empty or fragment-only
@@ -2293,6 +2338,15 @@ sign-in field gets it; markers never do.
 generated again each time (2026-10-13). A site that rewords the field gets its recipe
 generated again.
 
+A field that none of those names alone is located by its `name` within the sign-in form
+before an `id` another load may change (owner, 2026-10-23,
+[ADR 0072](adr/0072-field-name-in-the-sign-in-form.md)):
+`{ "by": "password-form-name", "value": "acct" }` names the one shown element whose
+`name` equals the value and whose form also holds a shown password input not marked
+`new-password`. Hacker News's sign-in shows a create-account form below its login form
+with the same `name="acct"`, and its account field has no other locator. Fill steps and
+a `totp` handler's code field take it, never a button, link, entry or list control.
+
 An `id`, `name`, `data-testid` or `autocomplete` locator that several elements match
 counts only the shown ones, by the content script's visibility check (owner,
 2026-10-22, the 2026-10-22 amendment of
@@ -2310,14 +2364,15 @@ ambiguous and an absent element's hidden copy still keeps it from proving the si
 A copy that shows later makes the step ambiguous, as for visible names; a copy hidden
 only from assistive technology, such as a page form behind a modal, still counts.
 
-An `id`, `name`, `data-testid`, `autocomplete` or visible-name locator may carry
-`within`, one to three shadow hosts outermost first, each named by its `id`, `name` or
-`data-testid` ([ADR 0070](adr/0070-shadow-roots-as-page-content.md)): the first host is
-looked up in the whole page, each later one in the previous host's shadow tree, and the
-element in the last host's tree, nested trees included. Hosts that share a value give
-each tree's matches, so the locator is ambiguous rather than taking the first. The
-extractor uses it only for an element of a shadow tree that no locator names in the
-whole page, such as an input every component reuses its inner ID for.
+An `id`, `name`, `data-testid`, `data-test`, `autocomplete` or visible-name locator may
+carry `within`, one to three shadow hosts outermost first, each named by its `id`,
+`name`, `data-testid` or `data-test`
+([ADR 0070](adr/0070-shadow-roots-as-page-content.md)): the first host is looked up in
+the whole page, each later one in the previous host's shadow tree, and the element in
+the last host's tree, nested trees included. Hosts that share a value give each tree's
+matches, so the locator is ambiguous rather than taking the first. The extractor uses it
+only for an element of a shadow tree that no locator names in the whole page, such as an
+input every component reuses its inner ID for.
 
 A control is named by its accessible name only as a `password` handler's button (owner,
 2026-10-19 01:26 UTC, option A1,
@@ -2531,7 +2586,8 @@ revoked; repair is planned early in [phase 3](plan.md#phase-3-public-release)). 
 credentials, MFA, network errors, and account lockout do not trigger endless
 relearning or reset submission limits. Inference can abstain, refuse, time out,
 or return invalid output; all have explicit local outcomes.
-Never automatically fall back to another provider or model. Compatible local
+Never automatically fall back to another provider or model, except that a request
+Claude Opus 5.5 refuses is asked once of Claude Sonnet 5.5 (ADR 0014). Compatible local
 recipes continue working when inference is unavailable or its spending cap is
 reached.
 
@@ -2581,6 +2637,12 @@ as stated, never as a guessed recipe:
   is complete, and the paid answer is dropped.
 - The service passes no abort signal to the model call, so a device that stops waiting
   or disconnects does not end it; the call is charged and logged as usual.
+- A button a page shows only after a value is typed is not described, because Pateat
+  never types a placeholder value into a page to reveal it (owner, 2026-10-23 11:25 UTC:
+  「仮の値を入れるのは一旦しない方向で」, as a page may change when a username is
+  typed; reconsidered only when a site cannot be handled otherwise). Such a form is
+  submitted only as [ADR 0064](adr/0064-enter-in-a-form-without-a-button.md) does, so
+  one whose shown button is not a submit button is not submitted.
 
 ## Existing passkeys
 

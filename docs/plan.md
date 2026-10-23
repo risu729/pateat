@@ -496,8 +496,12 @@ than in this repository.
   and the service's D1 records. The Japanese government sites and Santander, which the
   owner wants to work although they look hard, are among them. So is Instagram: its
   saved-profile list shows a handle while the item's username is an email, which
-  [ADR 0028](adr/0028-account-chooser-login-pages.md) does not match, and what to do
-  there is not decided.
+  [ADR 0028](adr/0028-account-chooser-login-pages.md) does not match. The owner chose on
+  2026-10-23 (11:23 UTC) to add no rule for it: Pateat keeps logging in through "Use
+  another profile" and never picks a saved profile there. An item's username is the ID
+  typed on the sign-in page; matching a list's handle against another field (such as a
+  custom field) is considered only once lists like this are found to make logins fail
+  or take needless time, such as re-verification requests (owner, 11:24 UTC).
 - Installed-Chrome checks moved from phase 1 (owner, 2026-10-12 20:35 UTC), checked
   when daily use reaches them:
   - A plain HTTP site whose item is saved with an `http://` URI logs in, submit
@@ -994,11 +998,14 @@ Once the fixes have settled:
   chose i18next with react-i18next (2026-10-12 14:31 UTC), so that the language can be
   chosen in Pateat's settings
   ([comparison](research/2026-10-12-extension-ui-translation.md),
-  [dependency policy](development.md#dependency-policy)); where that setting is stored
-  is not decided yet. The owner chose (2026-10-12 14:14 UTC) that "the docs" means the
-  README and the user-facing pages, including those the docs website below adds; ADRs,
-  this plan and research notes stay in English. AGENTS.md's English rule gets an
-  exception for the Japanese pages when they land.
+  [dependency policy](development.md#dependency-policy)). The owner chose on 2026-10-18
+  to translate now. The extension's pages, toolbar tooltips and manifest description are
+  translated as [ADR 0043](adr/0043-extension-language-preference.md) records; the
+  README and user-facing docs are not. The owner chose
+  (2026-10-12 14:14 UTC) that "the docs" means the README and the user-facing pages,
+  including those the docs website below adds; ADRs, this plan and research notes stay
+  in English. AGENTS.md's English rule gets an exception for the Japanese pages when
+  they land.
 - The docs website (VitePress 2, see
   [decisions still requiring evidence](#decisions-still-requiring-evidence)) with
   user-facing pages for installation, setup and permissions, plus the M6 operational
@@ -2851,17 +2858,24 @@ extractor gap: Rakuten's login (`shadow-control`), Amazon's `/ax/claim`
 (`URL.parse` replaced by the page) and American Express (`eval` disabled) the probe
 failed in the page's own world, where the extension's content script would not.
 
-A second pass the same day observed about 280 more pages (Japanese shops, hosting,
-job and travel sites; English SaaS, banks, universities and streaming services) with
-the same build and added 39 Japanese and 31 English cases, after an independent review
-of every label. Pages whose email step only sends a sign-in link or code, with no
-password (Slack, Vercel, Claude Platform, Instacart, Loom, Temu), are left out, as no
-login item fits them; Slack and Vercel were removed from the first pass for that
-reason. Sakura Internet's login page is left out too: its login button sits outside
-the form of its fields, so the correct plan fails the plan check (`mixed-groups`), a
-case for that check rather than for the corpus. The Japanese set now has 108 cases (15
-abstain, 11 passkey buttons, 27 `advance`) and the English set 45 (5 abstain, 3 passkey
-buttons, 13 `advance`); the heuristic scores 0.73 (18 false submits) and 0.64 (7).
+A second pass the same day observed about 280 more pages (Japanese shops, hosting, job
+and travel sites; English SaaS, banks, universities and streaming services) with the
+same build and added 39 Japanese and 31 English cases, after an independent review of
+every label. Pages whose email step only sends a sign-in link or code, with no password
+(Slack, Vercel, Claude Platform, Instacart, Loom, Temu), are left out, as no login item
+fits them; Slack and Vercel were removed from the first pass for that reason. Sakura
+Internet's login page is left out too: its login button sits outside the form of its
+fields, so the correct plan fails the plan check (`mixed-groups`), a case for that check
+rather than for the corpus at the time. Since 2026-10-23 the check accepts a button
+outside every form for the fields of the page's only password form when that form lists
+no button of its own, no field outside every form is on the page, and the button is the
+only one outside every form and names no passkey (`besideForm`, owner's choice 11:47
+UTC, local tests only; recorded in [Bitwarden
+differences](bitwarden-differences.md#submit-button-outside-the-form)); on the live page
+in cloud Chromium (main `b803056`) generation then planned 会員ID, パスワード and
+ログイン, and the check accepted it. The Japanese set now has 108 cases (15 abstain, 11
+passkey buttons, 27 `advance`) and the English set 45 (5 abstain, 3 passkey buttons, 13
+`advance`); the heuristic scores 0.73 (18 false submits) and 0.64 (7).
 
 The same import measured the extractor on real markup (2026-10-11, main `9cf8356`). Of
 the 241 pages with an annotated login form, 6 gave no observation and 109 an incomplete
@@ -2901,7 +2915,9 @@ never contribute. Only forms that hold a field count, or every control outside a
 when a field is outside one. In those forms the candidates are visible text, email, tel,
 number and password inputs, checkboxes, buttons (disabled ones too, since many enable
 after typing), script links (an `<a>` without `href` that has an `onclick` attribute or
-`role="button"`, or an `<a href>` with a `javascript:` URL or with an empty or
+`role="button"` or sets a pointer cursor itself, as IIJmio's login (owner-approved
+2026-10-23), or an
+`<a href>` with a `javascript:` URL or with an empty or
 fragment-only `href` and an `onclick` attribute or `role="button"`) as buttons, other
 elements with `role="button"` that have an `id`, `name` or `data-testid`, or in a login
 form or beside a password form a unique text (as
@@ -2963,8 +2979,10 @@ executor resolves it, skipping an `id` React's `useId` generated and trying one 
 a random-looking run or Mantine's `mantine-` prefix (2026-10-13) last, and for an input
 without one, its first `autocomplete` token that is `username`, `email`,
 `current-password`, `one-time-code` or `webauthn` and that no other input carries, then
-its visible name when no other shown fillable input has it, before such an `id`
-([ADR 0037](adr/0037-fields-by-visible-name.md)); a button without one gets a text
+its visible name when no other shown fillable input has it, then its `name` when it is
+the one shown element with that name in a form with a shown password input not marked
+`new-password` ([ADR 0072](adr/0072-field-name-in-the-sign-in-form.md)), before such an
+`id` ([ADR 0037](adr/0037-fields-by-visible-name.md)); a button without one gets a text
 locator when its text matches exactly one button and redaction leaves it unchanged, and
 a script link when its text matches no button and exactly one script link. The page
 includes every shadow root, open or closed, as the official Bitwarden extension reads it

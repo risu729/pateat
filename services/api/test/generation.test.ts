@@ -45,7 +45,7 @@ const TOKEN_URL = "https://api.anthropic.com/v1/oauth/token";
 const MESSAGES_URL = "https://api.anthropic.com/v1/messages";
 const ORIGIN = "https://shop.example.test";
 const DAY_MS = 24 * 60 * 60 * 1000;
-const RESERVED = 64 * 1024 * 4 + 8_192 * 20;
+const RESERVED = 64 * 1024 * 4 + 1_024 * 20;
 
 const slots: SemanticSlot[] = [
   { id: "email", kind: "identifier", description: "account email address" },
@@ -130,7 +130,9 @@ const plan = (fields: [string, string][], action: string, purpose: "advance" | "
     },
   });
 
-type Reply = { text: string; usage?: { input_tokens: number; output_tokens: number } } | number;
+type Usage = { input_tokens: number; output_tokens: number };
+/** A text answer, a refusal with its category, or an HTTP error status. */
+type Reply = { text: string; usage?: Usage } | { refusal: string; usage?: Usage } | number;
 let replies: Reply[] = [];
 /** Runs while a model call is in flight, before its answer. */
 let during: (() => Promise<void>) | undefined;
@@ -154,10 +156,11 @@ beforeAll(() => {
         expires_in: 600,
       });
     if (outbound.url === MESSAGES_URL) {
+      const body = (await outbound.json()) as { model: string };
       sent.push({
         authorization: outbound.headers.get("authorization"),
         apiKey: outbound.headers.get("x-api-key"),
-        body: await outbound.json(),
+        body,
       });
       const reply = replies.shift();
       if (reply === undefined) throw new Error("No synthetic reply queued");
@@ -173,9 +176,14 @@ beforeAll(() => {
         id: "msg_synthetic",
         type: "message",
         role: "assistant",
-        model: "claude-opus-5-5",
-        content: [{ type: "text", text: reply.text }],
-        stop_reason: "end_turn",
+        model: body.model,
+        ...("refusal" in reply
+          ? {
+              content: [],
+              stop_reason: "refusal",
+              stop_details: { type: "refusal", category: reply.refusal, explanation: "synthetic" },
+            }
+          : { content: [{ type: "text", text: reply.text }], stop_reason: "end_turn" }),
         stop_sequence: null,
         usage: reply.usage ?? { input_tokens: 3_000, output_tokens: 900 },
       });
@@ -604,6 +612,78 @@ describe("recipe generation", () => {
         device.ownerId,
       ),
     ).toEqual([{ outcome: "provider-error", input_tokens: null }]);
+  });
+
+  it("asks Sonnet 5.5 once when Opus 5.5 refuses, and logs and charges both calls", async () => {
+    const device = await owner();
+    replies.push({ refusal: "cyber", usage: { input_tokens: 3_000, output_tokens: 0 } });
+    replies.push({
+      text: plan([["email", "email"]], "next", "advance"),
+      usage: { input_tokens: 3_000, output_tokens: 100 },
+    });
+    expect(await generate(device, emailPage)).toMatchObject({ status: "recipe" });
+    expect(sent.map(({ body }) => (body as { model: string }).model)).toEqual([
+      "claude-opus-5-5",
+      "claude-sonnet-5-5",
+    ]);
+    // 3,000 input tokens at $4, then 3,000 at $2 and 100 output tokens at $10, per million.
+    expect(
+      await rows(
+        "SELECT model_id, outcome, cost_micro_usd FROM inference_log WHERE owner_id = ? ORDER BY created_at",
+        device.ownerId,
+      ),
+    ).toEqual([
+      { model_id: "claude-opus-5-5", outcome: "refused", cost_micro_usd: 12_000 },
+      { model_id: "claude-sonnet-5-5", outcome: "ok", cost_micro_usd: 7_000 },
+    ]);
+    expect(
+      await rows(
+        "SELECT calls, cost_micro_usd FROM inference_spend WHERE owner_id = ?",
+        device.ownerId,
+      ),
+    ).toEqual([
+      { calls: 2, cost_micro_usd: 19_000 },
+      { calls: 2, cost_micro_usd: 19_000 },
+    ]);
+  });
+
+  it("ends the request when Sonnet 5.5 refuses too, without a third call", async () => {
+    const device = await owner();
+    replies.push({ refusal: "cyber" }, { refusal: "general_harms" });
+    expect(await generate(device, emailPage)).toEqual({
+      version: 1,
+      status: "failed",
+      error: "refused",
+    });
+    expect(sent).toHaveLength(2);
+    expect(
+      await rows(
+        "SELECT model_id, outcome FROM inference_log WHERE owner_id = ? ORDER BY created_at",
+        device.ownerId,
+      ),
+    ).toEqual([
+      { model_id: "claude-opus-5-5", outcome: "refused" },
+      { model_id: "claude-sonnet-5-5", outcome: "refused" },
+    ]);
+  });
+
+  it("asks no other model once the refused call reached the daily spend stop", async () => {
+    const device = await owner();
+    await env.DB.prepare(
+      "INSERT INTO inference_spend (owner_id, period, calls, cost_micro_usd) VALUES (?, ?, 0, ?)",
+    )
+      .bind(device.ownerId, day(), 4_995_000)
+      .run();
+    replies.push({ refusal: "cyber", usage: { input_tokens: 3_000, output_tokens: 0 } });
+    expect(await generate(device, emailPage)).toMatchObject({ error: "refused" });
+    expect(sent).toHaveLength(1);
+  });
+
+  it("asks no other model after a failure that is not a refusal", async () => {
+    const device = await owner();
+    replies.push(500);
+    expect(await generate(device, emailPage)).toMatchObject({ error: "provider-error" });
+    expect(sent).toHaveLength(1);
   });
 
   it("names the check that refused the output and logs the refused plan by reference", async () => {

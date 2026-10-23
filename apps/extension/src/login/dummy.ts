@@ -30,6 +30,7 @@ const PROBE_PATHS = [
   "/dialog",
   "/slow-button",
   "/text-submit",
+  "/enter-submit",
   "/variants",
   "/passkey",
   "/totp",
@@ -256,12 +257,22 @@ export function probeRecipe(origin: string, path: string): LoginRecipe | undefin
                   },
                 ],
               },
-              {
-                kind: "click",
-                path,
-                target: path === "/text-submit" ? { by: "text", value: "Log in" } : target("login"),
-                purpose: "submit",
-              },
+              // A form without a button is submitted by Enter in its field (ADR 0064).
+              path === "/enter-submit"
+                ? {
+                    kind: "click",
+                    path,
+                    target: target("password"),
+                    purpose: "submit",
+                    press: "enter",
+                  }
+                : {
+                    kind: "click",
+                    path,
+                    target:
+                      path === "/text-submit" ? { by: "text", value: "Log in" } : target("login"),
+                    purpose: "submit",
+                  },
             ],
     completion: [{ target: target("authenticated") }],
     rejection: target("rejected"),

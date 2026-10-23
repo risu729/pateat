@@ -199,6 +199,23 @@ describe("isScriptButton", () => {
     ]);
   });
 
+  it("accepts a link without href that shows a pointer cursor, as IIJmio's login", () => {
+    document.body.innerHTML = `<style>.btn { cursor: pointer }</style>
+      <a id="a" class="btn">ログイン</a><a id="b">ログイン</a><a id="c" href="#" class="btn">Top</a>
+      <a id="d" href="/help" class="btn">Help</a><div class="btn"><a id="e">Card</a></div>
+      <a id="f" style="cursor: url(data:,), pointer">Go</a>`;
+    const script = (id: string) => isScriptButton(document.getElementById(id)!);
+    // A link inside a clickable card only inherits the pointer.
+    expect(["a", "b", "c", "d", "e", "f"].map(script)).toEqual([
+      true,
+      false,
+      false,
+      false,
+      false,
+      true,
+    ]);
+  });
+
   it("accepts links that run a script instead of following the link", () => {
     document.body.innerHTML = `<a id="a" href="#" onclick="return false">Log in</a>
       <a id="b" href="javascript:;">Log in</a><a id="c" href=" JavaScript:void(0)">Go</a>

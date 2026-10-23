@@ -1,5 +1,6 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { beginInput, settingsRequest, setupProbe, setupRequest } from "./connection-fixture";
+import { logs } from "./login-fixture";
 import { startLoginFixture } from "./login-server";
 import { startSyncService } from "./sync-service";
 import { withVaultProfile, type VaultBrowser } from "./vault-fixture";
@@ -23,6 +24,21 @@ async function serveSite(context: BrowserContext, fixture: { origin: string }) {
     });
     await route.fulfill({ response });
   });
+}
+
+/**
+ * Gives the probe a 2-second step wait in place of the 10-second one, for a test whose login
+ * runs past an advance's wait; the loopback origin is the probe's default.
+ */
+async function shortenStepWait(options: Page) {
+  expect(
+    await send(options, {
+      version: 1,
+      type: "login.probe.configure",
+      origin: "http://127.0.0.1:3847",
+      stepWaitMs: 2000,
+    }),
+  ).toMatchObject({ ok: true });
 }
 
 type Candidate = { id: string; role: string; target: { by: string; value: string } };
@@ -124,7 +140,15 @@ function syntheticClaude({ abstainOnPassword = false }: { abstainOnPassword?: bo
                   pageKind: "sign-in",
                   irreversible: "no",
                   fields: [{ slot: "username", candidate: byTarget("account") }],
-                  action: { candidate: byTarget("next"), purpose: "advance" },
+                  // A form that shows no button is submitted after its last field (ADR 0064).
+                  action: {
+                    candidate: prompt.observation.candidates.some(
+                      ({ target }) => target.by === "id" && target.value === "next",
+                    )
+                      ? byTarget("next")
+                      : byTarget("account"),
+                    purpose: "advance",
+                  },
                 };
     return {
       id: "msg_synthetic",
@@ -402,8 +426,17 @@ for (const { name, start, query, passwordPath } of [
     query: "?email",
     passwordPath: "/identifier/password",
   },
+  // The form shows no Next button until the account is typed, beside a "Use phone" button:
+  // the plan's action is the account field, and Enter in it submits the form (ADR 0064).
+  {
+    name: "form without a button",
+    start: "/identifier",
+    query: "?no-button",
+    passwordPath: "/identifier/password",
+  },
 ])
   test(`a generated identifier page is continued on the password page it leads to (${name}, ADR 0018)`, async () => {
+    const noButton = query === "?no-button";
     // An identifier input without `autocomplete="username"` waits for the offer wait.
     test.setTimeout(90_000);
     const fixture = await startLoginFixture(0, { password, accountName: username });
@@ -450,13 +483,20 @@ for (const { name, start, query, passwordPath } of [
               revision: 3,
               steps: [
                 { kind: "fill", path: start },
-                { kind: "click", path: start, purpose: "advance" },
+                {
+                  kind: "click",
+                  path: start,
+                  purpose: "advance",
+                  ...(noButton ? { target: { by: "id", value: "account" }, press: "enter" } : {}),
+                },
                 { kind: "fill", path: passwordPath },
                 { kind: "click", path: passwordPath, purpose: "submit" },
               ],
               completion: [{ target: { by: "id", value: "sign-out" } }],
             },
           ]);
+          // The "Use phone" button beside the account was never pressed.
+          expect(await page.evaluate(() => sessionStorage.getItem("phoneClicks"))).toBeNull();
 
           // The next visit runs all four steps of the stored recipe with no model call.
           await page.close();
@@ -485,6 +525,8 @@ test("a generated identifier page learns the password choice, presses it and con
         const browser = await open();
         await serveSite(browser.context, fixture);
         const options = await connect(browser, service);
+        // The choice page is judged once the advance's wait ran out.
+        await shortenStepWait(options);
 
         const page = await browser.context.newPage();
         await page.goto(`${site}/method-choice-named?account&rerender`);
@@ -555,6 +597,8 @@ test("a login whose saved binding names only the username takes over the continu
         const browser = await open();
         await serveSite(browser.context, fixture);
         const options = await connect(browser, service);
+        // The choice page is judged once the advance's wait ran out.
+        await shortenStepWait(options);
 
         // As after an earlier sign-in that the person finished by hand while the login
         // was watched (ADR 0027): the site default and a binding of the recipe that names
@@ -723,7 +767,7 @@ test("an identifier form shown again where it posted is never continued (ADR 001
 });
 
 test("an abstained continuation settles unknown without judging the page (ADR 0018)", async () => {
-  // The login waits out the advance's ten seconds on the password page before it settles.
+  // The login waits out the advance's wait on the password page before it settles.
   test.setTimeout(60_000);
   const fixture = await startLoginFixture(0, { password, accountName: username });
   const claude = syntheticClaude({ abstainOnPassword: true });
@@ -734,6 +778,7 @@ test("an abstained continuation settles unknown without judging the page (ADR 00
         const browser = await open();
         await serveSite(browser.context, fixture);
         const options = await connect(browser, service);
+        await shortenStepWait(options);
 
         const page = await browser.context.newPage();
         await page.goto(`${site}/identifier`);
@@ -746,15 +791,22 @@ test("an abstained continuation settles unknown without judging the page (ADR 00
         ]);
         // The login settles unknown there once the advance's wait is over: the password is
         // never typed and the page never judged.
-        await page.waitForTimeout(12_000);
-        expect(await send(options, { version: 1, type: "login.probe.status" })).toMatchObject({
-          attempts: [{ state: "reconciling", outcome: "unknown-submit", submissions: 1 }],
-        });
+        await expect
+          .poll(() => send(options, { version: 1, type: "login.probe.status" }))
+          .toMatchObject({
+            attempts: [{ state: "reconciling", outcome: "unknown-submit", submissions: 1 }],
+          });
+        await expect
+          .poll(() => logs(browser.background, "login.attempt"))
+          .toContainEqual(expect.objectContaining({ outcome: "unknown-submit", settled: true }));
         expect(claude.prompts).toHaveLength(2);
         await expect(page.locator("#password")).toHaveValue("");
-        // A reload of the same login sends nothing again.
+        // A reload of the same login sends nothing again: the watched login's check of the
+        // reloaded page decides against sending it, and logs that it is not judged either.
         await page.reload();
-        await page.waitForTimeout(3_000);
+        await expect
+          .poll(() => logs(browser.background, "recipe.judge"))
+          .toContainEqual(expect.objectContaining({ reason: "continuation", watched: true }));
         expect(claude.prompts).toHaveLength(2);
         expect(JSON.stringify(claude.prompts)).not.toContain(password);
         expect(JSON.stringify(claude.prompts)).not.toContain(username);

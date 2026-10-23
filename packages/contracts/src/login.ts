@@ -54,7 +54,7 @@ export const loginAutocompleteTokens = [
   "webauthn",
 ] as const;
 /**
- * An attribute locator: the element whose `id`, `name` or `data-testid` equals the
+ * An attribute locator: the element whose `id`, `name`, `data-testid` or `data-test` equals the
  * value, or the `<input>` whose `autocomplete` attribute holds the token among its
  * whitespace-separated tokens, ignoring case (for fields with no `id` or `name`, such as
  * `autocomplete="username webauthn"`). `id` and `name` take any ASCII except whitespace
@@ -76,7 +76,7 @@ const testIdValue = v.pipe(
 );
 /**
  * The shadow hosts a locator looks inside (ADR 0070), outermost first: each the one
- * element whose `id`, `name` or `data-testid` equals its value, the first among the
+ * element whose `id`, `name`, `data-testid` or `data-test` equals its value, the first among the
  * page's elements and each later one among those of the shadow tree of the host before
  * it, nested trees included. The locator then names the one element among those of the
  * last host's shadow tree. Only for an element of a shadow tree that no locator names
@@ -86,7 +86,7 @@ export const loginHostChainSchema = v.pipe(
   v.array(
     v.variant("by", [
       v.strictObject({ by: v.picklist(["id", "name"]), value: attributeValue }),
-      v.strictObject({ by: v.literal("test-id"), value: testIdValue }),
+      v.strictObject({ by: v.picklist(["test-id", "data-test"]), value: testIdValue }),
     ]),
   ),
   v.minLength(1),
@@ -95,7 +95,9 @@ export const loginHostChainSchema = v.pipe(
 const within = v.optional(loginHostChainSchema);
 export const loginAttributeTargetSchema = v.variant("by", [
   v.strictObject({ by: v.picklist(["id", "name"]), value: attributeValue, within }),
-  v.strictObject({ by: v.literal("test-id"), value: testIdValue, within }),
+  // `data-test` is the test attribute some pages use instead (Duolingo's sign-in
+  // submit, 2026-10-23; ADR 0071).
+  v.strictObject({ by: v.picklist(["test-id", "data-test"]), value: testIdValue, within }),
   v.strictObject({
     by: v.literal("autocomplete"),
     value: v.picklist(loginAutocompleteTokens),
@@ -156,10 +158,25 @@ export const loginAccessibleNameTargetSchema = v.strictObject({
   by: v.literal("accessible-name"),
   value: loginTextTargetSchema.entries.value,
 });
-/** A locator a fill names its field by: an attribute one, or the field's visible name. */
+/**
+ * A field locator by its `name` within the sign-in form (ADR 0072): the one shown
+ * element whose `name` equals the value and whose form also holds a shown password input
+ * not marked `new-password`, as the account field beside Hacker News's password, whose
+ * create-account form below shares the names `acct` and `pw`. It names fields only, for a
+ * field that no other locator names alone.
+ */
+export const loginPasswordFormNameTargetSchema = v.strictObject({
+  by: v.literal("password-form-name"),
+  value: loginAttributeTargetSchema.options[0].entries.value,
+});
+/**
+ * A locator a fill names its field by: an attribute one, the field's visible name, or its
+ * name within the sign-in form.
+ */
 export const loginFieldTargetSchema = v.variant("by", [
   ...loginAttributeTargetSchema.options,
   loginLabelTargetSchema,
+  loginPasswordFormNameTargetSchema,
 ]);
 /**
  * An allowlisted element locator; recipes cannot supply CSS, code, URLs or values. A recipe
@@ -170,6 +187,7 @@ export const loginTargetSchema = v.variant("by", [
   loginTextTargetSchema,
   loginLabelTargetSchema,
   loginAccessibleNameTargetSchema,
+  loginPasswordFormNameTargetSchema,
 ]);
 /**
  * A signed-in marker's link locator (ADR 0029): the one `<a href>` link to the page's own
@@ -214,12 +232,26 @@ export const loginStepSchema = v.variant("kind", [
       "Effectful fill requires one field and one trigger event",
     ),
   ),
-  v.strictObject({
-    kind: v.literal("click"),
-    path,
-    target: loginTargetSchema,
-    purpose: v.picklist(["advance", "submit"]),
-  }),
+  v.pipe(
+    v.strictObject({
+      kind: v.literal("click"),
+      path,
+      target: loginTargetSchema,
+      purpose: v.picklist(["advance", "submit"]),
+      /**
+       * For a form that shows no button to press (ADR 0064): the target is the field the
+       * fill just before typed last, and the step submits that field's form as pressing
+       * Enter there does instead of clicking anything.
+       */
+      press: v.optional(v.literal("enter")),
+    }),
+    v.check(
+      (step) =>
+        step.press === undefined ||
+        (step.target.by !== "text" && step.target.by !== "accessible-name"),
+      "Enter is pressed in a field",
+    ),
+  ),
   v.strictObject({
     kind: v.literal("wait"),
     path,
@@ -274,7 +306,29 @@ const recipeSlotList = v.pipe(
   v.maxLength(20),
   v.check(unique, "Duplicate recipe slots"),
 );
-const routeStepList = v.pipe(v.array(loginStepSchema), v.minLength(1), v.maxLength(32));
+const routeStepList = v.pipe(
+  v.array(loginStepSchema),
+  v.minLength(1),
+  v.maxLength(32),
+  // Enter goes into the field the fill just before typed last, never a code (ADR 0064).
+  v.check(
+    (steps) =>
+      steps.every((step, index) => {
+        if (step.kind !== "click" || step.press === undefined) return true;
+        const before = steps[index - 1];
+        const last = before?.kind === "fill" ? before.fields.at(-1) : undefined;
+        return (
+          before?.kind === "fill" &&
+          before.effect === "prepare" &&
+          before.path === step.path &&
+          last !== undefined &&
+          last.slot !== TOTP_HANDLER_SLOT &&
+          sameLoginTarget(last.target, step.target)
+        );
+      }),
+    "Enter is pressed only in the field the fill before typed last",
+  ),
+);
 /** At most 3 alternatives, so a password route has at most 4 variants (ADR 0027). */
 export const MAX_PASSWORD_ALTERNATIVES = 3;
 /** A recipe learns at most four signed-in markers (ADR 0029). */

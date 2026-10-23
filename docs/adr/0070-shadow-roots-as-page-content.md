@@ -47,13 +47,14 @@ What the owner has not decided (see Status) is assumed.
   on a custom element or an element `attachShadow` accepts, as Bitwarden does. A shadow
   tree is read right after its host and before the host's own children, as Bitwarden's
   tree walker visits it; a selector still matches within one tree.
-- An `id`, `name`, `data-testid`, `autocomplete` token, visible name or text names an
-  element when exactly one element of the whole page, shadow trees included, carries it,
-  as before; Reddit's fields are `{ "by": "name", "value": "password" }`. Only an
-  element of a shadow tree that no such locator names gets one `within` its hosts
-  (owner, 2026-10-23 11:53 and 12:14 UTC): an `id`, `name`,
-  `data-testid`, `autocomplete` or visible-name locator with `within`, one to three
-  hosts outermost first, each named by its `id`, `name` or `data-testid`, as
+- An `id`, `name`, `data-testid`, `data-test`, `autocomplete` token, visible name or
+  text names an element when exactly one element of the whole page, shadow trees
+  included, carries it, as before; Reddit's fields are
+  `{ "by": "name", "value": "password" }`. Only an element of a shadow tree that no such
+  locator names gets one `within` its hosts (owner, 2026-10-23 11:53 and 12:14 UTC): an
+  `id`, `name`, `data-testid`, `data-test`, `autocomplete` or visible-name locator with
+  `within`, one to three hosts outermost first, each named by its `id`, `name`,
+  `data-testid` or `data-test`, as
   `{ "by": "id", "value": "input", "within": [{ "by": "id", "value": "login-pw" }] }`
   for an input whose ID every component reuses. The first host is the one element of the
   page carrying its value, each later one the one element of the previous host's shadow
@@ -65,12 +66,13 @@ What the owner has not decided (see Status) is assumed.
   another load may change is never looked for inside hosts; the element keeps it as the
   last resort it was. The change only adds a field to the recipe format, so stored
   recipes stay valid; the service, deployed from `main`, takes it before an extension
-  sends it, and an extension older than this change refuses a recipe that carries it,
-  as it refuses any recipe format it does not know.
+  sends it, and an extension older than this change refuses a recipe that carries it, as
+  it refuses any recipe format it does not know.
 - A control in a shadow tree without a form owner of its own belongs to the `<form>`
   that holds its component's host, for the observation's groups, the login forms, the
-  fill's one-form rule and the checks of a form's inputs. One with its own form in the
-  shadow tree belongs to that form.
+  fill's one-form rule, the checks of a form's inputs, the form Enter submits (ADR 0064)
+  and the sign-in form a `password-form-name` locator looks in (ADR 0072). One with its
+  own form in the shadow tree belongs to that form.
 - Text is read as it renders: a host's shadow tree instead of its children, a slot's
   assigned nodes instead of its fallback. An ID named by `aria-labelledby`,
   `aria-describedby` or `aria-errormessage` resolves in the referring element's own

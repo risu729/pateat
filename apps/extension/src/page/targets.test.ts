@@ -42,6 +42,33 @@ describe("findTargets", () => {
     expect(findTargets(document, { by: "id", value: "input", within: within("none") })).toEqual([]);
   });
 
+  it("names a host by data-test and finds a component's field in the sign-in form around it", () => {
+    page(`<form><x-field data-test="account"></x-field><x-field id="pw"></x-field></form>
+      <form><x-field id="new"></x-field></form>`);
+    const [account, password, other] = [...document.querySelectorAll("x-field")].map((host) => {
+      const root = host.attachShadow({ mode: "open" });
+      root.innerHTML = `<input name="acct">`;
+      return root;
+    });
+    password!.innerHTML = `<input type="password" name="pw">`;
+    other!.host.insertAdjacentHTML(
+      "afterend",
+      `<input type="password" autocomplete="new-password">`,
+    );
+    expect(
+      findTargets(document, {
+        by: "name",
+        value: "acct",
+        within: [{ by: "data-test", value: "account" }],
+      }),
+    ).toEqual([account!.querySelector("input")]);
+    // The component's password input belongs to the form around its host (ADR 0070), so
+    // that form is the sign-in form and the create-account one is not (ADR 0072).
+    expect(findTargets(document, { by: "password-form-name", value: "acct" })).toEqual([
+      account!.querySelector("input"),
+    ]);
+  });
+
   it("matches links to the page's own origin by their exact path, never script links", () => {
     page(
       `<a id="a" href="/my?tab=1#top">A</a><a id="b" href="/my/">B</a>
@@ -57,13 +84,27 @@ describe("findTargets", () => {
   it("compares attribute strings, so selector syntax in a value is inert", () => {
     page(
       `<input id="a" name="ctl00$Main$txtUserId"><input id="b" name="user[login]">
-      <input id="c" data-testid="go"><input id="d" name="x'] , [name"><input id="e" name="x">`,
+      <input id="c" data-testid="go"><input id="d" name="x'] , [name"><input id="e" name="x">
+      <input id="f" data-test="go">`,
     );
     expect(ids(findTargets(document, { by: "name", value: "ctl00$Main$txtUserId" }))).toEqual([
       "a",
     ]);
     expect(ids(findTargets(document, { by: "name", value: "user[login]" }))).toEqual(["b"]);
     expect(ids(findTargets(document, { by: "test-id", value: "go" }))).toEqual(["c"]);
+    expect(ids(findTargets(document, { by: "data-test", value: "go" }))).toEqual(["f"]);
+    // Only inside a form with a shown password input that is not for a new password.
+    document.body.insertAdjacentHTML(
+      "beforeend",
+      `<form><input id="g" name="acct"><input type="password"></form>
+      <form><input id="h" name="acct"><input type="password" autocomplete="new-password"></form>
+      <form><input id="i" name="acct"><input type="password" hidden></form>`,
+    );
+    expect(ids(findTargets(document, { by: "password-form-name", value: "acct" }))).toEqual(["g"]);
+    // A signed-in marker's missing elements count a hidden form's copy too.
+    expect(
+      ids(findTargets(document, { by: "password-form-name", value: "acct" }, { hidden: true })),
+    ).toEqual(["g", "i"]);
     expect(ids(findTargets(document, { by: "name", value: "x'] , [name" }))).toEqual(["d"]);
     expect(ids(findTargets(document, { by: "id", value: "a" }))).toEqual(["a"]);
   });

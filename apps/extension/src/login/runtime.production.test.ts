@@ -650,8 +650,9 @@ const shownHello = (
 // that fires the next timer after each native macrotask, so they cost no real time. The
 // clock also runs on while a test sits in `vi.waitFor` or awaits a promise, so a long timer
 // can fire before an outcome the test expects sooner. A test that changes the page while the
-// runtime still waits, or that such a timer could answer instead, calls `realTime()`. Tests
-// that install their own fake timers replace this clock for their run.
+// runtime still waits, or that such a timer could answer instead, calls `realTime()`, or
+// stops the clock with `vi.setTimerTickMode("manual")` and advances it itself. Tests that
+// install their own fake timers replace this clock for their run.
 beforeEach(() => {
   vi.useFakeTimers({
     toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"],
@@ -14098,6 +14099,9 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         onCodeFill(() => {
           // The content script saw the page submit the code; the form now says "Verifying".
           fake.state.executeReply = { ok: false, reason: "submitted", mutation: "possible" };
+          // Stop the clock at the fill, so it cannot run past the held click's wait
+          // (HELD_CLICK_WAIT_MS) while the test still waits for the fill.
+          vi.setTimerTickMode("manual");
         });
         const report = vi.fn<(report: LoginReport) => void>();
         const h = harness({}, { passkeys: noPasskey, report });
@@ -14108,11 +14112,12 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         await vi.waitFor(() => expect(codeFills()).toHaveLength(1), { timeout: 6_000 });
         // The fill named the button, so the page's own submission is watched for.
         expect(codeFills()[0]).toMatchObject({ code: { submit: target("verify") } });
-        await new Promise((done) => setTimeout(done, 1_500));
+        await vi.advanceTimersByTimeAsync(1_500);
         expect(status()).toMatchObject([{ state: "reconciling", stepIndex: 3 }]);
         expect(handlerReports(report)).toEqual([[0, "totp", "entered", 2]]);
         fake.state.observedPath = "/home";
         fake.state.present = new Set(["logout"]);
+        vi.setTimerTickMode("nextTimerAsync");
         await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
           timeout: 6_000,
         });

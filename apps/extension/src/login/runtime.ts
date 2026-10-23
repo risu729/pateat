@@ -488,6 +488,8 @@ type LiveDocument = {
    * (ADR 0022), did not find the sign-in complete, for the log.
    */
   moveMiss?: MoveMiss;
+  /** Probe build only: how many observations of the page a login got back, for its status. */
+  observations?: number;
 };
 /**
  * Why a login's move to another origin did not complete it (ADR 0022): no step or second
@@ -1871,26 +1873,12 @@ class DocumentGone extends Error {
   }
 }
 
-/** The badge and tooltip of a tab whose login waits for an account choice (ADR 0021). */
+/** The badge of a tab whose login waits for an account choice (ADR 0021). */
 function choiceBadge(
   candidates: readonly unknown[],
   logout: LogoutReason | undefined,
-): { count: number; title: string } {
-  return {
-    count: candidates.length,
-    title: logout
-      ? {
-          "this-tab":
-            "Pateat: you logged out of this site in this tab. Click to choose an account.",
-          rejected:
-            "Pateat: the site did not accept the last login in this tab. Click to choose an account.",
-          "stopped-login":
-            "Pateat: the last login on this site stopped in this tab. Click to choose an account.",
-          "other-tab":
-            "Pateat: you logged out of this site in another tab. Click to choose an account.",
-        }[logout]
-      : `Pateat: ${candidates.length} accounts match this page. Click to choose one.`,
-  };
+): { count: number; logout?: LogoutReason } {
+  return logout ? { count: candidates.length, logout } : { count: candidates.length };
 }
 
 export function createLoginRuntime(
@@ -2035,6 +2023,9 @@ export function createLoginRuntime(
   let account: ProbeAccount = DEMO_PROBE_ACCOUNT;
   let probePasskey: "discoverable" | "second-factor" | undefined;
   let probeTotp = false;
+  // The probe's own step wait; undefined, as always in production, for the full one.
+  let probeStepWaitMs: number | undefined;
+  const stepWaitMs = () => (probeMode ? probeStepWaitMs : undefined) ?? LOGIN_STEP_WAIT_MS;
   const documents = new Map<string, LiveDocument>();
   const attempts = new Map<number, Execution>();
   // ADR 0029's sign-in state reads these, kept in memory only and never stored.
@@ -2329,6 +2320,7 @@ export function createLoginRuntime(
         account = parsed.account ?? DEMO_PROBE_ACCOUNT;
         probePasskey = parsed.passkey;
         probeTotp = parsed.totp === true;
+        probeStepWaitMs = parsed.stepWaitMs;
       }
       if (stored === undefined) return;
       if (!Array.isArray(stored) || stored.length > 100) throw new Error("Invalid attempt store");
@@ -2476,7 +2468,7 @@ export function createLoginRuntime(
         key !== recordKey(tabId, siteOrigin) && key.endsWith(` ${siteOrigin}`) && logouts.has(key),
     );
   }
-  /** Tells the tab why it does not log in while another tab's login holds the site. */
+  /** Tells the tab why it does not log in while another tab's login holds the site (a key). */
   function showHeld(tabId: number): void {
     badge.note(
       tabId,
@@ -4092,6 +4084,7 @@ export function createLoginRuntime(
     });
     if (!current(run)) return undefined;
     const parsed = v.safeParse(observationSchema, response);
+    if (probeMode && parsed.success) run.live.observations = (run.live.observations ?? 0) + 1;
     return parsed.success ? parsed.output : undefined;
   }
   /**
@@ -4101,7 +4094,7 @@ export function createLoginRuntime(
   async function waitFor(
     run: Execution,
     readiness: LoginReadiness,
-    timeoutMs = LOGIN_STEP_WAIT_MS,
+    timeoutMs = stepWaitMs(),
   ): Promise<"ready" | "timeout" | "gone"> {
     try {
       const response = await send(run.live, {
@@ -6015,8 +6008,7 @@ export function createLoginRuntime(
   async function reconcileBounded(run: Execution): Promise<void> {
     // An advance is confirmed by the next step's elements, which get the same wait as any
     // fill or click; other results keep the shorter observation budget.
-    let until =
-      Date.now() + (run.metadata.operationEffect === "advance" ? LOGIN_STEP_WAIT_MS : 3000);
+    let until = Date.now() + (run.metadata.operationEffect === "advance" ? stepWaitMs() : 3000);
     // A held click's button may show this long before the page is left to the person.
     const holdUntil = Date.now() + HELD_CLICK_WAIT_MS;
     const observing = () => ["awaiting-result", "reconciling"].includes(run.metadata.state);
@@ -10028,11 +10020,13 @@ export function createLoginRuntime(
         account = config.output.account ?? DEMO_PROBE_ACCOUNT;
         probePasskey = config.output.passkey;
         probeTotp = config.output.totp === true;
+        probeStepWaitMs = config.output.stepWaitMs;
         await probeConfig.write({
           origin,
           ...(config.output.account ? { account } : {}),
           ...(probePasskey ? { passkey: probePasskey } : {}),
           ...(probeTotp ? { totp: true } : {}),
+          ...(probeStepWaitMs === undefined ? {} : { stepWaitMs: probeStepWaitMs }),
         });
         return { ok: true };
       }
@@ -10049,6 +10043,7 @@ export function createLoginRuntime(
             ...live.document,
             ...(live.state ? { state: live.state } : {}),
             ...(live.reason ? { reason: live.reason } : {}),
+            ...(live.observations ? { observations: live.observations } : {}),
           })),
         };
       }

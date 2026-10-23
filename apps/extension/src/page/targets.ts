@@ -10,9 +10,14 @@ import {
   isScriptLink,
   linkText,
 } from "./text";
-import { queryAll, shadowRootOf } from "./shadow";
+import { closestAcross, formOf, inputsOf, queryAll, shadowRootOf } from "./shadow";
 
-const attributes = { id: "id", name: "name", "test-id": "data-testid" } as const;
+const attributes = {
+  id: "id",
+  name: "name",
+  "test-id": "data-testid",
+  "data-test": "data-test",
+} as const;
 /** Every element an `accessible-name` locator may name ({@link isNamedControl}). */
 export const namedControls = "button, input, a, [role]";
 
@@ -121,6 +126,14 @@ export function findTargets(
       (element) => isRoleButton(element) && buttonText(element) === target.value,
     );
   }
+  if (target.by === "password-form-name")
+    return shownAmong(
+      queryAll(document, "[name]").filter(
+        (element) =>
+          element.getAttribute("name") === target.value && signInForm(formAround(element), hidden),
+      ),
+      hidden,
+    );
   if (target.by === "accessible-name")
     return queryAll(document, namedControls).filter(
       (element) => controlName(element) === target.value,
@@ -134,7 +147,10 @@ export function findTargets(
 }
 
 /** A locator that may look inside the hosts its `within` names. */
-type ScopedTarget = Exclude<LoginMarkerTarget, { by: "href" | "text" | "accessible-name" }>;
+type ScopedTarget = Exclude<
+  LoginMarkerTarget,
+  { by: "href" | "text" | "accessible-name" | "password-form-name" }
+>;
 
 /**
  * The shadow trees a locator's `within` names (ADR 0070): the shadow tree of each element
@@ -173,5 +189,34 @@ function findIn(scope: Document | ShadowRoot, target: ScopedTarget, hidden: bool
       (element) => element.getAttribute(attribute) === target.value,
     ),
     hidden,
+  );
+}
+
+/**
+ * A control's form ({@link formOf}, across its hosts), or the nearest `<form>` around
+ * another element, shadow boundaries included.
+ */
+const formAround = (element: Element): HTMLFormElement | null =>
+  element instanceof HTMLInputElement ||
+  element instanceof HTMLButtonElement ||
+  element instanceof HTMLSelectElement ||
+  element instanceof HTMLTextAreaElement
+    ? formOf(element)
+    : (closestAcross(element, "form") as HTMLFormElement | null);
+
+/**
+ * Whether `form` holds a shown password input not marked `new-password`, the form a
+ * `password-form-name` locator looks in (ADR 0072); with `hidden`, a hidden one counts
+ * too, so a signed-in marker's missing elements (ADR 0029) still see a hidden form's copy.
+ */
+function signInForm(form: HTMLFormElement | null, hidden: boolean): boolean {
+  return (
+    form !== null &&
+    inputsOf(form, form.ownerDocument).some(
+      (element) =>
+        element.type === "password" &&
+        !autocompleteTokens(element).includes("new-password") &&
+        (hidden || visible(element)),
+    )
   );
 }

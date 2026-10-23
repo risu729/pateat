@@ -457,11 +457,28 @@ const roleButton = (element: Element) =>
   element.getAttribute("role")?.trim().toLowerCase() === "button";
 
 /**
+ * Whether an `<a>` without `href`, which never navigates, sets the pointer the page
+ * gives clickable things itself, not inheriting it from a clickable card around it:
+ * IIJmio's login control is `<a class="pink_btn">ログイン</a>`, whose click a script
+ * listener handles with no `onclick` attribute or role (2026-10-23). The cursor is read
+ * as computed when asked, so one the page sets only on hover or after the fields are
+ * filled does not count.
+ */
+function pointer(link: HTMLAnchorElement): boolean {
+  const view = link.ownerDocument.defaultView;
+  const points = (element: Element) =>
+    /(?:^|, )pointer$/u.test(view!.getComputedStyle(element).cursor);
+  const parent = composedParent(link);
+  return view !== null && points(link) && !(parent && points(parent));
+}
+
+/**
  * A control that only scripts make clickable: a script link (an `<a>` without `href`
- * that has an `onclick` attribute or `role="button"`, or an `<a href>` that runs a
- * script, see {@link scriptHref}), or another element with `role="button"`. Form
- * controls, links that navigate and anything inside an `<a href>` (a click there would
- * follow the link, or reach the outer link's script) are not script buttons.
+ * that has an `onclick` attribute or `role="button"` or sets a pointer cursor, see
+ * {@link pointer}, or an `<a href>` that runs a script, see {@link scriptHref}), or
+ * another element with `role="button"`. Form controls, links that navigate and anything
+ * inside an `<a href>` (a click there would follow the link, or reach the outer link's
+ * script) are not script buttons.
  */
 export function isScriptButton(element: Element): boolean {
   if (
@@ -475,7 +492,7 @@ export function isScriptButton(element: Element): boolean {
   if (element instanceof HTMLAnchorElement)
     return element.hasAttribute("href")
       ? scriptHref(element)
-      : element.hasAttribute("onclick") || roleButton(element);
+      : element.hasAttribute("onclick") || roleButton(element) || pointer(element);
   return closestAcross(element, "a[href]") === null && roleButton(element);
 }
 

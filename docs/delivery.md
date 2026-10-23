@@ -63,14 +63,18 @@ job fails, `CI Check` fails. `Changes` adds a few seconds before the browser sha
 start. A newer push to a PR cancels its older run, but each main push finishes its own
 run; otherwise frequent merges would cancel every main run before it could package a
 release and deploy it. `codeql.yml` analyzes TypeScript/JavaScript and Actions
-separately. Linux jobs pin `ubuntu-26.04`; the `CI Check` aggregate only compares
-results, so it runs on the single-CPU `ubuntu-slim` runner. CodeQL needs no Actions
-cache: dependency caching is off by default in advanced setup and its TRAP cache is
-disabled, so the workflow sets `cache-mode: none`. In `ci.yml` the `Verify`, `Browser`
-and `Deploy tested server` jobs share their checkout, mise and aube install steps
-through YAML anchors (`&checkout`, `&mise`, `&install`), so those pins appear once in
-`ci.yml`; zizmor warns that it audits anchored workflows on a best-effort basis. GitHub
-Code Quality is not used: since its
+separately. `pricing.yml` refreshes the committed Claude rates daily (ADR 0014): on a
+change it commits through the contents API, so GitHub signs the commit, opens a PR from
+`pricing/claude-rates`, and starts `ci.yml` there by `workflow_dispatch`, since a push
+or PR made with the job token starts no workflow. Opening that PR needs the repository
+setting that allows GitHub Actions to create pull requests. Linux jobs pin
+`ubuntu-26.04`; the `CI Check` aggregate only compares results, so it runs on the
+single-CPU `ubuntu-slim` runner. CodeQL needs no Actions cache: dependency caching is
+off by default in advanced setup and its TRAP cache is disabled, so the workflow sets
+`cache-mode: none`. In `ci.yml` the `Verify`, `Browser` and `Deploy tested server` jobs
+share their checkout, mise and aube install steps through YAML anchors (`&checkout`,
+`&mise`, `&install`), so those pins appear once in `ci.yml`; zizmor warns that it audits
+anchored workflows on a best-effort basis. GitHub Code Quality is not used: since its
 [2026-07-20 general availability](https://github.blog/changelog/2026-06-16-github-code-quality-generally-available-july-20-2026)
 it is a paid product for GitHub Team and Enterprise Cloud organizations, and this
 repository is user-owned. On 2026-10-11 the owner removed its ruleset rule here and in
