@@ -1,7 +1,5 @@
 import {
   createAttemptMetadata,
-  judgedPages,
-  MAX_JUDGED_PAGES,
   nextLoginOperation,
   transitionLoginAttempt,
   type LoginAttemptMetadata,
@@ -13,29 +11,32 @@ import { loginStepEffect, type LoginDocument, type LoginRecipe } from "../login"
 // `broken()`. They must hold in any order of events, which the example tests in
 // login-attempt.test.ts cannot show. Synthetic origins and identifiers only.
 
-export const document: LoginDocument = {
+/** More states than this means a guard stopped bounding the attempt. */
+const MAX_STATES = 20_000;
+
+export const page: LoginDocument = {
   origin: "https://bank.example",
   tabId: 7,
   frameId: 0,
   documentId: "document-one",
 };
-const nextPage = { ...document, documentId: "document-two" };
-const otherOrigin = { ...document, origin: "https://idp.example", documentId: "document-three" };
+const nextPage = { ...page, documentId: "document-two" };
+const otherOrigin = { ...page, origin: "https://idp.example", documentId: "document-three" };
 
-/** A recipe of `document`'s origin with the given steps. */
+/** A recipe of `page`'s origin with the given steps. */
 export const recipeOf = (
   parts: Pick<LoginRecipe, "id" | "slots" | "steps" | "maxSubmissions">,
 ): LoginRecipe => ({
   version: 1,
   revision: 2,
-  origin: document.origin,
+  origin: page.origin,
   pageKind: "sign-in",
   completion: [{ target: { by: "id", value: "authenticated" } }],
   rejection: { by: "id", value: "rejected" },
   ...parts,
 });
 
-type Event = Record<string, unknown>;
+type AttemptEvent = Record<string, unknown>;
 
 // Operation IDs are named in the order the attempt uses them, so states that differ only in
 // which random ID the runtime picked are the same state here.
@@ -43,21 +44,21 @@ const fresh = (metadata: LoginAttemptMetadata) =>
   `operation-${metadata.usedOperationIds.length + 1}`;
 
 /** The events that name operation `operationId`. */
-function operationEvents(operationId: string): Event[] {
+function operationEvents(operationId: string): AttemptEvent[] {
   return [
     { type: "MUTATION_INTENT", operationId },
     { type: "OPERATION_OK", operationId },
     { type: "SUBMIT_INTENT", operationId },
     { type: "SUBMITTED", operationId },
     { type: "FAILED", reason: "structural-mismatch", operationId },
-    { type: "FAILED", reason: "timeout", operationId, mutation: "none", document },
+    { type: "FAILED", reason: "timeout", operationId, mutation: "none", document: page },
     { type: "FAILED", reason: "timeout", operationId, mutation: "possible" },
     { type: "JUDGING", operationId },
     { type: "UNJUDGED", operationId },
   ];
 }
-const events: Event[] = [
-  // A step whose element never showed fails before any operation (ADR 0022).
+const events: AttemptEvent[] = [
+  // A step whose element never showed fails before any operation.
   { type: "FAILED", reason: "structural-mismatch" },
   ...["continue", "authenticated", "credential-rejected", "challenge", "unknown"].map((result) => ({
     type: "OBSERVED",
@@ -77,10 +78,10 @@ const events: Event[] = [
  * runtime does, for a new operation ID; it is also sent for the first used one, which the
  * machine must refuse.
  */
-function eventsFor(metadata: LoginAttemptMetadata, recipe: LoginRecipe): Event[] {
-  const prepares: Event[] = [];
+function eventsFor(metadata: LoginAttemptMetadata, recipe: LoginRecipe): AttemptEvent[] {
+  const prepares: AttemptEvent[] = [];
   const operationId = fresh(metadata);
-  const operation = nextLoginOperation(metadata, recipe, document, operationId, 0);
+  const operation = nextLoginOperation(metadata, recipe, page, operationId, 0);
   if (operation) {
     const effect = loginStepEffect(operation.step);
     const prepare = { type: "PREPARE", kind: operation.step.kind, ...(effect ? { effect } : {}) };
@@ -90,9 +91,9 @@ function eventsFor(metadata: LoginAttemptMetadata, recipe: LoginRecipe): Event[]
       ...(used === undefined ? [] : [{ ...prepare, operationId: used }]),
     );
   }
-  // Every guard but those of `PREPARE` and `UNJUDGED` treats all IDs other than the one in
-  // flight alike, so the new ID stands for the earlier ones; `UNJUDGED` gives back a page of
-  // the operation it names, so it is sent for each.
+  // For these events, every guard but those of `PREPARE` and `UNJUDGED` treats all IDs
+  // other than the one in flight alike, so the new ID stands for the earlier ones;
+  // `UNJUDGED` gives back a page of the operation it names, so it is sent for each.
   const named = [...new Set([metadata.operationId ?? operationId, operationId])];
   const earlier = metadata.usedOperationIds.filter((used) => !named.includes(used));
   return [
@@ -103,20 +104,17 @@ function eventsFor(metadata: LoginAttemptMetadata, recipe: LoginRecipe): Event[]
   ];
 }
 
-/** The invariants a step from `from` to `to` breaks. */
-function broken(from: LoginAttemptMetadata, event: Event, to: LoginAttemptMetadata): string[] {
+/**
+ * The invariants a step from `from` to `to` breaks. The attempt schema, which parses every
+ * transition's result, already bounds submissions, retries and judged pages and refuses a
+ * used operation ID; a step that breaks one of those throws, which fails the walk too.
+ */
+function broken(
+  from: LoginAttemptMetadata,
+  event: AttemptEvent,
+  to: LoginAttemptMetadata,
+): string[] {
   const names: string[] = [];
-  if (to.submissions > to.maxSubmissions) names.push("submissions over the budget");
-  if (to.retries > to.maxRetries) names.push("retries over the limit");
-  if (judgedPages(to, to.operationId) > MAX_JUDGED_PAGES) names.push("judged pages over the limit");
-  // A used operation ID is never prepared again (ADR 0022).
-  if (
-    to.state === "executing" &&
-    from.state !== "executing" &&
-    to.operationId !== undefined &&
-    from.usedOperationIds.includes(to.operationId)
-  )
-    names.push("operation prepared twice");
   // Once a submission was intended, only a fill whose failure confirmed it changed nothing
   // may be tried again; a click or a fill that may have submitted never is.
   if (
@@ -125,14 +123,24 @@ function broken(from: LoginAttemptMetadata, event: Event, to: LoginAttemptMetada
     !(from.operationKind === "fill" && event["type"] === "FAILED" && event["mutation"] === "none")
   )
     names.push("retry after a possible submission");
-  // A watched login only reads later pages (ADR 0027).
-  if (from.state === "watching" && ["ready", "executing", "submit-intent"].includes(to.state))
+  // A step that may have submitted is never taken again: when the login goes on, it goes
+  // on at a later step.
+  if (
+    ["submit-intent", "awaiting-result", "reconciling"].includes(from.state) &&
+    from.mutationIntent &&
+    from.operationEffect !== "prepare" &&
+    to.state === "ready" &&
+    to.stepIndex <= from.stepIndex
+  )
+    names.push("possibly submitted step taken again");
+  // A `watching` login only reads pages until it ends (ADR 0027).
+  if (from.state === "watching" && !["watching", "authenticated", "blocked"].includes(to.state))
     names.push("watched login acted");
   return names;
 }
 
-// No guard reads `timing`, which only adds up where the time went, so states that differ
-// only in it are the same state here.
+// No guard reads `timing`, which only adds up where the time went; with `now` fixed at 0 it
+// never differs, and leaving it out keeps the key from depending on that.
 const key = (metadata: LoginAttemptMetadata) => JSON.stringify({ ...metadata, timing: undefined });
 
 /**
@@ -141,7 +149,7 @@ const key = (metadata: LoginAttemptMetadata) => JSON.stringify({ ...metadata, ti
  */
 export function exploreLogin(recipe: LoginRecipe): {
   states: number;
-  failures: { broken: string[]; events: Event[] }[];
+  failures: { broken: string[]; events: AttemptEvent[] }[];
 } {
   const start = transitionLoginAttempt(
     createAttemptMetadata({
@@ -149,25 +157,25 @@ export function exploreLogin(recipe: LoginRecipe): {
       id: "attempt-one",
       recipe,
       policyRevision: 3,
-      account: { origin: document.origin, connectionId: "connection-one", itemId: "item-one" },
+      account: { origin: page.origin, connectionId: "connection-one", itemId: "item-one" },
       choice: { route: "password", variant: 0 },
       facts: { password: true, totp: false, passkey: false, discoverablePasskey: false },
-      document,
+      document: page,
     }),
     { type: "RESOLVE" },
     0,
   );
   // Each reached state with the event that first reached it and the state before.
-  const reached = new Map<string, { event: Event; from: LoginAttemptMetadata } | null>([
+  const reached = new Map<string, { event: AttemptEvent; from: LoginAttemptMetadata } | null>([
     [key(start), null],
   ]);
   const path = (metadata: LoginAttemptMetadata) => {
-    const steps: Event[] = [];
+    const steps: AttemptEvent[] = [];
     for (let step = reached.get(key(metadata)); step; step = reached.get(key(step.from)))
       steps.unshift(step.event);
     return steps;
   };
-  const failures: { broken: string[]; events: Event[] }[] = [];
+  const failures: { broken: string[]; events: AttemptEvent[] }[] = [];
   const queue = [start];
   for (let index = 0; index < queue.length && failures.length < 3; index += 1) {
     const from = queue[index]!;
@@ -186,6 +194,10 @@ export function exploreLogin(recipe: LoginRecipe): {
       if (!reached.has(key(to))) {
         reached.set(key(to), { event, from });
         queue.push(to);
+        if (reached.size > MAX_STATES) {
+          failures.push({ broken: [`more than ${MAX_STATES} states`], events: path(to) });
+          return { states: reached.size, failures };
+        }
       }
     }
   }

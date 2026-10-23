@@ -1054,7 +1054,11 @@ the environment are never read by the adapter. `@ai-sdk/anthropic` stays exact a
 version-matched to `ai`.
 
 Use the approved fast-check for invariants such as stronger exclusions never expanding
-eligibility and stale events never authorizing a new document. Component tests
+eligibility and stale events never authorizing a new document. Where every state is
+small enough to list, walk them all instead of sampling: the
+`packages/contracts/src/*.orders-*.test.ts` files apply every event of a fixed set to
+every state a small login attempt reaches, and CI runs them in the `Event orders` job
+([CI](delivery.md#current-foundation-workflows)). Component tests
 cover drafts, conflicts, validation and keyboard behavior; Playwright covers real
 extension boundaries and lifecycle. Automated accessibility checks supplement
 manual keyboard/focus inspection. Browser component tests do not establish
