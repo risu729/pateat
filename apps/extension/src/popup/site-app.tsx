@@ -26,9 +26,14 @@ import { Button } from "../options/button";
 import { SETTINGS_QUERY_KEY, type SettingsClient } from "../options/client";
 import { siteAccountOptions } from "../options/site-policy";
 import { Logo } from "../logo";
-import { choiceReason, pickFailure, type ChoiceClient } from "../login/choice-wire";
+import {
+  choiceReason,
+  pickFailure,
+  type ChoiceClient,
+  type PauseLength,
+} from "../login/choice-wire";
 import { PageStatusSection } from "./page-status";
-import { PauseControl, pauseShown } from "./pause";
+import { PAUSE_CHOICES, PauseControl, pauseShown } from "./pause";
 
 /**
  * How long the popup waits for the site's matches. Each vault lookup of the search is
@@ -444,17 +449,21 @@ export function SiteApp({
     }
   }
 
-  /** Pauses automatic login of the tab's site for an hour, or resumes it (ADR 0062). */
-  async function setPause(paused: boolean) {
+  /** Pauses automatic login of the tab's site for `length`, or resumes it (ADR 0062). */
+  async function setPause(length: PauseLength | undefined) {
     if (tabId === undefined || busy) return;
     setBusy(true);
-    say(paused ? "Pausing…" : "Resuming…", "progress");
+    say(length ? "Pausing…" : "Resuming…", "progress");
     try {
-      const response = await choices.pause(tabId, paused);
+      const response = await choices.pause(
+        tabId,
+        length ? { paused: true, length } : { paused: false },
+      );
       if (response.ok) {
+        const chosen = PAUSE_CHOICES.find((entry) => entry.length === length);
         say(
-          paused
-            ? "Automatic login on this site is paused for an hour"
+          chosen
+            ? `Automatic login on this site is paused ${chosen.done}`
             : "Automatic login on this site resumed",
           "success",
         );
@@ -656,7 +665,7 @@ export function SiteApp({
         <PauseControl
           until={status?.pause?.until}
           busy={busy}
-          onChange={(paused) => void setPause(paused)}
+          onChange={(length) => void setPause(length)}
         />
       );
     body = (

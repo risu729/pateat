@@ -659,6 +659,7 @@ export function createDiagnosticsLog(options: {
           {
             origin: report.origin,
             action: report.action,
+            length: report.length,
             incognito: report.incognito,
             url: report.url,
           },

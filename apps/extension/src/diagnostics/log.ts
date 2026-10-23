@@ -302,7 +302,7 @@ export const LOG_EVENTS = {
   // that authenticated (ADR 0062).
   "login.pause": {
     level: "info",
-    fields: { origin: "origin", action: "code", incognito: "flag", url: "url" },
+    fields: { origin: "origin", action: "code", length: "code", incognito: "flag", url: "url" },
   },
   "login.popup": {
     level: "info",

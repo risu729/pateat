@@ -1308,34 +1308,41 @@ test("the page section names the page's refusal over an older not-started reason
     .toBe("No login started: another tab's login to this site is running or did not succeed.");
 });
 
-test("a site Pateat logs in to by itself can be paused for an hour, then resumed (ADR 0062)", async () => {
+test("a site Pateat logs in to by itself can be paused for 10 minutes or an hour, then resumed (ADR 0062)", async () => {
   const { client } = store();
   const choices = onPage({ recipe: "page" });
   await mount(client, "https://bank.example/login", choices);
-  // The row sits under the "Pateat on this site" switch.
-  const pause = page.getByRole("button", { name: "Pause automatic login" });
-  await expect.element(pause).toBeVisible();
-  const until = Date.now() + 60 * 60_000;
-  choices.pause.mockImplementation(async (_tabId, paused) => {
+  // The row sits under the "Pateat on this site" switch and offers each length.
+  const row = page.getByRole("group", { name: "Pause automatic login" });
+  await expect.element(row).toBeVisible();
+  let until = 0;
+  choices.pause.mockImplementation(async (_tabId, change) => {
+    until = Date.now() + (change.paused && change.length === "10m" ? 10 : 60) * 60_000;
     choices.status.mockResolvedValue({
       ok: true,
       origin: "https://bank.example",
       recipe: "page",
-      ...(paused ? { pause: { until } } : {}),
+      ...(change.paused ? { pause: { until } } : {}),
     });
-    return paused ? { ok: true, until } : { ok: true };
+    return change.paused ? { ok: true, until } : { ok: true };
   });
-  await userEvent.click(pause);
-  expect(choices.pause).toHaveBeenCalledWith(7, true);
-  const clock = new Date(until).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-  await expect.element(page.getByText(`Paused until ${clock}`, { exact: true })).toBeVisible();
-  await expect
-    .element(page.getByText("Automatic login on this site is paused for an hour"))
-    .toBeVisible();
-  await userEvent.click(page.getByRole("button", { name: "Resume" }));
-  expect(choices.pause).toHaveBeenLastCalledWith(7, false);
-  await expect.element(page.getByRole("button", { name: "Pause automatic login" })).toBeVisible();
-  await expect.element(page.getByText("Automatic login on this site resumed")).toBeVisible();
+  const clock = () =>
+    new Date(until).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  for (const [label, length, done] of [
+    ["10 minutes", "10m", "for 10 minutes"],
+    ["1 hour", "1h", "for an hour"],
+  ] as const) {
+    await userEvent.click(row.getByRole("button", { name: label }));
+    expect(choices.pause).toHaveBeenLastCalledWith(7, { paused: true, length });
+    await expect.element(page.getByText(`Paused until ${clock()}`, { exact: true })).toBeVisible();
+    await expect
+      .element(page.getByText(`Automatic login on this site is paused ${done}`))
+      .toBeVisible();
+    await userEvent.click(page.getByRole("button", { name: "Resume" }));
+    expect(choices.pause).toHaveBeenLastCalledWith(7, { paused: false });
+    await expect.element(row).toBeVisible();
+    await expect.element(page.getByText("Automatic login on this site resumed")).toBeVisible();
+  }
 });
 
 test("no pause is offered where nothing matches and the site has no recipe", async () => {
@@ -1345,7 +1352,7 @@ test("no pause is offered where nothing matches and the site has no recipe", asy
   await expect
     .element(page.getByText("No vault item matches this site", { exact: false }))
     .toBeVisible();
-  expect(page.getByRole("button", { name: "Pause automatic login" }).query()).toBeNull();
+  expect(page.getByRole("group", { name: "Pause automatic login" }).query()).toBeNull();
 });
 
 test("a paused page offers even its only matching account (ADR 0062)", async () => {

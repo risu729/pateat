@@ -1,5 +1,10 @@
 import * as v from "valibot";
 
+/** The lengths the person chooses from when pausing (ADR 0062), in milliseconds. */
+export const PAUSE_LENGTHS = { "10m": 10 * 60_000, "1h": 60 * 60_000 } as const;
+export type PauseLength = keyof typeof PAUSE_LENGTHS;
+export const pauseLengthSchema = v.picklist(Object.keys(PAUSE_LENGTHS) as [PauseLength]);
+
 const id = v.pipe(v.string(), v.minLength(1), v.maxLength(120));
 const tabId = v.pipe(v.number(), v.integer(), v.minValue(0));
 
@@ -177,15 +182,27 @@ export const statusResponseSchema = v.variant("ok", [
   v.strictObject({ ok: v.literal(false), reason: v.literal("no-page") }),
 ]);
 /**
- * The popup pauses automatic login of the tab's site for an hour, or resumes it (ADR 0062);
- * the pause covers the registrable site in every tab of the tab's window kind.
+ * The popup pauses automatic login of the tab's site for the length the person chose, or
+ * resumes it (ADR 0062); the pause covers the registrable site in every tab of the tab's
+ * window kind.
  */
-export const pauseRequestSchema = v.strictObject({
-  version: v.literal(1),
-  type: v.literal("login.pause.set"),
-  tabId,
-  paused: v.boolean(),
-});
+export const pauseRequestSchema = v.variant("paused", [
+  v.strictObject({
+    version: v.literal(1),
+    type: v.literal("login.pause.set"),
+    tabId,
+    paused: v.literal(true),
+    length: pauseLengthSchema,
+  }),
+  v.strictObject({
+    version: v.literal(1),
+    type: v.literal("login.pause.set"),
+    tabId,
+    paused: v.literal(false),
+  }),
+]);
+/** What the popup asks for: a pause of a chosen length, or its end. */
+export type PauseChange = { paused: true; length: PauseLength } | { paused: false };
 export const pauseResponseSchema = v.variant("ok", [
   v.strictObject({
     ok: v.literal(true),
@@ -207,7 +224,7 @@ export interface ChoiceClient {
   /** What Pateat did on the tab's page, for the popup's page section (ADR 0038). */
   status(tabId: number): Promise<StatusResponse>;
   /** Pauses automatic login of the tab's site, or resumes it (ADR 0062). */
-  pause(tabId: number, paused: boolean): Promise<PauseResponse>;
+  pause(tabId: number, change: PauseChange): Promise<PauseResponse>;
 }
 
 export function createChoiceClient(send: (message: unknown) => Promise<unknown>): ChoiceClient {
@@ -227,10 +244,10 @@ export function createChoiceClient(send: (message: unknown) => Promise<unknown>)
         statusResponseSchema,
         await send({ version: 1, type: "login.status.get", tabId: tab }),
       ),
-    pause: async (tab, paused) =>
+    pause: async (tab, change) =>
       v.parse(
         pauseResponseSchema,
-        await send({ version: 1, type: "login.pause.set", tabId: tab, paused }),
+        await send({ version: 1, type: "login.pause.set", tabId: tab, ...change }),
       ),
   };
 }

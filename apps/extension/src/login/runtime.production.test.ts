@@ -658,14 +658,18 @@ const shownHello = (
     sender(from),
   );
 
-/** The toolbar popup pauses or resumes automatic login of a tab's site (ADR 0062). */
+/**
+ * The toolbar popup pauses automatic login of a tab's site, for an hour unless another
+ * length is named, or resumes it (ADR 0062).
+ */
 const setPause = (
   h: { login: { handle(message: unknown, sender: unknown): Promise<unknown> } },
   paused: boolean,
   tabId = 1,
+  length = "1h",
 ) =>
   h.login.handle(
-    { version: 1, type: "login.pause.set", tabId, paused },
+    { version: 1, type: "login.pause.set", tabId, paused, ...(paused ? { length } : {}) },
     { id: "synthetic-extension", url: "chrome-extension://synthetic-extension/popup.html" },
   );
 
@@ -25993,9 +25997,20 @@ describe("pausing automatic login of a site (ADR 0062)", () => {
     expect(answer).toEqual({ ok: true, until: expect.any(Number) });
     expect(answer.until - Date.now()).toBeGreaterThan(59 * 60_000);
     expect(fake.state.session[PAUSES]).toEqual([
-      { site: "login.example", incognito: false, until: new Date(answer.until).toISOString() },
+      {
+        site: "login.example",
+        incognito: false,
+        length: "1h",
+        until: new Date(answer.until).toISOString(),
+      },
     ]);
-    expect(reports).toContainEqual({ type: "pause", tabId: 1, origin, action: "paused" });
+    expect(reports).toContainEqual({
+      type: "pause",
+      tabId: 1,
+      origin,
+      action: "paused",
+      length: "1h",
+    });
     // Every tab of the registrable site shows the pause.
     await vi.waitFor(() => expect(fake.state.badges[2]?.text).toBe("II"));
     expect(fake.state.badges[2]?.title).toMatch(
@@ -26248,6 +26263,7 @@ describe("pausing automatic login of a site (ADR 0062)", () => {
       {
         site: "login.example",
         incognito: false,
+        length: "10m",
         until: new Date(Date.now() + 400).toISOString(),
       },
     ];
@@ -26331,6 +26347,29 @@ describe("pausing automatic login of a site (ADR 0062)", () => {
     // Nothing is left to resume.
     expect(await setPause(h, false)).toEqual({ ok: true });
     expect(fake.state.reconnects).toHaveLength(2);
+  });
+
+  it("pauses for the length the person chose, and logs it", async () => {
+    const { h, reports } = paused();
+    fake.state.openTabs = [1];
+    const answer = (await setPause(h, true, 1, "10m")) as { ok: true; until: number };
+    expect(answer.until - Date.now()).toBeGreaterThan(9 * 60_000);
+    expect(answer.until - Date.now()).toBeLessThanOrEqual(10 * 60_000);
+    expect(fake.state.session[PAUSES]).toEqual([expect.objectContaining({ length: "10m" })]);
+    expect(reports).toContainEqual(expect.objectContaining({ action: "paused", length: "10m" }));
+    expect(await h.hello()).toEqual({ ok: false, reason: "paused" });
+    // A pause needs a known length.
+    const before = structuredClone(fake.state.session[PAUSES]);
+    expect(
+      await h.login.handle(
+        { version: 1, type: "login.pause.set", tabId: 1, paused: true, length: "1d" },
+        popup,
+      ),
+    ).not.toMatchObject({ ok: true });
+    expect(
+      await h.login.handle({ version: 1, type: "login.pause.set", tabId: 1, paused: true }, popup),
+    ).not.toMatchObject({ ok: true });
+    expect(fake.state.session[PAUSES]).toEqual(before);
   });
 
   it("has no site to pause on a page that is not a website", async () => {

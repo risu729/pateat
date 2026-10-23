@@ -362,6 +362,11 @@
 .popup .popup-pause .popup-status {
   margin: 0;
 }
+.popup-pause-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 
 .popup .popup-check {
   margin: 0;

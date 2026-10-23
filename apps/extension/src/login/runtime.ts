@@ -160,7 +160,13 @@ import {
   type PickResponse,
   type StatusResponse,
 } from "./choice-wire";
-import { createLoginPauses, LOGIN_PAUSES_KEY, pauseSite, type LoginPauses } from "./pause";
+import {
+  createLoginPauses,
+  LOGIN_PAUSES_KEY,
+  pauseSite,
+  type LoginPauses,
+  type PauseLength,
+} from "./pause";
 import { customFieldOffers, type CustomFieldOffer } from "./generation-slots";
 import { emailUsername, namesUsername, type EntryMiss, type OtherMiss } from "../page/account-list";
 import { observedPath } from "../observation/path";
@@ -1516,6 +1522,8 @@ export type LoginReport = (
       tabId: number;
       origin: string;
       action: "paused" | "resumed" | "picked";
+      /** For `paused`: the length the person chose. */
+      length?: PauseLength;
       /** The pause is the incognito windows'. */
       incognito?: true;
     }
@@ -2756,14 +2764,15 @@ export function createLoginRuntime(
     await publish(run.live);
   }
   /**
-   * Pauses automatic login of the tab's registrable site for an hour, in every tab of the
-   * tab's window kind, or resumes it (ADR 0062). A pause stops the site's running automatic
+   * Pauses automatic login of the tab's registrable site for `length`, in every tab of the
+   * tab's window kind, or resumes it without one (ADR 0062). A pause stops the site's running automatic
    * logins and hands on its waiting conditional passkey requests at once. A resume ends the
    * site's paused choices, also once the pause ended by itself, and asks the site's tabs,
    * and frames of the site in other tabs, to announce again, so they log in at once.
    * Nothing goes to the service.
    */
-  async function pauseFor(tabId: number, paused: boolean): Promise<PauseResponse> {
+  async function pauseFor(tabId: number, length: PauseLength | undefined): Promise<PauseResponse> {
+    const paused = length !== undefined;
     await sessionLoaded;
     const tab = await browser.tabs.get(tabId).catch(() => undefined);
     const url = tab?.url;
@@ -2772,7 +2781,7 @@ export function createLoginRuntime(
     let until: number | undefined;
     let resumed = false;
     try {
-      if (paused) until = await pauses.pause(url, incognito);
+      if (paused) until = await pauses.pause(url, incognito, length);
       else resumed = await pauses.resume(url, incognito);
     } catch {
       return { ok: false, reason: "storage-unavailable" };
@@ -2785,6 +2794,7 @@ export function createLoginRuntime(
           tabId,
           origin: new URL(url).origin,
           action: paused ? "paused" : "resumed",
+          ...(paused ? { length } : {}),
           ...(incognito ? { incognito: true as const } : {}),
         },
       );
@@ -10042,7 +10052,11 @@ export function createLoginRuntime(
       const ask = v.safeParse(choiceRequestSchema, message);
       if (ask.success) return popupChoice(ask.output.tabId);
       const pausing = v.safeParse(pauseRequestSchema, message);
-      if (pausing.success) return pauseFor(pausing.output.tabId, pausing.output.paused);
+      if (pausing.success)
+        return pauseFor(
+          pausing.output.tabId,
+          pausing.output.paused ? pausing.output.length : undefined,
+        );
       const asked = v.safeParse(statusRequestSchema, message);
       if (asked.success) return popupStatus(asked.output.tabId);
       const pick = v.safeParse(pickRequestSchema, message);

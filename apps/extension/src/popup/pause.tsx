@@ -1,6 +1,6 @@
 import { Pause, Play } from "lucide-react";
 import { Button } from "../options/button";
-import type { StatusResponse } from "../login/choice-wire";
+import type { PauseLength, StatusResponse } from "../login/choice-wire";
 import { localClock } from "../time";
 
 type Status = Extract<StatusResponse, { ok: true }>;
@@ -21,6 +21,12 @@ export function pauseShown(status: Status | undefined, matched: boolean): boolea
   return status.pause !== undefined || matched || status.recipe !== "none";
 }
 
+/** The lengths the popup offers, shortest first (ADR 0062). */
+export const PAUSE_CHOICES: readonly { length: PauseLength; label: string; done: string }[] = [
+  { length: "10m", label: "10 minutes", done: "for 10 minutes" },
+  { length: "1h", label: "1 hour", done: "for an hour" },
+];
+
 /** The pause row under the "Pateat on this site" switch (ADR 0062). */
 export function PauseControl({
   until,
@@ -30,24 +36,32 @@ export function PauseControl({
   /** While paused: when the pause ends, in epoch milliseconds. */
   until: number | undefined;
   busy: boolean;
-  onChange: (paused: boolean) => void;
+  /** A length pauses; `undefined` resumes. */
+  onChange: (length: PauseLength | undefined) => void;
 }) {
   if (until === undefined)
     return (
-      <div className="popup-pause">
-        <Button
-          id="popup-pause"
-          type="button"
-          variant="outline"
-          className="gap-2"
-          aria-disabled={busy || undefined}
-          onClick={() => {
-            if (!busy) onChange(true);
-          }}
-        >
+      <div className="popup-pause" role="group" aria-labelledby="popup-pause-label">
+        <p id="popup-pause-label" className="popup-muted popup-status">
           <Pause size={16} strokeWidth={2} aria-hidden="true" />
           Pause automatic login
-        </Button>
+        </p>
+        <div className="popup-pause-choices">
+          {PAUSE_CHOICES.map((choice) => (
+            <Button
+              key={choice.length}
+              id={`popup-pause-${choice.length}`}
+              type="button"
+              variant="outline"
+              aria-disabled={busy || undefined}
+              onClick={() => {
+                if (!busy) onChange(choice.length);
+              }}
+            >
+              {choice.label}
+            </Button>
+          ))}
+        </div>
       </div>
     );
   return (
@@ -63,7 +77,7 @@ export function PauseControl({
         className="gap-2"
         aria-disabled={busy || undefined}
         onClick={() => {
-          if (!busy) onChange(false);
+          if (!busy) onChange(undefined);
         }}
       >
         <Play size={16} strokeWidth={2} aria-hidden="true" />

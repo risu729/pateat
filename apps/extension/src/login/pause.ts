@@ -1,14 +1,16 @@
-// The pause of automatic login (ADR 0062): the person stops, for an hour, what Pateat starts
+// The pause of automatic login (ADR 0062): the person stops, for a length they choose, what Pateat starts
 // by itself on a registrable site, in all of its tabs. Normal and incognito windows share
 // `storage.session` in spanning mode but not cookies, so each keeps its own pause.
 import * as v from "valibot";
 import { domainKey } from "@pateat/bitwarden";
 import { isoTime, isoTimeMs, isoTimeSchema } from "../time";
+import { PAUSE_LENGTHS, pauseLengthSchema, type PauseLength } from "./choice-wire";
+
+export { PAUSE_LENGTHS, type PauseLength } from "./choice-wire";
 
 /** Paused sites, until the browser closes; never sent to the service or other devices. */
 export const LOGIN_PAUSES_KEY = "session:pateat.login-pauses.v1";
-/** How long a pause lasts (ADR 0062). */
-export const PAUSE_MS = 60 * 60_000;
+
 /** Pauses kept at most; the one that ends first goes first. */
 const MAX_PAUSES = 256;
 
@@ -16,6 +18,8 @@ const pauseSchema = v.strictObject({
   /** The registrable domain, as Bitwarden's Domain match compares it. */
   site: v.pipe(v.string(), v.minLength(1), v.maxLength(253)),
   incognito: v.boolean(),
+  /** The length the person chose, for the log; `until` decides when it ends. */
+  length: pauseLengthSchema,
   until: isoTimeSchema,
 });
 type Pause = v.InferOutput<typeof pauseSchema>;
@@ -118,13 +122,20 @@ export function createLoginPauses(
       );
       return ends.length ? Math.max(...ends) : undefined;
     },
-    /** Pauses the site of `url` for `PAUSE_MS` from now; its end, or undefined for no site. */
-    async pause(url: string | URL, incognito: boolean): Promise<number | undefined> {
+    /**
+     * Pauses the site of `url` for the chosen length from now, replacing a running pause of
+     * it; its end, or undefined for no site.
+     */
+    async pause(
+      url: string | URL,
+      incognito: boolean,
+      length: PauseLength,
+    ): Promise<number | undefined> {
       const site = pauseSite(url);
       if (site === undefined) return undefined;
-      const until = now() + PAUSE_MS;
+      const until = now() + PAUSE_LENGTHS[length];
       await commit((draft) =>
-        draft.set(key(site, incognito), { site, incognito, until: isoTime(until) }),
+        draft.set(key(site, incognito), { site, incognito, length, until: isoTime(until) }),
       );
       return until;
     },
