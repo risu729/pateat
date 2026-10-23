@@ -49,7 +49,9 @@ export {
 export {
   claudeGeneration,
   claudeRefusalCategory,
+  claudeRefusalFallback,
   createClaudeGenerationModel,
   estimateClaudeCostUsd,
   type ClaudeCredential,
+  type ClaudeModelChoice,
 } from "./providers/claude";

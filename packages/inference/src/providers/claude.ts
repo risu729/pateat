@@ -15,14 +15,25 @@ export const claudeGeneration = {
 export type ClaudeRates = { input: number; output: number; checked: string };
 
 /**
+ * The model the service asks once more when `claudeGeneration` refuses a request (owner
+ * decision, 2026-10-23 11:04 UTC). Its own refusal ends the request.
+ */
+export const claudeRefusalFallback = {
+  modelId: "claude-sonnet-5-5",
+  effort: "low",
+  rates: { input: 2, output: 10, checked: "2026-10-23" },
+} as const;
+
+/**
  * Models the benchmark may compare with the service's, at their published rates. Only the
- * benchmark takes them: the service always runs `claudeGeneration` (ADR 0014).
+ * benchmark takes them: the service runs `claudeGeneration` and, after its refusal,
+ * `claudeRefusalFallback` (ADR 0014).
  */
 export const claudeBenchmarkModels = {
   "claude-opus-5-5": claudeGeneration.rates,
   "claude-fable-5-1": { input: 10, output: 50, checked: "2026-10-23" },
   "claude-opus-5": { input: 5, output: 25, checked: "2026-10-23" },
-  "claude-sonnet-5-5": { input: 2, output: 10, checked: "2026-10-23" },
+  "claude-sonnet-5-5": claudeRefusalFallback.rates,
   // Prompts above 100K tokens cost more; the role's input bound keeps them far below.
   "claude-haiku-5-5": { input: 0.1, output: 0.5, checked: "2026-10-23" },
 } as const satisfies Record<string, ClaudeRates>;
@@ -63,11 +74,12 @@ export type ClaudeCredential = { apiKey: string } | { authToken: string };
 /**
  * Builds the Claude model for `createRecipeGenerator`. The credential is passed
  * explicitly and never read from the environment. Server-side `fallbacks` stay unset: a
- * failure of this model is returned as an error, never retried on another model.
+ * failure of this model is returned as an error, and only the service's own retry of a
+ * refusal on `claudeRefusalFallback` asks another model.
  */
 export function createClaudeGenerationModel(
   options: ClaudeCredential & {
-    /** Another model for the benchmark; the service never passes one. */
+    /** Another model: the benchmark's, or the service's `claudeRefusalFallback`. */
     choice?: ClaudeModelChoice;
     /** Test seam only. */
     fetch?: typeof globalThis.fetch;

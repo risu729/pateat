@@ -2522,7 +2522,8 @@ revoked; repair is planned early in [phase 3](plan.md#phase-3-public-release)). 
 credentials, MFA, network errors, and account lockout do not trigger endless
 relearning or reset submission limits. Inference can abstain, refuse, time out,
 or return invalid output; all have explicit local outcomes.
-Never automatically fall back to another provider or model. Compatible local
+Never automatically fall back to another provider or model, except that a request
+Claude Opus 5.5 refuses is asked once of Claude Sonnet 5.5 (ADR 0014). Compatible local
 recipes continue working when inference is unavailable or its spending cap is
 reached.
 
