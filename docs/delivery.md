@@ -16,8 +16,18 @@ run (about 8.5 minutes in total on 2026-10-11). It therefore runs as six shards 
 `PATEAT_E2E_SHARD=<current>/<total>`, which `tests/extension/playwright.config.ts` turns
 into Playwright's `shard`, and the six shards together run every test once. The suite
 splits by test (`fullyParallel`) because splitting by file left `login.spec.ts` alone in
-a shard of about three minutes; each job still runs one worker. The `Verify` job runs
-the rest of the graph (lint, typecheck, unit and component tests with
+a shard of about three minutes; each job still runs one worker.
+`tests/extension/shard-reporter.ts` deals the tests out in turn (1st test to shard 1,
+7th to shard 1 again), keeping a `serial` or `default` mode suite together as one turn,
+instead of Playwright's contiguous ranges, which in
+[run 39795207166](https://github.com/risu729/pateat/actions/runs/39795207166) put all 21
+`login-generation.spec.ts` tests in shard 2: 4.3 minutes of tests there against 1.1 in
+shard 1. The same test durations dealt in turn give 1.6 to 2.9 minutes per shard. Both
+jobs install the browser without `--with-deps`: the `ubuntu-26.04` image already has
+every library Chromium links, the tests are headless, and in that run apt spent 9.5 and
+8 minutes in shards 2 and 5 fetching 25 MB of fonts, `xvfb` and package updates from a
+slow Azure mirror (45 kB/s), against 2 seconds in the other shards. The `Verify` job
+runs the rest of the graph (lint, typecheck, unit and component tests with
 [coverage](development.md#test-coverage), build checks) with `PATEAT_SKIP_E2E=1` (any
 non-empty value), which turns `//tests/extension:test` into a no-op there. Both jobs
 pull the pinned Vaultwarden and Mailpit images from `ghcr.io` and run them with the
@@ -41,10 +51,10 @@ by the real-Chrome checks, not by CI. `CI Check` requires `Changes` and `Verify`
 succeed and `Browser` to be `success`, or `skipped` exactly when `Changes` reported a
 documentation-only PR; it runs even when an upstream job failed. A `Changes` job (no
 checkout, on `ubuntu-slim`) decides whether a PR needs the browser tests: a PR whose
-changed files are all under `docs/` or are `AGENTS.md` or `README.md` skips the
-`Browser` job, runs only `Verify` (which still checks the documentation) and passes
-`CI Check` with the shards skipped; any other change, every main push and every manual
-run runs them. The owner chose
+changed files are all under `docs/` or are `AGENTS.md`, `README.md` or `README.ja.md`
+skips the `Browser` job, runs only `Verify` (which still checks the documentation) and
+passes `CI Check` with the shards skipped; any other change, every main push and every
+manual run runs them. The owner chose
 [dorny/paths-filter](https://github.com/dorny/paths-filter) (pinned at v4.0.3) on
 2026-10-12 because on a `pull_request` event it reads the changed files through the API,
 so the job needs no checkout and only `pull-requests: read`; workflow-level `paths`
@@ -53,14 +63,18 @@ job fails, `CI Check` fails. `Changes` adds a few seconds before the browser sha
 start. A newer push to a PR cancels its older run, but each main push finishes its own
 run; otherwise frequent merges would cancel every main run before it could package a
 release and deploy it. `codeql.yml` analyzes TypeScript/JavaScript and Actions
-separately. Linux jobs pin `ubuntu-26.04`; the `CI Check` aggregate only compares
-results, so it runs on the single-CPU `ubuntu-slim` runner. CodeQL needs no Actions
-cache: dependency caching is off by default in advanced setup and its TRAP cache is
-disabled, so the workflow sets `cache-mode: none`. In `ci.yml` the `Verify`, `Browser`
-and `Deploy tested server` jobs share their checkout, mise and aube install steps
-through YAML anchors (`&checkout`, `&mise`, `&install`), so those pins appear once in
-`ci.yml`; zizmor warns that it audits anchored workflows on a best-effort basis. GitHub
-Code Quality is not used: since its
+separately. `pricing.yml` refreshes the committed Claude rates daily (ADR 0014): on a
+change it commits through the contents API, so GitHub signs the commit, opens a PR from
+`pricing/claude-rates`, and starts `ci.yml` there by `workflow_dispatch`, since a push
+or PR made with the job token starts no workflow. Opening that PR needs the repository
+setting that allows GitHub Actions to create pull requests. Linux jobs pin
+`ubuntu-26.04`; the `CI Check` aggregate only compares results, so it runs on the
+single-CPU `ubuntu-slim` runner. CodeQL needs no Actions cache: dependency caching is
+off by default in advanced setup and its TRAP cache is disabled, so the workflow sets
+`cache-mode: none`. In `ci.yml` the `Verify`, `Browser` and `Deploy tested server` jobs
+share their checkout, mise and aube install steps through YAML anchors (`&checkout`,
+`&mise`, `&install`), so those pins appear once in `ci.yml`; zizmor warns that it audits
+anchored workflows on a best-effort basis. GitHub Code Quality is not used: since its
 [2026-07-20 general availability](https://github.blog/changelog/2026-06-16-github-code-quality-generally-available-july-20-2026)
 it is a paid product for GitHub Team and Enterprise Cloud organizations, and this
 repository is user-owned. On 2026-10-11 the owner removed its ruleset rule here and in

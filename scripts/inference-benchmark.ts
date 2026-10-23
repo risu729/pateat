@@ -2,14 +2,32 @@
 // only ANTHROPIC_API_KEY. The heuristic run is free and local. Both print the report as
 // JSON; the report carries no page text.
 import { parseArgs } from "node:util";
-import { runClaudeBenchmark, runHeuristicBenchmark } from "../packages/inference/src/bench";
+import {
+  runClaudeBenchmark,
+  runClaudeJudgeBenchmark,
+  runHeuristicBenchmark,
+} from "../packages/inference/src/bench";
 import { evaluationCorpus } from "../packages/inference/src/corpus/cases";
-import { japanesePageCorpus, realPageCorpus } from "../packages/inference/src/corpus/real";
+import { judgeCorpus } from "../packages/inference/src/corpus/judge";
+import {
+  japanesePageCorpus,
+  realPageCorpus,
+  webPageCorpus,
+} from "../packages/inference/src/corpus/real";
+import {
+  claudeEfforts,
+  claudeGeneration,
+  claudeModelRates,
+  type ClaudeEffort,
+} from "../packages/inference/src/providers/claude";
 
 const corpora = {
   synthetic: evaluationCorpus,
   real: realPageCorpus,
   japanese: japanesePageCorpus,
+  web: webPageCorpus,
+  // The sign-in judge's pages; Claude only, since the heuristic has no judge.
+  judge: judgeCorpus,
 };
 
 const { values } = parseArgs({
@@ -20,6 +38,9 @@ const { values } = parseArgs({
     provider: { type: "string", default: "claude" },
     from: { type: "string", default: "0" },
     count: { type: "string" },
+    model: { type: "string", default: claudeGeneration.modelId },
+    effort: { type: "string", default: claudeGeneration.effort },
+    speed: { type: "string", default: "standard" },
   },
 });
 if (!Object.hasOwn(corpora, values.corpus)) {
@@ -44,7 +65,13 @@ if (
 const cases = corpus.slice(from, count === undefined ? undefined : from + count);
 
 if (values.provider === "heuristic") {
-  console.log(JSON.stringify(await runHeuristicBenchmark(cases), null, 2));
+  if (values.corpus === "judge") {
+    console.error("The heuristic has no judge; run the judge corpus with Claude.");
+    process.exit(2);
+  }
+  console.log(
+    JSON.stringify(await runHeuristicBenchmark(cases as typeof evaluationCorpus), null, 2),
+  );
   process.exit(0);
 }
 if (values.provider !== "claude") {
@@ -61,11 +88,45 @@ if (apiKey === undefined || apiKey.trim() === "") {
   process.exit(2);
 }
 
-const result = await runClaudeBenchmark({
+// Only a model the pricing page lists, so the cost cap can hold.
+const rates = claudeModelRates(values.model);
+if (rates === undefined) {
+  console.error(
+    `The pricing page lists no price for ${values.model}; choose a model in claude-pricing.json.`,
+  );
+  process.exit(2);
+}
+if (!(claudeEfforts as readonly string[]).includes(values.effort)) {
+  console.error(`Choose an effort: ${claudeEfforts.join(", ")}.`);
+  process.exit(2);
+}
+
+const fastRates = claudeModelRates(values.model, "fast");
+if (values.speed !== "standard" && (values.speed !== "fast" || fastRates === undefined)) {
+  console.error(`The pricing page lists no fast mode price for ${values.model}.`);
+  process.exit(2);
+}
+const run = {
   apiKey,
   maxCostUsd: Number(values["max-cost-usd"]),
-  cases,
-});
+  choice:
+    values.speed === "fast"
+      ? {
+          modelId: values.model,
+          effort: values.effort as ClaudeEffort,
+          rates: fastRates!,
+          speed: "fast" as const,
+        }
+      : {
+          modelId: values.model,
+          effort: values.effort as ClaudeEffort,
+          rates,
+        },
+};
+const result =
+  values.corpus === "judge"
+    ? await runClaudeJudgeBenchmark({ ...run, cases: cases as typeof judgeCorpus })
+    : await runClaudeBenchmark({ ...run, cases: cases as typeof evaluationCorpus });
 console.log(JSON.stringify(result, null, 2));
 if (result.report.stoppedBefore !== undefined) {
   console.error(`Stopped at the cost cap before ${result.report.stoppedBefore}.`);

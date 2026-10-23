@@ -50,7 +50,8 @@ export const judgedPageSchema = v.strictObject({
       decision: described(v.literal("signed-in"), "The page clearly shows the person signed in."),
       marker: described(
         reference,
-        "A button or link only a signed-in page shows, such as sign-out or the account menu.",
+        "The candidate ID (such as c3) of a button or link only a signed-in page shows, " +
+          "such as sign-out or the account menu.",
       ),
     }),
     v.strictObject({

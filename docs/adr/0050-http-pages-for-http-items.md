@@ -47,8 +47,8 @@ the "Read and change all your data on all websites" warning for `https://*/*`, s
   that match (or an item's static `allowedOrigins`, which name exact origins), a login
   with a saved default, a single URI match, the popup's list, the count of a waiting
   choice and the recipe generation trigger on an `http:` page all see only those items,
-  and so will the site count badge of
-  [ADR 0021](0021-account-choice-outside-settings.md#site-count-badge) once it is built.
+  and so does the site count badge of
+  [ADR 0021](0021-account-choice-outside-settings.md#site-count-badge).
   The popup searches no passkeys on an `http:` page other than `http://localhost`. After
   a logout the popup may still show a saved default whose item no longer matches, as on
   HTTPS, but a login with it is refused. URI rules that cannot be evaluated count only

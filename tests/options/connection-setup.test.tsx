@@ -20,10 +20,12 @@ import {
   type SettingsResponse,
 } from "../../packages/contracts/src/index";
 import type { SetupReply } from "../../apps/extension/src/connections/types";
-import { localSyncTime } from "../../apps/extension/src/time";
+import { localClockTime, localSyncTime } from "../../apps/extension/src/time";
 
 const password = "synthetic-component-password-only";
 const flowId = "50000000-0000-4000-8000-000000000001";
+/** When a waiting sign-in ends: far off, so only a test that sets its own end sees it pass. */
+const expiresAt = Date.now() + 3_600_000;
 function ready(): SetupReply {
   return {
     ok: true,
@@ -204,9 +206,75 @@ test.each([
   expect(client.begin).not.toHaveBeenCalled();
 });
 
+test("pasted name, email and server address are trimmed before they are checked and sent", async () => {
+  const { client } = await mount();
+  await fillNew();
+  await page.getByLabelText("Name", { exact: true }).fill("  Synthetic vault ");
+  await page.getByLabelText("Email", { exact: true }).fill(" test@example.test ");
+  await page.getByRole("combobox", { name: "Server", exact: true }).selectOptions("self-hosted");
+  await page.getByLabelText("Server address", { exact: true }).fill(" https://vault.example.test ");
+  await expect
+    .element(page.getByText(/Chrome asks for access to vault\.example\.test/))
+    .toBeVisible();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  await vi.waitFor(() => expect(client.begin).toHaveBeenCalledTimes(1));
+  expect(client.requestProviderPermission.mock.calls[0]![0]).toMatchObject({
+    kind: "self-hosted",
+    baseUrl: expect.stringMatching(/^https:\/\/vault\.example\.test\/?$/),
+  });
+  expect(client.begin.mock.calls[0]![0]).toMatchObject({
+    kind: "new",
+    label: "Synthetic vault",
+    email: "test@example.test",
+  });
+});
+
+test("verification codes are sent with their ends trimmed and a blank code sends nothing", async () => {
+  const client = mockClient();
+  client.begin.mockResolvedValue({
+    ok: true,
+    kind: "mfa-required",
+    flowId,
+    providers: [0],
+    expiresAt,
+  });
+  client.continue.mockResolvedValue({
+    ok: true,
+    kind: "new-device-verification-required",
+    flowId,
+    invalidOtp: false,
+    expiresAt,
+  });
+  await mount(client);
+  await fillNew();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  const mfaCode = page.getByLabelText("Verification code", { exact: true });
+  await mfaCode.fill("   ");
+  await expect
+    .element(page.getByRole("button", { name: "Verify code", exact: true }))
+    .toBeDisabled();
+  await mfaCode.fill(" 123456\t");
+  await page.getByRole("button", { name: "Verify code", exact: true }).click();
+  await vi.waitFor(() => expect(client.continue).toHaveBeenCalledTimes(1));
+  expect(client.continue).toHaveBeenCalledWith({
+    flowId,
+    twoFactor: { provider: 0, code: "123456" },
+  });
+  await page.getByLabelText("New-device verification code", { exact: true }).fill("\t987654 ");
+  await page.getByRole("button", { name: "Verify code", exact: true }).click();
+  await vi.waitFor(() => expect(client.continue).toHaveBeenCalledTimes(2));
+  expect(client.continue).toHaveBeenLastCalledWith({ flowId, newDeviceOtp: "987654" });
+});
+
 test("manual MFA clears the code on submission and never resends without another user action", async () => {
   const client = mockClient();
-  client.begin.mockResolvedValue({ ok: true, kind: "mfa-required", flowId, providers: [0, 1] });
+  client.begin.mockResolvedValue({
+    ok: true,
+    kind: "mfa-required",
+    flowId,
+    providers: [0, 1],
+    expiresAt,
+  });
   const pending = held<SetupReply>();
   client.continue.mockReturnValue(pending.promise);
   const { queryClient } = await mount(client);
@@ -226,7 +294,7 @@ test("manual MFA clears the code on submission and never resends without another
     twoFactor: { provider: 1, code: "000123" },
   });
   expect(JSON.stringify(queryClient.getMutationCache().getAll())).not.toContain("000123");
-  pending.resolve({ ok: true, kind: "mfa-required", flowId, providers: [1] });
+  pending.resolve({ ok: true, kind: "mfa-required", flowId, providers: [1], expiresAt });
   await expect
     .element(page.getByRole("button", { name: "Verify code", exact: true }))
     .toBeDisabled();
@@ -241,7 +309,13 @@ test("manual MFA clears the code on submission and never resends without another
 
 test("choosing email sends one code like the official extension, and Resend code sends another", async () => {
   const client = mockClient();
-  client.begin.mockResolvedValue({ ok: true, kind: "mfa-required", flowId, providers: [0, 1] });
+  client.begin.mockResolvedValue({
+    ok: true,
+    kind: "mfa-required",
+    flowId,
+    providers: [0, 1],
+    expiresAt,
+  });
   const pending = held<SetupReply>();
   client.sendEmailCode.mockReturnValueOnce(pending.promise);
   await mount(client);
@@ -299,8 +373,14 @@ test("a new sign-in sends its own code, and a send the background refuses ends t
   const client = mockClient();
   const second = "50000000-0000-4000-8000-000000000002";
   client.begin
-    .mockResolvedValueOnce({ ok: true, kind: "mfa-required", flowId, providers: [1] })
-    .mockResolvedValueOnce({ ok: true, kind: "mfa-required", flowId: second, providers: [1] });
+    .mockResolvedValueOnce({ ok: true, kind: "mfa-required", flowId, providers: [1], expiresAt })
+    .mockResolvedValueOnce({
+      ok: true,
+      kind: "mfa-required",
+      flowId: second,
+      providers: [1],
+      expiresAt,
+    });
   client.sendEmailCode
     .mockResolvedValueOnce({ ok: false, error: { code: "provider-permission-required" } })
     .mockResolvedValueOnce({ ok: true, kind: "email-code", flowId: second, result: "sent" });
@@ -324,7 +404,13 @@ test.each([
   ["failed", /The code email could not be requested/],
 ] as const)("an email-only sign-in sends its code at once and shows %s", async (result, line) => {
   const client = mockClient();
-  client.begin.mockResolvedValue({ ok: true, kind: "mfa-required", flowId, providers: [1] });
+  client.begin.mockResolvedValue({
+    ok: true,
+    kind: "mfa-required",
+    flowId,
+    providers: [1],
+    expiresAt,
+  });
   client.sendEmailCode.mockResolvedValue({ ok: true, kind: "email-code", flowId, result });
   await mount(client);
   await fillNew();
@@ -344,12 +430,20 @@ async function withFakeInterval(run: () => Promise<void>) {
     vi.useRealTimers();
   }
 }
-const expiredText = "This verification session expired. Start sign-in again.";
+// Before its 5 minutes, as when Chrome restarted the worker.
+const expiredText = "The sign-in ended before the code was entered.";
+const endedLine = () => document.querySelector("#bitwarden-sign-in-ended")?.textContent ?? null;
 
 test("a waiting challenge keeps the worker running until its flow ends", async () => {
   await withFakeInterval(async () => {
     const client = mockClient();
-    client.begin.mockResolvedValue({ ok: true, kind: "mfa-required", flowId, providers: [0] });
+    client.begin.mockResolvedValue({
+      ok: true,
+      kind: "mfa-required",
+      flowId,
+      providers: [0],
+      expiresAt,
+    });
     await mount(client);
     await fillNew();
     await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
@@ -367,18 +461,233 @@ test("a waiting challenge keeps the worker running until its flow ends", async (
     await vi.waitFor(() => expect(client.keepAlive).toHaveBeenCalledTimes(shown + 2));
     await painted();
     expect(page.getByLabelText("Verification code", { exact: true }).query()).not.toBeNull();
-    // A flow the worker no longer holds, such as one past its 5 minutes, ends the challenge.
+    // The page asks again as soon as it shows, after Chrome slowed a background tab's timers.
+    document.dispatchEvent(new Event("visibilitychange"));
+    await vi.waitFor(() => expect(client.keepAlive).toHaveBeenCalledTimes(shown + 3));
+    // A flow the worker no longer holds before its 5 minutes, as after Chrome restarted the
+    // worker, ends the challenge and says so where the password goes.
     client.keepAlive.mockResolvedValueOnce({ ok: false, error: { code: "setup-expired" } });
     vi.advanceTimersByTime(20_000);
     await expect.element(page.getByText(expiredText)).toBeVisible();
     await expect
       .element(page.getByLabelText("Verification code", { exact: true }))
       .not.toBeInTheDocument();
+    expect(endedLine()).toMatch(
+      /^The sign-in ended early, by .+, before its 5 minutes\. This usually means Chrome stopped Pateat's background\. Enter the master password to start again\.$/u,
+    );
     // React runs the effect's cleanup after the next paint.
     await painted();
     vi.advanceTimersByTime(60_000);
-    expect(client.keepAlive).toHaveBeenCalledTimes(shown + 3);
+    document.dispatchEvent(new Event("visibilitychange"));
+    await painted();
+    expect(client.keepAlive).toHaveBeenCalledTimes(shown + 4);
   });
+});
+
+test("the code screen names its end, and the page asks as it comes", async () => {
+  const client = mockClient();
+  // The end is a real timer, so it is set close: the page asks once it passes.
+  const soon = Date.now() + 2_500;
+  client.begin.mockResolvedValueOnce({
+    ok: true,
+    kind: "mfa-required",
+    flowId,
+    providers: [0],
+    expiresAt: soon,
+  });
+  client.keepAlive.mockImplementation(async (id) =>
+    Date.now() < soon
+      ? { ok: true, kind: "waiting", flowId: id }
+      : { ok: false, error: { code: "setup-expired" } },
+  );
+  await mount(client);
+  await fillNew();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  await expect
+    .element(page.getByText(`Enter the code by ${localClockTime(soon)}.`, { exact: false }))
+    .toBeVisible();
+  await expect
+    .element(page.getByText("The sign-in timed out waiting for the code."), { timeout: 5_000 })
+    .toBeVisible();
+  await expect
+    .element(page.getByLabelText("Verification code", { exact: true }))
+    .not.toBeInTheDocument();
+  expect(endedLine()).toBe(
+    `The sign-in timed out at ${localClockTime(soon)}: no code was entered within 5 minutes. Enter the master password to start again.`,
+  );
+  // The reason is read with the password field it is next to.
+  expect(document.querySelector("#bitwarden-password")?.getAttribute("aria-describedby")).toBe(
+    "bitwarden-sign-in-ended",
+  );
+  // Starting again clears it.
+  await page.getByLabelText("Master password", { exact: true }).fill("synthetic-password");
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  await vi.waitFor(() => expect(client.begin).toHaveBeenCalledTimes(2));
+  await vi.waitFor(() => expect(endedLine()).toBeNull());
+});
+
+test("a refused code keeps the code screen, its method and its sent email", async () => {
+  const client = mockClient();
+  const challenge = {
+    ok: true as const,
+    kind: "mfa-required" as const,
+    flowId,
+    providers: [0, 1] as (0 | 1)[],
+    expiresAt,
+  };
+  client.begin.mockResolvedValue(challenge);
+  client.continue
+    .mockResolvedValueOnce({ ...challenge, invalidCode: true })
+    .mockResolvedValueOnce(ready());
+  await mount(client);
+  await fillNew();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  await page.getByRole("combobox", { name: "Verification method", exact: true }).selectOptions("1");
+  await vi.waitFor(() => expect(client.sendEmailCode).toHaveBeenCalledTimes(1));
+  await page.getByLabelText("Verification code", { exact: true }).fill("000111");
+  await page.getByRole("button", { name: "Verify code", exact: true }).click();
+  await expect
+    .element(
+      page.getByText(
+        "The code was not accepted: it is wrong or no longer valid. Enter the code from the latest email, or Resend code.",
+      ),
+    )
+    .toBeVisible();
+  await expect.element(page.getByText("The code was not accepted.", { exact: true })).toBeVisible();
+  await expect
+    .element(page.getByRole("combobox", { name: "Verification method", exact: true }))
+    .toHaveValue("1");
+  // No second email without Resend code, and the code field is empty and focused for the next.
+  await painted();
+  expect(client.sendEmailCode).toHaveBeenCalledTimes(1);
+  await expect.element(page.getByLabelText("Verification code", { exact: true })).toHaveValue("");
+  await expect.element(page.getByLabelText("Verification code", { exact: true })).toHaveFocus();
+  expect(endedLine()).toBeNull();
+  // A new code clears the warning about the refused one.
+  await page.getByRole("button", { name: "Resend code", exact: true }).click();
+  await vi.waitFor(() => expect(client.sendEmailCode).toHaveBeenCalledTimes(2));
+  await expect
+    .element(page.getByText(/^The code was not accepted: it is wrong/u))
+    .not.toBeInTheDocument();
+  await page.getByLabelText("Verification code", { exact: true }).fill("000123");
+  await page.getByRole("button", { name: "Verify code", exact: true }).click();
+  await expect
+    .element(
+      page.getByText(
+        "Vault verified and local cache accepted. Check automatic-unlock status below.",
+      ),
+    )
+    .toBeVisible();
+  expect(client.continue).toHaveBeenLastCalledWith({
+    flowId,
+    twoFactor: { provider: 1, code: "000123" },
+  });
+});
+
+test("heartbeats that find the end at once end the challenge once", async () => {
+  const client = mockClient();
+  client.begin.mockResolvedValue({
+    ok: true,
+    kind: "mfa-required",
+    flowId,
+    providers: [0],
+    expiresAt,
+  });
+  await mount(client);
+  await fillNew();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  await expect.element(page.getByLabelText("Verification code", { exact: true })).toBeVisible();
+  await vi.waitFor(() => expect(client.keepAlive).toHaveBeenCalledTimes(1));
+  await painted();
+  const answers = held<SetupReply>();
+  client.keepAlive.mockReturnValue(answers.promise);
+  // As when a frozen tab shows again and its overdue timers run with it.
+  document.dispatchEvent(new Event("visibilitychange"));
+  document.dispatchEvent(new Event("visibilitychange"));
+  await vi.waitFor(() => expect(client.keepAlive).toHaveBeenCalledTimes(3));
+  const reads = client.list.mock.calls.length;
+  answers.resolve({ ok: false, error: { code: "setup-expired" } });
+  await expect.element(page.getByText(expiredText, { exact: true })).toBeVisible();
+  await painted();
+  await painted();
+  expect(page.getByText(expiredText, { exact: true }).query()).not.toBeNull();
+  expect(client.list).toHaveBeenCalledTimes(reads + 1);
+});
+
+test("work the end stopped after a code says it reached the end", async () => {
+  const client = mockClient();
+  const pending = held<SetupReply>();
+  const end = Date.now() + 1_000;
+  client.begin.mockResolvedValue({
+    ok: true,
+    kind: "mfa-required",
+    flowId,
+    providers: [0],
+    expiresAt: end,
+  });
+  client.continue.mockReturnValue(pending.promise);
+  await mount(client);
+  await fillNew();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  await page.getByLabelText("Verification code", { exact: true }).fill("000123");
+  await page.getByRole("button", { name: "Verify code", exact: true }).click();
+  await vi.waitFor(() => expect(Date.now()).toBeGreaterThanOrEqual(end), { timeout: 3_000 });
+  // The server took the code, but the vault download and unlock ran past the end.
+  pending.resolve({ ok: false, error: { code: "cancelled" } });
+  const late =
+    "The sign-in reached its 5-minute end before it finished. Enter the master password to start again.";
+  await expect.element(page.getByText(late, { exact: true }).first()).toBeVisible();
+  expect(endedLine()).toBe(late);
+});
+
+test("a refused new-device code keeps its screen until Verify", async () => {
+  const client = mockClient();
+  const challenge = {
+    ok: true as const,
+    kind: "new-device-verification-required" as const,
+    flowId,
+    invalidOtp: false,
+    expiresAt,
+  };
+  client.begin.mockResolvedValue(challenge);
+  client.continue.mockResolvedValueOnce({ ...challenge, invalidOtp: true });
+  await mount(client);
+  await fillNew();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  await page.getByLabelText("New-device verification code", { exact: true }).fill("000111");
+  await page.getByRole("button", { name: "Verify code", exact: true }).click();
+  await expect
+    .element(
+      page.getByText(
+        "The code was not accepted: it is wrong or no longer valid. Enter the code from the latest email.",
+      ),
+    )
+    .toBeVisible();
+  expect(endedLine()).toBeNull();
+});
+
+test("a code entered after the end says the sign-in timed out", async () => {
+  const client = mockClient();
+  const past = Date.now() - 1;
+  client.begin.mockResolvedValue({
+    ok: true,
+    kind: "new-device-verification-required",
+    flowId,
+    invalidOtp: false,
+    expiresAt: past,
+  });
+  // The heartbeat cannot tell first: the worker is busy.
+  client.keepAlive.mockResolvedValue({ ok: false, error: { code: "resource-limit" } });
+  client.continue.mockResolvedValue({ ok: false, error: { code: "setup-expired" } });
+  await mount(client);
+  await fillNew();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  await page.getByLabelText("New-device verification code", { exact: true }).fill("000123");
+  await page.getByRole("button", { name: "Verify code", exact: true }).click();
+  await expect.element(page.getByText("The sign-in timed out waiting for the code.")).toBeVisible();
+  expect(endedLine()).toBe(
+    `The sign-in timed out at ${localClockTime(past)}: no code was entered within 5 minutes. Enter the master password to start again.`,
+  );
 });
 
 test.each([
@@ -390,7 +699,13 @@ test.each([
   async (_, providers, resend) => {
     await withFakeInterval(async () => {
       const client = mockClient();
-      client.begin.mockResolvedValue({ ok: true, kind: "mfa-required", flowId, providers });
+      client.begin.mockResolvedValue({
+        ok: true,
+        kind: "mfa-required",
+        flowId,
+        providers,
+        expiresAt,
+      });
       await mount(client);
       await fillNew();
       await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
@@ -421,7 +736,13 @@ test.each([
 test("an ended flow answered while Verify code runs leaves that request to answer", async () => {
   await withFakeInterval(async () => {
     const client = mockClient();
-    client.begin.mockResolvedValue({ ok: true, kind: "mfa-required", flowId, providers: [0] });
+    client.begin.mockResolvedValue({
+      ok: true,
+      kind: "mfa-required",
+      flowId,
+      providers: [0],
+      expiresAt,
+    });
     const pending = held<SetupReply>();
     client.continue.mockReturnValue(pending.promise);
     await mount(client);
@@ -454,7 +775,13 @@ test("an ended first sign-in switches the form to finishing its connection", asy
     client.list
       .mockResolvedValueOnce(status())
       .mockResolvedValue({ ...status(), connections: [registered] });
-    client.begin.mockResolvedValue({ ok: true, kind: "mfa-required", flowId, providers: [0] });
+    client.begin.mockResolvedValue({
+      ok: true,
+      kind: "mfa-required",
+      flowId,
+      providers: [0],
+      expiresAt,
+    });
     await mount(client);
     await fillNew();
     await page.getByLabelText("Email", { exact: true }).fill("Test@Example.test");
@@ -478,6 +805,7 @@ test("new-device verification is a distinct manual continuation and clears its c
     kind: "new-device-verification-required",
     flowId,
     invalidOtp: false,
+    expiresAt,
   });
   const pending = held<SetupReply>();
   client.continue.mockReturnValue(pending.promise);
@@ -593,9 +921,7 @@ test("affected custom-field policy quarantine is visible without exposing vault 
   await fillNew();
   await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
   await expect
-    .element(
-      page.getByText("Vault accepted. 1 item(s) need their field settings reviewed before use."),
-    )
+    .element(page.getByText("Vault accepted. 1 item needs its field settings reviewed before use."))
     .toBeVisible();
   // The page reports a count, never the item IDs.
   expect(document.body.textContent).not.toContain("affected-item");
@@ -667,7 +993,13 @@ test.each(["storage-uncertain", "setup-unavailable"] as const)(
 
 test("a challenge while adding a connection reloads a clean draft to the revision the new policy entry wrote", async () => {
   const connection = mockClient();
-  connection.begin.mockResolvedValue({ ok: true, kind: "mfa-required", flowId, providers: [0] });
+  connection.begin.mockResolvedValue({
+    ok: true,
+    kind: "mfa-required",
+    flowId,
+    providers: [0],
+    expiresAt,
+  });
   function saved(revision: number): Extract<SettingsResponse, { ok: true }> {
     return {
       version: 1,
@@ -1197,7 +1529,13 @@ test("cancelling a first sign-in's verification lists its connection", async () 
   client.list
     .mockResolvedValueOnce(status())
     .mockResolvedValue({ ...status(), connections: [registered] });
-  client.begin.mockResolvedValue({ ok: true, kind: "mfa-required", flowId, providers: [0] });
+  client.begin.mockResolvedValue({
+    ok: true,
+    kind: "mfa-required",
+    flowId,
+    providers: [0],
+    expiresAt,
+  });
   const { changed } = await mount(client);
   await fillNew();
   await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
@@ -1285,7 +1623,13 @@ test("a code rejected after a challenge switches the form to finishing its conne
   client.list
     .mockResolvedValueOnce(status())
     .mockResolvedValue({ ...status(), connections: [registered] });
-  client.begin.mockResolvedValue({ ok: true, kind: "mfa-required", flowId, providers: [0] });
+  client.begin.mockResolvedValue({
+    ok: true,
+    kind: "mfa-required",
+    flowId,
+    providers: [0],
+    expiresAt,
+  });
   client.continue.mockResolvedValue({ ok: false, error: { code: "authentication-rejected" } });
   await mount(client);
   await fillNew();
@@ -1301,6 +1645,8 @@ test("a code rejected after a challenge switches the form to finishing its conne
   await expect
     .element(page.getByLabelText("Enable automatic unlock on this device", { exact: true }))
     .toBeChecked();
+  // The removed Verify code hands focus to the password the sign-in now needs.
+  await expect.element(page.getByLabelText("Master password", { exact: true })).toHaveFocus();
 });
 
 test("an unsupported interaction on a first sign-in switches the form to finishing its connection", async () => {
@@ -1677,4 +2023,251 @@ test("each connection's row holds its vault access, which waits for saved settin
   await expect.element(page.getByText("Saved settings loaded. Revision 4")).toBeVisible();
   await expect.element(use).toBeEnabled();
   await expect.element(use).not.toBeChecked();
+});
+
+const statusOutput = () => page.elementLocator(document.getElementById("bitwarden-setup-status")!);
+
+test.each(["ready", "error", "cancel"] as const)(
+  "a verification challenge takes keyboard focus and hands it to the status after %s",
+  async (end) => {
+    const client = mockClient();
+    client.begin.mockResolvedValue({
+      ok: true,
+      kind: "mfa-required",
+      flowId,
+      providers: [0],
+      expiresAt,
+    });
+    if (end === "error")
+      client.continue.mockResolvedValue({ ok: false, error: { code: "resource-limit" } });
+    await mount(client);
+    await fillNew();
+    await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+    const code = page.getByLabelText("Verification code", { exact: true });
+    await expect.element(code).toHaveFocus();
+    if (end === "cancel") {
+      await page.getByRole("button", { name: "Cancel setup", exact: true }).click();
+      await expect
+        .element(page.getByText("Setup stopped. Refresh to confirm the latest state."))
+        .toBeVisible();
+    } else {
+      await code.fill("000123");
+      await page.getByRole("button", { name: "Verify code", exact: true }).click();
+      await vi.waitFor(() => expect(client.continue).toHaveBeenCalledTimes(1));
+    }
+    await expect.element(code).not.toBeInTheDocument();
+    await expect.element(statusOutput()).toHaveFocus();
+  },
+);
+
+test("a new-device challenge, and a rejected code asking again, focus the code field", async () => {
+  const client = mockClient();
+  client.begin.mockResolvedValue({
+    ok: true,
+    kind: "new-device-verification-required",
+    flowId,
+    invalidOtp: false,
+    expiresAt,
+  });
+  client.continue.mockResolvedValue({
+    ok: true,
+    kind: "new-device-verification-required",
+    flowId,
+    invalidOtp: true,
+    expiresAt,
+  });
+  await mount(client);
+  await fillNew();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  const code = page.getByLabelText("New-device verification code", { exact: true });
+  await expect.element(code).toHaveFocus();
+  await code.fill("000987");
+  await page.getByRole("button", { name: "Verify code", exact: true }).click();
+  await expect.element(page.getByText("The code was not accepted.", { exact: true })).toBeVisible();
+  await expect.element(code).toHaveFocus();
+});
+
+test("deleting a connection leaves keyboard focus on the status instead of the page", async () => {
+  const client = mockClient();
+  const leftover = {
+    connectionId: "leftover",
+    label: "Leftover vault",
+    email: "saved@example.test",
+    environment: { kind: "cloud" as const, region: "us" as const },
+    state: "configured" as const,
+    autoUnlock: "unknown" as const,
+    providerSession: "none" as const,
+  };
+  client.list
+    .mockResolvedValueOnce({ ...status(), connections: [leftover] })
+    .mockResolvedValue(status());
+  await mount(client);
+  await page.getByRole("button", { name: "More for Leftover vault", exact: true }).click();
+  await page
+    .getByRole("menuitem", { name: "Leftover vault: Delete connection", exact: true })
+    .click();
+  await page
+    .getByRole("alertdialog", { name: "Delete Leftover vault?", exact: true })
+    .getByRole("button", { name: "Delete connection", exact: true })
+    .click();
+  await expect.element(page.getByText(/^Connection deleted from this device/)).toBeVisible();
+  await expect.element(page.getByText("Leftover vault", { exact: true })).not.toBeInTheDocument();
+  await expect.element(statusOutput()).toHaveFocus();
+});
+
+test("Add another connection moves focus into the form it opens", async () => {
+  const client = mockClient();
+  client.list.mockResolvedValue({
+    ...status(),
+    connections: [
+      {
+        connectionId: "saved-a",
+        label: "Saved vault",
+        email: "saved@example.test",
+        environment: { kind: "cloud", region: "eu" },
+        state: "configured",
+        autoUnlock: "unknown",
+        providerSession: "none",
+      },
+    ],
+  });
+  await mount(client);
+  await page.getByRole("button", { name: "Saved vault: Sign in again", exact: true }).click();
+  await expect.element(page.getByLabelText("Master password", { exact: true })).toHaveFocus();
+  await page.getByRole("button", { name: "Add another connection", exact: true }).click();
+  await expect.element(page.getByRole("combobox", { name: "Server", exact: true })).toHaveFocus();
+});
+
+/** Focuses a button and presses Enter, as a keyboard or screen reader user does. */
+async function pressWithKeyboard(name: string) {
+  const button = page.getByRole("button", { name, exact: true });
+  (button.element() as HTMLElement).focus();
+  await userEvent.keyboard("{Enter}");
+  return button;
+}
+
+test("a failed connect keeps keyboard focus on Connect", async () => {
+  const client = mockClient();
+  const pending = held<SetupReply>();
+  client.begin.mockReturnValue(pending.promise);
+  await mount(client);
+  await fillNew();
+  const connect = await pressWithKeyboard("Connect Bitwarden");
+  await vi.waitFor(() => expect(client.begin).toHaveBeenCalledTimes(1));
+  // While it runs the button is unavailable but keeps focus.
+  await expect.element(connect).toHaveFocus();
+  await expect.element(connect).toHaveAttribute("aria-disabled", "true");
+  pending.resolve({ ok: false, error: { code: "resource-limit" } });
+  await expect.element(page.getByText(/reached a resource limit/)).toBeVisible();
+  await expect.element(connect).toBeEnabled();
+  await expect.element(connect).toHaveFocus();
+});
+
+test("a failed sync or refresh keeps keyboard focus on its button", async () => {
+  const client = mockClient();
+  client.list.mockResolvedValue({
+    ...status(),
+    connections: [
+      {
+        connectionId: "saved-a",
+        label: "Saved vault",
+        email: "saved@example.test",
+        environment: { kind: "cloud", region: "us" },
+        state: "ready",
+        autoUnlock: "enabled",
+        providerSession: "active",
+      },
+    ],
+  });
+  client.sync.mockResolvedValue({ ok: false, error: { code: "resource-limit" } });
+  await mount(client);
+  const sync = await pressWithKeyboard("Saved vault: Sync");
+  await expect.element(page.getByText(/reached a resource limit/)).toBeVisible();
+  await expect.element(sync).toBeEnabled();
+  await expect.element(sync).toHaveFocus();
+  client.list.mockRejectedValue(new Error("synthetic failure"));
+  const refresh = await pressWithKeyboard("Refresh connections");
+  await expect.element(page.getByText(/^The operation could not be confirmed/)).toBeVisible();
+  await expect.element(refresh).toBeEnabled();
+  await expect.element(refresh).toHaveFocus();
+});
+
+test("sending and resending the email code keep keyboard focus on the code field", async () => {
+  const client = mockClient();
+  client.begin.mockResolvedValue({
+    ok: true,
+    kind: "mfa-required",
+    flowId,
+    providers: [0, 1],
+    expiresAt,
+  });
+  const pending = held<SetupReply>();
+  client.sendEmailCode
+    .mockReturnValueOnce(pending.promise)
+    .mockResolvedValueOnce({ ok: true, kind: "email-code", flowId, result: "sent" })
+    .mockResolvedValueOnce({ ok: false, error: { code: "provider-permission-required" } });
+  await mount(client);
+  await fillNew();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  const code = page.getByLabelText("Verification code", { exact: true });
+  await expect.element(code).toHaveFocus();
+  // Choosing email sends a code, which disables the method select while it runs.
+  const method = page.getByRole("combobox", { name: "Verification method", exact: true });
+  (method.element() as HTMLElement).focus();
+  await method.selectOptions("1");
+  await expect.element(method).toBeDisabled();
+  pending.resolve({ ok: true, kind: "email-code", flowId, result: "sent" });
+  await expect.element(page.getByText(/The server sent a verification code/)).toBeVisible();
+  await expect.element(code).toHaveFocus();
+  // Resend code sits in the same disabled form while it sends.
+  await pressWithKeyboard("Resend code");
+  await vi.waitFor(() => expect(client.sendEmailCode).toHaveBeenCalledTimes(2));
+  await expect
+    .element(page.getByRole("button", { name: "Resend code", exact: true }))
+    .toBeEnabled();
+  await expect.element(code).toHaveFocus();
+  // A send that ends the sign-in removes the code field; the status says why.
+  const focus = vi.spyOn(HTMLElement.prototype, "focus");
+  try {
+    await pressWithKeyboard("Resend code");
+    await expect.element(code).not.toBeInTheDocument();
+    await expect.element(statusOutput()).toHaveFocus();
+    // Focus moves without scrolling the page to the status.
+    const call = focus.mock.contexts.indexOf(statusOutput().element() as HTMLElement);
+    expect(focus.mock.calls[call]).toEqual([{ preventScroll: true }]);
+  } finally {
+    focus.mockRestore();
+  }
+});
+
+test("Cancel setup with nothing running hands keyboard focus to the status", async () => {
+  await mount();
+  await fillNew();
+  const cancel = await pressWithKeyboard("Cancel setup");
+  await expect.element(page.getByText("Setup cancelled.", { exact: true })).toBeVisible();
+  // Nothing is left to cancel, so the button is disabled.
+  await expect.element(cancel).toBeDisabled();
+  await expect.element(statusOutput()).toHaveFocus();
+});
+
+test("a challenge leaves focus the person moved outside the setup", async () => {
+  const client = mockClient();
+  const pending = held<SetupReply>();
+  client.begin.mockReturnValue(pending.promise);
+  await mount(client);
+  await fillNew();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  await vi.waitFor(() => expect(client.begin).toHaveBeenCalledTimes(1));
+  const outside = document.createElement("input");
+  outside.setAttribute("aria-label", "Outside field");
+  document.body.append(outside);
+  try {
+    outside.focus();
+    pending.resolve({ ok: true, kind: "mfa-required", flowId, providers: [0], expiresAt });
+    await expect.element(page.getByLabelText("Verification code", { exact: true })).toBeEnabled();
+    await painted();
+    expect(document.activeElement).toBe(outside);
+  } finally {
+    outside.remove();
+  }
 });

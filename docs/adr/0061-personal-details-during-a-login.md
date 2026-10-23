@@ -1,15 +1,15 @@
 # ADR 0061: Personal details asked during a login, filled from a linked vault item
 
-Status: proposed by Claude on 2026-10-23 and not confirmed by the owner. The owner asked
-on 2026-10-23 (05:28 UTC) for this work to go ahead on best guesses, left to the owner
-to decide afterwards; each guess is listed under [Assumed](#assumed-not-confirmed), and
-the owner's own decisions under [Decided by the owner](#decided-by-the-owner). The
-design was reviewed against the code by another AI before it was built. Implements the
+Status: accepted by the owner on 2026-10-23 ([decided](#decided-by-the-owner) 6 to 11).
+Claude built it ahead of those decisions on best guesses, as the owner asked at 05:28
+UTC. The design was reviewed against the code by another AI before it was built.
+Deliveries 1, 3, 4, 5 and 8 are implemented; the others are not ([Delivery](#delivery)).
+Implements the
 [phase 2](../plan.md#phase-2-use-it-and-fix-what-comes-up) item on personal details
-asked for during a login, in parts (see [Delivery](#delivery)). Amends
-[ADR 0027](0027-per-account-login-routes.md) (a fourth handler kind and what the judge
-may name), [ADR 0013](0013-service-held-recipes-and-settings.md) (the owner's settings
-link a login item to the items that hold its details) and
+asked for during a login. Amends [ADR 0027](0027-per-account-login-routes.md) (a fourth
+handler kind, what the judge may name, and which pages are judged),
+[ADR 0013](0013-service-held-recipes-and-settings.md) (the owner's settings link a login
+item to the items that hold its details) and
 [ADR 0036](0036-passkey-after-the-identifier.md) (a second kind of page judged while it
 still shows the sign-in form).
 
@@ -53,23 +53,39 @@ catalog ([feasibility note](../research/2026-10-12-card-security-code.md)).
    page kind ([ADR 0035](0035-page-kinds-per-site.md), 21:12 UTC).
 2. The value is in another item, so the login is linked to it. Pateat guesses the item
    from the site and what its pages show, proposes it, and records the choice for the
-   site once the owner confirms it (05:27 UTC).
+   site once the owner confirms it (05:27 UTC). So each link is confirmed once, not at
+   every login, and a link belongs to one site and one login item: two accounts on a
+   site are linked separately.
 3. The link is stored like an account binding, in the owner's settings on the service,
    never in a shared recipe ([plan](../plan.md#phase-2-use-it-and-fix-what-comes-up)).
 4. Each kind of value has its own fill rule, as passwords and TOTP codes have; a card
    code goes only into a password or short numeric input.
 5. Values never leave the device; the service and the AI see only which kind of value a
    page asks for.
-6. Every value the owner has linked is filled automatically, a whole card number, a
-   card's expiry date and a PIN included (2026-10-23 11:41 UTC, answering "which values
-   may Pateat fill automatically on a page after the submission?" with 全部:
-   「割り当てのある値はカード番号や暗証番号も含めて自動で入れる」). So a page that asks
-   for a whole card number or a PIN now has a detail; `manualDetails` stays empty.
-7. A value split over several inputs is filled too: a birth date in year, month and day
-   selects, and a card number, PIN or expiry date over several boxes, text inputs or
-   selects for the expiry's month and year (2026-10-23 12:26 UTC, answering which split
-   values Pateat fills with 「全部入れる」). This replaces the former assumption that it
-   fills no splits and no selects.
+6. A link may name a custom field, and the field's name is stored in the owner's
+   settings on the service as binding references are, even when the name says something
+   about the person, as a field named after its secret question does (2026-10-23 11:17
+   UTC, 「このままでよい」).
+7. Every model call gets the same account information unless a reason to differ is
+   recorded (11:19 UTC:
+   「ページによって送る情報変えてるとか、妥当な理由が無ければ全部直して」). Delivery 6
+   gives the judge the account's slots, as generation has them.
+8. Every linked value is filled automatically, whole card numbers, expiry dates and PINs
+   included (11:41 UTC, 「全部」:
+   「割り当てのある値はカード番号や暗証番号も含めて自動で入れる」). A confirmation
+   screen after a completed login is unchanged: Pateat still stops at the fill there.
+   So a page that asks for a whole card number or a PIN now has a detail;
+   `manualDetails` stays empty.
+9. A page that shows the sign-in form again with a detail form beside it is judged
+   (12:25 UTC, 「判定に送る」), amending ADR 0027's rule that a page showing a route
+   fill field is never judged ([below](#judging-a-page-beside-the-sign-in-form),
+   delivery 2).
+10. A value split over several inputs is filled, a birth date in year, month and day
+    selects and a card number, PIN or expiry date over several boxes included (12:26
+    UTC, 「全部入れる」). Delivery 8 builds it.
+11. The guess of the vault item also compares the masked last four digits and the card
+    brand that the page shows with the vault's cards, on the device (12:26 UTC,
+    「下 4 桁とブランドも見る」). Delivery 7 builds it.
 
 ## Decision
 
@@ -110,7 +126,7 @@ parts ([below](#values-split-over-several-inputs)).
 
 ### Card numbers, expiry dates and PINs
 
-Added on decided 6. A `card-expiry` link reads two fields; its `source` names the card
+Added on decided 8. A `card-expiry` link reads two fields; its `source` names the card
 item and `card.expMonth`, and the extension reads `card.expYear` from the same item, so
 the link keeps the one-field shape and both fields must be allowed. A `pin` is read from
 a Text or Hidden custom field whose name, after NFKC and without case, holds `pin` as a
@@ -134,11 +150,11 @@ Security notes:
 - A compromised page on the same origin (XSS) can read a filled card number, expiry date
   or PIN, as it can read a password today.
 - This ADR changes nothing about pages after a completed login: on a confirmation screen
-  after the login completes, Pateat still stops at the fill (owner, 2026-10-23).
+  after the login completes, Pateat still stops at the fill (decided 8).
 
 ### Values split over several inputs
 
-Added on decided 7. A `detail` field is either one input, as above, or a split value
+Added on decided 10. A `detail` field is either one input, as above, or a split value
 with two to six `parts`, each with its own input:
 
 ```json
@@ -230,11 +246,12 @@ Security notes:
 
 ### Secret-question answers and member IDs
 
-Bitwarden keeps neither in a fixed field, so both are read only from custom fields of
-the login item itself, never another item, and only after the owner confirmed the field
-in the popup once (as every link). A Hidden field may fill a visible input here too, an
-exception to [ADR 0013](0013-service-held-recipes-and-settings.md)'s Hidden-field rule
-like the birth date's.
+Claude added both on the recipe-schema plan's §2.6 (its option b); decided 6 and 8 keep
+them. Bitwarden keeps neither in a fixed field, so both are read only from custom fields
+of the login item itself, never another item, and only after the owner confirmed the
+field in the popup once (as every link). A Hidden field may fill a visible input here
+too, an exception to [ADR 0013](0013-service-held-recipes-and-settings.md)'s
+Hidden-field rule like the birth date's.
 
 - `member-id`: a field whose name, after NFKC and without case, holds `id`, `number`,
   `no`, `番号`, `会員`, `お客様`, `customer`, `member` or `契約`, and none of `暗証`,
@@ -285,7 +302,7 @@ Security notes:
 - The names of the linked fields are stored in the owner's settings on the service as
   references, as binding references to custom fields already are. A field named after
   its question therefore puts the question's text on the service, though never the
-  answer; decided 5 holds for values. The owner accepted this on 2026-10-23 11:17 UTC.
+  answer; decided 5 holds for values. The owner accepted this (decided 6).
 
 ### A `detail` handler
 
@@ -354,8 +371,9 @@ its own format, or `1`, `2` and so on for a card number's or PIN's boxes. Inputs
 fail the checks above are dropped and logged by reason, as `totpDropped` is; one dropped
 part drops its whole value (`parts`). A paid run on synthetic pages
 ([results](../research/2026-10-23-detail-judge-eval.md)) gave the expected answer on
-every requested page with four model settings. The lines for decided 6's values have
-not been run against a model. Those for split values were, on synthetic pages
+every requested page with four model settings; the split-date line came from it. The
+lines for decided 8's values have not been run against a model. Those for split values
+(delivery 8) were, on synthetic pages
 ([results](../research/2026-10-23-split-detail-judge-eval.md)): the production setting
 named every part but often no format, hence the default above.
 
@@ -460,31 +478,17 @@ runs; it is dropped), `detail-forgotten` (a refused value's link was removed) an
 `detail-kept` (that removal could not be written now). The judge's log keeps `details`
 with each ID that is not a candidate replaced by `?`. Never a value or an item name.
 
-## Assumed (not confirmed)
-
-1. Secret-question answers and member IDs are among the values in the table. They were
-   added on the recipe-schema plan's §2.6 answered by assumption as its option b: filled
-   after one confirmation per field in the popup, read only from the login item, with
-   SMS and email codes left to the person. The owner may still drop them.
-2. One confirmation per link, not per login: the owner's "records the choice once the
-   owner confirms it".
-3. A link is per site and login item, so two accounts on one site are linked separately.
-4. The guess reads only item and field names and the page's host name and title. This
-   departs from the owner's example of what the guess may read (05:27 UTC: "a card name,
-   brand or masked last digits"): reading masked digits or a brand needs the page's text
-   and every card item's number in the worker before any confirmation, so it is left out
-   of this first version; an item name holding the card's name or last digits still
-   ranks it first.
-
 ## Delivery
 
 1. The `detail` handler, the judge's `details`, and the extension ending such a login
    `challenge` with `detail-unlinked`.
-2. Judging a page beside the sign-in form (`beside`).
+2. Judging a page beside the sign-in form (`beside`, decided 9).
 3. Links, the value rules, choice radios, the popup's proposal, and removal on refusal.
-4. Secret-question answers and member IDs.
-5. Whole card numbers, card expiry dates and PINs (decided 6).
-6. Values split over several inputs and selects (decided 7).
+4. Secret-question answers and member IDs, read from the login item's custom fields.
+5. Whole card numbers, card expiry dates and PINs (decided 8).
+6. The judge's account slots (decided 7) and its secret-question pairing.
+7. The card guess from the last digits and brand the page shows (decided 11).
+8. Values split over several inputs and selects (decided 10).
 
 ## Not covered
 

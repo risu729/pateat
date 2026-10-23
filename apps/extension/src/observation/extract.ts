@@ -27,6 +27,7 @@ import {
   controlName,
   fieldName,
   hasNativeButton,
+  isButton,
   isFragmentButton,
   isRoleButton,
   isScriptButton,
@@ -69,7 +70,7 @@ export type ObservationRefusal = "unsupported-page" | "no-candidates" | "no-loca
  *   or disabled); on a signed-in page, only one that may be a sign-in field.
  * - `unsupported-control`: a control the executor cannot act on in a login form, such as
  *   a select, a radio button or a text area.
- * - `unlocated-field`, `unlocated-checkbox`, `unlocated-button`: a field, checkbox or
+ * - `unlocated-field`, `unlocated-checkbox`, `unlocated-button`: a field, required checkbox or
  *   button of a login form without a locator that names it alone; for buttons, also an
  *   icon button in a form with no other button to submit with.
  * - `too-many-fields` (signed-in page), `too-many-candidates` (login page): more than the
@@ -117,6 +118,11 @@ const landmarks = chromeSelector;
  * list). The body and the root element never count, so this never takes the whole page.
  */
 const besideDepth = 2;
+/**
+ * How far above the fields outside every form a control the executor cannot act on still
+ * counts as theirs (`formlessFieldsArea`); a footer's language picker is farther away.
+ */
+const formlessDepth = 4;
 const maxBeside = 4;
 const maxHeadings = 8;
 export const maxText = 120;
@@ -137,7 +143,7 @@ const ignoredTypes = new Set(["hidden", "reset"]);
 const controls = "input:not([type='hidden']), select, textarea, button";
 const fields = "input:not([type='hidden']), select, textarea";
 /** Every element `describe` may accept, script buttons included. */
-const observed = "input, select, textarea, button, a[href], a[onclick], [role]";
+const observed = "input, select, textarea, button, a, [role]";
 /** Fillable inputs only; consent banners in shadow roots often hold checkboxes. */
 const shadowFields = Object.keys(fillTypes)
   .map((type) => `input[type='${type}' i]`)
@@ -147,6 +153,7 @@ const locators = [
   ["id", "id"],
   ["name", "name"],
   ["test-id", "data-testid"],
+  ["data-test", "data-test"],
 ] as const;
 /**
  * An ID React's `useId` generated (`:r1:`, `«r1»`, `_r_1_`, a hydrated `:R1aH1:`, also
@@ -260,7 +267,8 @@ function headerText(document: Document): string | undefined {
  * transparent or tiny (a trap, or a real input under a styled widget), or `absent`
  * when it is hidden or moved before the page's start, where trap inputs usually go.
  * A control transparent only while it or an ancestor fades in from opacity 0 counts as
- * opaque, as `shown` does (2026-10-17).
+ * opaque, as `shown` does (2026-10-17), and so does a fillable input transparent only
+ * under its own shown label (2026-10-23).
  */
 export function presence(element: HTMLElement): "visible" | "faint" | "absent" {
   const miss = presenceMiss(element);
@@ -271,8 +279,8 @@ export function presence(element: HTMLElement): "visible" | "faint" | "absent" {
  * Why {@link presence} does not read a control as `visible`, checked in its order: an
  * attribute hides it (`hidden-attr`: `hidden`, `inert` or `aria-hidden`), it is not
  * rendered otherwise (`not-rendered`), it is moved before the page's start (`off-start`),
- * it is transparent and not fading in (`transparent`), or it is under 2 pixels wide or
- * high (`tiny`). Undefined when it is visible. For the log only (ADR 0019).
+ * it is transparent and not fading in or revealed by its label (`transparent`), or it is
+ * under 2 pixels wide or high (`tiny`). Undefined when it is visible. For the log only (ADR 0019).
  */
 export function presenceMiss(
   element: HTMLElement,
@@ -320,7 +328,7 @@ function locatorIndex(document: Document): LocatorIndex {
     const counts = index.get(key)!;
     counts.set(value, (counts.get(value) ?? 0) + 1);
   };
-  for (const element of document.querySelectorAll("[id], [name], [data-testid]"))
+  for (const element of document.querySelectorAll("[id], [name], [data-testid], [data-test]"))
     for (const [, attribute] of locators) {
       const value = element.getAttribute(attribute);
       if (value !== null) count(attribute, value);
@@ -544,18 +552,20 @@ function contentTarget(
       if (!v.is(loginTargetSchema, target)) continue;
       if (namesOnly(element, target, index.get("autocomplete")!.get(value), hidden)) return target;
     }
-    const name = labels ? fieldName(element) : undefined;
+    if (!labels) return undefined;
+    const name = fieldName(element);
     // A name holding a number may change as the person types, such as a counter "0/20",
     // unless it numbers an input of a split code.
     if (
-      name === undefined ||
-      observedText(name) !== name ||
-      index.get("label")!.get(name) !== 1 ||
-      (/\p{Number}/u.test(name) && !numbersCodeDigit(element, name))
-    )
-      return undefined;
-    const target = { by: "label" as const, value: name };
-    return v.is(loginTargetSchema, target) ? target : undefined;
+      name !== undefined &&
+      observedText(name) === name &&
+      index.get("label")!.get(name) === 1 &&
+      (!/\p{Number}/u.test(name) || numbersCodeDigit(element, name))
+    ) {
+      const target = { by: "label" as const, value: name };
+      if (v.is(loginTargetSchema, target)) return target;
+    }
+    return passwordFormNameTarget(element, hidden);
   }
   if (
     element instanceof HTMLAnchorElement &&
@@ -591,6 +601,25 @@ function contentTarget(
   if (!unique) return undefined;
   const target = { by: "text" as const, value: text };
   return v.is(loginTargetSchema, target) ? target : undefined;
+}
+
+/**
+ * The `password-form-name` locator of a field that no other locator names alone
+ * (ADR 0072): its `name`, when the executor finds it alone by that name among
+ * the elements of forms holding a shown password input not marked `new-password`, as
+ * Hacker News's account field `acct`, which its create-account form repeats. A name that
+ * may be a token, or that redaction would change, is never used.
+ */
+function passwordFormNameTarget(
+  element: HTMLInputElement,
+  hidden: boolean,
+): LoginTarget | undefined {
+  const value = element.getAttribute("name");
+  if (value === null || tokenSegment(value) || observedText(value) !== value) return undefined;
+  const target = { by: "password-form-name" as const, value };
+  if (!v.is(loginTargetSchema, target)) return undefined;
+  const found = findTargets(element.ownerDocument, target, { hidden });
+  return found.length === 1 && found[0] === element ? target : undefined;
 }
 
 /**
@@ -1036,7 +1065,12 @@ type Found =
    * `field` holds a text or password field that cannot be filled: read-only (as with
    * software keyboards), disabled until another step, or transparent or tiny.
    */
-  | { kind: "unsupported"; form: HTMLFormElement | null; field: HTMLInputElement | undefined };
+  | {
+      kind: "unsupported";
+      form: HTMLFormElement | null;
+      field: HTMLInputElement | undefined;
+      element: HTMLElement;
+    };
 
 /** A control a click step may press: a button, a submit, button or image input, or a script button. */
 const actionControl = (element: HTMLElement) =>
@@ -1053,7 +1087,7 @@ function describe(element: Element): Found | undefined {
     : presence(element);
   if (element instanceof HTMLInputElement && fillTypes[element.type] && present !== "absent") {
     if (present === "faint" || element.readOnly || element.disabled)
-      return { kind: "unsupported", form: element.form, field: element };
+      return { kind: "unsupported", form: element.form, field: element, element };
   } else if (present !== "visible") return undefined;
   if (element instanceof HTMLInputElement) {
     const type = element.type;
@@ -1093,12 +1127,12 @@ function describe(element: Element): Found | undefined {
       };
     }
     // Radio groups and other input types have no executor support yet.
-    return { kind: "unsupported", form: element.form, field: undefined };
+    return { kind: "unsupported", form: element.form, field: undefined, element };
   }
   if (element instanceof HTMLSelectElement || element instanceof HTMLTextAreaElement)
     return element.disabled
       ? undefined
-      : { kind: "unsupported", form: element.form, field: undefined };
+      : { kind: "unsupported", form: element.form, field: undefined, element };
   if (element instanceof HTMLButtonElement) {
     if (element.type === "reset") return undefined;
     const label = actionLabel(element);
@@ -1158,14 +1192,26 @@ function describeSelects(document: Document): { form: HTMLFormElement | null; dr
 }
 
 /**
- * An icon button that never submits its form on its own, such as the eye that shows the
+ * An icon button that never submits a form on its own, such as the eye that shows the
  * password: `type="button"` and no text of its own, so no text locator either. One with
  * text, such as an `<input type="button" value="Login">` that submits by script, is not.
+ * A textless button of any type outside every form has no form to submit either, but
+ * one near the fields outside every form (`nearFields`) may be their script-run submit;
+ * one away from them, such as a cookie banner's close button on Bank of America's home
+ * page (2026-10-23), counts.
  */
-const iconButton = (element: Element) =>
-  (element instanceof HTMLButtonElement || element instanceof HTMLInputElement) &&
-  element.type === "button" &&
+const iconButton = (element: Element, nearFields: (element: Element) => boolean) =>
+  isButton(element) &&
+  (element.type === "button" || (element.form === null && !nearFields(element))) &&
   buttonText(element) === undefined;
+
+/**
+ * Whether a checkbox must be checked before its form submits: `required`, or
+ * `aria-required="true"` for a script that checks it.
+ */
+const mustCheck = (element: Element) =>
+  (element instanceof HTMLInputElement && element.required) ||
+  element.getAttribute("aria-required")?.trim().toLowerCase() === "true";
 
 /** True when an open shadow root holds a visible match, which the executor cannot reach. */
 function inShadow(shadow: ShadowRoot, selector: string): boolean {
@@ -1240,12 +1286,14 @@ function loginFormsOf(
  * ARIA, or the rendered text next to a field, with private-looking parts redacted.
  *
  * Only forms that hold a field matter: their buttons, checkboxes and, as context, their
- * links (or, for fields outside any form, every control outside a form). Up to four
+ * links (or, for fields outside any form, every control outside a form; a control the
+ * executor cannot act on counts there only near those fields, `formlessFieldsArea`). Up to four
  * buttons outside every form but near a login form with a password field
  * (`besideDepth`), such as a passkey button, are kept when they can be located and never
  * make the observation incomplete. A field or button that cannot be located (other than
- * a script button, or an icon button that never submits in a form with another button,
- * which is left out), a control
+ * a script button, an icon button that never submits in a form with another button, a
+ * textless button away from the fields outside every form when another button outside
+ * every form is located, or a checkbox the page does not require, which is left out), a control
  * the executor cannot act on or a control in a shadow root marks the observation
  * incomplete when it is in a login form (`loginFormsOf`); any other form with one is
  * left out entirely. A field in any shadow root, or more than 48 candidates, marks it
@@ -1275,6 +1323,10 @@ export function extractLoginObservation(
     known.some((target) => {
       if (target.by === "label")
         return fieldName(field) === target.value && index.get("label")!.get(target.value) === 1;
+      if (target.by === "password-form-name") {
+        const found = findTargets(document, target);
+        return found.length === 1 && found[0] === field;
+      }
       const attribute = locators.find(([by]) => by === target.by)?.[1];
       return (
         attribute !== undefined &&
@@ -1282,8 +1334,17 @@ export function extractLoginObservation(
         index.get(attribute)!.get(target.value) === 1
       );
     });
+  // A field both faint and disabled takes input from no one, neither the person nor a
+  // widget drawn over it, so a login page leaves it out as a decoy; Bitwarden never picks
+  // a disabled field as the username or password field either. The signed-in page still
+  // sees it, as a code field may wait there for a timer (`describeSignedIn`).
   const found = describeAll(document).filter(
-    (entry) => !(entry.kind === "unsupported" && entry.field && filled(entry.field)),
+    (entry) =>
+      !(
+        entry.kind === "unsupported" &&
+        entry.field &&
+        (filled(entry.field) || (entry.field.disabled && presence(entry.field) === "faint"))
+      ),
   );
   const fieldForms = new Set(
     found.flatMap((entry) =>
@@ -1320,6 +1381,10 @@ export function extractLoginObservation(
   // submit with: an icon-only button may itself be the form's script submit.
   const icons: typeof required = [];
   const links: typeof required = [];
+  // A checkbox is context only, never checked by a recipe, so one the page does not
+  // require, as "Remember me", is left out without a locator; a required one, as an
+  // agreement the form cannot submit without, still marks the form incomplete.
+  const checks: typeof required = [];
   const beside: typeof required = [];
   // Only a form with a password field has such neighbours; a search form does not.
   const passwordForms = new Set(
@@ -1328,6 +1393,30 @@ export function extractLoginObservation(
       return input instanceof HTMLInputElement && input.type === "password" ? [entry.form] : [];
     }),
   );
+  // Fields outside every form, and whether a button is near them: one of them within the
+  // button's `besideDepth` nearest ancestors, or the button within one of theirs, so a
+  // button wrapped deeper beside the fields still counts. Reaching the body or the root
+  // counts as near; a mistake that way only marks the page incomplete.
+  const formless = found.flatMap((entry) => {
+    const input =
+      entry.kind === "candidate" ? fillTypes[entry.draft.role] && entry.draft.element : entry.field;
+    return input && entry.form === null ? [input] : [];
+  });
+  const areaOf = (element: Element) => {
+    let area: Element | null = element;
+    for (let depth = 0; depth < besideDepth && area; depth++) area = area.parentElement;
+    return area && area !== document.body && area !== document.documentElement ? area : undefined;
+  };
+  const nearFields = (element: Element) => {
+    const area = areaOf(element);
+    return (
+      !area ||
+      formless.some((field) => {
+        const around = areaOf(field);
+        return area.contains(field) || !around || around.contains(element);
+      })
+    );
+  };
   const areas = [...loginForms].flatMap((form) => {
     if (!passwordForms.has(form)) return [];
     let area: Element | null = form;
@@ -1335,6 +1424,7 @@ export function extractLoginObservation(
     // Never the whole page, as when the form sits directly in the body.
     return area && area !== document.body && area !== document.documentElement ? [area] : [];
   });
+  const formlessArea = loginForms.has(null) ? formlessFieldsArea(found, document) : undefined;
   for (const entry of found) {
     if (
       entry.kind === "candidate" &&
@@ -1348,12 +1438,18 @@ export function extractLoginObservation(
       continue;
     }
     if (!fieldForms.has(entry.form)) continue;
-    if (entry.kind === "unsupported")
+    if (entry.kind === "unsupported") {
+      // Outside every form, a control far from the sign-in fields, such as a language
+      // picker in the page's footer, is not one the sign-in needs.
+      if (!entry.field && entry.form === null && formlessArea?.contains(entry.element) === false)
+        continue;
       flaw(entry.form, entry.field ? "unfillable-field" : "unsupported-control");
-    else if (entry.draft.role === "link") {
+    } else if (entry.draft.role === "link") {
       if (entry.form) links.push(entry);
-    } else if (isScriptButton(entry.draft.element)) scripted.push(entry);
-    else if (iconButton(entry.draft.element)) icons.push(entry);
+    } else if (entry.draft.role === "checkbox" && !mustCheck(entry.draft.element))
+      checks.push(entry);
+    else if (isScriptButton(entry.draft.element)) scripted.push(entry);
+    else if (iconButton(entry.draft.element, nearFields)) icons.push(entry);
     else required.push(entry);
   }
 
@@ -1393,6 +1489,7 @@ export function extractLoginObservation(
   const gap = loginGaps.find((cause) => gaps.has(cause));
   const buttons = [
     ...described,
+    ...kept(checks, { optional: true }),
     ...kept(scripted, { optional: true }),
     ...keep(iconsFound),
     // More than a few is page content around the form, not its alternatives.
@@ -1404,6 +1501,25 @@ export function extractLoginObservation(
   ];
   if (chosen.length === 0) return { ok: false, reason: unlocated ? "no-locator" : "no-candidates" };
   return withGap(observe(document, chosen, gap === undefined), gap);
+}
+
+/**
+ * Where the fillable fields outside every form sit: their nearest common ancestor (a
+ * lone field itself) and up to `formlessDepth` levels above it, or `undefined` when that
+ * reaches the body or the root element, so the whole page counts. With no `<form>` to
+ * start from, this reaches a little further than `besideDepth` does above a form, so a
+ * row of fields beside a row with a select still holds both.
+ */
+function formlessFieldsArea(found: readonly Found[], document: Document): Element | undefined {
+  const inputs = found.flatMap((entry) =>
+    entry.kind === "candidate" && entry.form === null && fillTypes[entry.draft.role]
+      ? [entry.draft.element]
+      : [],
+  );
+  let area: Element | null = inputs[0] ?? null;
+  while (area && !inputs.every((input) => area!.contains(input))) area = area.parentElement;
+  for (let depth = 0; depth < formlessDepth && area; depth++) area = area.parentElement;
+  return area && area !== document.body && area !== document.documentElement ? area : undefined;
 }
 
 /** The gap a login form's control without a locator makes, by its role. */

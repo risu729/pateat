@@ -218,6 +218,45 @@ describe("login runtime with a live vault field source", () => {
     expect(executions().map((message) => message.values?.length)).toEqual([1, 0]);
     expect(JSON.stringify(fake.state.storage)).not.toContain("synthetic-secret");
   });
+  it("waits for a step's elements for the probe's configured step wait and counts observations", async () => {
+    const login = createLoginRuntime(settingsFor({}), { fields: async () => "synthetic-secret" });
+    const configure = {
+      version: 1,
+      type: "login.probe.configure",
+      origin,
+      account: { connectionId, itemId, slots: [{ slot: "password", fieldId: "login.password" }] },
+      stepWaitMs: 1500,
+    };
+    expect(await login.handle(configure, trusted as never)).toEqual({ ok: true });
+    await login.handle(
+      {
+        version: 1,
+        type: "login.document.ready",
+        token: "synthetic-token",
+        start: { path: new URL(fake.pageUrl).pathname },
+      },
+      page,
+    );
+    const status = async () =>
+      (await login.handle({ version: 1, type: "login.probe.status" }, trusted as never)) as {
+        attempts: { state: string }[];
+        documents: { observations?: number }[];
+      };
+    await vi.waitFor(async () =>
+      expect((await status()).attempts[0]).toMatchObject({ state: "authenticated" }),
+    );
+    const waits = (fake.state.messages as Record<string, unknown>[]).filter(
+      (message) => message["type"] === "login.await",
+    );
+    expect(waits.length).toBeGreaterThan(0);
+    expect(waits.map((message) => message["timeoutMs"])).toEqual(waits.map(() => 1500));
+    // The completion check observed the page.
+    expect((await status()).documents[0]!.observations).toBeGreaterThan(0);
+    // The stored configuration a restarted worker reads holds the wait too.
+    expect(Object.values(fake.state.storage)).toContainEqual(
+      expect.objectContaining({ origin, stepWaitMs: 1500 }),
+    );
+  });
   it.each([
     ["withholds a value", async () => undefined],
     [
@@ -315,6 +354,76 @@ describe("login runtime with a live vault field source", () => {
     await vi.waitFor(async () =>
       expect(await run.attempt()).toMatchObject({ state: "authenticated" }),
     );
+  });
+  it("a site count's job delays a page's login without refusing it, and stops for it", async () => {
+    const login = createLoginRuntime(settingsFor({}), {
+      fields: vi.fn<LoginFieldSource>(async () => "synthetic-secret"),
+      vault: { refreshIfStale: () => undefined, enter: async () => () => undefined },
+    });
+    expect(
+      await login.handle(
+        {
+          version: 1,
+          type: "login.probe.configure",
+          origin,
+          account: {
+            connectionId,
+            itemId,
+            slots: [{ slot: "password", fieldId: "login.password" }],
+          },
+        },
+        trusted as never,
+      ),
+    ).toEqual({ ok: true });
+    let finish!: () => void;
+    const job = new Promise<void>((resolve) => (finish = resolve));
+    const sent = vi.fn(() => job);
+    const counted = login.siteCount.step(sent);
+    // The job is sent before the page announces.
+    await vi.waitFor(() => expect(sent).toHaveBeenCalled());
+    let answered = false;
+    const ready = login
+      .handle(
+        {
+          version: 1,
+          type: "login.document.ready",
+          token: "synthetic-token",
+          start: { path: new URL(fake.pageUrl).pathname },
+        },
+        page,
+      )
+      .finally(() => (answered = true));
+    // While the page is being admitted, the count's next job does not start.
+    const next = vi.fn(async () => "next");
+    expect(await login.siteCount.step(next)).toBeUndefined();
+    expect(next).not.toHaveBeenCalled();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(answered).toBe(false);
+    finish();
+    expect(await counted).toEqual({ value: undefined });
+    expect(await ready).toEqual({ ok: true });
+    // Nor while the login it admitted runs.
+    expect(await login.active()).toBe(true);
+    expect(await login.siteCount.step(next)).toBeUndefined();
+    expect(next).not.toHaveBeenCalled();
+    await vi.waitFor(async () => expect(await login.active()).toBe(false));
+  });
+  it("tells the site count once a top frame's announcement is handled", async () => {
+    const events: string[] = [];
+    const login = createLoginRuntime(settingsFor({}), {
+      fields: vi.fn<LoginFieldSource>(async () => "synthetic-secret"),
+      vault: {
+        refreshIfStale: () => undefined,
+        enter: async () => () => events.push("admitted"),
+      },
+      announced: (tabId, url) => events.push(`announced ${tabId} ${url}`),
+    });
+    const hello = { version: 1, type: "login.document.ready", token: "synthetic-token" };
+    await login.handle(hello, page);
+    await login.handle(hello, { ...(page as object), frameId: 3 } as never);
+    await vi.waitFor(() => expect(events).toContain(`announced 1 ${fake.pageUrl}`));
+    expect(events.indexOf("admitted")).toBeLessThan(events.indexOf(`announced 1 ${fake.pageUrl}`));
+    expect(events.filter((event) => event.startsWith("announced"))).toHaveLength(1);
   });
   it("a hello waiting on a vault check is stale once a later hello from the frame arrives", async () => {
     let open!: () => void;

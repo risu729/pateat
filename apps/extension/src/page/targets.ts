@@ -11,7 +11,12 @@ import {
   linkText,
 } from "./text";
 
-const attributes = { id: "id", name: "name", "test-id": "data-testid" } as const;
+const attributes = {
+  id: "id",
+  name: "name",
+  "test-id": "data-testid",
+  "data-test": "data-test",
+} as const;
 /** Every element an `accessible-name` locator may name ({@link isNamedControl}). */
 export const namedControls = "button, input, a, [role]";
 
@@ -121,6 +126,14 @@ export function findTargets(
     return [...document.querySelectorAll("input")].filter(
       (input) => fieldName(input) === target.value,
     );
+  if (target.by === "password-form-name")
+    return shownAmong(
+      [...document.querySelectorAll("[name]")].filter(
+        (element) =>
+          element.getAttribute("name") === target.value && signInForm(formOf(element), hidden),
+      ),
+      hidden,
+    );
   if (target.by === "accessible-name")
     return [...document.querySelectorAll(namedControls)].filter(
       (element) => controlName(element) === target.value,
@@ -138,5 +151,29 @@ export function findTargets(
       (element) => element.getAttribute(attribute) === target.value,
     ),
     hidden,
+  );
+}
+
+/** An element's form owner, for a control, or its nearest `<form>` otherwise. */
+const formOf = (element: Element): HTMLFormElement | null =>
+  "form" in element && (element.form === null || element.form instanceof HTMLFormElement)
+    ? element.form
+    : element.closest("form");
+
+/**
+ * Whether `form` holds a shown password input not marked `new-password`, the form a
+ * `password-form-name` locator looks in (ADR 0072); with `hidden`, a hidden one counts
+ * too, so a signed-in marker's missing elements (ADR 0029) still see a hidden form's copy.
+ */
+function signInForm(form: HTMLFormElement | null, hidden: boolean): boolean {
+  return (
+    form !== null &&
+    [...form.elements].some(
+      (element) =>
+        element instanceof HTMLInputElement &&
+        element.type === "password" &&
+        !autocompleteTokens(element).includes("new-password") &&
+        (hidden || visible(element)),
+    )
   );
 }

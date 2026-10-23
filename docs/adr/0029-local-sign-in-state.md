@@ -334,14 +334,14 @@ sign-in, so the completion check and E1 read the same markers. A page the judge 
 `signed-in` for adds its marker after the learned ones in the recipe's next revision,
 which a running login takes over; when the recipe has four, or the judge names one it
 has, nothing changes and the login completes. A marker is never an element the recipe's
-steps, passkey route or handlers use on any path, since it would then prove a sign-in on
-their pages. A marker learned on a step's own path keeps that path's fill fields as
-`absent` elements, which must now be missing on every path, so a site that keeps a
-hidden sign-in form on its signed-in pages does not complete on that marker. The recipes
-already stored when this shipped keep working: on 2026-10-12 at 18:07 UTC the owner
-chose to rewrite them once, so D1 migration 0013 turns each stored completion into a
-one-marker list, and leaves out one whose locator another element of the recipe also
-uses.
+steps, passkey route or handlers use on any path, nor its account switch or rejection
+(2026-10-23), since it would then prove a sign-in on their pages. A marker learned on a
+step's own path keeps that path's fill fields as `absent` elements, which must now be
+missing on every path, so a site that keeps a hidden sign-in form on its signed-in pages
+does not complete on that marker. The recipes already stored when this shipped keep
+working: on 2026-10-12 at 18:07 UTC the owner chose to rewrite them once, so D1
+migration 0013 turns each stored completion into a one-marker list, and leaves out one
+whose locator another element of the recipe also uses.
 
 Markers that name a link by its path (owner's choice 「リンク先で見分ける」 on a
 decision card, 2026-10-13 05:17 UTC): on the signed-in page's description, a link to the

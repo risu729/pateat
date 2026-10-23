@@ -8,20 +8,31 @@ description = "Score AI role adapters on the synthetic corpus with fake provider
 run = "node ../../node_modules/vitest/vitest.mjs run"
 
 [tasks.bench]
-description = "Benchmark generation on a corpus: Claude (paid, owner approval per run) or the free heuristic."
+description = "Benchmark generation or the sign-in judge on a corpus: Claude (paid, owner approval per run) or the free heuristic."
 usage = '''
 flag "--paid" help="Confirm the owner approved this paid Claude run."
 flag "--max-cost-usd <usd>" default="2" help="Stop before a call that could exceed this estimated spend."
-flag "--corpus <name>" default="synthetic" help="The synthetic corpus, the Formasaurus real-page corpus or the Japanese pages." {
-  choices "synthetic" "real" "japanese"
+flag "--corpus <name>" default="synthetic" help="The synthetic corpus, the Formasaurus real-page corpus, the Japanese pages, the English pages, or the sign-in judge's pages." {
+  choices "synthetic" "real" "japanese" "web" "judge"
 }
 flag "--provider <name>" default="claude" help="Claude, or the model-free heuristic comparator." {
   choices "claude" "heuristic"
 }
 flag "--from <index>" default="0" help="Index of the first case, to run the corpus in batches."
 flag "--count <n>" help="Number of cases in this batch; all remaining when omitted."
+flag "--model <id>" default="claude-opus-5-5" help="The Claude model to compare, one priced in src/providers/claude-pricing.json; the service runs claude-opus-5-5."
+flag "--effort <level>" default="low" help="The effort to run the model at." {
+  choices "low" "medium" "high" "xhigh" "max"
+}
+flag "--speed <speed>" default="standard" help="Fast mode, on the models priced for it." {
+  choices "standard" "fast"
+}
 '''
-run = "bun ../../scripts/inference-benchmark.ts {% if usage.paid %}--paid{% endif %} --max-cost-usd {{ usage.max_cost_usd }} --corpus {{ usage.corpus }} --provider {{ usage.provider }} --from {{ usage.from }} {% if usage.count %}--count {{ usage.count }}{% endif %}"
+run = "bun ../../scripts/inference-benchmark.ts {% if usage.paid %}--paid{% endif %} --max-cost-usd {{ usage.max_cost_usd }} --corpus {{ usage.corpus }} --provider {{ usage.provider }} --from {{ usage.from }} {% if usage.count %}--count {{ usage.count }}{% endif %} --model {{ usage.model }} --effort {{ usage.effort }} --speed {{ usage.speed }}"
+
+[tasks.pricing]
+description = "Refresh the committed Claude rates from the public pricing page (ADR 0014)."
+run = ["bun ../../scripts/claude-pricing.ts", "oxfmt src/providers/claude-pricing.json"]
 
 [tasks."corpus:formasaurus"]
 description = "Regenerate the real-page corpus from a local Formasaurus checkout (ADR 0012)."
@@ -35,15 +46,16 @@ run = [
 ]
 
 [tasks."corpus:japanese"]
-description = "Observe public Japanese login pages live: refresh the Japanese corpus, or report listed pages to label."
+description = "Observe public login pages live: refresh the Japanese or English corpus, or report listed pages to label."
 usage = '''
 flag "--refresh" help="Observe every corpus page again and move each label to the new observation."
+flag "--web" help="Refresh the English pages (src/corpus/web.json) instead of the Japanese ones."
 flag "--report <file>" help="Write the observations of the listed pages to this local file (an absolute path)."
 flag "--chromium <path>" help="Chromium or Chrome executable, when Playwright's own is not installed."
 flag "--headed" help="Show the browser window."
 arg "[url]..." var=#true help="Public login pages to observe for labelling."
 '''
 run = [
-  "bun ../../scripts/japanese/observe.ts {% if usage.refresh %}--refresh{% endif %} {% if usage.report %}--report {{ usage.report | quote }}{% endif %} {% if usage.chromium %}--chromium {{ usage.chromium | quote }}{% endif %} {% if usage.headed %}--headed{% endif %} {% for url in usage.url %}{{ url | quote }} {% endfor %}",
-  "oxfmt src/corpus/japanese.json",
+  "bun ../../scripts/japanese/observe.ts {% if usage.refresh %}--refresh{% endif %} {% if usage.web %}--corpus src/corpus/web.json{% endif %} {% if usage.report %}--report {{ usage.report | quote }}{% endif %} {% if usage.chromium %}--chromium {{ usage.chromium | quote }}{% endif %} {% if usage.headed %}--headed{% endif %} {% for url in usage.url %}{{ url | quote }} {% endfor %}",
+  "oxfmt src/corpus/japanese.json src/corpus/web.json",
 ]

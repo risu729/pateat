@@ -362,12 +362,16 @@ export const manageErrorCodeSchema = v.picklist([
   "forbidden",
   /** The service has no Access configuration. */
   "access_unavailable",
+  /** Access's signing keys could not be fetched, so no token can be checked. */
+  "access_keys_unavailable",
   "not_found",
   /** Settings belong to an account with a paired device; this identity has none. */
   "not_paired",
   "method_not_allowed",
   "payload_too_large",
   "unsupported_media_type",
+  /** A model choice names a model, effort or speed the model list does not offer. */
+  "model_unavailable",
   /** Too many requests from this identity in the last minute. */
   "rate_limited",
   "internal_error",
