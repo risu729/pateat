@@ -358,7 +358,7 @@ describe("personal-detail inputs (ADR 0061)", () => {
       expect(refusal(birth, { role })).toBeUndefined();
       expect(refusal({ detail: "birth-date", format: "yyyymmdd" }, { role })).toBeUndefined();
     }
-    for (const role of ["text", "tel", "number", "password"]) {
+    for (const role of ["text", "tel", "number"]) {
       expect(refusal(phone, { role, maxLength: 4 })).toBeUndefined();
       expect(refusal(cardLast, { role })).toBeUndefined();
     }
@@ -402,20 +402,25 @@ describe("personal-detail inputs (ADR 0061)", () => {
       "text-locator",
     ],
     ["a username input", phone, { autocomplete: "username" }, {}, "sign-in-field"],
+    // Only a card's security code goes into a password input, so a PIN or a second
+    // password the judge takes for the last four digits is not kept.
+    ["the phone's last four in a password input", phone, { role: "password" }, {}, "not-input"],
+    ["the card's last four in a password input", cardLast, { role: "password" }, {}, "not-input"],
     [
       "a password input",
-      phone,
+      code,
       { role: "password", autocomplete: "current-password" },
       {},
       "sign-in-field",
     ],
     [
       "a new password input",
-      cardLast,
+      code,
       { role: "password", autocomplete: "new-password" },
       {},
       "sign-in-field",
     ],
+    ["an email input", phone, { autocomplete: "email" }, {}, "sign-in-field"],
     ["a one-time code input", birth, { autocomplete: "one-time-code" }, {}, "sign-in-field"],
     ["a year and month in 5 characters", birth, { maxLength: 5 }, {}, "too-short"],
     [

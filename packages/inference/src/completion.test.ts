@@ -941,6 +941,25 @@ describe("personal-detail inputs on a challenge page (ADR 0061)", () => {
     });
   });
 
+  it("drops the input the page's code is typed into, even a code sent to the person", async () => {
+    expect(
+      await judged([birth, phone, next], {
+        ...answer(),
+        code: { field: "phone", submit: "next", source: "sms" },
+      }),
+    ).toEqual(
+      expect.objectContaining({
+        status: "ok",
+        value: {
+          decision: "challenge",
+          totpDropped: "source-sms",
+          detail: { fields: [kept], target: { by: "id", value: "next" } },
+          detailsDropped: ["code-field"],
+        },
+      }),
+    );
+  });
+
   it.each([
     [
       "an input the page lacks",

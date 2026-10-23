@@ -247,6 +247,7 @@ function detailInputs(
     | { field: string; value: LoginDetail; format?: BirthDateFormat | undefined }[]
     | undefined,
   submitId: string | undefined,
+  code: { field: string } | undefined,
 ):
   | {
       detail?: NonNullable<Extract<SignInJudgement, { decision: "challenge" }>["detail"]>;
@@ -259,6 +260,12 @@ function detailInputs(
   // A link named by its path is only ever a signed-in marker (ADR 0029), and a button named
   // by its accessible name only a `password` handler's (ADR 0048).
   const target = isStepTarget(submit.target) ? submit.target : undefined;
+  // An input the judge also names as a code's, or one of a split code's inputs, is the
+  // code's even when the code is dropped, as one sent to the person is.
+  const named = code && page.candidates.find((candidate) => candidate.id === code.field);
+  const codeFields = new Set(
+    named ? (splitCodeInputs(page, named) ?? [named]).map((candidate) => candidate.id) : [],
+  );
   const dropped: string[] = [];
   const fields: { detail: LoginDetail; format?: BirthDateFormat; target: LoginFieldTarget }[] = [];
   const seen = new Set<string>();
@@ -274,6 +281,10 @@ function detailInputs(
     }
     if (seen.has(field.id)) {
       dropped.push("duplicate");
+      continue;
+    }
+    if (codeFields.has(field.id)) {
+      dropped.push("code-field");
       continue;
     }
     const refusal = detailInputRefusal(
@@ -427,7 +438,7 @@ export function createCompletionJudge(config: {
           const password =
             passwordTarget && isLoginTarget(passwordTarget) ? passwordTarget : undefined;
           const totp = totpCode(page, draft.code);
-          const detail = detailInputs(page, draft.details, draft.detailSubmit);
+          const detail = detailInputs(page, draft.details, draft.detailSubmit, draft.code);
           // A named element that is not a button of this page, or a code that fails the
           // local checks, adds no handler.
           return {

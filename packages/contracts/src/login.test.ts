@@ -980,6 +980,25 @@ describe("second-factor page handlers (ADR 0027)", () => {
       ).toBe(true);
     });
 
+    it("refuses a route step that fills a slot named as a detail handler's", () => {
+      const base = recipe();
+      const named = {
+        ...base,
+        slots: ["branch", "detail", "password"],
+        steps: base.steps.map((step) =>
+          step.kind === "fill" && step.path === "/identity"
+            ? {
+                ...step,
+                fields: step.fields.map((field) =>
+                  field.slot === "account" ? { ...field, slot: "detail" } : field,
+                ),
+              }
+            : step,
+        ),
+      };
+      expect(() => parseLoginRecipe(named)).toThrow("a route slot is named as a detail handler's");
+    });
+
     it("lists its inputs, then its button, and fills the input at field before the click", () => {
       expect(handlerTargets(detail())).toEqual([birth.target, phone.target, confirm]);
       const fill = (target: unknown) => ({

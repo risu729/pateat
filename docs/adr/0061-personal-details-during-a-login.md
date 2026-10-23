@@ -71,9 +71,9 @@ make each value. A page that asks for anything else stays `challenge`.
 | `detail` | Read from | Filled as | Into |
 | --- | --- | --- | --- |
 | `birth-date` | a Text or Hidden custom field | the date in the input's `format` | a text, tel or number input |
-| `phone-last-4` | `identity.phone`, or a Text or Hidden custom field | its last four digits | a text, tel, number or password input |
-| `card-last-4` | `card.number` | its last four digits | a text, tel, number or password input |
-| `card-code` | `card.code` | as it is, 3 or 4 digits | a password input, or a text, tel or number input with `maxlength` 3 or 4 |
+| `phone-last-4` | `identity.phone`, or a Text or Hidden custom field | its last four digits | a text, tel or number input |
+| `card-last-4` | `card.number` | its last four digits | a text, tel or number input |
+| `card-code` | `card.code` | as it is, 3 or 4 digits | a password input, or a text or tel input with `maxlength` 3 or 4 |
 
 These rules replace the Hidden-field rule for these values: a birth date kept in a
 Hidden field may go into a text input. `format` is one of `yyyymmdd`, `yyyymm`,
@@ -111,11 +111,13 @@ the page's content script.
 - It comes after the `totp` handler in the order of handlers shown together.
 - The service keeps it only when every input is a fill-role input of the page that the
   table admits for its detail, located by an attribute or its visible name, not marked
-  `username`, `current-password`, `new-password` or `one-time-code`, with a declared
-  `maxlength`, when it has one, that holds the value (`yyyymm` needs 6), and in the
-  button's form; no input or the button is a route step's element or fill field, the
-  recipe's `totp` code field there, or another element the recipe checks; and the path
-  has no `detail` handler yet.
+  `username`, `email`, `current-password`, `new-password` or `one-time-code`, with a
+  declared `maxlength`, when it has one, that holds the value (`yyyymm` needs 6), and in
+  the button's form; no input or the button is a route step's element or fill field, the
+  recipe's `totp` code field there, or another element the recipe checks; no input is
+  the one the judge names as the page's code, sent or not, or one of a split code's
+  inputs (`code-field`); no route step fills a slot named `detail`, the handler's own;
+  and the path has no `detail` handler yet.
 
 ### Choice radios
 
@@ -233,8 +235,12 @@ by `?`. Never a value or an item name.
 3. One confirmation per link, not per login: the owner's "records the choice once the
    owner confirms it".
 4. A link is per site and login item, so two accounts on one site are linked separately.
-5. The guess reads only item and field names and the page's host name and title; masked
-   card digits and card brands on the page are not read.
+5. The guess reads only item and field names and the page's host name and title. This
+   departs from the owner's example of what the guess may read (05:27 UTC: "a card name,
+   brand or masked last digits"): reading masked digits or a brand needs the page's text
+   and every card item's number in the worker before any confirmation, so it is left out
+   of this first version; an item name holding the card's name or last digits still
+   ranks it first.
 6. Birth dates split across year, month and day selects are not filled: Pateat fills no
    selects.
 

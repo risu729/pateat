@@ -642,8 +642,15 @@ export const loginRecipeSchema = v.pipe(
   // its path, such as the password input of a form that asks for the code after it. A
   // `detail` handler's inputs and button are all its own (ADR 0061): the route's sign-in
   // form may still show beside them.
+  // The `detail` slot is the handler's own, so no route step fills one by that name.
   v.check(
     (recipe) =>
+      !variantsOf(recipe).some((variant) =>
+        variant.steps.some(
+          (step) =>
+            step.kind === "fill" && step.fields.some((field) => field.slot === DETAIL_HANDLER_SLOT),
+        ),
+      ) &&
       !(recipe.handlers ?? []).some((handler) => {
         if (handler.kind !== "totp" && handler.kind !== "detail") return false;
         const own = (handler.kind === "totp" ? [handler.field] : handlerTargets(handler)).map(
@@ -659,7 +666,7 @@ export const loginRecipeSchema = v.pipe(
           ),
         );
       }),
-    "The code field or a detail handler's element is a route step target",
+    "The code field or a detail handler's element is a route step target, or a route slot is named as a detail handler's",
   ),
 
   // A `password` handler's button leads to the password a route step types: it is never a
