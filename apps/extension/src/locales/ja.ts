@@ -305,21 +305,21 @@ export const ja = {
   "Filled from {{field}}": "{{field}} から入力",
   "Filled from {{field}} (not saved yet)": "{{field}} から入力（未保存）",
   "Remove the link for {{detail}}": "{{detail}}の割り当てを解除",
-  "Filling…": "入力しています…",
+  "Filling…": "入力中…",
   "Filled. Check it and submit the form; Pateat saves this choice once you are signed in.":
-    "入力しました。内容を確認してフォームを送信してください。ログインできたら、Pateat はこの選択を保存します。",
+    "入力しました。内容を確認してフォームを送信してください。ログインに成功すると、この選択が保存されます。",
   "Nothing was filled. Reopen this popup and try again.":
-    "何も入力されませんでした。このポップアップを開き直して、もう一度お試しください。",
-  "Removing…": "解除しています…",
+    "何も入力しませんでした。このポップアップを開き直して、もう一度お試しください。",
+  "Removing…": "解除中…",
   "Removed. Pateat no longer fills {{detail}} on this site.":
-    "解除しました。Pateat はこのサイトで{{detail}}を入力しなくなりました。",
+    "解除しました。今後このサイトでは{{detail}}を入力しません。",
   "This link was already removed.": "この割り当てはすでに解除されています。",
   "The link could not be removed. Reopen this popup and try again.":
     "割り当てを解除できませんでした。このポップアップを開き直して、もう一度お試しください。",
   "The link may not have been removed. Reopen this popup to see the links.":
     "割り当てが解除されていない可能性があります。割り当てを確認するには、このポップアップを開き直してください。",
   "your birth year and month": "生年月",
-  "your birth month and day": "誕生月日",
+  "your birth month and day": "誕生日（月日）",
   "your birth date": "生年月日",
   "the last 4 digits of your phone number": "電話番号の下 4 桁",
   "the last 4 digits of your card number": "カード番号の下 4 桁",
@@ -327,9 +327,9 @@ export const ja = {
   "The page changed, so nothing was filled.": "ページが変わったため、何も入力しませんでした。",
   "This page no longer asks for it.": "このページはもうこの情報を求めていません。",
   "That field does not hold a value Pateat can use here.":
-    "そのフィールドには、ここで Pateat が使える値がありません。",
+    "そのフィールドの値はここでは使えません。",
   "Pateat cannot read that field now. Unlock the vault and try again.":
-    "Pateat は今そのフィールドを読み取れません。保管庫のロックを解除して、もう一度お試しください。",
+    "そのフィールドを今は読み取れません。保管庫のロックを解除して、もう一度お試しください。",
   "The page did not accept the value.": "ページが値を受け付けませんでした。",
   "the answer to your secret question": "秘密の質問の答え",
   "your member or customer number": "会員番号またはお客様番号",
@@ -338,4 +338,5 @@ export const ja = {
   "your PIN": "暗証番号",
   "This page shows another account, so nothing was filled.":
     "このページには別のアカウントが表示されているため、何も入力しませんでした。",
+  "ID {{id}}": "ID {{id}}",
 } satisfies Record<keyof typeof en, string>;
