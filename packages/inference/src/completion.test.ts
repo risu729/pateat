@@ -451,6 +451,9 @@ describe("optional page after the sign-in (ADR 0065)", () => {
     ["a username field", { id: "user", role: "email", autocomplete: "username" }],
     ["a one-time-code field", { id: "otp", role: "text", autocomplete: "one-time-code" }],
     ["a numeric code field", { id: "otp", role: "text", inputMode: "numeric", maxLength: 6 }],
+    ["a plain email field", { id: "mail", role: "email", label: "Recovery email" }],
+    ["a phone field", { id: "phone", role: "tel", label: "Phone number" }],
+    ["a text field", { id: "answer", role: "text", label: "Your answer" }],
   ])("reads an optional answer on a page with %s as a challenge", async (_name, field) => {
     const outcome = await judgeReturning({ decision: "optional" }).judge(withField(field));
     expect(outcome).toMatchObject({ status: "ok", value: { decision: "challenge" } });
@@ -458,12 +461,24 @@ describe("optional page after the sign-in (ADR 0065)", () => {
     expect(outcome.answer).toEqual({ decision: "optional" });
   });
 
+  it.each([
+    ["by its label", { label: "Search" }],
+    ["by its placeholder", { placeholder: "サイト内検索" }],
+    ["by its input mode", { inputMode: "search" }],
+  ])("keeps an optional page with a search box %s optional", async (_name, extra) => {
+    const field = { id: "q", role: "text", ...extra };
+    expect(await judgeReturning({ decision: "optional" }).judge(withField(field))).toMatchObject({
+      status: "ok",
+      value: { decision: "optional" },
+    });
+  });
+
   it("tells the model what such a page is and what stays a challenge", () => {
     expect(completionInstructions).toMatch(
-      /A page shown after the sign-in whose content is only an offer or reminder the person may put off, .* is optional, not a challenge and not signed-in\./u,
+      /A page shown after the sign-in whose content is only an offer or reminder the person may put off, .* is optional, not a challenge and not signed-in, but only when the person is already signed in and could reach the account without acting on the page\./u,
     );
     expect(completionInstructions).toMatch(
-      /A page that asks for a password, a code, a CAPTCHA, a confirmation of the sign-in or another step before the account opens is a challenge, never optional, and so is a security notice about this sign-in, .* even one with Dismiss\./u,
+      /A page that asks for a choice of how to sign in, a password, a code, a CAPTCHA, an approval on another device, a confirmation of the sign-in or another step before the account opens is a challenge, never optional, and so is a security notice about this sign-in, .* even one with Dismiss\./u,
     );
   });
 });

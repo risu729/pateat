@@ -3405,7 +3405,7 @@ describe("page judgement (ADR 0027)", () => {
       element("logout", "button", "Sign out"),
     ]);
 
-    it("answers optional, learns nothing and answers a later login judged-optional", async () => {
+    it("answers optional, learns nothing and judges the path again on a later login", async () => {
       const device = await owner();
       const change = await twoPageRecipe(device);
       replies.push(judgeReply({ decision: "optional" }));
@@ -3415,21 +3415,38 @@ describe("page judgement (ADR 0027)", () => {
       });
       // No marker from a page whose elements may never show on the usual signed-in page.
       expect(await head(device, change.recipeId)).toBe(2);
+      const verdicts = () =>
+        rows(
+          "SELECT verdict FROM page_judgements WHERE owner_id = ? AND path = '/checkup'",
+          device.ownerId,
+        );
+      expect(await verdicts()).toEqual([{ verdict: "optional" }]);
+      // The judge was told what such a page is.
+      expect(JSON.stringify(sent.at(-1)!.body)).toContain("is optional, not a challenge");
+      // The same path later shows the password form again, as a single-page sign-in does:
+      // the earlier answer is not reused, and the new one replaces it.
+      const calls = sent.length;
+      replies.push(judgeReply({ decision: "challenge" }));
+      expect((await complete(device, change.recipeId, 2, checkupPage)).body).toEqual({
+        version: 1,
+        status: "challenge",
+      });
+      expect(sent).toHaveLength(calls + 1);
+      expect(await verdicts()).toEqual([{ verdict: "challenge" }]);
+    });
+
+    it("keeps an optional answer on a description that left out a disabled field as partial", async () => {
+      const device = await owner();
+      const change = await twoPageRecipe(device);
+      replies.push(judgeReply({ decision: "optional" }));
+      const body = await complete(device, change.recipeId, 2, checkupPage, true);
+      expect(body.body).toEqual({ version: 1, status: "optional" });
       expect(
         await rows(
           "SELECT verdict FROM page_judgements WHERE owner_id = ? AND path = '/checkup'",
           device.ownerId,
         ),
-      ).toEqual([{ verdict: "optional" }]);
-      // The judge was told what such a page is.
-      expect(JSON.stringify(sent.at(-1)!.body)).toContain("is optional, not a challenge");
-      const calls = sent.length;
-      expect((await complete(device, change.recipeId, 2, checkupPage)).body).toEqual({
-        version: 1,
-        status: "unavailable",
-        reason: "judged-optional",
-      });
-      expect(sent).toHaveLength(calls);
+      ).toEqual([{ verdict: "partial" }]);
     });
 
     it("answers a challenge for an optional answer on a page with a code field", async () => {

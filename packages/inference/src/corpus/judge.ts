@@ -560,14 +560,8 @@ const cases: JudgeCase[] = [
       [checkbox("dont-ask", "Don't show this again"), button("yes", "Yes"), button("no", "No")],
       { title: "Sign in", headings: ["Stay signed in?"] },
     ),
-    // The person is signed in and may answer either way, but the account opens only after
-    // the answer: either reading leaves the page to the person (ADR 0065).
-    expected: {
-      decisions: ["challenge", "optional"],
-      passkeyButton: null,
-      passwordButton: null,
-      code: null,
-    },
+    // The account opens only after the answer, so it is never optional (ADR 0065).
+    expected: { decisions: ["challenge"], passkeyButton: null, passwordButton: null, code: null },
   },
   {
     id: "en-passkey-offer",
@@ -797,6 +791,91 @@ const cases: JudgeCase[] = [
     ),
     // Never optional: the person should read it, and no marker is learned on it.
     expected: { decisions: ["challenge", "unclear"], passkeyButton: null, code: null },
+  },
+  {
+    id: "en-send-code-button",
+    summary: "Modeled on a page that offers to send a code before any code field shows",
+    loginPaths: ["/login"],
+    observation: page(
+      "store",
+      "/ap/challenge",
+      "en",
+      [byText(button("send", "Send code")), byText(link("other", "Try another way"))],
+      {
+        title: "Verify it's you",
+        headings: ["Verify it's you", "We'll send a code to your phone"],
+        nearButtons: ["For your security, we need to verify your identity."],
+      },
+    ),
+    expected: { decisions: ["challenge"], code: null, passkeyButton: null },
+  },
+  {
+    id: "en-number-match",
+    summary: "Modeled on a phone approval that shows a number to match",
+    loginPaths: ["/login"],
+    observation: page(
+      "corp",
+      "/login/approve",
+      "en",
+      [
+        checkbox("dont-ask", "Don't ask again for 30 days"),
+        byText(link("other", "I can't use my app right now")),
+      ],
+      {
+        title: "Approve sign in request",
+        headings: [
+          "Approve sign in request",
+          "Open your authenticator app and enter the number shown to sign in.",
+          "42",
+        ],
+      },
+    ),
+    expected: { decisions: ["challenge"], code: null, passkeyButton: null },
+  },
+  {
+    id: "en-recovery-email-confirm",
+    summary: "Modeled on a request to confirm the recovery email by typing it",
+    loginPaths: ["/signin"],
+    observation: page(
+      "mail2",
+      "/signin/challenge/recovery",
+      "en",
+      [
+        email("recovery", "Enter recovery email address", { group: "f1" }),
+        button("next", "Next", { group: "f1" }),
+        byText(link("other", "Try another way")),
+      ],
+      {
+        title: "Verify it's you",
+        headings: [
+          "Verify it's you",
+          "Confirm the recovery email address you added to your account",
+        ],
+      },
+    ),
+    expected: { decisions: ["challenge"], code: null },
+  },
+  {
+    id: "en-pre-auth-passkey-choice",
+    summary:
+      "Modeled on the page after the identifier's Next that offers a passkey or the password",
+    loginPaths: ["/login"],
+    observation: page(
+      "shop2",
+      "/login/options",
+      "en",
+      [
+        byText(button("use-passkey", "Use passkey")),
+        byText(button("use-password", "Use password instead")),
+        byText(button("not-now", "Not now")),
+      ],
+      {
+        title: "Sign in",
+        headings: ["Sign in faster with a passkey"],
+        nearButtons: ["Use the passkey saved on this device to sign in to [account]."],
+      },
+    ),
+    expected: { decisions: ["challenge"], passkeyButton: "use-passkey" },
   },
   {
     id: "en-loading",

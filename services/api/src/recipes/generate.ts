@@ -56,7 +56,7 @@ import {
   type InferenceErrorCode,
   type InferenceOutcome,
 } from "@pateat/inference";
-import { and, count, eq, gt, gte, lt, notInArray, or } from "drizzle-orm";
+import { and, count, eq, gt, gte, inArray, lt, notInArray, or } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import * as v from "valibot";
 import type { DeviceScope } from "../auth";
@@ -917,16 +917,17 @@ export async function judgeCompletion(
           ),
         )
         .limit(1);
-      // A later login of the revision completes on the path only after a `signed-in`,
-      // `optional` (ADR 0065) or undecided verdict (ADR 0029): one judged `challenge` or
-      // `rejected`, still being judged, or whose request failed does not. A row of an
-      // earlier judge prompt does not count: a page it judged `challenge` but kept no handler for, such as a code split
+      // A later login of the revision completes on the path only after a `signed-in` or
+      // undecided verdict (ADR 0029): one judged `challenge` or `rejected`, still being
+      // judged, or whose request failed does not. A row of an earlier judge prompt does not
+      // count: a page it judged `challenge` but kept no handler for, such as a code split
       // into one-digit inputs before those were learned, is judged again. A page the model
       // could not decide on a description that left out a disabled field, as a code field
       // waiting for its code may be, is judged again once the path is described in full; a
       // description that leaves one out again is `already-judged`, which the extension
-      // never completes on.
-      if (judged && !(judged.verdict === "partial" && !partial))
+      // never completes on. A page judged `optional` is judged again each time: another
+      // page of the same path, as a single-page sign-in shows, may ask for a step (ADR 0065).
+      if (judged && !(judged.verdict === "partial" && !partial) && judged.verdict !== "optional")
         return judged.verdict === "challenge"
           ? "judged-challenge"
           : judged.verdict === "rejected"
@@ -935,9 +936,7 @@ export async function judgeCompletion(
               ? "judgement-unanswered"
               : judged.verdict === "signed-in"
                 ? "judged-signed-in"
-                : judged.verdict === "optional"
-                  ? "judged-optional"
-                  : "already-judged";
+                : "already-judged";
       const [today] = await db
         .select({ value: count() })
         .from(pageJudgements)
@@ -945,8 +944,9 @@ export async function judgeCompletion(
       return (today?.value ?? 0) >= JUDGEMENTS_PER_RECIPE_DAY ? "judgement-limit" : undefined;
     },
     // A request the role refuses before sending gives the slot back, as a generation
-    // attempt does (ADR 0027); a `partial` row judged again takes today's slot and waits
-    // for its new verdict. Rows of older revisions or judges go once their day is over.
+    // attempt does (ADR 0027); a `partial` or `optional` row judged again takes today's
+    // slot and waits for its new verdict. Rows of older revisions or judges go once their
+    // day is over.
     beforeSend: (db, now) => [
       db
         .insert(pageJudgements)
@@ -971,7 +971,7 @@ export async function judgeCompletion(
             pageJudgements.promptVersion,
           ],
           set: { judgedAt: now, verdict: null },
-          setWhere: eq(pageJudgements.verdict, "partial"),
+          setWhere: inArray(pageJudgements.verdict, ["partial", "optional"]),
         }),
       db
         .delete(pageJudgements)
@@ -1037,11 +1037,13 @@ export async function judgeCompletion(
     await keepVerdict("unclear");
     return { version: 1, status: "unclear" };
   }
-  await keepVerdict(judgement.decision);
+  // An optional answer on a description that left out a disabled field is kept as
+  // `partial`, as an abstention there is (ADR 0029, ADR 0065).
+  await keepVerdict(partial && judgement.decision === "optional" ? "partial" : judgement.decision);
   if (judgement.decision === "rejected") return { version: 1, status: "rejected" };
   // A page the person may put off is signed in, but nothing is learned there (ADR 0065):
   // its elements may never show on the usual signed-in page, so a marker comes only from a
-  // page judged `signed-in`.
+  // page judged `signed-in`, and the path is judged again on the next login.
   if (judgement.decision === "optional") return { version: 1, status: "optional" };
   if (judgement.decision === "challenge") {
     // A page may offer both a security key and a TOTP code, or a button that goes on to

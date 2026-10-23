@@ -588,7 +588,8 @@ test("an optional page after the sign-in completes the login as signed in, press
         expect(learned).not.toHaveProperty("completion");
         expect(learned).not.toHaveProperty("handlers");
 
-        // The next login that meets it completes the same way, with no model call.
+        // The next login that meets it is judged again, as the path may ask for a step
+        // then, and completes the same way.
         await page.close();
         const next = await browser.context.newPage();
         await next.goto(`${site}/sign-in?optional`);
@@ -596,7 +597,11 @@ test("an optional page after the sign-in completes the login as signed in, press
         await signedIn();
         expect(await unconfirmed()).toBeUndefined();
         expect(await clicks(next)).toEqual({ submitClicks: 1, verifyClicks: 0, laterClicks: 0 });
-        expect(claude.prompts).toHaveLength(2);
+        expect(claude.prompts.map((prompt) => prompt.observation.path)).toEqual([
+          "/sign-in",
+          "/checkup",
+          "/checkup",
+        ]);
 
         // A login that reaches the usual signed-in page learns its marker there.
         await next.close();

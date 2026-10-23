@@ -1453,16 +1453,21 @@ recorded revision resumes. What the judge answers settles the login on the `pass
 route as the ADR's outcome table says: `signed-in` completes it, `rejected` ends it
 `credential-rejected`, and `challenge` ends it `challenge`. `optional`, a page after the
 sign-in that only offers something the person may put off, such as a check of
-two-factor settings or an offer to add a passkey
-([ADR 0065](adr/0065-optional-pages-after-a-sign-in.md)), completes it as signed in,
-confirmed, on either route, watched or not, and presses nothing: the page stays as it
-is. It does so only when the page confirmed no sign and no evidence before the request
-and the loaded document still shows none after the answer, and the description left out
-no disabled field; otherwise it ends `challenge`. The judge's own answer fails closed
-the same way: `optional` on a page that shows a sign-in or code field counts as
-`challenge`. The service learns nothing from it, no marker and no handler, since the
-page's elements may never show on the usual signed-in page, and answers a later request
-for the path `judged-optional`, which completes the same way. An `unclear` answer
+two-factor settings or an offer to add a passkey, while the person could already reach
+the account ([ADR 0065](adr/0065-optional-pages-after-a-sign-in.md)), completes it as
+signed in, confirmed, watched or not, and presses nothing: the page stays as it is. It
+does so only once the attempt submitted the item's password or a second factor's
+handler, when the page confirmed no sign and no evidence before the request and the
+loaded document still shows none after the answer on the same path, the description
+left out no disabled field and the login has no stop before a missing password;
+otherwise it ends `challenge`, or before the credential settles as an undecided page
+without completing. The `passkey` route ends it `challenge` as any page its checks do
+not prove. A moved login (ADR 0022) completes on it after the move's own re-check, once
+the attempt submitted the password or a TOTP code and without a stop. The judge's own
+answer fails closed too: `optional` on a page with any input other than a search box
+counts as `challenge`. The service learns nothing from it, no marker and no handler,
+since the page's elements may never show on the usual signed-in page, and does not
+reuse it: a later login that reaches the path is judged again. An `unclear` answer
 completes it, as a warning marked `completed`, only when the page confirmed no sign and
 no evidence (S1 to S5, E1 to E3) before the request and still shows none in the loaded
 document after the answer, the login is not watched, the description left out no
@@ -1525,7 +1530,8 @@ watch began in, is only read. The signed-in markers are checked for 3 seconds, t
 sign-in state; a confirmed `signed-in` reading completes the login, and a page with no
 sign of a sign-in going on and no evidence (the `judge` decision) is sent to be judged,
 at most 2 pages for the whole watch, counted apart from the effect step's own.
-`signed-in` completes, so does `optional` on a page with no sign (ADR 0065), `rejected`
+`signed-in` completes, so does `optional` on a page with no sign once the password or a
+second factor was sent (ADR 0065), `rejected`
 ends the login `credential-rejected`, and any other
 answer, a refusal such as `already-judged` or a spent budget leaves it watched, logged
 as a warning; a judge that adds a handler is never followed while watched. A login whose
@@ -2362,7 +2368,8 @@ sign-in page's URL named), or when the tab moves on to the site of a passkey Pat
 just answered, or, right after a password submission, to another origin of the site (or,
 right after a TOTP code or a passkey answered after the password, of any site) whose
 page shows the username or a marker learned there, or that the judge answers `signed-in`
-or `optional` for (ADR 0022, [ADR 0065](adr/0065-optional-pages-after-a-sign-in.md)).
+for, or `optional` once the password or a TOTP code was submitted and without a stop
+(ADR 0022, [ADR 0065](adr/0065-optional-pages-after-a-sign-in.md)).
 A login that stops before its item's missing password never counts the
 username ([ADR 0036](adr/0036-passkey-after-the-identifier.md)). Otherwise a submission
 ends `credential-rejected`, moves to a later step, or stays unknown (`unknown-submit`),

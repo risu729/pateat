@@ -85,11 +85,6 @@ export const generationUnavailableReasonSchema = v.picklist([
    */
   "judged-signed-in",
   /**
-   * As `already-judged`, and that judgement was `optional`: the person is signed in on a
-   * page they may put off, so a later login completes there as signed in (ADR 0065).
-   */
-  "judged-optional",
-  /**
    * As `already-judged`, and that judgement was `challenge`: the page asks for a step the
    * person takes, so it never completes a login (ADR 0029).
    */

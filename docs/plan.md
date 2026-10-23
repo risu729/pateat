@@ -1238,9 +1238,9 @@ items the owner mentioned and gates still open on 2026-10-11.
   [ADR 0033](adr/0033-no-site-specific-features.md), 13:46 UTC). The owner chose on
   2026-10-23 12:27 UTC to treat the account as signed in there, leave the page as it is
   and press nothing ([ADR 0065](adr/0065-optional-pages-after-a-sign-in.md)): the judge
-  answers `optional`, the login completes as signed in without the yellow "!", and
-  nothing is learned on the page; a page that shows a sign-in or code field stays
-  `challenge`.
+  answers `optional`, the login completes as signed in without the yellow "!" once the
+  password or a second factor was sent, and nothing is learned or reused on the page; a
+  page with any input but a search box stays `challenge`.
 - Re-verification asked while already signed in, such as a secret question before
   profile settings open (ポイントインカム's `/my/my_profile_change.php`, seen on
   2026-10-12) or a password asked again before a sensitive change: Pateat should answer

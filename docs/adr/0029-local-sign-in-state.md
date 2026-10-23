@@ -55,9 +55,9 @@ tests only). This also amends [ADR 0012](0012-inference-request-log.md) and
 
 Amended on 2026-10-23 by [ADR 0065](0065-optional-pages-after-a-sign-in.md) (owner,
 12:27 UTC): the judge may answer `optional` for a page after the sign-in that the person
-may put off; with no sign and no evidence it completes the login as signed in,
-confirmed, and learns no marker, otherwise it ends `challenge` (implemented, local tests
-only).
+may put off; once the password or a second factor was sent, with no sign and no
+evidence, it completes the login as signed in, confirmed, and learns no marker,
+otherwise it ends `challenge` (implemented, local tests only).
 
 Date: 2026-10-12
 

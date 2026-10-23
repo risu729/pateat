@@ -183,12 +183,7 @@ import {
   type SignInDecision,
   type SignInSigns,
 } from "./sign-in-state";
-import {
-  judgedCompletionResult,
-  optionalPage,
-  settleCompletion,
-  undecidedCandidate,
-} from "./completion-policy";
+import { judgedCompletionResult, settleCompletion, undecidedCandidate } from "./completion-policy";
 import type { AlertMiss } from "../page/sign-in-state";
 import type { LoginSites } from "./sites";
 import { linkRefusal, namesReturnPath, type OnSite } from "./entry";
@@ -4851,6 +4846,8 @@ export function createLoginRuntime(
         signs: SignInSigns;
         decision: SignInDecision;
         loaded: boolean;
+        /** The path the reading was taken on. */
+        path: string;
         /** Why S1 is not read as the form shown again, or F2 not on it, for the log. */
         misses: { reshownMiss?: ReshownMiss; alertMiss?: AlertMiss };
       }
@@ -4976,7 +4973,13 @@ export function createLoginRuntime(
         : reshown && !signs.f2 && page.alertMiss !== undefined
           ? { alertMiss: page.alertMiss }
           : {};
-    return { signs, decision: decideSignInState(signs), loaded: parsed.output.loaded, misses };
+    return {
+      signs,
+      decision: decideSignInState(signs),
+      loaded: parsed.output.loaded,
+      path: observed.path,
+      misses,
+    };
   }
   /**
    * Enters a handler of the recipe on this path all of whose elements show (ADR 0027).
@@ -5454,6 +5457,26 @@ export function createLoginRuntime(
       )
       .catch(() => undefined);
   }
+  /**
+   * Whether this attempt has sent the account's credential (ADR 0065): its latest effect
+   * step submitted, after a route step that typed the password or a second factor's
+   * handler. The page after an identifier's Next, or after a `password` handler's button,
+   * is no page after the sign-in. The `passkey` route never completes on a judged page
+   * (ADR 0027), so its own step does not count.
+   */
+  function credentialSent(run: Execution): boolean {
+    const { metadata, recipe } = run;
+    if (metadata.operationEffect !== "submit") return false;
+    const ran = metadata.operationId === undefined ? metadata.stepIndex : metadata.stepIndex + 1;
+    return (attemptPlan(recipe, metadata) ?? [])
+      .slice(0, ran)
+      .some((entry) =>
+        entry.handler === undefined
+          ? entry.step.kind === "fill" &&
+            entry.step.fields.some((field) => field.slot === "password")
+          : recipe.handlers?.[entry.handler]?.kind !== "password",
+      );
+  }
   async function learn(run: Execution, reading?: SignInReading): Promise<boolean> {
     const { recipe, metadata } = run;
     const { operationId } = metadata;
@@ -5587,6 +5610,7 @@ export function createLoginRuntime(
     // the login is watched (ADR 0027); one with a sign of another sign-in step goes to the
     // person, as does a page judged `challenge` before (ADR 0029). An optional page after
     // the sign-in completes as signed in, watched or not, and is left as it is (ADR 0065).
+    const sent = credentialSent(run);
     const candidate = undecidedCandidate({
       verdict,
       reason,
@@ -5594,6 +5618,7 @@ export function createLoginRuntime(
       watched: run.metadata.watch !== undefined,
       route: run.metadata.route,
       stopAt: run.metadata.stopAt,
+      sent,
     });
     let again: Awaited<ReturnType<typeof readSignInState>>;
     // The judge's answer can take a while: the page completes only if, once the answer is
@@ -5609,6 +5634,7 @@ export function createLoginRuntime(
       ...candidate,
       again,
       disabledLeftOut,
+      path: remaining.path,
     });
     // Reported before the takeover's own entries, once whether it is taken over is known.
     let reported = false;
@@ -5638,6 +5664,7 @@ export function createLoginRuntime(
       stopHeld: candidate.stopHeld,
       route: run.metadata.route,
       stopAt: run.metadata.stopAt,
+      sent,
     });
     // The page after the final advance before a stop just past the plan's last step, not
     // found signed in or rejected and with no handler taken over, takes the login to its
@@ -6335,8 +6362,8 @@ export function createLoginRuntime(
       return;
     }
     // Only a page with no sign of a sign-in going on is judged; an undecided answer never
-    // completes a watched login.
-    if (state?.decision === "judge") await learn(run);
+    // completes a watched login, an optional page after the sign-in does (ADR 0065).
+    if (state?.decision === "judge") await learn(run, state);
   }
   async function drive(run: Execution): Promise<void> {
     if (run.running) return;
@@ -11154,12 +11181,14 @@ export function createLoginRuntime(
    * For a `password` login whose tab moved to `live`, a quiet page of another origin
    * (`passwordMoveFits`) that does not show the account's username (ADR 0022): whether a
    * signed-in marker learned on that origin shows, or else the judge of ADR 0029, asked
-   * once, answers `signed-in` for the page or found it signed in before. A judge that
-   * cannot decide, a page that cannot be described or sent, and any other verdict end the
-   * login `left-origin` (a watched one where it stopped), each logged. Once the answer is
-   * back, the page must still be
-   * loaded and quiet, with no passkey request since `since`, the step the move follows.
-   * `username` is the login's own, hidden from the page as for any judged page.
+   * once, answers `signed-in` for the page or found it signed in before, or answers
+   * `optional` (ADR 0065) for a page described without leaving a disabled field out, once
+   * the attempt submitted the password or a TOTP code and without a stop (ADR 0036). A
+   * judge that cannot decide, a page that cannot be described or sent, and any other
+   * verdict end the login `left-origin` (a watched one where it stopped), each logged.
+   * Once the answer is back, the page must still be loaded and show no password field,
+   * code input or CAPTCHA, with no passkey request since `since`, the step the move
+   * follows. `username` is the login's own, hidden from the page as for any judged page.
    */
   async function judgeMove(
     record: LoginAttemptMetadata,
@@ -11290,7 +11319,7 @@ export function createLoginRuntime(
         hidden.observation,
         spin.sent(() => reportJudge("sent")),
         // A description that left out a disabled field says so (ADR 0029); only `signed-in`
-        // completes a moved login then, and `optional` (ADR 0065) only without one.
+        // completes a moved login then.
         record.chooser ? chooserClickBranch(record.chooser.click) : undefined,
         ...(disabledLeftOut ? [true as const] : []),
       )
@@ -11298,10 +11327,19 @@ export function createLoginRuntime(
     spend(record.id, Date.now() - asked, timing);
     if (timing) timed = { timing };
     reportJudge(verdict, reason);
+    // `optional` (ADR 0065) completes it only on a full description, once the attempt
+    // submitted the item's password or a TOTP code (a move within the site may follow an
+    // identifier's Next), and not for a login stopped before its missing password, which
+    // only `signed-in` proves (ADR 0036).
+    const fill = passwordFills.get(document.tabId);
+    const effect = effects.get(document.tabId);
+    const sent =
+      (fill?.attemptId === record.id && fill.submitted) ||
+      (effect?.attemptId === record.id && effect.code !== undefined);
     if (
       verdict !== "signed-in" &&
       !(verdict === "unclear" && reason === "judged-signed-in") &&
-      !(optionalPage(verdict, reason) && !disabledLeftOut)
+      !(verdict === "optional" && !disabledLeftOut && record.stopAt === undefined && sent)
     )
       return false;
     // The answer can take a while: the page must still be loaded and show no sign-in step.

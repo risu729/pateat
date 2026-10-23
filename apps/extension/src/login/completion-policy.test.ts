@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { judgedCompletionResult, settleCompletion, undecidedCandidate } from "./completion-policy";
+import type { SignInDecision } from "./sign-in-state";
 
 const candidate = {
   verdict: "unclear",
@@ -100,22 +101,41 @@ describe("undecidedCandidate", () => {
 });
 
 describe("an optional page after the sign-in (ADR 0065)", () => {
-  const verdicts = [
-    { verdict: "optional" },
-    { verdict: "unclear", reason: "judged-optional" },
-  ] as const;
+  const optional = { ...candidate, verdict: "optional", sent: true } as const;
+  const outcome = (
+    change: Partial<Parameters<typeof undecidedCandidate>[0]>,
+    again: { decision: SignInDecision; loaded: boolean; path: string } = {
+      decision: "judge",
+      loaded: true,
+      path: "/checkup",
+    },
+  ) => {
+    const input = { ...optional, ...change };
+    const { completes, stopHeld } = undecidedCandidate(input);
+    const settled = settleCompletion({ completes, stopHeld, again, path: "/checkup" });
+    return judgedCompletionResult({ ...input, completes: settled.completes, stopHeld });
+  };
 
-  it.each(verdicts)("completes confirmed, watched or not, on either route: %j", (answer) => {
-    for (const change of [{}, { watched: true }, { route: "passkey" as const }, { stopAt: 0 }]) {
-      const { completes, stopHeld } = undecidedCandidate({ ...candidate, ...answer, ...change });
-      expect({ completes, stopHeld }).toEqual({ completes: true, stopHeld: false });
-      expect(judgedCompletionResult({ ...answer, completes, stopHeld, route: "password" })).toEqual(
-        { result: "authenticated", confirmed: true },
-      );
-    }
+  it("completes confirmed once the credential was sent, watched or not", () => {
+    for (const change of [{}, { watched: true }])
+      expect(outcome(change)).toEqual({ result: "authenticated", confirmed: true });
   });
 
-  it.each(verdicts)("fails closed as a challenge on a page with a sign: %j", (answer) => {
+  it("is not known to be signed in before the credential was sent", () => {
+    expect(undecidedCandidate({ ...optional, sent: false }).completes).toBe(false);
+    expect(outcome({ sent: false })).toEqual({ result: "unknown", confirmed: false });
+    expect(outcome({ sent: false, route: "passkey" }).result).toBe("challenge");
+  });
+
+  it("holds a login that stops before its missing password, which goes on to its stop", () => {
+    expect(undecidedCandidate({ ...optional, stopAt: 0 })).toEqual({
+      completes: false,
+      stopHeld: true,
+    });
+    expect(outcome({ stopAt: 0 })).toEqual({ result: "challenge", confirmed: false });
+  });
+
+  it("fails closed as a challenge on a page with a sign", () => {
     for (const reading of [
       undefined,
       { decision: "judge" as const, confirmed: false },
@@ -123,35 +143,29 @@ describe("an optional page after the sign-in (ADR 0065)", () => {
       { decision: "unknown" as const, confirmed: true },
       { decision: "rejected" as const, confirmed: true },
       { decision: "signed-in" as const, confirmed: true },
-    ]) {
-      const { completes, stopHeld } = undecidedCandidate({ ...candidate, ...answer, reading });
-      expect(completes).toBe(false);
-      expect(
-        judgedCompletionResult({ ...answer, reading, completes, stopHeld, route: "password" }),
-      ).toEqual({ result: "challenge", confirmed: false });
-    }
+    ])
+      expect(outcome({ reading })).toEqual({ result: "challenge", confirmed: false });
   });
 
-  it("fails closed when the fresh reading shows a sign or a disabled field was left out", () => {
-    const optional = undecidedCandidate({ ...candidate, verdict: "optional" });
-    for (const settled of [
-      settleCompletion({ ...optional, again: { decision: "continuing", loaded: true } }),
-      settleCompletion({ ...optional, again: { decision: "judge", loaded: false } }),
+  it("fails closed when the fresh reading shows a sign, another path or a field left out", () => {
+    expect(outcome({}, { decision: "continuing", loaded: true, path: "/checkup" }).result).toBe(
+      "challenge",
+    );
+    expect(outcome({}, { decision: "judge", loaded: false, path: "/checkup" }).result).toBe(
+      "challenge",
+    );
+    expect(outcome({}, { decision: "judge", loaded: true, path: "/verify" }).result).toBe(
+      "challenge",
+    );
+    const { completes, stopHeld } = undecidedCandidate(optional);
+    expect(
       settleCompletion({
-        ...optional,
-        again: { decision: "judge", loaded: true },
+        completes,
+        stopHeld,
+        again: { decision: "judge", loaded: true, path: "/checkup" },
         disabledLeftOut: true,
-      }),
-    ]) {
-      expect(
-        judgedCompletionResult({
-          verdict: "optional",
-          completes: settled.completes,
-          stopHeld: false,
-          route: "password",
-        }).result,
-      ).toBe("challenge");
-    }
+      }).completes,
+    ).toBe(false);
   });
 });
 
