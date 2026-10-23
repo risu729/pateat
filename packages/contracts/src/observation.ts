@@ -487,8 +487,15 @@ export function totpCodeRefusal(
   return undefined;
 }
 
-/** The input roles each detail's fill rule admits; `card-code` also limits the length. */
-function admitsDetail(detail: LoginDetail, field: ObservedCandidate): boolean {
+/**
+ * The input roles each detail's fill rule admits; `card-code` also limits the length, and
+ * a value written with `/` or `-` never goes into a number input, which takes digits only.
+ */
+function admitsDetail(
+  { detail, format }: { detail: LoginDetail; format?: DetailFormat | undefined },
+  field: ObservedCandidate,
+): boolean {
+  if (field.role === "number" && format !== undefined && /[/-]/u.test(format)) return false;
   if (detail === "card-code")
     return (
       field.role === "password" ||
@@ -506,22 +513,23 @@ function admitsDetail(detail: LoginDetail, field: ObservedCandidate): boolean {
  * `entry` and the button that submits it (ADR 0061), for the log, or undefined when they
  * may. The field must be an input the detail's fill rule admits (`not-input`): a text,
  * tel or number input for a birth date, the last four digits, a card's expiry date or a
- * member ID; a password input, or a text or tel input limited to 3 or 4 characters, for
- * a card's security code; a password, text, tel or number input for a whole card number
- * or a PIN; a text or password input for a secret question's answer. No other detail
- * takes a password input, so a second password the judge takes for the last four digits
- * is not kept. It must not be located by its text (`text-locator`), an answer not by its
- * label (`label-locator`), nor be marked as a sign-in, email or code field
- * (`sign-in-field`), nor declare a `maxlength` shorter than the value (`too-short`); the
- * button must be a button (`submit-not-button`) of the field's form
- * (`submit-other-form`). The judge and the recipe assembly both check this.
+ * member ID, but no number input for a format with `/` or `-`; a password input, or a
+ * text or tel input limited to 3 or 4 characters, for a card's security code; a password,
+ * text, tel or number input for a whole card number or a PIN; a text or password input
+ * for a secret question's answer. No other detail takes a password input, so a second
+ * password the judge takes for the last four digits is not kept. It must not be located
+ * by its text (`text-locator`), an answer not by its label (`label-locator`), nor be
+ * marked as a sign-in, email or code field (`sign-in-field`), nor declare a `maxlength`
+ * shorter than the value (`too-short`); the button must be a button (`submit-not-button`)
+ * of the field's form (`submit-other-form`). The judge and the recipe assembly both
+ * check this.
  */
 export function detailInputRefusal(
   entry: { detail: LoginDetail; format?: DetailFormat | undefined },
   field: ObservedCandidate,
   button: ObservedCandidate,
 ): string | undefined {
-  const admitted = admitsDetail(entry.detail, field);
+  const admitted = admitsDetail(entry, field);
   if (!admitted) return "not-input";
   if (field.target.by === "text") return "text-locator";
   // An answer's label may be the account's own question, which a shared recipe never holds.

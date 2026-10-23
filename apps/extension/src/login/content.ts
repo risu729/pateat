@@ -49,7 +49,7 @@ import {
 } from "../page/sign-in-state";
 import { observedPath } from "../observation/path";
 import { sendMessage } from "../messaging/protocol";
-import { acceptsSecret } from "./inputs";
+import { acceptsSecret, maskedSecret } from "./inputs";
 import { chooseFor } from "../page/choice-radio";
 import { askedQuestion } from "../page/question";
 import { cardHints } from "../page/card-hints";
@@ -558,9 +558,11 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     }
     if (command.type === "login.detail.fill") {
       // The popup's fill of a personal detail (ADR 0061): one input, its radio first, and
-      // nothing pressed. The value never leaves this handler.
+      // nothing pressed. The value and the username never leave this handler.
       const { value } = command;
       command.value = "";
+      const username = command.account?.username;
+      if (command.account) command.account.username = "";
       void (async () => {
         const found = matches(command.target);
         const input = found.length === 1 ? found[0] : undefined;
@@ -575,6 +577,15 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           !setter
         )
           return { ok: false };
+        // A value goes only to the login item's account when the page shows one, as a
+        // login's fill does (owner decision, 2026-10-11).
+        if (
+          username !== undefined &&
+          showsOtherAccount(shownAccounts(accountText(document, input.form)), username, {
+            masked: maskedSecret(command.secret),
+          })
+        )
+          return { ok: false, reason: "other-account" };
         // The radio's click may change the input, so its checks run again.
         if (
           !chooseFor(input) ||
@@ -988,14 +999,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             shownAccounts(accountText(document, form)),
             command.account.username,
             {
-              masked: command.values.some(
-                (entry) =>
-                  entry.secret === "password" ||
-                  entry.secret === "hidden" ||
-                  entry.secret === "card-code" ||
-                  entry.secret === "card-number" ||
-                  entry.secret === "pin",
-              ),
+              masked: command.values.some((entry) => maskedSecret(entry.secret)),
             },
           );
           command.account.username = "";

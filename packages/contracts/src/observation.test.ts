@@ -417,7 +417,22 @@ describe("personal-detail inputs (ADR 0061)", () => {
   });
 
   it("takes a card's expiry date in a text, tel or number input that holds its format", () => {
-    for (const role of ["text", "tel", "number"]) expect(refusal(expiry, { role })).toBeUndefined();
+    for (const role of ["text", "tel"]) expect(refusal(expiry, { role })).toBeUndefined();
+    expect(refusal({ detail: "card-expiry", format: "mmyy" }, { role: "number" })).toBeUndefined();
+    expect(
+      refusal({ detail: "card-expiry", format: "mmyyyy" }, { role: "number" }),
+    ).toBeUndefined();
+    // A number input takes digits only, so never a format written with `/` or `-`.
+    for (const entry of [
+      expiry,
+      { detail: "card-expiry", format: "mm/yyyy" },
+      { detail: "birth-date", format: "yyyy-mm-dd" },
+      { detail: "birth-date", format: "yyyy/mm/dd" },
+    ] as const)
+      expect(refusal(entry, { role: "number" }), entry.format).toBe("not-input");
+    expect(
+      refusal({ detail: "birth-date", format: "yyyy-mm-dd" }, { role: "tel" }),
+    ).toBeUndefined();
     expect(refusal(expiry, { maxLength: 5 })).toBeUndefined();
     expect(refusal({ detail: "card-expiry", format: "mmyy" }, { maxLength: 4 })).toBeUndefined();
     expect(refusal({ detail: "card-expiry", format: "mm/yyyy" }, { maxLength: 6 })).toBe(

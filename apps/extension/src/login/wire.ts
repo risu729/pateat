@@ -475,6 +475,8 @@ export const commandSchema = v.variant("type", [
     value: v.pipe(v.string(), v.minLength(1), v.maxLength(128)),
     secret: v.optional(v.picklist(loginSecretKinds)),
     question: v.optional(questionSchema),
+    /** The login item's username: the page must not show another account. */
+    account: v.optional(v.strictObject({ username: v.pipe(v.string(), v.maxLength(4096)) })),
   }),
   /**
    * Which of the login item's custom field names is the secret question shown beside
