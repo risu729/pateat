@@ -2610,15 +2610,15 @@ Remaining M4 AI work:
   name the page's `accountSwitch`, so a generated recipe carries it
   ([Background execution](architecture.md#background-execution)).
 - More Japanese pages. The owner chose on 2026-10-11 to take them from both public
-  login pages opened in Chrome on the owner's PC and the request log; six public pages
-  are in (below). Next, in a browser that can reach the sites (a cloud environment whose
-  network access allows them, or the owner's PC): refresh the six with the current
-  extractor, and observe more public login pages of banks, securities firms, card
-  issuers, shops and telecom carriers, retrying the twelve that gave no or an incomplete
-  observation. On 2026-10-11 the request log held one Japanese row, a MyJCB
-  generation that abstained (`insufficient-evidence`) on an observation from before
-  #206 with no login control, so it adds no case. The finite-choice provider waited
-  for a Claude baseline, which now exists for both page sets.
+  login pages opened in Chrome on the owner's PC and the request log; 108 public pages
+  are in (below), 102 of them from 2026-10-23, plus 45 English ones. Pages that answer a
+  cloud session with 403 or a bot check (Rakuten Card, SMBC Card, JAL, Eki-net,
+  Mercari and others) still need a browser on the owner's PC. On 2026-10-11 the request
+  log held one Japanese row, a MyJCB generation that abstained
+  (`insufficient-evidence`) on an observation from before #206 with no login control,
+  so it adds no case. The finite-choice provider waited for a Claude baseline, which
+  exists for the first six Japanese pages and the Formasaurus pages; the 2026-10-23
+  pages have no Claude run yet.
 
 The real-page corpus per ADR 0012 starts with
 [Formasaurus](https://github.com/scrapinghub/Formasaurus) commit `4bb46a9`:
@@ -2802,8 +2802,53 @@ has it in another role. Listed URLs are observed into a local report for labelli
 hand. Each case records the date and the commit of its observation, and refreshed page
 text is reviewed for personal data again before it is committed. A cloud session on
 2026-10-15 reached none of the pages: the cloud environment's network policy refused
-every site (`ERR_TUNNEL_CONNECTION_FAILED`), so the six pages of 2026-10-11 are still
-the corpus.
+every site (`ERR_TUNNEL_CONNECTION_FAILED`), so the six pages of 2026-10-11 were still
+the corpus then.
+
+On 2026-10-23 a cloud session reached most sites and observed about 270 public pages
+with main `381116f` in Chrome for Testing 156 (Playwright's Chromium 141 lacks
+`Map.prototype.getOrInsertComputed`, which the extractor uses). The owner asked for a
+larger corpus that day, ahead of the phase order
+("フェーズは一旦無視して、ある程度決め打ちで進め、後から判断"),
+so the agent chose the pages and labels below and the owner may change them. 65 cases
+were added to the Japanese pages (71 in all) and 18 English pages went to a new set,
+`packages/inference/src/corpus/web.json` (`--corpus web`), observed the same way with
+locale `ja-JP` as in the owner's Chrome; a page observed as `en` goes to the English
+set, one observed as `ja` or `mixed` to the Japanese set. They include sites in the
+request log (EPOS Net, Wise, Slack, UniSuper, connpass, Moppy, Q-move, AIRDO and
+others), banks and securities firms (MUFG, au Jibun Bank, Matsui, Mitsubishi UFJ eSmart,
+Daiwa, GMO Click, St.George), AWS IAM, identifier-first pages (`advance`), 11 passkey
+buttons, decoy search, sign-up and social sign-in controls, unlabelled fields (COLOPL
+recruiting, Apple Account), text CAPTCHA fields beside the login form (BizReach, Mobile
+Suica: labelled as plans, the person types the CAPTCHA), and 12 pages that must abstain
+(sign-up pages, search-only and 404 pages, Yahoo! JAPAN's CAPTCHA page). A case may name
+its item's own fields (`slots` as a list: Daiwa's 支店コード and 6-digit 口座番号,
+St.George's Hidden security number, the AWS account ID); the built-in slots come first
+and the
+custom fields take `custom-1` and on in the listed order, as the extension sends them.
+The page text was checked for personal data and holds none (emails and numbers are
+already redacted). On both sets the heuristic scores 0.70 (Japanese, 15 false submits)
+and 0.67 (English, 3 false submits). Not usable from the cloud: about 40 answered 403 or
+a bot check (Rakuten Card, SMBC Card, JAL, Eki-net, Mercari, npm, Cloudflare, OpenAI and
+others), about 30 failed through the proxy, and these gave incomplete observations, an
+extractor gap: Rakuten's login (`shadow-control`), Amazon's `/ax/claim`
+(`unlocated-button`), Duolingo and Bank of America (`unlocated-button`), Stripe and
+1Password (`unlocated-checkbox`), Hacker News (`unlocated-field`) and Airbnb
+(`unfillable-field`). IIJmio was complete but showed no login button. On Seven Bank
+(`URL.parse` replaced by the page) and American Express (`eval` disabled) the probe
+failed in the page's own world, where the extension's content script would not.
+
+A second pass the same day observed about 280 more pages (Japanese shops, hosting,
+job and travel sites; English SaaS, banks, universities and streaming services) with
+the same build and added 39 Japanese and 31 English cases, after an independent review
+of every label. Pages whose email step only sends a sign-in link or code, with no
+password (Slack, Vercel, Claude Platform, Instacart, Loom, Temu), are left out, as no
+login item fits them; Slack and Vercel were removed from the first pass for that
+reason. Sakura Internet's login page is left out too: its login button sits outside
+the form of its fields, so the correct plan fails the plan check (`mixed-groups`), a
+case for that check rather than for the corpus. The Japanese set now has 108 cases (15
+abstain, 11 passkey buttons, 27 `advance`) and the English set 45 (5 abstain, 3 passkey
+buttons, 13 `advance`); the heuristic scores 0.73 (18 false submits) and 0.64 (7).
 
 The same import measured the extractor on real markup (2026-10-11, main `9cf8356`). Of
 the 241 pages with an annotated login form, 6 gave no observation and 109 an incomplete
@@ -2864,11 +2909,18 @@ links; no page's completeness changed, and five pages that are not login pages l
 context links to the 48-candidate limit or to shared text. Hidden, collapsed,
 `aria-hidden` and before-the-page-start inputs are skipped as likely traps; a
 transparent (opacity 0, also through an ancestor) or tiny field makes the form
-incomplete. Since 2026-10-17 an element transparent only because it or each transparent
-ancestor has a running or paused CSS animation, CSS transition or script animation that
-still takes its opacity above 0 later in its current iteration, in the direction it
-plays (one still in its delay from the iteration's start), counts as opaque, wherever
-the content script reads whether an element is shown (fields, buttons and their text,
+incomplete, unless it is also disabled: since 2026-10-23 such a field, which takes input
+from no one, is read as absent on a login page, also in choosing its login forms (the
+page after a sign-in still reads it, as a code field may wait there for a timer), as
+Bitwarden never picks a disabled field as the username or password field (`!f.disabled`
+in its `autofill.service.ts`). An example is the 12-pixel disabled text and password
+pair at opacity 0 in SBI新生銀行's login form (read in cloud Chromium on main `8f50e3e`;
+agent fix, local tests only, not checked in the owner's Chrome). Since 2026-10-17 an
+element transparent only because it or each transparent ancestor has a running or paused
+CSS animation, CSS transition or script animation that still takes its opacity above 0
+later in its current iteration, in the direction it plays (one still in its delay from
+the iteration's start), counts as opaque, wherever the content script reads whether an
+element is shown (fields, buttons and their text,
 lists of accounts, sign-in entries and the signed-in page). An input at opacity 0 with
 no such animation stays transparent, as does one under an animation that holds the
 opacity at 0 for the rest of its iteration (a fade-out that then holds, a carousel's
@@ -2918,7 +2970,15 @@ left out entirely, so every form the observation describes is complete. On the 2
 observed Formasaurus login pages of the real-page corpus (2026-10-11), this cut the
 incomplete ones from 108 to 52: 55 became complete, each still showing the form
 Formasaurus labels as the login form, and one whose login form has no locatable control
-now gives no observation. A field in any open shadow root marks it incomplete too, as it
+now gives no observation. Fields outside every form count as one more form, whose
+controls are those outside every form; since 2026-10-23 a control the executor cannot
+act on that is not a field counts there only inside the fields' area, their nearest
+common ancestor (a lone field itself) and up to four levels above it (never the body or
+the root element), so a language picker in a page footer without footer markup, as on
+dアカウント's login page
+(`cfg.smt.docomo.ne.jp`, read in cloud Chromium on main `381116f`), no longer makes the
+page incomplete (agent fix, local tests only; not checked in the owner's Chrome). A
+field in any open shadow root marks it incomplete too, as it
 may be the real login. Links are context only: the plan check accepts only a button as
 the page action. Known limits: a read-only username shown again on a password step makes
 that step incomplete, and honeypot inputs moved to the right or clipped by
