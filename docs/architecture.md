@@ -953,11 +953,12 @@ Before a fill step that writes a secret but not the username (a site that rememb
 account and asks only for the password), the background sends the selected item's
 username to the content script with that one fill. The content script first waits until
 the document has loaded and its DOM has not changed for 1 second, for at most 5 seconds
-and never past the operation's expiry, because a page can show the remembered account
-after its password field (Duolingo, 2026-10-23). It then compares the username with
-the account identifiers shown in the form, or the page when there is no form, and the
-first eight `h1`-`h3` headings; every element boundary but a `<wbr>` separates words,
-format characters are left out (so `taro.yamada@<wbr>example.com` is one address), and
+and until 2 seconds before the operation expires, because a page can show the
+remembered account after its password field (Duolingo, 2026-10-23). It then compares
+the username with the account identifiers shown in the form, or the page when there
+is no form, and the first eight `h1`-`h3` headings; every element boundary but a
+`<wbr>` separates words, format characters are left out (so
+`taro.yamada@<wbr>example.com` is one address), and
 `mailto:` links, `<address>` and `<footer>` are skipped as contact addresses. The
 username never leaves the content script or reaches status. An email username is
 compared with shown email addresses. A username of digits only is compared with masked

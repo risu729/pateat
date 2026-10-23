@@ -198,10 +198,12 @@ const offerWaitMs = 5000;
  * A fill compared with the account the page shows waits until the document has loaded and
  * its DOM has had no change for `accountQuietMs`, or `accountWaitMs` while it keeps
  * changing: Duolingo's sign-in shows its remembered account's address after the password
- * field (2026-10-23), and a check before it would pass.
+ * field (2026-10-23), and a check before it would pass. It ends `accountReserveMs` before
+ * the operation expires, so a page that keeps changing is still compared and filled.
  */
 const accountQuietMs = 1000;
 const accountWaitMs = 5000;
+const accountReserveMs = 2000;
 
 /**
  * Resolves once `document` has loaded and its DOM has had no change for `quietMs`, or at
@@ -1011,7 +1013,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           await settled(
             document,
             accountQuietMs,
-            Math.min(Date.now() + accountWaitMs, operation.expiresAt),
+            Math.min(Date.now() + accountWaitMs, operation.expiresAt - accountReserveMs),
           );
           if (cancelled) return fail("cancelled", "document-cancelled");
           if (Date.now() >= operation.expiresAt) return fail("cancelled", "operation-expired");

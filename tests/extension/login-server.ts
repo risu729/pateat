@@ -653,7 +653,7 @@ export async function startLoginFixture(
         html(
           `<h1>Synthetic single-page login</h1>${
             shown !== null && masked.test(shown) ? `<p>Signed in as ${shown}</p>` : ""
-          }${shownLate !== null && masked.test(shownLate) ? '<p id="account">Loading</p>' : ""}${
+          }${shownLate !== null && masked.test(shownLate) ? `<p id="account" data-shown="Signed in as ${shownLate}">Loading</p>` : ""}${
             // `switch` names the account the "Use another account" link shows next;
             // `switch-submit` makes it the submit button of its own form instead.
             switchTo === null || !masked.test(switchTo)
@@ -710,7 +710,7 @@ export async function startLoginFixture(
           }
           ${
             shownLate !== null && masked.test(shownLate)
-              ? `{ let ticks = 0; const loading = setInterval(() => { ticks += 1; document.getElementById('account').textContent = 'Loading' + '.'.repeat(ticks % 4); if (ticks === 8) { clearInterval(loading); document.getElementById('account').textContent = ${JSON.stringify(`Signed in as ${shownLate}`)}; } }, 200); }`
+              ? `{ let ticks = 0; const loading = setInterval(() => { ticks += 1; document.getElementById('account').textContent = 'Loading' + '.'.repeat(ticks % 4); if (ticks === 8) { clearInterval(loading); document.getElementById('account').textContent = document.getElementById('account').dataset.shown; } }, 200); }`
               : ""
           }
           ${form === null || form === "script" ? "" : "document.getElementById('login').form?.addEventListener('submit', (event) => event.preventDefault());"}
