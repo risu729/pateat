@@ -2877,6 +2877,15 @@ in cloud Chromium (main `b803056`) generation then planned 会員ID, パスワ�
 passkey buttons, 27 `advance`) and the English set 45 (5 abstain, 3 passkey buttons, 13
 `advance`); the heuristic scores 0.73 (18 false submits) and 0.64 (7).
 
+A third pass (main `74d5b3c`) added livedoor, FC2, GMO Coin, Seven Bank, Sakura Internet
+and bitFlyer Lightning. Since #901 the probe runs the main frame in a world of its own,
+as the content script does, so Seven Bank observes (an ID field labelled only by its
+example, an unlabelled password field and a ログオン button among a dozen others);
+American Express now stops at a real extractor gap (`unsupported-control`). Sakura
+Internet is back, as the plan check accepts its button beside the form. The Japanese set
+now has 113 cases and the English set 46; the heuristic scores 0.73 (19 false submits)
+and 0.65 (7).
+
 The same import measured the extractor on real markup (2026-10-11, main `9cf8356`). Of
 the 241 pages with an annotated login form, 6 gave no observation and 109 an incomplete
 one, which inference rejects without a call; 126 were complete. These totals were the
