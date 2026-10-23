@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { runClaudeBenchmark } from "./bench";
+import { runClaudeBenchmark, runClaudeJudgeBenchmark } from "./bench";
 import { evaluationCorpus, expectedFields } from "./corpus/cases";
+import { judgeCorpus } from "./corpus/judge";
+import { claudeBenchmarkModels, claudeFastModeRates } from "./providers/claude";
 import { caseFor } from "./testing/fake-models";
 
 // Answers every corpus page with its ground truth, shaped like the Messages API.
@@ -20,6 +22,8 @@ function oracleClaude(
         ? { decision: "abstain", reason: "ambiguous" }
         : {
             decision: "plan",
+            pageKind: "sign-in",
+            irreversible: "no",
             fields: expectedFields(expected),
             action: { candidate: expected.action, purpose: expected.purpose },
           };
@@ -107,6 +111,108 @@ describe("Claude benchmark runner", () => {
     expect(calls).toBe(1);
     expect(result.report.errors).toEqual({ refused: 1 });
     expect(result.report.cases[0]).toMatchObject({ reason: "refused", refusalCategory: "cyber" });
+  });
+
+  it("runs another model and effort at that model's rates", async () => {
+    const sent: { model: string; effort: unknown }[] = [];
+    const fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      sent.push({ model: body.model, effort: body.output_config?.effort });
+      return Response.json({
+        id: "msg_synthetic",
+        type: "message",
+        role: "assistant",
+        model: body.model,
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({ result: { decision: "abstain", reason: "ambiguous" } }),
+          },
+        ],
+        stop_reason: "end_turn",
+        stop_sequence: null,
+        usage: { input_tokens: 1_000_000, output_tokens: 0 },
+      });
+    }) as typeof globalThis.fetch;
+    const result = await runClaudeBenchmark({
+      apiKey: "sk-ant-test-synthetic",
+      maxCostUsd: 2,
+      cases: evaluationCorpus.slice(0, 1),
+      choice: {
+        modelId: "claude-haiku-5-5",
+        effort: "medium",
+        rates: claudeBenchmarkModels["claude-haiku-5-5"],
+      },
+      fetch,
+    });
+    expect(sent).toEqual([{ model: "claude-haiku-5-5", effort: "medium" }]);
+    expect(result).toMatchObject({ model: "claude-haiku-5-5", effort: "medium" });
+    expect(result.servedModels).toEqual(["claude-haiku-5-5"]);
+    expect(result.estimatedCostUsd).toBeCloseTo(0.1);
+  });
+
+  it("asks for fast mode and reports the speed served", async () => {
+    const sent: { speed: unknown; beta: string | null }[] = [];
+    const fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      sent.push({ speed: body.speed, beta: new Headers(init?.headers).get("anthropic-beta") });
+      return Response.json({
+        id: "msg_synthetic",
+        type: "message",
+        role: "assistant",
+        model: body.model,
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({ result: { decision: "abstain", reason: "ambiguous" } }),
+          },
+        ],
+        stop_reason: "end_turn",
+        stop_sequence: null,
+        usage: { input_tokens: 1_000_000, output_tokens: 0, speed: "fast" },
+      });
+    }) as typeof globalThis.fetch;
+    const result = await runClaudeBenchmark({
+      apiKey: "sk-ant-test-synthetic",
+      maxCostUsd: 9,
+      cases: evaluationCorpus.slice(0, 1),
+      choice: {
+        modelId: "claude-opus-5-5",
+        effort: "low",
+        rates: claudeFastModeRates["claude-opus-5-5"],
+        speed: "fast",
+      },
+      fetch,
+    });
+    expect(sent).toEqual([
+      { speed: "fast", beta: expect.stringContaining("fast-mode-2026-02-01") },
+    ]);
+    expect(result).toMatchObject({ speed: "fast", servedSpeeds: ["fast"] });
+    expect(result.estimatedCostUsd).toBeCloseTo(8);
+  });
+
+  it("scores the judge on its own answers", async () => {
+    const fetch = (async () =>
+      Response.json({
+        id: "msg_synthetic",
+        type: "message",
+        role: "assistant",
+        model: "claude-opus-5-5",
+        content: [{ type: "text", text: JSON.stringify({ result: { decision: "unclear" } }) }],
+        stop_reason: "end_turn",
+        stop_sequence: null,
+        usage: { input_tokens: 2_000, output_tokens: 100 },
+      })) as typeof globalThis.fetch;
+    const result = await runClaudeJudgeBenchmark({
+      apiKey: "sk-ant-test-synthetic",
+      maxCostUsd: 2,
+      fetch,
+    });
+    const unclear = judgeCorpus.filter((entry) => entry.expected.decisions.includes("unclear"));
+    expect(result.report.total).toBe(judgeCorpus.length);
+    expect(result.report.verdicts.correct).toBe(unclear.length);
+    expect(result.report.verdicts["wrong-decision"]).toBe(judgeCorpus.length - unclear.length);
+    expect(result.estimatedCostUsd).toBeCloseTo(judgeCorpus.length * 0.01);
   });
 
   it.each([0, Number.NaN, 11])("refuses the cap %s", async (maxCostUsd) => {

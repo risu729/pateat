@@ -34,6 +34,29 @@ export function notifyingVaultStore<T extends DurableVaultStore>(store: T, notif
   };
 }
 
+/**
+ * A vault manager that calls `opened` after an accept or a restore succeeds, once the
+ * manager serves the new snapshot. The record write before it notifies while the old
+ * handle is still live, or, for a restore, not at all.
+ */
+export function notifyingVaultManager<
+  T extends {
+    accept(...args: never[]): Promise<{ ok: boolean }>;
+    restore(...args: never[]): Promise<{ ok: boolean }>;
+  },
+>(manager: T, opened: () => void): T {
+  const after = <R extends { ok: boolean }>(result: Promise<R>) =>
+    result.then((value) => {
+      if (value.ok) opened();
+      return value;
+    });
+  return {
+    ...manager,
+    accept: (...args: Parameters<T["accept"]>) => after(manager.accept(...args)),
+    restore: (...args: Parameters<T["restore"]>) => after(manager.restore(...args)),
+  };
+}
+
 export function createActionIcon(deps: {
   states: () => Promise<VaultRecordState[]>;
   setIcon: (path: Record<16 | 32, string>) => Promise<void>;

@@ -47,6 +47,8 @@ const groundTruth = () => {
   return JSON.stringify({
     result: {
       decision: "plan",
+      pageKind: "sign-in",
+      irreversible: "no",
       fields: Object.entries(fields).map(([slot, candidate]) => ({ slot, candidate })),
       action: { candidate: action, purpose },
     },

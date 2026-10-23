@@ -140,6 +140,8 @@ export const en = {
     "the last login on this site stopped in this tab",
   "the sign-in form shows, but the recipe's first step was not found":
     "the sign-in form shows, but the recipe's first step was not found",
+  "the AI classified this page as a verification while signed in, or could not tell, so Pateat does not fill it; if that is wrong, revoke its recipe on the service's Sites page (/manage/sites) so the page is sent again":
+    "the AI classified this page as a verification while signed in, or could not tell, so Pateat does not fill it; if that is wrong, revoke its recipe on the service's Sites page (/manage/sites) so the page is sent again",
   "no recipe of this site starts on this page": "no recipe of this site starts on this page",
   "you logged out of this site; choose an account to log in again":
     "you logged out of this site; choose an account to log in again",
@@ -239,6 +241,46 @@ export const en = {
     "Pateat: the login's result is not known ({{reason}}). Open Pateat for details.",
   "Pateat: the login did not succeed ({{reason}}). Open Pateat for details.":
     "Pateat: the login did not succeed ({{reason}}). Open Pateat for details.",
+  badgeUsable_one: "Pateat: {{count}} account for this site.",
+  badgeUsable_other: "Pateat: {{count}} accounts for this site.",
+  badgeMoreExcluded_one: "{{count}} more is excluded in settings.",
+  badgeMoreExcluded_other: "{{count}} more are excluded in settings.",
+  badgeMoreReview_one: "{{count}} more waits for a custom-field review in settings.",
+  badgeMoreReview_other: "{{count}} more wait for a custom-field review in settings.",
+  badgeMoreItemsReview_one:
+    "{{count}} more is excluded or waits for a custom-field review in settings.",
+  badgeMoreItemsReview_other:
+    "{{count}} more are excluded or wait for a custom-field review in settings.",
+  badgeUnknown_one: "{{count}} item could not be checked.",
+  badgeUnknown_other: "{{count}} items could not be checked.",
+  badgeExcludedSite_one:
+    "Pateat: {{count}} account matches this site, but none can be used: this site is excluded in settings.",
+  badgeExcludedSite_other:
+    "Pateat: {{count}} accounts match this site, but none can be used: this site is excluded in settings.",
+  badgeExcludedItems_one:
+    "Pateat: {{count}} account matches this site, but none can be used: they are excluded in settings.",
+  badgeExcludedItems_other:
+    "Pateat: {{count}} accounts match this site, but none can be used: they are excluded in settings.",
+  badgeExcludedReview_one:
+    "Pateat: {{count}} account matches this site, but none can be used: they wait for a custom-field review in settings.",
+  badgeExcludedReview_other:
+    "Pateat: {{count}} accounts match this site, but none can be used: they wait for a custom-field review in settings.",
+  badgeExcludedItemsReview_one:
+    "Pateat: {{count}} account matches this site, but none can be used: they are excluded or wait for a custom-field review in settings.",
+  badgeExcludedItemsReview_other:
+    "Pateat: {{count}} accounts match this site, but none can be used: they are excluded or wait for a custom-field review in settings.",
+  "Pateat: no account for this site.": "Pateat: no account for this site.",
+  "Pateat: the vault is locked, so this site's accounts were not counted.":
+    "Pateat: the vault is locked, so this site's accounts were not counted.",
+  "Pateat: the vault has not been opened since Pateat restarted, so this site's accounts were not counted.":
+    "Pateat: the vault has not been opened since Pateat restarted, so this site's accounts were not counted.",
+  "Pateat: the vault could not be read, so this site's accounts were not counted.":
+    "Pateat: the vault could not be read, so this site's accounts were not counted.",
+  "Pateat: the vault is being updated, so this site's accounts were not counted.":
+    "Pateat: the vault is being updated, so this site's accounts were not counted.",
+  "Pateat: a login or a page check was using the vault, so this site's accounts were not counted yet.":
+    "Pateat: a login or a page check was using the vault, so this site's accounts were not counted yet.",
+  "{{first}} {{next}}": "{{first}} {{next}}",
   "Pateat: asking the AI…": "Pateat: asking the AI…",
   "Pateat: you logged out of this site in this tab. Click to choose an account.":
     "Pateat: you logged out of this site in this tab. Click to choose an account.",

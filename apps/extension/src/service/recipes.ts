@@ -1,5 +1,6 @@
 import {
   deviceIdSchema,
+  isLoginRouteRecipe,
   laterStartSteps,
   loginRecipesForOrigin,
   MAX_RECIPE_CACHE_BYTES,
@@ -600,6 +601,23 @@ export function createRecipeSync(options: {
       // click on its list, which the page alone does not tell (ADR 0049).
       return loginRecipesForOrigin(cache.recipes, origin).filter((recipe) =>
         laterStartSteps(recipe).some(({ step }) => step.path === path),
+      );
+    },
+    async routes(origin: string) {
+      const connection = await service.connection().catch(() => undefined);
+      if (!connection) return [];
+      const cache = await load(connection);
+      if (!cache) return [];
+      return cache.recipes.flatMap((recipe) =>
+        recipe.origin !== origin
+          ? []
+          : isLoginRouteRecipe(recipe)
+            ? [recipe]
+            : "chooser" in recipe
+              ? [recipe.chooser.afterAccount, recipe.chooser.afterOther].filter(
+                  (branch) => branch !== undefined,
+                )
+              : [],
       );
     },
     async entries(origin: string) {

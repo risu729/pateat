@@ -1,11 +1,9 @@
 # Extension language preference
 
-Status: Proposed. The owner chose i18next with react-i18next (2026-10-12 14:31 UTC) and
-to translate the extension now rather than in phase 3 (2026-10-18). Where the language
-preference is stored is still the owner's question (asked again 2026-10-23, after the
-first ask assumed that the service worker shows no translated text); this records the
-recommended answer, `chrome.storage.local`, which the implementation follows until the
-owner decides. Amends no ADR.
+Status: Accepted. The owner chose i18next with react-i18next (2026-10-12 14:31 UTC), to
+translate the extension now rather than in phase 3 (2026-10-18), and to keep the
+language preference in `chrome.storage.local` (2026-10-23 11:05 UTC), after the first
+ask had assumed that the service worker shows no translated text. Amends no ADR.
 
 Date: 2026-10-17, revised 2026-10-23
 

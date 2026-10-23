@@ -362,6 +362,9 @@ export function createDiagnosticsLog(options: {
             reason: report.reason,
             detail: report.detail,
             candidates: report.candidates,
+            recipe: report.recipeId,
+            recipeRevision: report.recipeRevision,
+            pageKind: report.pageKind,
             frame: report.frame,
           },
           {
@@ -495,6 +498,8 @@ export function createDiagnosticsLog(options: {
             takenOver: report.takenOver,
             notTakenOver: report.notTakenOver,
             page: report.page,
+            pageKind: report.pageKind,
+            signedIn: report.signedIn,
             ...requestTimes(report.timing),
           },
           // A login page without a matching vault item is common and not a problem, nor is
