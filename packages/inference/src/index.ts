@@ -49,11 +49,12 @@ export {
 export {
   claudeGeneration,
   claudeModelRates,
+  claudePricedModels,
   claudeRefusalCategory,
-  claudeRefusalFallback,
   claudeWorstCaseRates,
   createClaudeGenerationModel,
   estimateClaudeCostUsd,
   type ClaudeCredential,
   type ClaudeModelChoice,
+  type ClaudeRates,
 } from "./providers/claude";

@@ -28,6 +28,7 @@ import {
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDeviceToken, hashDeviceToken } from "../src/auth";
 import { saveWifCredential } from "../src/claude/credentials";
+import { saveModelConfig } from "../src/claude/models";
 import { MAX_ACTIVE_RECIPES } from "../src/limits";
 import { writeRecipe } from "../src/recipe-store";
 import { documentBytes, seedRecipeBytes, storedRecipeBytes } from "./recipe-byte-helpers";
@@ -45,7 +46,7 @@ const TOKEN_URL = "https://api.anthropic.com/v1/oauth/token";
 const MESSAGES_URL = "https://api.anthropic.com/v1/messages";
 const ORIGIN = "https://shop.example.test";
 const DAY_MS = 24 * 60 * 60 * 1000;
-const RESERVED = 64 * 1024 * 4 + 1_024 * 20;
+const WORST_CASE = 64 * 1024 * 4 + 1_024 * 20;
 
 const slots: SemanticSlot[] = [
   { id: "email", kind: "identifier", description: "account email address" },
@@ -589,7 +590,7 @@ describe("recipe generation", () => {
     expect(await generate(device, emailPage)).toMatchObject({ status: "recipe" });
   });
 
-  it("charges the reserved upper bound when a failed call reports no usage", async () => {
+  it("charges the worst case after a failed call that reports no usage", async () => {
     const device = await owner();
     replies.push(500);
     expect(await generate(device, emailPage)).toEqual({
@@ -603,8 +604,8 @@ describe("recipe generation", () => {
         device.ownerId,
       ),
     ).toEqual([
-      { calls: 1, cost_micro_usd: RESERVED },
-      { calls: 1, cost_micro_usd: RESERVED },
+      { calls: 1, cost_micro_usd: WORST_CASE },
+      { calls: 1, cost_micro_usd: WORST_CASE },
     ]);
     expect(
       await rows(
@@ -684,6 +685,110 @@ describe("recipe generation", () => {
     replies.push(500);
     expect(await generate(device, emailPage)).toMatchObject({ error: "provider-error" });
     expect(sent).toHaveLength(1);
+  });
+
+  const choice = (model: string, effort: "low" | "medium", speed: "standard" | "fast") => ({
+    provider: "anthropic" as const,
+    model,
+    effort,
+    speed,
+  });
+  const asked = () =>
+    sent.map(({ body }) => {
+      const { model, speed, output_config } = body as {
+        model: string;
+        speed?: string;
+        output_config?: { effort?: string };
+      };
+      return { model, effort: output_config?.effort, speed };
+    });
+
+  it("asks the owner's configured model and effort, and logs them", async () => {
+    const device = await owner();
+    await saveModelConfig(env.DB, device.ownerId, {
+      generate: [choice("claude-sonnet-5-5", "medium", "standard")],
+      judge: [choice("claude-opus-5-5", "low", "standard")],
+    });
+    replies.push({
+      text: plan([["email", "email"]], "next", "advance"),
+      usage: { input_tokens: 3_000, output_tokens: 100 },
+    });
+    expect(await generate(device, emailPage)).toMatchObject({ status: "recipe" });
+    expect(asked()).toEqual([{ model: "claude-sonnet-5-5", effort: "medium", speed: undefined }]);
+    expect(
+      await rows(
+        "SELECT model_id, effort, speed, cost_micro_usd FROM inference_log WHERE owner_id = ?",
+        device.ownerId,
+      ),
+    ).toEqual([
+      { model_id: "claude-sonnet-5-5", effort: "medium", speed: "standard", cost_micro_usd: 7_000 },
+    ]);
+  });
+
+  it("asks the same model at the standard speed when fast mode fails", async () => {
+    const device = await owner();
+    await saveModelConfig(env.DB, device.ownerId, {
+      generate: [
+        choice("claude-opus-5-5", "low", "fast"),
+        choice("claude-sonnet-5-5", "low", "standard"),
+      ],
+      judge: [choice("claude-opus-5-5", "low", "standard")],
+    });
+    replies.push(429, {
+      text: plan([["email", "email"]], "next", "advance"),
+      usage: { input_tokens: 3_000, output_tokens: 100 },
+    });
+    expect(await generate(device, emailPage)).toMatchObject({ status: "recipe" });
+    expect(asked()).toEqual([
+      { model: "claude-opus-5-5", effort: "low", speed: "fast" },
+      { model: "claude-opus-5-5", effort: "low", speed: undefined },
+    ]);
+    // The rejected fast call reported no usage, so it counts at fast mode's worst case.
+    expect(
+      await rows(
+        "SELECT model_id, speed, outcome, cost_micro_usd FROM inference_log WHERE owner_id = ? ORDER BY created_at",
+        device.ownerId,
+      ),
+    ).toEqual([
+      {
+        model_id: "claude-opus-5-5",
+        speed: "fast",
+        outcome: "rate-limited",
+        cost_micro_usd: 64 * 1024 * 8 + 1_024 * 40,
+      },
+      { model_id: "claude-opus-5-5", speed: "standard", outcome: "ok", cost_micro_usd: 14_000 },
+    ]);
+  });
+
+  it("gives up when the standard speed fails after fast mode", async () => {
+    const device = await owner();
+    await saveModelConfig(env.DB, device.ownerId, {
+      generate: [
+        choice("claude-opus-5-5", "low", "fast"),
+        choice("claude-sonnet-5-5", "low", "standard"),
+      ],
+      judge: [choice("claude-opus-5-5", "low", "standard")],
+    });
+    replies.push(429, 500);
+    expect(await generate(device, emailPage)).toMatchObject({ error: "provider-error" });
+    expect(asked().map(({ model }) => model)).toEqual(["claude-opus-5-5", "claude-opus-5-5"]);
+  });
+
+  it("asks the next choice, not the standard speed, when fast mode refuses", async () => {
+    const device = await owner();
+    await saveModelConfig(env.DB, device.ownerId, {
+      generate: [
+        choice("claude-opus-5-5", "low", "fast"),
+        choice("claude-sonnet-5-5", "low", "standard"),
+      ],
+      judge: [choice("claude-opus-5-5", "low", "standard")],
+    });
+    replies.push({ refusal: "cyber" }, { text: plan([["email", "email"]], "next", "advance") });
+    expect(await generate(device, emailPage)).toMatchObject({ status: "recipe" });
+    expect(asked()).toEqual([
+      { model: "claude-opus-5-5", effort: "low", speed: "fast" },
+      { model: "claude-sonnet-5-5", effort: "low", speed: undefined },
+    ]);
   });
 
   it("names the check that refused the output and logs the refused plan by reference", async () => {
@@ -1234,10 +1339,7 @@ describe("recipe generation", () => {
         "SELECT calls, cost_micro_usd FROM inference_spend WHERE owner_id = ?",
         device.ownerId,
       ),
-    ).toEqual([
-      { calls: 0, cost_micro_usd: 0 },
-      { calls: 0, cost_micro_usd: 0 },
-    ]);
+    ).toEqual([]);
     // The refusal is deterministic, so it counts toward the retry window.
     expect(
       await rows("SELECT path FROM generation_attempts WHERE owner_id = ?", device.ownerId),

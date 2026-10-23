@@ -184,6 +184,12 @@ export const inferenceLog = sqliteTable(
     provider: text("provider"),
     modelId: text("model_id"),
     /**
+     * The effort and speed the call asked for (the owner's model configuration); null for
+     * a request answered without a model call and on rows logged before they were recorded.
+     */
+    effort: text("effort"),
+    speed: text("speed", { enum: ["standard", "fast"] }),
+    /**
      * The role's prompt version: 12 hex digits of the SHA-256 of its instructions and
      * response format (`promptVersion`). Rows logged before it was recorded have none.
      */
@@ -261,8 +267,9 @@ export const inferenceLog = sqliteTable(
     /**
      * Milliseconds from the Worker receiving the request to just before the model call:
      * device authentication, the request limit, the route's own reads, the owner's lock,
-     * the gate and spend checks, the credential with its token exchange, and the spend
-     * reservation.
+     * the gate and spend checks, the model configuration and the credential with its token
+     * exchange. A later call of the same request (a fallback after a refusal, or the
+     * standard speed after fast mode failed) includes the calls before it.
      */
     preModelMs: integer("pre_model_ms"),
     /**
@@ -473,6 +480,18 @@ export const pageJudgements = sqliteTable(
     index("page_judgements_day").on(table.ownerId, table.recipeId, table.judgedAt),
   ],
 );
+
+/**
+ * The owner's model configuration (`modelConfigSchema`), edited only in the web UI: devices
+ * never read or write it. No row means the defaults (`DEFAULT_MODEL_CONFIG`).
+ */
+export const inferenceModelConfigs = sqliteTable("inference_model_configs", {
+  ownerId: text("owner_id")
+    .primaryKey()
+    .references(() => owners.id),
+  document: text("document", { mode: "json" }).notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
 
 /** One model call at a time per owner; a lock past `expiresAt` is abandoned. */
 export const inferenceLocks = sqliteTable("inference_locks", {

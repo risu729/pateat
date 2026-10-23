@@ -3079,13 +3079,13 @@ field exclusions and custom-field review, which need the device's vault catalog
 
 - Pages. A React app under `/manage`, built with the same approved stack as the
   extension's pages ([ADR 0004](adr/0004-library-composition.md)) and served by the
-  Worker as static assets. Its header shows the logo and four tabs, Dashboard, Sites,
-  Devices and Request log, and its footer the version, links to the source and the GPL
-  text at the built commit and to the third-party notices, and the Theme select. React's
-  rendered `<title>` sets the tab title to `Dashboard – Pateat`, `Devices – Pateat`,
-  `Sites – Pateat`, `Request log – Pateat` or `<origin> – Pateat`; the static HTML keeps
-  `Pateat` before the app renders. Each page is its own path, a full page load that the
-  Worker serves only for these paths:
+  Worker as static assets. Its header shows the logo and five tabs, Dashboard, Sites,
+  Devices, Models and Request log, and its footer the version, links to the source and
+  the GPL text at the built commit and to the third-party notices, and the Theme select.
+  React's rendered `<title>` sets the tab title to `Dashboard – Pateat`,
+  `Devices – Pateat`, `Sites – Pateat`, `Models – Pateat`, `Request log – Pateat` or
+  `<origin> – Pateat`; the static HTML keeps `Pateat` before the app renders. Each page
+  is its own path, a full page load that the Worker serves only for these paths:
   - Dashboard (`/manage/dashboard`): the owner's request log, login records, login
     result codes, recipes and spend over 24 hours, 7 days or 30 days (7 days first),
     aggregated by the Worker from the owner's rows (`GET /manage/api/dashboard`). Speed
@@ -3125,6 +3125,12 @@ field exclusions and custom-field review, which need the device's vault catalog
     values are shown instead of a p90. Each chart is hidden from assistive technology
     and repeated as a table; Recharts loads only with this page.
   - Devices (`/manage`): the current list and revocation, moved into the app.
+  - Models (`/manage/models`): for recipe generation and the sign-in judge, the
+    ordered model choices (first, then fallbacks after a refusal), each a model, effort
+    and speed, from the models the owner's credential can list
+    ([ADR 0014](adr/0014-claude-generation-provider.md)); a model without a price, an
+    effort it does not accept and fast mode that keeps failing cannot be chosen. Saving
+    writes `PUT /manage/api/models`; Use the defaults restores Opus 5.5 then Sonnet 5.5.
   - Request log (`/manage/request-log`): how many requests the
     [request log](adr/0012-inference-request-log.md) holds for the owner
     (requests answered without Claude included), and how many
