@@ -1100,6 +1100,25 @@ describe("extractLoginObservation", () => {
       <form><input name="u2"><input name="p2" type="password"><input type="button" value="Login"></form>`,
     );
     expect(observe().complete).toBe(false);
+    // A textless button outside every form submits nothing, whatever its type, as a
+    // cookie banner's close button beside Bank of America's formless sign-in fields.
+    page(
+      `<div><input id="u"><input id="p" type="password"><button type="button">Sign in</button></div>
+      <div id="banner"><button aria-label="Close" style="width:16px;height:16px"></button></div>`,
+    );
+    observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(observation.candidates.map((candidate) => candidate.target.value)).toEqual([
+      "u",
+      "p",
+      "Sign in",
+    ]);
+    // Without another button to submit with, it may be the script-run submit itself.
+    page(
+      `<div><input id="u"><input id="p" type="password">
+        <button aria-label="Sign in" style="width:16px;height:16px"></button></div>`,
+    );
+    expect(observe().complete).toBe(false);
     // An icon button may be the form's only, script-run submit, so there it still does.
     page(`<form><input name="mail"><input name="pass" type="password">${toggle}</form>`);
     expect(observe().complete).toBe(false);

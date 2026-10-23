@@ -27,6 +27,7 @@ import {
   controlName,
   fieldName,
   hasNativeButton,
+  isButton,
   isFragmentButton,
   isRoleButton,
   isScriptButton,
@@ -1130,13 +1131,15 @@ const describeAll = (document: Document) =>
   [...document.querySelectorAll(observed)].map(describe).filter((entry) => entry !== undefined);
 
 /**
- * An icon button that never submits its form on its own, such as the eye that shows the
- * password: `type="button"` and no text of its own, so no text locator either. One with
+ * An icon button that never submits a form on its own, such as the eye that shows the
+ * password: `type="button"`, or any type outside every form, which it has none to submit
+ * (a cookie banner's close button beside fields outside a form, as on Bank of America's
+ * home page, 2026-10-23), and no text of its own, so no text locator either. One with
  * text, such as an `<input type="button" value="Login">` that submits by script, is not.
  */
 const iconButton = (element: Element) =>
-  (element instanceof HTMLButtonElement || element instanceof HTMLInputElement) &&
-  element.type === "button" &&
+  isButton(element) &&
+  (element.type === "button" || element.form === null) &&
   buttonText(element) === undefined;
 
 /** True when an open shadow root holds a visible match, which the executor cannot reach. */
