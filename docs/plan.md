@@ -920,10 +920,11 @@ than in this repository.
   the owner comes before any code. Built by Claude on 2026-10-23 on best guesses, at the
   owner's request to go ahead and decide later, and accepted by the owner that day as
   [ADR 0061](adr/0061-personal-details-during-a-login.md); its delivery 1, the `detail`
-  handler that the judge learns, is implemented. エポスNet asks for the
-  card's security code after the password (owner, 2026-10-12 04:18 UTC: it can wait),
-  and other sites ask for a birth date or similar details as extra verification. The
-  owner sees these as one need (2026-10-12 05:29 UTC): the value is in a card or
+  handler that the judge learns, and delivery 2, judging a page that asks for a detail
+  beside the sign-in form (`beside`), are implemented. エポスNet asks for the card's
+  security code after the password (owner, 2026-10-12 04:18 UTC: it can wait), and other
+  sites ask for a birth date or similar details as extra verification. The owner sees
+  these as one need (2026-10-12 05:29 UTC): the value is in a card or
   identity item, not in the login item, so the login has to be linked to that item. The
   owner chose how to link them (05:27 UTC): Pateat guesses the item from the site being
   logged into and what its pages show (such as a card name, brand or masked last

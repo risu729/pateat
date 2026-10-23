@@ -604,6 +604,7 @@ export function createDiagnosticsLog(options: {
             notCompleted: report.notCompleted,
             moved: report.moved,
             stop: report.stop,
+            beside: report.beside,
             ...requestTimes(report.timing),
           },
           // The answer follows, but `sent` is what is left when no answer came (ADR 0019).

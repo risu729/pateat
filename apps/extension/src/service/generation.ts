@@ -789,6 +789,7 @@ export function createLoginGeneration(options: {
       branch?: string,
       partial?: true,
       stop?: true,
+      beside?: true,
     ) {
       const connection = await connected();
       if (!connection) return { verdict: "retry", reason: "not-connected" };
@@ -807,6 +808,7 @@ export function createLoginGeneration(options: {
           observation,
           ...(partial ? { partial } : {}),
           ...(stop ? { stop } : {}),
+          ...(beside ? { beside } : {}),
         },
       );
       const result: RecipeCompletionResult | undefined =

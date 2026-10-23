@@ -366,12 +366,27 @@ export const recipeCompletionRequestSchema = v.pipe(
      * name, it tells the service that the login's item has no password but a passkey.
      */
     stop: v.optional(v.literal(true)),
+    /**
+     * The page still shows one of the route's fill fields, on a route path, beside another
+     * form with a text-like input and its own button (`showsBesideForm`, ADR 0061). The
+     * service judges such a page though it shows the route's fill field, and keeps only a
+     * `detail` handler from it. Never with `stop`.
+     */
+    beside: v.optional(v.literal(true)),
   }),
   v.check(
     (request) =>
       request.stop !== true ||
       (request.route === "password" && parseRecipeBranch(request.branch)?.branch === undefined),
     "A stop is a password login's without a chooser",
+  ),
+  v.check(
+    (request) =>
+      request.beside !== true ||
+      (request.stop !== true &&
+        request.route === "password" &&
+        parseRecipeBranch(request.branch)?.branch === undefined),
+    "A page beside the sign-in form is a password login's without a chooser or a stop",
   ),
 );
 

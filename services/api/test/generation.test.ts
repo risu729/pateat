@@ -7,6 +7,7 @@ import {
   type LoginChooserDocument,
   type LoginObservation,
   type LoginRecipe,
+  type LoginRecipeDocument,
   type ObservedCandidate,
   type RecipeCompletionResult,
   type RecipeGenerationResult,
@@ -18,6 +19,7 @@ import {
   accountListGenerationInstructions,
   accountListGenerationPromptVersion,
   completionInstructions,
+  completionBesidePromptVersion,
   completionPromptVersion,
   completionStopPromptVersion,
   entryGenerationInstructions,
@@ -4405,6 +4407,351 @@ describe("page judgement (ADR 0027)", () => {
       expect(sent).toHaveLength(calls);
     });
   });
+
+  // ADR 0061: a page that still shows the route's sign-in form, as a sidebar behind a
+  // lightbox, beside another form that asks for a detail. Synthetic page, shaped like a
+  // card site's.
+  describe("a page beside the sign-in form (ADR 0061)", () => {
+    const inForm = (group: string, candidate: ObservedCandidate): ObservedCandidate => ({
+      ...candidate,
+      group,
+    });
+    const sidebar = passwordPage.candidates.map((candidate) => inForm("side", candidate));
+    const birth = {
+      ...inForm("box", element("birth", "text", "Birth year and month")),
+      maxLength: 6,
+    };
+    const phone = {
+      ...inForm("box", element("phone", "text", "Last 4 phone digits")),
+      maxLength: 4,
+    };
+    const submit = inForm("box", element("submit", "button", "Log in"));
+    const besidePage = observation("/password", [...sidebar, birth, phone, submit]);
+    async function beside(
+      device: Device,
+      recipeId: string,
+      revision: number,
+      page: LoginObservation = besidePage,
+      extra: Record<string, unknown> = {},
+    ) {
+      const response = await post(device, `/v1/recipes/${recipeId}/completion`, {
+        version: 1,
+        revision,
+        route: "password",
+        observation: page,
+        beside: true,
+        ...extra,
+      });
+      return {
+        status: response.status,
+        // A change's recipe as the judged layout's route, as `complete` answers it.
+        body: projected((await response.json()) as RecipeCompletionResult | { error: string }),
+      };
+    }
+    const besideRows = async (device: Device) =>
+      rows(
+        "SELECT revision, path, prompt_version, verdict FROM page_judgements WHERE owner_id = ? ORDER BY revision, path, prompt_version",
+        device.ownerId,
+      );
+    const details = {
+      details: [
+        { field: "birth", value: "birth-date", format: "yyyymm" },
+        { field: "phone", value: "phone-last-4" },
+      ],
+      detailSubmit: "submit",
+    };
+
+    it("still refuses the page from any other request, with no call", async () => {
+      const device = await owner();
+      const change = await twoPageRecipe(device);
+      const calls = sent.length;
+      expect((await complete(device, change.recipeId, 2, besidePage)).body).toEqual({
+        version: 1,
+        status: "unavailable",
+        reason: "not-judgeable",
+      });
+      expect(sent).toHaveLength(calls);
+      expect(await besideRows(device)).toEqual([]);
+    });
+
+    it("keeps only a detail handler for the other form's inputs", async () => {
+      const device = await owner();
+      const change = await twoPageRecipe(device);
+      const info = vi.spyOn(console, "info").mockImplementation(() => {});
+      const key = inForm("box", element("passkey", "button", "Sign in with a passkey"));
+      const code = {
+        ...inForm("box", element("app-code", "text", "Authentication code")),
+        autocomplete: "one-time-code" as const,
+        inputMode: "numeric" as const,
+        maxLength: 6,
+      };
+      const page = observation("/password", [...besidePage.candidates, key, code]);
+      replies.push(
+        judgeReply({
+          decision: "challenge",
+          passkeyButton: "passkey",
+          code: { field: "app-code", submit: "submit", source: "authenticator-app" },
+          ...details,
+        }),
+      );
+      expect(await beside(device, change.recipeId, 2, page)).toMatchObject({
+        status: 200,
+        body: {
+          version: 1,
+          status: "challenge",
+          change: {
+            revision: 3,
+            recipe: {
+              steps: route(change.recipe).steps,
+              handlers: [
+                {
+                  kind: "detail",
+                  path: "/password",
+                  fields: [
+                    { detail: "birth-date", format: "yyyymm", target: birth.target },
+                    { detail: "phone-last-4", target: phone.target },
+                  ],
+                  target: submit.target,
+                },
+              ],
+            },
+          },
+        },
+      });
+      expect(await head(device, change.recipeId)).toBe(3);
+      // The next revision's page on that path has its handler: never sent again.
+      const before = sent.length;
+      expect((await beside(device, change.recipeId, 3, page)).body).toEqual({
+        version: 1,
+        status: "unavailable",
+        reason: "not-judgeable",
+      });
+      expect(sent).toHaveLength(before);
+      // The passkey button and the code beside it are never learned there.
+      expect(info).toHaveBeenCalledWith("Judged page handlers", {
+        recipeId: change.recipeId,
+        handlers: [
+          { kind: "passkey", kept: false, reason: "beside" },
+          { kind: "totp", kept: false, reason: "beside" },
+          { kind: "detail", kept: true },
+        ],
+      });
+      info.mockRestore();
+      // The model got the beside instructions, under their own prompt version.
+      const [logged] = await rows(
+        "SELECT request, prompt_version FROM inference_log WHERE owner_id = ? AND role = 'judge'",
+        device.ownerId,
+      );
+      expect(logged!["prompt_version"]).toBe(await completionBesidePromptVersion());
+      expect(logged!["prompt_version"]).not.toBe(await completionPromptVersion());
+      expect(logged!["prompt_version"]).not.toBe(await completionStopPromptVersion());
+      expect(JSON.parse(String(logged!.request))).toMatchObject({
+        route: "password",
+        beside: true,
+        loginPaths: ["/login", "/password"],
+      });
+      expect(JSON.parse(String(logged!.request))).not.toHaveProperty("stop");
+      expect(JSON.stringify(sent.at(-1)!.body)).toContain(
+        "This page still shows the sign-in form Pateat filled",
+      );
+      expect(await besideRows(device)).toEqual([
+        {
+          revision: 2,
+          path: "/password",
+          prompt_version: await completionBesidePromptVersion(),
+          verdict: "challenge",
+        },
+      ]);
+    });
+
+    it("keeps no marker, rejection or password button from the page", async () => {
+      const device = await owner();
+      const change = await twoPageRecipe(device);
+      const info = vi.spyOn(console, "info").mockImplementation(() => {});
+      const choose = inForm("box", element("choose-password", "button", "Use your password"));
+      replies.push(judgeReply({ decision: "challenge", passwordButton: "choose-password" }));
+      expect(
+        (
+          await beside(
+            device,
+            change.recipeId,
+            2,
+            observation("/password", [...besidePage.candidates, choose]),
+          )
+        ).body,
+      ).toEqual({ version: 1, status: "unclear" });
+      expect(info).toHaveBeenCalledWith("Judged page handlers", {
+        recipeId: change.recipeId,
+        handlers: [{ kind: "password", kept: false, reason: "beside" }],
+      });
+      info.mockRestore();
+      // A rejection is no rejection here.
+      replies.push(judgeReply({ decision: "rejected" }));
+      expect(
+        (await beside(device, change.recipeId, 2, { ...besidePage, path: "/login" })).body,
+      ).toEqual({ version: 1, status: "unclear" });
+      expect(await head(device, change.recipeId)).toBe(2);
+      expect((await besideRows(device)).map((row) => [row["path"], row["verdict"]]).sort()).toEqual(
+        [
+          ["/login", "unclear"],
+          ["/password", "unclear"],
+        ],
+      );
+      // Each path is judged once, as for any page.
+      const calls = sent.length;
+      expect((await beside(device, change.recipeId, 2)).body).toEqual({
+        version: 1,
+        status: "unavailable",
+        reason: "already-judged",
+      });
+      expect(sent).toHaveLength(calls);
+    });
+
+    it("keeps a challenge that adds no detail handler as undecided", async () => {
+      const info = vi.spyOn(console, "info").mockImplementation(() => {});
+      const key = inForm("box", element("passkey", "button", "Sign in with a passkey"));
+      const code = {
+        ...inForm("box", element("app-code", "text", "Authentication code")),
+        autocomplete: "one-time-code" as const,
+        inputMode: "numeric" as const,
+        maxLength: 6,
+      };
+      const page = observation("/password", [...besidePage.candidates, key, code]);
+      const besideVersion = await completionBesidePromptVersion();
+      for (const [reply, handlers] of [
+        // Only a passkey button and a code.
+        [
+          {
+            decision: "challenge",
+            passkeyButton: "passkey",
+            code: { field: "app-code", submit: "submit", source: "authenticator-app" },
+          },
+          [
+            { kind: "passkey", kept: false, reason: "beside" },
+            { kind: "totp", kept: false, reason: "beside" },
+          ],
+        ],
+        // Every detail dropped: no input of the page.
+        [
+          {
+            decision: "challenge",
+            details: [{ field: "missing", value: "phone-last-4" }],
+            detailSubmit: "submit",
+          },
+          [{ kind: "detail", kept: false, reason: "unknown-field" }],
+        ],
+        // No handler named at all.
+        [{ decision: "challenge" }, undefined],
+      ] as const) {
+        // oxlint-disable-next-line no-await-in-loop -- Each case has its own recipe.
+        const device = await owner();
+        // oxlint-disable-next-line no-await-in-loop -- Each case has its own recipe.
+        const change = await twoPageRecipe(device);
+        info.mockClear();
+        replies.push(judgeReply(reply));
+        // oxlint-disable-next-line no-await-in-loop -- Each page is judged on its own.
+        expect((await beside(device, change.recipeId, 2, page)).body).toEqual({
+          version: 1,
+          status: "unclear",
+        });
+        if (handlers)
+          expect(info).toHaveBeenCalledWith("Judged page handlers", {
+            recipeId: change.recipeId,
+            handlers,
+          });
+        else expect(info).not.toHaveBeenCalled();
+        // oxlint-disable-next-line no-await-in-loop -- Each recipe is read on its own.
+        expect(await head(device, change.recipeId)).toBe(2);
+        // oxlint-disable-next-line no-await-in-loop -- Each recipe is read on its own.
+        expect(await besideRows(device)).toEqual([
+          {
+            revision: 2,
+            path: "/password",
+            prompt_version: besideVersion,
+            verdict: "unclear",
+          },
+        ]);
+      }
+      info.mockRestore();
+    });
+
+    it("fails closed on a signed-in answer while the password field shows", async () => {
+      const device = await owner();
+      const change = await twoPageRecipe(device);
+      replies.push(judgeReply({ decision: "signed-in", marker: "submit" }));
+      expect((await beside(device, change.recipeId, 2)).body).toEqual({
+        version: 1,
+        status: "failed",
+        error: "invalid-output",
+      });
+      expect(await head(device, change.recipeId)).toBe(2);
+    });
+
+    it("refuses a page without a form beside the route's fill field, or with a marker", async () => {
+      const device = await owner();
+      const change = await twoPageRecipe(device);
+      replies.push(judgeReply({ decision: "signed-in", marker: "logout" }));
+      await complete(device, change.recipeId, 2);
+      const calls = sent.length;
+      for (const page of [
+        // No fill field of the route: such a page is sent without `beside`.
+        observation("/password", [birth, phone, submit]),
+        // The sign-in form alone.
+        observation("/password", sidebar),
+        // The other inputs in the sign-in form.
+        observation("/password", [...sidebar, inForm("side", birth), inForm("side", phone)]),
+        // No button in the other form.
+        observation("/password", [...sidebar, birth, phone]),
+        // A route fill field on a path that is no route path.
+        { ...besidePage, path: "/elsewhere" },
+        // A signed-in marker beside it.
+        observation("/password", [...besidePage.candidates, element("logout", "button", "Out")]),
+      ])
+        // oxlint-disable-next-line no-await-in-loop -- Each page is sent on its own.
+        expect((await beside(device, change.recipeId, 3, page)).body).toEqual({
+          version: 1,
+          status: "unavailable",
+          reason: "not-judgeable",
+        });
+      // It is a password login's without a chooser or a stop, on the recipe's origin.
+      for (const extra of [{ route: "passkey" }, { stop: true }, { branch: "account" }])
+        // oxlint-disable-next-line no-await-in-loop -- Each request is sent on its own.
+        expect((await beside(device, change.recipeId, 3, besidePage, extra)).status).toBe(400);
+      expect(
+        (
+          await beside(device, change.recipeId, 3, {
+            ...besidePage,
+            origin: "https://www.example.test",
+          })
+        ).body,
+      ).toEqual({ version: 1, status: "unavailable", reason: "not-judgeable" });
+      expect(sent).toHaveLength(calls);
+    });
+
+    it("keeps the current beside judge's rows when another page purges older ones", async () => {
+      const device = await owner();
+      const change = await twoPageRecipe(device);
+      await seed(device, change.recipeId, 2, "/password", dayStart() - 1, {
+        promptVersion: await completionBesidePromptVersion(),
+        verdict: "challenge",
+      });
+      await seed(device, change.recipeId, 2, "/earlier-judge", dayStart() - 1);
+      replies.push(judgeReply({ decision: "rejected" }));
+      await complete(device, change.recipeId, 2);
+      expect(await judgements(device)).toEqual([
+        { recipe_id: change.recipeId, revision: 2, path: "/home" },
+        { recipe_id: change.recipeId, revision: 2, path: "/password" },
+      ]);
+      // And the page's own repeat is answered from it, with no call.
+      const calls = sent.length;
+      expect((await beside(device, change.recipeId, 2)).body).toEqual({
+        version: 1,
+        status: "unavailable",
+        reason: "judged-challenge",
+      });
+      expect(sent).toHaveLength(calls);
+    });
+  });
 });
 
 describe("password route variants (ADR 0027)", () => {
@@ -7394,6 +7741,113 @@ describe("generation provenance (ADR 0060)", () => {
       await fromCall(device, unit(id), { layout: key, unit: id, origin: "judged", revision: 3 });
     expect(unit("handler:1").log_id).toBe(unit("handler:0").log_id);
     expect(unit("handler:1").prompt_version).toBe(await completionPromptVersion());
+    await digestsMatch(device.ownerId, recipeId);
+  });
+
+  it("records a detail handler judged beside the sign-in form into that layout only (ADR 0061)", async () => {
+    const device = await owner();
+    const recipeId = await generatedRecipeId(ORIGIN, "/login");
+    // Two layouts of the sign-in page; the second fills both fields in one form.
+    const signInRoute = (fields: [string, string][], button: string) => ({
+      pageKind: "sign-in" as const,
+      slots: fields.map(([slot]) => slot),
+      steps: [
+        {
+          kind: "fill" as const,
+          path: "/login",
+          effect: "prepare" as const,
+          fields: fields.map(([slot, id]) => ({ slot, target: { by: "id" as const, value: id } })),
+        },
+        {
+          kind: "click" as const,
+          path: "/login",
+          target: { by: "id" as const, value: button },
+          purpose: "submit" as const,
+        },
+      ],
+      maxSubmissions: 1,
+    });
+    const layouts = [
+      { key: "1000", createdAt: 1000, ...signInRoute([["email", "email"]], "next") },
+      {
+        key: "2000",
+        createdAt: 2000,
+        ...signInRoute(
+          [
+            ["email", "user"],
+            ["password", "pass"],
+          ],
+          "go",
+        ),
+      },
+    ];
+    const written = await post(
+      device,
+      `/v1/recipes/${recipeId}`,
+      {
+        version: 1,
+        expectedRevision: 0,
+        state: "active",
+        recipe: { version: 1, id: recipeId, revision: 1, origin: ORIGIN, layouts },
+      },
+      "PUT",
+    );
+    expect(written.status).toBe(200);
+    // The second layout's sign-in form still shows, beside a form that asks for a detail.
+    const inForm = (group: string, candidate: ObservedCandidate) => ({ ...candidate, group });
+    const page = observation("/login", [
+      inForm("side", element("user", "email", "Email")),
+      inForm("side", element("pass", "password", "Password")),
+      inForm("side", element("go", "button", "Sign in")),
+      { ...inForm("box", element("phone", "text", "Last 4 phone digits")), maxLength: 4 },
+      inForm("box", element("confirm", "button", "Log in")),
+    ]);
+    replies.push(
+      judgeReply({
+        decision: "challenge",
+        details: [{ field: "phone", value: "phone-last-4" }],
+        detailSubmit: "confirm",
+      }),
+    );
+    const response = await post(device, `/v1/recipes/${recipeId}/completion`, {
+      version: 1,
+      revision: 1,
+      route: "password",
+      branch: "2000",
+      observation: page,
+      beside: true,
+    });
+    expect(await response.json()).toMatchObject({ status: "challenge", change: { revision: 2 } });
+    const head = (await storedHead(device.ownerId, recipeId)) as LoginRecipeDocument;
+    expect(head.layouts.map((layout) => layout.handlers?.map((handler) => handler.kind))).toEqual([
+      undefined,
+      ["detail"],
+    ]);
+    // The judged page is keyed by that layout, under the beside prompt version.
+    expect(
+      await rows(
+        "SELECT branch, path, prompt_version, verdict FROM page_judgements WHERE owner_id = ?",
+        device.ownerId,
+      ),
+    ).toEqual([
+      {
+        branch: "2000",
+        path: "/login",
+        prompt_version: await completionBesidePromptVersion(),
+        verdict: "challenge",
+      },
+    ]);
+    const [row, ...others] = (await sources(device.ownerId, recipeId)).filter(
+      (source) => source.origin === "judged",
+    );
+    expect(others).toEqual([]);
+    await fromCall(device, row!, {
+      layout: "2000",
+      unit: "handler:0",
+      origin: "judged",
+      revision: 2,
+    });
+    expect(row!.prompt_version).toBe(await completionBesidePromptVersion());
     await digestsMatch(device.ownerId, recipeId);
   });
 

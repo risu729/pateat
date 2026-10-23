@@ -179,6 +179,7 @@ describe("recipe generation contracts", () => {
       { ...sampled, branch: "1000:list" },
       { ...sampled, partial: true },
       { ...sampled, stop: true },
+      { ...sampled, beside: true },
       { ...sampled, revision: 0 },
       { version: 1, revision: 2, branch: "1000", observation },
     ])
@@ -586,6 +587,24 @@ describe("page judgement contracts (ADR 0027)", () => {
     expect(
       v.is(recipeCompletionRequestSchema, { ...request, branch: "1000:account", stop: true }),
     ).toBe(false);
+  });
+
+  it("marks a page beside the sign-in form only as true, never with a stop (ADR 0061)", () => {
+    const request = { version: 1, revision: 2, route: "password", branch: "1000", observation };
+    expect(v.is(recipeCompletionRequestSchema, { ...request, beside: true })).toBe(true);
+    expect(v.is(recipeCompletionRequestSchema, { ...request, beside: true, partial: true })).toBe(
+      true,
+    );
+    for (const beside of [false, "true"])
+      expect(v.is(recipeCompletionRequestSchema, { ...request, beside })).toBe(false);
+    // Only a password login without a chooser, and never at its stop.
+    for (const invalid of [
+      { ...request, route: "passkey", beside: true },
+      { ...request, branch: "1000:account", beside: true },
+      { ...request, branch: "1000:other", beside: true },
+      { ...request, stop: true, beside: true },
+    ])
+      expect(v.is(recipeCompletionRequestSchema, invalid)).toBe(false);
   });
 
   it("answers signed-in and challenge with or without a change", () => {

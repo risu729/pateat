@@ -63,6 +63,7 @@ import {
   sameLoginDocument,
   sameLoginTarget,
   saveLoginChoice,
+  showsBesideForm,
   siteDefaultConnection,
   templateLoginBinding,
   TOTP_HANDLER_SLOT,
@@ -1158,6 +1159,12 @@ export interface LoginGeneration {
      * 0036, owner 2026-10-13 05:39 UTC).
      */
     stop?: true,
+    /**
+     * The page still shows the route's sign-in form beside another form that may ask for a
+     * detail (`showsBesideForm`): the service keeps only a `detail` handler from it (ADR
+     * 0061).
+     */
+    beside?: true,
   ): Promise<{
     /**
      * `retry` for a temporary refusal before any model call, which gives the page back:
@@ -1895,6 +1902,11 @@ export type LoginReport = (
        * button beside the password field (ADR 0036, owner 2026-10-13 05:39 UTC).
        */
       stop?: "password";
+      /**
+       * The page still shows the route's sign-in form beside another form, judged for a
+       * `detail` handler only (ADR 0061).
+       */
+      beside?: true;
       /** How long the request took, once it was answered or failed (ADR 0019). */
       timing?: ServiceTiming;
     }
@@ -5231,7 +5243,7 @@ export function createLoginRuntime(
     );
     if (!observed || observed.path !== path) return false;
     let offset = 0;
-    const shown = observable
+    let shown = observable
       .filter((entry) => {
         const states = observed.targets.slice(offset, offset + entry.targets.length);
         offset += entry.targets.length;
@@ -5243,6 +5255,28 @@ export function createLoginRuntime(
       })
       .sort((left, right) => handlerOrder[left.handler.kind] - handlerOrder[right.handler.kind]);
     if (!shown.length) return false;
+    // A `detail` handler learned beside the sign-in form on a route path (ADR 0061) is not
+    // entered for the first time while that form shows a failure beside its fields: the
+    // password was wrong, and the login ends rejected rather than with the handler.
+    if (
+      shown.some(
+        (entry) =>
+          entry.handler.kind === "detail" &&
+          !run.metadata.handlers.some((entered) => entered.index === entry.index),
+      ) &&
+      routeSignInPaths(run.recipe, run.metadata.route).includes(path)
+    ) {
+      const reading = await readSignInState(run);
+      if (!current(run)) return true;
+      if (reading?.decision === "rejected") {
+        shown = shown.filter(
+          (entry) =>
+            entry.handler.kind !== "detail" ||
+            run.metadata.handlers.some((entered) => entered.index === entry.index),
+        );
+        if (!shown.length) return false;
+      }
+    }
     const reportHandler = (
       entry: (typeof entries)[number],
       outcome: Extract<LoginReport, { type: "handler" }>["outcome"],
@@ -5643,13 +5677,29 @@ export function createLoginRuntime(
     }
     // A route's sign-in field shows on another path too (S1): such a page is never complete
     // (ADR 0029), and the description may leave the field out when no locator names it.
+    const fieldShown =
+      paths.includes(remaining.path) &&
+      remaining.targets
+        .slice(0, fills.length)
+        .some((state) => state !== "missing" && state !== "unusable");
+    // One on a route path of a password login without a chooser or a stop, read in the tab's
+    // top document on the recipe's own origin, may stand beside another form that asks for
+    // a detail, which is judged on its own (ADR 0061); a failure shown beside the sign-in
+    // form never is, nor a page whose sign-in state was not read.
+    const besideCandidate =
+      fieldShown &&
+      reading !== undefined &&
+      reading.decision !== "rejected" &&
+      metadata.route === "password" &&
+      !metadata.chooser &&
+      metadata.stopAt === undefined &&
+      metadata.pageOrigin === undefined &&
+      run.live.document.frameId === 0 &&
+      run.live.topUrl === undefined &&
+      run.live.document.origin === recipe.origin;
     if (
-      reading?.decision === "unknown" ||
-      reading?.decision === "rejected" ||
-      (paths.includes(remaining.path) &&
-        remaining.targets
-          .slice(0, fills.length)
-          .some((state) => state !== "missing" && state !== "unusable"))
+      !besideCandidate &&
+      (reading?.decision === "unknown" || reading?.decision === "rejected" || fieldShown)
     )
       return notSent("sign-in-shown");
     // A marker shows, but the completion check did not prove the sign-in: more than one
@@ -5663,8 +5713,18 @@ export function createLoginRuntime(
     const described = await describeForJudge(run, remaining.path);
     if (!described) return true;
     // A page that cannot be described completely is not sent and does not count.
-    if ("unsent" in described) return notSent(described.unsent);
+    if ("unsent" in described) return notSent(besideCandidate ? "sign-in-shown" : described.unsent);
     const { observation, disabledLeftOut, inputLeftOut } = described;
+    // The sign-in form beside another form with a text-like input and its own button, on a
+    // path without a `detail` handler, as the service checks (ADR 0061); otherwise the page
+    // is still the sign-in page.
+    const beside =
+      besideCandidate &&
+      showsBesideForm(observation, routeFillTargets(recipe, "password")) &&
+      !(recipe.handlers ?? []).some(
+        (handler) => handler.kind === "detail" && handler.path === observation.path,
+      );
+    if (besideCandidate && !beside) return notSent("sign-in-shown");
     const left = pagesLeft(run.metadata, operationId);
     await change(run, { type: "JUDGING", operationId });
     if (!current(run)) return true;
@@ -5692,16 +5752,20 @@ export function createLoginRuntime(
         ...detail,
         ...(watchedPage ? { watched: true as const } : {}),
         ...(disabledLeftOut ? { disabledLeftOut: true as const } : {}),
+        ...(beside ? { beside: true as const } : {}),
         ...timed,
       });
-    // A chooser login's branch, and whether the description left a disabled field out
-    // (ADR 0029); each is passed only when there is one.
+    // The login's layout and chooser branch (ADR 0060), whether the description left a
+    // disabled field out (ADR 0029), and whether the page is beside the sign-in form (ADR
+    // 0061); each is passed only when there is one.
     const branch = branchOf(metadata);
-    const judgedTail: [(string | undefined)?, true?] = disabledLeftOut
-      ? [branch, true]
-      : branch
-        ? [branch]
-        : [];
+    const judgedTail: [(string | undefined)?, (true | undefined)?, undefined?, true?] = beside
+      ? [branch, disabledLeftOut ? true : undefined, undefined, true]
+      : disabledLeftOut
+        ? [branch, true]
+        : branch
+          ? [branch]
+          : [];
     const spin = spinning(run.live.document.tabId);
     const asked = Date.now();
     const {

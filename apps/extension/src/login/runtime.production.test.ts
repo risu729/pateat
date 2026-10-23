@@ -3130,6 +3130,31 @@ describe("production login document admission", () => {
           },
           15_000,
         );
+        // ADR 0061: only a page on the recipe's own origin is judged beside the sign-in form.
+        it("never marks a page beside the sign-in form on that origin", async () => {
+          const { h, judge } = await judged(async () => ({ verdict: "unclear" }));
+          fake.state.extracted = {
+            "signed-in": {
+              ok: true,
+              observation: {
+                ...movedHome.observation,
+                path: "/signin",
+                candidates: [
+                  { id: "c1", role: "email", target: target("user"), group: "side" },
+                  { id: "c2", role: "password", target: target("password"), group: "side" },
+                  { id: "c3", role: "button", target: target("login"), group: "side" },
+                  { id: "c4", role: "text", target: target("birth"), group: "box" },
+                  { id: "c5", role: "button", target: target("submit"), group: "box" },
+                ],
+              },
+            },
+          };
+          await navigate(h, `${www}/signin`, "signin-document", false);
+          expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+          expect(judge).toHaveBeenCalledTimes(1);
+          // No branch, no partial description and no `beside`.
+          expect(judge.mock.calls[0]!.slice(5)).toEqual([undefined]);
+        }, 15_000);
         it("ends left-origin when the page shows a password field once the answer is back", async () => {
           const { h } = await judged(async () => {
             fake.state.signs = { ...quiet, password: true };
@@ -11593,13 +11618,27 @@ describe("production login document admission", () => {
       });
       h.recipes.recipe.mockResolvedValue(generated);
       fake.state.present = new Set(["user", "password", "login"]);
+      // A readable sign-in state that shows no failure, so the page is looked at.
+      fake.state.signs = {
+        password: false,
+        code: false,
+        captcha: false,
+        invalid: false,
+        alert: false,
+      };
       expect(await h.hello()).toEqual({ ok: true });
       await vi.waitFor(
         () => expect(status()).toMatchObject([{ state: "reconciling", outcome: "unknown-submit" }]),
         { timeout: 6_000 },
       );
       expect(service.judge).not.toHaveBeenCalled();
-      expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.extract");
+      // The page is described only to look for a form beside the sign-in form (ADR 0061),
+      // once, and nothing of it is sent.
+      expect(
+        fake.state.messages
+          .filter((entry) => entry.type === "login.extract")
+          .map((entry) => (entry as Record<string, unknown>)["page"]),
+      ).toEqual(["signed-in"]);
       // The log says why.
       expect(report).toHaveBeenCalledWith(
         expect.objectContaining({ type: "judge", verdict: "not-sent", reason: "sign-in-shown" }),
@@ -11661,6 +11700,316 @@ describe("production login document admission", () => {
         expect.any(Function),
       );
     }, 10_000);
+
+    // ADR 0061: the sign-in sidebar the login filled stays shown behind a lightbox form that
+    // asks for the birth year and month or the phone's last four digits. Synthetic page,
+    // shaped like a card site's.
+    describe("a page beside the sign-in form (ADR 0061)", () => {
+      const besidePage = page("/signin", [
+        {
+          id: "c1",
+          role: "email",
+          target: target("user"),
+          autocomplete: "username",
+          group: "side",
+        },
+        { id: "c2", role: "password", target: target("password"), group: "side" },
+        { id: "c3", role: "button", target: target("login"), label: "Sign in", group: "side" },
+        {
+          id: "c4",
+          role: "text",
+          target: target("birth"),
+          label: "Birth year and month",
+          maxLength: 6,
+          group: "box",
+        },
+        {
+          id: "c5",
+          role: "text",
+          target: target("phone"),
+          label: "Last 4 phone digits",
+          maxLength: 4,
+          group: "box",
+        },
+        { id: "c6", role: "button", target: target("submit"), label: "Log in", group: "box" },
+      ]);
+      /** The click on Sign in opens the lightbox over the sidebar, on the same path. */
+      const lightbox = () => {
+        fake.state.present = new Set(["user", "password", "login"]);
+        fake.state.onExecute = async (message) => {
+          if ((message["operation"] as { step: LoginStep }).step.kind !== "click") return;
+          fake.state.present = new Set(["user", "password", "login", "birth", "phone", "submit"]);
+        };
+      };
+      const quiet = { password: false, code: false, captcha: false, invalid: false, alert: false };
+      const judgeReports = (report: ReturnType<typeof vi.fn<(report: LoginReport) => void>>) =>
+        report.mock.calls.flatMap(([value]) => (value.type === "judge" ? [value] : []));
+      const withDetail = parseLoginRecipe({
+        ...generated,
+        revision: 2,
+        handlers: [
+          {
+            kind: "detail",
+            path: "/signin",
+            fields: [
+              { detail: "birth-date", format: "yyyymm", target: target("birth") },
+              { detail: "phone-last-4", target: target("phone") },
+            ],
+            target: target("submit"),
+          },
+        ],
+      });
+
+      it("sends the page marked beside, as one judged page of the step", async () => {
+        fake.state.extracted = { "signed-in": besidePage };
+        // The sign-in fields still show, so the sign-in state is unknown (S1, ADR 0029).
+        fake.state.signs = quiet;
+        const service = generation({ judge: async () => ({ verdict: "unclear" }) });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris,
+          username: true,
+          generation: service,
+          report,
+        });
+        h.recipes.recipe.mockResolvedValue(generated);
+        lightbox();
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(
+          () =>
+            expect(status()).toMatchObject([{ state: "reconciling", outcome: "unknown-submit" }]),
+          { timeout: 6_000 },
+        );
+        expect(service.judge).toHaveBeenCalledTimes(1);
+        expect(service.judge.mock.calls[0]!.slice(0, 4)).toEqual([
+          generated.id,
+          generated.revision,
+          "password",
+          besidePage.observation,
+        ]);
+        // No branch and no partial description; only `beside`.
+        expect(service.judge.mock.calls[0]!.slice(5)).toEqual([
+          undefined,
+          undefined,
+          undefined,
+          true,
+        ]);
+        // It counts as any judged page of the step.
+        expect(status()).toMatchObject([{ judged: { pages: 1 } }]);
+        expect(judgeReports(report)).toEqual([
+          expect.objectContaining({ verdict: "sent", beside: true }),
+          expect.objectContaining({ verdict: "unclear", beside: true }),
+        ]);
+        expect(
+          report.mock.calls.flatMap(([value]) => (value.type === "state" ? [value] : [])).at(-1),
+        ).toMatchObject({ decision: "unknown" });
+      }, 10_000);
+
+      it("takes over the detail handler the page added and leaves it to the person", async () => {
+        fake.state.extracted = { "signed-in": besidePage };
+        fake.state.signs = quiet;
+        const service = generation({
+          judge: async () => ({ verdict: "challenge", recipe: withDetail }),
+        });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris,
+          username: true,
+          generation: service,
+          report,
+        });
+        h.recipes.recipe.mockResolvedValue(generated);
+        lightbox();
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(
+          () => expect(status()).toMatchObject([{ state: "watching", outcome: "challenge" }]),
+          { timeout: 6_000 },
+        );
+        expect(status()).toMatchObject([{ recipeRevision: 2 }]);
+        expect(judgeReports(report)).toContainEqual(
+          expect.objectContaining({ verdict: "challenge", takenOver: true, beside: true }),
+        );
+        // No link holds the values yet (ADR 0061, delivery 1): nothing is filled.
+        expect(report).toHaveBeenCalledWith(
+          expect.objectContaining({ type: "handler", kind: "detail", outcome: "detail-unlinked" }),
+        );
+        expect(
+          fake.state.messages.filter(
+            (entry) =>
+              entry.type === "login.execute" &&
+              ((entry as Record<string, unknown>)["operation"] as { step: LoginStep }).step.kind ===
+                "fill",
+          ),
+        ).toHaveLength(1);
+      }, 10_000);
+
+      it.each([
+        ["the sign-in form alone", loginPage],
+        [
+          "the other inputs in the sign-in form",
+          page(
+            "/signin",
+            besidePage.observation.candidates.map((candidate) => ({
+              ...(candidate as object),
+              group: "side",
+            })),
+          ),
+        ],
+        [
+          "no button in the other form",
+          page("/signin", besidePage.observation.candidates.slice(0, 5)),
+        ],
+      ])(
+        "does not send a page with %s",
+        async (_label, extracted) => {
+          fake.state.extracted = { "signed-in": extracted };
+          fake.state.signs = quiet;
+          const service = generation({ judge: async () => ({ verdict: "unclear" }) });
+          const report = vi.fn<(report: LoginReport) => void>();
+          const h = harness(unsaved, {
+            allowedOrigins: [],
+            uris,
+            username: true,
+            generation: service,
+            report,
+          });
+          h.recipes.recipe.mockResolvedValue(generated);
+          lightbox();
+          expect(await h.hello()).toEqual({ ok: true });
+          await vi.waitFor(
+            () =>
+              expect(status()).toMatchObject([{ state: "reconciling", outcome: "unknown-submit" }]),
+            { timeout: 6_000 },
+          );
+          expect(service.judge).not.toHaveBeenCalled();
+          expect(judgeReports(report)).toEqual([
+            expect.objectContaining({ verdict: "not-sent", reason: "sign-in-shown" }),
+          ]);
+          // A page not sent spends none of the step's pages.
+          expect((status() as Record<string, unknown>[])[0]).not.toHaveProperty("judged");
+        },
+        10_000,
+      );
+
+      it("does not send it again for a path that has a detail handler", async () => {
+        fake.state.extracted = { "signed-in": besidePage };
+        fake.state.signs = quiet;
+        const service = generation({ judge: async () => ({ verdict: "unclear" }) });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris,
+          username: true,
+          generation: service,
+          report,
+        });
+        // The handler's inputs are not there, so it is not entered.
+        h.recipes.recipe.mockResolvedValue(
+          parseLoginRecipe({
+            ...withDetail,
+            handlers: [
+              {
+                ...withDetail.handlers![0]!,
+                fields: [{ detail: "card-last-4", target: target("card") }],
+              },
+            ],
+          }),
+        );
+        lightbox();
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(
+          () =>
+            expect(status()).toMatchObject([{ state: "reconciling", outcome: "unknown-submit" }]),
+          { timeout: 6_000 },
+        );
+        expect(service.judge).not.toHaveBeenCalled();
+        expect(judgeReports(report)).toEqual([
+          expect.objectContaining({ verdict: "not-sent", reason: "sign-in-shown" }),
+        ]);
+      }, 10_000);
+
+      it("does not send it from a login in a frame", async () => {
+        fake.state.extracted = { "signed-in": besidePage };
+        fake.state.signs = quiet;
+        // The tab's page around the frame is another site's, which the item matches too.
+        const top = "https://portal.example/account";
+        fake.state.tabUrls[1] = top;
+        const service = generation({ judge: async () => ({ verdict: "unclear" }) });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris: vi.fn<LiveUriMatcher>(async (_connection, url) => ({
+            ok: true,
+            data: uriMatch({ targetOrigin: new URL(url).origin }),
+          })),
+          username: true,
+          generation: service,
+          report,
+        });
+        h.recipes.recipe.mockResolvedValue(generated);
+        lightbox();
+        expect(
+          await h.hello({ frameId: 3, documentId: "frame-document", tab: { id: 1, url: top } }),
+        ).toEqual({ ok: true });
+        await vi.waitFor(
+          () =>
+            expect(judgeReports(report)).toEqual([
+              expect.objectContaining({ verdict: "not-sent", reason: "sign-in-shown" }),
+            ]),
+          { timeout: 6_000 },
+        );
+        expect(service.judge).not.toHaveBeenCalled();
+      }, 10_000);
+
+      it("ends rejected rather than entering a learned detail handler beside a failure", async () => {
+        fake.state.extracted = { "signed-in": besidePage };
+        // A wrong password: the sign-in form shows again with its failure, beside the form
+        // the path's handler was learned from.
+        fake.state.signs = { ...quiet, password: true, alert: true };
+        const service = generation({ judge: async () => ({ verdict: "unclear" }) });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris,
+          username: true,
+          generation: service,
+          report,
+        });
+        h.recipes.recipe.mockResolvedValue(withDetail);
+        lightbox();
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(
+          () =>
+            expect(status()).toMatchObject([{ state: "blocked", outcome: "credential-rejected" }]),
+          { timeout: 6_000 },
+        );
+        expect(report).not.toHaveBeenCalledWith(expect.objectContaining({ type: "handler" }));
+        expect(service.judge).not.toHaveBeenCalled();
+      }, 10_000);
+
+      it("does not send a page with a failure shown beside the sign-in form", async () => {
+        fake.state.extracted = { "signed-in": besidePage };
+        fake.state.signs = { ...quiet, password: true, alert: true };
+        const service = generation({ judge: async () => ({ verdict: "unclear" }) });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris,
+          username: true,
+          generation: service,
+          report,
+        });
+        h.recipes.recipe.mockResolvedValue(generated);
+        lightbox();
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "blocked" }]), {
+          timeout: 6_000,
+        });
+        expect(service.judge).not.toHaveBeenCalled();
+      }, 10_000);
+    });
 
     it("does not send a page that shows a sign-in field on another path (S1)", async () => {
       fake.state.extracted = { "signed-in": homePage };
@@ -16884,13 +17233,26 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         { passkeys: withPasskey, generation: service },
       );
       h.recipes.recipe.mockResolvedValue(twoPaths);
+      // A readable sign-in state that shows no failure, so the page is looked at.
+      fake.state.signs = {
+        password: false,
+        code: false,
+        captcha: false,
+        invalid: false,
+        alert: false,
+      };
       expect(await h.hello()).toEqual({ ok: true });
       await until(settled("reconciling", "unknown-submit"));
       expect(status()![0]).toMatchObject({ variant: 0 });
       // The page is a sign-in page of the route, whichever variant ran, as the service
-      // would also answer.
+      // would also answer. It is described only to look for a form beside the sign-in
+      // form (ADR 0061), which it does not show.
       expect(service.judge).not.toHaveBeenCalled();
-      expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.extract");
+      expect(
+        fake.state.messages
+          .filter((entry) => entry.type === "login.extract")
+          .map((entry) => (entry as Record<string, unknown>)["page"]),
+      ).toEqual(["signed-in"]);
     });
 
     it("takes a revision over on the variant the login runs and clicks the handler", async () => {
@@ -26771,6 +27133,50 @@ describe("an item without a password, up to its password (ADR 0036)", () => {
     ]);
     expect(judgements(report).at(-1)).toMatchObject({ verdict: "signed-in" });
     expect(executed().map((step) => step.kind)).toEqual(["fill", "click"]);
+    expect(passwordRead(h)).toBe(false);
+  });
+
+  // ADR 0061: a page beside the sign-in form is a login's without a stop.
+  it("never sends a page beside the sign-in form after the identifier", async () => {
+    vi.useFakeTimers();
+    const { judge, generation } = judging({ verdict: "unclear" });
+    const { h, report } = start({ generation });
+    // Next keeps the identifier's form shown on its path, beside a form that asks for a
+    // detail.
+    nextLeadsTo("/signin", () => {
+      fake.state.present = new Set(["email", "next", "birth", "submit"]);
+    });
+    fake.state.signs = quiet;
+    fake.state.extracted = {
+      "signed-in": {
+        ok: true,
+        observation: {
+          version: 1,
+          origin,
+          path: "/signin",
+          language: "en",
+          complete: true,
+          candidates: [
+            { id: "c1", role: "email", target: target("email"), group: "side" },
+            { id: "c2", role: "button", target: target("next"), label: "Next", group: "side" },
+            {
+              id: "c3",
+              role: "text",
+              target: target("birth"),
+              label: "Birth year and month",
+              group: "box",
+            },
+            { id: "c4", role: "button", target: target("submit"), label: "Log in", group: "box" },
+          ],
+        },
+      },
+    };
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => judgements(report).length > 0);
+    expect(judge).not.toHaveBeenCalled();
+    expect(judgements(report)).toEqual([
+      expect.objectContaining({ verdict: "not-sent", reason: "sign-in-shown" }),
+    ]);
     expect(passwordRead(h)).toBe(false);
   });
 

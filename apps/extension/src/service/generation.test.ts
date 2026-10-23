@@ -742,6 +742,35 @@ describe("recipe generation requests", () => {
         stop: true,
       },
     );
+    // So does a page beside the sign-in form (ADR 0061).
+    h.transport.judgeCompletion.mockResolvedValueOnce({
+      kind: "result",
+      result: { version: 1, status: "unclear" },
+    });
+    await h.generation.judge(
+      recipeChange.recipeId,
+      1,
+      "password",
+      home,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      true,
+    );
+    expect(h.transport.judgeCompletion).toHaveBeenLastCalledWith(
+      connection.origin,
+      connection.credential,
+      recipeChange.recipeId,
+      {
+        version: 1,
+        revision: 1,
+        route: "password",
+        branch: KEY,
+        observation: home,
+        beside: true,
+      },
+    );
   });
 
   const unavailable = (reason: string) => ({
