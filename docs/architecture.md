@@ -3291,7 +3291,10 @@ of the generation and judge routes itself, sending the request bodies the servic
 hands it to Anthropic only, and the service checks and stores the result as before.
 The key never reaches the service. A device that unpairs may keep the synced recipes as
 its own (`pateat.device-recipes.v1`); logins use them while no service is paired, and
-the next full sync after pairing uploads them once before it pulls.
+the next full sync after pairing uploads them once before it pulls. Unpaired with a key,
+the device runs the same generation and judge routes (`@pateat/generation`) against that
+store, its own record of the routes' limits (`pateat.device-generation.v1`) and its key,
+and logs nothing.
 
 Version recipes immutably with a current pointer and revocation/tombstones. The owner
 revokes a recipe on `/manage`, and the service revokes one unused for 90 days

@@ -16,6 +16,7 @@ import {
   MAX_RECIPE_REPLACEMENTS,
   RECIPE_REPLACE_INTERVAL_MS,
 } from "./generation";
+import { DEVICE_GENERATION_ORIGIN } from "./device-generation";
 import type { ServiceConnection } from "./runtime";
 import type { InferenceResult, ServiceTransport } from "./transport";
 
@@ -1906,7 +1907,7 @@ describe("signed-in page samples (ADR 0029, owner 2026-10-18 08:05 UTC)", () => 
     { id: "username", kind: "identifier", description: "account username" },
     { id: "totp", kind: "one-time-code", description: "one-time authentication code" },
   ];
-  function sampleSetup(paired = true) {
+  function sampleSetup(paired: boolean | ServiceConnection = true) {
     let stored: unknown;
     let now = 5_000_000_000;
     const order: string[] = [];
@@ -1922,7 +1923,10 @@ describe("signed-in page samples (ADR 0029, owner 2026-10-18 08:05 UTC)", () => 
       return { kind: "kept" };
     });
     const generation = createLoginGeneration({
-      service: { connection: async () => (paired ? connection : undefined) },
+      service: {
+        connection: async () =>
+          typeof paired === "object" ? paired : paired ? connection : undefined,
+      },
       transport: {
         generateRecipe: vi.fn(),
         generateEntry: vi.fn(),
@@ -2026,6 +2030,21 @@ describe("signed-in page samples (ADR 0029, owner 2026-10-18 08:05 UTC)", () => 
     });
     expect(h.describePage).not.toHaveBeenCalled();
     expect(h.sampleStorage.read).not.toHaveBeenCalled();
+    expect(h.samplePage).not.toHaveBeenCalled();
+  });
+
+  it("keeps no sample on a device without a pairing, which generates on its own (ADR 0040)", async () => {
+    const h = sampleSetup({
+      origin: DEVICE_GENERATION_ORIGIN,
+      deviceId: DEVICE_GENERATION_ORIGIN,
+      credential: "",
+      rejected: false,
+    });
+    expect(await h.generation.samplePage!(sample, h.describePage)).toEqual({
+      outcome: "not-due",
+      reason: "not-connected",
+    });
+    expect(h.describePage).not.toHaveBeenCalled();
     expect(h.samplePage).not.toHaveBeenCalled();
   });
 

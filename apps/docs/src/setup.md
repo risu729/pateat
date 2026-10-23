@@ -143,8 +143,10 @@ Under **AI key**, you can save an **Anthropic API key** from the Claude Console.
 this device is paired, it asks Claude with this key instead of the service's
 credentials: the service writes each request, and the extension sends it to Anthropic
 itself. The key stays on this device and is sent to Anthropic only, never to the
-service. **Daily limit (USD)** and **Monthly limit (USD)**, $5 and $100 unless you
-change them, stop requests at either limit. **Remove key** deletes the key.
+service. While no service is paired, the extension writes recipes with this key itself,
+with Claude's default models, and keeps them on this device. **Daily limit (USD)** and
+**Monthly limit (USD)**, $5 and $100 unless you change them, stop requests at either
+limit. **Remove key** deletes the key.
 
 ## Using Pateat
 

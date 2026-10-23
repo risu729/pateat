@@ -35,6 +35,9 @@ read it, and removing the extension deletes it.
   Pateat checks it on your device and sends it nowhere.
 - **Your Anthropic API key**, if you save one, with what it spent today and this month.
   It is stored without encryption and sent only to Anthropic.
+- **Recipes written on this device** while no service is paired, and, for its own
+  requests to Claude, which pages it asked about and when, so that it keeps to the same
+  retry and judgement limits as the service.
 - **Each connection's details**: its name, the Bitwarden server, your email address and
   the device identifier Pateat uses with Bitwarden.
 - **Settings and recipes** synced with your Pateat service, among them the item and
@@ -195,6 +198,10 @@ it wrote back to the extension, which sends it to Anthropic with your key, and s
 Anthropic's answer back to the service, which keeps it as above. Anthropic then handles
 the request under the terms of the account the key belongs to. The key is never sent to
 the service.
+
+With a key and no service paired, the extension writes the request itself and sends it
+to Anthropic with your key, using Claude Opus 5.5 and, when it declines, Claude Sonnet
+5.5. The recipe stays on your device, and nothing about the request is logged.
 
 Pateat never sends Anthropic vault values, login records, problem reports or the
 signed-in pages sent once every 30 days.
