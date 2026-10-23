@@ -2176,7 +2176,9 @@ submits (`type="button"`, or any type outside every form, with no text of its ow
 such as the eye that shows the password on モッピー's and LinkedIn's sign-in pages
 (2026-10-12), whose only name is an `aria-label`, or a cookie banner's close button
 beside Bank of America's sign-in fields, which sit outside any form (2026-10-23), but
-only when its form, or the fields outside every form, has another located button:
+only when its form, or the fields outside every form, has another located button, and,
+for a button of another type outside every form, only when no field outside every form
+is within two ancestors of it, where it may be their script-run submit:
 an icon-only button may be the form's script-run submit. A `type="button"` button with
 text, such as `<input type="button" value="Login">` submitting by script, still marks
 the page incomplete when it has no unique locator. The executor compares strings and

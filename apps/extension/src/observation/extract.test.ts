@@ -1104,7 +1104,8 @@ describe("extractLoginObservation", () => {
     // cookie banner's close button beside Bank of America's formless sign-in fields.
     page(
       `<div><input id="u"><input id="p" type="password"><button type="button">Sign in</button></div>
-      <div id="banner"><button aria-label="Close" style="width:16px;height:16px"></button></div>`,
+      <div id="banner"><div><div><button aria-label="Close" style="width:16px;height:16px">
+      </button></div></div></div>`,
     );
     observation = observe();
     expect(observation.complete).toBe(true);
@@ -1113,10 +1114,19 @@ describe("extractLoginObservation", () => {
       "p",
       "Sign in",
     ]);
-    // Without another button to submit with, it may be the script-run submit itself.
+    // Without another button to submit with, it may be the script-run submit itself,
+    // and so it may beside the fields even when a button elsewhere is located.
+    for (const other of ["", `<header><button id="menu">Menu</button></header>`]) {
+      page(
+        `${other}<div><input id="u"><input id="p" type="password">
+          <button aria-label="Sign in" style="width:16px;height:16px"></button></div>`,
+      );
+      expect(observe().complete, other).toBe(false);
+    }
+    // Inside a form, a textless submit button still counts beside another located one.
     page(
-      `<div><input id="u"><input id="p" type="password">
-        <button aria-label="Sign in" style="width:16px;height:16px"></button></div>`,
+      `<form><input name="mail"><input name="pass" type="password">${toggle}
+        <button aria-label="Go" style="width:16px;height:16px"></button></form>`,
     );
     expect(observe().complete).toBe(false);
     // An icon button may be the form's only, script-run submit, so there it still does.
