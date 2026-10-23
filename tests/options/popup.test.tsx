@@ -1577,7 +1577,9 @@ test("an excluded site offers no fill, even one the worker still keeps", async (
   const { client } = store(saved(0, settings));
   const details = withDetails({ offer: birthOffer });
   await mount(client, "https://bank.example/login", noChoice(), false, undefined, details);
-  await expect.element(page.getByText("No logins or passkey answers on this site")).toBeVisible();
+  await expect
+    .element(page.getByText("Pateat does not log in or answer passkey requests on this site."))
+    .toBeVisible();
   await expect.poll(() => details.get.mock.calls.length, { timeout: 3000 }).toBeGreaterThan(1);
   expect(page.getByRole("button", { name: "Fill" }).query()).toBeNull();
 });
