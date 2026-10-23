@@ -33,8 +33,9 @@ features:
       from a sanitized description of the login page. Recipes hold no secrets.
   - title: Passwords, TOTP and passkeys
     details:
-      Pateat fills passwords, custom fields and one-time codes, and signs in with the
-      passkeys stored in your vault, even in background tabs.
+      Pateat fills passwords, custom fields, one-time codes and personal details such as
+      a card's number, and signs in with the passkeys stored in your vault, even in
+      background tabs.
 ---
 
 ::: warning Not released yet
@@ -56,23 +57,24 @@ only Bitwarden for the time being.
   `http://` address is used ([permissions](./permissions.md#plain-http-pages)).
 - When a site asks for a passkey, Pateat can answer with a passkey stored in your vault.
 - When a site has no recipe yet, Pateat sends a sanitized description of the page, never
-  your vault values, to your Pateat service, which asks Claude to write one.
+  your vault values, to your Pateat service, and a recipe is written with Claude, using
+  the service's Claude credentials or an Anthropic API key saved on your device.
 
 Settings and recipes live on a Pateat service that you pair the extension with. The
 extension keeps a copy, so logins keep working while the service is offline.
 
-## Two protections Pateat does not honour yet
+## Protections Pateat does not fully honour yet
 
 - **Passkey user presence and verification.** When Pateat answers a site's passkey
   request, it sets the user presence (UP) and user verification (UV) flags, although it
   performs no presence test or verification of its own. Unlocking the vault on this
   device and the account you chose for the site are the only authorization
   ([ADR 0007](https://github.com/risu729/pateat/blob/main/docs/adr/0007-existing-passkey-assertions.md#presence-and-verification)).
-- **Bitwarden's master password re-prompt.** Pateat fills, and signs with the passkeys
-  of, items marked with master password re-prompt without asking for the master
-  password.
-
-Both are planned to become settings before Pateat is public.
+  This is planned to become a setting before Pateat is public.
+- **Bitwarden's master password re-prompt** is honoured only on the sites you list
+  ([setup](./setup.md#sites-that-ask-for-the-master-password)). Elsewhere, Pateat fills,
+  and signs with the passkeys of, items marked with re-prompt without asking for the
+  master password.
 
 ## Next steps
 

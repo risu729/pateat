@@ -17,7 +17,7 @@ a **Language** setting to choose one. This page quotes the English labels.
    `127.0.0.1`.
 2. Give the connection a **Name**, such as `Personal`, and enter your Bitwarden
    **Email** and **Master password**.
-3. Leave **Use this connection** on, then press **Connect Bitwarden**.
+3. Leave **Use this vault** on, then press **Connect Bitwarden**.
 4. If Bitwarden asks for verification, a **Manual verification** form appears. Choose
    the **Verification method**: **Authenticator code** for the code from your
    authenticator app, or **Email code**, which asks the server to email you a code
@@ -31,22 +31,17 @@ decrypts it on your device with the official Bitwarden SDK. The master password 
 verification codes are not saved. What stays on this device is:
 
 - an encrypted copy of the vault;
-- an unlock key, so that Pateat can unlock the vault again after Chrome restarts without
-  asking for the master password (automatic unlock);
+- an unlock key, which decrypts that copy while the vault is unlocked;
 - a sync sign-in, so that Pateat can sync the vault again later.
 
-The unlock key is kept in the extension's own storage in Chrome, not in your operating
-system's key store. Anyone who can read your Chrome profile's files can use it to
-decrypt the vault copy. If you do not want that, choose **Disable automatic unlock** in
-the connection's menu. Pateat needs the unlock key to use and sync the vault, so this
-also forgets the sync sign-in, and the connection stops working at once until you sign
-in again with **Enable automatic unlock on this device** checked.
-
-Each connection is a row with its main action, **Sync**, or **Sign in again** when the
-vault needs a sign-in first. Its menu also holds **Disable automatic unlock**,
-**Forget sync sign-in** and **Delete connection**, which, after you confirm with
-**Delete connection** again, removes the connection, its vault copy, unlock key and sync
-sign-in from this device. None of these signs out your other Bitwarden sessions. You can
+Each connection is a row with its main action: **Sync**, **Unlock** when the vault is
+locked, or **Sign in again** when it needs a sign-in first. **Unlock** asks for the
+master password and checks it on this device, without the server. The row's menu also
+holds **Lock**, which forgets the unlock key and keeps the sync sign-in; **Log out**,
+which forgets both; **Forget sync sign-in**; and **Delete connection**, which, after you
+confirm with **Delete connection** again, removes the connection, its vault copy, unlock
+key and sync sign-in from this device. None of these signs out your other Bitwarden
+sessions. You can
 add more than one connection, such as a personal and a work vault.
 
 ### Choose what Pateat may use
@@ -65,6 +60,40 @@ page.
 
 These limits apply to Pateat only and do not change anything in Bitwarden.
 
+### Vault timeout
+
+The **Vault timeout** section decides how long the vaults stay unlocked, counted from
+the last login filled, passkey signed, unlock or sign-in: 1, 5, 15 or 30 minutes, 1 or
+4 hours, **On system idle**, **On system lock**, **On browser restart**, **Never** (the
+default) or **Custom** minutes. **Timeout action** is **Lock** or **Log out**. The
+setting stays on this device.
+
+With **Never**, the unlock key is kept in the extension's storage in Chrome, so the
+vaults unlock by themselves after Chrome restarts. It is not protected by your operating
+system's key store: anyone who can use your Chrome profile, or read its files, can use
+the vaults. With any other timeout the key stays in memory only, so a browser restart
+also locks the vaults.
+
+### Sites that ask for the master password
+
+Bitwarden's master password re-prompt is honoured on the sites you list. Turn
+**Ask for the master password** on in the toolbar popup on a site, or add the site in
+the settings page's sites section, where **Include subdomains** covers its subdomains
+and **Stop asking** removes it. On those sites, a vault item marked for re-prompt is
+used only after you enter the master password in Pateat's window. Elsewhere it is used
+like any other item. The list starts empty.
+
+### AI key
+
+Under **AI key**, you can save an **Anthropic API key** from the Claude Console. This
+device then asks Claude with it, also while paired: the service writes each request,
+and the extension sends it to Anthropic itself. The key stays on this device and is
+sent to Anthropic only, never to the service. **Daily limit (USD)** and
+**Monthly limit (USD)**, $5 and $100 unless you change them, stop requests at either
+limit. **Remove key** deletes it. For now, recipes are written with the key only while
+the device is paired. Without a key, the service asks Claude with its owner's
+credentials.
+
 ## Pair with a Pateat service
 
 1. Under **Sync service**, enter the **Service address**, such as
@@ -74,9 +103,15 @@ These limits apply to Pateat only and do not change anything in Bitwarden.
 3. If you are not signed in to the service yet, Pateat opens its sign-in page in a new
    tab. Sign in there, then return to the settings page; Pateat tries again by itself.
    **Try again** and **Open sign-in page** repeat either step.
+4. If the service already holds settings, choose a **Settings profile**: an existing
+   one, or **New profile with this device's site settings** with a
+   **New profile name**. A profile holds the excluded sites, the sites that ask for the
+   master password and the default accounts, and devices that share a profile share
+   them. If this device already has its own excluded sites or default accounts, choosing
+   an existing profile asks first whether to replace them (**Pair and replace**).
 
-When pairing succeeds, the page says **This device is paired.** Pateat then syncs your
-settings and recipes from the service and keeps a copy on this device.
+When pairing succeeds, the page says **This device is paired.** Pateat then syncs its
+profile's settings and the recipes from the service and keeps a copy on this device.
 
 The service gives this device its own credential, which the extension keeps in its own
 storage and sends only to the service. It expires after 90 days without use. You can
@@ -89,30 +124,34 @@ already on it.
 
 The service is a small Cloudflare Worker. Its pairing and management pages are behind
 Cloudflare Access; the extension reaches it with its device credential. It stores your
-settings, site defaults and recipes, and asks Claude to write a recipe for a login page
-that has none. It also keeps, for one year, the page descriptions it receives and a
-record of each login that followed a recipe; the
-[privacy policy](./privacy.md#your-pateat-service) lists them. It never receives vault
-values or keys. Its pages are **Dashboard**, **Sites**, **Devices**, **Models** (which
-Claude model to use) and **Request log**.
+settings profiles and recipes, and writes a recipe with Claude for a login page that
+has none. It also keeps, for one year, the page descriptions it receives, a record of
+each login that followed a recipe and the warnings and errors the extension reports;
+the [privacy policy](./privacy.md#your-pateat-service) lists them. It never receives
+vault values or keys. Its pages are **Dashboard**, **Sites**, **Profiles**,
+**Devices**, **Claude** (its Claude credentials and which models to use), **Problems**
+(the warnings and errors devices reported) and **Request log**.
 
 Today each service is run by its owner for themselves: the service at `pateat.takuk.me`
 belongs to Pateat's developer and is not open to other people. A service accepts
 pairing only from the extension IDs its operator lists, so running your own means
 listing Pateat's ID, or the ID of your own build if you sign it with your own key. The
 [development guide](https://github.com/risu729/pateat/blob/main/docs/development.md#extension-id)
-describes both. A mode without the service is planned.
+describes both. Writing recipes on a device that is not paired is planned.
 
 ## Using Pateat
 
 Once both steps are done, open the login page of a site that has an item in your vault.
 Pateat logs in when the site has a recipe for that page. When it has none, Pateat sends
-a sanitized description of the page to the service, which asks Claude to write one.
-Writing one needs Claude credentials set up on the service, as the
+a sanitized description of the page to the service, and a recipe is written with
+Claude. That needs an [AI key](#ai-key) on this device or Claude credentials set up on
+the service, as the
 [service guide](https://github.com/risu729/pateat/blob/main/services/api/README.md#claude-credentials)
-describes; without them, the service still keeps the description it received.
+describes; without either, the service still keeps the description it received.
 
 The toolbar popup shows what Pateat did on the current page. It also lets you choose the
-account to log in with when several match, and turn **Pateat on this site** off for a
-site. The service's **Sites** page lists every site with a recipe, a default account or
-an exclusion.
+account to log in with when several match, turn **Pateat on this site** off or
+**Ask for the master password** on for a site, and, when a page asks for a personal
+detail such as a card's number, link the vault item that holds it and press **Fill**.
+The service's **Sites** page lists every site with a recipe, a default account or an
+exclusion, one settings profile at a time.
