@@ -58,10 +58,12 @@ Before this ADR (read from the code on 2026-10-23):
    part of a site search (`inputLeftOut`), as in "send the code to [SMS] [Email]
    [Continue]". A disabled one counts, and so does a transparent, tiny or unrendered one
    under a label or container that shows, as a styled radio under its label "card". One
-   in a search landmark, a search box itself, or a select or combo box of a small search
-   form (at most four controls, every typed input a search box) does not. The extension
-   completes on it only when all of these hold, and otherwise ends the login
-   `challenge`, except as the first says:
+   in a search landmark, a search box itself, a select or combo box of a small search
+   form (at most four controls, every typed input a search box), and a select or combo
+   box in the page footer (`contentinfo`, or a `footer` outside an article, section,
+   dialog or form), such as a language picker, do not; a footer's radio buttons and text
+   areas still count. The extension completes on it only when all of these hold, and
+   otherwise ends the login `challenge`, except as the first says:
    - this attempt already sent the account's credential: its latest effect step
      submitted after a route step that typed the password or a second factor's handler
      (a handler missing from the recipe does not count).
@@ -126,7 +128,9 @@ Before this ADR (read from the code on 2026-10-23):
   about $0.16.
 - A model error the other way (`challenge` for an optional page) keeps today's yellow
   "!" and watched login, as does an optional page with a field, such as a phone number
-  to add, or with a radio button, select or text area, such as a language picker.
+  to add, or with a radio button, select or text area outside the page footer, such as
+  a language picker in the header, a native select hidden behind a custom dropdown or
+  a CAPTCHA's hidden answer area.
 
 ## Alternatives
 

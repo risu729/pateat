@@ -1461,7 +1461,8 @@ handler, when the page confirmed no sign and no evidence before the request and 
 loaded document still shows none after the answer on the same path, the description
 left out no disabled field, the page shows no radio button, select or text area, or an
 ARIA widget for one, outside a site search (`inputLeftOut`; disabled and styled ones
-count), and the login has no stop before a missing password;
+count, a page footer's select does not), and the login has no stop before a missing
+password;
 otherwise it ends `challenge`, or before the credential settles as an undecided page
 without completing. The `passkey` route ends it `challenge` as any page its checks do
 not prove, even after a learned handler. A moved login (ADR 0022) completes on it after

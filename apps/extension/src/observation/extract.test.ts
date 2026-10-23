@@ -3474,6 +3474,11 @@ describe("extractSignedInObservation", () => {
         `<label><input type="radio" name="via" value="sms"> Text message</label>` +
         `<label><input type="radio" name="via" value="email"> Email</label>` +
         `<button id="continue">Continue</button></form>`,
+      // A footer exempts only a picker: its radios and text areas still count, and a
+      // card's or section's own footer is no page footer.
+      `<footer><label><input type="radio" name="via" value="sms"> Text message</label></footer>`,
+      `<div role="contentinfo"><textarea id="answer"></textarea></div>`,
+      `<section><footer><select id="via"><option>Text message</option></select></footer></section>`,
       `<form><input type="search" id="q"><input id="email" type="email">` +
         `<select id="via"><option>Text message</option></select><button id="go">Go</button></form>`,
     ])
@@ -3487,6 +3492,10 @@ describe("extractSignedInObservation", () => {
         `<button id="go">Go</button></form>`,
       `<input id="q" role="combobox" placeholder="Search the docs">`,
       `<div hidden><select id="in"><option>All</option></select></div>`,
+      // A page footer's language picker.
+      `<footer><select id="lang"><option>English</option><option>日本語</option></select></footer>`,
+      `<div role="contentinfo"><div role="combobox" aria-label="Language" tabindex="0">English</div></div>`,
+      `<footer><form><select id="lang"><option>English</option></select></form></footer>`,
       `<div style="display: none"><label><input type="radio" name="via"> Email</label></div>`,
     ])
       expect(flagged(markup), markup).toBe(false);

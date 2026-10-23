@@ -1204,23 +1204,44 @@ function searchForm(form: HTMLFormElement): boolean {
   return held.length <= 4 && typed.length > 0 && typed.every(searchBox);
 }
 /**
+ * Whether `element` is in the page's footer: `contentinfo`, or a `footer` that is no
+ * part of an article, section, dialog or form, as HTML maps it to that landmark.
+ */
+function pageFooter(element: HTMLElement): boolean {
+  if (element.closest("[role~='contentinfo' i]")) return true;
+  const footer = element.closest("footer");
+  return (
+    footer !== null &&
+    !footer.closest(
+      "article, aside, main, nav, section, dialog, form, [role~='dialog' i], [role~='alertdialog' i]",
+    )
+  );
+}
+/**
  * Whether the page shows a radio button, select or text area, or an ARIA radio, radio
  * group, combo box, list box or text box, that is no part of a site search: an answer
  * the person may be asked for that the description has no role for (ADR 0065). A
  * disabled one counts, and so does a transparent, tiny or unrendered one under a label
  * or container that shows, as a styled radio under its label "card" is. One in a search
- * landmark, a search box itself, or a select or combo box of a small search form does
- * not.
+ * landmark, a search box itself, a select or combo box of a small search form, and a
+ * select or combo box in the page footer, such as a language picker, do not.
  */
 function leftOutInputs(document: Document): boolean {
+  // Each form is checked once per scan, however many selects it holds.
+  const searchForms = new Map<HTMLFormElement, boolean>();
   for (const element of document.querySelectorAll<HTMLElement>(answerControls)) {
     if (element.closest("search, [role~='search' i]")) continue;
     if (searchBox(element)) continue;
-    const choice =
-      element instanceof HTMLSelectElement ||
-      element.matches("[role~='combobox' i], [role~='listbox' i]");
+    const picker = element instanceof HTMLSelectElement || element.matches("[role~='combobox' i]");
+    // A page footer's select, as a language or region picker, asks nothing of the sign-in.
+    if (picker && pageFooter(element)) continue;
+    const choice = picker || element.matches("[role~='listbox' i]");
     const form = element.closest("form");
-    if (choice && form && searchForm(form)) continue;
+    if (choice && form) {
+      let search = searchForms.get(form);
+      if (search === undefined) searchForms.set(form, (search = searchForm(form)));
+      if (search) continue;
+    }
     if (presence(element) !== "absent") return true;
     // A styled control hides its input under a label or card that shows.
     const labels =
