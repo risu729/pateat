@@ -709,11 +709,16 @@ slot per custom field a matching item allows (Text, Hidden, or Linked with an al
 source), named by field name and position, under an opaque ID such as `custom-1`
 ([ADR 0027](adr/0027-per-account-login-routes.md)). Just before sending, it reads the
 matching items' usernames and the values of Text fields and of Linked fields that read
-the username or a Text field for their shape, each sent only when all items agree. The
-returned recipe enters the recipe cache and starts at once: `login.reconnect` asks every
-tab's page still tracked on that origin and path that holds no login to announce again.
-That covers the page that was sent and a page refused for want of a recipe while the
-request was in flight, such as one that replaced it in its tab or the same page in
+the username or a Text field for their shape, each sent only when all items agree. A
+list of accounts is sent with no slots or shapes at all, and a sign-in entry page
+without slots; both have the matching items' usernames hidden as every page sent does
+(owner, 2026-10-23 11:48 UTC;
+[ADR 0028](adr/0028-account-chooser-login-pages.md#amendment-2026-10-23-sent-without-slots),
+[ADR 0031](adr/0031-sign-in-entry-pages.md#amendment-2026-10-23-the-matching-items-usernames-are-hidden)).
+The returned recipe enters the recipe cache and starts at once: `login.reconnect` asks
+every tab's page still tracked on that origin and path that holds no login to announce
+again. That covers the page that was sent and a page refused for want of a recipe while
+the request was in flight, such as one that replaced it in its tab or the same page in
 another tab. A generated recipe the chosen item cannot run is revoked and its page
 generated in the same visit
 ([ADR 0058](adr/0058-automatic-recipe-removal.md#a-a-recipe-the-chosen-item-cannot-run)):
@@ -2008,7 +2013,10 @@ announces goes first); the worker then checks the tab holds no attempt record fo
 origin of the site, no tab keeps a logout of it, the page is not the tab's next page
 after a submitted password form and a vault item matches, and sends the page's shown,
 enabled buttons and links with rendered text outside forms with fields, header and
-navigation first, up to 48, without slots. The content script lists the hosts the page's
+navigation first, up to 48, without slots and with the matching items' usernames hidden
+as `[account]` (a page refused as `username-unread` or `username-shown` is not sent,
+[ADR 0031](adr/0031-sign-in-entry-pages.md#amendment-2026-10-23-the-matching-items-usernames-are-hidden)).
+The content script lists the hosts the page's
 URL and links name, and the worker answers which are on the site, so a link to another
 site, `http:` (unless the page is `http:` too, ADR 0050), to the page itself or only
 another fragment of it, opening another window (by its own `target` or the document's
@@ -2071,7 +2079,10 @@ too. A form page, or a route recipe's next page, whose stored recipe is a choose
 answers `recipe-conflict`. The extension sends a page that lists accounts once its DOM
 has been quiet for a second, or 5 seconds after it starts waiting (ADR 0057), unless it
 follows a submitted password form, with a username that is not an email and the other
-texts beside its buttons shown as `[account]`, and caches the chooser it gets. A login
+texts beside its buttons shown as `[account]` and with `slots: []`, which the service
+requires of a list
+([ADR 0028](adr/0028-account-chooser-login-pages.md#amendment-2026-10-23-sent-without-slots)),
+and caches the chooser it gets. A login
 on the list clicks the account's entry, the `continue` button or `other`, as the content
 script finds them for the account's username, then runs that branch and sends its pages
 with the branch; with nothing to click it ends `account-not-listed`

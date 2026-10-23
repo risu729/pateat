@@ -270,7 +270,11 @@ the path ending before it), or `{ check: "plan", reason }` with the plan check's
   button. A recipe's first page that lists no accounts, and only it, carries `signedIn`
   (400 otherwise): the device's hint that the page shows the person signed in
   ([ADR 0035](../../docs/adr/0035-page-kinds-per-site.md)), sent to the model with the
-  page. Every plan answers `pageKind` (`sign-in`, `confirm` or `unclear`) and
+  page. A page that lists accounts has `slots: []`, and only such a page or a
+  passkey-only one may (400 otherwise): no slot, field name or value shape goes with a
+  list, whose instructions say so
+  ([ADR 0028](../../docs/adr/0028-account-chooser-login-pages.md#amendment-2026-10-23-sent-without-slots)).
+  Every plan answers `pageKind` (`sign-in`, `confirm` or `unclear`) and
   `irreversible` (`yes`, `no` or `unclear`, for evaluation only). The recipe stores its
   first page's `pageKind`: a continuation keeps the recipe's, and a chooser branch's
   pages are `sign-in` whatever the model answers. `irreversible` is never stored on a

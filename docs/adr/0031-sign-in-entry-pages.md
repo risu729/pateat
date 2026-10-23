@@ -49,6 +49,10 @@ Amended on 2026-10-19 by [ADR 0057](0057-decide-no-input-pages-when-the-dom-is-q
 is quiet for a second, at most 5 seconds, instead of 10 seconds after loading. The
 checks after the press keep their 10-second waits.
 
+Amended on 2026-10-23 (owner, 11:48 UTC, implemented):
+[the matching items' usernames are hidden](#amendment-2026-10-23-the-matching-items-usernames-are-hidden)
+from the page sent, as on every page sent for generation; still no slot is sent.
+
 Date: 2026-10-12
 
 ## Context
@@ -348,9 +352,11 @@ with the reason (warn).
 - No new permission: the page is already reachable under
   [ADR 0009](0009-install-time-https-site-access.md), and the press is one click on a
   same-site link in the top document.
-- Nothing of the vault is read on the entry page beyond ADR 0016's URI match. The
-  username, password and other fields are read only on the login page the press leads
-  to, by that page's own recipe.
+- Nothing of the vault is read on the entry page beyond ADR 0016's URI match and, since
+  2026-10-23, the matching items' usernames, which are only hidden from the page sent
+  ([below](#amendment-2026-10-23-the-matching-items-usernames-are-hidden)). The
+  password and other fields are read only on the login page the press leads to, by that
+  page's own recipe.
 - The service and Anthropic see, for each such page, its origin, its path without the
   query, its title and headings, and the text of its buttons and on-site links, redacted
   as every observation is. That is more ordinary browsing than a login page shows; it is
@@ -422,3 +428,22 @@ and 20:23 UTC). "10 seconds after loading shows no sign-in input" in
 page's DOM has not changed for 1 second, or 5 seconds after it began. The next page
 after a press is still checked within 10 seconds of the press, with its own wait of up
 to 10 seconds.
+
+## Amendment 2026-10-23: the matching items' usernames are hidden
+
+The owner's rule (2026-10-23 11:19 UTC): every model call gets the same account
+information unless there is a sound reason, and a reasoned difference is recorded. An
+entry page was sent without the vault being read, so its text was not run through
+`withoutUsernames` as a page sent for generation and a judged page are, though a
+signed-out page may still greet a remembered account by name. The owner chose
+"ユーザー名だけ隠す" (11:48 UTC). The worker keeps the vault items that matched the page
+when the entry was offered (the match `no-vault-match` checks), reads their usernames
+one at a time once the page is described, and hides them by generation's rule: each
+place in the title, headings and controls' texts becomes `[account]`, a link or button
+whose locator holds one is left out, and a page whose path holds one, or with no control
+left, is not sent. A username that cannot be read is logged as `username-unread`, one
+that cannot be hidden as `username-shown`, and a page whose every link was left out as
+`no-entry-link`, each with `page: entry`. The usernames are never sent, logged or kept.
+
+Item and field names (slots) are still not sent with an entry page, a recorded
+difference: they do not help find the sign-in button, and an entry recipe fills nothing.
