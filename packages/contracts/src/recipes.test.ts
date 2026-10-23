@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import * as v from "valibot";
-import { parseLoginRecipe, type LoginRecipe, type StoredLoginRecipe } from "./login";
+import {
+  parseLoginRecipe,
+  routeBodyOf,
+  toLoginLayout,
+  type LoginRecipe,
+  type LoginRecipeDocument,
+  type StoredLoginRecipe,
+} from "./login";
 import {
   bindingGaps,
   customFieldReference,
@@ -8,7 +15,9 @@ import {
   fillLoginBinding,
   findLoginBinding,
   loginDisplayNames,
+  loginLayoutCandidates,
   loginRecipesForOrigin,
+  rankLayouts,
   resolveBindingFields,
   saveLoginChoice,
   selectLoginRecipe,
@@ -39,6 +48,19 @@ function recipe(id: string, firstPath: string, revision = 1, at = origin): Login
     completion: [{ target: target("welcome") }],
     maxSubmissions: 1,
   });
+}
+/** The recipe stored as a document of its layouts, created at the times given (ADR 0060). */
+function stored(route: LoginRecipe, ...created: number[]): LoginRecipeDocument {
+  const { version, id, revision, origin: at } = route;
+  return {
+    version,
+    id,
+    revision,
+    origin: at,
+    layouts: (created.length ? created : [1000]).map((createdAt) =>
+      toLoginLayout(route, { key: String(createdAt), createdAt }),
+    ),
+  };
 }
 const binding = (overrides: Partial<SavedLoginBinding> = {}): SavedLoginBinding => ({
   recipeId: "bank-signin",
@@ -73,15 +95,16 @@ const resolve = (entry: SavedLoginBinding, live: readonly LocalItemField[] = fie
 
 describe("recipe selection", () => {
   const recipes = [
-    recipe("bank-signin", "/login"),
-    recipe("bank-admin", "/admin"),
-    recipe("other-signin", "/login", 1, "https://other.example"),
+    stored(recipe("bank-signin", "/login")),
+    stored(recipe("bank-admin", "/admin")),
+    stored(recipe("other-signin", "/login", 1, "https://other.example")),
   ];
 
   it("starts only on a recipe's first step", () => {
     expect(selectLoginRecipe(recipes, origin, "/login")).toMatchObject({
       ok: true,
-      recipe: { id: "bank-signin" },
+      recipe: { id: "bank-signin", layout: "1000" },
+      layouts: [{ recipe: { id: "bank-signin", layout: "1000" }, createdAt: 1000 }],
       stepIndex: 0,
     });
     expect(selectLoginRecipe(recipes, origin, "/password")).toEqual({
@@ -96,11 +119,47 @@ describe("recipe selection", () => {
 
   it("refuses when two recipes start on the same page", () => {
     expect(
-      selectLoginRecipe([...recipes, recipe("bank-business", "/login")], origin, "/login"),
+      selectLoginRecipe([...recipes, stored(recipe("bank-business", "/login"))], origin, "/login"),
     ).toEqual({ ok: false, reason: "recipe-ambiguous" });
     expect(
-      selectLoginRecipe([...recipes, recipe("bank-signin", "/login", 2)], origin, "/login"),
+      selectLoginRecipe([...recipes, stored(recipe("bank-signin", "/login", 2))], origin, "/login"),
     ).toEqual({ ok: false, reason: "recipe-ambiguous" });
+  });
+
+  it("offers every layout of one recipe, the newest first by default (ADR 0060)", () => {
+    const layered = stored(recipe("bank-signin", "/login"), 3000, 1000, 2000);
+    const selected = selectLoginRecipe([layered], origin, "/login");
+    expect(selected).toMatchObject({ ok: true, recipe: { layout: "3000" } });
+    expect(selected.ok && selected.layouts.map((candidate) => candidate.recipe.layout)).toEqual([
+      "3000",
+      "1000",
+      "2000",
+    ]);
+    // Layouts of one recipe never make its start ambiguous.
+    expect(loginRecipesForOrigin([layered], origin)).toHaveLength(1);
+  });
+
+  it("ranks layouts by visible start elements, then the page's language, then age", () => {
+    const route = recipe("bank-signin", "/login");
+    const candidates = loginLayoutCandidates({
+      ...stored(route, 1000, 2000, 3000),
+      layouts: [
+        { ...toLoginLayout(route, { key: "1000", language: "ja", createdAt: 1000 }) },
+        { ...toLoginLayout(route, { key: "2000", language: "en", createdAt: 2000 }) },
+        { ...toLoginLayout(route, { key: "3000", createdAt: 3000 }) },
+      ],
+    });
+    expect(candidates.map((candidate) => candidate.language)).toEqual(["ja", "en", undefined]);
+    const order = (shown: number[], language?: "ja" | "en" | "mixed") =>
+      rankLayouts(candidates, shown, language).map((candidate) => candidate.recipe.layout);
+    // The most visible start elements win; the rest drop out.
+    expect(order([2, 1, 1])).toEqual(["1000"]);
+    expect(order([1, 2, 2])).toEqual(["3000", "2000"]);
+    // On a tie, the page's language first, then the newest.
+    expect(order([1, 1, 1], "ja")).toEqual(["1000", "3000", "2000"]);
+    expect(order([1, 1, 1], "en")).toEqual(["2000", "3000", "1000"]);
+    expect(order([1, 1, 1], "mixed")).toEqual(["3000", "2000", "1000"]);
+    expect(order([0, 0, 0])).toEqual(["3000", "2000", "1000"]);
   });
 
   it("never lists or starts an entry recipe (ADR 0031)", () => {
@@ -127,13 +186,16 @@ describe("recipe selection", () => {
   });
 
   it("never lists or starts a chooser recipe or its branch (ADR 0028)", () => {
-    const signin = recipes[0]!;
+    const signin = recipe("bank-signin", "/login");
     const chooser: StoredLoginRecipe = {
       version: 1,
       id: "bank-chooser",
       revision: 1,
       origin,
-      chooser: { path: "/login", afterAccount: { ...signin, id: "bank-chooser", revision: 1 } },
+      chooser: {
+        path: "/login",
+        layouts: [{ key: "1000", createdAt: 1000, afterAccount: routeBodyOf(signin) }],
+      },
     };
     expect(loginRecipesForOrigin([chooser, ...recipes], origin).map(({ id }) => id)).toEqual([
       "bank-signin",

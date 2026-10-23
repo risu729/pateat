@@ -7,11 +7,12 @@ import {
   type LoginObservation,
 } from "./observation";
 import {
-  chooserBranchSchema,
-  loginChooserRecipeSchema,
+  loginChooserDocumentSchema,
   loginEntryRecipeSchema,
-  loginRecipeSchema,
+  loginRecipeDocumentSchema,
   loginRouteSchema,
+  parseRecipeBranch,
+  recipeBranchSchema,
   storedRecipeSlots,
 } from "./login";
 import { syncRecipeIdSchema } from "./sync";
@@ -39,8 +40,9 @@ const sameIdentity = (change: {
   recipe: { id: string; revision: number };
 }) => change.recipe.id === change.recipeId && change.recipe.revision === change.revision;
 /**
- * The active variant of `syncRecipeChangeSchema`, with the same identity check: a route
- * recipe, or a chooser recipe (ADR 0028) for an account list or one of its branches.
+ * The active variant of `syncRecipeChangeSchema`, with the same identity check: a login
+ * recipe with its layouts (ADR 0060), or a chooser recipe (ADR 0028) for an account list or
+ * one of its branches.
  */
 const activeChange = v.pipe(
   v.strictObject({
@@ -48,7 +50,7 @@ const activeChange = v.pipe(
     revision: writtenRevision,
     state: v.literal("active"),
     // An entry recipe (ADR 0031) answers only an entry request (`activeEntryChange`).
-    recipe: v.union([loginRecipeSchema, loginChooserRecipeSchema]),
+    recipe: v.union([loginRecipeDocumentSchema, loginChooserDocumentSchema]),
   }),
   v.check((change) => sameIdentity(change), "Recipe identity does not match its sync revision"),
 );
@@ -145,9 +147,10 @@ export const generationOutputRejectionSchema = v.variant("check", [
 ]);
 
 /**
- * `POST /v1/recipes/generate`: one page; `base` continues a recipe after an advance. With
- * `branch`, `base` is a chooser recipe (ADR 0028) and the page is the next one of that
- * branch: its first page, after the click on the list, or a later one.
+ * `POST /v1/recipes/generate`: one page; `base` continues a recipe after an advance, and
+ * `branch` names the layout it continues (ADR 0060). With a chooser branch in `branch`,
+ * `base` is a chooser recipe (ADR 0028) and the page is the next one of that branch: its
+ * first page, after the click on the list, or a later one.
  */
 export const recipeGenerationRequestSchema = v.pipe(
   v.strictObject({
@@ -156,7 +159,7 @@ export const recipeGenerationRequestSchema = v.pipe(
     slots: v.union([semanticSlotsSchema, v.strictTuple([])]),
     passkeyOnly: v.optional(v.literal(true)),
     base: v.optional(v.strictObject({ recipeId: syncRecipeIdSchema, revision: writtenRevision })),
-    branch: v.optional(chooserBranchSchema),
+    branch: v.optional(recipeBranchSchema),
   }),
   v.check(
     (request) => request.passkeyOnly === true || request.slots.length > 0,
@@ -171,9 +174,11 @@ export const recipeGenerationRequestSchema = v.pipe(
         isEntryObservation(request.observation)),
     "A passkey-only request is a first page with no slots, fields or accounts",
   ),
-  v.check((request) => !request.branch || request.base !== undefined, "A branch needs a base"),
+  v.check(
+    (request) => (request.branch === undefined) === (request.base === undefined),
+    "A base names the layout it continues, and a layout needs a base",
+  ),
 );
-
 /**
  * Whether an observation can be sent without slots, as a page's sign-in entry (ADR 0031):
  * it shows no field to fill and lists no accounts (ADR 0028).
@@ -314,8 +319,11 @@ export const recipeCompletionRequestSchema = v.pipe(
     revision: writtenRevision,
     /** The login's route; the service checks the stored recipe has it. */
     route: loginRouteSchema,
-    /** For a chooser recipe (ADR 0028): the branch the login took, whose route is judged. */
-    branch: v.optional(chooserBranchSchema),
+    /**
+     * The layout the login ran (ADR 0060), and for a chooser recipe (ADR 0028) the branch
+     * it took, whose route is judged.
+     */
+    branch: recipeBranchSchema,
     observation: loginObservationSchema,
     /**
      * The description left out a disabled field that may not be a sign-in field (ADR 0029):
@@ -333,7 +341,9 @@ export const recipeCompletionRequestSchema = v.pipe(
     stop: v.optional(v.literal(true)),
   }),
   v.check(
-    (request) => request.stop !== true || (request.route === "password" && !request.branch),
+    (request) =>
+      request.stop !== true ||
+      (request.route === "password" && parseRecipeBranch(request.branch)?.branch === undefined),
     "A stop is a password login's without a chooser",
   ),
 );
@@ -343,16 +353,16 @@ export const recipeCompletionRequestSchema = v.pipe(
  * revision that its signed-in marker completed without a model call, kept in the request
  * log for evaluation and never sent to a model (ADR 0029, owner 2026-10-18 08:05 UTC). The
  * page is on the recipe's origin and described as the judge's page is. The service keeps
- * one per recipe and branch in `PAGE_SAMPLE_INTERVAL_MS` and answers 201 when it kept this
- * one, 204 when it already had one.
+ * one per recipe and branch (a layout, ADR 0060) in `PAGE_SAMPLE_INTERVAL_MS` and answers
+ * 201 when it kept this one, 204 when it already had one.
  */
 export const recipePageSampleRequestSchema = v.strictObject({
   version: v.literal(1),
   revision: writtenRevision,
   /** The login's route, as the judge is told it; the service checks the revision has it. */
   route: loginRouteSchema,
-  /** For a chooser recipe (ADR 0028): the branch the login took. */
-  branch: v.optional(chooserBranchSchema),
+  /** The layout the login ran (ADR 0060), and for a chooser recipe the branch it took. */
+  branch: recipeBranchSchema,
   observation: loginObservationSchema,
 });
 

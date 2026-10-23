@@ -108,6 +108,21 @@ describe("attempt identity and metadata", () => {
       expect(nextLoginOperation(attempt, recipe, stale, "fill-one")).toBeUndefined();
   });
 
+  it("keeps the layout the login started on, and runs no other one (ADR 0060)", () => {
+    const layered = { ...recipe, layout: "1760000000000" };
+    const attempt = transitionLoginAttempt(detected(layered), { type: "RESOLVE" });
+    expect(attempt.layout).toBe("1760000000000");
+    expect(parseAttemptMetadata(attempt)).toEqual(attempt);
+    expect(nextLoginOperation(attempt, layered, document, "fill-one")).toMatchObject({
+      operationId: "fill-one",
+    });
+    for (const other of [{ ...recipe, layout: "1760000000001" }, recipe])
+      expect(nextLoginOperation(attempt, other, document, "fill-one")).toBeUndefined();
+    // A login on a recipe without layouts keeps none.
+    expect(detected()).not.toHaveProperty("layout");
+    expect(() => parseAttemptMetadata({ ...attempt, layout: "1000:account" })).toThrow();
+  });
+
   it("excludes values, unknown fields and invalid counts from resumable metadata", () => {
     const attempt = detected();
     expect(parseAttemptMetadata(attempt)).toEqual(attempt);

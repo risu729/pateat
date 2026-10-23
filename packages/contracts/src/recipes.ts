@@ -1,5 +1,14 @@
 import * as v from "valibot";
-import { isLoginRouteRecipe, type LoginRecipe, type StoredLoginRecipe } from "./login";
+import {
+  isLoginRecipeDocument,
+  newestLayout,
+  recipeLayouts,
+  type LoginRecipe,
+  type LoginRecipeDocument,
+  type RecipeLanguage,
+  type StoredLoginRecipe,
+} from "./login";
+import type { LoginObservation } from "./observation";
 import {
   savedLoginBindingSchema,
   type LocalSettings,
@@ -11,27 +20,79 @@ import {
 // bindings come from the service cache; these functions only read them.
 
 /**
- * Every recipe with a login route for one exact origin, in cache order. An entry recipe
- * (ADR 0031) or a chooser recipe (ADR 0028) is left out: nothing starts either yet, and
- * neither starts or resumes a login.
+ * Every login recipe for one exact origin, in cache order. An entry recipe (ADR 0031) or a
+ * chooser recipe (ADR 0028) is left out: neither is a login recipe with layouts.
  */
 export function loginRecipesForOrigin(
   recipes: readonly StoredLoginRecipe[],
   origin: string,
-): LoginRecipe[] {
+): LoginRecipeDocument[] {
   return recipes.filter(
-    (recipe): recipe is LoginRecipe => isLoginRouteRecipe(recipe) && recipe.origin === origin,
+    (recipe): recipe is LoginRecipeDocument =>
+      isLoginRecipeDocument(recipe) && recipe.origin === origin,
   );
 }
 
+/** One layout a new login may run (ADR 0060), with what the choice between layouts reads. */
+export type LayoutCandidate<Recipe> = {
+  recipe: Recipe;
+  language?: RecipeLanguage | undefined;
+  createdAt: number;
+};
+
+/** Each layout of a stored login recipe as a candidate, in stored order. */
+export function loginLayoutCandidates(recipe: LoginRecipeDocument): LayoutCandidate<LoginRecipe>[] {
+  return recipeLayouts(recipe).map((projected, index) => ({
+    recipe: projected,
+    ...(recipe.layouts[index]!.language ? { language: recipe.layouts[index]!.language } : {}),
+    createdAt: recipe.layouts[index]!.createdAt,
+  }));
+}
+
+/**
+ * The layouts a new login may run, best first (ADR 0060): only those whose start-path
+ * elements show the most (`shown`, one count per candidate), then those of the page's
+ * language before the others, then the newest first. The caller takes the first whose plan
+ * for the account passes, which puts the plan between the elements and the language;
+ * when none passes, the first one's refusal stands. A `mixed` or unknown page language
+ * prefers none.
+ */
+export function rankLayouts<Recipe>(
+  candidates: readonly LayoutCandidate<Recipe>[],
+  shown: readonly number[],
+  language?: LoginObservation["language"],
+): LayoutCandidate<Recipe>[] {
+  const most = Math.max(0, ...candidates.map((_, index) => shown[index] ?? 0));
+  const speaks = (candidate: LayoutCandidate<Recipe>) =>
+    language !== undefined && language !== "mixed" && candidate.language === language ? 1 : 0;
+  return candidates
+    .filter((_, index) => (shown[index] ?? 0) === most)
+    .map((candidate, index) => ({ candidate, index }))
+    .sort(
+      (left, right) =>
+        speaks(right.candidate) - speaks(left.candidate) ||
+        right.candidate.createdAt - left.candidate.createdAt ||
+        right.index - left.index,
+    )
+    .map(({ candidate }) => candidate);
+}
+
 export type LoginRecipeSelection =
-  | { ok: true; recipe: LoginRecipe; stepIndex: number }
+  | {
+      ok: true;
+      /** The newest layout, which a login takes when nothing tells the layouts apart. */
+      recipe: LoginRecipe;
+      /** Every layout of the recipe, for the choice of ADR 0060. */
+      layouts: LayoutCandidate<LoginRecipe>[];
+      stepIndex: number;
+    }
   | { ok: false; reason: "recipe-not-found" | "recipe-ambiguous" };
 
 /**
  * Chooses the recipe and step a new attempt starts on. For now only a recipe's first
  * step can start an attempt, and two recipes starting on one page refuse rather than
- * guess. On-screen step detection can replace this without changing stored data.
+ * guess. The layouts of the one recipe that starts there are all offered (ADR 0060); the
+ * runtime chooses between them from what the page shows.
  */
 export function selectLoginRecipe(
   recipes: readonly StoredLoginRecipe[],
@@ -39,11 +100,13 @@ export function selectLoginRecipe(
   path: string,
 ): LoginRecipeSelection {
   const starting = loginRecipesForOrigin(recipes, origin).filter(
-    (recipe) => recipe.steps[0]?.path === path,
+    (recipe) => recipe.layouts[0]?.steps[0]?.path === path,
   );
   if (starting.length > 1) return { ok: false, reason: "recipe-ambiguous" };
   const [recipe] = starting;
-  return recipe ? { ok: true, recipe, stepIndex: 0 } : { ok: false, reason: "recipe-not-found" };
+  if (!recipe) return { ok: false, reason: "recipe-not-found" };
+  const layouts = loginLayoutCandidates(recipe);
+  return { ok: true, recipe: newestLayout(layouts)!.recipe, layouts, stepIndex: 0 };
 }
 
 /** The synced binding of one recipe for one vault item, if any. */

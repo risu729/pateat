@@ -1,4 +1,5 @@
 import * as v from "valibot";
+import { recipeLayoutKeySchema } from "./login";
 import { deviceIdSchema } from "./pairing";
 import {
   MAX_SETTINGS_DOCUMENT_BYTES,
@@ -55,10 +56,17 @@ export const manageSettingsConflictSchema = v.strictObject({
   current: syncSettingsStateSchema,
 });
 
-/** One recipe's current head: the active recipe, or a tombstone once revoked. */
+/**
+ * One recipe's current head: the active recipe, or a tombstone once revoked, and when each
+ * of its layouts was last used (ADR 0058, ADR 0060): by a login that started or ended on it,
+ * or a write the login's page caused. `null` for a layout no login used yet.
+ */
 export const manageRecipeSchema = v.strictObject({
   change: syncRecipeChangeSchema,
   updatedAt: timestamp,
+  layouts: v.array(
+    v.strictObject({ key: recipeLayoutKeySchema, lastUsedAt: v.nullable(timestamp) }),
+  ),
 });
 /**
  * An active head whose stored document no longer passes the recipe contract. Devices
@@ -75,7 +83,11 @@ export const manageRecipesSchema = v.strictObject({
   recipes: v.array(manageRecipeSchema),
   unreadable: v.array(manageUnreadableRecipeSchema),
 });
-/** Revokes the recipe if `expectedRevision` is still its head; devices drop it on sync. */
+/**
+ * Revokes the recipe if `expectedRevision` is still its head; devices drop it on sync. The
+ * same body removes one layout of it (`/recipes/:recipeId/layouts/:layout/revoke`, ADR
+ * 0060): the next revision keeps the others, and removing the last one revokes the recipe.
+ */
 export const manageRecipeRevokeSchema = v.strictObject({
   version: v.literal(1),
   expectedRevision: headRevision,
