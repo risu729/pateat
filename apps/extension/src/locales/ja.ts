@@ -285,8 +285,8 @@ export const ja = {
     "Pateat：別のタブでの前回のログインはサイトに受け付けられませんでした。クリックしてアカウントを選んでください。",
   "Pateat logged in to this site twice in 10 minutes. Click to choose an account.":
     "Pateat はこのサイトに 10 分間で 2 回ログインしました。クリックしてアカウントを選んでください。",
-  "Pateat: you chose an account here without making it the default. Click to choose an account.":
-    "Pateat：このサイトでは既定にせずにアカウントを選びました。クリックしてアカウントを選んでください。",
+  "Pateat: you chose an account here without making it the default, so Pateat asks until an account is made the default. Click to choose an account.":
+    "Pateat：このサイトでは既定にせずにアカウントを選んだため、いずれかのアカウントが既定になるまで確認します。クリックしてアカウントを選んでください。",
   "Pateat: automatic login is paused on this site until {{time}}.":
     "Pateat：このサイトの自動ログインは {{time}} まで一時停止中です。",
   "Automatic login is paused on this site": "このサイトの自動ログインは一時停止中です",
@@ -294,8 +294,8 @@ export const ja = {
     "別のタブでの前回のログインはサイトに受け付けられませんでした",
   "Pateat logged in to this site twice in the last 10 minutes, so it waits for you to choose":
     "Pateat は直近 10 分間にこのサイトへ 2 回ログインしたため、アカウントの選択を待っています",
-  "You chose an account here without making it the default, so Pateat asks each time until the browser closes":
-    "このサイトでは既定にせずにアカウントを選んだため、ブラウザを閉じるまで毎回確認します",
+  "You chose an account here without making it the default, so Pateat asks each time until an account is made the default":
+    "このサイトでは既定にせずにアカウントを選んだため、いずれかのアカウントが既定になるまで毎回確認します",
   "{{name}} does not match this page.": "{{name}} はこのページに一致しません。",
   "Pateat is not running on this page yet. Reload it, then try again.":
     "Pateat はまだこのページで動いていません。再読み込みしてからもう一度お試しください。",
@@ -305,12 +305,10 @@ export const ja = {
     "このタブではすでにアカウントの切り替えが進行中です。",
   "A login is running in this tab. Wait for it to end, then try again.":
     "このタブでログインが進行中です。終わるのを待ってからもう一度お試しください。",
-  "Another tab's login to this site is running or waits for a code. Finish or close it, then try again.":
-    "別のタブでこのサイトへのログインが進行中か、確認コードを待っています。それを終えるか閉じてから、もう一度お試しください。",
+  "Another tab's login or account switch on this site is running or waits for a code. Finish or close it, then try again.":
+    "別のタブでこのサイトへのログインかアカウントの切り替えが進行中か、確認コードを待っています。それを終えるか閉じてから、もう一度お試しください。",
   "Pateat settings could not be read. Try again.":
     "Pateat の設定を読み込めませんでした。もう一度お試しください。",
-  "Automatic login is paused for this site, so Pateat did not switch accounts.":
-    "このサイトの自動ログインは一時停止中のため、Pateat はアカウントを切り替えませんでした。",
   "Pateat needs its service to find how to log out. Pair it in the settings.":
     "ログアウトの方法を探すには Pateat のサービスが必要です。設定でペアリングしてください。",
   "Logging out to switch to {{name}}…": "{{name}} に切り替えるためにログアウトしています…",
@@ -318,6 +316,10 @@ export const ja = {
     "ログアウトしました。このタブのこのサイトのログインページで、Pateat が {{name}} でログインします",
   "Pateat found no way to log out on this page, so it did not switch to {{name}}. Log out yourself, then choose the account":
     "このページでログアウトの方法が見つからなかったため、Pateat は {{name}} に切り替えませんでした。ご自身でログアウトしてから、アカウントを選んでください",
+  "The only control Pateat found to log out may also log out other devices or close the account, so it did not switch to {{name}}. Log out yourself, then choose the account":
+    "Pateat が見つけたログアウトの操作は、他のデバイスからもログアウトするか、アカウントを閉じるおそれがあるため、{{name}} に切り替えませんでした。ご自身でログアウトしてから、アカウントを選んでください",
+  "Pateat stopped while logging out, so it did not switch to {{name}}. Check whether you are logged out, then choose the account":
+    "ログアウト中に Pateat が停止したため、{{name}} に切り替えませんでした。ログアウトしたかを確かめてから、アカウントを選んでください",
   "The site still shows you logged in after 3 tries, so Pateat did not switch to {{name}}. Log out yourself, then choose the account":
     "3 回試してもサイトにログインしたままと表示されるため、Pateat は {{name}} に切り替えませんでした。ご自身でログアウトしてから、アカウントを選んでください",
   "Pateat could not log out to switch to {{name}}. Log out yourself, then choose the account":

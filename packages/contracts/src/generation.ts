@@ -345,7 +345,8 @@ export const entryGenerationResultSchema = v.pipe(
 /**
  * `POST /v1/recipes/logout` (ADR 0063): a signed-in page of the tab an account switch runs
  * in, described as a page without a login form is (its shown buttons and links, redacted),
- * so the service names the control that signs out, or the one that opens the menu holding
+ * with its title and the labels of its controls only: no headings, nearby texts or control
+ * descriptions, as the page shows the person's own content. The service names the control that signs out, or the one that opens the menu holding
  * it, or the one that confirms a sign-out the page asks about. Without `base` the page
  * starts the origin and path's logout recipe; with `base` it is the page after that
  * revision's last click, whose answer appends the next click. Nothing of the vault is sent.
@@ -371,7 +372,8 @@ export const logoutGenerationRequestSchema = v.pipe(
     /**
      * A logout control the extension found by its words on `path` and clicked, after which
      * the page changed but still shows the account, as a confirmation dialog: the recipe
-     * starts with it, and the page's click follows (ADR 0063).
+     * starts with it, or continues `base`'s clicks with it, and the page's click follows
+     * (ADR 0063).
      */
     local: v.optional(v.strictObject({ path: loginPathSchema, target: logoutTargetSchema })),
   }),
@@ -380,8 +382,15 @@ export const logoutGenerationRequestSchema = v.pipe(
     "A logout request's page shows no field and lists no accounts",
   ),
   v.check(
-    (request) => !(request.base && request.local),
-    "A logout request follows a recipe or a local click, not both",
+    ({ observation }) =>
+      observation.headings === undefined &&
+      observation.headerText === undefined &&
+      observation.nearCode === undefined &&
+      observation.nearButtons === undefined &&
+      observation.candidates.every(
+        (candidate) => candidate.description === undefined && candidate.placeholder === undefined,
+      ),
+    "A logout request's page carries its title and control labels only",
   ),
 );
 

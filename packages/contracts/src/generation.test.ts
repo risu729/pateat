@@ -620,7 +620,8 @@ describe("logout requests and answers (ADR 0063)", () => {
         base: { recipeId: "gen-logout-1", revision: 1, keep: 3 },
       }),
     ).toBe(false);
-    // A page after a logout control the extension found by its words.
+    // A page after a logout control the extension found by its words, also after a stored
+    // recipe's clicks, as a menu the recipe opened (ADR 0063).
     const local = { path: "/home", target: { by: "accessible-name", value: "Sign out" } };
     expect(v.is(logoutGenerationRequestSchema, { version: 1, observation: signedIn, local })).toBe(
       true,
@@ -639,7 +640,28 @@ describe("logout requests and answers (ADR 0063)", () => {
         local,
         base: { recipeId: "gen-logout-1", revision: 1 },
       }),
-    ).toBe(false);
+    ).toBe(true);
+    // The page's title and its controls' labels, never its headings or other texts.
+    for (const more of [
+      { headings: ["Your orders"] },
+      { headerText: "Welcome back" },
+      { nearButtons: ["Order 1234 shipped"] },
+      {
+        candidates: [{ ...signedIn.candidates[0]!, description: "Shipping to 1 Example Street" }],
+      },
+    ])
+      expect(
+        v.is(logoutGenerationRequestSchema, {
+          version: 1,
+          observation: { ...signedIn, ...more },
+        }),
+      ).toBe(false);
+    expect(
+      v.is(logoutGenerationRequestSchema, {
+        version: 1,
+        observation: { ...signedIn, title: "Example shop" },
+      }),
+    ).toBe(true);
     // A page with a field to fill, slots or a list of accounts is no logout request.
     expect(v.is(logoutGenerationRequestSchema, { version: 1, observation })).toBe(true);
     expect(

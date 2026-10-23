@@ -2312,6 +2312,11 @@ export function createLoginRuntime(
   const picked = new Map<number, PickedAccount>();
   /** Tabs whose account switch is logging out (ADR 0063). */
   const switchesRunning = new Set<number>();
+  /**
+   * The tab each running switch drives, by its current ID: Chrome may replace the tab
+   * meanwhile (`tabs.onReplaced`), and the switch goes on in the new one.
+   */
+  const switchTabs = new Map<number, { id: number }>();
   /** Each tab's last account switch, as the popup shows it (ADR 0063). */
   const switchStates = new Map<
     number,
@@ -2385,7 +2390,7 @@ export function createLoginRuntime(
     );
   // Picks and waiting choices outlive a worker restart, as the tab's badge does. Every
   // change to them happens after this load.
-  const sessionLoaded = quietly(async () => {
+  const sessionRead = quietly(async () => {
     const items = await storage.getItems([
       PICKS_KEY,
       CHOICES_KEY,
@@ -2442,6 +2447,27 @@ export function createLoginRuntime(
         if (!entry.checked) armEntryTimer(entry);
       }
   });
+  // An account switch whose worker stopped while it logged out ended with it: its pick is
+  // dropped and the popup says so. One that had signed out still waits for the login page
+  // (ADR 0063).
+  const sessionLoaded = sessionRead.then(() =>
+    quietly(async () => {
+      const { interrupted, signedOut } = await accountPicks.restored();
+      for (const pick of interrupted)
+        switchStates.set(pick.tabId, {
+          state: "failed",
+          reason: "interrupted",
+          connectionId: pick.connectionId,
+          itemId: pick.itemId,
+        });
+      for (const pick of signedOut)
+        switchStates.set(pick.tabId, {
+          state: "signed-out",
+          connectionId: pick.connectionId,
+          itemId: pick.itemId,
+        });
+    }),
+  );
   const scopes = (keys: Set<string>) =>
     [...keys].map((key) => {
       const at = key.indexOf(" ");
@@ -2652,15 +2678,26 @@ export function createLoginRuntime(
    */
   function heldElsewhere(tabId: number, siteOrigin: string): boolean {
     const now = Date.now();
-    return persisted
-      .values()
-      .some(
-        (entry) =>
-          entry.account.origin === siteOrigin &&
-          entry.document.tabId !== tabId &&
-          sharesCookies(entry.document.tabId, tabId) &&
-          holdsOthers(entry, now),
-      );
+    return (
+      switchingElsewhere(tabId, siteOf(siteOrigin)) ||
+      persisted
+        .values()
+        .some(
+          (entry) =>
+            entry.account.origin === siteOrigin &&
+            entry.document.tabId !== tabId &&
+            sharesCookies(entry.document.tabId, tabId) &&
+            holdsOthers(entry, now),
+        )
+    );
+  }
+  /**
+   * Whether another tab sharing its cookies switches accounts on `site` (ADR 0063): from
+   * its start until its pick starts a login, the switch fails or the pick expires. A login
+   * here meanwhile would sign the site back in with the account being left.
+   */
+  function switchingElsewhere(tabId: number, site: string | undefined): boolean {
+    return accountPicks.switchingElsewhere(tabId, site, incognitoTabs.get(tabId));
   }
   /**
    * Whether two tabs may share a site's cookies: unless one is known to be in an incognito
@@ -3254,9 +3291,9 @@ export function createLoginRuntime(
   /**
    * Starts an account switch from the popup (ADR 0063) on the tab's top page: only one
    * Pateat watches, that waits for no account choice and runs no login or other switch, whose
-   * site no login of another tab sharing its cookies holds, on
-   * a site that is neither excluded nor paused, for an account that matches the page, and
-   * with a paired service's logout recipes. The switch's pick is stored first; the logout
+   * site no login or switch of another tab sharing its cookies holds, for an account that
+   * matches the page, and with a paired service's logout recipes; also on a paused or
+   * excluded site, as the switch is the person's pick. The switch's pick is stored first; the logout
    * runs on behind the answer.
    */
   async function switchFor(
@@ -3272,15 +3309,16 @@ export function createLoginRuntime(
     const running = tabAttempt(tabId);
     if (running && !terminal(running) && !idle(running)) return { ok: false, reason: "tab-busy" };
     // Another tab's login of the site, as one waiting for a code, holds the session the
-    // logout would end, and the switch's own login would wait for it (ADR 0022).
+    // logout would end, and the switch's own login would wait for it (ADR 0022); another
+    // tab's switch on the site holds it until it ends.
     if (siteHeldElsewhere(tabId, site)) return { ok: false, reason: "site-held" };
     if (!options.logout) return { ok: false, reason: "unavailable" };
     const snapshot = await settings
       .handle({ version: 1, type: "settings.get" })
       .catch(() => undefined);
     if (!snapshot?.ok) return { ok: false, reason: "settings-unavailable" };
-    // A paused site, also one an exclusion rule pauses, switches nothing (ADR 0062).
-    if ((await pauseOf(live)) !== undefined) return { ok: false, reason: "paused" };
+    // A paused site, also one an exclusion rule or a private window pauses, still switches:
+    // the switch is the person's pick (ADR 0062, ADR 0063).
     const found = uris ? await siteCandidates(snapshot, live) : { reason: "no-uri-matcher" };
     if (
       "reason" in found ||
@@ -3289,8 +3327,10 @@ export function createLoginRuntime(
       )
     )
       return { ok: false, reason: "not-a-candidate" };
-    // Checked again after the reads: the tab may have started a login or switch meanwhile.
+    // Checked again after the reads: the tab may have started a login or switch meanwhile,
+    // and so may another tab of the site.
     if (switchesRunning.has(tabId)) return { ok: false, reason: "in-progress" };
+    if (siteHeldElsewhere(tabId, site)) return { ok: false, reason: "site-held" };
     if (documents.get(frameKey(live.document)) !== live) return { ok: false, reason: "no-page" };
     switchesRunning.add(tabId);
     try {
@@ -3324,7 +3364,12 @@ export function createLoginRuntime(
         .filter((entry) => entry.document.tabId === tabId && siteOf(entry.account.origin) === site)
         .map((entry) => entry.id),
     );
-    void runSwitch(live, site, before, request).finally(() => switchesRunning.delete(tabId));
+    const tab = { id: tabId };
+    switchTabs.set(tabId, tab);
+    void runSwitch(live, site, before, request).finally(() => {
+      switchesRunning.delete(tab.id);
+      if (switchTabs.get(tab.id) === tab) switchTabs.delete(tab.id);
+    });
     return { ok: true };
   }
   /**
@@ -3338,9 +3383,10 @@ export function createLoginRuntime(
     before: ReadonlySet<string>,
     request: v.InferOutput<typeof switchRequestSchema>,
   ): Promise<void> {
-    const { tabId } = request;
+    // The tab, followed when Chrome replaces it (`tabs.onReplaced`).
+    const tab = switchTabs.get(request.tabId) ?? { id: request.tabId };
     const top = () => {
-      const live = documents.get(frameKey({ tabId, frameId: 0 }));
+      const live = documents.get(frameKey({ tabId: tab.id, frameId: 0 }));
       return live && siteOf(live.document.origin) === site ? live : undefined;
     };
     const logout = options.logout!;
@@ -3365,12 +3411,13 @@ export function createLoginRuntime(
               ? { observation: accepted.observation }
               : { unsent: "not-entry" };
           },
-          click: async (live, target): Promise<LogoutPress> => {
+          click: async (live, target, purpose): Promise<LogoutPress> => {
             let answer: unknown;
             try {
               answer = await send(live, {
                 type: "login.logout.click",
                 target,
+                purpose,
                 timeoutMs: LOGIN_STEP_WAIT_MS,
               });
             } catch {
@@ -3380,16 +3427,18 @@ export function createLoginRuntime(
             const parsed = v.safeParse(logoutClickResultSchema, answer);
             if (!parsed.success) return "missing";
             if (parsed.output.ok) return "clicked";
-            return parsed.output.reason === "ambiguous"
-              ? "ambiguous"
-              : parsed.output.reason === "missing"
-                ? "missing"
-                : "page-changed";
+            const { reason } = parsed.output;
+            return reason === "ambiguous" || reason === "missing" || reason === "unsafe"
+              ? reason
+              : "page-changed";
           },
           findLocal: async (live) => {
+            // A logout link elsewhere is not this site's (ADR 0031's link check).
+            const onSite = await hostsOnSite(live);
+            if (onSite === undefined) return "none";
             const parsed = v.safeParse(
               localLogoutResultSchema,
-              await send(live, { type: "login.logout.local" }).catch(() => undefined),
+              await send(live, { type: "login.logout.local", onSite }).catch(() => undefined),
             );
             if (!parsed.success) return "none";
             return parsed.output.ok ? parsed.output.target : parsed.output.reason;
@@ -3400,6 +3449,7 @@ export function createLoginRuntime(
               answer = await send(live, {
                 type: "login.logout.click",
                 target,
+                purpose: "logout",
                 timeoutMs: SWITCH_CHECK_MS,
                 watchMs: LOGOUT_REACTION_MS,
               });
@@ -3411,21 +3461,20 @@ export function createLoginRuntime(
             if (!parsed.success) return { press: "missing" };
             if (parsed.output.ok)
               return { press: "clicked", reacted: parsed.output.reacted ?? "none" };
+            const { reason } = parsed.output;
             return {
               press:
-                parsed.output.reason === "ambiguous"
-                  ? "ambiguous"
-                  : parsed.output.reason === "missing"
-                    ? "missing"
-                    : "page-changed",
+                reason === "ambiguous" || reason === "missing" || reason === "unsafe"
+                  ? reason
+                  : "page-changed",
             };
           },
-          settle: (live) => settleSwitch(tabId, site, live),
+          settle: (live) => settleSwitch(tab, site, live),
         },
         {
           recipes: (recipeOrigin) => logout.recipes(recipeOrigin),
           generate: async (logoutRequest) => {
-            const spin = spinning(tabId);
+            const spin = spinning(tab.id);
             spin.sent(() => undefined)();
             try {
               return await logout.generate(logoutRequest);
@@ -3437,7 +3486,7 @@ export function createLoginRuntime(
         (purpose, learned, source) =>
           report(started.document, {
             type: "switch",
-            tabId,
+            tabId: tab.id,
             origin: started.document.origin,
             stage: "click",
             purpose,
@@ -3450,7 +3499,7 @@ export function createLoginRuntime(
     }
     report(top()?.document ?? started.document, {
       type: "switch",
-      tabId,
+      tabId: tab.id,
       origin: started.document.origin,
       stage: "end",
       outcome: run.outcome,
@@ -3461,29 +3510,31 @@ export function createLoginRuntime(
       ...(run.learned ? { learned: true as const } : {}),
     });
     if (run.outcome === "failed") {
-      switchStates.set(tabId, {
+      switchStates.set(tab.id, {
         state: "failed",
         reason: run.reason,
         connectionId: request.connectionId,
         itemId: request.itemId,
       });
-      await accountPicks.endSwitch(tabId).catch(() => undefined);
+      await accountPicks.endSwitch(tab.id).catch(() => undefined);
       return;
     }
     // The login the switch's pick started may already have taken it over.
-    if (switchStates.get(tabId)?.state === "running")
-      switchStates.set(tabId, {
+    if (switchStates.get(tab.id)?.state === "running")
+      switchStates.set(tab.id, {
         state: "signed-out",
         connectionId: request.connectionId,
         itemId: request.itemId,
       });
+    // Signed out, the pick waits for the login page also past a worker restart.
+    await accountPicks.signedOut(tab.id).catch(() => undefined);
     // The signed-out account's records no longer hold the tab: its next login page logs in
     // as a new one, and a page without a login form may press the site's sign-in entry.
     for (const [key, entry] of persisted)
-      if (before.has(entry.id) && entry.document.tabId === tabId) {
-        if (attempts.get(tabId)?.metadata.id === entry.id) attempts.delete(tabId);
-        if (picked.get(tabId)?.attemptId === entry.id) {
-          picked.delete(tabId);
+      if (before.has(entry.id) && entry.document.tabId === tab.id) {
+        if (attempts.get(tab.id)?.metadata.id === entry.id) attempts.delete(tab.id);
+        if (picked.get(tab.id)?.attemptId === entry.id) {
+          picked.delete(tab.id);
           void quietly(saveSession);
         }
         await forget(key).catch(() => undefined);
@@ -3492,7 +3543,7 @@ export function createLoginRuntime(
     if (page)
       await browser.tabs
         .sendMessage(
-          tabId,
+          tab.id,
           { version: 1, type: "login.reconnect" },
           { frameId: 0, documentId: page.document.documentId },
         )
@@ -3505,7 +3556,7 @@ export function createLoginRuntime(
    * step. Nothing once the tab left the site or closed.
    */
   async function settleSwitch(
-    tabId: number,
+    tab: { readonly id: number },
     site: string,
     before: LiveDocument,
   ): Promise<{ page: LiveDocument; signIn: boolean } | undefined> {
@@ -3515,13 +3566,13 @@ export function createLoginRuntime(
       // eslint-disable-next-line no-await-in-loop
       await new Promise((resolve) => setTimeout(resolve, SWITCH_POLL_MS));
       // eslint-disable-next-line no-await-in-loop
-      const tab = await browser.tabs.get(tabId).catch(() => undefined);
-      if (tab?.url === undefined) return undefined;
+      const shown = await browser.tabs.get(tab.id).catch(() => undefined);
+      if (shown?.url === undefined) return undefined;
       const over = Date.now() - since >= SWITCH_SETTLE_MS;
-      const live = documents.get(frameKey({ tabId, frameId: 0 }));
+      const live = documents.get(frameKey({ tabId: tab.id, frameId: 0 }));
       // The tab may pass through another site, as an identity provider's logout does, and
       // a page still loading may yet be replaced.
-      if (siteOf(tab.url) !== site || tab.status === "loading") {
+      if (siteOf(shown.url) !== site || shown.status === "loading") {
         if (over) return undefined;
         continue;
       }
@@ -10436,18 +10487,21 @@ export function createLoginRuntime(
         .some((entry) => entry.document.tabId === tabId && siteOf(entry.account.origin) === site)
     );
   }
-  /** Whether another tab's login of an origin of `site` holds it (ADR 0022). */
+  /** Whether another tab's login of an origin of `site`, or its switch, holds it (ADR 0022). */
   function siteHeldElsewhere(tabId: number, site: string): boolean {
     const now = Date.now();
-    return persisted
-      .values()
-      .some(
-        (entry) =>
-          entry.document.tabId !== tabId &&
-          siteOf(entry.account.origin) === site &&
-          sharesCookies(entry.document.tabId, tabId) &&
-          holdsOthers(entry, now),
-      );
+    return (
+      switchingElsewhere(tabId, site) ||
+      persisted
+        .values()
+        .some(
+          (entry) =>
+            entry.document.tabId !== tabId &&
+            siteOf(entry.account.origin) === site &&
+            sharesCookies(entry.document.tabId, tabId) &&
+            holdsOthers(entry, now),
+        )
+    );
   }
   /** The blocks stored on this device; a read that fails is not kept, so it is read again. */
   let entryBlocks: Promise<EntryBlock[] | undefined> | undefined;
@@ -11354,6 +11408,14 @@ export function createLoginRuntime(
     void accountPicks.moveSwitch(removed, added).catch(() => undefined);
     const switching = switchStates.get(removed);
     if (switching) switchStates.set(added, switching);
+    // A switch still logging out goes on in the new tab.
+    const driven = switchTabs.get(removed);
+    if (driven) {
+      driven.id = added;
+      switchTabs.delete(removed);
+      switchTabs.set(added, driven);
+    }
+    if (switchesRunning.delete(removed)) switchesRunning.add(added);
     const incognito = incognitoTabs.get(removed);
     if (incognito !== undefined && !incognitoTabs.has(added)) incognitoTabs.set(added, incognito);
     const moved = (key: string) =>

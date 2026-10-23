@@ -346,6 +346,12 @@ describe("login badge", () => {
       ...CHOICE,
       title: "Pateat: the last login on this site stopped in this tab. Click to choose an account.",
     });
+    // After a pick that did not make its account the default (ADR 0063).
+    h.badge.choice(tabId, { count: 2, ask: "one-time-pick" });
+    await h.flush();
+    expect(h.view().title).toBe(
+      "Pateat: you chose an account here without making it the default, so Pateat asks until an account is made the default. Click to choose an account.",
+    );
 
     h.badge.choice(tabId, undefined);
     await h.flush();

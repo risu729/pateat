@@ -1,7 +1,12 @@
 // The controls of an account switch's logout (ADR 0063), read in the page: which control
 // logs out by its words, so the page goes to the model only when that is unclear, and the
 // menu items and icon-only controls a logout recipe may name.
-import type { LoginMarkerTarget } from "@pateat/contracts";
+import {
+  logoutRisk,
+  safeLogoutName,
+  type LoginMarkerTarget,
+  type LogoutPurpose,
+} from "@pateat/contracts";
 import { setsPointer } from "./account-list";
 import { findTargets } from "./targets";
 import { collapseText, isButton, isScriptButton, renderedText, shown } from "./text";
@@ -22,25 +27,13 @@ const accessibleNameLimit = 120;
 const logoutWords = /(?:^| )(?:log|sign) ?(?:out|off)(?: |$)/u;
 const logoutParts = ["ログアウト", "サインアウト", "ログオフ", "サインオフ"];
 /**
- * Words of a logout of other devices, sessions or accounts, such as "Log out of other
- * devices", "Sign out everywhere else" or 「このデバイス以外からログアウト」: "other" and
- * the like within three words before a word for a device, session or browser, or
- * "other" before an account. "Sign out and use another account" logs this session out,
- * so it counts.
- */
-const otherWords = new Set(["other", "others", "another"]);
-const placeWords = /^(?:devices?|sessions?|browsers?|computers?|phones?|places?|locations?)$/u;
-const accountWords = /^accounts?$/u;
-const elsewherePhrases = /(?:^| )(?:(?:except|but) this|everywhere else)(?: |$)/u;
-const otherPlaces =
-  /(?:他|ほか|別)の[^、。]{0,8}?(?:端末|デバイス|セッション|ブラウザ|場所|機器)|(?:他|ほか)の[^、。]{0,8}?アカウント|他端末|以外/u;
-
-/**
  * What a name says: `logout` for words that log out, `elsewhere` when they log other
- * devices, sessions or accounts out instead, else nothing. English words match whole after
- * NFKC, Japanese parts anywhere; no site name counts.
+ * devices, sessions or accounts out instead, or all of them, `destructive` when they also
+ * delete, close or cancel the account ({@link logoutRisk}), else nothing. English words
+ * match whole after NFKC, Japanese parts anywhere; no site name counts. "Sign out and use
+ * another account" logs this session out, so it counts.
  */
-export function logoutName(name: string): "logout" | "elsewhere" | undefined {
+export function logoutName(name: string): "logout" | "elsewhere" | "destructive" | undefined {
   const text = name.normalize("NFKC");
   const words = text
     .toLowerCase()
@@ -48,19 +41,7 @@ export function logoutName(name: string): "logout" | "elsewhere" | undefined {
     .trim();
   if (!logoutWords.test(words) && !logoutParts.some((part) => text.includes(part)))
     return undefined;
-  const list = words.split(" ");
-  const elsewhere =
-    list.some((word, index) => {
-      if (!otherWords.has(word)) return false;
-      const next = list.slice(index + 1, index + 4);
-      return (
-        next.some((later) => placeWords.test(later)) ||
-        (word !== "another" && next.some((later) => accountWords.test(later)))
-      );
-    }) ||
-    elsewherePhrases.test(words) ||
-    otherPlaces.test(text);
-  return elsewhere ? "elsewhere" : "logout";
+  return logoutRisk(name) ?? "logout";
 }
 
 const roleOf = (element: Element) =>
@@ -167,7 +148,8 @@ export function shownLayers(document: Document): number {
 
 /**
  * The page's one shown control whose own name says it logs out of this site, as "Log out"
- * or 「ログアウト」, and none that names logging other devices, sessions or accounts out:
+ * or 「ログアウト」, and none that names logging other devices, sessions or accounts, or all
+ * of them, out, or deleting, closing or cancelling the account:
  * `none` when no control says so, `ambiguous` when several do, so the page goes to the
  * model instead. Of a control inside another that says the same, the inner one counts.
  */
@@ -176,7 +158,11 @@ export function localLogoutControl(document: Document): HTMLElement | "none" | "
     (element): element is HTMLElement => {
       if (!isControl(element) || !shown(element)) return false;
       const read = ownNames(element).map(logoutName);
-      return read.includes("logout") && !read.includes("elsewhere");
+      return (
+        read.includes("logout") &&
+        read.every((name) => name === "logout" || !name) &&
+        safeLogoutControl(element, "logout")
+      );
     },
   );
   const innermost = found.filter((element) =>
@@ -253,4 +239,20 @@ export function findLogoutTargets(document: Document, target: LoginMarkerTarget)
   return [...document.querySelectorAll("[role]")].filter(
     (element) => isMenuItem(element) && menuItemText(element) === target.value,
   );
+}
+
+/**
+ * Whether an account switch may press this control for `purpose` (ADR 0063): none of the
+ * names it gives itself, its menu text or its accessible name says it deletes, closes or
+ * cancels the account, and for a logout or confirmation none says it logs out elsewhere or
+ * everywhere ({@link safeLogoutName}). Checked before every click, also a stored or a
+ * model's one.
+ */
+export function safeLogoutControl(element: HTMLElement, purpose: LogoutPurpose): boolean {
+  const names = [
+    ...ownNames(element),
+    ...(isMenuItem(element) ? [menuItemText(element) ?? ""] : []),
+    logoutControlName(element) ?? "",
+  ].filter(Boolean);
+  return names.every((name) => safeLogoutName(name, purpose));
 }

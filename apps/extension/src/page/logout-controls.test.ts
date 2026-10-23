@@ -4,6 +4,7 @@ import {
   localLogoutControl,
   logoutControlName,
   logoutName,
+  safeLogoutControl,
   shownLayers,
 } from "./logout-controls";
 
@@ -41,9 +42,20 @@ describe("logout words", () => {
     "このデバイス以外からログアウト",
     "他の端末からログアウト",
     "ほかのアカウントからログアウト",
+    "Sign out of all devices",
+    "Log out everywhere",
+    "すべてのデバイスからログアウト",
+    "全端末からログアウト",
   ])("reads %s as a logout elsewhere", (name) => {
     expect(logoutName(name)).toBe("elsewhere");
   });
+
+  it.each(["Log out and delete account", "Sign out and close account", "ログアウトして退会"])(
+    "reads %s as destructive",
+    (name) => {
+      expect(logoutName(name)).toBe("destructive");
+    },
+  );
 
   it.each(["Logo", "Sign up", "Outlook", "Blogout", "Checkout", "Log in"])(
     "reads %s as no logout",
@@ -84,6 +96,24 @@ describe("the page's own logout control", () => {
     expect(localLogoutControl(document)).toBe("ambiguous");
   });
 
+  it("never finds a control that logs out everywhere or ends the account", () => {
+    for (const html of [
+      `<header><button type="button">Sign out of all devices</button></header>`,
+      `<header><button type="button">Log out everywhere</button></header>`,
+      `<nav><a href="/bye" aria-label="すべての端末からログアウト"><svg></svg></a></nav>`,
+      `<ul role="menu"><li role="menuitem" tabindex="-1">ログアウトして退会する</li></ul>`,
+      `<header><button type="button" title="Delete account">Log out</button></header>`,
+      `<header><button type="button">Sign out and deactivate</button></header>`,
+    ]) {
+      page(html);
+      expect(localLogoutControl(document), html).toBe("none");
+    }
+    // Beside such a control, the plain one is still found alone.
+    page(`<header><button type="button" id="out">Log out</button>
+      <button type="button">Log out of all sessions</button></header>`);
+    expect(localLogoutControl(document)).toBe(document.getElementById("out"));
+  });
+
   it("takes the inner control of a menu item that holds a link saying the same", () => {
     page(`<ul role="menu"><li role="menuitem"><a href="/logout" id="out">Log out</a></li></ul>`);
     expect(localLogoutControl(document)).toBe(document.getElementById("out"));
@@ -106,6 +136,22 @@ describe("logout click locators", () => {
     expect(findLogoutTargets(document, { by: "text", value: "Sign out" })).toEqual([
       document.querySelector("li"),
     ]);
+  });
+
+  it("refuses to press a control that ends the account, or logs out everywhere unless it is a menu", () => {
+    page(`
+      <button type="button" id="plain">Sign out</button>
+      <button type="button" id="all">Sign out of all devices</button>
+      <ul role="menu"><li role="menuitem" id="delete">Delete account</li></ul>
+      <button type="button" id="menu" aria-label="All services"><svg></svg></button>
+    `);
+    const byId = (value: string) => document.getElementById(value)!;
+    expect(safeLogoutControl(byId("plain"), "logout")).toBe(true);
+    expect(safeLogoutControl(byId("all"), "logout")).toBe(false);
+    expect(safeLogoutControl(byId("all"), "confirm")).toBe(false);
+    expect(safeLogoutControl(byId("delete"), "menu")).toBe(false);
+    expect(safeLogoutControl(byId("menu"), "menu")).toBe(true);
+    expect(safeLogoutControl(byId("menu"), "logout")).toBe(false);
   });
 
   it("counts the dialogs and menus the page shows", () => {

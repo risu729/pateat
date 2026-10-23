@@ -17,7 +17,9 @@ import { storage } from "wxt/utils/storage";
 /**
  * A switch's pick, per tab: the account the tab's next login page of the site logs in with,
  * for {@link SWITCH_PICK_MS} after the switch started. Session storage survives a worker
- * restart, and the browser drops it when it closes.
+ * restart, and the browser drops it when it closes. While it lasts, no other tab sharing
+ * the tab's cookies starts a login or a switch on the site. A pick whose logout was still
+ * running when the worker stopped ends with it.
  */
 export const SWITCH_PICKS_KEY = "session:pateat.login-switch-picks.v1";
 /**
@@ -48,6 +50,8 @@ export const switchPickSchema = v.strictObject({
   makeDefault: v.boolean(),
   /** Until when, in epoch milliseconds, the next login page takes the pick. */
   until: v.pipe(v.number(), v.integer(), v.minValue(0)),
+  /** The switch logged the site out; without it, its logout was still running. */
+  signedOut: v.optional(v.literal(true)),
 });
 export type SwitchPick = v.InferOutput<typeof switchPickSchema>;
 
@@ -86,6 +90,12 @@ export function siteDefaultsMark(
 export function createAccountPicks(now: () => number = Date.now) {
   const switches = new Map<number, SwitchPick>();
   let asking: AskingSite[] = [];
+  /** Picks an earlier worker left while their logout ran, and those it had signed out. */
+  const restored = { interrupted: [] as SwitchPick[], signedOut: [] as SwitchPick[] };
+  const live = (pick: SwitchPick) => {
+    const left = pick.until - now();
+    return left > 0 && left <= SWITCH_PICK_MS;
+  };
   const loaded = (async () => {
     try {
       const items = await storage.getItems([SWITCH_PICKS_KEY, ASK_EVERY_TIME_KEY]);
@@ -94,7 +104,15 @@ export function createAccountPicks(now: () => number = Date.now) {
         v.pipe(v.array(switchPickSchema), v.maxLength(256)),
         stored[SWITCH_PICKS_KEY] ?? [],
       );
-      if (picks.success) for (const pick of picks.output) switches.set(pick.tabId, pick);
+      if (picks.success)
+        for (const pick of picks.output) {
+          // No logout of this worker runs yet: one stored as running stopped with the last.
+          if (!pick.signedOut) restored.interrupted.push(pick);
+          else if (live(pick)) {
+            switches.set(pick.tabId, pick);
+            restored.signedOut.push(pick);
+          }
+        }
       const kept = v.safeParse(
         v.pipe(v.array(askingSiteSchema), v.maxLength(MAX_ASKING_SITES)),
         stored[ASK_EVERY_TIME_KEY] ?? [],
@@ -113,6 +131,8 @@ export function createAccountPicks(now: () => number = Date.now) {
     writes = writes.then(() => storage.setItems(value)).catch(() => undefined);
     return writes;
   };
+  // The interrupted picks are dropped from storage too.
+  void loaded.then(() => (restored.interrupted.length ? save() : undefined));
   const sameScope = (site: string, incognito: boolean) => (entry: AskingSite) =>
     entry.site === site && entry.incognito === incognito;
   return {
@@ -124,6 +144,45 @@ export function createAccountPicks(now: () => number = Date.now) {
       await save();
       return started;
     },
+    /**
+     * What an earlier worker's switches left, once: the picks whose logout was running
+     * when it stopped, now dropped, and those that had signed out and still wait for the
+     * login page.
+     */
+    async restored(): Promise<{ interrupted: SwitchPick[]; signedOut: SwitchPick[] }> {
+      await loaded;
+      const taken = { interrupted: restored.interrupted, signedOut: restored.signedOut };
+      restored.interrupted = [];
+      restored.signedOut = [];
+      return taken;
+    },
+    /** Marks the tab's switch signed out: its pick outlives a worker restart from now on. */
+    async signedOut(tabId: number): Promise<void> {
+      await loaded;
+      const pick = switches.get(tabId);
+      if (!pick || pick.signedOut) return;
+      switches.set(tabId, { ...pick, signedOut: true });
+      await save();
+    },
+    /**
+     * Whether another tab's switch pick holds `site` while it lasts, in the same window
+     * kind as `incognito`, or in either when that is not known. Read once the picks have
+     * loaded; before, none holds.
+     */
+    switchingElsewhere(tabId: number, site: string | undefined, incognito?: boolean): boolean {
+      return (
+        site !== undefined &&
+        switches
+          .values()
+          .some(
+            (pick) =>
+              pick.tabId !== tabId &&
+              pick.site === site &&
+              (incognito === undefined || pick.incognito === incognito) &&
+              live(pick),
+          )
+      );
+    },
     /** The tab's switch pick while it lasts, for a page of `site` in the same window kind. */
     async switchFor(
       tabId: number,
@@ -133,8 +192,7 @@ export function createAccountPicks(now: () => number = Date.now) {
       await loaded;
       const pick = switches.get(tabId);
       if (!pick) return undefined;
-      const left = pick.until - now();
-      if (left <= 0 || left > SWITCH_PICK_MS) {
+      if (!live(pick)) {
         switches.delete(tabId);
         void save();
         return undefined;
@@ -224,7 +282,7 @@ export interface LogoutService {
 export type LogoutPage = { readonly document: { readonly origin: string }; readonly path: string };
 
 /** What a logout click on the page came to. */
-export type LogoutPress = "clicked" | "missing" | "ambiguous" | "page-changed";
+export type LogoutPress = "clicked" | "missing" | "ambiguous" | "unsafe" | "page-changed";
 
 /** How the page reacted within 5 seconds of a click Pateat found itself (`LOGOUT_REACTION_MS`). */
 export type LogoutReaction = "navigated" | "dialog" | "changed" | "none";
@@ -238,8 +296,11 @@ export interface LogoutDriver<Page extends LogoutPage> {
   page(): Page | undefined;
   /** The page's description for the logout role, or why there is none. */
   describe(page: Page): Promise<{ observation: LoginObservation } | { unsent: string }>;
-  /** Presses a recipe's click on the page; a page that went meanwhile counts as clicked. */
-  click(page: Page, target: LogoutTarget["target"]): Promise<LogoutPress>;
+  /**
+   * Presses a recipe's click on the page, unless the control's names say more than
+   * `purpose` (`unsafe`); a page that went meanwhile counts as clicked.
+   */
+  click(page: Page, target: LogoutTarget["target"], purpose: LogoutPurpose): Promise<LogoutPress>;
   /**
    * The page's one control that says it logs out by its words, with its locator, or why
    * there is none: no control says so, several do, or it has no locator (ADR 0063).
@@ -266,8 +327,10 @@ export interface LogoutDriver<Page extends LogoutPage> {
  * a menu holding one (`no-logout-control`), the site still shows the account after every
  * click (`still-signed-in`), the page could not be described (`page-unreadable`), a stored
  * click's control is gone or not alone (`target-missing`), the page went elsewhere than the
- * recipe knows (`page-changed`), the tab left the site before signing out (`left-site`) or
- * the service could not answer (`service-unavailable`).
+ * recipe knows (`page-changed`), the tab left the site before signing out (`left-site`),
+ * the service could not answer (`service-unavailable`), the click's control says it logs
+ * out elsewhere or ends the account (`unsafe-control`), or the worker stopped while the
+ * switch logged out (`interrupted`).
  */
 export type LogoutFailure =
   | "no-logout-control"
@@ -276,7 +339,9 @@ export type LogoutFailure =
   | "target-missing"
   | "page-changed"
   | "left-site"
-  | "service-unavailable";
+  | "service-unavailable"
+  | "unsafe-control"
+  | "interrupted";
 
 export type LogoutRun = {
   clicks: number;
@@ -425,7 +490,8 @@ export async function runLogout<Page extends LogoutPage>(
     }
     // A stored click belongs to the page the recipe saw before it.
     if (next.path !== page.path) return failed("page-changed");
-    const pressed = await driver.click(page, next.target);
+    const pressed = await driver.click(page, next.target, next.purpose);
+    if (pressed === "unsafe") return failed("unsafe-control");
     if (pressed === "missing" || pressed === "ambiguous") {
       // A stored click whose control is gone is asked for again once, in its place.
       if (source === "recipe" && !regenerated) {

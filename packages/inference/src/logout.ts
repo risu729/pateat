@@ -5,6 +5,7 @@ import {
   loginObservationSchema,
   logoutPurposeSchema,
   MAX_LOGOUT_TARGETS,
+  safeLogoutName,
   type LoginLogoutRecipe,
   type LoginObservation,
   type LogoutPurpose,
@@ -86,16 +87,21 @@ export type ValidatedLogout =
   | { decision: "logout"; control: string; target: LogoutClickTarget; purpose: LogoutPurpose }
   | { decision: "signed-out" };
 
+/** Why a logout answer's control is refused. */
+export type LogoutRejection = EntryRejection | "unsafe-control";
+
 /**
  * Checks the control a logout answer names: a button or link of the page, located by `id`,
- * `name`, `test-id`, `text` or `accessible-name`, whose label and locator name no account, by ADR 0028's rule
- * for the `other` button, so a recipe never stores an account's name as an account menu's
- * text.
+ * `name`, `test-id`, `text` or `accessible-name`, whose label and locator name no account, by
+ * ADR 0028's rule for the `other` button, so a recipe never stores an account's name as an
+ * account menu's text. Neither may say it logs out other devices or sessions, nor that it
+ * deletes, closes or cancels the account (`unsafe-control`); a menu's may say "all".
  */
 export function validateLogout(
   observation: Pick<LoginObservation, "candidates">,
   candidateId: string,
-): { ok: true; target: LogoutClickTarget } | { ok: false; reason: EntryRejection } {
+  purpose: LogoutPurpose,
+): { ok: true; target: LogoutClickTarget } | { ok: false; reason: LogoutRejection } {
   const candidate = observation.candidates.find((entry) => entry.id === candidateId);
   if (candidate === undefined) return { ok: false, reason: "unknown-candidate" };
   const { target } = candidate;
@@ -110,6 +116,12 @@ export function validateLogout(
     return { ok: false, reason: "incompatible-role" };
   if ([candidate.label, target.value].some((text) => text !== undefined && accountText.test(text)))
     return { ok: false, reason: "account-text" };
+  if (
+    [candidate.label, target.value].some(
+      (text) => text !== undefined && !safeLogoutName(text, purpose),
+    )
+  )
+    return { ok: false, reason: "unsafe-control" };
   return { ok: true, target };
 }
 
@@ -173,7 +185,7 @@ export function createLogoutGenerator(config: {
       interpret: ({ result }): Interpreted<ValidatedLogout> => {
         if (result.decision === "abstain") return { status: "abstained", reason: result.reason };
         if (result.decision === "signed-out") return { status: "ok", value: result };
-        const checked = validateLogout(page, result.control);
+        const checked = validateLogout(page, result.control, result.purpose);
         return checked.ok
           ? {
               status: "ok",

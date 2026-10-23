@@ -99,6 +99,34 @@ describe("logout generation (ADR 0063)", () => {
     });
   });
 
+  it("refuses a logout that names a control logging out everywhere or closing the account", async () => {
+    const page: LoginObservation = {
+      ...homePage,
+      candidates: [
+        ...homePage.candidates,
+        control("c5", "button", { by: "text", value: "Sign out everywhere" }),
+        control("c6", "button", { by: "id", value: "leave" }, "Close account"),
+      ],
+    };
+    const answers = await Promise.all(
+      (
+        [
+          ["c5", "logout"],
+          ["c5", "confirm"],
+          ["c6", "menu"],
+        ] as const
+      ).map(([candidate, purpose]) =>
+        generator(answer(candidate, purpose)).generate({ observation: page }),
+      ),
+    );
+    for (const result of answers)
+      expect(result).toMatchObject({
+        status: "failed",
+        error: "invalid-output",
+        detail: "unsafe-control",
+      });
+  });
+
   it("refuses a page with a field, accounts or no complete description before any call", async () => {
     const field: ObservedCandidate = {
       id: "q",
@@ -127,7 +155,7 @@ describe("logout generation (ADR 0063)", () => {
 
 describe("logout plan check and assembly (ADR 0063)", () => {
   it("accepts a button or link by id, name, test ID, text or accessible name, never a field locator", () => {
-    expect(validateLogout(homePage, "c2")).toEqual({
+    expect(validateLogout(homePage, "c2", "menu")).toEqual({
       ok: true,
       target: { by: "text", value: "Orders" },
     });
@@ -140,13 +168,33 @@ describe("logout plan check and assembly (ADR 0063)", () => {
       ],
     };
     // An icon-only account menu is named by its aria-label or title (ADR 0063).
-    expect(validateLogout(page, "c1")).toEqual({
+    expect(validateLogout(page, "c1", "menu")).toEqual({
       ok: true,
       target: { by: "accessible-name", value: "Account menu" },
     });
-    expect(validateLogout(page, "c2")).toEqual({ ok: false, reason: "incompatible-role" });
-    expect(validateLogout(page, "c3")).toEqual({ ok: false, reason: "incompatible-role" });
-    expect(validateLogout(page, "c4")).toEqual({ ok: false, reason: "account-text" });
+    expect(validateLogout(page, "c2", "menu")).toEqual({ ok: false, reason: "incompatible-role" });
+    expect(validateLogout(page, "c3", "menu")).toEqual({ ok: false, reason: "incompatible-role" });
+    expect(validateLogout(page, "c4", "menu")).toEqual({ ok: false, reason: "account-text" });
+  });
+
+  it("refuses a control that logs out elsewhere or ends the account", () => {
+    const page: Pick<LoginObservation, "candidates"> = {
+      candidates: [
+        control("c1", "button", { by: "text", value: "Sign out of all devices" }),
+        control("c2", "button", { by: "id", value: "close" }, "Delete account"),
+        control("c3", "link", { by: "text", value: "退会する" }),
+        control("c4", "button", { by: "text", value: "All services" }),
+        control("c5", "button", { by: "text", value: "Sign out" }),
+      ],
+    };
+    expect(validateLogout(page, "c1", "logout")).toEqual({ ok: false, reason: "unsafe-control" });
+    expect(validateLogout(page, "c1", "confirm")).toEqual({ ok: false, reason: "unsafe-control" });
+    expect(validateLogout(page, "c2", "logout")).toEqual({ ok: false, reason: "unsafe-control" });
+    expect(validateLogout(page, "c2", "menu")).toEqual({ ok: false, reason: "unsafe-control" });
+    expect(validateLogout(page, "c3", "logout")).toEqual({ ok: false, reason: "unsafe-control" });
+    // A menu may say "all"; its logout is checked on the next page.
+    expect(validateLogout(page, "c4", "menu")).toMatchObject({ ok: true });
+    expect(validateLogout(page, "c5", "logout")).toMatchObject({ ok: true });
   });
 
   const page = { id: "gen-logout", origin: "https://shop.example.test", path: "/home" };

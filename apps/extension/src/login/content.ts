@@ -8,7 +8,7 @@ import {
   shownAccounts,
 } from "../page/accounts";
 import { isButton } from "../page/text";
-import { findLogoutTargets, shownLayers } from "../page/logout-controls";
+import { findLogoutTargets, safeLogoutControl, shownLayers } from "../page/logout-controls";
 import { pressElement } from "../page/script-url-click";
 import { autocompleteTokens, findTargets } from "../page/targets";
 import {
@@ -780,6 +780,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         if (found.length !== 1)
           return { ok: false, reason: found.length ? "ambiguous" : "missing" };
         const control = found[0]!;
+        // A control that logs out everywhere or ends the account is never pressed, whoever
+        // named it: a stored recipe, the model or the control's words (ADR 0063).
+        if (!safeLogoutControl(control, command.purpose)) return { ok: false, reason: "unsafe" };
         const before = shownLayers(document);
         const pressed = await pressElement(control, () => !cancelled && location.href === url);
         if (pressed === "missed")
@@ -802,7 +805,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     }
     if (command.type === "login.logout.local") {
       try {
-        respond(extractLocalLogout(document));
+        const onSite = new Set(command.onSite);
+        respond(extractLocalLogout(document, (url) => onSite.has(url.hostname)));
       } catch {
         respond({ ok: false, reason: "none" });
       }

@@ -198,7 +198,8 @@ describe("logout generation for an account switch (ADR 0063)", () => {
       ["/logout", "Yes, sign out", "confirm"],
     ]);
 
-    // A request log row per call, under the generation role with the logout prompt version.
+    // A request log row per call, under the generation role with the logout prompt version
+    // and its own page, which the dashboard counts apart.
     expect(
       await rows(
         "SELECT role, prompt_version, path, outcome, recipe_id, base_revision, revision, recipe_page FROM inference_log WHERE owner_id = ? ORDER BY created_at",
@@ -206,9 +207,9 @@ describe("logout generation for an account switch (ADR 0063)", () => {
       ),
     ).toEqual(
       [
-        ["/home", 0, 1, "first"],
-        ["/home", 1, 2, "continuation"],
-        ["/logout", 2, 3, "continuation"],
+        ["/home", 0, 1, "logout"],
+        ["/home", 1, 2, "logout"],
+        ["/logout", 2, 3, "logout"],
       ].map(([path, baseRevision, revision, recipePage]) => ({
         role: "generate",
         prompt_version: expect.any(String),
@@ -300,6 +301,46 @@ describe("logout generation for an account switch (ADR 0063)", () => {
       local: { path: "/home", target: { by: "text", value: "alice@example.test" } },
     });
     expect(refused.status).toBe(400);
+  });
+
+  it("continues a stored menu click with a local logout click, then the page's confirmation", async () => {
+    const device = await owner();
+    const recipeId = await generatedLogoutRecipeId(ORIGIN, "/home");
+    // The stored recipe opens the account menu; the extension then found "Sign out" in it by
+    // its words, and a confirmation dialog opened (ADR 0063).
+    replies.push(logoutAnswer("c1", "menu"));
+    expect(await logout(device, homePage)).toMatchObject({ change: { revision: 1 } });
+    const local = { path: "/home", target: { by: "text", value: "Sign out" } };
+    const dialog = page("/home", [button("c1", "Cancel"), button("c2", "Yes, sign out")]);
+    replies.push(logoutAnswer("c2", "confirm"));
+    const result = await logout(device, dialog, { recipeId, revision: 1 }, local);
+    expect(result).toMatchObject({ status: "recipe", change: { recipeId, revision: 2 } });
+    if (result.status !== "recipe") throw new Error(result.status);
+    expect(result.change.recipe.logout.path).toBe("/home");
+    expect(clicks(result)).toEqual([
+      ["/home", "id", "account-menu", "menu"],
+      ["/home", "text", "Sign out", "logout"],
+      ["/home", "text", "Yes, sign out", "confirm"],
+    ]);
+    // A local click named by an account's text is refused after a base too.
+    const refused = await post(device, "/v1/recipes/logout", {
+      version: 1,
+      observation: dialog,
+      base: { recipeId, revision: 2 },
+      local: { path: "/home", target: { by: "text", value: "alice@example.test" } },
+    });
+    expect(refused.status).toBe(400);
+    // So is one that logs out everywhere or closes the account (ADR 0063).
+    for (const value of ["Sign out of all devices", "Delete account"]) {
+      // eslint-disable-next-line no-await-in-loop
+      const unsafe = await post(device, "/v1/recipes/logout", {
+        version: 1,
+        observation: dialog,
+        base: { recipeId, revision: 2 },
+        local: { path: "/home", target: { by: "text", value } },
+      });
+      expect(unsafe.status).toBe(400);
+    }
   });
 
   it("stores nothing for a signed-out page or an abstention, and refuses a confirmation first", async () => {

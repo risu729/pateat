@@ -1512,7 +1512,7 @@ test("each matching account can be switched to, the tab's account is marked, and
     recipe: "page",
     used: { connectionId: "demo-personal", itemId: "primary" },
   });
-  choices.switchTo.mockResolvedValueOnce({ ok: false, reason: "paused" });
+  choices.switchTo.mockResolvedValueOnce({ ok: false, reason: "site-held" });
   await mount(client, "https://bank.example/home", choices);
   await expect.element(page.getByRole("heading", { name: "Switch account" })).toBeVisible();
   const buttons = page.getByRole("button", { name: /^Switch to this account/ });
@@ -1531,7 +1531,9 @@ test("each matching account can be switched to, the tab's account is marked, and
   await userEvent.click(secondary);
   await expect
     .element(
-      page.getByText("Automatic login is paused for this site, so Pateat did not switch accounts."),
+      page.getByText(
+        "Another tab's login or account switch on this site is running or waits for a code. Finish or close it, then try again.",
+      ),
     )
     .toBeVisible();
   expect(choices.switchTo).toHaveBeenCalledWith({

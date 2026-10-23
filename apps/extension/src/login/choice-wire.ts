@@ -47,7 +47,7 @@ export function choiceReason(
       "relogin-limit":
         "Pateat logged in to this site twice in the last 10 minutes, so it waits for you to choose",
       "one-time-pick":
-        "You chose an account here without making it the default, so Pateat asks each time until the browser closes",
+        "You chose an account here without making it the default, so Pateat asks each time until an account is made the default",
     }[ask],
   );
 }
@@ -192,9 +192,10 @@ export const switchRequestSchema = v.strictObject({
 });
 /**
  * Why a switch did not start: the tab shows no page Pateat watches (`no-page`), its page
- * waits for an account choice, a switch or a login runs in the tab, the settings could not
- * be read, automatic login is paused for it, also by an exclusion rule, the account does not
- * match the page, or no paired service can tell how to log out (`unavailable`).
+ * waits for an account choice, a switch or a login runs in the tab, another tab's login or
+ * switch holds the site (`site-held`), the settings could not be read, the account does not
+ * match the page, or no paired service can tell how to log out (`unavailable`). A paused or
+ * excluded site still switches: the switch is the person's pick.
  */
 export const switchRefusalSchema = v.picklist([
   "no-page",
@@ -203,7 +204,6 @@ export const switchRefusalSchema = v.picklist([
   "tab-busy",
   "site-held",
   "settings-unavailable",
-  "paused",
   "not-a-candidate",
   "unavailable",
 ]);
@@ -224,9 +224,8 @@ export function switchRefusal(reason: SwitchRefusal, name: string, t: TFunction)
       "in-progress": "An account switch is already running in this tab.",
       "tab-busy": "A login is running in this tab. Wait for it to end, then try again.",
       "site-held":
-        "Another tab's login to this site is running or waits for a code. Finish or close it, then try again.",
+        "Another tab's login or account switch on this site is running or waits for a code. Finish or close it, then try again.",
       "settings-unavailable": "Pateat settings could not be read. Try again.",
-      paused: "Automatic login is paused for this site, so Pateat did not switch accounts.",
       unavailable: "Pateat needs its service to find how to log out. Pair it in the settings.",
     }[reason],
   );
@@ -249,6 +248,16 @@ export function switchStatus(
   if (reason === "no-logout-control")
     return t(
       "Pateat found no way to log out on this page, so it did not switch to {{name}}. Log out yourself, then choose the account",
+      { name },
+    );
+  if (reason === "unsafe-control")
+    return t(
+      "The only control Pateat found to log out may also log out other devices or close the account, so it did not switch to {{name}}. Log out yourself, then choose the account",
+      { name },
+    );
+  if (reason === "interrupted")
+    return t(
+      "Pateat stopped while logging out, so it did not switch to {{name}}. Check whether you are logged out, then choose the account",
       { name },
     );
   if (reason === "still-signed-in")

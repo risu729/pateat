@@ -5,6 +5,7 @@ import {
   loginOperationSchema,
   loginMarkerTargetSchema,
   loginTargetSchema,
+  logoutPurposeSchema,
   logoutTargetSchema,
   type LoginStep,
   type LoginTarget,
@@ -519,14 +520,16 @@ export const commandSchema = v.variant("type", [
   }),
   /**
    * Waits up to `timeoutMs` for a logout recipe's target (ADR 0063) to name a shown element
-   * and presses it when it names exactly one, only while the page's URL is still the one the
-   * command found.
+   * and presses it when it names exactly one whose names say nothing more than `purpose`
+   * (`safeLogoutControl`), only while the page's URL is still the one the command found.
    */
   v.strictObject({
     version: v.literal(1),
     type: v.literal("login.logout.click"),
     token: id,
     target: loginTargetSchema,
+    /** What the click is for: a control whose name says more is never pressed (ADR 0063). */
+    purpose: logoutPurposeSchema,
     timeoutMs: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(LOGIN_STEP_WAIT_MS)),
     /**
      * After the press, how long to watch the page for a reaction: the URL changing, a new
@@ -544,6 +547,11 @@ export const commandSchema = v.variant("type", [
     version: v.literal(1),
     type: v.literal("login.logout.local"),
     token: id,
+    /**
+     * The hosts the worker found on the page's site among those `login.entry.hosts`
+     * listed: a logout link elsewhere is not this site's.
+     */
+    onSite: hostList,
   }),
   /**
    * Waits up to `timeoutMs` on the page after an entry press for a sign-in input or one of
@@ -718,12 +726,12 @@ export const entryPressResultSchema = v.strictObject({
 });
 /**
  * The answer to `login.logout.click` (ADR 0063): whether the control was pressed, and why
- * not: it named no shown element or several, or the page changed or the command was
- * cancelled first.
+ * not: it named no shown element or several, its names say it logs out elsewhere or ends
+ * the account (`unsafe`), or the page changed or the command was cancelled first.
  */
 export const logoutClickResultSchema = v.strictObject({
   ok: v.boolean(),
-  reason: v.optional(v.picklist(["missing", "ambiguous", "page-changed", "cancelled"])),
+  reason: v.optional(v.picklist(["missing", "ambiguous", "unsafe", "page-changed", "cancelled"])),
   /** With `watchMs`, how the page reacted within it: `none` when it did not. */
   reacted: v.optional(v.picklist(["navigated", "dialog", "changed", "none"])),
 });

@@ -159,7 +159,7 @@ export const inferenceCredentials = sqliteTable(
 );
 
 /** Where a generated page sits in its recipe, for the request log (ADR 0012). */
-export const inferenceLogRecipePages = ["first", "continuation"] as const;
+export const inferenceLogRecipePages = ["first", "continuation", "logout"] as const;
 /**
  * Every generation and judgement request the service received and its local outcome (ADR
  * 0012), kept for one year (owner, 2026-10-18) unless the owner deletes them all from the
@@ -237,7 +237,8 @@ export const inferenceLog = sqliteTable(
     /**
      * For generation: `first` for a page that starts its recipe (a new one, one generated
      * again after its revocation, a list of accounts or an entry page), `continuation` for
-     * a page sent with a base (a later page, a chooser branch's pages included).
+     * a page sent with a base (a later page, a chooser branch's pages included), `logout` for
+     * any page of an account switch's logout (ADR 0063), which the dashboard counts apart.
      */
     recipePage: text("recipe_page", { enum: inferenceLogRecipePages }),
     /**

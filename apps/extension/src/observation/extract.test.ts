@@ -4081,9 +4081,9 @@ describe("extractLogoutObservation (ADR 0063)", () => {
         <a href="/export.csv" download>Export</a>
         <button type="button">Inbox 12</button>
         <button disabled>Disabled</button>
-      </header>
-      <form role="search"><input type="search" name="q"><button>Search</button></form>
-      <form><button>Form without fields</button></form>`,
+        <form role="search"><input type="search" name="q"><button>Search</button></form>
+        <form><button>Form without fields</button></form>
+      </header>`,
       "Inbox (12) - Synthetic mail",
     );
     const observation = logout();
@@ -4106,8 +4106,8 @@ describe("extractLogoutObservation (ADR 0063)", () => {
         `<button type="button" id="item-${"abcdefghij"[index % 10]}${index}">Item</button>`,
     ).join("");
     page(
-      `<main>${filler}</main>
-      <header><button type="button" id="menu-button">Menu</button></header>
+      `<header><button type="button" id="menu-button">Menu</button></header>
+      <nav>${filler}</nav>
       <div role="menu"><a href="/logout" role="menuitem">Sign out</a></div>
       <div role="dialog" aria-modal="true"><button type="button" id="confirm">Yes, sign out</button></div>`,
     );
@@ -4117,6 +4117,34 @@ describe("extractLogoutObservation (ADR 0063)", () => {
     expect(labels).toContain("Yes, sign out");
     expect(labels).toContain("Sign out");
     expect(labels).toContain("Menu");
+  });
+
+  it("sends only the controls that may lead to the logout, by their labels, and the title", () => {
+    page(
+      `<header><button type="button" id="account-menu" aria-describedby="greeting">Account</button>
+        <span id="greeting">Signed in as Taro, 3 orders on the way</span></header>
+      <h1>Your orders</h1>
+      <main>
+        <p>Order shipped to 1 Example Street</p>
+        <button type="button" id="track">Track order</button>
+        <a href="/orders/old">Older orders</a>
+        <div class="user-panel"><button type="button" id="prefs">Preferences</button></div>
+        <section><button type="button" id="leave">Sign out</button></section>
+      </main>`,
+      "Orders - Synthetic shop",
+    );
+    const observation = logout();
+    expect(observation.candidates.map((candidate) => [candidate.label, candidate.target])).toEqual([
+      ["Account", { by: "id", value: "account-menu" }],
+      ["Preferences", { by: "id", value: "prefs" }],
+      ["Sign out", { by: "id", value: "leave" }],
+    ]);
+    expect(observation.title).toBe("Orders - Synthetic shop");
+    expect(observation).not.toHaveProperty("headings");
+    expect(observation.candidates.some((candidate) => "description" in candidate)).toBe(false);
+    const sent = JSON.stringify(observation);
+    for (const text of ["Your orders", "Example Street", "Taro", "Track order", "Older orders"])
+      expect(sent).not.toContain(text);
   });
 
   it("refuses a page with no control to press", () => {
@@ -4179,6 +4207,29 @@ describe("extractLocalLogout (ADR 0063)", () => {
     // A control named by the account it logs out has no locator a recipe could keep.
     page(`<header><button type="button">Log out alice@example.test</button></header>`);
     expect(extractLocalLogout()).toEqual({ ok: false, reason: "unlocated" });
+  });
+
+  it("answers none for a logout link that leaves the site, opens a window or downloads", () => {
+    const onSite = (url: URL) => url.hostname === location.hostname;
+    for (const link of [
+      `<a href="https://elsewhere.example/logout">Log out</a>`,
+      `<a href="/logout?next=https%3A%2F%2Felsewhere.example%2F">Log out</a>`,
+      `<a href="/logout" target="_blank">Log out</a>`,
+      `<a href="/logout" download>Log out</a>`,
+    ]) {
+      page(`<header><a href="/home">Home</a>${link}</header>`);
+      expect(extractLocalLogout(document, onSite)).toEqual({ ok: false, reason: "none" });
+    }
+    // Without the worker's hosts no link is on the site.
+    page(`<header><a href="/logout">Log out</a></header>`);
+    expect(extractLocalLogout()).toEqual({ ok: false, reason: "none" });
+    expect(extractLocalLogout(document, onSite)).toMatchObject({ ok: true });
+    // A link handled on the page, as `href="#"`, stays on it.
+    page(`<header><a href="#" id="bye">Sign out</a></header>`);
+    expect(extractLocalLogout(document, onSite)).toEqual({
+      ok: true,
+      target: { by: "id", value: "bye" },
+    });
   });
 });
 
