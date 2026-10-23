@@ -768,12 +768,11 @@ and Renovate has no release-date ordering. It follows the `beta` dist-tag with
 current one, while `rollbackPrs` offers it as a rollback update. Rollback updates are
 titled as updates but are not automerged. TypeScript, its shared preset and type
 packages are grouped so peer requirements can be reviewed together. `ai` and the
-`@ai-sdk/*` packages are grouped because each pins an exact `@ai-sdk/provider-utils`:
-updated apart, `bun.lock` keeps two copies, and `Schema` from one is not assignable to
-the other in `packages/inference/src/structured.ts`
-([#619](https://github.com/risu729/pateat/pull/619) and
-[#621](https://github.com/risu729/pateat/pull/621) failed typecheck this way). Updates
-still have to pass the repository's required checks.
+`@ai-sdk/*` packages are grouped into one PR because each pins an exact
+`@ai-sdk/provider-utils`: updated apart, `ai` and `@ai-sdk/valibot` can resolve
+different copies, and the `Schema` from one is not assignable to the other in
+`packages/inference/src/structured.ts`. Updates still have to pass the repository's
+required checks.
 
 Renovate tracks the release-tagged hk-config imports through the shared preset. The
 typed Cloudflare compatibility date remains reviewed manually: the shared preset's date

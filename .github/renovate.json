@@ -21,7 +21,7 @@
       "commitMessageAction": "Update"
     },
     {
-      "description": "ai and the @ai-sdk packages each pin one @ai-sdk/provider-utils; updated apart, the lockfile holds two copies whose Schema types differ and inference fails typecheck.",
+      "description": "ai and the @ai-sdk packages each pin one exact @ai-sdk/provider-utils; updated apart, ai and @ai-sdk/valibot can resolve different copies whose Schema types differ, and inference fails typecheck.",
       "matchPackageNames": ["ai", "@ai-sdk/**"],
       "groupName": "ai sdk"
     },
