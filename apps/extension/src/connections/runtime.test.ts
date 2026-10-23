@@ -96,6 +96,25 @@ describe("settings-page setup port", () => {
     expect(port.disconnect).not.toHaveBeenCalled();
     // A heartbeat every 20 seconds changes no vault state, so it re-reads none.
     expect(onVaultStateMayChange).not.toHaveBeenCalled();
+    // Each sign-in step is logged too; a status read is not.
+    const begin = crypto.randomUUID();
+    port.send({
+      requestId: begin,
+      type: "connection.begin",
+      input: {
+        kind: "existing",
+        connectionId: "synthetic-missing",
+        password: "synthetic-password",
+        autoUnlock: "preserve",
+      },
+    });
+    port.send({ requestId: crypto.randomUUID(), type: "connection.status" });
+    await vi.waitFor(() => expect(port.postMessage).toHaveBeenCalledTimes(3));
+    expect(onSignIn).toHaveBeenCalledTimes(2);
+    expect(onSignIn).toHaveBeenLastCalledWith("begin", {
+      ok: false,
+      error: { code: "invalid-request" },
+    });
   });
 });
 

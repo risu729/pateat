@@ -413,7 +413,7 @@ test("a waiting challenge keeps the worker running until its flow ends", async (
       .element(page.getByLabelText("Verification code", { exact: true }))
       .not.toBeInTheDocument();
     expect(endedLine()).toMatch(
-      /^The sign-in ended at .+, before its 5 minutes, because Pateat's background stopped\. Enter the master password to start again\.$/u,
+      /^The sign-in ended early, by .+, before its 5 minutes\. This usually means Chrome stopped Pateat's background\. Enter the master password to start again\.$/u,
     );
     // React runs the effect's cleanup after the next paint.
     await painted();
@@ -427,7 +427,7 @@ test("a waiting challenge keeps the worker running until its flow ends", async (
 test("the code screen names its end, and the page asks as it comes", async () => {
   const client = mockClient();
   // The end is a real timer, so it is set close: the page asks once it passes.
-  const soon = Date.now() + 1_500;
+  const soon = Date.now() + 2_500;
   client.begin.mockResolvedValueOnce({
     ok: true,
     kind: "mfa-required",
@@ -446,7 +446,9 @@ test("the code screen names its end, and the page asks as it comes", async () =>
   await expect
     .element(page.getByText(`Enter the code by ${localClockTime(soon)}.`, { exact: false }))
     .toBeVisible();
-  await expect.element(page.getByText("The sign-in timed out waiting for the code.")).toBeVisible();
+  await expect
+    .element(page.getByText("The sign-in timed out waiting for the code."), { timeout: 5_000 })
+    .toBeVisible();
   await expect
     .element(page.getByLabelText("Verification code", { exact: true }))
     .not.toBeInTheDocument();
@@ -491,7 +493,7 @@ test("a refused code keeps the code screen, its method and its sent email", asyn
       ),
     )
     .toBeVisible();
-  await expect.element(page.getByText("The code was not accepted. Enter it again.")).toBeVisible();
+  await expect.element(page.getByText("The code was not accepted.", { exact: true })).toBeVisible();
   await expect
     .element(page.getByRole("combobox", { name: "Verification method", exact: true }))
     .toHaveValue("1");
@@ -501,6 +503,12 @@ test("a refused code keeps the code screen, its method and its sent email", asyn
   await expect.element(page.getByLabelText("Verification code", { exact: true })).toHaveValue("");
   await expect.element(page.getByLabelText("Verification code", { exact: true })).toHaveFocus();
   expect(endedLine()).toBeNull();
+  // A new code clears the warning about the refused one.
+  await page.getByRole("button", { name: "Resend code", exact: true }).click();
+  await vi.waitFor(() => expect(client.sendEmailCode).toHaveBeenCalledTimes(2));
+  await expect
+    .element(page.getByText(/^The code was not accepted: it is wrong/u))
+    .not.toBeInTheDocument();
   await page.getByLabelText("Verification code", { exact: true }).fill("000123");
   await page.getByRole("button", { name: "Verify code", exact: true }).click();
   await expect
@@ -514,6 +522,88 @@ test("a refused code keeps the code screen, its method and its sent email", asyn
     flowId,
     twoFactor: { provider: 1, code: "000123" },
   });
+});
+
+test("heartbeats that find the end at once end the challenge once", async () => {
+  const client = mockClient();
+  client.begin.mockResolvedValue({
+    ok: true,
+    kind: "mfa-required",
+    flowId,
+    providers: [0],
+    expiresAt,
+  });
+  await mount(client);
+  await fillNew();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  await expect.element(page.getByLabelText("Verification code", { exact: true })).toBeVisible();
+  await vi.waitFor(() => expect(client.keepAlive).toHaveBeenCalledTimes(1));
+  await painted();
+  const answers = held<SetupReply>();
+  client.keepAlive.mockReturnValue(answers.promise);
+  // As when a frozen tab shows again and its overdue timers run with it.
+  document.dispatchEvent(new Event("visibilitychange"));
+  document.dispatchEvent(new Event("visibilitychange"));
+  await vi.waitFor(() => expect(client.keepAlive).toHaveBeenCalledTimes(3));
+  const reads = client.list.mock.calls.length;
+  answers.resolve({ ok: false, error: { code: "setup-expired" } });
+  await expect.element(page.getByText(expiredText, { exact: true })).toBeVisible();
+  await painted();
+  await painted();
+  expect(page.getByText(expiredText, { exact: true }).query()).not.toBeNull();
+  expect(client.list).toHaveBeenCalledTimes(reads + 1);
+});
+
+test("a code stopped by the end itself says the sign-in timed out", async () => {
+  const client = mockClient();
+  const pending = held<SetupReply>();
+  const end = Date.now() + 1_000;
+  client.begin.mockResolvedValue({
+    ok: true,
+    kind: "mfa-required",
+    flowId,
+    providers: [0],
+    expiresAt: end,
+  });
+  client.continue.mockReturnValue(pending.promise);
+  await mount(client);
+  await fillNew();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  await page.getByLabelText("Verification code", { exact: true }).fill("000123");
+  await page.getByRole("button", { name: "Verify code", exact: true }).click();
+  await vi.waitFor(() => expect(Date.now()).toBeGreaterThanOrEqual(end), { timeout: 3_000 });
+  // An older worker answered a request its end aborted as cancelled.
+  pending.resolve({ ok: false, error: { code: "cancelled" } });
+  await expect
+    .element(page.getByText("The sign-in timed out waiting for the code.", { exact: true }))
+    .toBeVisible();
+  expect(endedLine()).toMatch(/^The sign-in timed out at /u);
+});
+
+test("a refused new-device code keeps its screen until Verify", async () => {
+  const client = mockClient();
+  const challenge = {
+    ok: true as const,
+    kind: "new-device-verification-required" as const,
+    flowId,
+    invalidOtp: false,
+    expiresAt,
+  };
+  client.begin.mockResolvedValue(challenge);
+  client.continue.mockResolvedValueOnce({ ...challenge, invalidOtp: true });
+  await mount(client);
+  await fillNew();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  await page.getByLabelText("New-device verification code", { exact: true }).fill("000111");
+  await page.getByRole("button", { name: "Verify code", exact: true }).click();
+  await expect
+    .element(
+      page.getByText(
+        "The code was not accepted: it is wrong or no longer valid. Enter the code from the latest email.",
+      ),
+    )
+    .toBeVisible();
+  expect(endedLine()).toBeNull();
 });
 
 test("a code entered after the end says the sign-in timed out", async () => {

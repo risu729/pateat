@@ -85,7 +85,7 @@ function endedText(expiresAt: number, endedAt: number): { status: string; reason
         status: "The sign-in ended before the code was entered.",
         reason: (translate) =>
           translate(
-            "The sign-in ended at {{time}}, before its 5 minutes, because Pateat's background stopped. Enter the master password to start again.",
+            "The sign-in ended early, by {{time}}, before its 5 minutes. This usually means Chrome stopped Pateat's background. Enter the master password to start again.",
             { time: localClockTime(endedAt, formatLocale()) },
           ),
       }
@@ -315,7 +315,7 @@ export function BitwardenSetup({
   const [message, setMessage] = useState<Message>("Loading Bitwarden connections…");
   const say = (next: Message) => setMessage(() => next);
   // When the shown challenge stops waiting; a reply handler may see an older render's state.
-  const deadline = useRef<number>(undefined);
+  const deadline = useRef<{ flowId: string; expiresAt: number }>(undefined);
   // Why the last sign-in ended while it waited for its code, shown in the sign-in form.
   const [ended, setEndedState] = useState<Message>();
   const setEnded = (next: Message | undefined) => setEndedState(() => next);
@@ -410,12 +410,18 @@ export function BitwardenSetup({
   /** `endsAdd`: the reply answers this page's add, so its read is the add's last chance. */
   async function receive(result: SetupReply, epoch: number, endsAdd = false) {
     if (epoch !== generation.current) return;
-    const expiresAt = deadline.current;
+    const expiresAt = deadline.current?.expiresAt;
     deadline.current = undefined;
     if (!result.ok) {
       setChallenge(undefined);
-      if (result.error.code === "setup-expired" && expiresAt !== undefined) {
-        const text = endedText(expiresAt, Date.now());
+      const now = Date.now();
+      // A code sent just before the end can come back stopped by the end itself.
+      if (
+        expiresAt !== undefined &&
+        (result.error.code === "setup-expired" ||
+          (result.error.code === "cancelled" && now >= expiresAt))
+      ) {
+        const text = endedText(expiresAt, now);
         setEnded(text.reason);
         say(text.status);
       } else {
@@ -432,14 +438,14 @@ export function BitwardenSetup({
     }
     if (result.kind === "mfa-required" || result.kind === "new-device-verification-required") {
       setChallenge(result);
-      deadline.current = result.expiresAt;
+      deadline.current = { flowId: result.flowId, expiresAt: result.expiresAt };
       setEnded(undefined);
       const again = result.kind === "mfa-required" ? !!result.invalidCode : result.invalidOtp;
       setRefused(again);
       if (again) {
         // The same sign-in waits for another code: the method and the sent email stay.
         focusCode.current = true;
-        say("The code was not accepted. Enter it again.");
+        say("The code was not accepted.");
       } else if (result.kind === "mfa-required") {
         // Ascending IDs put the authenticator before email, as the official clients rank them.
         setProvider(result.providers[0] ?? 0);
@@ -579,6 +585,8 @@ export function BitwardenSetup({
   }
   function sendEmailCode(flowId: string) {
     if (operation.current) return;
+    // A new code is on its way; the refused one no longer matters.
+    setRefused(false);
     setEmailCode("sending");
     focusCode.current = true;
     start(async (epoch) => {
@@ -604,9 +612,9 @@ export function BitwardenSetup({
   // The waiting sign-in, password included, lives only in the service worker, which Chrome
   // stops after 30 seconds without an event while the person fetches a code. A message on
   // the Port restarts that count, so the page sends one as soon as a challenge shows and
-  // every 20 seconds after, until the challenge's own 5 minutes end it. Chrome runs a
-  // background tab's timers about once a minute after 5 minutes, so the page also asks as
-  // the 5 minutes end and as it shows again, and says at once that the sign-in ended.
+  // every 20 seconds after, until the challenge's own 5 minutes end it. A tab Chrome froze
+  // or slowed, or a computer that slept, hears late, so the page also asks as the 5 minutes
+  // end and as it shows again, and says at once that the sign-in ended.
   const beat = useEffectEvent(async (flowId: string) => {
     // An operation started after this beat moves the epoch on and answers for the flow.
     const epoch = generation.current;
@@ -620,6 +628,9 @@ export function BitwardenSetup({
     // Only an ended flow ends the challenge; a running request answers for the flow
     // itself, and a busy worker's refusal leaves it waiting.
     if (result.ok || result.error.code !== "setup-expired" || operation.current) return;
+    // Several heartbeats can find the end at once, as when a frozen tab shows again; only
+    // the first ends the challenge it was sent for.
+    if (deadline.current?.flowId !== flowId) return;
     await receive(result, epoch, adding.current);
   });
   useEffect(() => {

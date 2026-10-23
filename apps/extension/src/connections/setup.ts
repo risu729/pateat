@@ -93,6 +93,8 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
   }
   const reviews = new Map<string, string[]>();
   const alive = (flow: Flow) => !flow.controller.signal.aborted && now() < flow.expiresAt;
+  /** Why a flow stopped during a provider call: its 5 minutes ran out, or it was stopped. */
+  const stopped = (flow: Flow) => error(now() >= flow.expiresAt ? "setup-expired" : "cancelled");
   function clear(flow: Flow) {
     clearTimeout(flow.timer);
     flow.controller.abort();
@@ -348,8 +350,9 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
     );
     // Token lifetime counts from receipt, not from the end of sync and acceptance.
     const receivedAt = now();
+    // The flow's own end aborts the request too; that reads as its end, not a failure.
+    if (!alive(flow)) return stopped(flow);
     if (!token.ok) return token;
-    if (!alive(flow)) return error("cancelled");
     const outcome = token.data;
     // As on the official two-step page, a refused code keeps the sign-in for another try.
     if (
@@ -789,7 +792,7 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
               },
               current.controller.signal,
             );
-            if (!alive(current)) return error("cancelled");
+            if (!alive(current)) return stopped(current);
             return {
               ok: true,
               kind: "email-code",

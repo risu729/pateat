@@ -34,8 +34,9 @@ import type { ConnectionRegistry, ConnectionSetupDependencies, SetupReply } from
 
 /** A diagnostics read must not hold the page as long as a sync may take. */
 const SERVER_CONFIG_TIMEOUT_MS = 5_000;
+
 export type SignInStep = "begin" | "continue" | "send-email-code" | "keep-alive";
-const signInSteps: Partial<Record<string, SignInStep>> = {
+const signInSteps: Partial<Record<v.InferOutput<typeof setupRequestSchema>["type"], SignInStep>> = {
   "connection.begin": "begin",
   "connection.continue": "continue",
   "connection.send-email-code": "send-email-code",

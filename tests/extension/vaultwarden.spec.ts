@@ -223,7 +223,7 @@ test("says by the master password that a sign-in waiting for its code ended", as
     ).toBeVisible({ timeout: 30_000 });
     await expect(
       options.getByText(
-        /^The sign-in ended at .+, before its 5 minutes, because Pateat's background stopped\. Enter the master password to start again\.$/u,
+        /^The sign-in ended early, by .+, before its 5 minutes\. This usually means Chrome stopped Pateat's background\. Enter the master password to start again\.$/u,
       ),
     ).toBeVisible();
     await expect(options.getByLabel("Verification code", { exact: true })).toHaveCount(0);

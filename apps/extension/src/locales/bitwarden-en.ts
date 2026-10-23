@@ -64,11 +64,11 @@ export const bitwardenEn = {
   "The sign-in ended before the code was entered.":
     "The sign-in ended before the code was entered.",
   "The sign-in timed out waiting for the code.": "The sign-in timed out waiting for the code.",
-  "The sign-in ended at {{time}}, before its 5 minutes, because Pateat's background stopped. Enter the master password to start again.":
-    "The sign-in ended at {{time}}, before its 5 minutes, because Pateat's background stopped. Enter the master password to start again.",
+  "The sign-in ended early, by {{time}}, before its 5 minutes. This usually means Chrome stopped Pateat's background. Enter the master password to start again.":
+    "The sign-in ended early, by {{time}}, before its 5 minutes. This usually means Chrome stopped Pateat's background. Enter the master password to start again.",
   "The sign-in timed out at {{time}}: no code was entered within 5 minutes. Enter the master password to start again.":
     "The sign-in timed out at {{time}}: no code was entered within 5 minutes. Enter the master password to start again.",
-  "The code was not accepted. Enter it again.": "The code was not accepted. Enter it again.",
+  "The code was not accepted.": "The code was not accepted.",
   "The code was not accepted: it is wrong or no longer valid. Enter the current code from the authenticator app.":
     "The code was not accepted: it is wrong or no longer valid. Enter the current code from the authenticator app.",
   "The code was not accepted: it is wrong or no longer valid. Enter the code from the latest email, or Resend code.":

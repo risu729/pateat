@@ -573,6 +573,25 @@ describe("manual challenges and isolated caller lifetime", () => {
     // The password was derived once; the retry sent the same hash.
     expect(h.host.deriveAuthentication).toHaveBeenCalledTimes(1);
   });
+  it("answers a code the flow's end stopped mid-request as expired, not cancelled", async () => {
+    const h = harness();
+    h.tokenResponses.push({
+      status: 400,
+      body: { error: "invalid_grant", TwoFactorProviders2: { "0": null } },
+    });
+    const challenge = await h.caller.begin(newInput());
+    if (!challenge.ok || challenge.kind !== "mfa-required")
+      throw new Error("Synthetic MFA challenge failed");
+    const real = h.fetch.getMockImplementation()!;
+    // The 5 minutes run out while the code's token request is on its way.
+    h.fetch.mockImplementationOnce(async (url, init) => {
+      h.advance(300_000);
+      return real(url, init);
+    });
+    expect(
+      await h.caller.continue({ flowId: challenge.flowId, twoFactor: { provider: 0, code: "1" } }),
+    ).toEqual({ ok: false, error: { code: "setup-expired" } });
+  });
   it("emails a code with the hash the password grant sent, and the sign-in still waits", async () => {
     const h = harness();
     h.tokenResponses.push({

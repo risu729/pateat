@@ -67,12 +67,11 @@ export const bitwardenJa = {
   "The sign-in ended before the code was entered.": "コードを入力する前にログインが終了しました。",
   "The sign-in timed out waiting for the code.":
     "コードの入力を待つ間にログインが時間切れになりました。",
-  "The sign-in ended at {{time}}, before its 5 minutes, because Pateat's background stopped. Enter the master password to start again.":
-    "Pateat のバックグラウンドが停止したため、5 分を待たずに {{time}} にログインが終了しました。やり直すにはマスターパスワードを入力してください。",
+  "The sign-in ended early, by {{time}}, before its 5 minutes. This usually means Chrome stopped Pateat's background. Enter the master password to start again.":
+    "5 分を待たずに、{{time}} までにログインが終了しました。多くの場合、Chrome が Pateat のバックグラウンドを停止したことが原因です。やり直すにはマスターパスワードを入力してください。",
   "The sign-in timed out at {{time}}: no code was entered within 5 minutes. Enter the master password to start again.":
     "5 分以内にコードが入力されなかったため、{{time}} にログインが時間切れになりました。やり直すにはマスターパスワードを入力してください。",
-  "The code was not accepted. Enter it again.":
-    "コードが受け付けられませんでした。もう一度入力してください。",
+  "The code was not accepted.": "コードが受け付けられませんでした。",
   "The code was not accepted: it is wrong or no longer valid. Enter the current code from the authenticator app.":
     "コードが受け付けられませんでした。コードが間違っているか、有効期限が切れています。認証アプリに表示されている現在のコードを入力してください。",
   "The code was not accepted: it is wrong or no longer valid. Enter the code from the latest email, or Resend code.":

@@ -211,10 +211,12 @@ Pateat's side is the settings page's Bitwarden panel
 pinned at
 [`86f4156`](https://github.com/bitwarden/clients/tree/86f41566aebe5a024796df8abfb3d4d89ec509c1).
 
-- Both end a sign-in that waits for a two-step or new-device code after 5 minutes. The
-  official clients restart the 5 minutes each time the server asks for another code
+- Both end a sign-in that waits for a two-step or new-device code after 5 minutes,
+  counted once; a refused code keeps the same end in both. The official clients start
+  the 5 minutes when the password grant answers with a challenge
   ([login-strategy.service.ts](https://github.com/bitwarden/clients/blob/86f41566aebe5a024796df8abfb3d4d89ec509c1/libs/auth/src/common/services/login-strategies/login-strategy.service.ts#L194-L200));
-  Pateat counts them once, from the press of Connect or Sign in and sync.
+  Pateat starts them at the press of Connect or Sign in and sync, before the prelogin,
+  the password derivation and the grant, so its wait is shorter by those seconds.
 - The official two-step page shows no end time
   ([two-factor-auth.component.ts](https://github.com/bitwarden/clients/blob/86f41566aebe5a024796df8abfb3d4d89ec509c1/libs/auth/src/angular/two-factor-auth/two-factor-auth.component.ts#L270-L285));
   Pateat's code screen says "Enter the code by 8:26 PM", because a person who leaves to

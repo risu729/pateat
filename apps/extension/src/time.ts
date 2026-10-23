@@ -39,7 +39,8 @@ export function localClockTime(ms: number, locale?: string): string {
       timeStyle: "short",
     });
   } catch {
-    return "an unknown time";
+    // Only a damaged reply can be out of range; no words, so no language.
+    return "--:--";
   }
 }
 
