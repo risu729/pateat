@@ -421,7 +421,7 @@ for (const action of ["isolation", "lock"] as const) {
 }
 
 test("the native Worker derives an Argon2id key at Bitwarden's maximum 1024 MiB memory", async () => {
-  // Browser launch plus a real 1 GiB derivation within the host's own 30 s request budget.
+  // Browser launch plus a real 1 GiB derivation within the host's 60 s Argon2id budget.
   test.setTimeout(90_000);
   await withLoginExtension(async (context, _background, extensionId) => {
     const external = prohibitExternalRequests(context);

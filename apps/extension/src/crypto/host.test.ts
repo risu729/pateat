@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createBitwardenAccountMapper } from "@pateat/bitwarden";
 import { createCryptoHost, type CryptoHost, type CryptoHostPort } from "./host";
-import { CRYPTO_PORT, type HostCommand, type HostSessionRef } from "./wire";
+import { CRYPTO_PORT, type HostCommand, type HostSessionRef, type HostUnlock } from "./wire";
 import {
   accountNow,
   accountProfile,
@@ -1037,6 +1037,31 @@ describe("cancellation, deadlines and host loss", () => {
     const derived = { connectionId: "connection-2", masterPasswordHash: "synthetic-hash" };
     h.reply(deriveCommand, { ok: true, data: derived });
     expect(await deriving).toEqual({ ok: true, data: derived });
+  });
+
+  it("gives an Argon2id unlock with the master password the longer budget, and one with a retained key the normal one", async () => {
+    const h = harness({ timeoutMs: 100, argon2idTimeoutMs: 400 });
+    const argon2id = (unlock: HostUnlock) => {
+      const input = openInput();
+      return {
+        ...input,
+        prepared: {
+          ...input.prepared,
+          kdf: { argon2id: { iterations: 10, memory: 1024, parallelism: 4 } },
+        },
+        unlock,
+      };
+    };
+    const withPassword = h.host.open(argon2id({ kind: "password", password: v1Password }));
+    const passwordCommand = await h.command(0);
+    // Past the normal budget, within the Argon2id one.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    h.answerOpen(passwordCommand);
+    expect(await withPassword).toMatchObject({ ok: true });
+    // A retained key runs no KDF, whatever the account's KDF is.
+    const withKey = h.host.open(argon2id({ kind: "decrypted-key", userKey: "synthetic-user-key" }));
+    await h.command(1);
+    expect(await withKey).toEqual({ ok: false, error: { code: "timeout" } });
   });
 
   it("times out an Argon2id derivation once its own budget runs out", async () => {

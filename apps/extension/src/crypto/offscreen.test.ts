@@ -150,6 +150,21 @@ describe("offscreen Worker supervision", () => {
     expect(port.sent.at(-1)).toMatchObject({ result: { ok: false, error: { code: "timeout" } } });
   });
 
+  it("keeps 30 seconds for an open with a retained key on an Argon2id account", () => {
+    startCryptoOffscreen();
+    port.deliver({ version: 1, type: "crypto.reset", generation });
+    port.deliver({
+      ...open,
+      operation: {
+        ...open.operation,
+        prepared: { kdf: { argon2id: { iterations: 10, memory: 1024, parallelism: 4 } } },
+      },
+    });
+    const [worker] = SilentWorker.created;
+    vi.advanceTimersByTime(30_000);
+    expect(worker?.terminated).toBe(1);
+  });
+
   it("admits a live and a sync session for any number of connections, refuses a third for one, and still derives a sign-in's hash", () => {
     startCryptoOffscreen();
     port.deliver({ version: 1, type: "crypto.reset", generation });
