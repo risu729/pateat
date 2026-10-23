@@ -156,6 +156,21 @@ describe("observation contract", () => {
     expect(withDescription({ description: "a\u202eb" })).toBe(false);
   });
 
+  it("takes a keypad locator only on fill roles (ADR 0067)", () => {
+    const keypad = { by: "id", value: "soft-keys" };
+    const withKeypad = (index: number, value: unknown = keypad) =>
+      parse({
+        ...base,
+        candidates: base.candidates.map((candidate, at) =>
+          at === index ? { ...candidate, keypad: value } : candidate,
+        ),
+      });
+    expect(withKeypad(1)).toBe(true);
+    expect(withKeypad(1, { by: "test-id", value: "pad" })).toBe(true);
+    expect(withKeypad(2)).toBe(false);
+    expect(withKeypad(1, { by: "text", value: "1" })).toBe(false);
+  });
+
   it("bounds a signed-in page's header text at 1,000 characters (ADR 0029)", () => {
     expect(parse({ ...base, headerText: "Home [account] Settings" })).toBe(true);
     expect(parse({ ...base, headerText: "x".repeat(1000) })).toBe(true);

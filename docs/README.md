@@ -115,6 +115,7 @@ owner the reason when the amendment changes a recorded owner instruction.
 - [0064: A form that shows no button is submitted by Enter in its last field](adr/0064-enter-in-a-form-without-a-button.md)
 - [0065: Optional pages after a sign-in end the login as signed in](adr/0065-optional-pages-after-a-sign-in.md)
 - [0066: Warning, error and did-nothing log lines are sent to the service](adr/0066-problem-lines-sent-to-the-service.md)
+- [0067: A field on a page's software keyboard is typed one key press per character](adr/0067-software-keyboard-entry.md)
 - [0071: Elements may be named by their `data-test` attribute](adr/0071-data-test-locators.md)
 - [0072: A field may be named by its `name` within the sign-in form](adr/0072-field-name-in-the-sign-in-form.md)
 - [0075: Lock, log out and the vault timeout](adr/0075-vault-lock-and-timeout.md)

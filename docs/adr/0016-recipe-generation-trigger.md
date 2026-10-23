@@ -57,6 +57,10 @@ judge in `branch`, and generated pages, judged pages and the signed-in page samp
 the ADR 0029 amendment are kept per layout. A page where any layout's first step shows
 is a page where a recipe starts.
 
+Amended on 2026-10-23 by [ADR 0067](0067-software-keyboard-entry.md): an empty read-only
+password input beside the page's software keyboard counts as a sign-in input for
+condition 3.
+
 Date: 2026-10-11
 
 ## Context

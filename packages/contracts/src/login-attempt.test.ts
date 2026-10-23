@@ -258,6 +258,44 @@ describe("attempt identity and metadata", () => {
       step: { kind: "fill" },
     });
   });
+  it("never issues or authorizes a keypad fill for a fill-only attempt", () => {
+    // A page's software keyboard may submit at its last press (ADR 0021 D, 0067).
+    const keypadRecipe: LoginRecipe = {
+      ...recipe,
+      steps: [
+        {
+          kind: "fill",
+          effect: "prepare",
+          path: "/login",
+          fields: [
+            {
+              slot: "password",
+              target: { by: "id", value: "password" },
+              keypad: { by: "id", value: "keys" },
+            },
+          ],
+        },
+        ...recipe.steps.slice(1),
+      ],
+    };
+    const ready = transitionLoginAttempt(detected(keypadRecipe), { type: "RESOLVE" });
+    const operation = nextLoginOperation(ready, keypadRecipe, document, "fill-one", 1000)!;
+    expect(operation).toMatchObject({ step: { kind: "fill" } });
+    const intent = (start: LoginAttemptMetadata) =>
+      transitionLoginAttempt(
+        transitionLoginAttempt(start, {
+          type: "PREPARE",
+          operationId: "fill-one",
+          kind: "fill",
+          effect: "prepare",
+        }),
+        { type: "MUTATION_INTENT", operationId: "fill-one" },
+      );
+    expect(validateLoginOperation(operation, intent(ready), document, 3, 1001)).toBe(true);
+    const fillOnly = { ...ready, fillOnly: true as const };
+    expect(nextLoginOperation(fillOnly, keypadRecipe, document, "fill-one", 1000)).toBeUndefined();
+    expect(validateLoginOperation(operation, intent(fillOnly), document, 3, 1001)).toBe(false);
+  });
 });
 
 describe("submission and failure reconciliation", () => {

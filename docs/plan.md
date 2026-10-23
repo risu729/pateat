@@ -1224,15 +1224,26 @@ items the owner mentioned and gates still open on 2026-10-11.
   a login form and are logged in with the default account today. They should not be.
 - Entering a value on a page's software keyboard (owner, 2026-10-17 03:35 UTC): a
   login whose field takes characters only from buttons the page draws, such as an input
-  that is `readonly` and opens a keypad on focus. Pateat leaves such a page to the
-  person today, as the [phase 1](#phase-1-usable) row for these pages (エポスNet)
-  records: its fill writes only into inputs that are not `readonly`, and its events are
-  not trusted (`isTrusted` is false), which some keypads check
+  that is `readonly` and opens a keypad on focus. Before, Pateat left such a page to the
+  person, as the [phase 1](#phase-1-usable) row for these pages (エポスNet) records: its
+  fill writes only into inputs that are not `readonly`, and its events are not trusted
+  (`isTrusted` is false), which some keypads check
   ([architecture](architecture.md#background-execution)). A page that only offers a
   software keyboard beside an ordinary input, as SMBC Direct does with its software
-  keyboard button, is typed into as usual. The design is still to come: how a recipe
-  names a keypad's keys, keys that change position or show their character only as an
-  image, and keeping the value's characters out of what reaches the service and the AI.
+  keyboard button, is typed into as usual. Implemented as the owner chose on 2026-10-23
+  at 12:28 UTC (option A, press the page's own keys;
+  [ADR 0067](adr/0067-software-keyboard-entry.md)): the observation names the keypad's
+  container, never its keys; the executor presses the key that shows each character,
+  looked up again before each press, and stops without submitting when a character has
+  no single key or the field does not take a press; after a stop that pressed a key,
+  the popup tells the person to reload the page. The owner's choices of 13:01 UTC: a
+  keypad that leaves the visible field unchanged stops after its first press; a keypad
+  is named by an `id`, `data-testid` or class only it has, else by its position from
+  the field; letters-only keyboards count; date pickers, pagination and `A`-`Z` index
+  bars are kept out by structural guards. Only a read-only password input, or one
+  marked for a current password or a one-time code, takes a keypad; a fill-only login
+  after a logout presses no key; and a keypad whose page submits by itself is taken as
+  a code that does.
   A PIN or card code asked in an ordinary input is the
   [phase 2](#phase-2-use-it-and-fix-what-comes-up) item on personal details asked
   during a login.
