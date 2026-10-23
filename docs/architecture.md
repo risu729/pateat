@@ -433,6 +433,11 @@ guess:
   such as Duo, YubiKey OTP, FIDO2/WebAuthn or a recovery code. Choosing email sends one
   code, and "Resend code" sends another (ADR 0059). The page never asks Bitwarden to
   remember the device, so every password sign-in asks for a code.
+- A verification code with a space inside, such as `123 456`. As the official clients
+  trim a code's ends only (`tokenFormValue.trim()` in `two-factor-auth.component.ts`,
+  and a pasted code in `new-device-verification.component.ts`), the settings page sends
+  ` 123456 ` as `123456` but `123 456` as typed, which the server refuses. It trims a
+  typed self-hosted server address too, before checking it and asking for site access.
 - Email addresses that the official Bitwarden login page refuses. The settings page and
   the worker use that page's rule (Angular's `Validators.email`), as `bitwardenEmail` in
   `packages/bitwarden/src/email.ts`: only ASCII, no leading, trailing or repeated `.`

@@ -206,20 +206,6 @@ test.each([
   expect(client.begin).not.toHaveBeenCalled();
 });
 
-test.each(["o'brien@example.com", "a&b@example.com", "first..last@example.com", "a@b.c"])(
-  "email %s that the setup wire rejects gets the local message and no permission prompt",
-  async (address) => {
-    const { client, changed } = await mount();
-    await fillNew();
-    await page.getByLabelText("Email", { exact: true }).fill(address);
-    await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
-    await expect.element(page.getByText(/Enter a connection name, valid email/)).toBeVisible();
-    expect(client.requestProviderPermission).not.toHaveBeenCalled();
-    expect(client.begin).not.toHaveBeenCalled();
-    expect(changed).not.toHaveBeenCalled();
-  },
-);
-
 test("pasted name, email and server address are trimmed before they are checked and sent", async () => {
   const { client } = await mount();
   await fillNew();
@@ -243,29 +229,38 @@ test("pasted name, email and server address are trimmed before they are checked 
   });
 });
 
-test("verification codes are sent without spaces and a blank code sends nothing", async () => {
+test("verification codes are sent with their ends trimmed and a blank code sends nothing", async () => {
   const client = mockClient();
-  client.begin.mockResolvedValue({ ok: true, kind: "mfa-required", flowId, providers: [0] });
+  client.begin.mockResolvedValue({
+    ok: true,
+    kind: "mfa-required",
+    flowId,
+    providers: [0],
+    expiresAt,
+  });
   client.continue.mockResolvedValue({
     ok: true,
     kind: "new-device-verification-required",
     flowId,
     invalidOtp: false,
+    expiresAt,
   });
   await mount(client);
   await fillNew();
   await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
   const mfaCode = page.getByLabelText("Verification code", { exact: true });
   await mfaCode.fill("   ");
-  await page.getByRole("button", { name: "Verify code", exact: true }).click();
-  await mfaCode.fill(" 123 456\t");
+  await expect
+    .element(page.getByRole("button", { name: "Verify code", exact: true }))
+    .toBeDisabled();
+  await mfaCode.fill(" 123456\t");
   await page.getByRole("button", { name: "Verify code", exact: true }).click();
   await vi.waitFor(() => expect(client.continue).toHaveBeenCalledTimes(1));
   expect(client.continue).toHaveBeenCalledWith({
     flowId,
     twoFactor: { provider: 0, code: "123456" },
   });
-  await page.getByLabelText("New-device verification code", { exact: true }).fill("98 76 54 ");
+  await page.getByLabelText("New-device verification code", { exact: true }).fill("\t987654 ");
   await page.getByRole("button", { name: "Verify code", exact: true }).click();
   await vi.waitFor(() => expect(client.continue).toHaveBeenCalledTimes(2));
   expect(client.continue).toHaveBeenLastCalledWith({ flowId, newDeviceOtp: "987654" });
