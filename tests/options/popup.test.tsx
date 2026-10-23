@@ -7,6 +7,7 @@ import {
   type SettingsClient,
 } from "../../apps/extension/src/options/client";
 import type { ChoiceClient } from "../../apps/extension/src/login/choice-wire";
+import type { DetailClient, DetailResponse } from "../../apps/extension/src/login/detail-wire";
 import { popupOrigin, SiteApp, type PopupHost } from "../../apps/extension/src/popup/site-app";
 import {
   createDefaultSettings,
@@ -80,12 +81,22 @@ function noChoice() {
   };
 }
 
+/** A page that asks for no personal detail, on a site without links. */
+function noDetails(origin = "https://bank.example") {
+  return {
+    get: vi.fn<DetailClient["get"]>().mockResolvedValue({ ok: true, origin, links: [] }),
+    fill: vi.fn<DetailClient["fill"]>().mockResolvedValue({ ok: true }),
+    remove: vi.fn<DetailClient["remove"]>().mockResolvedValue({ ok: true }),
+  };
+}
+
 async function mount(
   client: SettingsClient,
   url: string | undefined,
   choices: ChoiceClient = noChoice(),
   incognito = false,
   listingWaitMs?: number,
+  details: DetailClient = noDetails(),
 ) {
   const unwatched = vi.fn<() => void>();
   let onSettings = () => {};
@@ -107,6 +118,7 @@ async function mount(
       <SiteApp
         client={client}
         choices={choices}
+        details={details}
         host={host}
         {...(listingWaitMs === undefined ? {} : { listingWaitMs })}
       />
@@ -1291,4 +1303,213 @@ test("the page section names the page's refusal over an older not-started reason
   await expect
     .poll(() => lineText("login"))
     .toBe("No login started: another tab's login to this site is running or did not succeed.");
+});
+
+// Personal details during a login (ADR 0061). Synthetic vault labels only; no value is
+// ever in an answer.
+const personal = {
+  connectionId: "demo-personal",
+  itemId: "identity-1",
+  fieldId: "birth",
+  itemLabel: "本人",
+  fieldLabel: "生年月日",
+};
+const family = {
+  connectionId: "demo-personal",
+  itemId: "identity-2",
+  fieldId: "dob",
+  itemLabel: "Family",
+  fieldLabel: "Date of birth",
+};
+
+function withDetails(answer: Partial<Extract<DetailResponse, { ok: true }>>) {
+  const details = noDetails();
+  details.get.mockResolvedValue({ ok: true, origin: "https://bank.example", links: [], ...answer });
+  return details;
+}
+const birthOffer = {
+  documentId: "detail-document",
+  details: [
+    { detail: "birth-date" as const, format: "yyyymm" as const, candidates: [personal, family] },
+  ],
+};
+
+test("a page that asks for a detail offers the vault fields, the best guess selected", async () => {
+  const { client } = store();
+  const details = withDetails({ offer: birthOffer });
+  await mount(client, "https://bank.example/login", noChoice(), false, undefined, details);
+  const asks = page.getByRole("group", { name: "This page asks for your birth year and month." });
+  await expect.element(asks).toBeVisible();
+  expect(details.get).toHaveBeenCalledWith(7);
+  // The section is part of "This page", even when the worker describes nothing else.
+  await expect.element(page.getByRole("heading", { name: "This page" })).toBeVisible();
+  await expect.element(asks.getByRole("radio")).toHaveLength(2);
+  await expect.element(asks.getByRole("radio", { name: "本人 › 生年月日" })).toBeChecked();
+  await expect
+    .element(asks.getByRole("radio", { name: "Family › Date of birth" }))
+    .not.toBeChecked();
+  // The answer refetched every second keeps the person's pick.
+  await userEvent.click(page.getByText("Family › Date of birth"));
+  const calls = details.get.mock.calls.length;
+  await expect.poll(() => details.get.mock.calls.length, { timeout: 3000 }).toBeGreaterThan(calls);
+  await expect.element(asks.getByRole("radio", { name: "Family › Date of birth" })).toBeChecked();
+});
+
+test("Fill fills the picked field in the offer's document and says to check and submit", async () => {
+  const { client } = store();
+  const details = withDetails({ offer: birthOffer });
+  await mount(client, "https://bank.example/login", noChoice(), false, undefined, details);
+  const fill = page.getByRole("button", { name: "Fill" });
+  await expect.element(fill).toBeVisible();
+  await userEvent.click(page.getByText("Family › Date of birth"));
+  // The link is kept for the tab, not saved yet, once the fill is done.
+  details.get.mockResolvedValue({
+    ok: true,
+    origin: "https://bank.example",
+    offer: birthOffer,
+    links: [
+      { detail: "birth-date", itemLabel: "Family", fieldLabel: "Date of birth", pending: true },
+    ],
+  });
+  await userEvent.click(fill);
+  await expect
+    .element(
+      page.getByText(
+        "Filled. Check it and submit the form; Pateat saves this choice once you are signed in.",
+      ),
+    )
+    .toBeVisible();
+  expect(details.fill).toHaveBeenCalledExactlyOnceWith({
+    tabId: 7,
+    documentId: "detail-document",
+    detail: "birth-date",
+    connectionId: "demo-personal",
+    itemId: "identity-2",
+    fieldId: "dob",
+  });
+  await expect
+    .element(page.getByText("Filled from Family › Date of birth (not saved yet)"))
+    .toBeVisible();
+  // Fill keeps focus, since it stays on the page.
+  expect(document.activeElement).toBe(fill.element());
+  // The popup fills nothing by itself and saves no settings.
+  expect(client.saveSettings).not.toHaveBeenCalled();
+});
+
+test("a Fill that filled nothing says why", async () => {
+  const { client } = store();
+  const details = withDetails({ offer: birthOffer });
+  details.fill.mockResolvedValue({ ok: false, reason: "unavailable" });
+  await mount(client, "https://bank.example/login", noChoice(), false, undefined, details);
+  await userEvent.click(page.getByRole("button", { name: "Fill" }));
+  await expect
+    .element(page.getByText("Pateat cannot read that field now. Unlock the vault and try again."))
+    .toBeVisible();
+  expect(details.fill).toHaveBeenCalledWith(
+    expect.objectContaining({ detail: "birth-date", itemId: "identity-1", fieldId: "birth" }),
+  );
+  expect(page.getByText("Filled.", { exact: false }).query()).toBeNull();
+});
+
+test("an excluded site offers no fill, even one the worker still keeps", async () => {
+  const settings = createDefaultSettings();
+  settings.excludedSites.push({ hostname: "bank.example", includeSubdomains: false });
+  const { client } = store(saved(0, settings));
+  const details = withDetails({ offer: birthOffer });
+  await mount(client, "https://bank.example/login", noChoice(), false, undefined, details);
+  await expect.element(page.getByText("No logins or passkey answers on this site")).toBeVisible();
+  await expect.poll(() => details.get.mock.calls.length, { timeout: 3000 }).toBeGreaterThan(1);
+  expect(page.getByRole("button", { name: "Fill" }).query()).toBeNull();
+});
+
+test("the site's links are listed with their vault labels and removed", async () => {
+  const { client } = store();
+  const details = withDetails({
+    links: [
+      { detail: "birth-date", itemLabel: "本人", fieldLabel: "生年月日" },
+      { detail: "card-code", itemLabel: "Visa", fieldLabel: "Security code", pending: true },
+    ],
+  });
+  await mount(client, "https://bank.example/login", noChoice(), false, undefined, details);
+  const links = page.getByRole("list", { name: "Personal details Pateat fills on this site" });
+  await expect.element(links).toBeVisible();
+  expect(
+    [...document.querySelectorAll("#popup-detail-links > li")].map((item) => item.textContent),
+  ).toEqual([
+    "Your birth dateFilled from 本人 › 生年月日Remove",
+    "Your card's security codeFilled from Visa › Security code (not saved yet)Remove",
+  ]);
+  // No offer, so nothing to fill.
+  expect(page.getByRole("button", { name: "Fill" }).query()).toBeNull();
+  const remove = page.getByRole("button", { name: "Remove the link for your birth date" });
+  details.get.mockResolvedValue({
+    ok: true,
+    origin: "https://bank.example",
+    links: [{ detail: "card-code", itemLabel: "Visa", fieldLabel: "Security code", pending: true }],
+  });
+  await userEvent.click(remove);
+  await expect
+    .element(page.getByText("Removed. Pateat no longer fills your birth date on this site."))
+    .toBeVisible();
+  expect(details.remove).toHaveBeenCalledExactlyOnceWith(7, "birth-date");
+  await expect.element(remove).not.toBeInTheDocument();
+  await expect
+    .element(page.getByRole("button", { name: "Remove the link for your card's security code" }))
+    .toBeVisible();
+  // The removed row's button is gone, so focus moves to the section's heading.
+  await expect
+    .poll(() => document.activeElement)
+    .toBe(page.getByRole("heading", { name: "This page" }).element());
+});
+
+test("a Remove that saves nothing says so", async () => {
+  const { client } = store();
+  const details = withDetails({
+    links: [{ detail: "phone-last-4", itemLabel: "本人", fieldLabel: "Phone" }],
+  });
+  details.remove.mockResolvedValue({ ok: false, reason: "not-saved" });
+  await mount(client, "https://bank.example/login", noChoice(), false, undefined, details);
+  await userEvent.click(
+    page.getByRole("button", {
+      name: "Remove the link for the last 4 digits of your phone number",
+    }),
+  );
+  await expect
+    .element(page.getByText("The link could not be removed. Reopen this popup and try again."))
+    .toBeVisible();
+});
+
+test("a page without a detail to fill or a link shows no detail section", async () => {
+  const { client } = store();
+  const details = noDetails();
+  await mount(client, "https://bank.example/login", noChoice(), false, undefined, details);
+  await expect.element(page.getByRole("group", { name: "Default account" })).toBeVisible();
+  // The second read follows the first answer, so that answer has been rendered.
+  await expect.poll(() => details.get.mock.calls.length, { timeout: 3000 }).toBeGreaterThan(1);
+  expect(page.getByRole("heading", { name: "This page" }).query()).toBeNull();
+  expect(page.getByRole("button", { name: "Fill" }).query()).toBeNull();
+  expect(document.querySelector("#popup-detail-links")).toBeNull();
+});
+
+test("details for another origin than the popup's are not shown", async () => {
+  const { client } = store();
+  const details = withDetails({ offer: birthOffer });
+  details.get.mockResolvedValue({
+    ok: true,
+    origin: "https://other.example",
+    offer: birthOffer,
+    links: [{ detail: "birth-date", itemLabel: "本人", fieldLabel: "生年月日" }],
+  });
+  await mount(client, "https://bank.example/login", noChoice(), false, undefined, details);
+  await expect.element(page.getByRole("group", { name: "Default account" })).toBeVisible();
+  await expect.poll(() => details.get.mock.calls.length, { timeout: 3000 }).toBeGreaterThan(1);
+  expect(page.getByRole("heading", { name: "This page" }).query()).toBeNull();
+});
+
+test("a tab Pateat cannot run on asks nothing about its details", async () => {
+  const { client } = store();
+  const details = noDetails();
+  await mount(client, "chrome://newtab/", noChoice(), false, undefined, details);
+  await expect.element(page.getByText("Pateat works on websites", { exact: false })).toBeVisible();
+  expect(details.get).not.toHaveBeenCalled();
 });

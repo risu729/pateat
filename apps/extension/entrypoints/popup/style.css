@@ -309,6 +309,42 @@
 .popup-choice:has(input:checked) .popup-badge {
   background: var(--surface);
 }
+/* Forced colors drop the checked card's tint and inset ring, so a system-colored frame
+   marks it instead; the focus outline stays its own. */
+@media (forced-colors: active) {
+  .popup-choice:has(input:checked)::after {
+    content: "";
+    position: absolute;
+    inset: 3px;
+    border: 2px solid Highlight;
+    border-radius: 6px;
+    pointer-events: none;
+  }
+}
+
+/* A heading focused by script, when the control that had focus went away. */
+.popup [tabindex="-1"]:focus {
+  outline: none;
+}
+
+/* A personal detail the page asks for: the question, the fields as cards, then Fill. */
+.popup-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.popup .popup-detail-ask {
+  padding: 0;
+  margin-bottom: 8px;
+  font-size: 15px;
+  line-height: 24px;
+  font-weight: 500;
+  color: var(--ink);
+}
+.popup-detail-icon {
+  flex: none;
+  color: var(--ink-muted);
+}
 
 .popup-lines {
   display: flex;
