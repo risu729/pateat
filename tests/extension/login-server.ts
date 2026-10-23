@@ -816,7 +816,9 @@ export async function startLoginFixture(
       // button; `?button=script-link` a `javascript:` link without an id, as SMBC Direct's;
       // `?button=script-url` a link whose `javascript:` URL alone copies the shown password
       // into a hidden input and submits the form, as SMBC Trust Bank's, so only the hidden
-      // input reaches the server.
+      // input reaches the server. `?button=shadow` renders the password input in a
+      // component's open shadow root and the button in another's closed one, as Reddit's
+      // sign-in components do (ADR 0070).
       // `?marker=link` makes /account show an account link without an id instead of a
       // sign-out button, as ポイントインカム's header.
       const variant = fixtureUrl.searchParams.get("button");
@@ -830,11 +832,27 @@ export async function startLoginFixture(
             : variant === "script-url"
               ? '<input type="hidden" name="source" value="click"><input type="hidden" name="password"><a href="javascript:copyAndSubmit()"><span>Log in</span></a>'
               : '<button id="login" type="button">Log in</button>';
+      const shadow = variant === "shadow";
       response.end(
         html(
-          `<h1>Synthetic sign-in</h1><form${variant === "script-url" ? ' method="post"' : ""}><label>Password<input id="password" type="password"></label>${button}</form>`,
-          variant === "script-url"
-            ? `function copyAndSubmit() {
+          shadow
+            ? "<h1>Synthetic sign-in</h1><form><x-password></x-password><x-login></x-login></form>"
+            : `<h1>Synthetic sign-in</h1><form${variant === "script-url" ? ' method="post"' : ""}><label>Password<input id="password" type="password"></label>${button}</form>`,
+          shadow
+            ? `const passwordRoot = document.querySelector('x-password').attachShadow({mode: 'open'});
+          passwordRoot.innerHTML = '<label>Password<input id="password" type="password"></label>';
+          const loginRoot = document.querySelector('x-login').attachShadow({mode: 'closed'});
+          loginRoot.innerHTML = '<button id="login" type="button">Log in</button>';
+          const shown = passwordRoot.getElementById('password');
+          loginRoot.getElementById('login').addEventListener('click', () => {
+          sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
+          sessionStorage.setItem('passwordMatched', String(shown.value === ${JSON.stringify(password)}));
+          const runId = new URLSearchParams(location.search).get('runId');
+          if (runId) void fetch('/effect/' + encodeURIComponent(runId), {method:'POST', keepalive:true, body:new URLSearchParams({source:'click', password:shown.value})});
+          location.href = ${JSON.stringify(account)};
+        });`
+            : variant === "script-url"
+              ? `function copyAndSubmit() {
           const form = document.querySelector('form');
           const shown = document.getElementById('password').value;
           form.querySelector('input[type=hidden][name=password]').value = shown;
@@ -844,7 +862,7 @@ export async function startLoginFixture(
           form.action = '/sign-in-submit?' + new URLSearchParams({runId: query.get('runId') || '', marker: query.get('marker') || ''});
           form.submit();
         }`
-            : `document.querySelector('#login, form a').addEventListener('click', () => {
+              : `document.querySelector('#login, form a').addEventListener('click', () => {
           sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
           sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === ${JSON.stringify(password)}));
           const runId = new URLSearchParams(location.search).get('runId');

@@ -10,6 +10,7 @@ import {
   isScriptLink,
   linkText,
 } from "./text";
+import { queryAll } from "./shadow";
 
 const attributes = { id: "id", name: "name", "test-id": "data-testid" } as const;
 /** Every element an `accessible-name` locator may name ({@link isNamedControl}). */
@@ -32,7 +33,7 @@ export function linkPath(element: Element): string | undefined {
 
 /** The `<a href>` links of `document` whose {@link linkPath} is `path`. */
 export function linksTo(document: Document, path: string): HTMLAnchorElement[] {
-  return [...document.querySelectorAll("a[href]")].filter(
+  return queryAll(document, "a[href]").filter(
     (link): link is HTMLAnchorElement => linkPath(link) === path,
   );
 }
@@ -93,8 +94,10 @@ const shownAmong = (found: Element[], hidden: boolean) =>
  * attribute or `autocomplete` locator names several elements, only the visible ones count,
  * unless `hidden` asks for every one (`shownAmong`, ADR 0037). A
  * signed-in marker's `href` locator matches the links whose {@link linkPath} equals the
- * value, whatever their query or fragment (ADR 0029). Callers reject anything but exactly
- * one match rather than taking the first.
+ * value, whatever their query or fragment (ADR 0029). Every locator looks in the
+ * document and in every shadow tree in it, open or closed, so an ID or name counts once
+ * for the whole page (ADR 0070). Callers reject anything but exactly one match rather
+ * than taking the first.
  */
 export function findTargets(
   document: Document,
@@ -103,7 +106,7 @@ export function findTargets(
 ): Element[] {
   if (target.by === "href") return linksTo(document, target.value);
   if (target.by === "text") {
-    const elements = [...document.querySelectorAll("button, input, a")];
+    const elements = queryAll(document, "button, input, a");
     const named = elements.filter((element) => buttonText(element) === target.value);
     const linkMatches = () =>
       elements.filter((element) => !isScriptLink(element) && linkText(element) === target.value);
@@ -113,28 +116,26 @@ export function findTargets(
     if (hasNativeButton(document, target.value)) return links ? linkMatches() : [];
     if (named.length > 0) return named;
     if (links) return linkMatches();
-    return [...document.querySelectorAll("[role]")].filter(
+    return queryAll(document, "[role]").filter(
       (element) => isRoleButton(element) && buttonText(element) === target.value,
     );
   }
   if (target.by === "label")
-    return [...document.querySelectorAll("input")].filter(
-      (input) => fieldName(input) === target.value,
-    );
+    return queryAll(document, "input").filter((input) => fieldName(input) === target.value);
   if (target.by === "accessible-name")
-    return [...document.querySelectorAll(namedControls)].filter(
+    return queryAll(document, namedControls).filter(
       (element) => controlName(element) === target.value,
     );
   if (target.by === "autocomplete")
     return shownAmong(
-      [...document.querySelectorAll("input[autocomplete]")].filter((input) =>
+      queryAll(document, "input[autocomplete]").filter((input) =>
         autocompleteTokens(input).includes(target.value),
       ),
       hidden,
     );
   const attribute = attributes[target.by];
   return shownAmong(
-    [...document.querySelectorAll(`[${attribute}]`)].filter(
+    queryAll(document, `[${attribute}]`).filter(
       (element) => element.getAttribute(attribute) === target.value,
     ),
     hidden,

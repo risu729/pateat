@@ -7,6 +7,7 @@ import type { TargetCheck, TargetRequirement, TargetState } from "../login/wire"
 import { presence, presenceMiss } from "../observation/extract";
 import { visible } from "./code-submission";
 import { findTargets } from "./targets";
+import { closestAcross } from "./shadow";
 import {
   controlContent,
   controlName,
@@ -41,7 +42,7 @@ export function clickable(
   element: Element | undefined,
   { fragment = false }: { fragment?: boolean } = {},
 ): element is HTMLElement {
-  if (element === undefined || element.closest("[inert]")) return false;
+  if (element === undefined || closestAcross(element, "[inert]")) return false;
   if (isButton(element)) return visible(element) && !element.disabled;
   return (
     element instanceof HTMLElement &&
@@ -139,7 +140,7 @@ export function targetCheck(
   // The input and button tests require the content script's visibility first: an element
   // it does not see is named by why, apart from one that shows but takes no input.
   if ((writing || clicking) && element instanceof HTMLElement && !visible(element))
-    return element.closest("[hidden]") ? "hidden-attr" : "not-rendered";
+    return closestAcross(element, "[hidden]") ? "hidden-attr" : "not-rendered";
   if (writing && !writable(element)) return "not-writable";
   if (clicking && !clickable(element, { fragment })) return "not-clickable";
   if (

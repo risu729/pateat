@@ -1,6 +1,7 @@
 import { observedAutocompleteTokens } from "@pateat/contracts";
 import { visible } from "./code-submission";
 import { autocompleteTokens } from "./targets";
+import { closestAcross, formOf, inputsOf, queryAll } from "./shadow";
 
 /**
  * Words that name an account identifier (ADR 0016), matched as whole words of an input's
@@ -97,19 +98,20 @@ function writable(input: HTMLInputElement): boolean {
 function searchField(input: HTMLInputElement): boolean {
   return (
     input.type === "search" ||
-    input.closest("search, [role='search' i]") !== null ||
+    closestAcross(input, "search, [role='search' i]") !== null ||
     names(input, otherWords, otherParts)
   );
 }
 
 /** Whether the input's form also asks for a new password: a sign-up form. */
 function signUpForm(input: HTMLInputElement): boolean {
-  // `elements` also holds inputs tied to the form by a `form` attribute.
+  // Its inputs include those tied to it by a `form` attribute and those in its components'
+  // shadow trees (ADR 0070).
+  const form = formOf(input);
   return (
-    input.form !== null &&
-    [...input.form.elements].some(
-      (element) =>
-        element instanceof HTMLInputElement && autocompleteTokens(element).includes("new-password"),
+    form !== null &&
+    inputsOf(form, input.ownerDocument).some((element) =>
+      autocompleteTokens(element).includes("new-password"),
     )
   );
 }
@@ -127,7 +129,7 @@ function signUpForm(input: HTMLInputElement): boolean {
  * the page's own markup is read, never a value.
  */
 export function identifierInput(document: Document): "sole" | "email" | undefined {
-  const inputs = [...document.querySelectorAll("input")].filter(
+  const inputs = queryAll<HTMLInputElement>(document, "input").filter(
     (input) => textTypes.has(input.type) && writable(input) && !searchField(input),
   );
   const emails = inputs.filter(

@@ -1,4 +1,4 @@
-import { browser } from "wxt/browser";
+import { closestAcross, composedParent, queryAll, shadowRootOf, treeOf } from "./shadow";
 
 /** Elements whose text is never page text: code, styles, raw markup and control contents. */
 const textless = new Set([
@@ -37,7 +37,7 @@ let behindModal: ReadonlySet<Element> | undefined;
  * `<dialog>` opened with `showModal()`.
  */
 export function openModals(document: Document): HTMLElement[] {
-  return [...document.querySelectorAll("[aria-modal='true' i], dialog")].filter(
+  return queryAll(document, "[aria-modal='true' i], dialog").filter(
     (element): element is HTMLElement =>
       (element.matches(":modal") ||
         (element.getAttribute("aria-modal")?.trim().toLowerCase() === "true" &&
@@ -64,9 +64,14 @@ export function readBehindModal<Result>(document: Document, read: () => Result):
   const outer = behindModal;
   const modals = openModals(document);
   const hidden = new Set<Element>();
+  // Up through the hosts of the shadow trees that hold a modal, each tree's top included
+  // (ADR 0070).
   for (const modal of modals)
-    for (let ancestor = modal.parentElement; ancestor; ancestor = ancestor.parentElement)
-      for (const sibling of ancestor.children) if (sibling.matches(hiders)) hidden.add(sibling);
+    for (let node: Element | null = modal; node; node = composedParent(node)) {
+      const parent = node.parentNode;
+      if (parent instanceof Element || parent instanceof ShadowRoot)
+        for (const sibling of parent.children) if (sibling.matches(hiders)) hidden.add(sibling);
+    }
   behindModal = hidden.size > 0 ? hidden : outer;
   try {
     return read();
@@ -99,12 +104,11 @@ export function readOwnInert<Result>(element: Element, read: () => Result): Resu
  * reads.
  */
 function hiddenByAttribute(element: Element): boolean {
-  for (
-    let hider = element.closest(hiders);
-    hider;
-    hider = hider.parentElement?.closest(hiders) ?? null
-  )
+  for (let hider = closestAcross(element, hiders); hider;) {
     if (!behindModal?.has(hider)) return true;
+    const parent = composedParent(hider);
+    hider = parent && closestAcross(parent, hiders);
+  }
   return false;
 }
 
@@ -113,7 +117,7 @@ function hiddenByAttribute(element: Element): boolean {
  * itself, or an `inert` or `aria-hidden="true"` one.
  */
 export function attributeHidden(element: Element): boolean {
-  return element.closest("[hidden]") !== null || hiddenByAttribute(element);
+  return closestAcross(element, "[hidden]") !== null || hiddenByAttribute(element);
 }
 
 /**
@@ -127,7 +131,7 @@ function flatParent(element: Element): Element | null | undefined {
   const parent = element.parentNode;
   if (parent instanceof ShadowRoot) return parent.host;
   const host = element.parentElement;
-  const root = host && browser?.dom?.openOrClosedShadowRoot?.(host);
+  const root = host && shadowRootOf(host);
   if (!root) return host;
   return [...root.querySelectorAll("slot")].find((slot) => slot.assignedNodes().includes(element));
 }
@@ -258,12 +262,12 @@ export function shown(element: Element, opacity = true): element is HTMLElement 
   if (
     !(element instanceof HTMLElement) ||
     !element.isConnected ||
-    element.closest("[hidden]") ||
+    closestAcross(element, "[hidden]") ||
     hiddenByAttribute(element)
   )
     return false;
   if (rendered(element, opacity)) return true;
-  const parent = element.parentElement;
+  const parent = composedParent(element);
   const view = element.ownerDocument.defaultView;
   const style = view?.getComputedStyle(element);
   if (
@@ -309,8 +313,16 @@ export function renderedText(
   let text = "";
   // `undefined` marks the end of a block, so its text never joins the text after it.
   const pending: (ChildNode | undefined)[] = [];
-  const enqueue = (parent: Node) => {
-    for (let child = parent.lastChild; child; child = child.previousSibling) pending.push(child);
+  // The flat tree, as it renders: a host's shadow tree instead of its children, and a
+  // slot's assigned nodes instead of its fallback content (ADR 0070).
+  const enqueue = (parent: Element) => {
+    const assigned = parent instanceof HTMLSlotElement ? parent.assignedNodes() : [];
+    if (assigned.length > 0) {
+      for (let at = assigned.length - 1; at >= 0; at--) pending.push(assigned[at] as ChildNode);
+      return;
+    }
+    const from = shadowRootOf(parent) ?? parent;
+    for (let child = from.lastChild; child; child = child.previousSibling) pending.push(child);
   };
   enqueue(root);
   while (pending.length > 0 && text.length <= limit) {
@@ -464,7 +476,7 @@ export function isScriptButton(element: Element): boolean {
     return element.hasAttribute("href")
       ? scriptHref(element)
       : element.hasAttribute("onclick") || roleButton(element);
-  return element.closest("a[href]") === null && roleButton(element);
+  return closestAcross(element, "a[href]") === null && roleButton(element);
 }
 
 /**
@@ -491,13 +503,13 @@ export function isRoleButton(element: Element): element is HTMLElement {
  * still comes from {@link buttonText}.
  */
 export function hasNativeButton(document: Document, text: string): boolean {
-  return [...document.querySelectorAll("button, input")].some((element) => {
+  return queryAll(document, "button, input").some((element) => {
     if (!isButton(element)) return false;
     const raw =
       element instanceof HTMLButtonElement
         ? [
             element.textContent ?? "",
-            ...[...element.querySelectorAll("img[alt]")].map((image) => image.getAttribute("alt")!),
+            ...queryAll(element, "img[alt]").map((image) => image.getAttribute("alt")!),
           ]
         : [element.type === "image" ? element.alt : element.value];
     return raw.some((part) => collapseText(part) === text);
@@ -506,7 +518,7 @@ export function hasNativeButton(document: Document, text: string): boolean {
 
 /** The `alt` of the shown images in a `<button>` or link that has no rendered text. */
 function imageText(element: Element): string {
-  return [...element.querySelectorAll("img[alt]")]
+  return queryAll(element, "img[alt]")
     .flatMap((image) => (shown(image) ? [image.getAttribute("alt")!] : []))
     .join(" ");
 }
@@ -577,9 +589,9 @@ export function fieldName(element: Element): string | undefined {
 
 /** The elements `element`'s `aria-labelledby` names, in its order. */
 function labelledBy(element: Element): Element[] {
-  const document = element.ownerDocument;
+  const tree = treeOf(element);
   return (element.getAttribute("aria-labelledby") ?? "").split(/\s+/u).flatMap((id) => {
-    const target = id ? document.getElementById(id) : null;
+    const target = id ? tree.getElementById(id) : null;
     return target ? [target] : [];
   });
 }
@@ -674,10 +686,7 @@ export function controlContent(element: Element): string | undefined {
       if (node instanceof HTMLImageElement) part = node.alt;
       else if (node instanceof HTMLInputElement && labelInputTypes.has(node.type))
         part = node.type === "image" ? node.alt : node.value;
-      const root =
-        node instanceof HTMLElement
-          ? (node.shadowRoot ?? browser?.dom?.openOrClosedShadowRoot?.(node))
-          : undefined;
+      const root = node instanceof HTMLElement ? shadowRootOf(node) : undefined;
       const children = [...(root?.childNodes ?? []), ...node.childNodes];
       for (let index = children.length - 1; index >= 0; index--) pending.push(children[index]!);
     }

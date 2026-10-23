@@ -1,4 +1,5 @@
 import { renderedText } from "./text";
+import { closestAcross, queryAll } from "./shadow";
 
 const readLimit = 4000;
 const headingLimit = 8;
@@ -100,8 +101,8 @@ export function accountText(document: Document, form: HTMLFormElement | null): s
   const read = (root: Element, limit: number) =>
     (renderedText(root, limit, options) ?? "").slice(0, limit);
   const scope = form ?? document.body;
-  const headings = [...document.querySelectorAll("h1, h2, h3")]
-    .filter((heading) => !heading.closest(options.skip))
+  const headings = queryAll(document, "h1, h2, h3")
+    .filter((heading) => !closestAcross(heading, options.skip))
     .slice(0, headingLimit)
     .map((heading) => read(heading, headingReadLimit));
   return [scope ? read(scope, readLimit) : "", ...headings].join(" ");

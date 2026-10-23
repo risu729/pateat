@@ -204,6 +204,7 @@ for (const [button, marker] of [
   ["anchor", "button"],
   ["script-link", "button"],
   ["script-url", "button"],
+  ["shadow", "button"],
   ["button", "link"],
 ] as const)
   test(`a login page without a recipe is generated on the service, logs in and learns its completion (${button}, ${marker} marker)`, async () => {

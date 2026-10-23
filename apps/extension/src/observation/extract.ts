@@ -18,6 +18,18 @@ import { acceptsSecret, shortNumericInput } from "../login/inputs";
 import type { observationGaps } from "../login/wire";
 import { splitCodeInputs } from "../page/code-submission";
 import { autocompleteTokens, findTargets, linkPath, namedControls } from "../page/targets";
+import {
+  closestAcross,
+  composedOrder,
+  composedParent,
+  containsAcross,
+  formOf,
+  inputsOf,
+  queryAll,
+  readingPage,
+  shadowRootOf,
+  treeOf,
+} from "../page/shadow";
 import { observedPath, redactsPath, tokenSegment } from "./path";
 import {
   attributeHidden,
@@ -64,8 +76,6 @@ export type ObservationRefusal = "unsupported-page" | "no-candidates" | "no-loca
  * Why an observation is incomplete, for diagnostics only (ADR 0019): the first cause in
  * the extractor's fixed order, never a page text, attribute value or count.
  *
- * - `shadow-field`: a fillable field in a shadow root anywhere on the page.
- * - `shadow-control`: another control in a shadow root inside a login form.
  * - `unfillable-field`: a fillable field that cannot be filled (faint, read-only
  *   or disabled); on a signed-in page, only one that may be a sign-in field.
  * - `unsupported-control`: a control the executor cannot act on in a login form, such as
@@ -82,8 +92,6 @@ export type ObservationRefusal = "unsupported-page" | "no-candidates" | "no-loca
 export type ObservationGap = (typeof observationGaps)[number];
 /** Login-page gaps, the first one present reported (`extractLoginObservation`). */
 const loginGaps = [
-  "shadow-field",
-  "shadow-control",
   "unfillable-field",
   "unsupported-control",
   "unlocated-field",
@@ -144,11 +152,6 @@ const controls = "input:not([type='hidden']), select, textarea, button";
 const fields = "input:not([type='hidden']), select, textarea";
 /** Every element `describe` may accept, script buttons included. */
 const observed = "input, select, textarea, button, a[href], a[onclick], [role]";
-/** Fillable inputs only; consent banners in shadow roots often hold checkboxes. */
-const shadowFields = Object.keys(fillTypes)
-  .map((type) => `input[type='${type}' i]`)
-  .concat("input:not([type])")
-  .join(", ");
 const locators = [
   ["id", "id"],
   ["name", "name"],
@@ -251,9 +254,10 @@ export const withoutNumbers = (text: string, limit = maxText) =>
 function headerText(document: Document): string | undefined {
   const readLimit = maxHeaderText * 4;
   let raw = "";
-  for (const root of document.querySelectorAll(landmarks)) {
+  for (const root of queryAll(document, landmarks)) {
     if (raw.length > readLimit) break;
-    if (root.parentElement?.closest(landmarks)) continue;
+    const parent = composedParent(root);
+    if (parent && closestAcross(parent, landmarks)) continue;
     const text = renderedText(root, readLimit, { everyElement: true });
     if (text) raw += ` ${text}`;
   }
@@ -308,7 +312,10 @@ const visibleText = (root: Element) => uncutText(renderedText(root, rawLimit));
 
 type LocatorIndex = Map<string, Map<string, number>>;
 
-/** Counts every locator value once, as the executor's whole-document lookup sees them. */
+/**
+ * Counts every locator value once, as the executor's whole-page lookup sees them, shadow
+ * trees included (ADR 0070).
+ */
 function locatorIndex(document: Document): LocatorIndex {
   const index: LocatorIndex = new Map(
     [
@@ -327,32 +334,32 @@ function locatorIndex(document: Document): LocatorIndex {
     const counts = index.get(key)!;
     counts.set(value, (counts.get(value) ?? 0) + 1);
   };
-  for (const element of document.querySelectorAll("[id], [name], [data-testid]"))
+  for (const element of queryAll(document, "[id], [name], [data-testid]"))
     for (const [, attribute] of locators) {
       const value = element.getAttribute(attribute);
       if (value !== null) count(attribute, value);
     }
-  for (const input of document.querySelectorAll("input[autocomplete]"))
+  for (const input of queryAll(document, "input[autocomplete]"))
     for (const token of new Set(autocompleteTokens(input))) count("autocomplete", token);
-  for (const element of document.querySelectorAll("button, input, a")) {
+  for (const element of queryAll(document, "button, input, a")) {
     const text = buttonText(element);
     if (text !== undefined) count(isScriptLink(element) ? "script-text" : "text", text);
   }
-  for (const element of document.querySelectorAll("[role]")) {
+  for (const element of queryAll(document, "[role]")) {
     const text = isRoleButton(element) ? buttonText(element) : undefined;
     if (text !== undefined) count("role-text", text);
   }
-  for (const element of document.querySelectorAll("a[href]")) {
+  for (const element of queryAll(document, "a[href]")) {
     const text = isScriptLink(element) ? undefined : linkText(element);
     if (text !== undefined) count("link-text", text);
     const path = linkPath(element);
     if (path !== undefined) count("link-path", path);
   }
-  for (const input of document.querySelectorAll("input")) {
+  for (const input of queryAll<HTMLInputElement>(document, "input")) {
     const name = fieldName(input);
     if (name !== undefined) count("label", name);
   }
-  for (const element of document.querySelectorAll(namedControls)) {
+  for (const element of queryAll(document, namedControls)) {
     const name = controlName(element);
     if (name !== undefined) count("accessible-name", name);
   }
@@ -515,9 +522,7 @@ function shownWords(text: string | undefined): Set<string> {
  */
 function numbersCodeDigit(field: HTMLInputElement, name: string): boolean {
   if (field.maxLength !== 1 || !acceptsSecret(field, "otp")) return false;
-  const inputs = field.form
-    ? [...field.form.elements].filter((element) => element instanceof HTMLInputElement)
-    : [...field.ownerDocument.querySelectorAll("input")].filter((input) => input.form === null);
+  const inputs = inputsOf(formOf(field), field.ownerDocument);
   const digits = inputs.filter(
     (input) => input.maxLength === 1 && acceptsSecret(input, "otp") && visible(input),
   );
@@ -637,8 +642,8 @@ function referencedText(
   skip?: string,
 ): string | undefined {
   const parts = ids.flatMap((id) => {
-    const referenced = element.ownerDocument.getElementById(id);
-    if (!referenced || (skip && referenced.closest(skip))) return [];
+    const referenced = treeOf(element).getElementById(id);
+    if (!referenced || (skip && closestAcross(referenced, skip))) return [];
     const text = uncutText(renderedText(referenced, rawLimit, skip ? { skip } : {}));
     return text ? [text] : [];
   });
@@ -713,7 +718,7 @@ const politeStep = `[aria-live='polite' i]:not(${["alert", "status", "log", "mar
 function nearCodeTexts(field: HTMLElement, keep: (text: string) => string | undefined): string[] {
   if (field.getAttribute("aria-invalid")?.trim().toLowerCase() === "true") return [];
   const errors = idList(field, "aria-errormessage").flatMap((id) => {
-    const element = field.ownerDocument.getElementById(id);
+    const element = treeOf(field).getElementById(id);
     return element ? [element] : [];
   });
   return nearTexts([field], keep, errors);
@@ -742,20 +747,21 @@ function nearButtonTexts(
   const document = buttons[0]?.ownerDocument;
   if (!document) return [];
   const bound =
-    openModals(document).find((modal) => buttons.some((button) => modal.contains(button))) ??
-    [...document.querySelectorAll("main, [role~='main' i]")].find((main) => shown(main));
+    openModals(document).find((modal) => buttons.some((button) => containsAcross(modal, button))) ??
+    queryAll(document, "main, [role~='main' i]").find((main) => shown(main));
   const anchors = buttons.filter(
-    (button) => (!bound || bound.contains(button)) && !button.closest(landmarks),
+    (button) => (!bound || containsAcross(bound, button)) && !closestAcross(button, landmarks),
   );
   const steps = new Set<Element>();
+  const regionAbove = (element: Element) => {
+    const parent = composedParent(element);
+    return parent ? closestAcross(parent, liveRegions) : null;
+  };
+  const inBound = (region: Element) => bound !== undefined && containsAcross(bound, region);
   for (const anchor of anchors)
-    for (
-      let region = anchor.parentElement?.closest(liveRegions);
-      region && bound?.contains(region);
-      region = region.parentElement?.closest(liveRegions)
-    )
+    for (let region = regionAbove(anchor); region && inBound(region); region = regionAbove(region))
       if (region.matches(politeStep) && !region.matches(notNearElements)) steps.add(region);
-  return nearTexts(anchors, keep, [...document.querySelectorAll(landmarks)], bound, steps);
+  return nearTexts(anchors, keep, queryAll(document, landmarks), bound, steps);
 }
 
 /**
@@ -772,8 +778,11 @@ function nearTexts(
   read: ReadonlySet<Element> = new Set(),
 ): string[] {
   const notNearAbove = (element: Element) => {
-    let at = element.closest(notNear);
-    while (at && read.has(at)) at = at.parentElement?.closest(notNear) ?? null;
+    let at = closestAcross(element, notNear);
+    while (at && read.has(at)) {
+      const parent = composedParent(at);
+      at = parent && closestAcross(parent, notNear);
+    }
     return at !== null;
   };
   const found: { element: Element; text: string }[] = [];
@@ -786,22 +795,23 @@ function nearTexts(
     const next: typeof reached = [];
     for (const { anchor, inner } of reached) {
       if (found.length >= maxNear || scanned > nearScanLimit) break;
-      const area = inner.parentElement;
+      const area = composedParent(inner);
       if (
         !area ||
         area === anchor.ownerDocument.body ||
         area === anchor.ownerDocument.documentElement ||
-        (within !== undefined && !within.contains(area)) ||
+        (within !== undefined && !containsAcross(within, area)) ||
         otherEntryField(area, anchor)
       )
         continue;
-      for (const element of area.querySelectorAll("*")) {
+      for (const element of queryAll(area, "*")) {
         if (found.length >= maxNear || (scanned += 1) > nearScanLimit) break;
         if (
           element.childElementCount > 0 ||
-          inner.contains(element) ||
+          (shadowRootOf(element)?.childElementCount ?? 0) > 0 ||
+          containsAcross(inner, element) ||
           notNearAbove(element) ||
-          excluded.some((error) => error.contains(element))
+          excluded.some((error) => containsAcross(error, element))
         )
           continue;
         const rendered = renderedText(element, rawLimit);
@@ -820,11 +830,7 @@ function nearTexts(
     reached = next;
   }
   return found
-    .sort((left, right) =>
-      left.element.compareDocumentPosition(right.element) & Node.DOCUMENT_POSITION_FOLLOWING
-        ? -1
-        : 1,
-    )
+    .sort((left, right) => composedOrder(left.element, right.element))
     .map(({ text }) => text);
 }
 
@@ -836,7 +842,7 @@ const keyScanLimit = 2000;
  * Answers are kept in `seen`, since leaves share their parents.
  */
 function inKey(element: Element, area: Element, seen: Map<Element, boolean>): boolean {
-  for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+  for (let parent = composedParent(element); parent; parent = composedParent(parent)) {
     const key = seen.getOrInsertComputed(parent, () => {
       const text = renderedText(parent, keyScanLimit);
       return text !== undefined && keyLike(text);
@@ -865,14 +871,14 @@ const typedFields = [
  */
 function otherEntryField(area: Element, field: HTMLElement): boolean {
   const split = field instanceof HTMLInputElement && field.maxLength === 1;
-  for (const element of area.querySelectorAll<HTMLElement>(typedFields)) {
-    if (element === field || field.contains(element) || !shown(element)) continue;
+  for (const element of queryAll<HTMLElement>(area, typedFields)) {
+    if (element === field || containsAcross(field, element) || !shown(element)) continue;
     // A disabled or read-only field, or one kept out of reach as a form's trap for bots is.
     if (
       element.matches(
         ":disabled, [readonly], [aria-readonly='true' i], [aria-disabled='true' i], [tabindex='-1']",
       ) ||
-      element.closest("[aria-hidden='true' i]")
+      closestAcross(element, "[aria-hidden='true' i]")
     )
       continue;
     if (split && element instanceof HTMLInputElement && element.maxLength === 1) continue;
@@ -956,8 +962,8 @@ function otherControl(node: Element, element: Element): boolean {
   return (
     node.matches(controls) ||
     labelsOther(node) ||
-    node.querySelector(controls) !== null ||
-    [...node.querySelectorAll("label[for]")].some(labelsOther)
+    queryAll(node, controls).length > 0 ||
+    queryAll(node, "label[for]").some(labelsOther)
   );
 }
 
@@ -969,7 +975,7 @@ function otherControl(node: Element, element: Element): boolean {
 function adjacentText(element: Element): string | undefined {
   let node: Element | null = element;
   for (let depth = 0; node && depth <= labelDepth; depth += 1) {
-    if (depth > 0 && node.querySelectorAll(fields).length > 1) return undefined;
+    if (depth > 0 && queryAll(node, fields).length > 1) return undefined;
     if (node instanceof HTMLFormElement || node === node.ownerDocument.body) return undefined;
     for (let sibling = node.previousElementSibling; sibling;) {
       if (otherControl(sibling, element)) return undefined;
@@ -977,7 +983,7 @@ function adjacentText(element: Element): string | undefined {
       if (text) return text;
       sibling = sibling.previousElementSibling;
     }
-    node = node.parentElement;
+    node = composedParent(node);
   }
   return undefined;
 }
@@ -997,7 +1003,7 @@ function fieldLabel(input: HTMLInputElement): string | undefined {
 }
 
 function actionLabel(element: HTMLElement): string | undefined {
-  const images = [...element.querySelectorAll("img[alt]")].flatMap((image) =>
+  const images = queryAll(element, "img[alt]").flatMap((image) =>
     shown(image) ? [image.getAttribute("alt")] : [],
   );
   return (
@@ -1063,7 +1069,7 @@ function describe(element: Element): Found | undefined {
     : presence(element);
   if (element instanceof HTMLInputElement && fillTypes[element.type] && present !== "absent") {
     if (present === "faint" || element.readOnly || element.disabled)
-      return { kind: "unsupported", form: element.form, field: element, element };
+      return { kind: "unsupported", form: formOf(element), field: element, element };
   } else if (present !== "visible") return undefined;
   if (element instanceof HTMLInputElement) {
     const type = element.type;
@@ -1078,7 +1084,7 @@ function describe(element: Element): Found | undefined {
       const hint = autocomplete(element);
       return {
         kind: "candidate",
-        form: element.form,
+        form: formOf(element),
         draft: {
           element,
           role: fillRole,
@@ -1094,7 +1100,7 @@ function describe(element: Element): Found | undefined {
       const label = type === "checkbox" ? fieldLabel(element) : actionLabel(element);
       return {
         kind: "candidate",
-        form: element.form,
+        form: formOf(element),
         draft: {
           element,
           role: type === "checkbox" ? "checkbox" : "button",
@@ -1103,19 +1109,19 @@ function describe(element: Element): Found | undefined {
       };
     }
     // Radio groups and other input types have no executor support yet.
-    return { kind: "unsupported", form: element.form, field: undefined, element };
+    return { kind: "unsupported", form: formOf(element), field: undefined, element };
   }
   if (element instanceof HTMLSelectElement || element instanceof HTMLTextAreaElement)
     return element.disabled
       ? undefined
-      : { kind: "unsupported", form: element.form, field: undefined, element };
+      : { kind: "unsupported", form: formOf(element), field: undefined, element };
   if (element instanceof HTMLButtonElement) {
     if (element.type === "reset") return undefined;
     const label = actionLabel(element);
     // A disabled button often enables once fields are filled, so it stays a candidate.
     return {
       kind: "candidate",
-      form: element.form,
+      form: formOf(element),
       draft: { element, role: "button", ...(label ? { label } : {}) },
     };
   }
@@ -1126,7 +1132,7 @@ function describe(element: Element): Found | undefined {
     const label = actionLabel(element);
     return {
       kind: "candidate",
-      form: element.closest("form"),
+      form: closestAcross(element, "form") as HTMLFormElement | null,
       draft: {
         element,
         role: isScriptButton(element) ? "button" : "link",
@@ -1137,9 +1143,14 @@ function describe(element: Element): Found | undefined {
   return undefined;
 }
 
-/** Every element the page shows that `describe` accepts, in document order. */
+/**
+ * Every element the page shows that `describe` accepts, in document order, shadow trees
+ * included (ADR 0070).
+ */
 const describeAll = (document: Document) =>
-  [...document.querySelectorAll(observed)].map(describe).filter((entry) => entry !== undefined);
+  queryAll(document, observed)
+    .map(describe)
+    .filter((entry) => entry !== undefined);
 
 /**
  * An icon button that never submits a form on its own, such as the eye that shows the
@@ -1152,7 +1163,7 @@ const describeAll = (document: Document) =>
  */
 const iconButton = (element: Element, nearFields: (element: Element) => boolean) =>
   isButton(element) &&
-  (element.type === "button" || (element.form === null && !nearFields(element))) &&
+  (element.type === "button" || (formOf(element) === null && !nearFields(element))) &&
   buttonText(element) === undefined;
 
 /**
@@ -1162,18 +1173,6 @@ const iconButton = (element: Element, nearFields: (element: Element) => boolean)
 const mustCheck = (element: Element) =>
   (element instanceof HTMLInputElement && element.required) ||
   element.getAttribute("aria-required")?.trim().toLowerCase() === "true";
-
-/** True when an open shadow root holds a visible match, which the executor cannot reach. */
-function inShadow(shadow: ShadowRoot, selector: string): boolean {
-  return (
-    [...shadow.querySelectorAll(selector)].some(
-      (element) => element instanceof HTMLElement && visible(element),
-    ) ||
-    [...shadow.querySelectorAll("*")].some(
-      (element) => element.shadowRoot !== null && inShadow(element.shadowRoot, selector),
-    )
-  );
-}
 
 /** True for a path with a segment that may carry a token (`tokenSegment`). */
 const tokenPath = (pathname: string) => pathname.split("/").some(tokenSegment);
@@ -1243,11 +1242,10 @@ function loginFormsOf(
  * make the observation incomplete. A field or button that cannot be located (other than
  * a script button, an icon button that never submits in a form with another button, a
  * textless button away from the fields outside every form when another button outside
- * every form is located, or a checkbox the page does not require, which is left out), a control
- * the executor cannot act on or a control in a shadow root marks the observation
+ * every form is located, or a checkbox the page does not require, which is left out) or
+ * a control the executor cannot act on marks the observation
  * incomplete when it is in a login form (`loginFormsOf`); any other form with one is
- * left out entirely. A field in any shadow root, or more than 48 candidates, marks it
- * incomplete too, and inference rejects an incomplete observation. An incomplete result
+ * left out entirely. More than 48 candidates mark it incomplete too, and inference rejects an incomplete observation. An incomplete result
  * names its first cause in `loginGaps` order as `gap`, for the log only. A page without a
  * field is refused, and so is one where nothing can be located. As on every observed
  * page, a path segment that may carry a token is sent as `REDACTED_PATH_SEGMENT`
@@ -1263,6 +1261,10 @@ export function extractLoginObservation(
   document: Document = globalThis.document,
   known: readonly LoginTarget[] = [],
 ): ObservationResult {
+  return readingPage(() => readLogin(document, known));
+}
+
+function readLogin(document: Document, known: readonly LoginTarget[]): ObservationResult {
   const location = document.location;
   if (!location) return { ok: false, reason: "unsupported-page" };
   const tokens = redactsPath(location.pathname);
@@ -1310,14 +1312,6 @@ export function extractLoginObservation(
     flawed.getOrInsertComputed(form, () => new Set<LoginGap>()).add(gap);
   const gaps = new Set<LoginGap>();
 
-  // A shadow-root field anywhere may be the real login; other shadow controls such as
-  // chat widgets matter only inside the forms that are kept.
-  for (const host of document.querySelectorAll("*")) {
-    if (host.shadowRoot === null) continue;
-    if (inShadow(host.shadowRoot, shadowFields)) gaps.add("shadow-field");
-    else if (fieldForms.has(host.closest("form")) && inShadow(host.shadowRoot, controls))
-      flaw(host.closest("form"), "shadow-control");
-  }
   const required: { form: HTMLFormElement | null; draft: Draft }[] = [];
   // Script buttons are often widgets (menus, toggles), and text locators name only the
   // `<a>` ones and, in a login form or beside a password form, the `role="button"` ones,
@@ -1350,7 +1344,7 @@ export function extractLoginObservation(
   });
   const areaOf = (element: Element) => {
     let area: Element | null = element;
-    for (let depth = 0; depth < besideDepth && area; depth++) area = area.parentElement;
+    for (let depth = 0; depth < besideDepth && area; depth++) area = composedParent(area);
     return area && area !== document.body && area !== document.documentElement ? area : undefined;
   };
   const nearFields = (element: Element) => {
@@ -1359,14 +1353,14 @@ export function extractLoginObservation(
       !area ||
       formless.some((field) => {
         const around = areaOf(field);
-        return area.contains(field) || !around || around.contains(element);
+        return containsAcross(area, field) || !around || containsAcross(around, element);
       })
     );
   };
   const areas = [...loginForms].flatMap((form) => {
     if (!passwordForms.has(form)) return [];
     let area: Element | null = form;
-    for (let depth = 0; depth < besideDepth && area; depth++) area = area.parentElement;
+    for (let depth = 0; depth < besideDepth && area; depth++) area = composedParent(area);
     // Never the whole page, as when the form sits directly in the body.
     return area && area !== document.body && area !== document.documentElement ? [area] : [];
   });
@@ -1377,8 +1371,8 @@ export function extractLoginObservation(
       entry.form === null &&
       !loginForms.has(null) &&
       entry.draft.role === "button" &&
-      !entry.draft.element.closest(landmarks) &&
-      areas.some((area) => area.contains(entry.draft.element))
+      !closestAcross(entry.draft.element, landmarks) &&
+      areas.some((area) => containsAcross(area, entry.draft.element))
     ) {
       beside.push(entry);
       continue;
@@ -1387,7 +1381,12 @@ export function extractLoginObservation(
     if (entry.kind === "unsupported") {
       // Outside every form, a control far from the sign-in fields, such as a language
       // picker in the page's footer, is not one the sign-in needs.
-      if (!entry.field && entry.form === null && formlessArea?.contains(entry.element) === false)
+      if (
+        !entry.field &&
+        entry.form === null &&
+        formlessArea !== undefined &&
+        !containsAcross(formlessArea, entry.element)
+      )
         continue;
       flaw(entry.form, entry.field ? "unfillable-field" : "unsupported-control");
     } else if (entry.draft.role === "link") {
@@ -1463,8 +1462,9 @@ function formlessFieldsArea(found: readonly Found[], document: Document): Elemen
       : [],
   );
   let area: Element | null = inputs[0] ?? null;
-  while (area && !inputs.every((input) => area!.contains(input))) area = area.parentElement;
-  for (let depth = 0; depth < formlessDepth && area; depth++) area = area.parentElement;
+  while (area && !inputs.every((input) => containsAcross(area!, input)))
+    area = composedParent(area);
+  for (let depth = 0; depth < formlessDepth && area; depth++) area = composedParent(area);
   return area && area !== document.body && area !== document.documentElement ? area : undefined;
 }
 
@@ -1496,12 +1496,7 @@ function observe(
 ): ObservationResult {
   const location = document.location!;
   const hide = (text: string) => bounded(hideText(text));
-  chosen.sort((left, right) =>
-    left.draft.element.compareDocumentPosition(right.draft.element) &
-    Node.DOCUMENT_POSITION_FOLLOWING
-      ? -1
-      : 1,
-  );
+  chosen.sort((left, right) => composedOrder(left.draft.element, right.draft.element));
 
   const groups = new Map<HTMLFormElement, string>();
   const candidates = chosen.map(
@@ -1531,7 +1526,7 @@ function observe(
   const title = pageTitle && hide(pageTitle);
   const headings = [
     ...new Set(
-      [...document.querySelectorAll("h1, h2, h3")].flatMap((heading) => {
+      queryAll(document, "h1, h2, h3").flatMap((heading) => {
         const text = visibleText(heading);
         const hidden = text && hide(text);
         return hidden ? [hidden] : [];
@@ -1619,9 +1614,13 @@ export function extractAccountListObservation(
   document: Document = globalThis.document,
   names: readonly string[] = [],
 ): ObservationResult {
+  return readingPage(() => readAccountList(document, names));
+}
+
+function readAccountList(document: Document, names: readonly string[]): ObservationResult {
   const location = document.location;
   if (!location) return { ok: false, reason: "unsupported-page" };
-  const fieldShown = [...document.querySelectorAll(fields)].some((element) => {
+  const fieldShown = queryAll(document, fields).some((element) => {
     const found = describe(element);
     return found?.kind === "candidate" && fillTypes[found.draft.role] !== undefined;
   });
@@ -1636,7 +1635,8 @@ export function extractAccountListObservation(
       .filter(
         (element) =>
           !entries.some(
-            (entry) => entry.element.contains(element) || element.contains(entry.element),
+            (entry) =>
+              containsAcross(entry.element, element) || containsAcross(element, entry.element),
           ),
       ),
   ];
@@ -1644,7 +1644,8 @@ export function extractAccountListObservation(
   // and the other texts beside buttons, which may name accounts not in the vault.
   const beside = names.length ? namedAccounts(document, names) : { named: [], others: [] };
   const named = beside.named.filter(
-    (element) => !listed.some((other) => other.contains(element) || element.contains(other)),
+    (element) =>
+      !listed.some((other) => containsAcross(other, element) || containsAcross(element, other)),
   );
   listed.push(...named);
   if (listed.length === 0) return { ok: false, reason: "no-candidates" };
@@ -1668,11 +1669,8 @@ export function extractAccountListObservation(
     entries.some((entry) => entry.element === account.element),
   ).length;
   // The first gap is reported, in this order; any gap makes the observation incomplete.
-  let gap: ObservationGap | undefined = [...document.querySelectorAll("*")].some(
-    (host) => host.shadowRoot !== null && inShadow(host.shadowRoot, shadowFields),
-  )
-    ? "shadow-field"
-    : listed.length > maxAccounts
+  let gap: ObservationGap | undefined =
+    listed.length > maxAccounts
       ? "too-many-accounts"
       : accounts.length !== listed.length
         ? "unlisted-accounts"
@@ -1682,9 +1680,9 @@ export function extractAccountListObservation(
   // survive redaction and name one control only.
   const inEntry = (element: Element) =>
     [...entries.map((entry) => entry.element), ...named].some(
-      (entry) => entry.contains(element) || element.contains(entry),
+      (entry) => containsAcross(entry, element) || containsAcross(element, entry),
     );
-  const scanned = [...document.body.querySelectorAll("*")];
+  const scanned = queryAll(document.body, "*");
   if (scanned.length > listScanLimit) gap ??= "too-many-elements";
   const listControls = scanned.slice(0, listScanLimit).filter(
     (element): element is HTMLElement =>
@@ -1696,10 +1694,10 @@ export function extractAccountListObservation(
   // A control holding another one is not innermost; marking ancestors keeps this linear.
   const outer = new Set<Element>();
   for (const element of listControls) {
-    let parent = element.parentElement;
+    let parent = composedParent(element);
     while (parent && !outer.has(parent)) {
       outer.add(parent);
-      parent = parent.parentElement;
+      parent = composedParent(parent);
     }
   }
   const innermost = listControls.filter((element) => !outer.has(element));
@@ -1802,7 +1800,7 @@ function decodeURIComponentSafe(path: string): string {
 
 /** Whether a control is enabled, also through a disabled fieldset or an ARIA mark. */
 const enabled = (element: HTMLElement) =>
-  !element.matches(":disabled") && element.closest("[aria-disabled='true' i]") === null;
+  !element.matches(":disabled") && closestAcross(element, "[aria-disabled='true' i]") === null;
 
 /**
  * The observation of a page without a login form that a site sent the visitor to before
@@ -1826,6 +1824,10 @@ export function extractEntryObservation(
   document: Document = globalThis.document,
   onSite: OnSite = () => false,
 ): ObservationResult {
+  return readingPage(() => readEntry(document, onSite));
+}
+
+function readEntry(document: Document, onSite: OnSite): ObservationResult {
   const location = document.location;
   if (!location) return { ok: false, reason: "unsupported-page" };
   const tokens = redactsPath(location.pathname);
@@ -1837,7 +1839,8 @@ export function extractEntryObservation(
     if ((role !== "button" && role !== "link") || !enabled(element)) return [];
     if (!renderedControlText(element)) return [];
     // A form with a field holds its own controls, such as a search box's button.
-    if ((entry.form ?? element.closest("form"))?.querySelector(fields)) return [];
+    const form = entry.form ?? closestAcross(element, "form");
+    if (form && queryAll(form, fields).length > 0) return [];
     if (role === "link") {
       const href = element instanceof HTMLAnchorElement ? linkUrl(element) : undefined;
       if (!href || linkRefusal(href, onSite, page) || entryElementRefusal(element)) return [];
@@ -1855,15 +1858,16 @@ export function extractEntryObservation(
 export function extractPasskeyObservation(
   document: Document = globalThis.document,
 ): ObservationResult {
+  return readingPage(() => readPasskey(document));
+}
+
+function readPasskey(document: Document): ObservationResult {
   if (!document.location) return { ok: false, reason: "unsupported-page" };
   const found = describeAll(document);
-  // Any fillable or unsupported field prevents a button-only start. Shadow fields do too.
+  // Any fillable or unsupported field, shadow trees' included, prevents a button-only start.
   if (
     found.some((entry) =>
       entry.kind === "unsupported" ? entry.field !== undefined : fillTypes[entry.draft.role],
-    ) ||
-    [...document.querySelectorAll("*")].some(
-      (host) => host.shadowRoot && inShadow(host.shadowRoot, shadowFields),
     )
   )
     return { ok: false, reason: "no-candidates" };
@@ -1901,7 +1905,11 @@ function byLandmark<Entry extends { draft: Draft }>(
   modals: readonly Element[] = [],
 ): Entry[] {
   const rank = (element: Element) =>
-    element.closest(landmarks) ? 2 : modals.some((modal) => modal.contains(element)) ? 1 : 0;
+    closestAcross(element, landmarks)
+      ? 2
+      : modals.some((modal) => containsAcross(modal, element))
+        ? 1
+        : 0;
   // A stable sort keeps document order within each rank.
   return entries
     .map((entry) => ({ entry, rank: rank(entry.draft.element) }))
@@ -1933,8 +1941,8 @@ function mayBeSignIn(input: HTMLInputElement): boolean {
  * navigation first (`byLandmark`), listed in document order.
  *
  * The judge refuses a page that still shows a sign-in field, so every field that may be
- * one must be described: a field in a shadow root, or more fields than the limit marks
- * the observation incomplete, and so does a field that may be a sign-in field
+ * one must be described: more fields than the limit mark the observation incomplete,
+ * and so does a field that may be a sign-in field
  * (`mayBeSignIn`) but cannot be located or filled. A field that may not, such as a search
  * box with no ID, a password change form's field or a hotel search's read-only date
  * picker, is left out (owner, 2026-10-12, ADR 0029). A disabled one is left out too, but
@@ -1958,7 +1966,7 @@ function mayBeSignIn(input: HTMLInputElement): boolean {
 export function extractSignedInObservation(
   document: Document = globalThis.document,
 ): ObservationResult {
-  return readBehindModal(document, () => describeSignedIn(document));
+  return readingPage(() => readBehindModal(document, () => describeSignedIn(document)));
 }
 
 function describeSignedIn(document: Document): ObservationResult {
@@ -1966,12 +1974,8 @@ function describeSignedIn(document: Document): ObservationResult {
   if (!location) return { ok: false, reason: "unsupported-page" };
 
   const found = describeAll(document);
-  // One gap is reported (a shadow-root field first); any gap makes it incomplete.
-  let gap: ObservationGap | undefined = [...document.querySelectorAll("*")].some(
-    (host) => host.shadowRoot !== null && inShadow(host.shadowRoot, shadowFields),
-  )
-    ? "shadow-field"
-    : undefined;
+  // One gap is reported; any gap makes it incomplete.
+  let gap: ObservationGap | undefined;
   let disabledLeftOut = false;
   const fieldEntries: { form: HTMLFormElement | null; draft: Draft }[] = [];
   const markers: { form: HTMLFormElement | null; draft: Draft }[] = [];

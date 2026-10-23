@@ -1,6 +1,7 @@
 import { visible } from "./code-submission";
 import { autocompleteTokens } from "./targets";
 import { collapseText, readBehindModal, renderedText } from "./text";
+import { composedParent, containsAcross, controlsOf, formOf, queryAll } from "./shadow";
 
 // The page signs of ADR 0029, read after an effect step that no check explained. Nothing
 // read here, including the username compared with the header, leaves the content script:
@@ -108,7 +109,7 @@ const unaskedInputs = new Set([
  */
 function asksForInput(form: HTMLFormElement): boolean {
   return (
-    [...form.elements].some(
+    controlsOf(form, form.ownerDocument).some(
       (control) =>
         ((control instanceof HTMLInputElement && !unaskedInputs.has(control.type)) ||
           control instanceof HTMLTextAreaElement ||
@@ -116,7 +117,7 @@ function asksForInput(form: HTMLFormElement): boolean {
         !control.disabled &&
         visible(control),
     ) ||
-    [...form.querySelectorAll<HTMLElement>("[contenteditable]")].some(
+    queryAll<HTMLElement>(form, "[contenteditable]").some(
       (element) => element.isContentEditable && visible(element),
     )
   );
@@ -159,19 +160,19 @@ function besideForm(
   const { body, documentElement } = region.ownerDocument;
   let closest = -1;
   for (const input of fields) {
-    let common: Element | null = input.form ?? input;
-    while (common && !common.contains(region)) common = common.parentElement;
+    let common: Element | null = formOf(input) ?? input;
+    while (common && !containsAcross(common, region)) common = composedParent(common);
     const miss: BesideRule | undefined =
       !common || common === body || common === documentElement
         ? "body"
         : // A sign-in dialog of its own still counts; one inside the container does not.
-          common.querySelector(chromeSelector)
+          queryAll(common, chromeSelector).length > 0
           ? "chrome"
-          : [...common.querySelectorAll("form")].some(
+          : queryAll<HTMLFormElement>(common, "form").some(
                 (form) => !forms.has(form) && asksForInput(form),
               )
             ? "other-form"
-            : common.querySelector(mainSelector)
+            : queryAll(common, mainSelector).length > 0
               ? "main"
               : undefined;
     if (miss === undefined) return undefined;
@@ -182,7 +183,12 @@ function besideForm(
 
 /** The forms of the sign-in inputs `fields`. */
 const formsOf = (fields: readonly HTMLInputElement[]) =>
-  new Set(fields.flatMap((input) => (input.form ? [input.form] : [])));
+  new Set(
+    fields.flatMap((input) => {
+      const form = formOf(input);
+      return form ? [form] : [];
+    }),
+  );
 
 /** The text of an alert or status region, without the text of its buttons. */
 const regionText = (element: Element) =>
@@ -210,18 +216,15 @@ function alertTexts(
   );
   const forms = formsOf(fields);
   const near = (element: Element) =>
-    [...forms].some((form) => form.contains(element)) || named.has(element.id);
+    [...forms].some((form) => containsAcross(form, element)) || named.has(element.id);
   const regions = beside
-    ? [...document.querySelectorAll(`${alertSelector}, ${statusSelector}`)].filter(
+    ? queryAll(document, `${alertSelector}, ${statusSelector}`).filter(
         (element) => near(element) || besideForm(element, fields, forms) === undefined,
       )
-    : [
-        ...document.querySelectorAll(alertSelector),
-        ...[...document.querySelectorAll(statusSelector)].filter(near),
-      ];
+    : [...queryAll(document, alertSelector), ...queryAll(document, statusSelector).filter(near)];
   const texts = new Set<string>();
   for (const element of regions) {
-    if (fields.some((input) => element.contains(input))) continue;
+    if (fields.some((input) => containsAcross(element, input))) continue;
     const text = regionText(element);
     if (text) texts.add(text);
   }
@@ -238,8 +241,8 @@ function alertMiss(document: Document, fields: readonly HTMLInputElement[]): Ale
   if (fields.length === 0) return "no-input";
   const forms = formsOf(fields);
   let closest = -1;
-  for (const element of document.querySelectorAll(`${alertSelector}, ${statusSelector}`)) {
-    if (fields.some((input) => element.contains(input)) || !regionText(element)) continue;
+  for (const element of queryAll(document, `${alertSelector}, ${statusSelector}`)) {
+    if (fields.some((input) => containsAcross(element, input)) || !regionText(element)) continue;
     const miss = besideForm(element, fields, forms);
     if (miss !== undefined) closest = Math.max(closest, besideRules.indexOf(miss));
   }
@@ -267,7 +270,7 @@ export function submittedPage(
  * password must never go. Inputs outside any form count as one form.
  */
 function showsPassword(document: Document): boolean {
-  const passwords = [...document.querySelectorAll("input")].filter(
+  const passwords = queryAll<HTMLInputElement>(document, "input").filter(
     (input) =>
       (input.type === "password" || autocompleteTokens(input).includes("current-password")) &&
       writableInput(input),
@@ -275,14 +278,14 @@ function showsPassword(document: Document): boolean {
   return passwords.some(
     (input) =>
       !autocompleteTokens(input).includes("new-password") &&
-      passwords.filter((other) => other.form === input.form).length < 2,
+      passwords.filter((other) => formOf(other) === formOf(input)).length < 2,
   );
 }
 
 /** S3: a shown input that the executor would type a one-time code into. */
 function showsCode(document: Document): boolean {
   // As the executor's `acceptsSecret` for a code; the attributes first, as they cost less.
-  return [...document.querySelectorAll("input")].some(
+  return queryAll<HTMLInputElement>(document, "input").some(
     (input) =>
       (autocompleteTokens(input).includes("one-time-code") ||
         ((input.inputMode === "numeric" || input.type === "tel" || input.type === "number") &&
@@ -298,7 +301,7 @@ const captchaTokens = ["g-recaptcha-response", "h-captcha-response", "cf-turnsti
 /** Whether a CAPTCHA service's token field of the page holds a token. */
 export function passedCaptcha(document: Document): boolean {
   return captchaTokens.some((name) =>
-    [...document.getElementsByName(name)].some(
+    queryAll(document, `[name="${name}"]`).some(
       (field) =>
         (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) &&
         field.value !== "",
@@ -308,7 +311,7 @@ export function passedCaptcha(document: Document): boolean {
 
 /** S4: a shown frame of a CAPTCHA service large enough to be solved. */
 export function showsCaptcha(document: Document): boolean {
-  return [...document.querySelectorAll("iframe")].some((frame) => {
+  return queryAll<HTMLIFrameElement>(document, "iframe").some((frame) => {
     const url = URL.parse(frame.src);
     if (!url) return false;
     if (
@@ -336,7 +339,7 @@ function showsUsername(document: Document, username: string): boolean {
     .toLowerCase();
   if (name.length < minUsernameLength) return false;
   const texts = readBehindModal(document, () =>
-    [...document.querySelectorAll(landmarkSelector)].map(
+    queryAll(document, landmarkSelector).map(
       (landmark) => renderedText(landmark, landmarkReadLimit, { everyElement: true }) ?? "",
     ),
   );

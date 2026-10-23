@@ -1,5 +1,5 @@
 import type { LoginObservation } from "@pateat/contracts";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { listControls, otherAccountMiss } from "../page/account-list";
 import { findTargets } from "../page/targets";
 import {
@@ -9,6 +9,25 @@ import {
   extractPasskeyObservation,
   extractSignedInObservation,
 } from "./extract";
+
+/** Closed shadow roots, which a content script reaches through `dom.openOrClosedShadowRoot`. */
+const closedRoots = vi.hoisted(() => new WeakMap<Element, ShadowRoot>());
+vi.mock("wxt/browser", () => ({
+  browser: {
+    dom: {
+      openOrClosedShadowRoot: (element: HTMLElement) =>
+        closedRoots.get(element) ?? element.shadowRoot,
+    },
+  },
+}));
+/** Gives the element `selector` names a shadow root holding `html`. */
+const shadow = (selector: string, html: string, mode: ShadowRootMode = "open") => {
+  const host = document.querySelector(selector)!;
+  const root = host.attachShadow({ mode });
+  if (mode === "closed") closedRoots.set(host, root);
+  root.innerHTML = html;
+  return root;
+};
 
 // Runs in Chromium (vitest browser mode) so layout, visibility and labels are real.
 const page = (html: string, title = "") => {
@@ -1272,11 +1291,10 @@ describe("extractLoginObservation", () => {
       <form id="f"><input id="u"><input id="p" type="password" readonly><button id="go">Log in</button></form>`,
     );
     expect(observe().complete).toBe(false);
-    // A shadow-root control leaves out a form other than the login form.
+    // A control the executor cannot act on in a component's shadow tree flaws the form that
+    // holds the component, which is left out when it is not the login form (ADR 0070).
     page(`<form id="s"><input id="q"><div id="host"></div></form>${login}`);
-    document
-      .querySelector("#host")!
-      .attachShadow({ mode: "open" }).innerHTML = `<button>Voice</button>`;
+    shadow("#host", `<select><option>All</option></select>`);
     expect(observe().complete).toBe(true);
     expect(targets()).toEqual(["u", "p", "go"]);
     // Two login forms sharing field names leave both fields without a locator.
@@ -1485,10 +1503,9 @@ describe("extractLoginObservation", () => {
   });
 
   it("names the first cause of an incomplete observation, without page text (ADR 0019)", () => {
-    const gap = (html: string, shadow?: string) => {
+    const gap = (html: string, inShadow?: string) => {
       page(html);
-      if (shadow !== undefined)
-        document.querySelector("#host")!.attachShadow({ mode: "open" }).innerHTML = shadow;
+      if (inShadow !== undefined) shadow("#host", inShadow);
       const result = extractLoginObservation();
       if (!result.ok) throw new Error(`no observation: ${result.reason}`);
       return [result.observation.complete, result.gap];
@@ -1496,11 +1513,23 @@ describe("extractLoginObservation", () => {
     const form = (extra: string, button = `<button id="go">Log in</button>`) =>
       `<form id="f"><input id="u"><input id="p" type="password">${extra}${button}</form>`;
     expect(gap(form(""))).toEqual([true, undefined]);
-    for (const [html, shadow, expected] of [
-      // A fillable field in any shadow root.
-      [`${form("")}<div id="host"></div>`, `<input type="password">`, "shadow-field"],
-      // Another control in a shadow root inside the login form.
-      [form(`<div id="host"></div>`), `<button>Voice</button>`, "shadow-control"],
+    for (const [html, inShadow, expected] of [
+      // A shadow tree's controls count as the page's own (ADR 0070): a second password
+      // field outside every form, and a select in the login form.
+      [`${form("")}<div id="host"></div>`, `<input type="password">`, "unlocated-field"],
+      [form(`<div id="host"></div>`), `<select><option>A</option></select>`, "unsupported-control"],
+      // On a page without a form, a banner's required check box joins the login's fields
+      // wherever its markup sits, as one in the document's own tree does.
+      [
+        `<input id="u"><input id="p" type="password"><button id="go">Log in</button><div id="host"></div>`,
+        `<input type="checkbox" required>`,
+        "unlocated-checkbox",
+      ],
+      [
+        `<input id="u"><input id="p" type="password"><button id="go">Log in</button><div><input type="checkbox" required></div>`,
+        undefined,
+        "unlocated-checkbox",
+      ],
       [form(`<input id="pin" type="password" readonly>`), undefined, "unfillable-field"],
       [form(`<input id="pin" type="password" disabled>`), undefined, "unfillable-field"],
       [form(`<input id="pin" style="opacity:0">`), undefined, "unfillable-field"],
@@ -1534,9 +1563,14 @@ describe("extractLoginObservation", () => {
         undefined,
         "unfillable-field",
       ],
-      [`${form("<select id='k'></select>")}<div id="host"></div>`, `<input>`, "shadow-field"],
+      // A field outside the login form leaves its causes.
+      [
+        `${form("<select id='k'></select>")}<div id="host"></div>`,
+        `<input>`,
+        "unsupported-control",
+      ],
     ] as const)
-      expect(gap(html, shadow), html).toEqual([false, expected]);
+      expect(gap(html, inShadow), html).toEqual([false, expected]);
   });
 
   it("counts a control outside every form only near the sign-in fields outside one", () => {
@@ -1707,26 +1741,90 @@ describe("extractLoginObservation", () => {
     });
   });
 
-  it("marks a field in any shadow root incomplete", () => {
+  it("describes the fields of open and closed shadow roots as the page's own (ADR 0070)", () => {
+    // As Reddit's sign-in (2026-10-23): each input in its own component's shadow root,
+    // outside any form, every root reusing one inner ID and labelling by it.
+    const field = (name: string, type: string, tokens: string, label: string) =>
+      `<span id="label">${label}</span>
+      <input id="input" name="${name}" type="${type}" autocomplete="${tokens}" aria-labelledby="label">`;
     page(
-      `<form id="s"><input name="q" aria-label="検索"><button id="sb">検索</button></form>
-      <form id="login"><div id="host"></div></form>`,
+      `<h1>Log In</h1><text-field id="user"></text-field><text-field id="pass"></text-field>
+      <button id="login">Log In</button>`,
     );
-    document
-      .querySelector("#host")!
-      .attachShadow({ mode: "open" }).innerHTML = `<input id="u"><input id="p" type="password">`;
-    expect(observe().complete).toBe(false);
-    // A shadow host outside every form counts too.
-    page(`<input id="user"><div id="host"></div>`);
-    document
-      .querySelector("#host")!
-      .attachShadow({ mode: "open" }).innerHTML = `<input id="pw" type="password">`;
-    expect(observe().complete).toBe(false);
+    shadow("#user", field("username", "text", "username webauthn", "Email or username"));
+    const closed = shadow(
+      "#pass",
+      field("password", "password", "current-password", "Password"),
+      "closed",
+    );
+    const observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(summary(observation)).toEqual([
+      {
+        role: "text",
+        target: { by: "name", value: "username" },
+        label: "Email or username",
+        autocomplete: "username",
+      },
+      {
+        role: "password",
+        target: { by: "name", value: "password" },
+        label: "Password",
+        autocomplete: "current-password",
+      },
+      { role: "button", target: { by: "id", value: "login" }, label: "Log In" },
+    ]);
+    // The executor's lookup finds what the description names, and counts every root's ID.
+    expect(findTargets(document, { by: "name", value: "password" })).toEqual([
+      closed.querySelector("input"),
+    ]);
+    expect(findTargets(document, { by: "id", value: "input" })).toHaveLength(2);
+
+    // A component's fields belong to the form that holds it, in the page's order: its
+    // shadow tree right where the component sits.
+    page(`<form id="f"><x-login id="host"></x-login><button id="go">Sign in</button></form>`);
+    shadow(
+      "#host",
+      `<label>User ID <input id="uid"></label><label>Password <input id="pw" type="password"></label>`,
+    );
+    expect(summary(observe())).toEqual([
+      { role: "text", target: { by: "id", value: "uid" }, label: "User ID", group: "f1" },
+      { role: "password", target: { by: "id", value: "pw" }, label: "Password", group: "f1" },
+      { role: "button", target: { by: "id", value: "go" }, label: "Sign in", group: "f1" },
+    ]);
+
+    // A button's text rendered by a component inside it names the button.
+    page(
+      `<input id="u"><input id="p" type="password"><button><x-label id="next"></x-label></button>`,
+    );
+    shadow("#next", `<span>Next</span>`);
+    expect(summary(observe()).map(({ target }) => target)).toEqual([
+      { by: "id", value: "u" },
+      { by: "id", value: "p" },
+      { by: "text", value: "Next" },
+    ]);
+
+    // A consent banner's check box in a shadow root outside every form changes nothing.
     page(`<form id="f"><input id="u"><button id="go">Go</button></form><div id="host"></div>`);
-    document.querySelector("#host")!.attachShadow({
-      mode: "open",
-    }).innerHTML = `<label>Analytics <input type="checkbox"></label>`;
+    shadow("#host", `<label>Analytics <input type="checkbox"></label>`);
     expect(observe().complete).toBe(true);
+    // Without a form, the sign-in fields' area reaches up through their components' hosts:
+    // a language picker far from it is not the sign-in's, one beside the fields is.
+    const nested = (depth: number, html: string) =>
+      "<div>".repeat(depth) + html + "</div>".repeat(depth);
+    for (const [beside, complete] of [
+      ["", true],
+      [`<select id="near"><option>EN</option></select>`, false],
+    ] as const) {
+      page(
+        nested(
+          5,
+          `<section><x-field id="host"></x-field><button id="go">Log In</button>${beside}</section>`,
+        ) + nested(6, `<select id="lang"><option>EN</option></select>`),
+      );
+      shadow("#host", `<input name="username"><input name="password" type="password">`);
+      expect(observe().complete, beside).toBe(complete);
+    }
   });
 
   it("sends each path segment that may carry a session ID or token as [id] on every page (ADR 0039)", () => {
@@ -3290,9 +3388,14 @@ describe("extractSignedInObservation", () => {
       `<button id="logout">Sign out</button>${Array.from({ length: 49 }, (_, index) => `<input id="f${index}">`).join("")}`,
     );
     expect(gap()).toEqual([false, "too-many-fields"]);
+    // A shadow root's fields are the page's own (ADR 0070): a search box is left out, a
+    // password field without a locator is not.
     page(`<button id="logout">Sign out</button><div id="host"></div>`);
-    document.getElementById("host")!.attachShadow({ mode: "open" }).innerHTML = "<input>";
-    expect(gap()).toEqual([false, "shadow-field"]);
+    shadow("#host", "<input>");
+    expect(gap()).toEqual([true, undefined]);
+    page(`<button id="logout">Sign out</button><div id="host"></div>`);
+    shadow("#host", `<input type="password">`, "closed");
+    expect(gap()).toEqual([false, "unlocated-field"]);
     page(`<button id="logout">Sign out</button><input id="q">`);
     expect(gap()).toEqual([true, undefined]);
   });
@@ -3782,36 +3885,31 @@ describe("extractAccountListObservation", () => {
   });
 
   it("names the first cause of an incomplete list, without page text (ADR 0019)", () => {
-    const gap = (html: string, shadow?: string) => {
+    const gap = (html: string) => {
       page(html);
-      if (shadow !== undefined)
-        document.querySelector("#host")!.attachShadow({ mode: "open" }).innerHTML = shadow;
       const result = extractAccountListObservation();
       if (!result.ok) throw new Error(`no observation: ${result.reason}`);
       return [result.observation.complete, result.gap];
     };
     const continueButton = `<button>Continue</button>`;
     expect(gap(`<button>a@example.com</button>${continueButton}`)).toEqual([true, undefined]);
-    for (const [html, shadow, expected] of [
-      [
-        `<button>a@example.com</button>${continueButton}<div id="host"></div>`,
-        `<input type="password">`,
-        "shadow-field",
-      ],
+    for (const [html, expected] of [
       [
         `${Array.from({ length: 9 }, (_, at) => `<button>a${at}@example.com</button>`).join("")}${continueButton}`,
-        undefined,
         "too-many-accounts",
       ],
       // An address that survives redaction is never sent, so its account is left out.
-      [`<button>a@example.com @home</button>${continueButton}`, undefined, "unlisted-accounts"],
+      [`<button>a@example.com @home</button>${continueButton}`, "unlisted-accounts"],
       [
         `<button>a@example.com</button>${continueButton}<div>${"<i></i>".repeat(4001)}</div>`,
-        undefined,
         "too-many-elements",
       ],
     ] as const)
-      expect(gap(html, shadow), html).toEqual([false, expected]);
+      expect(gap(html), html).toEqual([false, expected]);
+    // A field in a shadow root is the page's own (ADR 0070): a page showing one is no list.
+    page(`<button>a@example.com</button>${continueButton}<div id="host"></div>`);
+    shadow("#host", `<input type="password">`);
+    expect(extractAccountListObservation()).toEqual({ ok: false, reason: "no-candidates" });
   });
 });
 

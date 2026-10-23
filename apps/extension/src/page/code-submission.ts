@@ -2,6 +2,7 @@ import type { LoginTarget } from "@pateat/contracts";
 import { acceptsSecret } from "../login/inputs";
 import { observedPath } from "../observation/path";
 import { findTargets, visible } from "./targets";
+import { closestAcross, containsAcross, formOf, inputsOf, queryAll, treeOf } from "./shadow";
 
 export { visible };
 
@@ -18,9 +19,7 @@ export function splitCodeInputs(
   usable: (input: HTMLInputElement) => boolean,
 ): HTMLInputElement[] | undefined {
   if (first.maxLength !== 1 || length < 6 || length > 8) return undefined;
-  const inputs = first.form
-    ? [...first.form.elements].filter((element) => element instanceof HTMLInputElement)
-    : [...first.ownerDocument.querySelectorAll("input")].filter((input) => input.form === null);
+  const inputs = inputsOf(formOf(first), first.ownerDocument);
   const digits = inputs.filter(
     (input) => input.maxLength === 1 && acceptsSecret(input, "otp") && usable(input),
   );
@@ -73,7 +72,7 @@ export function watchCodeSubmission(
 ): { typed: () => void; submitted: () => boolean; stop: () => void } {
   const page = input.ownerDocument;
   const matches = (target: LoginTarget) => findTargets(page, target);
-  const form = input.form;
+  const form = formOf(input);
   let typedAt: number | undefined;
   /** When the button was first seen enabled once the code went in. */
   let enabledAt: number | undefined;
@@ -119,29 +118,40 @@ export function watchCodeSubmission(
     see(isEnabled(watched), isBusy(watched));
   };
   const observer = new MutationObserver(feed);
-  // The button may sit outside the form, joined to it by its `form` attribute or not at
-  // all; then the whole document is watched.
-  observer.observe(current && form?.contains(current) ? form : page.documentElement, {
+  const watchOptions = {
     subtree: true,
     childList: true,
     attributes: true,
     attributeOldValue: true,
     attributeFilter: ["disabled", "aria-disabled", "aria-busy"],
-  });
+  };
+  // The button may sit outside the form, joined to it by its `form` attribute or not at
+  // all; then the whole document is watched. A button in a shadow tree is watched there
+  // too, which an observer of the document does not see into (ADR 0070).
+  observer.observe(
+    current && form && containsAcross(form, current) ? form : page.documentElement,
+    watchOptions,
+  );
+  const buttonTree = current && treeOf(current);
+  if (buttonTree instanceof ShadowRoot) observer.observe(buttonTree, watchOptions);
   let checked = false;
-  const busyBefore = new Set(form ? form.querySelectorAll(busySelector) : []);
+  const busyBefore = new Set(form ? queryAll(form, busySelector) : []);
   let event = false;
   const mark = () => {
     event = true;
   };
   const onSubmit = (submitted: Event) => {
-    if (submitted.target === form || (submitted.target as Node | null)?.contains?.(input))
-      event = true;
+    const target = submitted.target;
+    if (target === form || (target instanceof Node && containsAcross(target, input))) event = true;
   };
   const navigation = (page.defaultView as { navigation?: EventTarget } | null)?.navigation;
   const controller = new AbortController();
   const { signal } = controller;
   page.addEventListener("submit", onSubmit, { capture: true, signal });
+  // A form in a shadow tree submits there only, as `submit` does not cross its boundary.
+  const inputTree = treeOf(input);
+  if (inputTree instanceof ShadowRoot)
+    inputTree.addEventListener("submit", onSubmit, { capture: true, signal });
   page.defaultView?.addEventListener("beforeunload", mark, { capture: true, signal });
   page.defaultView?.addEventListener("pagehide", mark, { capture: true, signal });
   navigation?.addEventListener("navigate", mark, { signal });
@@ -157,7 +167,7 @@ export function watchCodeSubmission(
       idleSeen = false;
       const shown = button();
       if (shown) see(isEnabled(shown), isBusy(shown));
-      if (form) for (const element of form.querySelectorAll(busySelector)) busyBefore.add(element);
+      if (form) for (const element of queryAll(form, busySelector)) busyBefore.add(element);
       typedAt = now();
     },
     submitted: () => {
@@ -169,14 +179,15 @@ export function watchCodeSubmission(
       if (event || observedPath(page.location.pathname) !== path) return true;
       const fields = matches(field);
       if (fields.length !== 1 || fields[0] !== input || !input.isConnected) return true;
-      if (input.matches(":disabled") || input.readOnly || input.closest("[inert]")) return true;
+      if (input.matches(":disabled") || input.readOnly || closestAcross(input, "[inert]"))
+        return true;
       if (input.value === "") return true;
       if (
         form &&
         (!form.isConnected ||
           form.getAttribute("aria-busy") === "true" ||
           form.getAttribute("aria-disabled") === "true" ||
-          [...form.querySelectorAll(busySelector)].some(
+          queryAll(form, busySelector).some(
             (element) =>
               !busyBefore.has(element) &&
               element instanceof HTMLElement &&
