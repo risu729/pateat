@@ -2610,8 +2610,8 @@ Remaining M4 AI work:
   name the page's `accountSwitch`, so a generated recipe carries it
   ([Background execution](architecture.md#background-execution)).
 - More Japanese pages. The owner chose on 2026-10-11 to take them from both public
-  login pages opened in Chrome on the owner's PC and the request log; six public pages
-  are in (below). Next, in a browser that can reach the sites (a cloud environment whose
+  login pages opened in Chrome on the owner's PC and the request log; 71 public pages
+  are in (below), 65 of them from 2026-10-23, plus 18 English ones. Next, in a browser that can reach the sites (a cloud environment whose
   network access allows them, or the owner's PC): refresh the six with the current
   extractor, and observe more public login pages of banks, securities firms, card
   issuers, shops and telecom carriers, retrying the twelve that gave no or an incomplete
@@ -2802,8 +2802,37 @@ has it in another role. Listed URLs are observed into a local report for labelli
 hand. Each case records the date and the commit of its observation, and refreshed page
 text is reviewed for personal data again before it is committed. A cloud session on
 2026-10-15 reached none of the pages: the cloud environment's network policy refused
-every site (`ERR_TUNNEL_CONNECTION_FAILED`), so the six pages of 2026-10-11 are still
-the corpus.
+every site (`ERR_TUNNEL_CONNECTION_FAILED`), so the six pages of 2026-10-11 were still
+the corpus then.
+
+On 2026-10-23 a cloud session reached most sites and observed about 270 public pages
+with main `381116f` in Chrome for Testing 156 (Playwright's Chromium 141 lacks
+`Map.prototype.getOrInsertComputed`, which the extractor uses). The owner asked for a
+larger corpus that day, ahead of the phase order ("フェーズは一旦無視して、ある程度決め打ち
+で進め、後から判断"), so the agent chose the pages and labels below and the owner may
+change them. 65 cases were added to the Japanese pages (71 in all) and 18 English pages
+went to a new set, `packages/inference/src/corpus/web.json` (`--corpus web`), observed
+the same way with locale `ja-JP` as in the owner's Chrome; a page goes to the set of
+its observed `language`. They include sites in the request log (EPOS Net, Wise, Slack,
+UniSuper, connpass, Moppy, Q-move, AIRDO and others), banks and securities firms (MUFG,
+au Jibun Bank, Matsui, Mitsubishi UFJ eSmart, Daiwa, GMO Click, St.George, AWS IAM),
+identifier-first pages (`advance`), 11 passkey buttons, decoy search, sign-up and
+social sign-in controls, unlabelled fields (COLOPL recruiting, Apple Account), text
+CAPTCHA fields beside the login form (BizReach, Mobile Suica: labelled as plans, the
+person types the CAPTCHA), and 12 pages that must abstain (sign-up pages, search-only
+and 404 pages, Yahoo! JAPAN's CAPTCHA page). A case may name its item's own fields
+(`slots` as a list: Daiwa's 支店コード and 6-digit 口座番号, St.George's Hidden security
+number, the AWS account ID); custom fields take `custom-1` and on in that order. On
+both sets the heuristic scores 0.70 (Japanese, 15 false submits) and 0.67 (English, 3
+false submits). Not usable from the cloud: about 40 answered 403 or a bot check
+(Rakuten Card, SMBC Card, JAL, Eki-net, Mercari, npm, Cloudflare, OpenAI and others),
+about 30 failed through the proxy, and these gave incomplete observations, an extractor
+gap: Rakuten's login (`shadow-control`), Amazon's `/ax/claim` (`unlocated-button`),
+Duolingo and Bank of America (`unlocated-button`), Stripe and 1Password
+(`unlocated-checkbox`), Hacker News (`unlocated-field`) and Airbnb (`unfillable-field`).
+IIJmio was complete but showed no login button. On Seven Bank (`URL.parse` replaced by
+the page) and American Express (`eval` disabled) the probe failed in the page's own
+world, where the extension's content script would not.
 
 The same import measured the extractor on real markup (2026-10-11, main `9cf8356`). Of
 the 241 pages with an annotated login form, 6 gave no observation and 109 an incomplete

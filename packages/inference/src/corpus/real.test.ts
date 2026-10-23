@@ -1,11 +1,27 @@
-import { loginObservationSchema, semanticSlotsSchema } from "@pateat/contracts";
+import {
+  builtInLoginSlots,
+  customFieldSlotDescriptions,
+  loginObservationSchema,
+  semanticSlotsSchema,
+  type LoginObservation,
+} from "@pateat/contracts";
 import * as v from "valibot";
 import { describe, expect, it } from "vitest";
 import { validateGeneratedPage, validatePagePlan } from "../plan";
 import { expectedFields, type EvaluationCase } from "./cases";
 import formasaurus from "./formasaurus.json";
 import japanese from "./japanese.json";
-import { japanesePageCorpus, realPageCorpus } from "./real";
+import { valueShapeOf } from "../values";
+import {
+  japanesePageCorpus,
+  livePageSlots,
+  realPageCorpus,
+  webPageCorpus,
+  type JapanesePageCase,
+  type LivePageCase,
+  type WebPageCase,
+} from "./real";
+import web from "./web.json";
 
 const expectCompleteWithValidTruth = (corpus: EvaluationCase[]) => {
   expect(new Set(corpus.map((entry) => entry.id)).size).toBe(corpus.length);
@@ -46,17 +62,53 @@ describe("real-page corpus", () => {
   });
 });
 
+const expectSourced = (
+  cases: LivePageCase<string>[],
+  dataset: string,
+  languages: LoginObservation["language"][],
+) => {
+  for (const entry of cases) {
+    expect(entry.source.dataset, entry.id).toBe(dataset);
+    expect(entry.source.observed, entry.id).toMatch(/^\d{4}-\d{2}-\d{2}$/u);
+    expect(entry.source.commit, entry.id).toMatch(/^[0-9a-f]{7,40}$/u);
+    expect(entry.source.url, entry.id).toBe(`${entry.observation.origin}${entry.observation.path}`);
+    expect(languages, entry.id).toContain(entry.observation.language);
+    if (typeof entry.slots === "string") expect(["login", "bank"], entry.id).toContain(entry.slots);
+  }
+};
+
+describe("live page slots", () => {
+  it("sends an item's own fields in order, numbering its custom fields from custom-1", () => {
+    expect(
+      livePageSlots([
+        { name: "Account ID", value: "123456789012" },
+        "username",
+        { name: "Security number", kind: "hidden" },
+        "password",
+      ]),
+    ).toEqual([
+      {
+        id: "custom-1",
+        kind: "identifier",
+        description: customFieldSlotDescriptions.identifier,
+        fieldName: "Account ID",
+        valueShape: valueShapeOf({ source: "text", value: "123456789012" }),
+      },
+      builtInLoginSlots.username,
+      {
+        id: "custom-2",
+        kind: "hidden",
+        description: customFieldSlotDescriptions.hidden,
+        fieldName: "Security number",
+      },
+      builtInLoginSlots.password,
+    ]);
+  });
+});
+
 describe("Japanese page corpus", () => {
   it("names each page by its observed origin and path, with no query, its slot set and when it was observed", () => {
-    for (const entry of japanese.cases) {
-      expect(entry.source.dataset, entry.id).toBe("japanese");
-      expect(entry.source.observed, entry.id).toMatch(/^\d{4}-\d{2}-\d{2}$/u);
-      expect(entry.source.commit, entry.id).toMatch(/^[0-9a-f]{7,40}$/u);
-      expect(["login", "bank"], entry.id).toContain(entry.slots);
-      expect(entry.source.url, entry.id).toBe(
-        `${entry.observation.origin}${entry.observation.path}`,
-      );
-    }
+    expectSourced(japanese.cases as unknown as JapanesePageCase[], "japanese", ["ja", "mixed"]);
   });
 
   it("holds complete observations with valid ground truth", () => {
@@ -70,11 +122,17 @@ describe("Japanese page corpus", () => {
     );
     expect(button).toBeDefined();
     expect(myjcb.expected).toMatchObject({ kind: "plan", passkeyButton: button!.id });
-    // No other page of the corpus names one.
-    expect(
-      japanesePageCorpus.filter(
-        (entry) => entry.expected.kind === "plan" && entry.expected.passkeyButton !== undefined,
-      ),
-    ).toEqual([myjcb]);
+  });
+});
+
+describe("English page corpus", () => {
+  it("names each page by its observed origin and path, with no query, its slot set and when it was observed", () => {
+    expectSourced(web.cases as unknown as WebPageCase[], "web", ["en"]);
+  });
+
+  it("holds complete observations with valid ground truth, apart from the Japanese pages", () => {
+    expectCompleteWithValidTruth(webPageCorpus);
+    const japaneseIds = new Set(japanesePageCorpus.map((entry) => entry.id));
+    expect(webPageCorpus.filter((entry) => japaneseIds.has(entry.id))).toEqual([]);
   });
 });

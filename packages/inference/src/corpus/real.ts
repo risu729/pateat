@@ -1,8 +1,14 @@
-import { builtInLoginSlots, type LoginObservation, type SemanticSlot } from "@pateat/contracts";
+import {
+  builtInLoginSlots,
+  customFieldSlotDescriptions,
+  type LoginObservation,
+  type SemanticSlot,
+} from "@pateat/contracts";
 import { customField, type EvaluationCase, type ExpectedResult } from "./cases";
 import formasaurus from "./formasaurus.json";
 import japanese from "./japanese.json";
 import { slots } from "./slots";
+import web from "./web.json";
 
 /**
  * One real page as a derived observation with its labeled mapping (ADR 0012). No page
@@ -16,18 +22,35 @@ export type RealPageCase = {
 };
 
 /**
- * One public Japanese login page observed with no account signed in, on the date and at
- * the commit `source` records. `slots` names the vault item the case sends: `login` for a
- * username and a password, `bank` for branch and account number custom fields and a
- * password.
+ * A vault item's field, in the order the item lists it: a built-in username or password,
+ * or a custom field by name. A Text field gives a synthetic value only for its name and
+ * value shape; a Hidden or secret one gives none.
  */
-export type JapanesePageCase = {
+export type PageSlot =
+  | "username"
+  | "password"
+  | { name: string; value: string }
+  | { name: string; kind: "secret" | "hidden" };
+
+/**
+ * One public login page observed with no account signed in, on the date and at the
+ * commit `source` records. `slots` names the vault item the case sends: `login` for a
+ * username and a password, `bank` for branch and account number custom fields and a
+ * password, or the item's own fields for a page that asks for others.
+ */
+export type LivePageCase<Dataset extends string> = {
   id: string;
-  source: { dataset: "japanese"; url: string; observed: string; commit: string };
-  slots: "login" | "bank";
+  source: { dataset: Dataset; url: string; observed: string; commit: string };
+  slots: "login" | "bank" | PageSlot[];
   observation: LoginObservation;
   expected: ExpectedResult;
 };
+
+/** A public login page shown in Japanese, or in Japanese and English. */
+export type JapanesePageCase = LivePageCase<"japanese">;
+
+/** A public login page shown in English, observed the same way. */
+export type WebPageCase = LivePageCase<"web">;
 
 /**
  * The slots the extension sends for a vault item with a username and a password, the
@@ -45,6 +68,41 @@ export const bankPageSlots: SemanticSlot[] = [
   builtInLoginSlots.password,
 ];
 
+/** The slots a live page case sends; custom fields take `custom-1` and on, in order. */
+export const livePageSlots = (slotSet: LivePageCase<string>["slots"]): SemanticSlot[] => {
+  if (slotSet === "login") return realPageSlots;
+  if (slotSet === "bank") return bankPageSlots;
+  let custom = 0;
+  return slotSet.map((entry) => {
+    if (entry === "username" || entry === "password") return builtInLoginSlots[entry];
+    custom += 1;
+    const id = `custom-${custom}`;
+    if ("value" in entry) {
+      return customField(
+        { id, kind: "identifier", description: customFieldSlotDescriptions.identifier },
+        entry.name,
+        entry.value,
+      );
+    }
+    return {
+      id,
+      kind: entry.kind,
+      description: customFieldSlotDescriptions[entry.kind],
+      fieldName: entry.name,
+    };
+  });
+};
+
+const livePageCorpus = (cases: LivePageCase<string>[]): EvaluationCase[] =>
+  cases.map((entry) => ({
+    id: entry.id,
+    locale: entry.observation.language,
+    summary: entry.source.url,
+    observation: entry.observation,
+    slots: livePageSlots(entry.slots),
+    expected: entry.expected,
+  }));
+
 /** Real pages from Formasaurus, scored with the same roles and judge as the synthetic corpus. */
 export const realPageCorpus: EvaluationCase[] = (
   formasaurus.cases as unknown as RealPageCase[]
@@ -58,13 +116,7 @@ export const realPageCorpus: EvaluationCase[] = (
 }));
 
 /** Public Japanese login pages, scored the same way. */
-export const japanesePageCorpus: EvaluationCase[] = (
-  japanese.cases as unknown as JapanesePageCase[]
-).map((entry) => ({
-  id: entry.id,
-  locale: entry.observation.language,
-  summary: entry.source.url,
-  observation: entry.observation,
-  slots: entry.slots === "bank" ? bankPageSlots : realPageSlots,
-  expected: entry.expected,
-}));
+export const japanesePageCorpus = livePageCorpus(japanese.cases as unknown as JapanesePageCase[]);
+
+/** Public English login pages, scored the same way. */
+export const webPageCorpus = livePageCorpus(web.cases as unknown as WebPageCase[]);
