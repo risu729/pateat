@@ -529,7 +529,7 @@ describe("TOTP code on a challenge page (ADR 0027)", () => {
   it("tells the model to say where the code comes from", () => {
     // A bare challenge on a code page left no handler and no reason (Resend, 2026-10-12).
     expect(completionInstructions).toMatch(
-      /A challenge that asks for a code always fills code: its field, submit and source\./u,
+      /A challenge that asks for a code always fills code: its field, source and submit, which is left out only when no button on the page submits the code/u,
     );
     // A page that says neither answers unknown, which keeps the code (owner, 2026-10-13).
     expect(completionInstructions).toMatch(
@@ -761,7 +761,9 @@ describe("code answers checked locally, probed independently (ADR 0027)", () => 
       });
 
       it("tells the model when to leave submit out", () => {
-        expect(completionInstructions).toContain("Leave submit out only when no button");
+        expect(completionInstructions).toContain(
+          "left out only when no button on the page submits",
+        );
       });
     });
 

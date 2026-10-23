@@ -483,13 +483,18 @@ export async function startLoginFixture(
         ui === "flicker" ||
         ui === "partial" ||
         ui === "mutate" ||
-        ui === "seven"
+        ui === "seven" ||
+        ui === "drop"
       )
         flags.set("ui", ui);
-      // `/totp-typed` goes on to a split code page without Verify that submits the code on
-      // its sixth digit, as Slack's two-factor page does (#916).
-      if (path === "/totp-typed")
-        for (const flag of ["split", "auto", "nobutton"]) flags.set(flag, "");
+      // `/totp-typed` goes on to a code page without Verify that submits the code on its
+      // sixth digit, in six one-digit inputs as Slack's two-factor page does (#916), or in
+      // one input with `?single`; `ui=drop` keeps the digit 3 out of the input.
+      if (path === "/totp-typed") {
+        const typed = ["auto", "nobutton"];
+        if (!fixtureUrl.searchParams.has("single")) typed.push("split");
+        for (const flag of typed) flags.set(flag, "");
+      }
       const next = flags.size === 0 ? "/totp-code" : `/totp-code?${flags.toString()}`;
       // A password page followed by an authenticator app code page (ADR 0027). The query
       // goes on to the code page: `?split` asks for it in six one-digit inputs, the first of
@@ -548,7 +553,7 @@ export async function startLoginFixture(
                     spa === "replace"
                       ? `document.getElementById('code-form').innerHTML = '<input id="code" autocomplete="one-time-code" inputmode="numeric" maxlength="6" disabled><button id="verify" type="button" disabled>Verify</button><p>Verifying…</p>';`
                       : `document.getElementById('code-status').textContent = 'Verifying…';
-                        document.getElementById('verify').disabled = true;${spa === "clear" ? " for (const digit of digits) digit.value = '';" : ""}`
+                        document.getElementById('verify')?.setAttribute('disabled', '');${spa === "clear" ? " for (const digit of digits) digit.value = '';" : ""}`
                   }
                 setTimeout(() => {
                   history.pushState({}, '', '/authenticated');
@@ -593,6 +598,7 @@ export async function startLoginFixture(
                 : ""
             }
           });
+          ${ui === "drop" ? "digits[0].addEventListener('keydown', (event) => { if (event.key === '3') event.preventDefault(); });" : ""}
           ${nobutton ? "" : "wire(document.getElementById('verify'));"}`,
         ),
       );

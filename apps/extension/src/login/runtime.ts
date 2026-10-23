@@ -6627,6 +6627,7 @@ export function createLoginRuntime(
         const after = attemptPlan(run.recipe, run.metadata)?.[operation.stepIndex + 1]?.step;
         const codeSubmit =
           codeStep(run.recipe, run.metadata, operation.stepIndex) === "fill" &&
+          codeStep(run.recipe, run.metadata, operation.stepIndex + 1) === "click" &&
           after?.kind === "click"
             ? after.target
             : undefined;
@@ -6775,19 +6776,30 @@ export function createLoginRuntime(
         }
         return;
       }
-      // The page would not accept the values; the same values would fail again.
+      // The page would not accept the values; the same values would fail again. A code
+      // typed as its own submission whose character the page kept out never went in whole.
+      const codeRefused =
+        operation.step.kind === "fill" &&
+        operation.step.effect === "submit" &&
+        codeStep(run.recipe, run.metadata, operation.stepIndex) === "fill";
       if (
         matchedResult &&
         !result.output.ok &&
         operation.step.kind === "fill" &&
         ((result.output.reason === "value-mismatch" && result.output.mutation === "none") ||
-          (result.output.reason === "fill-rejected" && operation.step.effect === "prepare"))
+          (result.output.reason === "fill-rejected" &&
+            (operation.step.effect === "prepare" || codeRefused)))
       ) {
         await change(run, {
           type: "VALUE_REJECTED",
           operationId: operation.operationId,
           document: run.live.document,
-          stage: result.output.reason === "value-mismatch" ? "before-fill" : "after-fill",
+          stage:
+            result.output.reason === "value-mismatch"
+              ? "before-fill"
+              : codeRefused
+                ? "code-refused"
+                : "after-fill",
         });
         return;
       }

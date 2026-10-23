@@ -403,14 +403,16 @@ export const loginAttemptEventSchema = v.variant("type", [
   /**
    * The page would not accept this fill's values (ADR 0010): `before-fill` when a value
    * does not fit its input and nothing was filled, `after-fill` when the page rejected
-   * a preparing fill. It ends the attempt without a retry, since the same values would
-   * be rejected again.
+   * a preparing fill, `code-refused` when the page kept a character of a TOTP code typed as
+   * its own submission out of an input it still shows (ADR 0027 amendment of 2026-10-23),
+   * so it never had the whole code. It ends the attempt without a retry, since the same
+   * values would be rejected again.
    */
   v.strictObject({
     type: v.literal("VALUE_REJECTED"),
     operationId: identifier,
     document: loginDocumentSchema,
-    stage: v.picklist(["before-fill", "after-fill"]),
+    stage: v.picklist(["before-fill", "after-fill", "code-refused"]),
   }),
   /**
    * The attempt takes over a newer revision of its recipe that only adds handlers or
@@ -736,7 +738,7 @@ function record(
       };
     }
     case "VALUE_REJECTED":
-      if (event.stage === "after-fill") return { outcome: "fill-rejected" };
+      if (event.stage !== "before-fill") return { outcome: "fill-rejected" };
       return {
         outcome: "value-mismatch",
         // As with a wrong account, the reserved fill effect never started.
@@ -982,8 +984,12 @@ function createLoginAttemptMachine() {
         operationMatches(context, event) &&
         context.operationKind === "fill" &&
         sameLoginDocument(context.document, event.document) &&
-        // Only a preparing fill is checked after filling; an effectful one has submitted.
-        (event.stage === "before-fill" || context.operationEffect === "prepare"),
+        // Only a preparing fill is checked after filling; an effectful one has submitted,
+        // unless it is a code the page kept a character of out.
+        (event.stage === "before-fill" ||
+          (event.stage === "after-fill"
+            ? context.operationEffect === "prepare"
+            : context.operationEffect === "submit")),
       retryAvailable: ({ context, event }) =>
         context.retries < context.maxRetries && !(event.type === "RETRY" && event.final),
       failedPossibleMutation: ({ context, event }) =>

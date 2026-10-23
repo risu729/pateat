@@ -1305,12 +1305,16 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             : undefined;
         if (command.code && !code && !buttonless)
           return fail("structural-mismatch", "code-watch-failed");
-        // Once the code's last character went in, the page has it: what the page does then,
-        // as disabling or clearing its inputs, answers the submission.
+        // Once the code's last character went in, the page has it: a page that then disables,
+        // clears or removes the input, or leaves the path, has taken the code. A character the
+        // page kept out of an input it still shows as it was refuses the code as before.
         let codeIn = false;
         const lastIn = () => {
           codeIn = true;
         };
+        const taken = (input: HTMLInputElement, stopped: string) =>
+          codeIn &&
+          (stopped !== "refused" || !input.isConnected || !writable(input) || input.value === "");
         try {
           for (const [index, field] of step.fields.entries()) {
             const input = inputs[index] as HTMLInputElement;
@@ -1388,7 +1392,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                 // A page that took the code with its last digit may change or clear its
                 // form at once; the code watch says so first.
                 if (stopped && code?.submitted()) return fail("submitted");
-                if (stopped && codeIn) break;
+                if (stopped && taken(digit, stopped)) break;
                 // A digit the page kept out is never followed by the rest.
                 if (stopped === "refused") return fail("fill-rejected");
                 if (stopped) return fail("cancelled", stopped);
@@ -1416,7 +1420,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
               });
               if (stopped && code?.submitted()) return fail("submitted");
               // A value the page kept a character of out is never submitted.
-              if (stopped && !codeIn) {
+              if (stopped && !taken(input, stopped)) {
                 if (stopped === "refused") return fail("fill-rejected");
                 return fail("cancelled", stopped);
               }
