@@ -15,8 +15,8 @@ extension ([Background execution](../architecture.md#background-execution)), inc
 that amendment; the service route enforces the retry window as well
 ([API README](../../services/api/README.md#recipe-generation)). Amended on 2026-10-13 by
 ADR 0021's [site count badge](0021-account-choice-outside-settings.md#site-count-badge)
-(not implemented): condition 2's vault match is no longer the only vault access a page
-without a recipe gets. Amended on 2026-10-16 by
+(implemented on 2026-10-23): condition 2's vault match is no longer the only vault
+access a page without a recipe gets. Amended on 2026-10-16 by
 [ADR 0039](0039-redacted-token-path-segments.md) (owner, 14:10 UTC, implemented): a page
 whose path may carry a token is observed and sent with `[id]` in place of each such
 segment, replacing the 2026-10-11 choice below that such a page is never observed.
@@ -119,6 +119,11 @@ new owner decision:
   this decision, after UNSW's Microsoft Entra page was logged as incomplete while its
   form still faded in), it is read a second apart, at most ten times, so a form that
   fades in after its input shows is still sent.
+  Since 2026-10-23 (added after this decision, not confirmed by the owner, after x.com's
+  sign-in was offered as a passkey or list page while it loaded and then never sent), a
+  page offered as a list of accounts or a passkey button whose description finds none
+  (`no-candidates`) is read as a sign-in page, and sent as one when it shows by then an
+  input it would have been offered for as one above.
 - The vault match is checked only once the input shows, and only matching items'
   built-in fields decide which of the `username`, `password` and `totp` slots are
   offered.

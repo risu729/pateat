@@ -5,6 +5,7 @@ import {
   createServiceTransport,
   serverTimings,
   serviceTiming,
+  type ServiceTransport,
 } from "./transport";
 
 // Synthetic responses only; no request leaves the test.
@@ -148,6 +149,12 @@ describe("pair", () => {
       503,
       { error: "access_unavailable" },
       { kind: "failed", error: "pairing-unavailable" },
+    ],
+    [
+      "unavailable Access signing keys",
+      503,
+      { error: "access_keys_unavailable" },
+      { kind: "failed", error: "access-keys-unavailable" },
     ],
     ["a rate limit", 429, { error: "rate_limited" }, { kind: "failed", error: "rate-limited" }],
     ["an unknown 403", 403, { error: "other" }, { kind: "failed", error: "unexpected-response" }],
@@ -461,6 +468,48 @@ describe("settings", () => {
   });
 });
 
+/** A Cloudflare edge rate-limit page: HTML, not the Worker's JSON. */
+function edgeRateLimitPage() {
+  return respond(429, "<!doctype html><title>Error 1015: You are being rate limited</title>", {
+    headers: { "Content-Type": "text/html; charset=UTF-8" },
+  });
+}
+
+describe("rate limits on device-credential routes", () => {
+  const document = { connections: [], excludedSites: [], siteDefaults: [], bindings: [] };
+  const write = { version: 1, expectedRevision: 3, settings: document } as const;
+  const routes: [string, (transport: ServiceTransport) => Promise<object>][] = [
+    ["recipe changes", (transport) => transport.recipeChanges(ORIGIN, CREDENTIAL, 3)],
+    ["the settings read", (transport) => transport.settings(ORIGIN, CREDENTIAL)],
+    ["the settings write", (transport) => transport.saveSettings(ORIGIN, CREDENTIAL, write)],
+    ["the device read", (transport) => transport.device(ORIGIN, CREDENTIAL)],
+    ["revocation", (transport) => transport.revoke(ORIGIN, CREDENTIAL)],
+  ];
+
+  it.each(routes)("reports the Worker's JSON 429 on %s as rate limiting", async (_, call) => {
+    const fetch = respond(
+      429,
+      { error: "rate_limited" },
+      {
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+    expect(await untimed(call(createServiceTransport({ fetch })))).toEqual({
+      kind: "failed",
+      error: "rate-limited",
+    });
+  });
+
+  // The edge answers before the Worker, so its page is HTML; it still asks Pateat to
+  // slow down, which starts the sync back-off instead of reading as a broken answer.
+  it.each(routes)("reports an edge HTML 429 on %s as rate limiting", async (_, call) => {
+    expect(await untimed(call(createServiceTransport({ fetch: edgeRateLimitPage() })))).toEqual({
+      kind: "failed",
+      error: "rate-limited",
+    });
+  });
+});
+
 describe("recipe generation", () => {
   const observation = {
     version: 1 as const,
@@ -578,6 +627,18 @@ describe("recipe generation", () => {
         ),
       ),
     ).toEqual(expected);
+  });
+
+  it("reports an edge HTML 429 as rate limiting", async () => {
+    expect(
+      await untimed(
+        createServiceTransport({ fetch: edgeRateLimitPage() }).generateRecipe(
+          ORIGIN,
+          CREDENTIAL,
+          request,
+        ),
+      ),
+    ).toEqual({ kind: "failed", error: "rate-limited" });
   });
 
   it("waits longer for the model than for other requests", async () => {
@@ -763,6 +824,7 @@ describe("revokeRecipe (ADR 0058 A)", () => {
       id: recipeId,
       revision: 4,
       origin: "https://shop.example",
+      pageKind: "sign-in",
       slots: ["password"],
       steps: [
         {

@@ -202,17 +202,52 @@ function fadingIn(element: Element): boolean {
   return transparent;
 }
 
-/** `checkVisibility`, with an element that is fading in counted as opaque. */
+/**
+ * Whether `element` is a fillable input transparent only under its own `<label>`: the
+ * label holds it and shows text at full opacity, as a floating label that reveals its
+ * input once it is focused or holds a value. Airbnb's sign-in kept its email input under
+ * a container at opacity 0 inside a `<label>` that read 電話番号またはメールアドレス
+ * (2026-10-23); the person clicks the label and types. The official Bitwarden extension
+ * reads only the input's own opacity, so it fills that input too. An input at opacity 0
+ * itself, or one whose label is transparent, tiny, before the page's start or shows no
+ * text, as a trap, is not.
+ */
+function revealedByLabel(element: Element): boolean {
+  if (!(element instanceof HTMLInputElement) || !fieldInputTypes.has(element.type)) return false;
+  const view = element.ownerDocument.defaultView;
+  if (!view || Number(view.getComputedStyle(element).opacity) === 0) return false;
+  return [...(element.labels ?? [])].some((label) => {
+    if (!label.contains(element) || !label.checkVisibility(visibility(true))) return false;
+    // A label clipped to a pixel, as a screen-reader-only one, or moved before the page's
+    // start shows nothing.
+    const rect = label.getBoundingClientRect();
+    return (
+      rect.width >= 2 &&
+      rect.height >= 2 &&
+      rect.right + view.scrollX > 0 &&
+      rect.bottom + view.scrollY > 0 &&
+      collapseText(renderedText(label, fieldNameLimit) ?? "") !== ""
+    );
+  });
+}
+
+/**
+ * `checkVisibility`, with an element that is fading in, or an input its label reveals,
+ * counted as opaque.
+ */
 function rendered(element: Element, opacity: boolean): boolean {
   return (
     element.checkVisibility(visibility(opacity)) ||
-    (opacity && element.checkVisibility(visibility(false)) && fadingIn(element))
+    (opacity &&
+      element.checkVisibility(visibility(false)) &&
+      (fadingIn(element) || revealedByLabel(element)))
   );
 }
 
 /**
  * Rendered: not hidden by CSS, a closed `<details>` or an attribute (opacity optional; an
- * element still fading in from opacity 0 counts as opaque, {@link fadingIn}).
+ * element still fading in from opacity 0 counts as opaque, {@link fadingIn}, and so does
+ * an input transparent only under its own label, {@link revealedByLabel}).
  * An element with `display: contents` has no box of its own, so `checkVisibility` is
  * false for it although its children render in its place; it counts as shown when its
  * parent is, the parent renders its content (not a closed `<details>` or
@@ -416,11 +451,27 @@ const roleButton = (element: Element) =>
   element.getAttribute("role")?.trim().toLowerCase() === "button";
 
 /**
+ * Whether an `<a>` without `href`, which never navigates, sets the pointer the page
+ * gives clickable things itself, not inheriting it from a clickable card around it:
+ * IIJmio's login control is `<a class="pink_btn">ログイン</a>`, whose click a script
+ * listener handles with no `onclick` attribute or role (2026-10-23). The cursor is read
+ * as computed when asked, so one the page sets only on hover or after the fields are
+ * filled does not count.
+ */
+function pointer(link: HTMLAnchorElement): boolean {
+  const view = link.ownerDocument.defaultView;
+  const points = (element: Element) =>
+    /(?:^|, )pointer$/u.test(view!.getComputedStyle(element).cursor);
+  return view !== null && points(link) && !(link.parentElement && points(link.parentElement));
+}
+
+/**
  * A control that only scripts make clickable: a script link (an `<a>` without `href`
- * that has an `onclick` attribute or `role="button"`, or an `<a href>` that runs a
- * script, see {@link scriptHref}), or another element with `role="button"`. Form
- * controls, links that navigate and anything inside an `<a href>` (a click there would
- * follow the link, or reach the outer link's script) are not script buttons.
+ * that has an `onclick` attribute or `role="button"` or sets a pointer cursor, see
+ * {@link pointer}, or an `<a href>` that runs a script, see {@link scriptHref}), or
+ * another element with `role="button"`. Form controls, links that navigate and anything
+ * inside an `<a href>` (a click there would follow the link, or reach the outer link's
+ * script) are not script buttons.
  */
 export function isScriptButton(element: Element): boolean {
   if (
@@ -434,7 +485,7 @@ export function isScriptButton(element: Element): boolean {
   if (element instanceof HTMLAnchorElement)
     return element.hasAttribute("href")
       ? scriptHref(element)
-      : element.hasAttribute("onclick") || roleButton(element);
+      : element.hasAttribute("onclick") || roleButton(element) || pointer(element);
   return element.closest("a[href]") === null && roleButton(element);
 }
 

@@ -127,7 +127,27 @@ async function mount(
   return host;
 }
 
-afterEach(() => cleanup());
+/** The popup asks the worker for the tab's choice and page status again each second. */
+const POLL_MS = 1000;
+
+/** Runs that poll on a fake clock, so a test advances it instead of waiting it out. */
+function fakePolls() {
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+}
+
+/**
+ * Runs the listing deadline on a fake clock that also follows real time, since the
+ * query cache delivers its results on zero-delay timeouts.
+ */
+function fakeDeadline() {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"], shouldAdvanceTime: true });
+}
+
+afterEach(async () => {
+  // Real timers first, so a failing cleanup cannot leave fake ones to later tests.
+  vi.useRealTimers();
+  await cleanup();
+});
 
 test("only HTTP(S) pages with a valid hostname are a site the popup edits", () => {
   expect(popupOrigin("https://bank.example/login?next=1")).toBe("https://bank.example");
@@ -373,6 +393,110 @@ test("a switch change that is not saved returns to the saved state", async () =>
   await expect.element(toggle).toBeChecked();
 });
 
+/** Focuses a button and presses Enter, as a keyboard or screen reader user does. */
+async function pressWithKeyboard(name: string) {
+  const button = page.getByRole("button", { name });
+  (button.element() as HTMLElement).focus();
+  await userEvent.keyboard("{Enter}");
+  return button;
+}
+
+/** Holds the next save until the returned function is called. */
+function holdNextSave(client: ReturnType<typeof store>["client"]) {
+  const save = client.saveSettings.getMockImplementation()!;
+  let release = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  client.saveSettings.mockImplementationOnce(async (request) => {
+    await held;
+    return save(request);
+  });
+  return () => release();
+}
+
+const resultMessage = () => document.querySelector("#popup-message");
+
+test("saving or removing the default with the keyboard keeps focus in the popup", async () => {
+  const { client } = store();
+  await mount(client, "https://bank.example/login");
+  await userEvent.click(page.getByText("Demo work vault"));
+  const release = holdNextSave(client);
+  const useDefault = await pressWithKeyboard("Use as default");
+  await expect.element(page.getByText("Saving…")).toBeVisible();
+  // The button is only marked disabled while the save runs, so it keeps focus.
+  expect(document.activeElement).toBe(useDefault.element());
+  await expect.element(useDefault).toHaveAttribute("aria-disabled", "true");
+  release();
+  await expect
+    .element(page.getByText("Demo team account is now the default for this site"))
+    .toBeVisible();
+  // The saved default leaves the button disabled, so the result message takes focus.
+  await expect.element(useDefault).toBeDisabled();
+  await expect.poll(() => document.activeElement).toBe(resultMessage());
+
+  client.saveSettings.mockResolvedValueOnce({
+    version: 1,
+    ok: false,
+    error: { code: "storage-unavailable", message: "Unavailable." },
+  });
+  const remove = await pressWithKeyboard("Remove default");
+  await expect.element(page.getByText("The change could not be saved")).toBeVisible();
+  await expect.element(remove).toBeEnabled();
+  expect(document.activeElement).toBe(remove.element());
+  await pressWithKeyboard("Remove default");
+  await expect
+    .element(page.getByText("The default account for this site was removed"))
+    .toBeVisible();
+  // The button is gone with the default, so the result message takes focus.
+  await expect.element(remove).not.toBeInTheDocument();
+  await expect.poll(() => document.activeElement).toBe(resultMessage());
+});
+
+test("a pick that fails with the keyboard keeps focus in the popup", async () => {
+  const { client } = store();
+  const choices = noChoice();
+  const offer = {
+    ok: true as const,
+    origin: "https://bank.example",
+    documentId: "refused-document",
+    candidates: [
+      { connectionId: "demo-personal", itemId: "primary" },
+      { connectionId: "demo-work", itemId: "primary" },
+    ],
+  };
+  choices.get.mockResolvedValue(offer);
+  await mount(client, "https://bank.example/", choices);
+  const logIn = page.getByRole("button", { name: "Log in" });
+  await expect.element(logIn).toBeEnabled();
+  // A pick that leaves the choice waiting keeps focus on Log in.
+  choices.pick.mockResolvedValueOnce({ ok: false, reason: "document-gone" });
+  await pressWithKeyboard("Log in");
+  await expect
+    .element(page.getByText("The page changed, so nothing was started.", { exact: false }))
+    .toBeVisible();
+  await expect.element(logIn).toBeEnabled();
+  expect(document.activeElement).toBe(logIn.element());
+  // Another tab's login now holds the site, which disables Log in.
+  choices.pick.mockResolvedValueOnce({ ok: false, reason: "origin-busy" });
+  choices.get.mockResolvedValue({ ...offer, held: true });
+  await pressWithKeyboard("Log in");
+  await expect.element(page.getByText(/so Pateat did not log in here\./)).toBeVisible();
+  await expect.element(logIn).toBeDisabled();
+  await expect.poll(() => document.activeElement).toBe(resultMessage());
+  // Once the page no longer waits, the choice and its Log in button are gone.
+  choices.get.mockResolvedValue(offer);
+  await expect.element(logIn).toBeEnabled();
+  choices.pick.mockResolvedValueOnce({ ok: false, reason: "not-started" });
+  choices.get.mockResolvedValue({ ok: false, reason: "no-choice" });
+  await pressWithKeyboard("Log in");
+  await expect
+    .element(page.getByText("Pateat could not log in with", { exact: false }))
+    .toBeVisible();
+  await expect.element(logIn).not.toBeInTheDocument();
+  await expect.poll(() => document.activeElement).toBe(resultMessage());
+});
+
 test("a tab whose address Pateat cannot read says so", async () => {
   const { client } = store();
   await mount(client, undefined);
@@ -510,10 +634,12 @@ test("a search for the site's matches that does not finish ends with the saved d
   });
   const { client } = store(saved(1, settings));
   client.findSiteAccounts.mockImplementation(() => new Promise(() => {}));
+  fakeDeadline();
   await mount(client, "https://bank.example/", noChoice(), false, 300);
   await expect
     .element(page.getByText("Finding the vault items that match this site…", { exact: true }))
     .toBeVisible();
+  await vi.advanceTimersByTimeAsync(300);
   await expect
     .element(
       page.getByText(
@@ -540,10 +666,12 @@ test("a waiting account choice shows its candidates when the site's matches do n
       { connectionId: "demo-work", itemId: "primary" },
     ],
   });
+  fakeDeadline();
   await mount(client, "https://bank.example/login", choices, false, 300);
   await expect
     .element(page.getByText("Listing the accounts that match this page…", { exact: true }))
     .toBeVisible();
+  await vi.advanceTimersByTimeAsync(300);
   await expect.element(page.getByRole("heading", { name: "Choose an account" })).toBeVisible();
   await expect
     .element(page.getByRole("group", { name: "Account to log in with" }).getByRole("radio"))
@@ -652,10 +780,12 @@ test("an excluded site offers no account choice, even one that waited before", a
       { connectionId: "demo-work", itemId: "primary" },
     ],
   });
+  fakePolls();
   await mount(client, "https://bank.example/login", choices);
   await expect.element(page.getByText("No logins or passkey answers on this site")).toBeVisible();
-  // Give the choice time to be asked for and drawn, as it would be on a site that is on.
-  await new Promise((resolve) => setTimeout(resolve, 300));
+  // Give the choice time to be asked for and drawn, as it would be on a site that is on,
+  // past the popup's next poll too.
+  await vi.advanceTimersByTimeAsync(POLL_MS);
   expect(choices.get).not.toHaveBeenCalled();
   // The worker keeps a choice from before the exclusion; Log in would only be refused.
   await expect
@@ -702,6 +832,7 @@ test("a choice that starts waiting after the popup opened is shown while it stay
         answer = resolve;
       }),
   );
+  fakePolls();
   await mount(client, "https://bank.example/login", choices);
   await expect
     .element(page.getByText("Checking whether this page waits for an account choice…"))
@@ -721,9 +852,10 @@ test("a choice that starts waiting after the popup opened is shown while it stay
       { connectionId: "demo-work", itemId: "primary" },
     ],
   });
+  await vi.advanceTimersByTimeAsync(POLL_MS);
   await expect.element(page.getByRole("heading", { name: "Choose an account" })).toBeVisible();
   const calls = choices.get.mock.calls.length;
-  await new Promise((resolve) => setTimeout(resolve, 1500));
+  await vi.advanceTimersByTimeAsync(3 * POLL_MS);
   // Once a choice is shown it is not asked for again.
   expect(choices.get.mock.calls.length).toBe(calls);
 });
@@ -771,6 +903,7 @@ test("a site another tab's login holds says so until that tab lets it go", async
     ],
   };
   choices.get.mockResolvedValue({ ...offer, held: true });
+  fakePolls();
   await mount(client, "https://bank.example/login", choices);
   await expect
     .element(page.getByText(/^Another tab's login to this site is running or did not succeed\./))
@@ -783,6 +916,7 @@ test("a site another tab's login holds says so until that tab lets it go", async
     );
   // Closing that tab lets the site go; the open popup asks again and enables the pick.
   choices.get.mockResolvedValue(offer);
+  await vi.advanceTimersByTimeAsync(POLL_MS);
   await expect.element(page.getByRole("button", { name: "Log in" })).toBeEnabled();
   expect(page.getByText(/^Another tab's login to this site/).query()).toBeNull();
   // The hold may start again before the pick reaches the page.
@@ -1094,6 +1228,7 @@ test("the page section follows a request to the AI while the popup stays open", 
     page: { state: "generating" },
     generation: { outcome: "sent" },
   });
+  fakePolls();
   await mount(client, "https://bank.example/login", choices);
   await expect
     .poll(() => lineText("generation"))
@@ -1105,8 +1240,9 @@ test("the page section follows a request to the AI while the popup stays open", 
     page: { state: "generating" },
     generation: { outcome: "recipe" },
   });
+  await vi.advanceTimersByTimeAsync(POLL_MS);
   await expect
-    .poll(() => lineText("generation"), { timeout: 3000 })
+    .poll(() => lineText("generation"))
     .toBe("The AI made a recipe for the site's sign-in page.");
   await expect.poll(() => lineText("recipe")).toBe("This site has a recipe for this page.");
 });
@@ -1180,10 +1316,12 @@ test("the page section says a vault item without a password or passkey stopped t
 test("the page section is hidden for a page the worker does not describe", async () => {
   const { client } = store();
   const choices = noChoice();
+  fakePolls();
   await mount(client, "https://bank.example/login", choices);
   await expect.element(page.getByRole("group", { name: "Default account" })).toBeVisible();
   // The second read follows the first answer, so that answer has been rendered.
-  await expect.poll(() => choices.status.mock.calls.length, { timeout: 3000 }).toBeGreaterThan(1);
+  await vi.advanceTimersByTimeAsync(POLL_MS);
+  await expect.poll(() => choices.status.mock.calls.length).toBeGreaterThan(1);
   expect(page.getByRole("heading", { name: "This page" }).query()).toBeNull();
   expect(document.querySelector("#popup-page-status")).toBeNull();
 });
@@ -1198,10 +1336,12 @@ test("the page section is hidden for another origin than the popup's", async () 
     recipe: "page",
     login: { state: "authenticated" },
   });
+  fakePolls();
   await mount(client, "https://bank.example/login", other);
   await expect.element(page.getByRole("group", { name: "Default account" })).toBeVisible();
   // The second read follows the first answer, so that answer has been rendered.
-  await expect.poll(() => other.status.mock.calls.length, { timeout: 3000 }).toBeGreaterThan(1);
+  await vi.advanceTimersByTimeAsync(POLL_MS);
+  await expect.poll(() => other.status.mock.calls.length).toBeGreaterThan(1);
   expect(page.getByRole("heading", { name: "This page" }).query()).toBeNull();
   expect(document.querySelector("#popup-page-status")).toBeNull();
 });
@@ -1277,6 +1417,7 @@ test("the page section says why a page of a site whose recipe starts elsewhere w
 test("the page section follows a logout of the tab", async () => {
   const { client } = store();
   const choices = onPage({ recipe: "page", login: { state: "logged-out" } });
+  fakePolls();
   await mount(client, "https://bank.example/login", choices);
   await expect.poll(() => lineText("login")).toBe("Logged out of this site in this tab.");
   choices.status.mockResolvedValue({
@@ -1285,8 +1426,9 @@ test("the page section follows a logout of the tab", async () => {
     recipe: "page",
     login: { state: "logged-out", outcome: "rejected" },
   });
+  await vi.advanceTimersByTimeAsync(POLL_MS);
   await expect
-    .poll(() => lineText("login"), { timeout: 3000 })
+    .poll(() => lineText("login"))
     .toBe("The site did not accept the last login; choose an account to try again.");
 });
 
@@ -1496,10 +1638,8 @@ test("the site's links are listed with their vault labels and removed", async ()
   await expect
     .element(page.getByRole("button", { name: "Remove the link for your card's security code" }))
     .toBeVisible();
-  // The removed row's button is gone, so focus moves to the section's heading.
-  await expect
-    .poll(() => document.activeElement)
-    .toBe(page.getByRole("heading", { name: "This page" }).element());
+  // The removed row's button is gone, so the result message takes focus.
+  await expect.poll(() => document.activeElement).toBe(resultMessage());
 });
 
 test("a Remove that saves nothing says so", async () => {

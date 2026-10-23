@@ -79,6 +79,8 @@ function mockClient(initial = devices()) {
       logged = { version: 1, entries: 0, outcomes: 0, logins: 0, oldestAt: null };
       return { version: 1, deleted, outcomes, logins };
     }),
+    models: vi.fn<ManageClient["models"]>(),
+    saveModels: vi.fn<ManageClient["saveModels"]>(),
   } satisfies ManageClient;
 }
 

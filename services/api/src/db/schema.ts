@@ -184,6 +184,12 @@ export const inferenceLog = sqliteTable(
     provider: text("provider"),
     modelId: text("model_id"),
     /**
+     * The effort and speed the call asked for (the owner's model configuration); null for
+     * a request answered without a model call and on rows logged before they were recorded.
+     */
+    effort: text("effort"),
+    speed: text("speed", { enum: ["standard", "fast"] }),
+    /**
      * The role's prompt version: 12 hex digits of the SHA-256 of its instructions and
      * response format (`promptVersion`). Rows logged before it was recorded have none.
      */
@@ -233,6 +239,21 @@ export const inferenceLog = sqliteTable(
      * a page sent with a base (a later page, a chooser branch's pages included).
      */
     recipePage: text("recipe_page", { enum: inferenceLogRecipePages }),
+    /**
+     * For generation: the device's hint that the page showed the user signed in (ADR 0035),
+     * sent with a recipe's first page that lists no accounts; null for any other request.
+     */
+    signedIn: integer("signed_in", { mode: "boolean" }),
+    /**
+     * For generation: the page's kind the model's plan answered (ADR 0035), also for a plan
+     * the local checks refused; null when the answer was no plan.
+     */
+    pageKind: text("page_kind", { enum: ["sign-in", "confirm", "unclear"] }),
+    /**
+     * For generation: whether the model's plan answered that submitting the page cannot be
+     * undone (ADR 0035), kept for evaluation only and never on a recipe; null as `pageKind`.
+     */
+    irreversible: text("irreversible", { enum: ["yes", "no", "unclear"] }),
     /** The service commit that made the call (`PATEAT_BUILD_REVISION`). */
     build: text("build"),
     /**
@@ -246,8 +267,9 @@ export const inferenceLog = sqliteTable(
     /**
      * Milliseconds from the Worker receiving the request to just before the model call:
      * device authentication, the request limit, the route's own reads, the owner's lock,
-     * the gate and spend checks, the credential with its token exchange, and the spend
-     * reservation.
+     * the gate and spend checks, the model configuration and the credential with its token
+     * exchange. A later call of the same request (a fallback after a refusal, or the
+     * standard speed after fast mode failed) includes the calls before it.
      */
     preModelMs: integer("pre_model_ms"),
     /**
@@ -458,6 +480,18 @@ export const pageJudgements = sqliteTable(
     index("page_judgements_day").on(table.ownerId, table.recipeId, table.judgedAt),
   ],
 );
+
+/**
+ * The owner's model configuration (`modelConfigSchema`), edited only in the web UI: devices
+ * never read or write it. No row means the defaults (`DEFAULT_MODEL_CONFIG`).
+ */
+export const inferenceModelConfigs = sqliteTable("inference_model_configs", {
+  ownerId: text("owner_id")
+    .primaryKey()
+    .references(() => owners.id),
+  document: text("document", { mode: "json" }).notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
 
 /** One model call at a time per owner; a lock past `expiresAt` is abandoned. */
 export const inferenceLocks = sqliteTable("inference_locks", {

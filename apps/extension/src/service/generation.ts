@@ -668,7 +668,9 @@ export function createLoginGeneration(options: {
       // `totp` is offered only for a page with a code field, so the slots never tell the
       // model whether an account has TOTP (ADR 0027).
       const slots = slotsForPage(input.observation, input.slots);
-      if (!slots.length && !input.passkeyOnly) return { outcome: "skipped", reason: "no-slots" };
+      // A passkey-only page and a list of accounts (ADR 0028) are sent without slots.
+      if (!slots.length && !input.passkeyOnly && input.observation.accounts === undefined)
+        return { outcome: "skipped", reason: "no-slots" };
       const request = { ...input, slots };
       const { base, branch } = request;
       const claim = await claimed(request.observation, base, branch, sent, (connection) =>

@@ -159,10 +159,35 @@ export const recipeGenerationRequestSchema = v.pipe(
     passkeyOnly: v.optional(v.literal(true)),
     base: v.optional(v.strictObject({ recipeId: syncRecipeIdSchema, revision: writtenRevision })),
     branch: v.optional(chooserBranchSchema),
+    /**
+     * A hint for the page's kind (ADR 0035): whether a signed-in marker of the origin's
+     * recipes or the username of a matching vault item shows in the page's header or
+     * navigation (ADR 0029's E1 and E2). Only the flag leaves the device, never the page
+     * text or username. Sent with a recipe's first page that is no list of accounts, the
+     * only pages whose kind the model answers for the recipe: a continuation keeps its
+     * first page's kind, and a list of accounts is always `sign-in`.
+     */
+    signedIn: v.optional(v.boolean()),
   }),
   v.check(
-    (request) => request.passkeyOnly === true || request.slots.length > 0,
+    (request) =>
+      (request.signedIn !== undefined) ===
+      (request.base === undefined && request.observation.accounts === undefined),
+    "A recipe's first page that lists no accounts, and only it, carries signedIn",
+  ),
+  // A list of accounts (ADR 0028) is sent without slots or value shapes, since nothing of
+  // the vault helps answer it (owner 2026-10-23 11:48 UTC); a passkey-only page fills
+  // nothing (ADR 0053). Every other page offers at least one slot.
+  v.check(
+    (request) =>
+      request.observation.accounts !== undefined ||
+      request.passkeyOnly === true ||
+      request.slots.length > 0,
     "A request has at least one slot",
+  ),
+  v.check(
+    (request) => request.observation.accounts === undefined || request.slots.length === 0,
+    "A list of accounts has no slots",
   ),
   v.check(
     (request) =>
@@ -188,9 +213,10 @@ export const isEntryObservation = (observation: LoginObservation) =>
 
 /**
  * `POST /v1/recipes/generate` without `slots`: an entry request (ADR 0031), a page without
- * a login form whose answer names the link that opens the site's login page. Nothing of
- * the vault is offered, so the page shows no field to fill, and it never continues a
- * recipe (`base`, `branch`). Every other request offers slots.
+ * a login form whose answer names the link that opens the site's login page. No slot is
+ * offered, so the page shows no field to fill, and it never continues a recipe (`base`,
+ * `branch`). Every other request has `slots`, empty only for a passkey-only page or a list
+ * of accounts.
  */
 export const entryGenerationRequestSchema = v.pipe(
   v.strictObject({ version: v.literal(1), observation: loginObservationSchema }),
@@ -203,7 +229,8 @@ export const entryGenerationRequestSchema = v.pipe(
 /**
  * Every body `POST /v1/recipes/generate` takes: a page with slots, or an entry request.
  * Strict objects keep them apart: omitted slots name an entry request; an empty slots
- * array requires passkeyOnly and never continues a recipe (ADR 0053).
+ * array is a list of accounts (ADR 0028), or carries passkeyOnly and never continues a
+ * recipe (ADR 0053).
  */
 export const generationRequestSchema = v.union([
   recipeGenerationRequestSchema,

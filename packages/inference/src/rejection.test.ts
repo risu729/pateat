@@ -69,7 +69,11 @@ const generate = (text: string) =>
     maxOutputTokens: 512,
   })({ observation, slots });
 const answer = (result: Record<string, unknown>) =>
-  generate(JSON.stringify({ result: { decision: "plan", ...result } }));
+  generate(
+    JSON.stringify({
+      result: { decision: "plan", pageKind: "sign-in", irreversible: "no", ...result },
+    }),
+  );
 const field = (slot: string, candidate: string) => ({ slot, candidate });
 const signIn = { candidate: "c4", purpose: "submit" };
 
@@ -114,6 +118,9 @@ describe("refused generated output", () => {
     if (outcome.status !== "failed") throw new Error("expected a failure");
     expect(outcome.output).toEqual({
       result: {
+        // The page's kind and the evaluation answer hold no page text (ADR 0035).
+        pageKind: "sign-in",
+        irreversible: "no",
         fields: [field("username", "c1"), field("custom-1", "c3")],
         action: { candidate: "?", purpose: "submit" },
         accountSwitch: "c5",
@@ -131,6 +138,8 @@ describe("refused generated output", () => {
       JSON.stringify({
         result: {
           decision: "plan",
+          pageKind: "sign-in",
+          irreversible: "no",
           fields: [field("username", "c1")],
           action: signIn,
           alternatives: Array.from({ length: 4 }, () => ({
@@ -147,6 +156,8 @@ describe("refused generated output", () => {
       JSON.stringify({
         result: {
           decision: "plan",
+          pageKind: "sign-in",
+          irreversible: "no",
           fields: [{ ...field("custom-1", "c2"), name: "取引暗証番号" }],
           action: signIn,
         },
@@ -158,6 +169,8 @@ describe("refused generated output", () => {
       JSON.stringify({
         result: {
           decision: "plan",
+          pageKind: "sign-in",
+          irreversible: "no",
           fields: [{ ...field("username", "c1"), ユーザーネーム: "c1" }],
           action: signIn,
         },
@@ -169,6 +182,8 @@ describe("refused generated output", () => {
       JSON.stringify({
         result: {
           decision: "plan",
+          pageKind: "sign-in",
+          irreversible: "no",
           fields: [{ ...field("username", "c1"), purpose: "submit" }],
           action: signIn,
         },
@@ -180,6 +195,8 @@ describe("refused generated output", () => {
       JSON.stringify({
         result: {
           decision: "plan",
+          pageKind: "sign-in",
+          irreversible: "no",
           fields: [field("username", "c1")],
           action: signIn,
           alternatives: [{ fields: [field("username", "ユーザー".repeat(20))], action: signIn }],
@@ -192,6 +209,8 @@ describe("refused generated output", () => {
       JSON.stringify({
         result: {
           decision: "plan",
+          pageKind: "sign-in",
+          irreversible: "no",
           fields: [field("username", "c1")],
           action: { candidate: "c4", purpose: "ログイン" },
         },
@@ -203,6 +222,8 @@ describe("refused generated output", () => {
       JSON.stringify({
         result: {
           decision: "plan",
+          pageKind: "sign-in",
+          irreversible: "no",
           fields: [field("username", "c1")],
           action: signIn,
           accountSwitch: "別のアカウント".repeat(10),
