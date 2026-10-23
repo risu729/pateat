@@ -864,10 +864,11 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
           return forgotten.ok ? { ok: true, kind: "forgotten", connectionId } : forgotten;
         },
         /** Local deletion only. No verified server-wide revocation endpoint is called, and
-         * service-held settings are not modified; this device's settings for the connection
-         * go with it. Like forget, it refuses while a password setup flow for this
-         * connection is active. The settings and then the registry entry go last, so a
-         * failed step leaves the connection listed for another attempt. */
+         * service-held settings are not modified. Like forget, it refuses while a password
+         * setup flow for this connection is active. The registry entry goes last, so a
+         * failed step leaves the connection listed for another attempt; this device's
+         * settings for it follow on a best-effort basis, since unreadable settings must not
+         * block deletion and a leftover entry names an ID that is never reused. */
         async remove(connectionId: string): Promise<SetupReply> {
           const setupActive = () => {
             const current = active.get(connectionId);
@@ -897,11 +898,11 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
             const removed = await deps.vaultFor(configuration.profile).manager.remove();
             if (!removed.ok) return removed;
             try {
-              await deps.policy.remove(connectionId);
               await deps.registry.remove(connectionId);
             } catch {
               return error("storage-failed");
             }
+            await deps.policy.remove(connectionId).catch(() => undefined);
             return { ok: true, kind: "deleted", connectionId };
           } finally {
             // A begin or sync that read the registry while this ran saw the stale entry;

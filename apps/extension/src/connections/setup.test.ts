@@ -1563,11 +1563,11 @@ describe("durable provider sessions", () => {
     expect(h.manager.remove).toHaveBeenCalledTimes(1);
     expect(h.durable()).toBeNull();
     expect(h.registry.remove).toHaveBeenCalledWith(accountProfile.connectionId);
-    // This device's settings for it go before the registry entry, after the vault record.
+    // This device's settings for it go after the vault record and the registry entry.
     expect(h.policy.remove).toHaveBeenCalledWith(accountProfile.connectionId);
     expect(h.events.slice(-2)).toEqual(["remove", "policy-remove"]);
-    expect(h.policy.remove.mock.invocationCallOrder[0]).toBeLessThan(
-      h.registry.remove.mock.invocationCallOrder[0]!,
+    expect(h.registry.remove.mock.invocationCallOrder[0]).toBeLessThan(
+      h.policy.remove.mock.invocationCallOrder[0]!,
     );
     expect(h.configurations.size).toBe(0);
     expect(h.manager.disableAutoUnlock).not.toHaveBeenCalled();
@@ -1580,6 +1580,19 @@ describe("durable provider sessions", () => {
       ok: false,
       error: { code: "invalid-request" },
     });
+  });
+  it("unreadable settings do not block delete", async () => {
+    const h = harness({ existing: true });
+    await connected(h);
+    h.policy.remove.mockRejectedValueOnce(new Error("storage-corrupt"));
+    expect(await h.caller.remove(accountProfile.connectionId)).toEqual({
+      ok: true,
+      kind: "deleted",
+      connectionId: accountProfile.connectionId,
+    });
+    expect(h.policy.remove).toHaveBeenCalledTimes(1);
+    expect(h.durable()).toBeNull();
+    expect(h.configurations.size).toBe(0);
   });
   it("delete removes a leftover connection whose first sign-in never completed", async () => {
     const h = harness();

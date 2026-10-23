@@ -618,9 +618,11 @@ Forget sync sign-in and Delete connection are in the row's menu.
 
 Delete connection, confirmed in the row, removes one connection from this
 device: its sync sign-in, its local vault record with the retained unlock key (after
-locking any open vault session), then this device's settings for it (its **Use this
-vault** entry, item selection, exclusions and field-policy entry), and finally its saved
-configuration. Like forget, it is local only: no provider revocation is called, so other
+locking any open vault session), its saved configuration, and finally this device's
+settings for it (its **Use this vault** entry, item selection, exclusions and
+field-policy entry). Those settings are removed on a best-effort basis: unreadable
+settings do not block deletion, and a leftover entry names a connection ID that is never
+reused. Like forget, it is local only: no provider revocation is called, so other
 sessions stay signed in. It cancels a running Sync and is refused while a password
 sign-in for that connection is in progress. A failed step leaves the connection listed
 so deletion can be retried. Synced saved accounts, account bindings and recipes are not

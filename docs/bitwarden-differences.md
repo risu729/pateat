@@ -167,13 +167,16 @@ Pateat's rule is in [Background execution](architecture.md#background-execution)
   to log out?"
   ([account-switcher.component.ts](https://github.com/bitwarden/clients/blob/8246ae9c9a484a0a69f8b27203034555fb872523/apps/browser/src/auth/popup/account-switching/account-switcher.component.ts#L141-L155)),
   and Pateat's **Delete connection** opens its own confirmation
-  ([Development](development.md)). Both then clear that account's local vault, keys,
-  tokens and per-account state, keeping settings that are not per account
+  ([Development](development.md#manual-bitwarden-setup-preview)). Bitwarden then clears
+  that account's local vault, keys, tokens and per-user state, keeping settings that are
+  not per user
   ([main.background.ts](https://github.com/bitwarden/clients/blob/8246ae9c9a484a0a69f8b27203034555fb872523/apps/browser/src/background/main.background.ts#L2067-L2087)).
-  Pateat keeps the synced saved accounts and account bindings, which live on the sync
-  service for every device and name the provider account rather than the connection
-  (owner's request 2026-10-23 at 11:22 UTC that deletion remove the connection's
-  settings, read as this device's settings).
+  Pateat clears the connection's local vault, unlock key, sync sign-in and this device's
+  settings for it, and keeps the synced saved accounts and account bindings, which live
+  on the sync service for every device and name the provider account rather than the
+  connection (owner's request 2026-10-23 at 11:22 UTC that deletion remove the
+  connection's settings; keeping the synced ones is the agent's reading, stated to the
+  owner in the request's thread).
 - Pateat also offers **Forget sync sign-in**, which removes only the sync sign-in and
   keeps the offline vault and its unlock key. The official logout has no such variant.
   The owner allowed keeping it as the secondary path (2026-10-23 at 11:22 UTC).
