@@ -43,9 +43,9 @@ Vaultwarden release (`tests/vaultwarden/compose.yaml`) through the settings page
 (password, wrong password, authenticator and email codes through Mailpit, an imported
 passkey item) over `http://localhost`.
 
-The owner chose to merge six pull requests built ahead of their phases now instead of
-at their phase (2026-10-19 13:36 UTC, 「今入れる」, over keeping them until their
-phase or settling only their designs now): from phase 3,
+The owner chose to merge six pull requests built ahead of their phases now instead of at
+their phase (2026-10-19 13:36 UTC, 「今入れる」, over keeping them until their phase or
+settling only their designs now): from phase 3,
 [#613](https://github.com/risu729/pateat/pull/613) (running without the service) and
 [#617](https://github.com/risu729/pateat/pull/617) (repairing a generated recipe); from
 phase 4, [#614](https://github.com/risu729/pateat/pull/614) (allowed sites and a vault
@@ -59,7 +59,23 @@ changes and security changes they bring still need the owner's approval one by o
 [#803](https://github.com/risu729/pateat/pull/803), and
 [#663](https://github.com/risu729/pateat/pull/663) as
 [ADR 0053](adr/0053-passkey-only-generation.md) through
-[#805](https://github.com/risu729/pateat/pull/805); the other four are still open.
+[#805](https://github.com/risu729/pateat/pull/805). As of 2026-10-23 (main
+[68d6faa](https://github.com/risu729/pateat/commit/68d6faa)),
+[#617](https://github.com/risu729/pateat/pull/617) landed as
+[ADR 0041](adr/0041-repair-stale-recipes.md) with [ADR 0060](adr/0060-recipe-layouts.md)
+through
+[#909](https://github.com/risu729/pateat/pull/909),
+[#968](https://github.com/risu729/pateat/pull/968) and
+[#911](https://github.com/risu729/pateat/pull/911);
+[#664](https://github.com/risu729/pateat/pull/664) landed as
+[ADR 0076](adr/0076-settings-profiles-delivered.md) through
+[#986](https://github.com/risu729/pateat/pull/986);
+the lock, log out and vault timeout part of
+[#614](https://github.com/risu729/pateat/pull/614) landed as
+[ADR 0075](adr/0075-vault-lock-and-timeout.md) through
+[#993](https://github.com/risu729/pateat/pull/993), and its allowed-sites half is still
+to come; [#613](https://github.com/risu729/pateat/pull/613) is being rebuilt as
+[#997](https://github.com/risu729/pateat/pull/997).
 
 Accessibility work has lower priority from 2026-10-23 (owner, 12:57 UTC,
 「一旦アクセシビリティの優先度は下げる」): accessibility work not yet started waits
@@ -923,11 +939,12 @@ than in this repository.
   handler that the judge learns, delivery 2, judging a page that asks for a detail
   beside the sign-in form (`beside`), delivery 3, links to the items that hold the
   values, proposed in the popup, delivery 4, secret-question answers and member IDs,
-  delivery 5, whole card numbers, expiry dates and PINs, and delivery 7, the card guess
-  from the last digits and brand a page shows, are implemented. エポスNet asks for the
-  card's security code after the password (owner, 2026-10-12 04:18 UTC: it can wait),
-  and other sites ask for a birth date or similar details as extra verification. The
-  owner sees these as one need (2026-10-12 05:29 UTC): the value is in a card or
+  delivery 5, whole card numbers, expiry dates and PINs, delivery 6, the judge's
+  account slots and secret-question pairing, and delivery 7, the card guess from the
+  last digits and brand a page shows, are implemented. エポスNet asks for the card's
+  security code after the password (owner, 2026-10-12 04:18 UTC: it can wait), and
+  other sites ask for a birth date or similar details as extra verification. The owner
+  sees these as one need (2026-10-12 05:29 UTC): the value is in a card or
   identity item, not in the login item, so the login has to be linked to that item. The
   owner chose how to link them (05:27 UTC): Pateat guesses the item from the site being
   logged into and what its pages show (such as a card name, brand or masked last
@@ -993,7 +1010,10 @@ Once the fixes have settled:
   redirect, which must not be taken as a changed login page.
   [ADR 0041](adr/0041-repair-stale-recipes.md) (accepted) is that design: a recipe
   holds up to three layouts ([ADR 0060](adr/0060-recipe-layouts.md)), and a repair adds
-  one, at most once a UTC day per recipe and device.
+  one, at most once a UTC day per recipe and device. Done (2026-10-23): layouts
+  ([#909](https://github.com/risu729/pateat/pull/909),
+  [#968](https://github.com/risu729/pateat/pull/968)) and the repair
+  ([#911](https://github.com/risu729/pateat/pull/911)); covered by local tests only.
 - First among the text work, a review of the wording of Pateat's UI text: the popup, the
   toolbar icon's title, the options page and the in-page prompts. It includes the reason
   line the popup and the icon's title show when another tab of the site logged out or
@@ -1067,12 +1087,13 @@ Once the fixes have settled:
   are kept one year, so the earliest ones (2026-10-11) are deleted from 2027-10-11; a
   corpus that should include them has to be exported before then (inferred from the
   retention rule).
-- Split `apps/extension/src/login/runtime.ts` (9,998 lines; `createLoginRuntime` spans
-  lines 1573-9998) after [#545](https://github.com/risu729/pateat/issues/545) moves the
-  undecided-page completion rule out, keeping the existing state transitions: the types
-  and reports (lines 1-1572), then storing and resuming attempts (`save`, `keep`,
-  `forget`, `change`), `remember` and the account choice, sign-in entry pages, page
-  passkey requests, the stop before a password, recipe generation, and last `admit` and
+- Split `apps/extension/src/login/runtime.ts` (9,998 lines on 2026-10-13, 14,468 on
+  2026-10-23; the line ranges below are from 2026-10-13) after
+  [#545](https://github.com/risu729/pateat/issues/545) moves the undecided-page
+  completion rule out, keeping the existing state transitions: the types and reports
+  (lines 1-1572), then storing and resuming attempts (`save`, `keep`, `forget`,
+  `change`), `remember` and the account choice, sign-in entry pages, page passkey
+  requests, the stop before a password, recipe generation, and last `admit` and
   `runSteps`. `runtime.production.test.ts` is split along its eight top-level `describe`
   blocks once its 38 shared helpers have their own module
   ([external review](research/2026-10-13-external-review.md)).
@@ -2506,7 +2527,8 @@ For [ADR 0018](adr/0018-recipe-generation-route.md), `appendPageSteps` builds a
 generated recipe one page at a time: the first page starts it at revision 1, and a later
 page is appended only after a step that advances, within the contract's bounds. The
 recipe's slots are the ones its steps fill. `createCompletionJudge` sends the page shown
-after the final submission, with the login paths, and returns `signed-in` with a button
+after the final submission, with the login paths and the login item's slots (ADR 0061,
+2026-10-23), and returns `signed-in` with a button
 or link marker, `rejected` or `challenge`, or abstains when unclear. An unknown marker,
 one that is not a button or link, or a page that still has a password input not marked
 `new-password` or a field marked `username`, `current-password` or `one-time-code` fails

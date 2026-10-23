@@ -9,6 +9,7 @@ import {
 import {
   loginChooserDocumentSchema,
   loginEntryRecipeSchema,
+  loginFieldTargetSchema,
   loginRecipeDocumentSchema,
   loginRouteSchema,
   parseRecipeBranch,
@@ -16,6 +17,7 @@ import {
   recipeLayoutKeySchema,
   storedRecipeSlots,
 } from "./login";
+import { shownQuestionSchema } from "./settings";
 import { syncRecipeIdSchema } from "./sync";
 
 // Contracts for the service's recipe generation routes (ADR 0018). Requests carry the
@@ -391,6 +393,15 @@ export const recipeCompletionRequestSchema = v.pipe(
     branch: recipeBranchSchema,
     observation: loginObservationSchema,
     /**
+     * The login account's slots, built as a generation request's are: its built-in fields,
+     * one per custom field it allows by name, and shapes as ADR 0010 allows; `totp` only on
+     * a page with a code field (owner 2026-10-23: the same information goes to every model
+     * call unless there is a sound reason). Never values, item names or bindings. The judge
+     * compares their names with the page, and may pair a secret question's answer input
+     * with one, which the service answers with and never stores (ADR 0061).
+     */
+    slots: v.union([semanticSlotsSchema, v.strictTuple([])]),
+    /**
      * The description left out a disabled field that may not be a sign-in field (ADR 0029):
      * a page the model cannot decide is judged again when the path is next described in
      * full.
@@ -444,6 +455,11 @@ export const recipePageSampleRequestSchema = v.strictObject({
   /** The layout the login ran (ADR 0060), and for a chooser recipe the branch it took. */
   branch: recipeBranchSchema,
   observation: loginObservationSchema,
+  /**
+   * The login account's slots, exactly as the judge request would carry them, so the
+   * logged sample is the request the judge would get (owner 2026-10-23).
+   */
+  slots: v.union([semanticSlotsSchema, v.strictTuple([])]),
 });
 
 export const recipeCompletionResultSchema = v.variant("status", [
@@ -459,12 +475,28 @@ export const recipeCompletionResultSchema = v.variant("status", [
   v.strictObject({ version: v.literal(1), status: v.literal("rejected") }),
   /**
    * `change` is the recipe with a handler added for the judged page; the login that sent
-   * the page may take it over (ADR 0027).
+   * the page may take it over (ADR 0027). `questions` pairs each secret question's answer
+   * input the judge kept with the request slot that holds its answer, and the question as
+   * the page shows it (ADR 0061): for this account only, kept in no recipe, and filled
+   * from only once the owner confirms it.
    */
   v.strictObject({
     version: v.literal(1),
     status: v.literal("challenge"),
     change: v.optional(activeChange),
+    questions: v.optional(
+      v.pipe(
+        v.array(
+          v.strictObject({
+            field: loginFieldTargetSchema,
+            slot: slotReference,
+            shown: shownQuestionSchema,
+          }),
+        ),
+        v.minLength(1),
+        v.maxLength(3),
+      ),
+    ),
   }),
   /**
    * The person is signed in and the page only offers something they may put off, such as a

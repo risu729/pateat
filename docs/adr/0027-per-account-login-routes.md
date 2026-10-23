@@ -255,6 +255,11 @@ now rather than later.
   the model whether an account has TOTP (owner, 13:42 UTC). `password` is offered only
   when a matching item has a non-empty password.
 - The model may also name the start page's passkey sign-in button and SSO entries.
+- The judge request carries the login item's slots, built the same way, so it can name
+  `detail` inputs (owner, 2026-10-23: every model call gets the same information unless
+  there is a sound reason;
+  [ADR 0061](0061-personal-details-during-a-login.md#the-judge-gets-the-accounts-slots)).
+  A judged handler still names only detail kinds and targets, never a field name.
 
 ### Learning
 
@@ -956,7 +961,8 @@ Chrome has not reported yet counts as sharing.
   Anthropic, within the limits above, not only once per new recipe. The request log
   keeps them for a year ([ADR 0012](0012-inference-request-log.md)).
 - Custom-field names, and the Text shapes all matching items agree on, now reach the
-  service and Anthropic with each generation request, and the request log keeps them.
+  service and Anthropic with each generation request, and the request log keeps them;
+  since 2026-10-23 the login item's also go with each judge request.
 - A site that asks for a security key as its second factor signs in with no human
   action; that factor then comes down to "Pateat is unlocked and holds the passkey",
   which the owner accepted on 2026-10-11 (12:52 UTC).

@@ -46,6 +46,13 @@ export const detailResponseSchema = v.variant("ok", [
                * whose fields' names say little.
                */
               preselect: v.optional(v.literal(false)),
+              /**
+               * For a secret question's answer: the question the AI paired with the one
+               * candidate, a field named otherwise, as the AI copied it from the page, for
+               * display only. **Fill** confirms the pairing; later logins need the page to
+               * show the question, compared after normalization, as one whole question.
+               */
+              question: v.optional(label),
             }),
           ),
           v.minLength(1),
