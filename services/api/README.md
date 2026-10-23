@@ -41,17 +41,20 @@ and `generation.ts`.
 | `POST /v1/recipes/:recipeId/page-sample` | Log a repeat login's signed-in page for evaluation, without a model call; 201 when kept, 204 when a sample of the recipe and branch is from the last 30 days |
 | `GET /v1/device` | The calling device's paired time, the owner's live recipe count and settings revision, and whether recipe generation would run now, for the diagnostics page |
 | `DELETE /v1/device` | Revoke the calling device's own credential |
-| `POST /pair` | Create a device for the signed-in owner from an allowed extension; `profileId` required when several profiles exist; 201 with the credential, once |
-| `GET /pair/profiles` | List profiles for the owner session from an allowlisted extension |
-| `GET`, `PUT /pair/profiles/:profileId/settings` | Edit another owned profile with the extension's local catalog; owner session and extension Origin required |
+| `POST /pair` | Create a device for the signed-in owner from an allowed extension; 201 with the credential, once. An owner's later device names `profileId` or a `newProfile` name; otherwise 409 `profile_required` with the profiles |
+| `GET /extension/profiles` | The owner's profiles, for the extension's profile editor; host-wide Access (WARP) and an allowlisted extension `Origin` |
+| `GET`, `PUT /extension/profiles/:profileId/settings` | Read or replace another profile like `/manage/api/profiles/:profileId/settings`, with the same guards |
+| `GET /extension/signed-in` | The page the profile editor opens when it needs a sign-in on the host-wide application |
 | `GET /pair/signed-in` | The page the extension opens when pairing needs a sign-in; it asks the user to go back to Pateat's settings |
-| `GET /manage/dashboard`, `/manage`, `/manage/sites`, `/manage/sites/:scheme/:host`, `/manage/claude`, `/manage/request-log` | Owner web UI (React app): the dashboard of login and request speed, counts, spend and failures; devices; the sites list with excluded sites, unreadable and revoked recipes; one origin's default account, recipes and bindings; Claude credentials, the connection test and each role's models; the request log with Delete all |
+| `GET /manage/dashboard`, `/manage`, `/manage/sites`, `/manage/sites/:scheme/:host`, `/manage/profiles`, `/manage/claude`, `/manage/request-log` | Owner web UI (React app): the dashboard of login and request speed, counts, spend and failures; devices; settings profiles; the sites list with excluded sites, unreadable and revoked recipes; one origin's default account, recipes and bindings; Claude credentials, the connection test and each role's models; the request log with Delete all |
 | `GET /manage/assets/*` | The web UI's built script, styles and notices |
 | `GET /manage/api/dashboard?range=24h\|7d\|30d` | The dashboard's aggregates over the range ending now (default `7d`; another value is 400 `bad_request`), computed in the Worker from only the owner's rows: login time (total less the person's) of the signed-in login records, apart for those that waited on the service, with the median of each part (network, the rest of the service, waiting for the site, the rest, and the person apart) and per site and extension build; model, token, pre-model and server times per role, site and build (of requests that called the model; a request answered without a call counts only as a request and, unless its outcome is `recipe`, a failure; a signed-in page sample, outcome `sampled`, is left out), the median login and model time per UTC day (null on a day without one), the 10 slowest requests, counts, every login's result with how many signed in (in total and per day), the first-login result codes apart, tokens, this UTC day's and month's spend with the limits, active recipes, recipes generated, and failures by code with their latest 20; every set of durations has `n`, and below 20 its values instead of a p90 |
 | `GET /manage/api/devices` | The owner's devices with their last use, newest first |
 | `POST /manage/api/devices/:deviceId/revoke` | Revoke one of the owner's devices; 204 |
 | `GET /manage/api/profiles` | The Access owner's profiles |
-| `POST /manage/api/profiles` | Copy an existing owned profile, with `name` and `copyFrom` |
+| `POST /manage/api/profiles` | Copy an existing owned profile, with `name` and `copyFrom`; 409 `profile_name_taken` |
+| `PATCH /manage/api/profiles/:profileId` | Rename a profile; 409 `profile_name_taken` when another has the name, ignoring case |
+| `DELETE /manage/api/profiles/:profileId` | Delete a profile; 204, or 409 `profile_in_use` with the labels of the devices using it, or 409 `last_profile` |
 | `POST /manage/api/devices/:deviceId/profile` | Assign an owned profile to an owned active device; advances the settings revision |
 | `GET /manage/api/profiles/:profileId/settings` | Selected owned profile with shared bindings and owner revision; 404 for a foreign profile |
 | `PUT /manage/api/profiles/:profileId/settings` | Replace them like `PUT /v1/settings`; `connections` must be empty and the document at most 120 KiB |

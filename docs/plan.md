@@ -1248,9 +1248,9 @@ items the owner mentioned and gates still open on 2026-10-11.
     and fill-only `sign-in`, filling `confirm` pages, personal details) are here.
 - The items under [later work](#initial-delivery-and-later-scope) and the ADRs' later
   sections, including synced vault policy ([ADR 0023](adr/0023-synced-vault-policy.md)),
-  more settings profiles ([ADR 0024](adr/0024-settings-profiles.md)), the ADR 0025 later
-  work and the ADR 0027 cases it does not handle. Generation for passkey-only start
-  pages moved to [phase 2](#phase-2-use-it-and-fix-what-comes-up) on 2026-10-19.
+  profile inheritance ([ADR 0075](adr/0075-settings-profiles-delivered.md)), the ADR
+  0025 later work and the ADR 0027 cases it does not handle. Generation for passkey-only
+  start pages moved to [phase 2](#phase-2-use-it-and-fix-what-comes-up) on 2026-10-19.
 - Real-account checks of individual Bitwarden two-step methods, other KDFs, V2 keys and
   organization items. The owner moved them after the public release on 2026-10-11
   (18:35 UTC), since few users are expected to need them; each needs the owner's

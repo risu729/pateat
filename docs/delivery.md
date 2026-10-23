@@ -128,13 +128,13 @@ The owner decided these on 2026-10-11, following the kogane repository:
   Policy 2 includes the owner's email address only and requires the One-time PIN login
   method, without WARP. Session Duration is 15 minutes, and Cookie Path Attribute and
   Binding Cookie are on. Its Application Audience (AUD) Tag is the `ACCESS_PAIR_AUD`
-  Worker secret; the Worker accepts it on `/pair`, `/pair/signed-in`, and owner profile
-  editing under `/pair/profiles` (also checked against the extension Origin allowlist).
-  An empty value turns it off while "pateat pair" does not exist; once it exists, Access
+  Worker secret; the Worker accepts it on `/pair` and `/pair/signed-in` only, and an
+  empty value turns it off while "pateat pair" does not exist; once it exists, Access
   issues only its audience on `/pair`, so emptying the secret then stops all pairing.
-  `/manage` keeps requiring WARP. If another identity provider is added under
-  Integrations, Identity providers, Policy 2 still admits One-time PIN sign-ins only.
-  After pairing on a vendor's machine, open
+  `/manage`, and `/extension/profiles` where the extension edits other settings profiles
+  ([ADR 0075](adr/0075-settings-profiles-delivered.md)), keep requiring WARP. If another
+  identity provider is added under Integrations, Identity providers, Policy 2 still
+  admits One-time PIN sign-ins only. After pairing on a vendor's machine, open
   `https://<team domain>/cdn-cgi/access/logout` there (the `ACCESS_TEAM_DOMAIN` host);
   the service's own `/cdn-cgi/access/logout` finds no Access cookie in that browser,
   because "pateat pair"'s cookie is sent below `/pair` only.

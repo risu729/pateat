@@ -614,17 +614,18 @@ settled as unknown (`settled`), and the last login and model request the badge k
 from the log reports, with the badge's lifetime: a top page of another origin or the
 tab's closing drops them, and `chrome.storage.session` keeps them across a worker
 restart. Item selection, field exclusions and custom-field review stay on the
-extension's settings page once synced ([ADR 0023](adr/0023-synced-vault-policy.md)). The service stores excluded sites and site defaults per owner-scoped settings profile
-([ADR 0024](adr/0024-settings-profiles.md)), while bindings remain shared by the owner.
-Pairing chooses explicitly when several profiles exist; the owner devices page can
-reassign a device. The owner web UI selects which profile its site pages edit and
-creates profiles by copying an existing profile. The extension settings page can edit
-another profile's sites using its own vault catalog, through owner-session-authorized
-`/pair/profiles` routes; this does not reassign its device. One owner revision covers
-profile parts and bindings. A device profile change replaces the previous profile's
-cached policy and merge base before syncing further local edits. Chrome use access
-to these pages is not assumed. Keep settings and execution operations independent of
-their UI.
+extension's settings page once synced ([ADR 0023](adr/0023-synced-vault-policy.md)).
+The service keeps excluded sites and site defaults per settings profile and bindings per
+owner, under one owner revision ([ADR 0024](adr/0024-settings-profiles.md),
+[ADR 0075](adr/0075-settings-profiles-delivered.md)). Each device uses one profile,
+chosen when it pairs or on the management page's Devices page; `/manage/profiles`
+renames, copies and deletes profiles, and the Sites pages edit one profile at a time.
+The extension's settings page can edit another profile with its own vault catalog
+through `/extension/profiles`, behind the host-wide Access application, which requires
+WARP; that does not move its device. When a device's profile changes, the extension
+replaces its exclusions and saved accounts with the new profile's and drops its merge
+base for them, while bindings keep merging. Chrome use access to these pages is not
+assumed. Keep settings and execution operations independent of their UI.
 
 Each connection supports all items except exclusions or selected
 folders/collections/items only. Use existing Bitwarden metadata; independent
@@ -3159,6 +3160,15 @@ steady-state API calls carry no cookie.
   it is shown or focused again, and offers **Try again** and **Open sign-in page**. A
   refused sign-in, an unlisted extension ID, a service without pairing settings and a
   service that could not fetch Access's signing keys each have their own message.
+- Profile choice. An owner's later pairing must name a settings profile: without one the
+  Worker answers 409 `profile_required` with the owner's profiles, and the settings page
+  asks which one the device uses or offers a new one named after the device
+  ([ADR 0075](adr/0075-settings-profiles-delivered.md)). A new profile takes the
+  device's exclusions and saved accounts at its first sync. When an existing profile
+  would replace ones the device holds, the page shows their counts first, with
+  **Pair and replace**, **Create a new profile instead** and **Back**. A chosen profile
+  deleted meanwhile (`profile_not_found`) or a taken name (`profile_name_taken`) is
+  answered with the profiles again.
 - Lifetime and recovery. A credential expires once it has gone unused for 90 days, and
   each authenticated use renews it; there is no absolute lifetime and no rotation (owner
   decision, 2026-10-11). The service records a device's last use at most once a day

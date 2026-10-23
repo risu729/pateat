@@ -201,6 +201,8 @@ describe("Access verification", () => {
         ["/manage/sites/https/bank.example", viaHost.token],
         ["/manage/assets/app.js", viaHost.token],
         ["/manage/claude", viaHost.token],
+        ["/manage/profiles", viaHost.token],
+        ["/extension/signed-in", viaHost.token],
         ["/pair/signed-in", viaPair.token],
       ];
       const { pageResponses, apiResponses, missing } = await duringOutage(mode, async () => ({
@@ -209,7 +211,7 @@ describe("Access verification", () => {
           postPair(viaPair.token),
           postPair(viaHost.token),
           manageApi("/manage/api/devices", viaHost.token, "GET"),
-          manageApi("/manage/api/settings", viaHost.token, "GET"),
+          manageApi("/manage/api/profiles", viaHost.token, "GET"),
           manageApi(`/manage/api/devices/${crypto.randomUUID()}/revoke`, viaHost.token, "POST"),
         ]),
         // A missing token is refused before any key is fetched.
