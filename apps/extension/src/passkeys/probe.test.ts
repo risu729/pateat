@@ -54,6 +54,7 @@ describe("probe passkey source", () => {
     expect(probe.control({ version: 1, type: "passkey.probe.status" })).toEqual({
       ok: true,
       signatures: 3,
+      stopped: 0,
       remembered: [],
     });
   });
@@ -98,5 +99,27 @@ describe("probe passkey source", () => {
         signal,
       ),
     ).toMatchObject({ candidates: [{ rpId: "synthetic.example.test" }] });
+  });
+
+  it("counts a delayed signature that its signal stopped, which never signs", async () => {
+    vi.useFakeTimers();
+    try {
+      const { probe } = setup();
+      probe.control({ version: 1, type: "passkey.probe.configure", signDelayMs: 3000 });
+      const local = await probe.source.candidates("http://localhost:3848", "localhost", signal);
+      const controller = new AbortController();
+      const signing = probe.source.sign(local!.candidates[0]!, data, hash, controller.signal);
+      controller.abort(new Error("synthetic stop"));
+      await expect(signing).rejects.toThrow("synthetic stop");
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(probe.control({ version: 1, type: "passkey.probe.status" })).toEqual({
+        ok: true,
+        signatures: 0,
+        stopped: 1,
+        remembered: [],
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

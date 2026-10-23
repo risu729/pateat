@@ -759,6 +759,14 @@ export const configureSchema = v.strictObject({
    * counts as holding a TOTP secret. The field's value is a fixed synthetic code.
    */
   totp: v.optional(v.literal(true)),
+  /**
+   * Probe-only wait in place of `LOGIN_STEP_WAIT_MS` for a step's elements and an
+   * advance's confirmation, so a test runs past those waits without sitting out ten
+   * seconds. Without it, as always in production, the full wait applies.
+   */
+  stepWaitMs: v.optional(
+    v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(LOGIN_STEP_WAIT_MS)),
+  ),
 });
 export const statusSchema = v.strictObject({
   version: v.literal(1),
