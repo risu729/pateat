@@ -127,7 +127,7 @@ export const loginAccessibleNameTargetSchema = v.strictObject({
   value: loginTextTargetSchema.entries.value,
 });
 /**
- * A field locator by its `name` within the sign-in form (proposed ADR 0072): the one shown
+ * A field locator by its `name` within the sign-in form (ADR 0072): the one shown
  * element whose `name` equals the value and whose form also holds a shown password input
  * not marked `new-password`, as the account field beside Hacker News's password, whose
  * create-account form below shares the names `acct` and `pw`. It names fields only, for a

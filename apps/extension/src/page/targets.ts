@@ -156,7 +156,7 @@ const formOf = (element: Element): HTMLFormElement | null =>
 
 /**
  * Whether `form` holds a shown password input not marked `new-password`, the form a
- * `password-form-name` locator looks in (proposed ADR 0072).
+ * `password-form-name` locator looks in (ADR 0072).
  */
 function signInForm(form: HTMLFormElement | null): boolean {
   return (

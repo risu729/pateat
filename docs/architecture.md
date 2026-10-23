@@ -2146,7 +2146,9 @@ A step names its element with an allowlisted locator, never CSS: an `id` or `nam
 ASCII except whitespace and control characters, as in `ctl00$Main$txtUserId` or
 `user[login]`), a `data-testid` (`[A-Za-z0-9_.:-]`), an `<input>`'s `autocomplete`
 token, a fillable input's visible name
-([ADR 0037](adr/0037-fields-by-visible-name.md), below), a `password` handler's
+([ADR 0037](adr/0037-fields-by-visible-name.md), below) or its `name` within the
+sign-in form ([ADR 0072](adr/0072-field-name-in-the-sign-in-form.md), below), a
+`password` handler's
 button's accessible name (ADR 0048's amendment, below), or, for a click or a state
 check only, a button's text:
 `{ "by": "text", "value": "ログイン" }` names the `<button>` whose rendered text (or,
@@ -2316,6 +2318,15 @@ sign-in field gets it; markers never do.
 「メールアドレス」 and 「パスワード」, so its recipe failed on every visit and was
 generated again each time (2026-10-13). A site that rewords the field gets its recipe
 generated again.
+
+A field that none of those names alone is located by its `name` within the sign-in form
+before an `id` another load may change (owner, 2026-10-23,
+[ADR 0072](adr/0072-field-name-in-the-sign-in-form.md)):
+`{ "by": "password-form-name", "value": "acct" }` names the one shown element whose
+`name` equals the value and whose form also holds a shown password input not marked
+`new-password`. Hacker News's sign-in shows a create-account form below its login form
+with the same `name="acct"`, and its account field has no other locator. Fill steps and
+a `totp` handler's code field take it, never a button, link, entry or list control.
 
 An `id`, `name`, `data-testid` or `autocomplete` locator that several elements match
 counts only the shown ones, by the content script's visibility check (owner,

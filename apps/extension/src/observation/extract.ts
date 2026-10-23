@@ -604,7 +604,7 @@ function contentTarget(
 
 /**
  * The `password-form-name` locator of a field that no other locator names alone
- * (proposed ADR 0072): its `name`, when the executor finds it alone by that name among
+ * (ADR 0072): its `name`, when the executor finds it alone by that name among
  * the elements of forms holding a shown password input not marked `new-password`, as
  * Hacker News's account field `acct`, which its create-account form repeats. A name that
  * may be a token, or that redaction would change, is never used.
