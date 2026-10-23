@@ -5345,7 +5345,10 @@ export function createLoginRuntime(
   async function learn(run: Execution, reading?: SignInReading): Promise<boolean> {
     const { recipe, metadata } = run;
     const { operationId } = metadata;
-    if (!generation || !effectful(metadata) || !operationId) return false;
+    // A login watched at its stop has no step in flight; its watch's pages are judged as any
+    // watched login's are (ADR 0036, ADR 0027).
+    const watchedAtStop = metadata.watch !== undefined && operationId === undefined;
+    if (!generation || (!watchedAtStop && (!effectful(metadata) || !operationId))) return false;
     const notSent = (reason: string) => notJudged(run, reason);
     if (pagesLeft(metadata, operationId) <= 0) return notSent("page-limit");
     // Every variant's fill fields and paths count, as on the service, which is never told

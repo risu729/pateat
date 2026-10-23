@@ -68,15 +68,19 @@ const MAX_RECIPE_EFFECTS = 8;
 /** Pages already sent to be judged after effect step `operationId`. */
 export const judgedPages = (
   metadata: Pick<LoginAttemptMetadata, "judged">,
-  operationId: string,
-): number => (metadata.judged?.operationId === operationId ? metadata.judged.pages : 0);
+  operationId: string | undefined,
+): number =>
+  operationId !== undefined && metadata.judged?.operationId === operationId
+    ? metadata.judged.pages
+    : 0;
 /**
  * Pages the model may still judge for the attempt's current effect step: while the login
- * is watched (ADR 0027), the watch's own pages, else those after the step.
+ * is watched (ADR 0027), the watch's own pages, else those after the step. A login watched
+ * at its stop (ADR 0036) has no step in flight and names none.
  */
 export const pagesLeft = (
   metadata: Pick<LoginAttemptMetadata, "judged" | "watch">,
-  operationId: string,
+  operationId: string | undefined,
 ): number =>
   MAX_JUDGED_PAGES - (metadata.watch ? metadata.watch.pages : judgedPages(metadata, operationId));
 export const loginAttemptStateSchema = v.picklist([
@@ -419,11 +423,12 @@ export const loginAttemptEventSchema = v.variant("type", [
   /**
    * A page after the current effect step is about to be sent to be judged. It counts
    * against the step's pages before the request, so a restart cannot resend without
-   * bound (ADR 0027).
+   * bound (ADR 0027). A login watched at its stop (ADR 0036) has no step in flight, so its
+   * watch's pages name none.
    */
-  v.strictObject({ type: v.literal("JUDGING"), operationId: identifier }),
+  v.strictObject({ type: v.literal("JUDGING"), operationId: v.optional(identifier) }),
   /** The page sent under `JUDGING` reached no model, so it is given back. */
-  v.strictObject({ type: v.literal("UNJUDGED"), operationId: identifier }),
+  v.strictObject({ type: v.literal("UNJUDGED"), operationId: v.optional(identifier) }),
   /**
    * The watch of a login (ADR 0027) is over: it ends where it stopped, `challenge` or an
    * unknown result, and its later pages are no longer read. `abandoned`: the recipe's first
@@ -735,6 +740,7 @@ function record(
       return { policyRevision: event.policyRevision };
     case "JUDGING":
       if (context.watch) return { watch: { ...context.watch, pages: context.watch.pages + 1 } };
+      if (event.operationId === undefined) return {};
       return {
         judged: {
           operationId: event.operationId,
@@ -743,6 +749,7 @@ function record(
       };
     case "UNJUDGED":
       if (context.watch) return { watch: { ...context.watch, pages: context.watch.pages - 1 } };
+      if (event.operationId === undefined) return {};
       return {
         judged: {
           operationId: event.operationId,
@@ -1050,13 +1057,16 @@ function createLoginAttemptMachine() {
         event.result === "unknown" &&
         (!event.document || sameScope(context.document, event.document)),
       // Only an effect step's result is judged, and only a bounded number of pages: after
-      // the step, then again while the login is watched (ADR 0027).
+      // the step, then again while the login is watched (ADR 0027), as is a login watched
+      // at its stop with nothing in flight (ADR 0036).
       canJudge: ({ context, event }) =>
         event.type === "JUDGING" &&
-        operationMatches(context, event) &&
-        (context.operationKind === "click" ||
-          context.operationEffect === "advance" ||
-          context.operationEffect === "submit") &&
+        (event.operationId === undefined
+          ? context.watch !== undefined && context.operationId === undefined
+          : operationMatches(context, event) &&
+            (context.operationKind === "click" ||
+              context.operationEffect === "advance" ||
+              context.operationEffect === "submit")) &&
         pagesLeft(context, event.operationId) > 0,
       canUnjudge: ({ context, event }) =>
         event.type === "UNJUDGED" &&
