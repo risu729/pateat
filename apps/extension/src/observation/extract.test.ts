@@ -1200,7 +1200,7 @@ describe("extractLoginObservation", () => {
     ]);
     // Without another button to submit with, it may be the script-run submit itself,
     // and so it may beside the fields even when a button elsewhere is located.
-    const submit = `<button aria-label="Sign in" style="width:16px;height:16px"></button>`;
+    const submit = `<button style="width:16px;height:16px"></button>`;
     for (const other of ["", `<header><button id="menu">Menu</button></header>`])
       for (const fields of [
         `<div><input id="u"><input id="p" type="password">${submit}</div>`,
@@ -1210,10 +1210,21 @@ describe("extractLoginObservation", () => {
         page(`${other}<main><section>${fields}</section></main>`);
         expect(observe().complete, other + fields).toBe(false);
       }
+    // One with an accessible name is named by it (ADR 0048 amendment of 2026-10-23).
+    page(
+      `<main><section><div><input id="u"><input id="p" type="password">
+        <button aria-label="Sign in" style="width:16px;height:16px"></button></div></section></main>`,
+    );
+    observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(observation.candidates.at(-1)?.target).toEqual({
+      by: "accessible-name",
+      value: "Sign in",
+    });
     // Inside a form, a textless submit button still counts beside another located one.
     page(
       `<form><input name="mail"><input name="pass" type="password">${toggle}
-        <button aria-label="Go" style="width:16px;height:16px"></button></form>`,
+        <button style="width:16px;height:16px"></button></form>`,
     );
     expect(observe().complete).toBe(false);
     // An icon button may be the form's only, script-run submit, so there it still does.
