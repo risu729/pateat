@@ -1,8 +1,12 @@
 import { bitwardenEn } from "./bitwarden-en";
+import { diagnosticsEn } from "./diagnostics-en";
+import { serviceEn } from "./service-en";
 import { settingsEn } from "./settings-en";
 export const en = {
   ...bitwardenEn,
   ...settingsEn,
+  ...diagnosticsEn,
+  ...serviceEn,
   Language: "Language",
   "Browser setting": "Browser setting",
   Pateat: "Pateat",

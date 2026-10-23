@@ -1535,7 +1535,8 @@ path that another Access application, or none, guards.
 
 ## Extension UI language
 
-The popup and passkey chooser bundle English and Japanese translations with the
+The popup, passkey chooser, service connection settings and diagnostics page bundle
+English and Japanese translations with the
 owner-chosen i18next and react-i18next libraries. Their labels, status explanations,
 accessible names and document titles follow the language selected in the extension
 settings. Vault names, usernames and hostnames are interpolated as text; unknown
