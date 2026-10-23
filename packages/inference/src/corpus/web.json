@@ -1,0 +1,3927 @@
+{
+  "source": {
+    "method": "Public login pages shown in English, loaded with Playwright in Chrome or Chromium, one empty browser context per page (no profile, cookies or account), locale ja-JP as in the owner's Chrome and observed with the extension's extractor; each case records the date and the commit of the observation"
+  },
+  "cases": [
+    {
+      "id": "web-github",
+      "source": {
+        "dataset": "web",
+        "url": "https://github.com/login",
+        "observed": "2026-10-23",
+        "commit": "381116f"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://github.com",
+        "path": "/login",
+        "language": "en",
+        "title": "Sign in to GitHub · GitHub",
+        "headings": ["Sign in to GitHub"],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "login_field"
+            },
+            "label": "Username or email address",
+            "autocomplete": "username",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "password"
+            },
+            "label": "Password",
+            "autocomplete": "current-password",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "link",
+            "target": {
+              "by": "id",
+              "value": "forgot-password"
+            },
+            "label": "Forgot password?",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "button",
+            "target": {
+              "by": "name",
+              "value": "commit"
+            },
+            "label": "Sign in",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Sign in with a passkey"
+            },
+            "label": "Sign in with a passkey"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c4",
+        "purpose": "submit",
+        "passkeyButton": "c5"
+      }
+    },
+    {
+      "id": "web-grafana",
+      "source": {
+        "dataset": "web",
+        "url": "https://grafana.com/auth/sign-in",
+        "observed": "2026-10-23",
+        "commit": "381116f"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://grafana.com",
+        "path": "/auth/sign-in",
+        "language": "en",
+        "title": "Grafana Cloud - Sign In",
+        "headings": ["Log in to Grafana Cloud"],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "name",
+              "value": "login"
+            },
+            "label": "Email or username",
+            "placeholder": "Email or username",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "submit"
+            },
+            "label": "Sign In",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1"
+        },
+        "action": "c2",
+        "purpose": "advance"
+      }
+    },
+    {
+      "id": "web-linkedin",
+      "source": {
+        "dataset": "web",
+        "url": "https://www.linkedin.com/login/",
+        "observed": "2026-10-23",
+        "commit": "381116f"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://www.linkedin.com",
+        "path": "/login/",
+        "language": "en",
+        "title": "LinkedIn Login, Sign in | LinkedIn",
+        "headings": ["0 notifications", "Sign in"],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Sign in with Apple"
+            },
+            "label": "Sign in with Apple"
+          },
+          {
+            "id": "c2",
+            "role": "email",
+            "target": {
+              "by": "autocomplete",
+              "value": "username"
+            },
+            "label": "Email or phone",
+            "autocomplete": "username"
+          },
+          {
+            "id": "c3",
+            "role": "password",
+            "target": {
+              "by": "autocomplete",
+              "value": "current-password"
+            },
+            "label": "Password",
+            "autocomplete": "current-password"
+          },
+          {
+            "id": "c4",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Sign in"
+            },
+            "label": "Sign in"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c2",
+          "password": "c3"
+        },
+        "action": "c4",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "web-stgeorge",
+      "source": {
+        "dataset": "web",
+        "url": "https://ibanking.stgeorge.com.au/ibank/loginPage.action",
+        "observed": "2026-10-23",
+        "commit": "381116f"
+      },
+      "slots": [
+        {
+          "name": "Card or Access Number",
+          "value": "1234567890"
+        },
+        {
+          "name": "Security number",
+          "kind": "hidden"
+        },
+        "password"
+      ],
+      "observation": {
+        "version": 1,
+        "origin": "https://ibanking.stgeorge.com.au",
+        "path": "/ibank/loginPage.action",
+        "language": "en",
+        "title": "St.George Internet Banking - Logon",
+        "headings": ["Internet Banking Logon"],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Close Window"
+            },
+            "label": "Close Window",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Privacy Statement"
+            },
+            "label": "Privacy Statement",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Register"
+            },
+            "label": "Register",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Security tips"
+            },
+            "label": "Security tips",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "access-number"
+            },
+            "label": "Enter your Card or Access Number",
+            "group": "f1",
+            "maxLength": 19
+          },
+          {
+            "id": "c6",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "securityNumber"
+            },
+            "label": "Enter your Security number",
+            "group": "f1",
+            "maxLength": 6
+          },
+          {
+            "id": "c7",
+            "role": "checkbox",
+            "target": {
+              "by": "id",
+              "value": "rememberMeFull"
+            },
+            "label": "Remember me",
+            "group": "f1"
+          },
+          {
+            "id": "c8",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "internet-password"
+            },
+            "label": "Enter your Internet Banking Password",
+            "group": "f1",
+            "maxLength": 12
+          },
+          {
+            "id": "c9",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "logonButton"
+            },
+            "label": "Logon",
+            "group": "f1"
+          },
+          {
+            "id": "c10",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Terms and Conditions."
+            },
+            "label": "Terms and Conditions.",
+            "group": "f1"
+          },
+          {
+            "id": "c11",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Register now"
+            },
+            "label": "Register now",
+            "group": "f1"
+          },
+          {
+            "id": "c12",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Help"
+            },
+            "label": "Help",
+            "group": "f1"
+          },
+          {
+            "id": "c13",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Contact Us"
+            },
+            "label": "Contact Us",
+            "group": "f1"
+          },
+          {
+            "id": "c14",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "FAQs"
+            },
+            "label": "FAQs",
+            "group": "f1"
+          },
+          {
+            "id": "c15",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Top"
+            },
+            "label": "Top",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "custom-1": "c5",
+          "custom-2": "c6",
+          "password": "c8"
+        },
+        "action": "c9",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "web-medibank-oshc",
+      "source": {
+        "dataset": "web",
+        "url": "https://www.members.medibankoshc.com.au/login.html",
+        "observed": "2026-10-23",
+        "commit": "381116f"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://www.members.medibankoshc.com.au",
+        "path": "/login.html",
+        "language": "en",
+        "title": "Login | Medibank OSHC",
+        "headings": [
+          "Welcome to OSHC Online Member Services",
+          "Log in",
+          "Download the Medibank OSHC App"
+        ],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "exampleTextInput"
+            },
+            "label": "Membership number",
+            "placeholder": "Enter your membership number",
+            "maxLength": 8
+          },
+          {
+            "id": "c2",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Show"
+            },
+            "label": "Show"
+          },
+          {
+            "id": "c3",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "passwordRegister"
+            },
+            "label": "Password"
+          },
+          {
+            "id": "c4",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "step1-action"
+            },
+            "label": "Login"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c3"
+        },
+        "action": "c4",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "web-unsw-give",
+      "source": {
+        "dataset": "web",
+        "url": "https://cgi.cse.unsw.edu.au/~give/code/login.php",
+        "observed": "2026-10-23",
+        "commit": "381116f"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://cgi.cse.unsw.edu.au",
+        "path": "/~give/code/login.php",
+        "language": "en",
+        "title": "give",
+        "headings": ["UNSW Login"],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "name",
+              "value": "user"
+            },
+            "placeholder": "z number",
+            "autocomplete": "username",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "pswd"
+            },
+            "placeholder": "z password",
+            "autocomplete": "current-password",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "button",
+            "target": {
+              "by": "name",
+              "value": "login"
+            },
+            "label": "Log In",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "UNSW Identity Manager"
+            },
+            "label": "UNSW Identity Manager",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c3",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "web-atlassian-top",
+      "source": {
+        "dataset": "web",
+        "url": "https://www.atlassian.com/",
+        "observed": "2026-10-23",
+        "commit": "381116f"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://www.atlassian.com",
+        "path": "/",
+        "language": "en",
+        "title": "Collaboration software for software, IT and business teams | Atlassian",
+        "headings": [
+          "Unleash your teams and their agents",
+          "Transform how your teams work",
+          "The teamwork platform for the AI era",
+          "Fueled by Atlassian’s latest AI innovations",
+          "Discover the power of the Teamwork Graph",
+          "It all starts with context...",
+          "Built for how real teams work",
+          "Secure by design"
+        ],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "button",
+            "target": {
+              "by": "test-id",
+              "value": "close-button"
+            },
+            "label": "Close"
+          },
+          {
+            "id": "c2",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "global-nav-search-bar-icon-desktop"
+            },
+            "label": "search"
+          },
+          {
+            "id": "c3",
+            "role": "button",
+            "target": {
+              "by": "test-id",
+              "value": "play-pause-controls"
+            },
+            "label": "Pause video"
+          },
+          {
+            "id": "c4",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "language-dropdown"
+            },
+            "label": "Choose your language",
+            "autocomplete": "off"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "abstain"
+      }
+    },
+    {
+      "id": "web-chase-top",
+      "source": {
+        "dataset": "web",
+        "url": "https://www.chase.com/",
+        "observed": "2026-10-23",
+        "commit": "381116f"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://www.chase.com",
+        "path": "/",
+        "language": "en",
+        "title": "Credit Card, Mortgage, Banking, Auto | Chase Online | Chase.com",
+        "headings": [
+          "Chase home page",
+          "Deposit checks with our app",
+          "Choose what's right for you",
+          "Checking Accounts",
+          "Savings Accounts & CDs",
+          "Credit Cards",
+          "Mortgages & Home Equity",
+          "Auto"
+        ],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "userId-text-input-field"
+            },
+            "label": "Username",
+            "autocomplete": "username",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "password-text-input-field"
+            },
+            "label": "Password",
+            "autocomplete": "off",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "show-hide-btn"
+            },
+            "label": "Show Password",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "link",
+            "target": {
+              "by": "id",
+              "value": "useToken"
+            },
+            "label": "Use token",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "signin-button"
+            },
+            "label": "Sign in",
+            "group": "f1"
+          },
+          {
+            "id": "c6",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Passwordless sign in"
+            },
+            "label": "Passwordless sign in",
+            "group": "f1"
+          },
+          {
+            "id": "c7",
+            "role": "link",
+            "target": {
+              "by": "id",
+              "value": "forgotPassword"
+            },
+            "label": "Forgot username/password?",
+            "group": "f1"
+          },
+          {
+            "id": "c8",
+            "role": "link",
+            "target": {
+              "by": "id",
+              "value": "enrollment"
+            },
+            "label": "Not Enrolled? Sign Up Now.",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c5",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "web-wellsfargo-top",
+      "source": {
+        "dataset": "web",
+        "url": "https://www.wellsfargo.com/",
+        "observed": "2026-10-23",
+        "commit": "381116f"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://www.wellsfargo.com",
+        "path": "/",
+        "language": "en",
+        "title": "Wells Fargo Bank | Financial Services & Online Banking",
+        "headings": [
+          "Wells Fargo",
+          "Good afternoon",
+          "$325 checking bonus on us",
+          "New customer? Say hello to a $125 bonus",
+          "Find a credit card",
+          "Earn $250 in OneKeyCash®",
+          "Interest rates today",
+          "Earn 20,000 bonus points"
+        ],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "userid"
+            },
+            "label": "Username",
+            "autocomplete": "off",
+            "group": "f1",
+            "maxLength": 14
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "password"
+            },
+            "label": "Password",
+            "autocomplete": "off",
+            "group": "f1",
+            "maxLength": 32
+          },
+          {
+            "id": "c3",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "password-visible-text"
+            },
+            "label": "Show password",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "btnSignon"
+            },
+            "label": "Sign On",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Enroll"
+            },
+            "label": "Enroll",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c4",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "web-anz-top",
+      "source": {
+        "dataset": "web",
+        "url": "https://www.anz.com.au/personal/",
+        "observed": "2026-10-23",
+        "commit": "381116f"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://www.anz.com.au",
+        "path": "/personal/",
+        "language": "en",
+        "title": "ANZ Personal – Bank accounts, home loans, credit cards & more | ANZ",
+        "headings": [
+          "Send money overseas with $0 transfer fees Superscript: 1",
+          "Banking with ANZ",
+          "Your money matters",
+          "Cost of living support",
+          "Calculators and tools",
+          "Smart tools to help you spend less and save more",
+          "A new way to bank with ANZ Plus",
+          "Need help?"
+        ],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "searchinput"
+            },
+            "label": "Search",
+            "placeholder": "Search",
+            "autocomplete": "off",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "searchsubmit"
+            },
+            "label": "Search",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "abstain"
+      }
+    },
+    {
+      "id": "web-kraken",
+      "source": {
+        "dataset": "web",
+        "url": "https://www.kraken.com/sign-in",
+        "observed": "2026-10-23",
+        "commit": "381116f"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://www.kraken.com",
+        "path": "/sign-in",
+        "language": "en",
+        "title": "Sign in to Kraken - Kraken | Buy, Sell and Margin Trade Bitcoin (BTC) and Ethereum (ETH)",
+        "headings": ["Sign in to Kraken"],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "sign-in-username"
+            },
+            "label": "Email or username",
+            "autocomplete": "username",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "sign-in-password"
+            },
+            "label": "Password",
+            "autocomplete": "current-password",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "password"
+            },
+            "label": "password",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "username"
+            },
+            "label": "username",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Continue"
+            },
+            "label": "Continue",
+            "group": "f1"
+          },
+          {
+            "id": "c6",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Sign in with Google"
+            },
+            "label": "Sign in with Google",
+            "group": "f1"
+          },
+          {
+            "id": "c7",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Sign in with Apple"
+            },
+            "label": "Sign in with Apple",
+            "group": "f1"
+          },
+          {
+            "id": "c8",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Email us"
+            },
+            "label": "Email us",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c5",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "web-binance",
+      "source": {
+        "dataset": "web",
+        "url": "https://accounts.binance.com/en/login",
+        "observed": "2026-10-23",
+        "commit": "381116f"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://accounts.binance.com",
+        "path": "/en/login",
+        "language": "en",
+        "title": "Log In | Binance",
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "bn-formItem-jUKXN9U3"
+            },
+            "label": "Username field for email or phone number",
+            "placeholder": "Email/Phone (without country code)",
+            "autocomplete": "username",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Log In"
+            },
+            "label": "Log In",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1"
+        },
+        "action": "c2",
+        "purpose": "advance"
+      }
+    },
+    {
+      "id": "web-booking",
+      "source": {
+        "dataset": "web",
+        "url": "https://account.booking.com/sign-in",
+        "observed": "2026-10-23",
+        "commit": "381116f"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://account.booking.com",
+        "path": "/sign-in",
+        "language": "en",
+        "title": "Sign in or create an account | Booking.com",
+        "headings": ["Sign in or create an account"],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "email",
+            "target": {
+              "by": "id",
+              "value": "username"
+            },
+            "label": "Email address",
+            "placeholder": "Enter your email address",
+            "autocomplete": "username",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Continue with email"
+            },
+            "label": "Continue with email",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Recover your account"
+            },
+            "label": "Recover your account",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1"
+        },
+        "action": "c2",
+        "purpose": "advance"
+      }
+    },
+    {
+      "id": "web-stackoverflow",
+      "source": {
+        "dataset": "web",
+        "url": "https://stackoverflow.com/users/login",
+        "observed": "2026-10-23",
+        "commit": "381116f"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://stackoverflow.com",
+        "path": "/users/login",
+        "language": "en",
+        "title": "Log In - Stack Overflow",
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "name",
+              "value": "q"
+            },
+            "label": "Search",
+            "placeholder": "Search…",
+            "autocomplete": "off",
+            "group": "f1",
+            "maxLength": 240
+          },
+          {
+            "id": "c2",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Log in with Google"
+            },
+            "label": "Log in with Google"
+          },
+          {
+            "id": "c3",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Log in with GitHub"
+            },
+            "label": "Log in with GitHub"
+          },
+          {
+            "id": "c4",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Log in with Facebook"
+            },
+            "label": "Log in with Facebook"
+          },
+          {
+            "id": "c5",
+            "role": "email",
+            "target": {
+              "by": "id",
+              "value": "email"
+            },
+            "label": "Email",
+            "group": "f2",
+            "maxLength": 100
+          },
+          {
+            "id": "c6",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "password"
+            },
+            "label": "Password",
+            "autocomplete": "current-password",
+            "group": "f2"
+          },
+          {
+            "id": "c7",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Forgot password?"
+            },
+            "label": "Forgot password?",
+            "group": "f2"
+          },
+          {
+            "id": "c8",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "submit-button"
+            },
+            "label": "Log in",
+            "group": "f2"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c5",
+          "password": "c6"
+        },
+        "action": "c8",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "web-aws-iam",
+      "source": {
+        "dataset": "web",
+        "url": "https://us-east-2.signin.aws.amazon.com/oauth",
+        "observed": "2026-10-23",
+        "commit": "381116f"
+      },
+      "slots": [
+        {
+          "name": "Account ID",
+          "value": "123456789012"
+        },
+        "username",
+        "password"
+      ],
+      "observation": {
+        "version": 1,
+        "origin": "https://us-east-2.signin.aws.amazon.com",
+        "path": "/oauth",
+        "language": "en",
+        "title": "Amazon Web Services Sign-In",
+        "headings": ["IAM user sign in"],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "(Don't have?)"
+            },
+            "label": "(Don't have?)",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "account"
+            },
+            "label": "Account ID or alias (Don't have?)",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "username"
+            },
+            "label": "IAM username",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "password"
+            },
+            "label": "Password",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Having trouble?"
+            },
+            "label": "Having trouble?",
+            "group": "f1"
+          },
+          {
+            "id": "c6",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "signin_button"
+            },
+            "label": "Sign in",
+            "group": "f1"
+          },
+          {
+            "id": "c7",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "root_account_signin"
+            },
+            "label": "Sign in using root user email",
+            "group": "f1"
+          },
+          {
+            "id": "c8",
+            "role": "button",
+            "target": {
+              "by": "test-id",
+              "value": "create-a-new-aws-account"
+            },
+            "label": "Create a new AWS account",
+            "group": "f1"
+          },
+          {
+            "id": "c9",
+            "role": "link",
+            "target": {
+              "by": "test-id",
+              "value": "terms-of-us-link"
+            },
+            "label": "AWS Customer Agreement",
+            "group": "f1"
+          },
+          {
+            "id": "c10",
+            "role": "link",
+            "target": {
+              "by": "test-id",
+              "value": "privacy-link"
+            },
+            "label": "Privacy Notice",
+            "group": "f1"
+          },
+          {
+            "id": "c11",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Cookie Notice"
+            },
+            "label": "Cookie Notice",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "custom-1": "c2",
+          "username": "c3",
+          "password": "c4"
+        },
+        "action": "c6",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "web-digitalocean",
+      "source": {
+        "dataset": "web",
+        "url": "https://cloud.digitalocean.com/login",
+        "observed": "2026-10-23",
+        "commit": "381116f"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://cloud.digitalocean.com",
+        "path": "/login",
+        "language": "en",
+        "title": "Log in to your account | DigitalOcean",
+        "headings": ["Log in to your account"],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "email"
+            },
+            "label": "email *",
+            "placeholder": "Enter your email address",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "password"
+            },
+            "label": "Password *",
+            "placeholder": "Enter your password",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Log In"
+            },
+            "label": "Log In",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Sign In with Google"
+            },
+            "label": "Sign In with Google"
+          },
+          {
+            "id": "c5",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Sign In with GitHub"
+            },
+            "label": "Sign In with GitHub"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c3",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "web-twilio",
+      "source": {
+        "dataset": "web",
+        "url": "https://www.twilio.com/login",
+        "observed": "2026-10-23",
+        "commit": "381116f"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://www.twilio.com",
+        "path": "/login",
+        "language": "en",
+        "title": "Twilio",
+        "headings": ["Welcome"],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "email"
+            },
+            "label": "Email address",
+            "placeholder": "[email]",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "email-next"
+            },
+            "label": "Continue",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Create an account for free"
+            },
+            "label": "Create an account for free",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1"
+        },
+        "action": "c2",
+        "purpose": "advance"
+      }
+    },
+    {
+      "id": "web-capitalone-top",
+      "source": {
+        "dataset": "web",
+        "url": "https://www.capitalone.com/",
+        "observed": "2026-10-23",
+        "commit": "381116f"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://www.capitalone.com",
+        "path": "/",
+        "language": "en",
+        "title": "Capital One | Credit Cards, Checking, Savings & Auto Loans",
+        "headings": [
+          "Explore Capital One’s Banking and Financial Services",
+          "Checking accounts for student life",
+          "Meet Capital One",
+          "Financial wellness",
+          "Built-in benefits",
+          "Find the right card for you",
+          "Bank with confidence",
+          "Find a car you love"
+        ],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "ods-input-0"
+            },
+            "label": "Username",
+            "group": "f1",
+            "maxLength": 50
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "ods-input-1"
+            },
+            "label": "Password",
+            "group": "f1",
+            "maxLength": 64
+          },
+          {
+            "id": "c3",
+            "role": "checkbox",
+            "target": {
+              "by": "id",
+              "value": "rememberMe"
+            },
+            "label": "Remember me",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "link",
+            "target": {
+              "by": "id",
+              "value": "forgotUnpw"
+            },
+            "label": "Forgot username or password?",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "noAcctSubmit"
+            },
+            "label": "Sign in",
+            "group": "f1"
+          },
+          {
+            "id": "c6",
+            "role": "link",
+            "target": {
+              "by": "id",
+              "value": "setUpAccess"
+            },
+            "label": "Set up online access",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c5",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "web-capitalone",
+      "source": {
+        "dataset": "web",
+        "url": "https://verified.capitalone.com/auth/signin",
+        "observed": "2026-10-23",
+        "commit": "381116f"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://verified.capitalone.com",
+        "path": "/auth/signin",
+        "language": "en",
+        "title": "Sign In",
+        "headings": ["Sign In"],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "usernameInputField"
+            },
+            "label": "Username",
+            "autocomplete": "username",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "pwInputField"
+            },
+            "label": "Password",
+            "group": "f1",
+            "inputMode": "text"
+          },
+          {
+            "id": "c3",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Sign in"
+            },
+            "label": "Sign in",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Forgot Username or Password?"
+            },
+            "label": "Forgot Username or Password?"
+          },
+          {
+            "id": "c5",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Set Up Online Access"
+            },
+            "label": "Set Up Online Access"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c3",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "web-citi-top",
+      "source": {
+        "dataset": "web",
+        "url": "https://www.citi.com/",
+        "observed": "2026-10-23",
+        "commit": "381116f"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://www.citi.com",
+        "path": "/",
+        "language": "en",
+        "title": "Online Banking, Mortgages, Personal Loans, Investing | Citi.com",
+        "headings": [
+          "Explore Citi® / AAdvantage® cards",
+          "20,000 bonus points",
+          "Earn a $325 Checking Bonus",
+          "Great for Balance Transfers",
+          "Go Big with Cash Back Rewards",
+          "Earn more with Citi Premium Boost"
+        ],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "username"
+            },
+            "label": "User ID",
+            "group": "f1",
+            "maxLength": 50
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "password"
+            },
+            "label": "Password",
+            "group": "f1",
+            "maxLength": 256
+          },
+          {
+            "id": "c3",
+            "role": "checkbox",
+            "target": {
+              "by": "id",
+              "value": "cds-checkbox2-0"
+            },
+            "label": "Remember User ID",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "signInBtn"
+            },
+            "label": "Sign On",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "link",
+            "target": {
+              "by": "id",
+              "value": "register_acc"
+            },
+            "label": "Register",
+            "group": "f1"
+          },
+          {
+            "id": "c6",
+            "role": "link",
+            "target": {
+              "by": "id",
+              "value": "activate_card"
+            },
+            "label": "Activate",
+            "group": "f1"
+          },
+          {
+            "id": "c7",
+            "role": "link",
+            "target": {
+              "by": "id",
+              "value": "RequestUserIDReminder"
+            },
+            "label": "User ID",
+            "group": "f1"
+          },
+          {
+            "id": "c8",
+            "role": "link",
+            "target": {
+              "by": "id",
+              "value": "ForgotPassword"
+            },
+            "label": "Password",
+            "group": "f1"
+          },
+          {
+            "id": "c9",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "qrButton"
+            },
+            "label": "Passwordless Sign On",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c4",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "web-usbank-top",
+      "source": {
+        "dataset": "web",
+        "url": "https://www.usbank.com/index.html",
+        "observed": "2026-10-23",
+        "commit": "381116f"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://www.usbank.com",
+        "path": "/index.html",
+        "language": "en",
+        "title": "Personal Banking, Credit Cards, Loans & Investing | U.S. Bank",
+        "headings": [
+          "Account login",
+          "Personal Banking",
+          "Score up to $450 with U.S. Bank Smartly® Checking",
+          "U.S. Bank checking offer",
+          "Choose Smartly Checking",
+          "Business Essentials",
+          "Earn 2% cash back on every purchase.",
+          "Investing Insights"
+        ],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "input_aw-personal-id"
+            },
+            "label": "Username",
+            "autocomplete": "username",
+            "group": "f1",
+            "maxLength": 100,
+            "inputMode": "text"
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "input_aw-password"
+            },
+            "label": "Password",
+            "autocomplete": "current-password",
+            "group": "f1",
+            "maxLength": 100,
+            "inputMode": "text"
+          },
+          {
+            "id": "c3",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Show Password"
+            },
+            "label": "Show Password",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "login-button-continue"
+            },
+            "label": "Log in with password",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "usePassword-button"
+            },
+            "label": "Use passkey",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c4",
+        "purpose": "submit",
+        "passkeyButton": "c5"
+      }
+    },
+    {
+      "id": "web-robinhood",
+      "source": {
+        "dataset": "web",
+        "url": "https://robinhood.com/login",
+        "observed": "2026-10-23",
+        "commit": "381116f"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://robinhood.com",
+        "path": "/login",
+        "language": "en",
+        "title": "Log In | Robinhood",
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "name",
+              "value": "username"
+            },
+            "label": "Email",
+            "autocomplete": "username",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "current-password"
+            },
+            "label": "Password",
+            "autocomplete": "current-password",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Log In"
+            },
+            "label": "Log In",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Help"
+            },
+            "label": "Help",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "button",
+            "target": {
+              "by": "test-id",
+              "value": "GoogleSsoCodeButton"
+            },
+            "label": "Continue with Google",
+            "group": "f1"
+          },
+          {
+            "id": "c6",
+            "role": "button",
+            "target": {
+              "by": "test-id",
+              "value": "AppleSsoCodeButton"
+            },
+            "label": "Continue with Apple",
+            "group": "f1"
+          },
+          {
+            "id": "c7",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Create an account"
+            },
+            "label": "Create an account",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c3",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "web-natwest-top",
+      "source": {
+        "dataset": "web",
+        "url": "https://www.natwest.com/",
+        "observed": "2026-10-23",
+        "commit": "381116f"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://www.natwest.com",
+        "path": "/",
+        "language": "en",
+        "title": "NatWest Online – Bank Accounts, Mortgages, Loans and Savings",
+        "headings": [
+          "Time to explore our 1 year Fixed Rate ISA? 4.25% AER/Tax free p.a. (fixed)",
+          "Banking",
+          "Cash ISA rules are changing – here's what it could mean for your money",
+          "The bank for all ages and stages",
+          "Easy app banking",
+          "An app that gives you financial control",
+          "Stay on top of your credit score",
+          "Budget better with pots"
+        ],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "Search"
+            },
+            "label": "Search",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Search"
+            },
+            "label": "search",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "abstain"
+      }
+    },
+    {
+      "id": "web-piazza",
+      "source": {
+        "dataset": "web",
+        "url": "https://piazza.com/account/login",
+        "observed": "2026-10-23",
+        "commit": "381116f"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://piazza.com",
+        "path": "/account/login",
+        "language": "en",
+        "title": "Piazza • Ask. Answer. Explore. Whenever.",
+        "headings": [
+          "The incredibly easy, incredibly engaging Q&A platform",
+          "Save time and help students learn using the power of community",
+          "Over 100,000 professors have chosen Piazza. Millions of students in thousands of universities in 90 countries are using",
+          "Click on an instructor to see why",
+          "Hear from professors on how they use Piazza",
+          "Click on a lecture to learn more",
+          "Learn how Piazza works for your subject",
+          "Click subject to view"
+        ],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Close"
+            },
+            "label": "Close login modal"
+          },
+          {
+            "id": "c2",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "email_field"
+            },
+            "label": "Email address",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "password_field"
+            },
+            "label": "user password",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "password_toggle"
+            },
+            "label": "Show password",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "checkbox",
+            "target": {
+              "by": "id",
+              "value": "remember"
+            },
+            "label": "Remember me",
+            "group": "f1"
+          },
+          {
+            "id": "c6",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "modal_login_button"
+            },
+            "label": "Log in",
+            "group": "f1"
+          },
+          {
+            "id": "c7",
+            "role": "link",
+            "target": {
+              "by": "id",
+              "value": "forgot_password_button"
+            },
+            "label": "Forgot your password?",
+            "group": "f1"
+          },
+          {
+            "id": "c8",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Login with your school's credentials (SSO)"
+            },
+            "label": "Login with your school's credentials (SSO)",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c2",
+          "password": "c3"
+        },
+        "action": "c6",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "web-overleaf",
+      "source": {
+        "dataset": "web",
+        "url": "https://www.overleaf.com/login",
+        "observed": "2026-10-23",
+        "commit": "381116f"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://www.overleaf.com",
+        "path": "/login",
+        "language": "en",
+        "title": "Log in to Overleaf - Overleaf, Online LaTeX Editor",
+        "headings": ["Log in"],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Log in with Google"
+            },
+            "label": "Log in with Google",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Log in with ORCID"
+            },
+            "label": "Log in with ORCID",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Log in with IEEE"
+            },
+            "label": "Log in with IEEE",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "email",
+            "target": {
+              "by": "id",
+              "value": "email"
+            },
+            "label": "Email",
+            "autocomplete": "username",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "password"
+            },
+            "label": "Password",
+            "autocomplete": "current-password",
+            "group": "f1"
+          },
+          {
+            "id": "c6",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Log in"
+            },
+            "label": "Log in",
+            "group": "f1"
+          },
+          {
+            "id": "c7",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Forgot password?"
+            },
+            "label": "Forgot password?",
+            "group": "f1"
+          },
+          {
+            "id": "c8",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Log in with SSO"
+            },
+            "label": "Log in with SSO",
+            "group": "f1"
+          },
+          {
+            "id": "c9",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Register"
+            },
+            "label": "Register",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c4",
+          "password": "c5"
+        },
+        "action": "c6",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "web-orcid",
+      "source": {
+        "dataset": "web",
+        "url": "https://orcid.org/signin",
+        "observed": "2026-10-23",
+        "commit": "381116f"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://orcid.org",
+        "path": "/signin",
+        "language": "en",
+        "title": "Sign in - ORCID",
+        "headings": ["Sign in to ORCID", "ORCID Cookie Consent"],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "cy-search"
+            },
+            "label": "Search the ORCID registry",
+            "autocomplete": "off",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "cy-search-btn"
+            },
+            "label": "Search the ORCID registry",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "username-input"
+            },
+            "label": "Email or ORCID iD",
+            "placeholder": "Email or 16-digit ORCID iD",
+            "group": "f2"
+          },
+          {
+            "id": "c4",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "password"
+            },
+            "label": "Password",
+            "placeholder": "Your ORCID password",
+            "group": "f2"
+          },
+          {
+            "id": "c5",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "signin-button"
+            },
+            "label": "Sign in to ORCID",
+            "group": "f2"
+          },
+          {
+            "id": "c6",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "forgot-password-button"
+            },
+            "label": "Forgot your password or ORCID iD?",
+            "group": "f2"
+          },
+          {
+            "id": "c7",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "access-through-your-institution-button"
+            },
+            "label": "Access through your institution"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c3",
+          "password": "c4"
+        },
+        "action": "c5",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "web-jstor-challenge",
+      "source": {
+        "dataset": "web",
+        "url": "https://www.jstor.org/action/showLoginPage",
+        "observed": "2026-10-23",
+        "commit": "381116f"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://www.jstor.org",
+        "path": "/action/showLoginPage",
+        "language": "en",
+        "title": "Client Challenge",
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "capInput"
+            },
+            "label": "Enter the characters seen in the image below: Answer",
+            "autocomplete": "off",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "capSubmit"
+            },
+            "label": "Submit",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "abstain"
+      }
+    },
+    {
+      "id": "web-tumblr",
+      "source": {
+        "dataset": "web",
+        "url": "https://www.tumblr.com/login",
+        "observed": "2026-10-23",
+        "commit": "381116f"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://www.tumblr.com",
+        "path": "/login",
+        "language": "en",
+        "title": "Register - Login",
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "name",
+              "value": "email"
+            },
+            "label": "email",
+            "placeholder": "Email",
+            "autocomplete": "email",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "name",
+              "value": "password"
+            },
+            "label": "password",
+            "placeholder": "Password",
+            "autocomplete": "current-password",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Terms of Service"
+            },
+            "label": "Terms of Service",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Privacy Policy"
+            },
+            "label": "Privacy Policy",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Log in"
+            },
+            "label": "Log in",
+            "group": "f1"
+          },
+          {
+            "id": "c6",
+            "role": "text",
+            "target": {
+              "by": "name",
+              "value": "q"
+            },
+            "label": "Search",
+            "placeholder": "Search Tumblr",
+            "autocomplete": "off",
+            "group": "f2"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c5",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "web-flickr",
+      "source": {
+        "dataset": "web",
+        "url": "https://identity.flickr.com/login",
+        "observed": "2026-10-23",
+        "commit": "381116f"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://identity.flickr.com",
+        "path": "/login",
+        "language": "en",
+        "title": "Flickr Login",
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "email",
+            "target": {
+              "by": "id",
+              "value": "login-email"
+            },
+            "label": "Email address",
+            "group": "f1",
+            "maxLength": 128
+          },
+          {
+            "id": "c2",
+            "role": "button",
+            "target": {
+              "by": "test-id",
+              "value": "identity-form-submit-button"
+            },
+            "label": "Next",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1"
+        },
+        "action": "c2",
+        "purpose": "advance"
+      }
+    },
+    {
+      "id": "web-hulu",
+      "source": {
+        "dataset": "web",
+        "url": "https://auth.hulu.com/web/login/enter-email",
+        "observed": "2026-10-23",
+        "commit": "381116f"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://auth.hulu.com",
+        "path": "/web/login/enter-email",
+        "language": "en",
+        "title": "Hulu Login | Hulu",
+        "headings": ["Enter your email to continue"],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "email",
+            "target": {
+              "by": "id",
+              "value": "email-field"
+            },
+            "label": "Email",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "button",
+            "target": {
+              "by": "test-id",
+              "value": "continue-btn"
+            },
+            "label": "Continue",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1"
+        },
+        "action": "c2",
+        "purpose": "advance"
+      }
+    },
+    {
+      "id": "web-disneyplus",
+      "source": {
+        "dataset": "web",
+        "url": "https://www.disneyplus.com/identity/login/enter-email",
+        "observed": "2026-10-23",
+        "commit": "381116f"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://www.disneyplus.com",
+        "path": "/identity/login/enter-email",
+        "language": "en",
+        "title": "Login to Disney+ | Login or Signup",
+        "headings": ["Enter your email to continue"],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "email",
+            "target": {
+              "by": "id",
+              "value": "email"
+            },
+            "label": "Email",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "button",
+            "target": {
+              "by": "test-id",
+              "value": "continue-btn"
+            },
+            "label": "Continue",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1"
+        },
+        "action": "c2",
+        "purpose": "advance"
+      }
+    },
+    {
+      "id": "web-crunchyroll",
+      "source": {
+        "dataset": "web",
+        "url": "https://sso.crunchyroll.com/login",
+        "observed": "2026-10-23",
+        "commit": "381116f"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://sso.crunchyroll.com",
+        "path": "/login",
+        "language": "en",
+        "title": "Crunchyroll Login: Stream Anime Online with Your Account",
+        "headings": ["Log In"],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "email",
+            "target": {
+              "by": "name",
+              "value": "email"
+            },
+            "label": "Email Address",
+            "autocomplete": "email",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "name",
+              "value": "password"
+            },
+            "label": "Password",
+            "autocomplete": "current-password",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Log In"
+            },
+            "label": "The submit button will be enabled once all required fields are correctly filled out.",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Forgot password?"
+            },
+            "label": "Forgot password?",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Create Account"
+            },
+            "label": "Create Account",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c3",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "web-scribd",
+      "source": {
+        "dataset": "web",
+        "url": "https://auth.scribd.com/u/login",
+        "observed": "2026-10-23",
+        "commit": "381116f"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://auth.scribd.com",
+        "path": "/u/login",
+        "language": "en",
+        "title": "Log in | Scribd",
+        "headings": ["Welcome back"],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "username"
+            },
+            "label": "Email address",
+            "autocomplete": "email",
+            "group": "f1",
+            "inputMode": "email"
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "password"
+            },
+            "label": "Password",
+            "autocomplete": "current-password",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Reset password"
+            },
+            "label": "Reset password",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "button",
+            "target": {
+              "by": "name",
+              "value": "action"
+            },
+            "label": "Continue",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c4",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "web-khanacademy",
+      "source": {
+        "dataset": "web",
+        "url": "https://www.khanacademy.org/login",
+        "observed": "2026-10-23",
+        "commit": "381116f"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://www.khanacademy.org",
+        "path": "/login",
+        "language": "en",
+        "title": "Khan Academy",
+        "headings": ["Log in now!", "Or log in with email", "Use of cookies"],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "username-field"
+            },
+            "label": "Email or username",
+            "placeholder": "[email]",
+            "description": "required",
+            "autocomplete": "username",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "current-password-field"
+            },
+            "label": "Password",
+            "description": "required Must be at least 8 characters long and can't be a commonly used password.",
+            "autocomplete": "current-password",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Forgot password?"
+            },
+            "label": "Forgot password?",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "button",
+            "target": {
+              "by": "test-id",
+              "value": "log-in-submit-button"
+            },
+            "label": "Log in",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Khan Academy Terms of Service"
+            },
+            "label": "Khan Academy Terms of Service",
+            "group": "f1"
+          },
+          {
+            "id": "c6",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Privacy Policy"
+            },
+            "label": "Privacy Policy",
+            "group": "f1"
+          },
+          {
+            "id": "c7",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Sign up today"
+            },
+            "label": "Sign up today",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c4",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "web-grammarly",
+      "source": {
+        "dataset": "web",
+        "url": "https://www.grammarly.com/signin",
+        "observed": "2026-10-23",
+        "commit": "381116f"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://www.grammarly.com",
+        "path": "/signin",
+        "language": "en",
+        "title": "Login | Grammarly",
+        "headings": ["Sign in"],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "link",
+            "target": {
+              "by": "id",
+              "value": "supplementaryFlowLink"
+            },
+            "label": "I don't have an account",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "email",
+            "target": {
+              "by": "id",
+              "value": "email"
+            },
+            "label": "Email",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Continue"
+            },
+            "label": "Continue",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Can't sign in?"
+            },
+            "label": "Can't sign in?",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c2"
+        },
+        "action": "c3",
+        "purpose": "advance"
+      }
+    },
+    {
+      "id": "web-mural",
+      "source": {
+        "dataset": "web",
+        "url": "https://app.mural.co/signin",
+        "observed": "2026-10-23",
+        "commit": "381116f"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://app.mural.co",
+        "path": "/signin",
+        "language": "en",
+        "title": "Login to Your Mural Account and Collaborate • Mural",
+        "headings": ["Manage cookie preferences", "Log in"],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "email",
+            "target": {
+              "by": "id",
+              "value": "work-email-input"
+            },
+            "label": "Work email",
+            "placeholder": "Enter your work email",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "button-signin"
+            },
+            "label": "Log in",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1"
+        },
+        "action": "c2",
+        "purpose": "advance"
+      }
+    },
+    {
+      "id": "web-mailchimp",
+      "source": {
+        "dataset": "web",
+        "url": "https://login.mailchimp.com/",
+        "observed": "2026-10-23",
+        "commit": "381116f"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://login.mailchimp.com",
+        "path": "/",
+        "language": "en",
+        "title": "Login | Mailchimp",
+        "headings": ["Log in to Mailchimp"],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "link",
+            "target": {
+              "by": "id",
+              "value": "create-account-link"
+            },
+            "label": "Create an account",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "username"
+            },
+            "label": "Username or Email",
+            "group": "f1",
+            "maxLength": 100
+          },
+          {
+            "id": "c3",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "submit-btn"
+            },
+            "label": "Log in",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Forgot username?"
+            },
+            "label": "Forgot username?",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Forgot password?"
+            },
+            "label": "Forgot password?",
+            "group": "f1"
+          },
+          {
+            "id": "c6",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "loginWithGoogle"
+            },
+            "label": "Continue with Google",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c2"
+        },
+        "action": "c3",
+        "purpose": "advance"
+      }
+    },
+    {
+      "id": "web-sendgrid",
+      "source": {
+        "dataset": "web",
+        "url": "https://login.sendgrid.com/login/identifier",
+        "observed": "2026-10-23",
+        "commit": "381116f"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://login.sendgrid.com",
+        "path": "/login/identifier",
+        "language": "en",
+        "title": "login",
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "username"
+            },
+            "label": "Username (this may be your email address)",
+            "autocomplete": "username",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Forgot your username?"
+            },
+            "label": "Forgot your username?",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Continue"
+            },
+            "label": "Continue",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1"
+        },
+        "action": "c3",
+        "purpose": "advance"
+      }
+    },
+    {
+      "id": "web-mailgun",
+      "source": {
+        "dataset": "web",
+        "url": "https://login.mailgun.com/login/",
+        "observed": "2026-10-23",
+        "commit": "381116f"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://login.mailgun.com",
+        "path": "/login/",
+        "language": "en",
+        "title": "Login | Mailgun",
+        "headings": ["Log in to Mailgun"],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "email",
+            "target": {
+              "by": "id",
+              "value": "username"
+            },
+            "label": "Email Address",
+            "placeholder": "Email Address",
+            "autocomplete": "username",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "next"
+            },
+            "label": "Next",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1"
+        },
+        "action": "c2",
+        "purpose": "advance"
+      }
+    },
+    {
+      "id": "web-helpscout",
+      "source": {
+        "dataset": "web",
+        "url": "https://secure.helpscout.net/members/login",
+        "observed": "2026-10-23",
+        "commit": "381116f"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://secure.helpscout.net",
+        "path": "/members/login",
+        "language": "en",
+        "title": "Help Scout - Log In",
+        "headings": ["Log In", "From Conversations to Context"],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "email"
+            },
+            "label": "Enter your Email Address",
+            "placeholder": "Email Address",
+            "autocomplete": "off",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "password"
+            },
+            "label": "Enter your Password",
+            "placeholder": "Password",
+            "autocomplete": "off",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "checkbox",
+            "target": {
+              "by": "id",
+              "value": "rememberMe"
+            },
+            "label": "Remember me for 30 days",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "logInButton"
+            },
+            "label": "Log In",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "js-google-signin"
+            },
+            "label": "Sign in with Google",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c4",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "web-xero",
+      "source": {
+        "dataset": "web",
+        "url": "https://login.xero.com/identity/user/login",
+        "observed": "2026-10-23",
+        "commit": "381116f"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://login.xero.com",
+        "path": "/identity/user/login",
+        "language": "en",
+        "title": "Login | Xero Accounting Software",
+        "headings": ["Log in to your account"],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "email",
+            "target": {
+              "by": "id",
+              "value": "xl-form-email"
+            },
+            "label": "Email",
+            "autocomplete": "username",
+            "group": "f1",
+            "maxLength": 256
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "xl-form-password"
+            },
+            "label": "Password",
+            "autocomplete": "off",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "xl-form-submit"
+            },
+            "label": "Log in",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "link",
+            "target": {
+              "by": "id",
+              "value": "xl-forgot-password-link"
+            },
+            "label": "Forgot your password?",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "link",
+            "target": {
+              "by": "id",
+              "value": "xl-cant-log-in-link"
+            },
+            "label": "Can't log in?",
+            "group": "f1"
+          },
+          {
+            "id": "c6",
+            "role": "link",
+            "target": {
+              "by": "id",
+              "value": "xl-sign-up-link"
+            },
+            "label": "Sign up",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c3",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "web-docusign-top",
+      "source": {
+        "dataset": "web",
+        "url": "https://www.docusign.com/",
+        "observed": "2026-10-23",
+        "commit": "381116f"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://www.docusign.com",
+        "path": "/",
+        "language": "en",
+        "title": "Docusign | #1 in Electronic Signature and Intelligent Agreement Management",
+        "headings": [
+          "Everything you need to agree",
+          "AI-powered agreement management",
+          "Find, analyze, and act on agreements powered by AI",
+          "Send, sign, and track documents",
+          "Automate agreement processes",
+          "Build and scale with developer tools, MCP servers, and APIs",
+          "Handle complex agreement workflows with AI agents",
+          "Optimize your contract lifecycle"
+        ],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "link",
+            "target": {
+              "by": "id",
+              "value": "3lkDracMOyJyNXvbaNZmp2"
+            },
+            "label": "Terms & Conditions",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "link",
+            "target": {
+              "by": "id",
+              "value": "3eHPhvBJVKe654tKx996ZD"
+            },
+            "label": "Privacy Policy.",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "workEmail"
+            },
+            "label": "[email]",
+            "group": "f1",
+            "maxLength": 100
+          },
+          {
+            "id": "c4",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Get Started"
+            },
+            "label": "Get Started",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "abstain"
+      }
+    },
+    {
+      "id": "web-docusign",
+      "source": {
+        "dataset": "web",
+        "url": "https://account.docusign.com/",
+        "observed": "2026-10-23",
+        "commit": "381116f"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://account.docusign.com",
+        "path": "/",
+        "language": "en",
+        "title": "Docusign Login - Enter email to start sign in",
+        "headings": ["Log in to Docusign"],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "email",
+            "target": {
+              "by": "name",
+              "value": "email"
+            },
+            "label": "Email",
+            "placeholder": "Enter email",
+            "autocomplete": "username",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Next"
+            },
+            "label": "Next",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1"
+        },
+        "action": "c2",
+        "purpose": "advance"
+      }
+    },
+    {
+      "id": "web-costco",
+      "source": {
+        "dataset": "web",
+        "url": "https://signin.costco.com/[id]/B2C_1A_SSO_WCS_signup_signin_214/oauth2/v2.0/authorize",
+        "observed": "2026-10-23",
+        "commit": "381116f"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://signin.costco.com",
+        "path": "/[id]/B2C_1A_SSO_WCS_signup_signin_214/oauth2/v2.0/authorize",
+        "language": "en",
+        "title": "Sign In | Costco",
+        "headings": ["Sign In", "Need an account?", "Not a Costco member?"],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "signInName"
+            },
+            "label": "Email Address",
+            "autocomplete": "email",
+            "group": "f1",
+            "maxLength": 97
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "password"
+            },
+            "label": "Password",
+            "autocomplete": "current-password",
+            "group": "f1",
+            "maxLength": 16
+          },
+          {
+            "id": "c3",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "PasswordResetUsingEmailAddressExchange"
+            },
+            "label": "Forgot Password?",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "checkbox",
+            "target": {
+              "by": "id",
+              "value": "rememberMe"
+            },
+            "label": "Keep me signed in",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "seeDetails"
+            },
+            "label": "info",
+            "group": "f1"
+          },
+          {
+            "id": "c6",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "next"
+            },
+            "label": "Sign In",
+            "group": "f1"
+          },
+          {
+            "id": "c7",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "SignInWithOTPUsingEmailAddressExchange"
+            },
+            "label": "Receive a Passcode",
+            "group": "f1"
+          },
+          {
+            "id": "c8",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "NoknokExchangeSelection"
+            },
+            "label": "Sign in with a passkey",
+            "group": "f1"
+          },
+          {
+            "id": "c9",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "needAnAccountTooltip"
+            },
+            "label": "info",
+            "group": "f1"
+          },
+          {
+            "id": "c10",
+            "role": "link",
+            "target": {
+              "by": "id",
+              "value": "createAccount"
+            },
+            "label": "Create Account",
+            "group": "f1"
+          },
+          {
+            "id": "c11",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "notACostcoMemberTooltip"
+            },
+            "label": "info",
+            "group": "f1"
+          },
+          {
+            "id": "c12",
+            "role": "link",
+            "target": {
+              "by": "id",
+              "value": "joinToday"
+            },
+            "label": "Join Today!",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c6",
+        "purpose": "submit",
+        "passkeyButton": "c8"
+      }
+    },
+    {
+      "id": "web-grubhub",
+      "source": {
+        "dataset": "web",
+        "url": "https://www.grubhub.com/login",
+        "observed": "2026-10-23",
+        "commit": "381116f"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://www.grubhub.com",
+        "path": "/login",
+        "language": "en",
+        "title": "Sign In to Grubhub | Order Online | Grubhub",
+        "headings": ["Sign in or create your account"],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Google で続ける"
+            },
+            "label": "Google で続ける"
+          },
+          {
+            "id": "c2",
+            "role": "button",
+            "target": {
+              "by": "test-id",
+              "value": "amazon-login-button"
+            },
+            "label": "Continue with Amazon"
+          },
+          {
+            "id": "c3",
+            "role": "button",
+            "target": {
+              "by": "test-id",
+              "value": "facebook-login-button"
+            },
+            "label": "Continue with Facebook"
+          },
+          {
+            "id": "c4",
+            "role": "email",
+            "target": {
+              "by": "id",
+              "value": "email"
+            },
+            "label": "Email",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "password"
+            },
+            "label": "Password",
+            "autocomplete": "current-password",
+            "group": "f1",
+            "maxLength": 255
+          },
+          {
+            "id": "c6",
+            "role": "button",
+            "target": {
+              "by": "test-id",
+              "value": "call-forgot-password"
+            },
+            "label": "Reset password",
+            "group": "f1"
+          },
+          {
+            "id": "c7",
+            "role": "button",
+            "target": {
+              "by": "test-id",
+              "value": "sign-in-btn"
+            },
+            "label": "Sign in",
+            "group": "f1"
+          },
+          {
+            "id": "c8",
+            "role": "button",
+            "target": {
+              "by": "test-id",
+              "value": "ssi-go-to-create-account"
+            },
+            "label": "Create your account"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c4",
+          "password": "c5"
+        },
+        "action": "c7",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "web-bitflyer-lightning",
+      "source": {
+        "dataset": "web",
+        "url": "https://lightning.bitflyer.com/",
+        "observed": "2026-10-23",
+        "commit": "74d5b3c"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://lightning.bitflyer.com",
+        "path": "/",
+        "language": "en",
+        "title": "Bitcoin Exchange - bitFlyer Lightning",
+        "headings": [
+          "Bitcoin Trading",
+          "Log In",
+          "bitFlyer Lightning is changing the future of Bitcoin trading",
+          "Enhanced transaction tools offer outstanding usability to traders",
+          "The world's top security standards, with fully supported multi-sig transactions",
+          "The most reliable Bitcoin exchange",
+          "How to Use bitFlyer Lightning"
+        ],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "email",
+            "target": {
+              "by": "id",
+              "value": "LoginId"
+            },
+            "label": "Log In",
+            "placeholder": "Email Address",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "Password"
+            },
+            "placeholder": "Password",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "login_btn"
+            },
+            "label": "Log In",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Lost your password?"
+            },
+            "label": "Lost your password?",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Unable to log in"
+            },
+            "label": "Unable to log in",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c3",
+        "purpose": "submit"
+      }
+    }
+  ]
+}

@@ -274,6 +274,12 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       incognito: boolean,
     ) => Promise<boolean | "paused"> | boolean | "paused";
     /**
+     * Whether the tab's Pateat login of the origin signed in and no logout was detected
+     * since. A request there that names its credentials is a re-verification while signed
+     * in, a `confirm` page, on which Pateat never presses; it is handed on (ADR 0035).
+     */
+    reverification?: (tabId: number, origin: string, rpId: string) => Promise<boolean>;
+    /**
      * Decides a `conditional` request of a top document through the login of its page
      * (ADR 0034). Without it, conditional requests are handed on (ADR 0007).
      */
@@ -598,6 +604,20 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
     };
     try {
       const signal = controller.signal;
+      // A re-verification after Pateat's login in the tab: answering it completes the
+      // verification as a press would, so it goes to the browser or Bitwarden, as
+      // `confirm-fill` under the default setting for `confirm` pages (ADR 0035). A
+      // conditional request belongs to a sign-in field and is left to its login (ADR 0034).
+      if (
+        !conditional &&
+        admission.request.allowCredentialIds.length > 0 &&
+        options.reverification &&
+        (await abortable(
+          options.reverification(context.tabId, origin, admission.request.rpId),
+          signal,
+        ))
+      )
+        return { kind: "delegate", reason: "confirm-fill" };
       if (conditional) return await waitForLogin(signal);
       await hold(signal);
       // A failed lookup fails closed: the catch below delegates.

@@ -1,5 +1,8 @@
 import type { LocalSettings } from "@pateat/contracts";
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 import { Pause, Play } from "lucide-react";
+import { i18n } from "../i18n";
 import { Button } from "../options/button";
 import type { PauseLength, StatusResponse } from "../login/choice-wire";
 import { pauseSite } from "../login/pause";
@@ -9,11 +12,15 @@ type Status = Extract<StatusResponse, { ok: true }>;
 type ExcludedSite = LocalSettings["excludedSites"][number];
 
 /** The popup's line while automatic login of the tab's site is paused (ADR 0062). */
-export function pauseLine(until: number | "rule" | "private", timeZone?: string): string {
-  if (until === "private") return "Automatic login is off in private windows";
+export function pauseLine(
+  until: number | "rule" | "private",
+  t: TFunction,
+  timeZone?: string,
+): string {
+  if (until === "private") return t("Automatic login is off in private windows");
   return until === "rule"
-    ? "Paused until turned back on"
-    : `Paused until ${localClock(until, timeZone)}`;
+    ? t("Paused until turned back on")
+    : t("Paused until {{time}}", { time: localClock(until, timeZone) });
 }
 
 /** The options page section that holds automatic login in private windows (ADR 0062). */
@@ -77,15 +84,30 @@ export function siteRules(settings: Pick<LocalSettings, "excludedSites">, origin
   };
 }
 
-/** What the popup offers, shortest first (ADR 0062); `rule` pauses until turned back on. */
+/**
+ * What the popup offers, shortest first (ADR 0062); `rule` pauses until turned back on.
+ * `label` names the button and `done` is the notice once paused, both translated.
+ */
 export const PAUSE_CHOICES: readonly {
   length: PauseLength | "rule";
-  label: string;
-  done: string;
+  label: (t: TFunction) => string;
+  done: (t: TFunction) => string;
 }[] = [
-  { length: "10m", label: "10 minutes", done: "for 10 minutes" },
-  { length: "1h", label: "1 hour", done: "for an hour" },
-  { length: "rule", label: "Until turned back on", done: "until turned back on" },
+  {
+    length: "10m",
+    label: (t) => t("10 minutes"),
+    done: (t) => t("Automatic login on this site is paused for 10 minutes"),
+  },
+  {
+    length: "1h",
+    label: (t) => t("1 hour"),
+    done: (t) => t("Automatic login on this site is paused for an hour"),
+  },
+  {
+    length: "rule",
+    label: (t) => t("Until turned back on"),
+    done: (t) => t("Automatic login on this site is paused until turned back on"),
+  },
 ];
 
 /** The state of the tab's site the pause row shows. */
@@ -117,12 +139,13 @@ export function PauseControl({
   /** Opens the settings page, at `section` when given. */
   onOpenSettings: (section?: string) => void;
 }) {
+  const { t } = useTranslation(undefined, { i18n });
   if (pause.kind === "running")
     return (
       <fieldset className="popup-pause popup-fieldset" aria-labelledby="popup-pause-label">
         <p id="popup-pause-label" className="popup-muted popup-status">
           <Pause size={16} strokeWidth={2} aria-hidden="true" />
-          Pause automatic login
+          {t("Pause automatic login")}
         </p>
         <div className="popup-pause-choices">
           {PAUSE_CHOICES.map((choice) => (
@@ -136,7 +159,7 @@ export function PauseControl({
                 if (!busy) onPause(choice.length);
               }}
             >
-              {choice.label}
+              {choice.label(t)}
             </Button>
           ))}
         </div>
@@ -147,19 +170,19 @@ export function PauseControl({
       <div className="popup-pause">
         <p id="popup-paused" className="popup-muted popup-status">
           <Pause size={16} strokeWidth={2} aria-hidden="true" />
-          {pauseLine("private")}
+          {pauseLine("private", t)}
         </p>
         <a
           id="popup-private-settings"
           href={`options.html#${PRIVATE_WINDOWS_SECTION}`}
           className="popup-link"
-          aria-label="Change automatic login in private windows in settings"
+          aria-label={t("Change automatic login in private windows in settings")}
           onClick={(event) => {
             event.preventDefault();
             onOpenSettings(PRIVATE_WINDOWS_SECTION);
           }}
         >
-          Change in settings
+          {t("Change in settings")}
         </a>
       </div>
     );
@@ -167,30 +190,32 @@ export function PauseControl({
     <div className="popup-pause">
       <p id="popup-paused" className="popup-muted popup-status">
         <Pause size={16} strokeWidth={2} aria-hidden="true" />
-        {pauseLine(pause.kind === "until" ? pause.until : "rule")}
+        {pauseLine(pause.kind === "until" ? pause.until : "rule", t)}
       </p>
       {pause.kind === "shared" ? (
         <div className="popup-pause-shared">
           <p id="popup-site-shared" className="popup-muted">
-            Paused by a rule for other sites too
+            {t("Paused by a rule for other sites too")}
           </p>
           <ul className="popup-rules">
             {pause.rules.map((rule) => (
               <li key={`${rule.hostname} ${rule.includeSubdomains}`}>
                 <span className="popup-choice-main">
                   <span className="popup-choice-title">{rule.hostname}</span>
-                  <span className="popup-choice-sub">and its subdomains</span>
+                  <span className="popup-choice-sub">{t("and its subdomains")}</span>
                 </span>
                 <a
                   href="options.html"
                   className="popup-link"
-                  aria-label={`Change in settings for ${rule.hostname}`}
+                  aria-label={t("Change in settings for {{hostname}}", {
+                    hostname: rule.hostname,
+                  })}
                   onClick={(event) => {
                     event.preventDefault();
                     onOpenSettings();
                   }}
                 >
-                  Change in settings
+                  {t("Change in settings")}
                 </a>
               </li>
             ))}
@@ -208,7 +233,7 @@ export function PauseControl({
           }}
         >
           <Play size={16} strokeWidth={2} aria-hidden="true" />
-          Resume
+          {t("Resume")}
         </Button>
       )}
     </div>

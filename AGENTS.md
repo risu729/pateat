@@ -10,6 +10,10 @@
   an ADR, others in the owning `docs/` page. Land the record with the
   implementation PR or as its own docs PR. A decision that exists only in a chat
   or thread is not recorded.
+- Do not fully trust ADRs or other recorded decisions, even ones recording the
+  owner's instructions; they can be wrong. Check them against the code and current
+  evidence. When you change a recorded owner instruction, tell the owner what changed
+  and why; other approval rules still apply.
 - While a design is still being discussed with the owner, write no ADR, code or
   PR for it until the owner explicitly approves the decisions. Work on decisions
   already approved continues.
@@ -64,7 +68,9 @@
   suite in its own jobs with `PATEAT_SKIP_E2E`
   ([CI](docs/delivery.md#current-foundation-workflows)) is not a skip.
 - An agent that acts on GitHub as the owner's account never pushes to, closes or
-  reopens a PR it did not open.
+  reopens a PR it did not open, except that it closes a PR its own merged PR
+  superseded, after commenting there with a link to that PR (owner, 2026-10-23 12:18
+  UTC).
 - Write every PR, issue, commit, workflow run and URL you mention in PR and issue text
   and in messages to the owner as a Markdown link, never a bare `#123`, SHA or URL.
 

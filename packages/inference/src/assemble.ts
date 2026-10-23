@@ -20,6 +20,7 @@ import {
   type LoginStep,
   type LoginMarkerTarget,
   type LoginTarget,
+  type PageKind,
 } from "@pateat/contracts";
 import { loginMoveFits } from "@pateat/contracts/site";
 import * as v from "valibot";
@@ -49,8 +50,9 @@ export type CompletionRejection =
   | "marker-limit"
   | "origin-mismatch"
   /**
-   * The marker is an element one of the recipe's own steps or handlers uses, on any path:
-   * a marker proves a sign-in wherever it shows.
+   * The marker is an element one of the recipe's own steps, its passkey route or handlers
+   * use, or its account switch or rejection, on any path: a marker proves a sign-in
+   * wherever it shows.
    */
   | "step-target"
   /** The marker is not an element of the judged page. */
@@ -125,7 +127,8 @@ export function entryRecipe(page: {
  * becomes the `passkey` route (ADR 0027); a continuation needs a single-variant recipe and
  * a page with neither. The revision is the next one; the caller stores it with a
  * conditional write. The recipe keeps the first account switch a page names that is not
- * also one of its click targets or its passkey button.
+ * also one of its click targets, its passkey button, a handler's element, its rejection or
+ * a signed-in marker.
  */
 export function appendPageSteps(
   base: LoginRecipe | undefined,
@@ -138,6 +141,8 @@ export function appendPageSteps(
     /** The start page's passkey sign-in button, the `passkey` route (ADR 0027). */
     passkey?: LoginTarget;
     passkeyOnly?: true;
+    /** The page's kind (ADR 0035); a continuation keeps the recipe's own. */
+    pageKind: PageKind;
   },
 ): { ok: true; recipe: LoginRecipe } | { ok: false; reason: AssemblyRejection } {
   const alternatives = page.alternatives ?? [];
@@ -155,10 +160,17 @@ export function appendPageSteps(
   const variants = [steps, ...alternatives];
   const { accountSwitch: kept, ...rest } = base ?? {};
   const passkey = base?.passkey?.target ?? page.passkey;
+  // Elements the switch must not be: the base's handlers, rejection and markers.
+  const taken = [
+    ...(base?.handlers ?? []).flatMap(handlerTargets),
+    ...(base?.rejection ? [base.rejection] : []),
+    ...(base?.completion ?? []).map((marker) => marker.target),
+  ];
   const accountSwitch = [kept, page.accountSwitch].find(
     (target) =>
       target !== undefined &&
       !(passkey && sameTarget(passkey, target)) &&
+      !taken.some((element) => sameTarget(element, target)) &&
       !variants.some((variant) =>
         variant.some((step) => step.kind === "click" && sameTarget(step.target, target)),
       ),
@@ -182,6 +194,7 @@ export function appendPageSteps(
       : {}),
     ...(page.passkeyOnly ? { passkeyOnly: true } : {}),
     ...(page.passkey ? { passkey: { path: steps[0]!.path, target: page.passkey } } : {}),
+    pageKind: base ? base.pageKind : page.pageKind,
     maxSubmissions: Math.max(1, ...variants.map(effects)),
   });
   return recipe.success
@@ -193,7 +206,8 @@ export function appendPageSteps(
  * Adds the judged signed-in marker to a generated recipe in its next revision (ADR 0029):
  * the first one, or one more after those learned before, up to four. A marker proves a
  * sign-in on any path, so it must be an element of the judged page and none of the
- * elements the recipe's steps, passkey route or handlers use on any path. The page must
+ * elements the recipe's steps, passkey route or handlers use on any path, nor its account
+ * switch or rejection. The page must
  * not still show any element a step uses on its own path, nor a field any step fills on
  * any path: a failed sign-in that shows the login form again, on its own path or where
  * the form posted, is not learned as signed in. On a step's own path the marker also
@@ -228,6 +242,9 @@ export function addCompletion(
     ...steps.flatMap(stepTargets),
     ...(base.passkey ? [base.passkey.target] : []),
     ...(base.handlers ?? []).flatMap(handlerTargets),
+    // A login page that shows the switch or the rejection must not read as signed in.
+    ...(base.accountSwitch ? [base.accountSwitch] : []),
+    ...(base.rejection ? [base.rejection] : []),
   ];
   if (own.some((element) => sameTarget(element, target)))
     return { ok: false, reason: "step-target" };

@@ -214,6 +214,8 @@ describe("settings sync on a new pairing", () => {
     expect(service()).toEqual(state(4, { connections: [], ...merged }));
     expect(after()?.revision).toBe(8);
     expect(after()?.settings).toEqual({ connections: [localConnection], ...merged });
+    // A settings page save drafted before the merge names it (ADR 0025).
+    expect(after()?.changes).toEqual([{ revision: 8, cause: "service-sync" }]);
     expect(applied).toHaveBeenCalledOnce();
   });
 
@@ -410,7 +412,7 @@ describe("settings sync after the first", () => {
     });
     transport.settings.mockImplementationOnce(async () => {
       // An automatic account choice saved while the service was being read.
-      await store.update(undefined, (snapshot) => ({
+      await store.update(undefined, "account-choice", (snapshot) => ({
         ...snapshot,
         settings: {
           ...snapshot.settings,
@@ -486,7 +488,7 @@ describe("settings sync after the first", () => {
     const read = store.read.bind(store);
     vi.spyOn(store, "read").mockImplementationOnce(async () => {
       const snapshot = await read();
-      await store.update(undefined, (current) => ({
+      await store.update(undefined, "settings-save", (current) => ({
         ...current,
         settings: { ...current.settings, siteDefaults: [] },
       }));
@@ -513,7 +515,7 @@ describe("settings sync after the first", () => {
     transport.saveSettings.mockImplementationOnce(async (...args) => {
       const result = await save(...args);
       // An unrelated local edit after the upload makes the local write conflict.
-      await store.update(undefined, (current) => ({
+      await store.update(undefined, "settings-save", (current) => ({
         ...current,
         settings: { ...current.settings, bindings: [] },
       }));
@@ -541,7 +543,7 @@ describe("settings sync after the first", () => {
     const save = transport.saveSettings.getMockImplementation()!;
     transport.saveSettings.mockImplementationOnce(async (...args) => {
       const result = await save(...args);
-      await store.update(undefined, (current) => ({
+      await store.update(undefined, "settings-save", (current) => ({
         ...current,
         settings: {
           ...current.settings,
@@ -684,7 +686,7 @@ describe("settings sync after the first", () => {
       deferred: () => running,
     });
     expect(await sync.run(CONNECTION, never)).toBe("busy");
-    await store.update(undefined, (current) => ({
+    await store.update(undefined, "settings-save", (current) => ({
       ...current,
       settings: { ...current.settings, siteDefaults: [account("https://bank.example", "item-c")] },
     }));
@@ -712,7 +714,7 @@ describe("settings sync after the first", () => {
     expect(await sync.run(CONNECTION, never)).toBe("busy");
     expect(base()).toMatchObject({ revision: 6 });
     expect(service().settings?.siteDefaults).toEqual([account("https://bank.example", "item-s")]);
-    await store.update(undefined, (current) => ({
+    await store.update(undefined, "settings-save", (current) => ({
       ...current,
       settings: { ...current.settings, siteDefaults: [account("https://bank.example", "item-c")] },
     }));

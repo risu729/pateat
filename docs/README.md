@@ -56,7 +56,9 @@ sections. Mark anything an agent added beyond the owner's answer as not confirme
 the owner. After acceptance, change an ADR only through a dated amendment section,
 keep the accepted text, and note the amendment in its `Status:`; an ADR that amends
 another also updates the other's `Status:`. Number a new ADR after the highest one
-(0011 stays unused) and add it to the list below in the same PR.
+(0011 stays unused) and add it to the list below in the same PR. An accepted ADR can be
+wrong even where it quotes the owner; fix it through an amendment as above, and give the
+owner the reason when the amendment changes a recorded owner instruction.
 
 - [0001: Local login execution and vault adapters](adr/0001-local-login-boundary.md)
 - [0002: Maintained tools and independent feature implementation](adr/0002-toolchain.md)
@@ -96,6 +98,7 @@ another also updates the other's `Status:`. Number a new ADR after the highest o
 - [0037: Fields located by their visible name](adr/0037-fields-by-visible-name.md)
 - [0038: The toolbar badge and popup show what a login did](adr/0038-login-status-badge.md)
 - [0039: Token-like path segments are sent as `[id]` on every page](adr/0039-redacted-token-path-segments.md)
+- [0043: Extension language preference](adr/0043-extension-language-preference.md)
 - [0048: A learned button goes on to the password on a page that asks how to verify](adr/0048-password-method-button.md)
 - [0049: A login may start at a later step its page shows](adr/0049-start-at-a-later-step.md)
 - [0050: Plain HTTP pages log in with items saved for `http://`](adr/0050-http-pages-for-http-items.md)
@@ -109,6 +112,9 @@ another also updates the other's `Status:`. Number a new ADR after the highest o
 - [0059: The latest Vaultwarden release is a supported server](adr/0059-latest-vaultwarden-server.md)
 - [0062: Log in again after a logout, and pause automatic login](adr/0062-log-in-again-after-a-logout.md)
 - [0063: Switch accounts from the popup](adr/0063-switch-accounts-from-the-popup.md)
+- [0064: A form that shows no button is submitted by Enter in its last field](adr/0064-enter-in-a-form-without-a-button.md)
+- [0071: Elements may be named by their `data-test` attribute](adr/0071-data-test-locators.md)
+- [0072: A field may be named by its `name` within the sign-in form](adr/0072-field-name-in-the-sign-in-form.md)
 
 This layout follows the useful separation in
 [Kogane ADR 0041](https://github.com/risu729/kogane/blob/main/docs/adr/0041-documentation-scope.md),

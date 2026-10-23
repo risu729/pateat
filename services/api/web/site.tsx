@@ -44,8 +44,9 @@ export function SitePage({ client, origin }: { client: ManageClient; origin: str
 
   const current = settings.data?.settings ?? null;
   const rules = exclusionsCovering(current, hostname);
-  // As in the popup, the switch adds or removes only this hostname's own rule; a rule that
-  // also covers other sites is changed on the Sites list.
+  // The switch pauses automatic login on this hostname until turned back on, or resumes it
+  // (ADR 0062); it adds or removes only the hostname's own rule, and a rule that also covers
+  // other sites is changed on the Sites list.
   const broader = rules.find((rule) => rule.includeSubdomains);
   const siteDefault = current?.siteDefaults.find((entry) => entry.origin === origin);
   const bindings = (current?.bindings ?? []).filter((entry) => entry.origin === origin);
@@ -77,19 +78,19 @@ export function SitePage({ client, origin }: { client: ManageClient; origin: str
                 onChange={(event) =>
                   change(
                     event.target.checked
-                      ? allowSite(hostname, `${hostname} allowed`)
+                      ? allowSite(hostname, `${hostname} resumed`)
                       : excludeSite(hostname, false),
                   )
                 }
                 className="relative h-5 w-9 flex-none cursor-pointer appearance-none rounded-full bg-border-strong transition-colors after:absolute after:top-0.5 after:left-0.5 after:size-4 after:rounded-full after:bg-surface after:transition-[left] after:content-[''] checked:bg-accent checked:after:left-[18px] disabled:cursor-default disabled:opacity-50"
               />
-              Pateat on this site
+              Automatic login on this site
             </label>
           )}
         </div>
         {broader && (
           <p id={reasonId} className="text-[13px]/5 text-ink-muted">
-            Excluded with {exclusionLabel(broader)}; allow it on the Sites list
+            Paused with {exclusionLabel(broader)}; resume it on the Sites list
           </p>
         )}
       </div>

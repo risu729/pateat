@@ -1,3 +1,6 @@
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
+import { i18n } from "../i18n";
 import {
   normalizeHostname,
   parseSiteUrl,
@@ -20,7 +23,7 @@ import {
   TriangleAlert,
   UserRound,
 } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "../options/button";
 import { SETTINGS_QUERY_KEY, type SettingsClient } from "../options/client";
 import { siteAccountOptions } from "../options/site-policy";
@@ -73,6 +76,7 @@ export interface PopupHost {
 
 type Saved = Extract<SettingsResponse, { ok: true }>;
 type Tone = "progress" | "success" | "error";
+type NoticeText = (translate: TFunction) => string;
 
 /** The tab's origin when Pateat can run there: an HTTP(S) page with a valid hostname. */
 export function popupOrigin(url: string | undefined): string | undefined {
@@ -119,13 +123,16 @@ function accountCards(
   currentValue: string | undefined,
   usedValue?: string,
 ): AccountCard[] {
+  const t = i18n.t.bind(i18n);
   const cards = options.map((option) => {
     const username = usernameOf(option, accounts);
     return {
       option,
       value: option.value,
       title: username || option.itemName,
-      sub: username ? `${option.itemName} in ${option.connectionLabel}` : option.connectionLabel,
+      sub: username
+        ? t("{{item}} in {{account}}", { item: option.itemName, account: option.connectionLabel })
+        : option.connectionLabel,
       isDefault: option.value === currentValue,
       ...(option.value === usedValue ? { isUsed: true } : {}),
     };
@@ -138,21 +145,26 @@ function accountCards(
   // Cards that would read the same add the item ID's first 8 characters.
   return cards.map(({ option, ...card }) =>
     (seen.get(JSON.stringify([card.title, card.sub])) ?? 0) > 1
-      ? { ...card, sub: `${card.sub}, ID ${option.itemId.slice(0, 8)}` }
+      ? {
+          ...card,
+          sub: t("{{item}}, ID {{id}}", { item: card.sub, id: option.itemId.slice(0, 8) }),
+        }
       : card,
   );
 }
 
 function DefaultBadge() {
+  const { t } = useTranslation(undefined, { i18n });
   return (
     <span className="popup-badge">
       <Star size={12} strokeWidth={2} aria-hidden="true" />
-      Default
+      {t("Default")}
     </span>
   );
 }
 
 function CardBody({ card }: { card: Omit<AccountCard, "value"> }) {
+  const { t } = useTranslation(undefined, { i18n });
   return (
     <>
       <span className="popup-avatar">
@@ -162,7 +174,7 @@ function CardBody({ card }: { card: Omit<AccountCard, "value"> }) {
         <span className="popup-choice-title">{card.title}</span>
         <span className="popup-choice-sub">{card.sub}</span>
       </span>
-      {card.isUsed && <span className="popup-badge">Used in this tab</span>}
+      {card.isUsed && <span className="popup-badge">{t("Used in this tab")}</span>}
       {card.isDefault && <DefaultBadge />}
     </>
   );
@@ -182,6 +194,7 @@ function AccountChoices({
   disabled: boolean;
   onChange: (value: string) => void;
 }) {
+  const { t } = useTranslation(undefined, { i18n });
   return (
     <div className="popup-choices">
       {cards.map((card) => (
@@ -192,7 +205,16 @@ function AccountChoices({
             value={card.value}
             checked={checked === card.value}
             disabled={disabled}
-            aria-label={`${card.title}, ${card.sub}${card.isUsed ? ", used in this tab" : ""}${card.isDefault ? ", default" : ""}`}
+            aria-label={t(
+              card.isUsed
+                ? card.isDefault
+                  ? "{{title}}, {{sub}}, used in this tab, default"
+                  : "{{title}}, {{sub}}, used in this tab"
+                : card.isDefault
+                  ? "{{title}}, {{sub}}, default"
+                  : "{{title}}, {{sub}}",
+              { title: card.title, sub: card.sub },
+            )}
             onChange={() => onChange(card.value)}
           />
           <CardBody card={card} />
@@ -237,15 +259,33 @@ export function SiteApp({
   host: PopupHost;
   listingWaitMs?: number;
 }) {
+  const { t } = useTranslation(undefined, { i18n });
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState<{ text: string; tone: Tone }>({ text: "", tone: "success" });
+  const [notice, setNotice] = useState<{ text?: NoticeText; tone: Tone }>({ tone: "success" });
   const [chosen, setChosen] = useState("");
   const [picked, setPicked] = useState("");
   const [makeDefault, setMakeDefault] = useState<boolean>();
   // An account switch's pick is kept for this browser session unless made the default.
   const [switchDefault, setSwitchDefault] = useState(false);
-  const say = (text: string, tone: Tone) => setNotice({ text, tone });
+  const say = (text: NoticeText, tone: Tone) => setNotice({ text, tone });
+  // Buttons that start a change are only marked disabled while it runs, since Chrome moves
+  // focus away from a focused control that becomes disabled. A control the result
+  // removes or disables, such as Remove default once the default is gone, leaves focus on
+  // the result message, so a keyboard user is not sent back to the top of the popup. A
+  // mouse click also focuses the button, so the move does not scroll.
+  const message = useRef<HTMLOutputElement>(null);
+  const wasBusy = useRef(false);
+  useEffect(() => {
+    const focused = document.activeElement;
+    if (
+      wasBusy.current &&
+      !busy &&
+      (!focused || focused === document.body || (focused as HTMLButtonElement).disabled)
+    )
+      message.current?.focus({ preventScroll: true });
+    wasBusy.current = busy;
+  }, [busy]);
   const tab = useQuery({
     queryKey: ["popup", "tab"],
     queryFn: async () => (await host.currentTab()) ?? null,
@@ -319,12 +359,15 @@ export function SiteApp({
   });
 
   /** Saves a change to the settings; false when it was not saved. */
-  async function change(update: (value: LocalSettings) => void, done: string): Promise<boolean> {
+  async function change(
+    update: (value: LocalSettings) => void,
+    done: NoticeText,
+  ): Promise<boolean> {
     if (!saved || busy) return false;
     const next = structuredClone(saved.snapshot.settings);
     update(next);
     setBusy(true);
-    say("Saving…", "progress");
+    say((translate) => translate("Saving…"), "progress");
     try {
       const response = await client.saveSettings({
         version: 1,
@@ -341,12 +384,18 @@ export function SiteApp({
       }
       if (response.error.code === "revision-conflict") {
         await settings.refetch();
-        say("Changed elsewhere and reloaded. Nothing was changed.", "error");
-      } else say("The change could not be saved", "error");
+        say(
+          (translate) => translate("Changed elsewhere and reloaded. Nothing was changed."),
+          "error",
+        );
+      } else say((translate) => translate("The change could not be saved"), "error");
     } catch {
       // The store may still have saved it; reopening shows the saved settings.
       say(
-        "The change may not have been saved. Reopen this popup to see the saved settings.",
+        (translate) =>
+          translate(
+            "The change may not have been saved. Reopen this popup to see the saved settings.",
+          ),
         "error",
       );
     } finally {
@@ -363,7 +412,7 @@ export function SiteApp({
   ) {
     if (tabId === undefined || busy) return;
     setBusy(true);
-    say("Starting the login…", "progress");
+    say((translate) => translate("Starting the login…"), "progress");
     try {
       const response = await choices.pick({
         tabId,
@@ -374,9 +423,15 @@ export function SiteApp({
       });
       if (response.ok) {
         say(
-          asDefault
-            ? `Logging in with ${selected.name}. It becomes the default once the login succeeds.`
-            : `Logging in with ${selected.name}`,
+          (translate) =>
+            asDefault
+              ? translate(
+                  "Logging in with {{name}}. It becomes the default once the login succeeds.",
+                  {
+                    name: selected.name,
+                  },
+                )
+              : translate("Logging in with {{name}}", { name: selected.name }),
           "success",
         );
         // The login runs in the page from here; the popup has nothing left to show.
@@ -385,10 +440,18 @@ export function SiteApp({
       }
       // The saved default stays when its own pick fails, so only another account is said
       // not to have become the default.
-      say(pickFailure(response.reason, selected.name, asDefault && !isDefault), "error");
+      say(
+        (translate) =>
+          pickFailure(response.reason, selected.name, asDefault && !isDefault, translate),
+        "error",
+      );
       await choice.refetch();
     } catch {
-      say("The login could not be started. Reopen this popup and try again.", "error");
+      say(
+        (translate) =>
+          translate("The login could not be started. Reopen this popup and try again."),
+        "error",
+      );
     } finally {
       setBusy(false);
     }
@@ -400,7 +463,10 @@ export function SiteApp({
   ) {
     if (tabId === undefined || busy) return;
     setBusy(true);
-    say(`Logging out to switch to ${selected.name}…`, "progress");
+    say(
+      (translate) => translate("Logging out to switch to {{name}}…", { name: selected.name }),
+      "progress",
+    );
     try {
       const response = await choices.switchTo({
         tabId,
@@ -409,11 +475,15 @@ export function SiteApp({
         makeDefault: asDefault,
       });
       // The page section follows the switch from here.
-      if (response.ok) setNotice({ text: "", tone: "success" });
-      else say(switchRefusal(response.reason, selected.name), "error");
+      if (response.ok) setNotice({ tone: "success" });
+      else say((translate) => switchRefusal(response.reason, selected.name, translate), "error");
       await pageStatus.refetch();
     } catch {
-      say("The switch could not be started. Reopen this popup and try again.", "error");
+      say(
+        (translate) =>
+          translate("The switch could not be started. Reopen this popup and try again."),
+        "error",
+      );
     } finally {
       setBusy(false);
     }
@@ -431,7 +501,7 @@ export function SiteApp({
         rules &&
         (await change(
           (value) => rules.pause(value),
-          "Automatic login on this site is paused until turned back on",
+          (translate) => translate("Automatic login on this site is paused until turned back on"),
         ))
       )
         void pageStatus.refetch();
@@ -441,7 +511,7 @@ export function SiteApp({
     if (length === undefined && rules?.rules.length) {
       const removed = await change(
         (value) => rules.resume(value),
-        "Automatic login on this site resumed",
+        (translate) => translate("Automatic login on this site resumed"),
       );
       if (!removed || !pageStatus.data?.ok || pageStatus.data.pause === undefined) {
         void pageStatus.refetch();
@@ -449,7 +519,7 @@ export function SiteApp({
       }
     }
     setBusy(true);
-    say(length ? "Pausing…" : "Resuming…", "progress");
+    say((translate) => translate(length ? "Pausing…" : "Resuming…"), "progress");
     try {
       const response = await choices.pause(
         tabId,
@@ -458,22 +528,30 @@ export function SiteApp({
       if (response.ok) {
         const lengthChosen = PAUSE_CHOICES.find((entry) => entry.length === length);
         say(
-          lengthChosen
-            ? `Automatic login on this site is paused ${lengthChosen.done}`
-            : "Automatic login on this site resumed",
+          (translate) =>
+            lengthChosen
+              ? lengthChosen.done(translate)
+              : translate("Automatic login on this site resumed"),
           "success",
         );
         await pageStatus.refetch();
         if (choice.isEnabled) void choice.refetch();
       } else
         say(
-          response.reason === "no-site"
-            ? "This tab has no site to pause"
-            : "The pause could not be saved. Try again.",
+          (translate) =>
+            translate(
+              response.reason === "no-site"
+                ? "This tab has no site to pause"
+                : "The pause could not be saved. Try again.",
+            ),
           "error",
         );
     } catch {
-      say("The pause could not be changed. Reopen this popup and try again.", "error");
+      say(
+        (translate) =>
+          translate("The pause could not be changed. Reopen this popup and try again."),
+        "error",
+      );
     } finally {
       setBusy(false);
     }
@@ -485,20 +563,24 @@ export function SiteApp({
   };
   let pauseControl;
   let body;
-  if (tab.isPending || settings.isPending) body = <p className="popup-muted">Loading…</p>;
+  if (tab.isPending || settings.isPending) body = <p className="popup-muted">{t("Loading…")}</p>;
   else if (!origin)
     body = (
       <p id="popup-unsupported">
         {tab.data?.url
-          ? "Pateat works on websites (HTTP and HTTPS). Open a website, then click the Pateat icon again."
-          : "Pateat cannot read this tab's address. It works on websites it has site access to; a page that is still loading shows this too."}
+          ? t(
+              "Pateat works on websites (HTTP and HTTPS). Open a website, then click the Pateat icon again.",
+            )
+          : t(
+              "Pateat cannot read this tab's address. It works on websites it has site access to; a page that is still loading shows this too.",
+            )}
       </p>
     );
   else if (!saved)
     body = (
       <p id="popup-error" className="popup-notice popup-notice--error" role="alert">
         <CircleX size={16} strokeWidth={2} aria-hidden="true" />
-        <span>Pateat settings could not be loaded</span>
+        <span>{t("Pateat settings could not be loaded")}</span>
       </p>
     );
   else {
@@ -562,7 +644,10 @@ export function SiteApp({
         current.itemName ??
         current.itemId,
       sub:
-        currentConnection?.label ?? `${current.accountName ?? "Vault account"}, not available here`,
+        currentConnection?.label ??
+        t("{{account}}, not available here", {
+          account: current.accountName ?? t("Vault account"),
+        }),
       isDefault: true,
     };
     // While the site's matches are still listed, the saved default is not missing yet: its
@@ -574,24 +659,32 @@ export function SiteApp({
       : savedDefault;
     let accountsNote: { tone: "idle" | "warn" | "err"; text: string } | undefined;
     if (accounts.isPending)
-      accountsNote = { tone: "idle", text: "Finding the vault items that match this site…" };
+      accountsNote = { tone: "idle", text: t("Finding the vault items that match this site…") };
     else if (accounts.error instanceof ListingTimeout)
       accountsNote = {
         tone: "err",
-        text: "Finding the vault items that match this site took too long. Wait a moment, then reopen this popup",
+        text: t(
+          "Finding the vault items that match this site took too long. Wait a moment, then reopen this popup",
+        ),
       };
     else if (!found)
-      accountsNote = { tone: "err", text: "The matching accounts could not be listed" };
+      accountsNote = { tone: "err", text: t("The matching accounts could not be listed") };
     else if (!options.length)
       accountsNote = {
         tone: "idle",
-        text: "No vault item matches this site. Add the site's URI or passkey to the item in your vault, then sync",
+        text: t(
+          "No vault item matches this site. Add the site's URI or passkey to the item in your vault, then sync",
+        ),
       };
 
     const setDefault = () => {
       const selected = options.find((entry) => entry.value === shown);
       if (!selected?.userId) {
-        say("This account is unavailable. Choose another one or use the settings page.", "error");
+        say(
+          (translate) =>
+            translate("This account is unavailable. Choose another one or use the settings page."),
+          "error",
+        );
         return;
       }
       const entry = {
@@ -606,7 +699,10 @@ export function SiteApp({
       const target = siteDefaultConnection(entry, catalog);
       if (!target.ok || target.connectionId !== selected.connectionId) {
         say(
-          "This vault account is connected more than once. Choose the default in the settings page.",
+          (translate) =>
+            translate(
+              "This vault account is connected more than once. Choose the default in the settings page.",
+            ),
           "error",
         );
         return;
@@ -616,23 +712,30 @@ export function SiteApp({
           value.siteDefaults = value.siteDefaults.filter((item) => item.origin !== origin);
           value.siteDefaults.push(entry);
         },
-        `${accountName(selected, found?.accounts)} is now the default for this site`,
+        (translate) =>
+          translate("{{name}} is now the default for this site", {
+            name: accountName(selected, found?.accounts),
+          }),
       );
     };
 
     const removeDefault = () =>
-      void change((value) => {
-        value.siteDefaults = value.siteDefaults.filter((item) => item.origin !== origin);
-      }, "The default account for this site was removed");
+      void change(
+        (value) => {
+          value.siteDefaults = value.siteDefaults.filter((item) => item.origin !== origin);
+        },
+        (translate) => translate("The default account for this site was removed"),
+      );
     const removeDefaultButton = current && (
       <Button
         id="popup-remove-default"
         type="button"
         variant="outline"
         disabled={busy || listing}
+        focusableWhenDisabled={busy}
         onClick={removeDefault}
       >
-        Remove default
+        {t("Remove default")}
       </Button>
     );
 
@@ -649,15 +752,17 @@ export function SiteApp({
           entry.connectionId === accountSwitch.connectionId &&
           entry.itemId === accountSwitch.itemId,
       );
-      return option ? accountName(option, found?.accounts) : "the account";
+      return option ? accountName(option, found?.accounts) : t("the account");
     })();
     // An account switch (ADR 0063): each matching account on a page that waits for no choice.
     const switchSection = status && options.length > 0 && (
       <section className="popup-section" aria-labelledby="popup-switch-heading">
         <div className="popup-section-head">
-          <h2 id="popup-switch-heading">Switch account</h2>
+          <h2 id="popup-switch-heading">{t("Switch account")}</h2>
           <p className="popup-muted popup-reason">
-            Logs this tab out of {hostname}, then logs in with the account you choose
+            {t("Logs this tab out of {{hostname}}, then logs in with the account you choose", {
+              hostname,
+            })}
           </p>
         </div>
         <ul className="popup-choices popup-switch-list">
@@ -671,7 +776,10 @@ export function SiteApp({
                   variant="outline"
                   className="popup-switch-button"
                   disabled={busy || accountSwitch?.state === "running"}
-                  aria-label={`Switch to this account: ${card.title}, ${card.sub}`}
+                  aria-label={t("Switch to this account: {{title}}, {{sub}}", {
+                    title: card.title,
+                    sub: card.sub,
+                  })}
                   onClick={() =>
                     void switchTo(
                       { ...option, name: accountName(option, found?.accounts) },
@@ -680,7 +788,7 @@ export function SiteApp({
                   }
                 >
                   <LogOut size={16} strokeWidth={2} aria-hidden="true" />
-                  Switch to this account
+                  {t("Switch to this account")}
                 </Button>
               </li>
             );
@@ -694,17 +802,18 @@ export function SiteApp({
             disabled={busy}
             onChange={(event) => setSwitchDefault(event.target.checked)}
           />
-          Make it the default for {hostname}
+          {t("Make it the default for {{hostname}}", { hostname })}
         </label>
         <ul className="popup-lines" aria-live="polite">
           {accountSwitch && switchName && (
             <Line tone={accountSwitch.state === "failed" ? "err" : "idle"} id="popup-switch-status">
-              {switchStatus(accountSwitch.state, accountSwitch.reason, switchName)}
+              {switchStatus(accountSwitch.state, accountSwitch.reason, switchName, t)}
             </Line>
           )}
           <Line tone="idle" id="popup-switch-provider">
-            A site you log in to through another account, such as a company or Google sign-in, may
-            log you out of that account too
+            {t(
+              "A site you log in to through another account, such as a company or Google sign-in, may log you out of that account too",
+            )}
           </Line>
         </ul>
       </section>
@@ -739,34 +848,34 @@ export function SiteApp({
         )}
         {choice.isPending && choice.isEnabled && (
           <p id="popup-choice-checking" className="popup-muted">
-            Checking whether this page waits for an account choice…
+            {t("Checking whether this page waits for an account choice…")}
           </p>
         )}
         {offered && !labelled && (
           <p id="popup-choice-checking" className="popup-muted">
-            Listing the accounts that match this page…
+            {t("Listing the accounts that match this page…")}
           </p>
         )}
         {offered && showChoice && (
           <section className="popup-section" aria-labelledby="popup-choice-heading">
             <div className="popup-section-head">
-              <h2 id="popup-choice-heading">Choose an account</h2>
+              <h2 id="popup-choice-heading">{t("Choose an account")}</h2>
               <p id="popup-choice-reason" className="popup-muted popup-reason">
-                {choiceReason(offered.ask, pickOptions.length, offered.paused === true)}
+                {choiceReason(offered.ask, pickOptions.length, t, offered.paused === true)}
               </p>
             </div>
             {offered.held && (
               <p id="popup-pick-held" className="popup-notice popup-notice--warning">
                 <TriangleAlert size={16} strokeWidth={2} aria-hidden="true" />
                 <span>
-                  {
-                    "Another tab's login to this site is running or did not succeed. Close that tab or wait up to 5 minutes."
-                  }
+                  {t(
+                    "Another tab's login to this site is running or did not succeed. Close that tab or wait up to 5 minutes.",
+                  )}
                 </span>
               </p>
             )}
             <fieldset className="popup-fieldset">
-              <legend className="visually-hidden">Account to log in with</legend>
+              <legend className="visually-hidden">{t("Account to log in with")}</legend>
               <AccountChoices
                 name="popup-pick"
                 cards={accountCards(pickOptions, found?.accounts, currentValue, usedValue)}
@@ -783,13 +892,14 @@ export function SiteApp({
                 disabled={busy}
                 onChange={(event) => setMakeDefault(event.target.checked)}
               />
-              Make it the default for {hostname}
+              {t("Make it the default for {{hostname}}", { hostname })}
             </label>
             <Button
               id="popup-pick"
               type="button"
               className="w-full gap-2"
               disabled={busy || offered.held || !shownPick}
+              focusableWhenDisabled={busy}
               aria-describedby={offered.held ? "popup-pick-held" : undefined}
               onClick={() => {
                 const selected = pickOptions.find((entry) => entry.value === shownPick);
@@ -803,7 +913,7 @@ export function SiteApp({
               }}
             >
               <LogIn size={16} strokeWidth={2} aria-hidden="true" />
-              Log in
+              {t("Log in")}
             </Button>
           </section>
         )}
@@ -823,13 +933,17 @@ export function SiteApp({
                   )}
                   {missingFromChoice && (
                     <Line tone="warn" id="popup-default">
-                      {`The saved default, ${missingFromChoice.title} (${missingFromChoice.sub}), is not one of these accounts`}
+                      {t("The saved default, {{title}} ({{sub}}), is not one of these accounts", {
+                        title: missingFromChoice.title,
+                        sub: missingFromChoice.sub,
+                      })}
                     </Line>
                   )}
                   {found && !found.complete && (
                     <Line tone="warn" id="popup-accounts-incomplete">
-                      Some vaults or items could not be checked, so the site's matches may be
-                      incomplete
+                      {t(
+                        "Some vaults or items could not be checked, so the site's matches may be incomplete",
+                      )}
                     </Line>
                   )}
                 </ul>
@@ -841,7 +955,7 @@ export function SiteApp({
           <>
             <fieldset className="popup-fieldset popup-section">
               <legend id="popup-default-heading" className="popup-legend">
-                Default account
+                {t("Default account")}
               </legend>
               {missingDefault && (
                 <div id="popup-default" className="popup-choice popup-choice--static">
@@ -865,17 +979,17 @@ export function SiteApp({
                 )}
                 {!current && (
                   <Line tone="idle" id="popup-no-default">
-                    No default account. With exactly one matching item, Pateat uses that item
+                    {t("No default account. With exactly one matching item, Pateat uses that item")}
                   </Line>
                 )}
                 {found && !found.complete && (
                   <Line tone="warn" id="popup-accounts-incomplete">
-                    Some vaults or items could not be checked, so this list may be incomplete
+                    {t("Some vaults or items could not be checked, so this list may be incomplete")}
                   </Line>
                 )}
                 <li className="popup-line popup-line--idle">
                   <Clock size={16} strokeWidth={2} aria-hidden="true" />
-                  <span>Takes effect at the next login</span>
+                  <span>{t("Takes effect at the next login")}</span>
                 </li>
               </ul>
               {(options.length > 0 || current) && (
@@ -885,9 +999,10 @@ export function SiteApp({
                       id="popup-set-default"
                       type="button"
                       disabled={busy || !shown || shown === currentValue}
+                      focusableWhenDisabled={busy}
                       onClick={setDefault}
                     >
-                      Use as default
+                      {t("Use as default")}
                     </Button>
                   )}
                   {removeDefaultButton}
@@ -907,12 +1022,12 @@ export function SiteApp({
       <header className="popup-header">
         <div className="popup-title">
           <Logo className="popup-logo" />
-          <h1 id="popup-origin">{origin ? hostnameOf(origin) : "This tab"}</h1>
+          <h1 id="popup-origin">{origin ? hostnameOf(origin) : t("This tab")}</h1>
           <button
             id="popup-open-settings"
             type="button"
             className="popup-icon-button"
-            aria-label="Open settings"
+            aria-label={t("Open settings")}
             onClick={() => openSettings()}
           >
             <Settings2 size={20} strokeWidth={2} aria-hidden="true" />
@@ -920,11 +1035,17 @@ export function SiteApp({
         </div>
         {pauseControl}
       </header>
-      <output id="popup-message" className="popup-message" aria-live="polite">
+      <output
+        id="popup-message"
+        ref={message}
+        className="popup-message"
+        aria-live="polite"
+        tabIndex={-1}
+      >
         {notice.text && (
           <span className={`popup-notice popup-notice--${notice.tone}`}>
             <NoticeIcon size={16} strokeWidth={2} aria-hidden="true" />
-            <span>{notice.text}</span>
+            <span>{notice.text(t)}</span>
           </span>
         )}
       </output>

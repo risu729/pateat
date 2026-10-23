@@ -43,7 +43,10 @@ export function siteHostname(origin: string): string {
   return normalizeHostname(hostname) ?? hostname;
 }
 
-/** The rules that exclude a hostname: its own, or a parent's that includes subdomains. */
+/**
+ * The rules that pause automatic login on a hostname until turned back on (ADR 0062): its
+ * own, or a parent's that includes subdomains.
+ */
 export function exclusionsCovering(settings: LocalSettings | null, hostname: string) {
   return (settings?.excludedSites ?? []).filter(
     (site) =>
@@ -52,12 +55,12 @@ export function exclusionsCovering(settings: LocalSettings | null, hostname: str
   );
 }
 
-/** An exclusion rule as shown: its hostname, and whether it also covers subdomains. */
+/** A pause rule as shown: its hostname, and whether it also covers subdomains. */
 export function exclusionLabel(site: LocalSettings["excludedSites"][number]): string {
   return site.includeSubdomains ? `${site.hostname} and subdomains` : site.hostname;
 }
 
-/** Removes one hostname's exclusion rule. */
+/** Removes one hostname's pause rule, which resumes automatic login there. */
 export function allowSite(hostname: string, done: string): SettingsEdit {
   return {
     apply: (value) => ({
@@ -68,7 +71,10 @@ export function allowSite(hostname: string, done: string): SettingsEdit {
   };
 }
 
-/** Sets one hostname's exclusion rule, replacing any it had. */
+/**
+ * Sets one hostname's pause rule, replacing any it had: automatic login there is paused until
+ * turned back on, and devices log in only with an account picked in their popup (ADR 0062).
+ */
 export function excludeSite(hostname: string, includeSubdomains: boolean): SettingsEdit {
   return {
     apply: (value) => ({
@@ -78,7 +84,7 @@ export function excludeSite(hostname: string, includeSubdomains: boolean): Setti
         { hostname, includeSubdomains },
       ],
     }),
-    done: `${hostname} excluded`,
+    done: `${hostname} paused`,
   };
 }
 

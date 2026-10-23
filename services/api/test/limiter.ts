@@ -1,8 +1,22 @@
+import { env } from "cloudflare:workers";
+
+/** The limits of PAIR_LIMITER and OWNER_LIMITER in cloudflare.config.ts. */
+export const PAIR_LIMIT = 10;
+export const OWNER_LIMIT = 120;
+
 /**
- * The local limiter counts in wall-clock minutes, so a loop that crosses a minute
- * boundary would start a fresh count; start the loop at least 10 s before one.
+ * `env` with `binding` replaced by a limiter that allows `limit` calls per key and never
+ * refills. Miniflare's local limiter counts in wall-clock minutes, so a test loop that
+ * crossed a minute boundary would start a fresh count; this one's window never ends.
  */
-export async function awaitRoomInMinute() {
-  const left = 60_000 - (Date.now() % 60_000);
-  if (left < 10_000) await new Promise((resolve) => setTimeout(resolve, left + 100));
+export function withLimiter(binding: "OWNER_LIMITER" | "PAIR_LIMITER", limit: number): Env {
+  const counts = new Map<string, number>();
+  const limiter: RateLimit = {
+    async limit({ key }) {
+      const count = (counts.get(key) ?? 0) + 1;
+      counts.set(key, count);
+      return { success: count <= limit };
+    },
+  };
+  return { ...env, [binding]: limiter };
 }

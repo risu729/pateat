@@ -27,7 +27,7 @@ const candidate = (
 });
 
 function built(steps: LoginStep[]) {
-  const result = appendPageSteps(undefined, { id: "gen-1", origin, steps });
+  const result = appendPageSteps(undefined, { pageKind: "sign-in", id: "gen-1", origin, steps });
   if (!result.ok) throw new Error(result.reason);
   return result.recipe;
 }
@@ -40,6 +40,7 @@ describe("generated recipe assembly", () => {
     expect(first.completion).toBeUndefined();
 
     const second = appendPageSteps(first, {
+      pageKind: "sign-in",
       id: "ignored",
       origin,
       steps: page("/password", "password", "submit"),
@@ -57,9 +58,30 @@ describe("generated recipe assembly", () => {
     expect(extendsRecipe(first, second.recipe)).toBe(false);
   });
 
+  it("stores the first page's kind and keeps it for a continuation (ADR 0035)", () => {
+    const first = appendPageSteps(undefined, {
+      id: "gen-1",
+      origin,
+      steps: page("/verify", "username", "advance"),
+      pageKind: "confirm",
+    });
+    if (!first.ok) throw new Error(first.reason);
+    expect(first.recipe.pageKind).toBe("confirm");
+    const next = appendPageSteps(first.recipe, {
+      id: "gen-1",
+      origin,
+      steps: page("/password", "password", "submit"),
+      pageKind: "sign-in",
+    });
+    if (!next.ok) throw new Error(next.reason);
+    expect(next.recipe.pageKind).toBe("confirm");
+    expect(continuesRecipe(first.recipe, next.recipe)).toBe(true);
+  });
+
   it("takes slots from the steps and keeps the base's other fields", () => {
     const first = { ...built(page("/login", "username", "advance")), rejection: target("error") };
     const next = appendPageSteps(first, {
+      pageKind: "sign-in",
       id: "gen-1",
       origin,
       steps: page("/pw", "pw", "submit"),
@@ -72,6 +94,7 @@ describe("generated recipe assembly", () => {
   it("keeps the first account switch that no step clicks", () => {
     const other = { by: "text", value: "Use another account" } as const;
     const first = appendPageSteps(undefined, {
+      pageKind: "sign-in",
       id: "gen-1",
       origin,
       steps: page("/login", "username", "advance"),
@@ -80,6 +103,7 @@ describe("generated recipe assembly", () => {
     if (!first.ok) throw new Error(first.reason);
     expect(first.recipe.accountSwitch).toEqual(other);
     const next = appendPageSteps(first.recipe, {
+      pageKind: "sign-in",
       id: "gen-1",
       origin,
       steps: page("/pw", "pw", "submit"),
@@ -89,6 +113,7 @@ describe("generated recipe assembly", () => {
     expect(next.recipe.accountSwitch).toEqual(other);
     // A switch that a step also clicks is left out rather than failing the recipe.
     const clicked = appendPageSteps(first.recipe, {
+      pageKind: "sign-in",
       id: "gen-1",
       origin,
       steps: [
@@ -108,7 +133,12 @@ describe("generated recipe assembly", () => {
 
   it("refuses to append after a submit, to a learned recipe, across origins or past bounds", () => {
     const submitted = built(page("/login", "password", "submit"));
-    const next = { id: "gen-1", origin, steps: page("/otp", "otp", "submit") };
+    const next = {
+      id: "gen-1",
+      origin,
+      steps: page("/otp", "otp", "submit"),
+      pageKind: "sign-in" as const,
+    };
     expect(appendPageSteps(submitted, next)).toEqual({ ok: false, reason: "not-advancing" });
     const advancing = built(page("/login", "username", "advance"));
     const learned = { ...advancing, completion: [{ target: target("x") }] };
@@ -130,12 +160,14 @@ describe("generated recipe assembly", () => {
     });
 
     let recipe = appendPageSteps(undefined, {
+      pageKind: "sign-in",
       id: "gen-1",
       origin,
       steps: page("/p0", "s0", "advance"),
     });
     for (let index = 1; recipe.ok && index < 9; index += 1)
       recipe = appendPageSteps(recipe.recipe, {
+        pageKind: "sign-in",
         id: "gen-1",
         origin,
         steps: page(`/p${index}`, `s${index}`, "advance"),
@@ -322,6 +354,55 @@ describe("judged completion", () => {
       target("logout"),
     );
     expect(elsewhere.ok && elsewhere.recipe.completion).toEqual([{ target: target("logout") }]);
+  });
+});
+
+describe("judged completion beside the account switch", () => {
+  const other = { by: "text", value: "Switch account" } as const;
+  const switched = (() => {
+    const first = appendPageSteps(undefined, {
+      pageKind: "sign-in",
+      id: "gen-1",
+      origin,
+      steps: page("/login", "pw", "submit"),
+      accountSwitch: other,
+    });
+    if (!first.ok) throw new Error(first.reason);
+    return first.recipe;
+  })();
+
+  it("refuses the account switch or the rejection as a marker, as a handler does", () => {
+    // A signed-in page's account menu may read like the login page's switch, but a marker
+    // proves the sign-in on any path, so the login page would read as signed in.
+    const home = { origin, path: "/home", candidates: [candidate("switch", other)] };
+    expect(addCompletion(switched, home, other)).toEqual({ ok: false, reason: "step-target" });
+    const rejected = { ...switched, rejection: target("error") };
+    const failed = { origin, path: "/home", candidates: [candidate("error", target("error"))] };
+    expect(addCompletion(rejected, failed, target("error"))).toEqual({
+      ok: false,
+      reason: "step-target",
+    });
+  });
+
+  it("leaves out a continued page's switch that is a handler's button, keeping the page", () => {
+    const first = built(page("/login", "username", "advance"));
+    const key = target("key");
+    const handled = addHandler(
+      first,
+      { origin, path: "/webauthn", candidates: [candidate("key", key)] },
+      { kind: "passkey", target: key },
+    );
+    if (!handled.ok) throw new Error(handled.reason);
+    const next = appendPageSteps(handled.recipe, {
+      pageKind: "sign-in",
+      id: "gen-1",
+      origin,
+      steps: page("/pw", "pw", "submit"),
+      accountSwitch: key,
+    });
+    if (!next.ok) throw new Error(next.reason);
+    expect(next.recipe.accountSwitch).toBeUndefined();
+    expect(next.recipe.steps).toHaveLength(4);
   });
 });
 
@@ -524,6 +605,7 @@ describe("judged password handler (ADR 0048)", () => {
     expect(extendsRecipe(recipe, added.recipe)).toBe(true);
     // The password page that follows continues the route; the handler stays.
     const continued = appendPageSteps(added.recipe, {
+      pageKind: "sign-in",
       id: added.recipe.id,
       origin,
       steps: page("/", "password", "submit"),
@@ -839,6 +921,7 @@ describe("password route variants in generated recipes (ADR 0027)", () => {
   ];
   const varied = () => {
     const result = appendPageSteps(undefined, {
+      pageKind: "sign-in",
       id: "gen-1",
       origin,
       steps: set(["branch-number", "account-number", "password"]),
@@ -865,6 +948,7 @@ describe("password route variants in generated recipes (ADR 0027)", () => {
     });
     // An account switch that a variant clicks is not kept.
     const switched = appendPageSteps(undefined, {
+      pageKind: "sign-in",
       id: "gen-1",
       origin,
       steps: set(["branch-number", "password"]),
@@ -876,6 +960,7 @@ describe("password route variants in generated recipes (ADR 0027)", () => {
 
   it("sizes the submission budget for the variant with the most effects", () => {
     const result = appendPageSteps(undefined, {
+      pageKind: "sign-in",
       id: "gen-1",
       origin,
       steps: set(["branch-number", "password"]),
@@ -894,10 +979,16 @@ describe("password route variants in generated recipes (ADR 0027)", () => {
   it("continues only a single-variant recipe with a single-variant page", () => {
     // A recipe with variants submits in every one, so no later page belongs to it.
     expect(
-      appendPageSteps(varied(), { id: "gen-1", origin, steps: page("/next", "pin", "submit") }),
+      appendPageSteps(varied(), {
+        pageKind: "sign-in",
+        id: "gen-1",
+        origin,
+        steps: page("/next", "pin", "submit"),
+      }),
     ).toEqual({ ok: false, reason: "not-advancing" });
     expect(
       appendPageSteps(built(page("/login", "username", "advance")), {
+        pageKind: "sign-in",
         id: "gen-1",
         origin,
         steps: page("/password", "password", "submit"),
@@ -907,6 +998,7 @@ describe("password route variants in generated recipes (ADR 0027)", () => {
     // Alternatives that advance or repeat a set break the recipe contract.
     expect(
       appendPageSteps(undefined, {
+        pageKind: "sign-in",
         id: "gen-1",
         origin,
         steps: set(["branch-number", "password"]),
@@ -915,6 +1007,7 @@ describe("password route variants in generated recipes (ADR 0027)", () => {
     ).toEqual({ ok: false, reason: "invalid-recipe" });
     expect(
       appendPageSteps(undefined, {
+        pageKind: "sign-in",
         id: "gen-1",
         origin,
         steps: set(["branch-number", "password"]),
@@ -946,6 +1039,7 @@ describe("password route variants in generated recipes (ADR 0027)", () => {
     expect(extendsRecipe(recipe, learned.recipe)).toBe(true);
     // More than 4 such fields cannot be listed, so nothing is learned there.
     const wide = appendPageSteps(undefined, {
+      pageKind: "sign-in",
       id: "gen-1",
       origin,
       steps: set(["branch-number", "account-number", "password"]),
@@ -983,6 +1077,7 @@ describe("the passkey route in generated recipes (ADR 0027)", () => {
   const signIn = page("/login", "username", "submit");
   const withPasskey = () => {
     const result = appendPageSteps(undefined, {
+      pageKind: "sign-in",
       id: "gen-1",
       origin,
       steps: signIn,
@@ -1002,6 +1097,7 @@ describe("the passkey route in generated recipes (ADR 0027)", () => {
   it("refuses a passkey button on a continued page and keeps a recipe's own", () => {
     const first = page("/login", "username", "advance");
     const started = appendPageSteps(undefined, {
+      pageKind: "sign-in",
       id: "gen-1",
       origin,
       steps: first,
@@ -1010,6 +1106,7 @@ describe("the passkey route in generated recipes (ADR 0027)", () => {
     if (!started.ok) throw new Error(started.reason);
     expect(
       appendPageSteps(started.recipe, {
+        pageKind: "sign-in",
         id: "gen-1",
         origin,
         steps: page("/pw", "pw", "submit"),
@@ -1017,6 +1114,7 @@ describe("the passkey route in generated recipes (ADR 0027)", () => {
       }),
     ).toEqual({ ok: false, reason: "invalid-recipe" });
     const continued = appendPageSteps(started.recipe, {
+      pageKind: "sign-in",
       id: "gen-1",
       origin,
       steps: page("/pw", "pw", "submit"),

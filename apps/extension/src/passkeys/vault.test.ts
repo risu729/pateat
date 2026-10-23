@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createDefaultSettings,
   type SettingsResponse,
+  type SettingsChangeCause,
   type SettingsSnapshot,
   type VaultCatalog,
 } from "@pateat/contracts";
@@ -794,7 +795,11 @@ describe("saving a chosen passkey as the site default", () => {
   const store = (response = saved()) => {
     let current = response;
     const update = vi.fn(
-      async (expected: number | undefined, mutate: (s: SettingsSnapshot) => SettingsSnapshot) => {
+      async (
+        expected: number | undefined,
+        _cause: SettingsChangeCause,
+        mutate: (s: SettingsSnapshot) => SettingsSnapshot,
+      ) => {
         expect(expected).toBe(current.snapshot.revision);
         current = { ...current, snapshot: mutate(current.snapshot) };
         return current.snapshot;
@@ -827,6 +832,7 @@ describe("saving a chosen passkey as the site default", () => {
       await rememberVaultPasskey({ settings: replaced.settings, origin, candidate: chosen() }),
     ).toBe(true);
     expect(replaced.update).toHaveBeenCalledOnce();
+    expect(replaced.update.mock.calls[0]?.[1]).toBe("account-choice");
   });
 
   it("saves a default chosen in the window on a site a rule pauses (ADR 0062)", async () => {

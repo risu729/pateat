@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next";
+import { i18n } from "../i18n";
 import { useEffect, useState } from "react";
 import {
   followThemePreference,
@@ -9,11 +11,12 @@ import { controlClass, fieldClass } from "./ui";
 
 /** The pages' color theme; Browser setting follows the browser. */
 export function ThemeSelect() {
+  const { t } = useTranslation(undefined, { i18n });
   const [preference, setPreference] = useState(readThemePreference);
   useEffect(() => followThemePreference(setPreference), []);
   return (
     <label className={fieldClass}>
-      Theme
+      {t("Theme")}
       <select
         id="theme-preference"
         className={controlClass}
@@ -24,9 +27,9 @@ export function ThemeSelect() {
           saveThemePreference(next);
         }}
       >
-        <option value="system">Browser setting</option>
-        <option value="light">Light</option>
-        <option value="dark">Dark</option>
+        <option value="system">{t("Browser setting")}</option>
+        <option value="light">{t("Light")}</option>
+        <option value="dark">{t("Dark")}</option>
       </select>
     </label>
   );

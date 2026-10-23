@@ -59,6 +59,8 @@ function mockClient(initial: SyncSettingsState, recipes: ManageRecipes["recipes"
     revokeRecipe: vi.fn<ManageClient["revokeRecipe"]>(),
     requestLog: vi.fn<ManageClient["requestLog"]>(),
     deleteRequestLog: vi.fn<ManageClient["deleteRequestLog"]>(),
+    models: vi.fn<ManageClient["models"]>(),
+    saveModels: vi.fn<ManageClient["saveModels"]>(),
     replace(next: SyncSettingsState) {
       state = next;
     },
@@ -78,7 +80,7 @@ afterEach(async () => {
   await cleanup();
 });
 
-test("excludes a site on a service that has no settings yet, then allows it", async () => {
+test("pauses a site on a service that has no settings yet, then resumes it", async () => {
   const client = mockClient({ version: 1, revision: 0, settings: null });
   await mount(client, "/manage/sites");
   await expect
@@ -87,7 +89,7 @@ test("excludes a site on a service that has no settings yet, then allows it", as
   await expect.element(page.getByText("No sites yet")).toBeVisible();
 
   await page.getByLabelText("Hostname").fill("https://intranet.example/");
-  await page.getByRole("button", { name: "Exclude site" }).click();
+  await page.getByRole("button", { name: "Pause site" }).click();
   await expect
     .element(page.getByRole("alert"))
     .toMatchTextContent("Enter a hostname without a scheme, port or path.");
@@ -95,32 +97,32 @@ test("excludes a site on a service that has no settings yet, then allows it", as
   expect(client.saveSettings).not.toHaveBeenCalled();
 
   await page.getByLabelText("Hostname").fill("Intranet.Example");
-  await page.getByLabelText("Include subdomains").click();
+  await page.getByLabelText("Pause subdomains too").click();
   await userEvent.keyboard("{Enter}");
   const row = page.getByRole("listitem").filter({ hasText: "intranet.example and subdomains" });
-  await expect.element(row).toMatchTextContent("Excluded");
+  await expect.element(row).toMatchTextContent("Paused");
   expect(client.saveSettings).toHaveBeenLastCalledWith(
     0,
     settingsOf({ excludedSites: [{ hostname: "intranet.example", includeSubdomains: true }] }),
   );
   await expect.element(page.getByLabelText("Hostname")).toHaveValue("");
-  await expect.element(page.getByRole("status")).toHaveTextContent("intranet.example excluded");
+  await expect.element(page.getByRole("status")).toHaveTextContent("intranet.example paused");
 
   // The same entry again is not written a second time.
   await page.getByLabelText("Hostname").fill("intranet.example");
-  await page.getByLabelText("Include subdomains").click();
-  await page.getByRole("button", { name: "Exclude site" }).click();
+  await page.getByLabelText("Pause subdomains too").click();
+  await page.getByRole("button", { name: "Pause site" }).click();
   await expect
     .element(page.getByRole("alert"))
-    .toHaveTextContent("intranet.example is already excluded.");
+    .toHaveTextContent("intranet.example is already paused.");
   expect(client.saveSettings).toHaveBeenCalledTimes(1);
 
-  await page.getByRole("button", { name: "Allow intranet.example and subdomains" }).click();
+  await page.getByRole("button", { name: "Resume intranet.example and subdomains" }).click();
   await expect.element(page.getByText("No sites yet")).toBeVisible();
   expect(client.saveSettings).toHaveBeenLastCalledWith(1, settingsOf());
   await expect
     .element(page.getByRole("status"))
-    .toHaveTextContent("intranet.example and subdomains allowed");
+    .toHaveTextContent("intranet.example and subdomains resumed");
 });
 
 test("asks for a paired device before settings can be edited", async () => {
@@ -148,7 +150,7 @@ test("refuses an edit that would make the document larger than devices sync", as
   const client = mockClient({ version: 1, revision: 1, settings: settingsOf({ excludedSites }) });
   await mount(client, "/manage/sites");
   await page.getByLabelText("Hostname").fill("one-more.example");
-  await page.getByRole("button", { name: "Exclude site" }).click();
+  await page.getByRole("button", { name: "Pause site" }).click();
   await expect.element(page.getByRole("alert")).toMatchTextContent(/would be too large/);
   expect(client.saveSettings).not.toHaveBeenCalled();
 });
@@ -190,16 +192,16 @@ test("lists each site with its recipes, default account and bindings", async () 
   await expect.element(bank).toMatchTextContent("1 recipe");
   await expect.element(bank).toMatchTextContent("Example Bank in Personal vault");
   await expect.element(bank).toMatchTextContent("2 bindings");
-  await expect.element(bank).not.toMatchTextContent("Excluded");
+  await expect.element(bank).not.toMatchTextContent("Paused");
   await expect
     .element(page.getByRole("link", { name: "https://bank.example" }))
     .toHaveAttribute("href", BANK_PAGE);
   // Without saved names, the item ID and the provider account ID stand in.
   const shop = page.getByRole("listitem").filter({ hasText: "https://shop.example" });
   await expect.element(shop).toMatchTextContent(`item-2 in bitwarden account ${USER}`);
-  await expect.element(shop).toMatchTextContent("Excluded");
+  await expect.element(shop).toMatchTextContent("Paused");
   await expect.element(shop).not.toMatchTextContent("recipe");
-  await expect.element(page.getByRole("button", { name: "Allow shop.example" })).toBeVisible();
+  await expect.element(page.getByRole("button", { name: "Resume shop.example" })).toBeVisible();
 });
 
 test("removes a site's default account on its page, keeping the rest", async () => {
@@ -256,7 +258,7 @@ test("a write that lost to another writer shows the current settings and changes
       excludedSites: [{ hostname: "new.example", includeSubdomains: false }],
     }),
   });
-  await page.getByRole("button", { name: "Allow old.example" }).click();
+  await page.getByRole("button", { name: "Resume old.example" }).click();
   await expect
     .element(page.getByRole("alert"))
     .toMatchTextContent(/The settings changed elsewhere/);
@@ -272,7 +274,7 @@ test("refuses an edit that would exceed a list limit before writing", async () =
   const client = mockClient({ version: 1, revision: 1, settings: settingsOf({ excludedSites }) });
   await mount(client, "/manage/sites");
   await page.getByLabelText("Hostname").fill("one-more.example");
-  await page.getByRole("button", { name: "Exclude site" }).click();
+  await page.getByRole("button", { name: "Pause site" }).click();
   await expect.element(page.getByRole("alert")).toMatchTextContent(/over a list limit/);
   expect(client.saveSettings).not.toHaveBeenCalled();
 });
@@ -335,7 +337,7 @@ test("says when a site has no binding or default account", async () => {
 test("turns Pateat off and on for the site's exact hostname", async () => {
   const client = mockClient({ version: 1, revision: 0, settings: null });
   await mount(client, BANK_PAGE);
-  const toggle = page.getByRole("switch", { name: "Pateat on this site" });
+  const toggle = page.getByRole("switch", { name: "Automatic login on this site" });
   await expect.element(toggle).toBeChecked();
   await toggle.click();
   await expect.element(toggle).not.toBeChecked();
@@ -343,12 +345,12 @@ test("turns Pateat off and on for the site's exact hostname", async () => {
     0,
     settingsOf({ excludedSites: [{ hostname: "bank.example", includeSubdomains: false }] }),
   );
-  await expect.element(page.getByRole("status")).toHaveTextContent("bank.example excluded");
+  await expect.element(page.getByRole("status")).toHaveTextContent("bank.example paused");
 
   await toggle.click();
   await expect.element(toggle).toBeChecked();
   expect(client.saveSettings).toHaveBeenLastCalledWith(1, settingsOf());
-  await expect.element(page.getByRole("status")).toHaveTextContent("bank.example allowed");
+  await expect.element(page.getByRole("status")).toHaveTextContent("bank.example resumed");
 });
 
 test("leaves a rule that also covers other sites to the Sites list", async () => {
@@ -360,14 +362,12 @@ test("leaves a rule that also covers other sites to the Sites list", async () =>
     }),
   });
   await mount(client, "/manage/sites/https/bank.example");
-  const toggle = page.getByRole("switch", { name: "Pateat on this site" });
+  const toggle = page.getByRole("switch", { name: "Automatic login on this site" });
   await expect.element(toggle).not.toBeChecked();
   await expect.element(toggle).toBeDisabled();
   await expect
     .element(toggle)
-    .toHaveAccessibleDescription(
-      "Excluded with example and subdomains; allow it on the Sites list",
-    );
+    .toHaveAccessibleDescription("Paused with example and subdomains; resume it on the Sites list");
 });
 
 test("has no page for a path that names no exact HTTP(S) origin", async () => {
@@ -408,7 +408,7 @@ test("matches and writes a trailing-dot origin's hostname without the dot", asyn
     }),
   });
   await mount(client, "/manage/sites/https/bank.example.");
-  const toggle = page.getByRole("switch", { name: "Pateat on this site" });
+  const toggle = page.getByRole("switch", { name: "Automatic login on this site" });
   await toggle.click();
   await expect.element(toggle).not.toBeChecked();
   expect(client.saveSettings.mock.lastCall![1].excludedSites).toEqual([
@@ -419,5 +419,5 @@ test("matches and writes a trailing-dot origin's hostname without the dot", asyn
   await mount(client, "/manage/sites");
   await expect
     .element(page.getByRole("listitem").filter({ hasText: "https://bank.example." }))
-    .toMatchTextContent("Excluded");
+    .toMatchTextContent("Paused");
 });

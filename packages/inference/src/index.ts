@@ -14,10 +14,13 @@ export {
   generatedPlanSchema,
   generationInstructions,
   generationPromptVersion,
+  irreversibleSchema,
   passkeyOnlyGenerationInstructions,
   passkeyOnlyGenerationPromptVersion,
   type EntryGenerationRequest,
+  type GeneratedPage,
   type GenerationRequest,
+  type Irreversible,
 } from "./generation";
 export {
   appendLogoutClick,
@@ -57,8 +60,13 @@ export {
 } from "./assemble";
 export {
   claudeGeneration,
+  claudeModelRates,
+  claudePricedModels,
   claudeRefusalCategory,
+  claudeWorstCaseRates,
   createClaudeGenerationModel,
   estimateClaudeCostUsd,
   type ClaudeCredential,
+  type ClaudeModelChoice,
+  type ClaudeRates,
 } from "./providers/claude";

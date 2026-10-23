@@ -1,6 +1,8 @@
 import type { LocalSettings } from "@pateat/contracts";
 import { Info, Pause } from "lucide-react";
 import { useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
+import { i18n } from "../i18n";
 import { PRIVATE_WINDOWS_SECTION } from "../popup/pause";
 import { checkClass, Panel, StatusLines } from "./ui";
 
@@ -16,6 +18,7 @@ export function PrivateWindows({
   draft: LocalSettings;
   edit: (update: (value: LocalSettings) => void) => boolean;
 }) {
+  const { t } = useTranslation(undefined, { i18n });
   const toggle = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (window.location.hash !== `#${PRIVATE_WINDOWS_SECTION}`) return;
@@ -24,7 +27,11 @@ export function PrivateWindows({
   }, []);
   const on = draft.loginInPrivateWindows === true;
   return (
-    <Panel id={PRIVATE_WINDOWS_SECTION} headingId="private-windows-heading" title="Private windows">
+    <Panel
+      id={PRIVATE_WINDOWS_SECTION}
+      headingId="private-windows-heading"
+      title={t("Private windows")}
+    >
       <label className={checkClass}>
         <input
           ref={toggle}
@@ -40,7 +47,7 @@ export function PrivateWindows({
             });
           }}
         />
-        Log in automatically in private windows
+        {t("Log in automatically in private windows")}
       </label>
       <StatusLines
         muted
@@ -49,13 +56,15 @@ export function PrivateWindows({
             tone: "idle",
             icon: Pause,
             text: on
-              ? "Pateat logs in by itself in private windows as in other windows"
-              : "Off: every site in a private window is paused, so Pateat logs in there only with an account picked in the toolbar popup",
+              ? t("Pateat logs in by itself in private windows as in other windows")
+              : t(
+                  "Off: every site in a private window is paused, so Pateat logs in there only with an account picked in the toolbar popup",
+                ),
           },
           {
             tone: "idle",
             icon: Info,
-            text: "Applies on all your devices; other windows are not affected",
+            text: t("Applies on all your devices; other windows are not affected"),
           },
         ]}
       />
