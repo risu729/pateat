@@ -121,6 +121,11 @@ const fake = vi.hoisted(() => {
     /** Present elements that are hidden or disabled, for an observation that asks. */
     unusable: new Set<string>(),
     /**
+     * Present elements that still show but are disabled or busy: unusable for every
+     * requirement but `present` and `shown`, as a "Verifying" button is.
+     */
+    disabled: new Set<string>(),
+    /**
      * Present elements that a step's wait counts as usable but the page's description does
      * not see: hidden from assistive technology, transparent, tiny or off-screen, as a
      * password input an email form keeps for the browser.
@@ -218,6 +223,8 @@ const fake = vi.hoisted(() => {
             : state.ambiguous.has(value)
               ? "ambiguous"
               : ([undefined, "present"].includes(require) === false && state.unusable.has(value)) ||
+                  ([undefined, "present", "shown"].includes(require) === false &&
+                    state.disabled.has(value)) ||
                   (require?.startsWith("described-") === true && state.faint.has(value))
                 ? "unusable"
                 : "unique";
@@ -693,6 +700,7 @@ describe("production login document admission", () => {
     fake.state.observedPath = "/signin";
     fake.state.present = undefined;
     fake.state.unusable = new Set();
+    fake.state.disabled = new Set();
     fake.state.awaited = { ok: true };
     fake.state.onAwait = undefined;
     fake.state.executeReply = undefined;
@@ -13147,6 +13155,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
     fake.state.observedPath = "/signin";
     fake.state.present = new Set(["password", "login"]);
     fake.state.unusable = new Set();
+    fake.state.disabled = new Set();
     fake.state.awaited = { ok: true };
     fake.state.onAwait = undefined;
     fake.state.executeReply = undefined;
@@ -15251,35 +15260,44 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         expect(status()![0]).toMatchObject({ stepIndex: 3, submissions: 2, maxSubmissions: 2 });
       }, 10_000);
 
-      it("holds a page that reports its own submission while the button still shows", async () => {
-        onClick({ login: toCode, verify: toHome });
-        onCodeFill(() => {
-          // The content script saw the page submit the code; the form now says "Verifying".
-          fake.state.executeReply = { ok: false, reason: "submitted", mutation: "possible" };
-          // Stop the clock at the fill, so it cannot run past the held click's wait
-          // (HELD_CLICK_WAIT_MS) while the test still waits for the fill.
-          vi.setTimerTickMode("manual");
-        });
-        const report = vi.fn<(report: LoginReport) => void>();
-        const h = harness({}, { passkeys: noPasskey, report });
-        withTotp(h);
-        codes(h);
-        h.recipes.recipe.mockResolvedValue(coded);
-        expect(await h.hello()).toEqual({ ok: true });
-        await vi.waitFor(() => expect(codeFills()).toHaveLength(1), { timeout: 6_000 });
-        // The fill named the button, so the page's own submission is watched for.
-        expect(codeFills()[0]).toMatchObject({ code: { submit: target("verify") } });
-        await vi.advanceTimersByTimeAsync(1_500);
-        expect(status()).toMatchObject([{ state: "reconciling", stepIndex: 3 }]);
-        expect(handlerReports(report)).toEqual([[0, "totp", "entered", 2]]);
-        fake.state.observedPath = "/home";
-        fake.state.present = new Set(["logout"]);
-        vi.setTimerTickMode("nextTimerAsync");
-        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
-          timeout: 6_000,
-        });
-        expect(clicks("verify")).toBe(0);
-      }, 15_000);
+      it.each([
+        ["", false],
+        [", disabled", true],
+      ])(
+        "holds a page that reports its own submission while the button still shows%s",
+        async (_label, disabled) => {
+          onClick({ login: toCode, verify: toHome });
+          onCodeFill(() => {
+            // The content script saw the page submit the code; the form now says "Verifying".
+            fake.state.executeReply = { ok: false, reason: "submitted", mutation: "possible" };
+            // A button the page disables while it verifies still shows.
+            if (disabled) fake.state.disabled = new Set(["verify"]);
+            // Stop the clock at the fill, so it cannot run past the held click's wait
+            // (HELD_CLICK_WAIT_MS) while the test still waits for the fill.
+            vi.setTimerTickMode("manual");
+          });
+          const report = vi.fn<(report: LoginReport) => void>();
+          const h = harness({}, { passkeys: noPasskey, report });
+          withTotp(h);
+          codes(h);
+          h.recipes.recipe.mockResolvedValue(coded);
+          expect(await h.hello()).toEqual({ ok: true });
+          await vi.waitFor(() => expect(codeFills()).toHaveLength(1), { timeout: 6_000 });
+          // The fill named the button, so the page's own submission is watched for.
+          expect(codeFills()[0]).toMatchObject({ code: { submit: target("verify") } });
+          await vi.advanceTimersByTimeAsync(1_500);
+          expect(status()).toMatchObject([{ state: "reconciling", stepIndex: 3 }]);
+          expect(handlerReports(report)).toEqual([[0, "totp", "entered", 2]]);
+          fake.state.observedPath = "/home";
+          fake.state.present = new Set(["logout"]);
+          vi.setTimerTickMode("nextTimerAsync");
+          await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+            timeout: 6_000,
+          });
+          expect(clicks("verify")).toBe(0);
+        },
+        15_000,
+      );
 
       it("settles a page that hid its button when it submitted the code itself", async () => {
         vi.useFakeTimers();
