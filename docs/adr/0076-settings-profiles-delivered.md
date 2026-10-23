@@ -31,7 +31,7 @@ extension's merge.
   saves a site default and a binding together, and a device moved to another profile
   must not have an in-flight write land in the old one, so moving a device also
   advances the revision.
-- Migration `0029_settings_profiles` deletes every `settings` row instead of converting
+- Migration `0031_settings_profiles` deletes every `settings` row instead of converting
   it (owner, Q8): the product has no release to keep. Each owner gets a profile named
   "Default" whose ID is the owner's ID, and every device uses it. The first device to
   sync uploads its settings again.
@@ -63,8 +63,10 @@ extension's merge.
   profile follows another's later changes, stays out.
 - Deleting is refused while any device that is not revoked uses the profile, and the
   refusal names those devices (owner, Q5); the owner's last profile cannot be deleted
-  (implementation). A deleted profile is kept with `deleted_at` so revoked devices still
-  name a row (implementation).
+  (implementation). Deleting removes the profile's document, so its exclusions,
+  master-password sites, passkey sites and saved accounts leave the service; only the row
+  stays, with its name and `deleted_at`, so revoked devices still name it
+  (implementation).
 - Names follow device labels' rules and are unique per owner, ignoring case
   (implementation).
 - The devices page moves a device to another profile; the Sites pages edit one profile
