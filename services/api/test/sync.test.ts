@@ -81,6 +81,7 @@ function recipe(id: string, revision: number): LoginRecipe {
     id,
     revision,
     origin: "https://bank.example",
+    pageKind: "sign-in",
     slots: ["username", "password"],
     steps: [
       {
@@ -1492,6 +1493,35 @@ describe("unused recipe revocation (ADR 0058)", () => {
       { recipeId: "bank-login", revision: 2, state: "revoked" },
     ]);
     expect(await activeIds(device.ownerId)).toEqual(["bank-entry"]);
+  });
+
+  it("never revokes a recipe generated as confirm or unclear (ADR 0035), which never runs", async () => {
+    const device = await enrollOwner();
+    for (const [id, pageKind] of [
+      ["bank-confirm", "confirm"],
+      ["bank-unclear", "unclear"],
+    ] as const) {
+      // oxlint-disable-next-line no-await-in-loop -- Each write takes the next sequence.
+      const written = await put(device, `/v1/recipes/${id}`, {
+        version: 1,
+        expectedRevision: 0,
+        state: "active",
+        recipe: { ...recipe(id, 1), pageKind },
+      });
+      expect(written.status).toBe(200);
+    }
+    expect((await publish(device, "bank-login", 0)).status).toBe(200);
+    await env.DB.batch([
+      lastUsedAgo(device.ownerId, "bank-confirm", 10 * RECIPE_IDLE_LIMIT_MS),
+      lastUsedAgo(device.ownerId, "bank-unclear", 10 * RECIPE_IDLE_LIMIT_MS),
+      lastUsedAgo(device.ownerId, "bank-login", RECIPE_IDLE_LIMIT_MS + DAY_MS),
+    ]);
+    expect((await sync(device)).changes).toMatchObject([
+      { recipeId: "bank-confirm", revision: 1, state: "active" },
+      { recipeId: "bank-unclear", revision: 1, state: "active" },
+      { recipeId: "bank-login", revision: 2, state: "revoked" },
+    ]);
+    expect(await activeIds(device.ownerId)).toEqual(["bank-confirm", "bank-unclear"]);
   });
 
   it("counts a reported login, also on an older revision, as use", async () => {

@@ -593,9 +593,7 @@ test("affected custom-field policy quarantine is visible without exposing vault 
   await fillNew();
   await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
   await expect
-    .element(
-      page.getByText("Vault accepted. 1 item(s) need their field settings reviewed before use."),
-    )
+    .element(page.getByText("Vault accepted. 1 item needs its field settings reviewed before use."))
     .toBeVisible();
   // The page reports a count, never the item IDs.
   expect(document.body.textContent).not.toContain("affected-item");

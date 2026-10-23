@@ -16,6 +16,7 @@ function recipe(id: string, revision: number): LoginRecipe {
     id,
     revision,
     origin: "https://bank.example",
+    pageKind: "sign-in",
     slots: ["username", "password"],
     steps: [
       {
@@ -114,6 +115,7 @@ test("shows a recipe's steps, targets and JSON, then revokes it", async () => {
   const details = recipeItem("bank-signin");
   for (const text of [
     "Revision2, updated 2026-10-11 08:15 UTC",
+    "Page kindSign-in",
     'Fill "username" into id "username", "password" into name "pass" (prepare)',
     'Click test-id "go" to submit',
     'id "welcome" on any page',
@@ -159,6 +161,24 @@ test("shows a recipe's steps, targets and JSON, then revokes it", async () => {
     .element(revoked)
     .toMatchTextContent("old-signinRevision 3, revoked 2026-10-11 08:15 UTC");
   await expect.element(revoked).not.toMatchTextContent("shop-signin");
+});
+
+test("shows that devices never log in on a page generated as a verification (ADR 0035)", async () => {
+  const kinds = [
+    ["confirm", "Verification while signed in; devices never log in here"],
+    ["unclear", "Unclear, handled as a verification; devices never log in here"],
+  ] as const;
+  const client = mockClient({
+    version: 1,
+    recipes: kinds.map(([pageKind]) => {
+      const change = active(`bank-${pageKind}`).change;
+      return { change: { ...change, recipe: { ...change.recipe, pageKind } }, updatedAt: UPDATED };
+    }),
+  });
+  await mount(client);
+  for (const [pageKind, text] of kinds)
+    // oxlint-disable-next-line no-await-in-loop -- one element per kind, checked in order
+    await expect.element(recipeItem(`bank-${pageKind}`)).toMatchTextContent(`Page kind${text}`);
 });
 
 test("lists recipes the service can no longer read on the Sites list and revokes them", async () => {
@@ -283,6 +303,7 @@ test("shows a passkey-only recipe and its one click (ADR 0053)", async () => {
     id: "bank-passkey",
     revision: 1,
     origin: "https://bank.example",
+    pageKind: "sign-in",
     slots: [],
     passkeyOnly: true,
     passkey: { path: "/login", target: button },

@@ -296,7 +296,9 @@ export async function writeRecipe(
  * Revokes the owner's active recipes unused for `RECIPE_IDLE_LIMIT_MS` (ADR 0058), at most
  * `MAX_IDLE_REVOCATIONS` per call and oldest first, as ordinary tombstone writes by the
  * service. Entry recipes (ADR 0031) stay: pressing an entry reports nothing to the service.
- * A recipe used after this read keeps its head. Returns how many were revoked.
+ * So do route recipes generated as `confirm` or `unclear` (ADR 0035), which never run, so
+ * never report use. A recipe used after this read keeps its head. Returns how many were
+ * revoked.
  */
 export async function revokeUnusedRecipes(
   db: D1Database,
@@ -310,6 +312,7 @@ export async function revokeUnusedRecipes(
     eq(recipeHeads.state, "active"),
     lt(recipeHeads.lastUsedAt, unusedBefore),
     sql`json_extract(${recipeRevisions.document}, '$.entry') IS NULL`,
+    sql`coalesce(json_extract(${recipeRevisions.document}, '$.pageKind'), 'sign-in') = 'sign-in'`,
   )
     .orderBy(asc(recipeHeads.lastUsedAt))
     .limit(MAX_IDLE_REVOCATIONS);

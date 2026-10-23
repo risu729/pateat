@@ -89,6 +89,7 @@ function recipeDocument(id: string, revision: number) {
     id,
     revision,
     origin: "https://smoke.pateat.invalid",
+    pageKind: "sign-in",
     slots: ["username", "password"],
     steps: [
       {

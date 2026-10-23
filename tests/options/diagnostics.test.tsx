@@ -48,7 +48,7 @@ function status(overrides: Partial<DiagnosticsStatus> = {}): DiagnosticsStatus {
     storage: { localBytes: 900 },
     logs: { entries: 1284, bytes: 212 * 1024, recentErrors: 0, recentWarnings: 2 },
     checks: [
-      { id: "site-access", level: "ok", detail: "https://*/* site access granted" },
+      { id: "site-access", level: "ok", detail: "https://*/* and http://*/* site access granted" },
       { id: "logs", level: "info", detail: "0 errors, 2 warnings logged in the last 24 h" },
       { id: "recipe-cache", level: "warn", detail: "recipe cache full" },
       { id: "connections", level: "error", detail: "connections unreadable" },
@@ -94,7 +94,9 @@ afterEach(async () => {
 test("each check is a line led by an icon, with its level read out", async () => {
   await show(client(status()));
   const lines = page.getByRole("list").first().getByRole("listitem");
-  await expect.element(lines.nth(0)).toHaveTextContent("OK https://*/* site access granted");
+  await expect
+    .element(lines.nth(0))
+    .toHaveTextContent("OK https://*/* and http://*/* site access granted");
   await expect.element(lines.nth(2)).toHaveTextContent("Warning recipe cache full");
   await expect.element(lines.nth(3)).toHaveTextContent("Error connections unreadable");
   for (const line of lines.all()) {
