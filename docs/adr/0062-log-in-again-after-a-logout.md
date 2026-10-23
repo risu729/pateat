@@ -1,15 +1,18 @@
 # ADR 0062: Log in again after a logout, and pause automatic login
 
-Status: proposed, not accepted. On 2026-10-22 (11:37 UTC) the owner asked to drop the
-rule that Pateat does not log in by itself after a logout
-(「バグの温床なのでやめたい」), to log in automatically whenever a login page is
-entered, and to add a button that pauses automatic login for a while, designed together
-with account switching ([ADR 0063](0063-switch-accounts-from-the-popup.md)). A reviewed
-proposal asked three questions by decision card; before they were answered, the owner
-asked on 2026-10-23 (05:28 UTC) to build on the likely answers and decide later, like
-the pull requests built ahead of their phases
-(「フェーズは一旦無視して、ある程度決め打ちで進め、後から 判断」). Every decision below
-is the recommended option of those cards, not an owner's answer. Replaces
+Status: A and C accepted by the owner; B and D proposed, not accepted. On 2026-10-22
+(11:37 UTC) the owner asked to drop the rule that Pateat does not log in by itself after
+a logout (「バグの温床なのでやめたい」), to log in automatically whenever a login page
+is entered, and to add a button that pauses automatic login for a while, designed
+together with account switching ([ADR 0063](0063-switch-accounts-from-the-popup.md)). A
+reviewed proposal asked three questions by decision card; before they were answered, the
+owner asked on 2026-10-23 (05:28 UTC) to build on the likely answers and decide later,
+like the pull requests built ahead of their phases
+(「フェーズは一旦無視して、ある程度決め打ちで進め、後から 判断」). The owner accepted A
+and C (log in again after a logout, with the repeat guard) on 2026-10-23 at 11:54 UTC by
+a card tap (「自動ログイン + 歯止め」, over asking when a later step starts and keeping
+the current rule). B and D are still the recommended options of their cards, not the
+owner's answers. Replaces
 [ADR 0021 D](0021-account-choice-outside-settings.md#d-after-a-logout-choose-again-detection-l1)
 except its rejected-password, stopped-login and abandoned-watch asks, which stay
 without filling.
