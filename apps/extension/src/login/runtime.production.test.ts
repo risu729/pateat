@@ -83,6 +83,11 @@ const fake = vi.hoisted(() => {
     /** What the document says a chooser login would click on its list (ADR 0028). */
     chosen: { ok: true, click: "entry" } as { ok: boolean; click?: string; miss?: object },
     /**
+     * Which username the value the page set in its account input equals (ADR 0028
+     * amendment of 2026-10-23).
+     */
+    siteAccount: { ok: false } as { ok: boolean; index?: number },
+    /**
      * What the page shows for a continuation, when an observation asks (ADR 0018): `true`
      * for a loaded page with a password input other than the asked targets, `false` for
      * one still loading, or the answer's parts.
@@ -319,6 +324,7 @@ const fake = vi.hoisted(() => {
         if (message["type"] === "login.switch") return state.switchReply;
         if (message["type"] === "login.detail.fill") return state.detailFillReply ?? { ok: true };
         if (message["type"] === "login.choose") return state.chosen;
+        if (message["type"] === "login.site.account") return state.siteAccount;
         if (message["type"] === "login.entry.hosts") return state.entry.hosts;
         if (message["type"] === "login.entry.inspect") return state.entry.inspect;
         if (message["type"] === "login.entry.check") return state.entry.check;
@@ -860,6 +866,7 @@ describe("production login document admission", () => {
     fake.state.executeReply = undefined;
     fake.state.switchReply = { ok: true };
     fake.state.chosen = { ok: true, click: "entry" };
+    fake.state.siteAccount = { ok: false };
     fake.state.gone = new Set();
     fake.state.extracted = {};
     fake.state.signs = undefined;
@@ -4723,6 +4730,121 @@ describe("production login document admission", () => {
       expect(await h.hello()).toEqual({ ok: false, reason: "account-ambiguous" });
       expect(h.fields).not.toHaveBeenCalled();
       expect(h.store.update).not.toHaveBeenCalled();
+    });
+    describe("with the account the page set in its username input", () => {
+      // ADR 0028 amendment of 2026-10-23: the value the site put into the recipe's account
+      // input before anyone typed picks one of several matches, for this document only.
+      const withUsername = parseLoginRecipe({
+        ...recipe,
+        slots: ["username", "password"],
+        steps: [
+          {
+            kind: "fill",
+            path: "/signin",
+            fields: [
+              { slot: "username", target: target("email") },
+              { slot: "password", target: target("password") },
+            ],
+          },
+          recipe.steps[1]!,
+        ],
+      });
+      const twoAccounts = (report?: (entry: LoginReport) => void) => {
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris: async () => ({ ok: true, data: both }),
+          username: true,
+          otherUsername: true,
+          ...(report ? { report } : {}),
+        });
+        h.recipes.recipe.mockResolvedValue(withUsername);
+        h.fields.mockImplementation(async ({ account, fieldId }) =>
+          fieldId === "login.username"
+            ? account.itemId === itemId
+              ? "a@example.com"
+              : "b@example.com"
+            : "synthetic-secret",
+        );
+        return h;
+      };
+      const asked = () =>
+        fake.state.messages.filter((entry) => entry.type === "login.site.account");
+      it("logs in with the item whose username the page's value equals, never saving it", async () => {
+        fake.state.siteAccount = { ok: true, index: 1 };
+        const report = vi.fn<(entry: LoginReport) => void>();
+        const h = twoAccounts(report);
+        expect(await h.hello()).toEqual({ ok: true });
+        // Every matching item's username goes to the page's script, which answers an index.
+        expect(asked()).toEqual([
+          expect.objectContaining({
+            path: "/signin",
+            targets: [target("email")],
+            usernames: ["a@example.com", "b@example.com"],
+          }),
+        ]);
+        await vi.waitFor(() =>
+          expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
+            { state: "authenticated" },
+          ]),
+        );
+        expect(
+          h.fields.mock.calls.some(
+            ([request]) =>
+              request.account.itemId === otherItemId && request.fieldId === "login.password",
+          ),
+        ).toBe(true);
+        expect(
+          h.fields.mock.calls.some(
+            ([request]) =>
+              request.account.itemId === itemId && request.fieldId === "login.password",
+          ),
+        ).toBe(false);
+        // The log names how the account was chosen, and nothing is saved as the default.
+        expect(report.mock.calls.map(([entry]) => entry)).toContainEqual(
+          expect.objectContaining({
+            type: "start",
+            account: "site-value",
+            candidates: 2,
+            itemId: otherItemId,
+          }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(h.store.update).not.toHaveBeenCalledWith(
+          expect.anything(),
+          "account-choice",
+          expect.anything(),
+        );
+        expect(h.settings.settings.siteDefaults).toEqual([]);
+      });
+      it("still asks for a pick when the page's value names no single item", async () => {
+        fake.state.siteAccount = { ok: false };
+        const h = twoAccounts();
+        expect(await h.hello()).toEqual({ ok: false, reason: "account-ambiguous" });
+        expect(asked()).toHaveLength(1);
+      });
+      it("reads no username when another item's username cannot be read", async () => {
+        fake.state.siteAccount = { ok: true, index: 0 };
+        const h = twoAccounts();
+        h.fields.mockImplementation(async ({ account, fieldId }) => {
+          if (fieldId === "login.username" && account.itemId === otherItemId)
+            throw new Error("unavailable");
+          return fieldId === "login.username" ? "a@example.com" : "synthetic-secret";
+        });
+        expect(await h.hello()).toEqual({ ok: false, reason: "account-ambiguous" });
+        expect(asked()).toEqual([]);
+      });
+      it("asks nothing for a recipe without an account input on the page's path", async () => {
+        fake.state.siteAccount = { ok: true, index: 0 };
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris: async () => ({ ok: true, data: both }),
+          username: true,
+          otherUsername: true,
+        });
+        expect(await h.hello()).toEqual({ ok: false, reason: "account-ambiguous" });
+        expect(asked()).toEqual([]);
+        expect(h.fields).not.toHaveBeenCalled();
+      });
     });
     describe("with a completion that also lists absent elements", () => {
       // A learned completion on the sign-in page's own path: the sign-out marker counts

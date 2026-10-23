@@ -86,6 +86,7 @@ import { acceptsSecret, maskedSecret } from "./inputs";
 import { chooseFor } from "../page/choice-radio";
 import { askedQuestion, type AskedQuestion } from "../page/question";
 import { cardHints } from "../page/card-hints";
+import { siteValueChoice, stopSiteValues } from "../page/site-values";
 import {
   commandSchema,
   destinationAnswerSchema,
@@ -391,6 +392,8 @@ export interface LoginContentOptions {
 export function installLoginContent({ probeStatus = false }: LoginContentOptions = {}): () => void {
   const token = newId();
   let cancelled = false;
+  // Whether the background asked for the value the page set in an account input.
+  let siteAccountAsked = false;
   // Set once this document's login has ended; it then watches for a logout (ADR 0021 D).
   let ended = false;
   // The site rejected that login here: the form showing with the failure asks at once.
@@ -1002,6 +1005,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       // The popup's fill of a personal detail (ADR 0061): its input, or every input of a
       // split value, each checked before any is filled, a radio first, and nothing
       // pressed. The values and the username never leave this handler.
+      // What the page sets in its inputs from now on may be Pateat's own filling.
+      stopSiteValues(window);
       const fields = command.fields.map((field) => ({ ...field }));
       for (const field of command.fields) field.value = "";
       const username = command.account?.username;
@@ -1092,6 +1097,26 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             ? { ok: true, click: "none", miss: choice.miss }
             : { ok: true, click: choice.click },
       );
+      return false;
+    }
+    if (command.type === "login.site.account") {
+      // Answered once per document, so a page cannot try one value after another to learn
+      // which accounts the vault holds (ADR 0028 amendment of 2026-10-23).
+      const asked = siteAccountAsked;
+      siteAccountAsked = true;
+      const inputs =
+        asked || cancelled || pagePath() !== command.path
+          ? []
+          : command.targets.map((target) => {
+              const found = matches(target);
+              return found.length === 1 ? found[0]! : undefined;
+            });
+      const index =
+        inputs.length > 0 && inputs.every(Boolean)
+          ? siteValueChoice(window, inputs as Element[], command.usernames)
+          : undefined;
+      command.usernames.fill("");
+      respond(index === undefined ? { ok: false } : { ok: true, index });
       return false;
     }
     if (command.type === "login.switch") {
@@ -1408,6 +1433,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         operationId: operation.operationId,
       });
       if (authorized !== true) return fail("cancelled", "not-authorized");
+      // What the page sets in its inputs from now on may be Pateat's own filling.
+      stopSiteValues(window);
       /**
        * Why the step may not send its form where `read` says it goes: a destination the
        * page refuses, or one off the document's origin that the background does not allow

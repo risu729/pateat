@@ -52,6 +52,16 @@ holds no value they entered. Saving a credential to the vault, as the Bitwarden
 extension offers, is the separate later writeback capability below, not part of logins
 and fills.
 
+One exception (owner, 2026-10-23 22:32 UTC): when several vault items match a page and
+none is its default, the value the page itself put into the recipe's account input
+before anyone typed, such as the email Money Forward remembers, picks the item whose
+username equals it, for that document only and never saved
+([ADR 0028](adr/0028-account-chooser-login-pages.md#amendment-2026-10-23-the-value-the-page-set-in-the-account-input)).
+A content script that runs from the start of the page records such values and stops at
+the person's first trusted input of any kind, so it never holds what the person typed;
+the values are only compared in the page's content script and never stored, logged or
+sent.
+
 ## Components and trust boundaries
 
 | Component               | Responsibilities                                                                           | May hold secrets?                                               |

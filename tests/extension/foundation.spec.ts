@@ -144,7 +144,8 @@ test("production package permits local storage, the crypto host and the HTTPS lo
   // Owner-approved install-time access (ADR 0009, HTTP since ADR 0050; passkeys stay on
   // HTTPS and `http://localhost`); the login script also runs in frames, which need the tab's page admitted too (ADR 0017). The MAIN-world scripts are
   // the ADR 0007 passkey bridge and, wherever the login script runs, the click on
-  // `javascript:` links.
+  // `javascript:` links. `login-start` records the values the page sets in account inputs
+  // before anyone types (ADR 0028 amendment of 2026-10-23).
   expect(
     [...manifest.content_scripts].sort((a: { js: string[] }, b: { js: string[] }) =>
       a.js[0]!.localeCompare(b.js[0]!),
@@ -156,6 +157,12 @@ test("production package permits local storage, the crypto host and the HTTPS lo
       all_frames: true,
       world: "MAIN",
       js: ["content-scripts/login-main.js"],
+    },
+    {
+      matches: ["http://*/*", "https://*/*"],
+      run_at: "document_start",
+      all_frames: true,
+      js: ["content-scripts/login-start.js"],
     },
     {
       matches: ["http://*/*", "https://*/*"],

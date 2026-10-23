@@ -169,6 +169,7 @@ import {
   logoutClickedSchema,
   personSubmittedSchema,
   chooseResultSchema,
+  siteAccountResultSchema,
   type ListMissReport as ListMiss,
   probeControlSchema,
   loginReadiness,
@@ -560,6 +561,11 @@ type LiveDocument = {
   uriMatch?: { connectionId: string; itemId: string; snapshotId: string };
   /** A single-match account choice, valid while every connection's snapshot is unchanged. */
   autoChoice?: { snapshots: string; connectionId: string; itemId: string };
+  /**
+   * The account the page's own value in its account input picked among several matches
+   * (ADR 0028 amendment of 2026-10-23), valid while every connection's snapshot is unchanged.
+   */
+  siteChoice?: { snapshots: string; connectionId: string; itemId: string };
   /** A provider URI match for `topUrl`, valid while its snapshot is unchanged. */
   topMatch?: { connectionId: string; itemId: string; snapshotId: string };
   /** Why generation last skipped this document, so each reason is logged once. */
@@ -1783,6 +1789,23 @@ type GenerationScope = {
 /** The items that matched a page and the settings they were matched under. */
 type VaultMatch = Pick<GenerationScope, "items" | "settings" | "catalog">;
 
+/**
+ * The recipe's inputs for the `username` slot on `path`, over every password variant, each
+ * once: where a site may show the account it remembers (ADR 0028 amendment of 2026-10-23).
+ */
+function accountTargetsOn(recipe: LoginRecipe, path: string): LoginFieldTarget[] {
+  const targets: LoginFieldTarget[] = [];
+  for (const variant of passwordVariants(recipe))
+    for (const step of variant.steps)
+      if (step.kind === "fill" && step.path === path)
+        for (const field of step.fields)
+          if (
+            field.slot === "username" &&
+            !targets.some((target) => sameLoginTarget(target, field.target))
+          )
+            targets.push(field.target);
+  return targets;
+}
 /** Each URI match's connection and item in the catalog; one the catalog lacks is left out. */
 function catalogItems(
   catalog: VaultCatalog,
@@ -1801,7 +1824,7 @@ function catalogItems(
  * Account metadata comes from each live settings read; values come from `fields` per fill.
  */
 /** How a login's account was chosen (ADR 0013, ADR 0021). */
-export type AccountSource = "default" | "match" | "pick";
+export type AccountSource = "default" | "match" | "pick" | "site-value";
 /**
  * A value-free account of what the runtime decided, for the local log (ADR 0019). The
  * origin and recipe ID are reduced there; no account ID is included, and the only item ID,
@@ -3950,6 +3973,8 @@ export function createLoginRuntime(
     live: LiveDocument,
     asking = false,
     fill = false,
+    /** The recipe's inputs for the `username` slot on the document's path. */
+    accountTargets: readonly LoginFieldTarget[] = [],
   ): Promise<Choice | Refusal> {
     // An account picked in the popup wins for the document it restarted and the attempt that
     // document started; its item must still match the page and pass every check below.
@@ -4041,6 +4066,26 @@ export function createLoginRuntime(
     const found = await siteCandidates(snapshot, live);
     if ("reason" in found) return { reason: found.reason };
     const { candidates } = found;
+    if (candidates.length > 1) {
+      // The account the page itself put into the recipe's account input picks one of them,
+      // for this document only and never saved (ADR 0028 amendment of 2026-10-23).
+      const shown =
+        live.siteChoice?.snapshots === snapshots
+          ? live.siteChoice
+          : accountTargets.length > 0
+            ? await siteAccount(snapshot, live, candidates, accountTargets)
+            : undefined;
+      if (shown) {
+        live.siteChoice = { snapshots, connectionId: shown.connectionId, itemId: shown.itemId };
+        return {
+          connectionId: shown.connectionId,
+          itemId: shown.itemId,
+          saved: false,
+          source: "site-value",
+          candidates: candidates.length,
+        };
+      }
+    }
     if (candidates.length > 1)
       return {
         reason: "account-ambiguous",
@@ -4065,6 +4110,65 @@ export function createLoginRuntime(
       source: "match",
       candidates: candidates.length,
     };
+  }
+  /**
+   * The one candidate whose username equals the value the page itself set in one of
+   * `targets` before anyone typed, as the document's content script compares them (ADR
+   * 0028 amendment of 2026-10-23). The usernames are read one at a time, only for this
+   * comparison, and never kept, logged or sent; a username that cannot be read, or one
+   * the person excluded, compares nothing.
+   */
+  async function siteAccount(
+    snapshot: Extract<SettingsResponse, { ok: true }>,
+    live: LiveDocument,
+    candidates: readonly LiveSiteCandidate[],
+    targets: readonly LoginFieldTarget[],
+  ): Promise<LiveSiteCandidate | undefined> {
+    if (candidates.length > 32) return undefined;
+    const settingsValue = snapshot.snapshot.settings;
+    const usernames: string[] = [];
+    try {
+      for (const candidate of candidates) {
+        const connection = snapshot.catalog.connections.find(
+          (entry) => entry.id === candidate.connectionId,
+        );
+        if (!connection) return undefined;
+        const fieldId = loginUsernameFieldId(connection, candidate.itemId);
+        if (!fieldId) {
+          usernames.push("");
+          continue;
+        }
+        if (
+          isFieldExcluded(settingsValue, snapshot.catalog, connection.id, candidate.itemId, fieldId)
+        )
+          return undefined;
+        // Serial reads through the shared vault host, as for a fill.
+        // eslint-disable-next-line no-await-in-loop
+        const value = await fields({
+          account: {
+            origin: live.document.origin,
+            connectionId: connection.id,
+            itemId: candidate.itemId,
+          },
+          connection,
+          fieldId,
+        }).catch(() => undefined);
+        if (value === undefined) return undefined;
+        usernames.push(value);
+      }
+      const parsed = v.safeParse(
+        siteAccountResultSchema,
+        await send(live, {
+          type: "login.site.account",
+          path: live.path,
+          targets: targets.slice(0, 8),
+          usernames,
+        }).catch(() => undefined),
+      );
+      return parsed.success && parsed.output.ok ? candidates[parsed.output.index] : undefined;
+    } finally {
+      usernames.fill("");
+    }
   }
   /**
    * Origin scope for the chosen account of this document. A live provider URI match for
@@ -4456,7 +4560,13 @@ export function createLoginRuntime(
       const top = await topScope(snapshot, live, account, catalog);
       if (top) return { ok: false as const, reason: top.reason };
     } else {
-      const found = await choose(snapshot, live, request.asking === true, request.fill === true);
+      const found = await choose(
+        snapshot,
+        live,
+        request.asking === true,
+        request.fill === true,
+        accountTargetsOn(recipe, live.path),
+      );
       if ("reason" in found)
         return {
           ok: false as const,
@@ -4538,8 +4648,9 @@ export function createLoginRuntime(
             ...(named.accountName ? { accountName: named.accountName } : {}),
           });
         }
-        // A pick made for this login only is never saved.
-        if (unsaved && (!chosen.pick || chosen.pick.makeDefault))
+        // A pick made for this login only is never saved, nor an account the page's own
+        // value picked (ADR 0028 amendment of 2026-10-23).
+        if (unsaved && chosen.source !== "site-value" && (!chosen.pick || chosen.pick.makeDefault))
           choice = {
             binding: named,
             connectionId: chosen.connectionId,
@@ -12680,7 +12791,9 @@ export function createLoginRuntime(
               ...(plan.chosen.candidates === undefined
                 ? {}
                 : { candidates: plan.chosen.candidates }),
-              ...(plan.chosen.source === "match" ? { itemId: metadata.account.itemId } : {}),
+              ...(plan.chosen.source === "match" || plan.chosen.source === "site-value"
+                ? { itemId: metadata.account.itemId }
+                : {}),
             }
           : {}),
         ...(metadata.fillOnly ? { fillOnly: true as const } : {}),
