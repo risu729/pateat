@@ -2897,7 +2897,12 @@ links; no page's completeness changed, and five pages that are not login pages l
 context links to the 48-candidate limit or to shared text. Hidden, collapsed,
 `aria-hidden` and before-the-page-start inputs are skipped as likely traps; a
 transparent (opacity 0, also through an ancestor) or tiny field makes the form
-incomplete. Since 2026-10-17 an element transparent only because it or each transparent
+incomplete, unless it is also disabled: since 2026-10-23 such a field, which takes input
+from no one, is skipped, as Bitwarden never picks a disabled field as the username or
+password field (`!f.disabled` in its `autofill.service.ts`). An example is the 12-pixel
+disabled text and password pair at opacity 0 in SBI新生銀行's login form (read in cloud
+Chromium on main `8f50e3e`; agent fix, local tests only, not checked in the owner's
+Chrome). Since 2026-10-17 an element transparent only because it or each transparent
 ancestor has a running or paused CSS animation, CSS transition or script animation that
 still takes its opacity above 0 later in its current iteration, in the direction it
 plays (one still in its delay from the iteration's start), counts as opaque, wherever

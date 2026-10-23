@@ -1060,6 +1060,10 @@ function describe(element: Element): Found | undefined {
     ? readOwnInert(element, () => presence(element))
     : presence(element);
   if (element instanceof HTMLInputElement && fillTypes[element.type] && present !== "absent") {
+    // A field both faint and disabled takes input from no one, neither the person nor a
+    // widget drawn over it, so it is a decoy; Bitwarden never picks a disabled field as
+    // the username or password field either.
+    if (present === "faint" && element.disabled) return undefined;
     if (present === "faint" || element.readOnly || element.disabled)
       return { kind: "unsupported", form: element.form, field: element, element };
   } else if (present !== "visible") return undefined;
