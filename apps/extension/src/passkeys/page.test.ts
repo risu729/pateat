@@ -94,6 +94,14 @@ describe("MAIN-world passkey wrapper", () => {
     expect(page.nativeGet.mock.contexts[0]).toBe(page.container);
   });
 
+  it("hands a request the background cancelled to the browser, as after a page is restored", async () => {
+    const page = fakePage(answer({ kind: "cancelled" }));
+    const options = { publicKey };
+    await expect(page.container.get(options)).resolves.toBe("native");
+    expect(page.nativeGet).toHaveBeenCalledOnce();
+    expect(page.nativeGet.mock.calls[0]![0]).toBe(options);
+  });
+
   it("preserves Immediate UI uiMode and delegates the caller's exact call", async () => {
     const page = fakePage(answer({ kind: "delegate" }));
     const options = { publicKey, uiMode: "immediate" };

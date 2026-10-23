@@ -31,11 +31,11 @@ describe("pageStatusLines", () => {
     ]);
   });
 
-  it("says an ended sign-in could not be confirmed", () => {
+  it("says an ended login could not be confirmed", () => {
     expect(lines({ recipe: "page", login: { state: "authenticated", unconfirmed: true } })).toEqual(
       [
         ["recipe", "idle", "This site has a recipe for this page."],
-        ["login", "warn", "The sign-in could not be confirmed."],
+        ["login", "warn", "The login could not be confirmed."],
       ],
     );
   });
@@ -61,7 +61,11 @@ describe("pageStatusLines", () => {
     // A site whose recipe starts elsewhere may still send this page.
     expect(lines({ recipe: "other-paths", page: { generationSkip: "not-connected" } })).toEqual([
       ["recipe", "idle", "This site has a recipe, but none starts on this page."],
-      ["generation-skip", "idle", "Not sent to the AI: Pateat is not connected to its service."],
+      [
+        "generation-skip",
+        "idle",
+        "Not sent to the AI: Pateat cannot use the sync service on this device.",
+      ],
     ]);
     // A page with a recipe says nothing about skips.
     expect(lines({ recipe: "page", page: { generationSkip: "sent" } })).toEqual([
@@ -106,7 +110,7 @@ describe("pageStatusLines", () => {
       expect(lines({ page: { generationSkip: "not-connected" }, generation }).at(-1)).toEqual([
         "generation-skip",
         "idle",
-        "Not sent to the AI: Pateat is not connected to its service.",
+        "Not sent to the AI: Pateat cannot use the sync service on this device.",
       ]);
   });
 
@@ -257,10 +261,11 @@ describe("pageStatusLines", () => {
     expect(lines({ login: { state: "blocked", outcome: "credential-rejected" } }).slice(1)).toEqual(
       [["login", "err", "The login did not succeed: the site did not accept the password."]],
     );
+    // An unsettled outcome is not called a failure, as the icon's title does not.
     expect(lines({ login: { state: "blocked", outcome: "left-origin" } })[1]).toEqual([
       "login",
       "warn",
-      "The login did not succeed: the tab moved to another site during the login.",
+      "The result of the login is not known: the tab moved to another site during the login.",
     ]);
     expect(lines({ login: { state: "blocked", outcome: "new-outcome" } })[1]?.[2]).toBe(
       "The login did not succeed: new-outcome.",
@@ -309,7 +314,7 @@ describe("pageStatusLines", () => {
     ).toBe("The login stopped: the login was cancelled.");
     expect(
       lines({ login: { state: "blocked", outcome: "wrong-account", fillOnly: true } })[1]?.[2],
-    ).toBe("The login did not succeed: the page shows another account than the chosen one.");
+    ).toBe("The login did not succeed: the page shows a different account from the one chosen.");
   });
 
   it("says why the page's sign-in did not start a login", () => {
@@ -322,7 +327,7 @@ describe("pageStatusLines", () => {
       lines({ recipe: "page", page: { state: "denied", reason: "origin-busy" } })[1]?.[2],
     ).toBe("No login started: another tab's login to this site is running or did not succeed.");
     expect(lines({ recipe: "page", page: { state: "denied", reason: "logged-out" } })[1]?.[2]).toBe(
-      "No login started: you logged out of this site; choose an account to log in again.",
+      "No login started: Pateat waits for you to choose an account.",
     );
     // A page without a recipe is ordinary browsing.
     expect(lines({ page: { state: "denied", reason: "recipe-not-found" } })).toEqual([
@@ -353,7 +358,7 @@ describe("pageStatusLines", () => {
     expect(lines({ recipe: "page", login: { state: "logged-out" } })[1]).toEqual([
       "login",
       "idle",
-      "Logged out of this site in this tab.",
+      "You were logged out of this site in this tab.",
     ]);
     expect(lines({ recipe: "page", login: { state: "logged-out", outcome: "rejected" } })).toEqual([
       ["recipe", "idle", "This site has a recipe for this page."],
@@ -365,29 +370,29 @@ describe("pageStatusLines", () => {
     ["password-empty:no-passkey", "the vault item has neither a password nor a passkey"],
     [
       "password-empty:no-advance",
-      "the vault item has no password, and the recipe has no way on without one. Pateat signs in with its passkey only when the passkey needs no username, and the page asks for a passkey or the recipe presses a passkey button",
+      "the vault item has no password, and the recipe has no way on without one. Pateat logs in with its passkey only when the passkey needs no username, and the page asks for a passkey or the recipe presses a passkey button",
     ],
     // A recipe with several variants never goes on to the item's passkey (ADR 0036), as on a
     // page with an email and a login ID tab.
     [
       "password-empty:alternatives",
-      "the vault item has no password, and Pateat goes on to a passkey only on a recipe with one way to sign in. Pateat signs in with its passkey only when the passkey needs no username, and the page asks for a passkey or the recipe presses a passkey button",
+      "the vault item has no password, and Pateat goes on to a passkey only on a recipe with one way to sign in. Pateat logs in with its passkey only when the passkey needs no username, and the page asks for a passkey or the recipe presses a passkey button",
     ],
     [
       "password-empty:no-password-step",
-      "the vault item has no password, and the recipe neither asks for one nor goes on to another page. Pateat signs in with its passkey only when the passkey needs no username, and the page asks for a passkey or the recipe presses a passkey button",
+      "the vault item has no password, and the recipe neither asks for one nor goes on to another page. Pateat logs in with its passkey only when the passkey needs no username, and the page asks for a passkey or the recipe presses a passkey button",
     ],
     [
       "password-empty:fills-lacking",
-      "the vault item has no password, and the recipe needs another value the item lacks before it. Pateat signs in with its passkey only when the passkey needs no username, and the page asks for a passkey or the recipe presses a passkey button",
+      "the vault item has no password, and the recipe needs another value the item lacks before it. Pateat logs in with its passkey only when the passkey needs no username, and the page asks for a passkey or the recipe presses a passkey button",
     ],
     [
       "password-empty:password-field",
-      "the vault item has no password, and the account fills its password from another field. Pateat signs in with its passkey only when the passkey needs no username, and the page asks for a passkey or the recipe presses a passkey button",
+      "the vault item has no password, and the account fills its password from another field. Pateat logs in with its passkey only when the passkey needs no username, and the page asks for a passkey or the recipe presses a passkey button",
     ],
     [
       "password-empty:later-start",
-      "the vault item has no password, and this page asks for it. Pateat signs in with its passkey only when the passkey needs no username, and the page asks for a passkey or the recipe presses a passkey button",
+      "the vault item has no password, and this page asks for it. Pateat logs in with its passkey only when the passkey needs no username, and the page asks for a passkey or the recipe presses a passkey button",
     ],
     // A frame's login never goes on without a password, whatever the item holds.
     [

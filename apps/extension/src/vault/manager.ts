@@ -34,6 +34,7 @@ export type VaultCryptoHost = Pick<
   | "customFieldDigests"
   | "findPasskeys"
   | "signPasskey"
+  | "verifyMasterPassword"
 >;
 export type LocalVaultHandle = {
   managerGeneration: string;
@@ -709,10 +710,40 @@ export function createLocalVaultManager(options: {
       if (!after.ok) return after;
       return validHandle(handle) && live === owner ? result : vaultFailure("stale-vault-handle");
     },
+    /**
+     * Whether `password` is the master password of the live session's account, checked
+     * offline against the accepted record's unlock data, as before a re-prompt item is used.
+     */
+    async verifyMasterPassword(handle: LocalVaultHandle, password: string, signal?: AbortSignal) {
+      try {
+        handle = structuredClone(handle);
+      } catch {
+        return vaultFailure("invalid-request");
+      }
+      if (typeof password !== "string" || !password) return vaultFailure("invalid-request");
+      if (!validHandle(handle) || !live) return vaultFailure("stale-vault-handle");
+      const owner = live;
+      const before = await checkDurable(owner);
+      if (!before.ok || !validHandle(handle))
+        return before.ok ? vaultFailure("stale-vault-handle") : before;
+      const result = await options.host.verifyMasterPassword(
+        owner.opened.session,
+        password,
+        signal,
+      );
+      const after = await checkDurable(owner);
+      if (!after.ok) return after;
+      return validHandle(handle) && live === owner ? result : vaultFailure("stale-vault-handle");
+    },
     async resolveField(
       handle: LocalVaultHandle,
       ref: LocalFieldReference,
-      grant: { snapshotId: string; allowedFieldIds: readonly string[]; nowMs?: number },
+      grant: {
+        snapshotId: string;
+        allowedFieldIds: readonly string[];
+        nowMs?: number;
+        code?: true;
+      },
       signal?: AbortSignal,
     ) {
       try {

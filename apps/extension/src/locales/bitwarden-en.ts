@@ -1,38 +1,38 @@
 export const bitwardenEn = {
-  "The provider's sign-in and vault data did not agree{{check}}. Setup is incomplete; report this check name.":
-    "The provider's sign-in and vault data did not agree{{check}}. Setup is incomplete; report this check name.",
+  "Bitwarden's sign-in and vault data did not agree{{check}}. Setup is incomplete; report this check name.":
+    "Bitwarden's sign-in and vault data did not agree{{check}}. Setup is incomplete; report this check name.",
   " (check: {{check}})": " (check: {{check}})",
-  "Provider access was not granted. Use the connection button to grant access.":
-    "Provider access was not granted. Use the connection button to grant access.",
+  "Pateat does not have access to the Bitwarden server. Connect or sync again, and allow access when Chrome asks.":
+    "Pateat does not have access to the Bitwarden server. Connect or sync again, and allow access when Chrome asks.",
   "Sign in again to sync. The saved local vault can still unlock independently.":
     "Sign in again to sync. The saved local vault can still unlock independently.",
-  "Automatic unlock is off for this connection, and Sync needs it. Sign in again and check Enable automatic unlock on this device to restore it.":
-    "Automatic unlock is off for this connection, and Sync needs it. Sign in again and check Enable automatic unlock on this device to restore it.",
+  "Automatic unlock is off for this connection, and Sync needs it. To turn it back on, sign in again with Enable automatic unlock on this device checked.":
+    "Automatic unlock is off for this connection, and Sync needs it. To turn it back on, sign in again with Enable automatic unlock on this device checked.",
   "The vault is locked. Refresh to check recovery options.":
     "The vault is locked. Refresh to check recovery options.",
   "The operation reached a resource limit. Refresh to check the current vault status before trying again.":
     "The operation reached a resource limit. Refresh to check the current vault status before trying again.",
-  "The vault exceeds the local cache limit. Refresh to check the current vault status.":
-    "The vault exceeds the local cache limit. Refresh to check the current vault status.",
-  "The cache update could not be confirmed. Refresh and reload saved settings before using this vault.":
-    "The cache update could not be confirmed. Refresh and reload saved settings before using this vault.",
+  "The vault is larger than Pateat's local copy can hold. Refresh to check the current vault status.":
+    "The vault is larger than Pateat's local copy can hold. Refresh to check the current vault status.",
+  "Pateat could not confirm that the local vault copy was updated. Refresh and reload saved settings before using this vault.":
+    "Pateat could not confirm that the local vault copy was updated. Refresh and reload saved settings before using this vault.",
   "This verification session expired. Start sign-in again.":
     "This verification session expired. Start sign-in again.",
   "This account uses an unsupported vault format. Setup is incomplete.":
     "This account uses an unsupported vault format. Setup is incomplete.",
-  "The provider response could not be accepted. Setup is incomplete.":
-    "The provider response could not be accepted. Setup is incomplete.",
-  "The provider rejected this sign-in. Review the account and password before starting again.":
-    "The provider rejected this sign-in. Review the account and password before starting again.",
-  "The provider session expired. Sign in again to sync.":
-    "The provider session expired. Sign in again to sync.",
-  "Saved settings changed. Reload saved settings and review the current field list before trying again.":
-    "Saved settings changed. Reload saved settings and review the current field list before trying again.",
-  "Connection operation unavailable ({{code}}). Refresh before trying again.":
-    "Connection operation unavailable ({{code}}). Refresh before trying again.",
+  "Bitwarden's answer could not be accepted. Setup is incomplete.":
+    "Bitwarden's answer could not be accepted. Setup is incomplete.",
+  "Bitwarden did not accept this sign-in. Check the email and master password, then try again.":
+    "Bitwarden did not accept this sign-in. Check the email and master password, then try again.",
+  "The Bitwarden sign-in expired. Sign in again to sync.":
+    "The Bitwarden sign-in expired. Sign in again to sync.",
+  "The saved settings changed. Reload saved settings and review the current fields, then try again.":
+    "The saved settings changed. Reload saved settings and review the current fields, then try again.",
+  "The connection could not do this ({{code}}). Refresh, then try again.":
+    "The connection could not do this ({{code}}). Refresh, then try again.",
   "Local vault ready": "Local vault ready",
-  "Some items need their field settings reviewed before use":
-    "Some items need their field settings reviewed before use",
+  "Some items need their field settings reviewed before use.":
+    "Some items need their field settings reviewed before use.",
   "Setup incomplete or vault locked": "Setup incomplete or vault locked",
   "Vault unavailable": "Vault unavailable",
   "Sync sign-in saved on this device": "Sync sign-in saved on this device",
@@ -58,8 +58,8 @@ export const bitwardenEn = {
   "Loading Bitwarden connections…": "Loading Bitwarden connections…",
   "Connections loaded. Add a vault or sign in again below.":
     "Connections loaded. Add a vault or sign in again below.",
-  "Unable to read connection status. Refresh to retry.":
-    "Unable to read connection status. Refresh to retry.",
+  "Pateat could not read the connection status. Refresh to try again.":
+    "Pateat could not read the connection status. Refresh to try again.",
   "Enter a two-step verification code.": "Enter a two-step verification code.",
   "The sign-in ended before the code was entered.":
     "The sign-in ended before the code was entered.",
@@ -83,34 +83,35 @@ export const bitwardenEn = {
     "Enter the new-device verification code from your email.",
   "Vault accepted. {{count}} item needs its field settings reviewed before use.":
     "Vault accepted. {{count}} item needs its field settings reviewed before use.",
-  "Vault verified and local cache accepted. Check automatic-unlock status below.":
-    "Vault verified and local cache accepted. Check automatic-unlock status below.",
-  "Setup is incomplete: {{reason}}. This interaction is not supported here.":
-    "Setup is incomplete: {{reason}}. This interaction is not supported here.",
+  "Vault verified and copied to this device. Check the automatic unlock line below.":
+    "Vault verified and copied to this device. Check the automatic unlock line below.",
+  "Setup is incomplete: Bitwarden asks for a step Pateat does not support ({{reason}}).":
+    "Setup is incomplete: Bitwarden asks for a step Pateat does not support ({{reason}}).",
   "Setup cancelled.": "Setup cancelled.",
   "Sync sign-in removed from this device. This does not sign out other sessions; the local vault still unlocks as before.":
     "Sync sign-in removed from this device. This does not sign out other sessions; the local vault still unlocks as before.",
-  "Connection deleted from this device, with its local vault cache, unlock key and sync sign-in. This does not sign out other sessions. Saved settings that referred to it now show it as unavailable.":
-    "Connection deleted from this device, with its local vault cache, unlock key and sync sign-in. This does not sign out other sessions. Saved settings that referred to it now show it as unavailable.",
-  "Automatic unlock disabled. Sign in again with Enable automatic unlock to restore it.":
-    "Automatic unlock disabled. Sign in again with Enable automatic unlock to restore it.",
-  "The operation could not be confirmed. Refresh and reload saved settings. Your previous draft is preserved.":
-    "The operation could not be confirmed. Refresh and reload saved settings. Your previous draft is preserved.",
-  "Enter a connection name, valid email and master password. Self-hosted addresses must be HTTPS roots, or HTTP on localhost or 127.0.0.1, without a path, credentials, query or fragment.":
-    "Enter a connection name, valid email and master password. Self-hosted addresses must be HTTPS roots, or HTTP on localhost or 127.0.0.1, without a path, credentials, query or fragment.",
-  "Requesting provider access and connecting…": "Requesting provider access and connecting…",
-  "Provider access was not granted. No sign-in request was sent.":
-    "Provider access was not granted. No sign-in request was sent.",
-  "Setup stopped. Refresh to confirm the latest state.":
-    "Setup stopped. Refresh to confirm the latest state.",
+  "Connection deleted from this device, with its local vault copy, unlock key and sync sign-in. This does not sign out other sessions. Saved settings that referred to it now show it as unavailable.":
+    "Connection deleted from this device, with its local vault copy, unlock key and sync sign-in. This does not sign out other sessions. Saved settings that referred to it now show it as unavailable.",
+  "Automatic unlock is off. To turn it back on, sign in again with Enable automatic unlock on this device checked.":
+    "Automatic unlock is off. To turn it back on, sign in again with Enable automatic unlock on this device checked.",
+  "Pateat could not confirm the result. Refresh, then reload saved settings.":
+    "Pateat could not confirm the result. Refresh, then reload saved settings.",
+  "Enter a name, a valid email and the master password. A self-hosted server address is an HTTPS address such as https://vault.example.com, or HTTP on localhost or 127.0.0.1, with no path, credentials, query or fragment.":
+    "Enter a name, a valid email and the master password. A self-hosted server address is an HTTPS address such as https://vault.example.com, or HTTP on localhost or 127.0.0.1, with no path, credentials, query or fragment.",
+  "Asking Chrome for access to the Bitwarden server, then connecting…":
+    "Asking Chrome for access to the Bitwarden server, then connecting…",
+  "Chrome did not grant access to the Bitwarden server, so nothing was sent.":
+    "Chrome did not grant access to the Bitwarden server, so nothing was sent.",
+  "Setup stopped. Refresh to see the current state.":
+    "Setup stopped. Refresh to see the current state.",
   "Syncing {{name}}…": "Syncing {{name}}…",
-  "Provider access was not granted. No sync request was sent.":
-    "Provider access was not granted. No sync request was sent.",
-  "Enter the master password to sign in again. Automatic unlock stays unchanged unless explicitly enabled.":
-    "Enter the master password to sign in again. Automatic unlock stays unchanged unless explicitly enabled.",
+  "Chrome did not grant access to the Bitwarden server, so nothing was synced.":
+    "Chrome did not grant access to the Bitwarden server, so nothing was synced.",
+  "Enter the master password to sign in again. Automatic unlock stays as it is unless you check Enable automatic unlock on this device.":
+    "Enter the master password to sign in again. Automatic unlock stays as it is unless you check Enable automatic unlock on this device.",
   "Cancel setup": "Cancel setup",
   Bitwarden: "Bitwarden",
-  "Stopped. Refresh to confirm the latest state.": "Stopped. Refresh to confirm the latest state.",
+  "Stopped. Refresh to see the current state.": "Stopped. Refresh to see the current state.",
   Cancel: "Cancel",
   "Refresh connections": "Refresh connections",
   "Connection status refreshed.": "Connection status refreshed.",
@@ -122,22 +123,24 @@ export const bitwardenEn = {
   "More for {{name}}": "More for {{name}}",
   "{{name}}: Sync": "{{name}}: Sync",
   "{{name}}: Sign in again": "{{name}}: Sign in again",
-  "{{name}}: Disable automatic unlock": "{{name}}: Disable automatic unlock",
-  "Disable automatic unlock": "Disable automatic unlock",
+  "{{name}}: Turn off automatic unlock": "{{name}}: Turn off automatic unlock",
+  "Turn off automatic unlock": "Turn off automatic unlock",
   "{{name}}: Forget sync sign-in": "{{name}}: Forget sync sign-in",
   "Forget sync sign-in": "Forget sync sign-in",
   "{{name}}: Delete connection": "{{name}}: Delete connection",
   "Delete connection": "Delete connection",
   "Connection kept.": "Connection kept.",
   "Delete {{name}}?": "Delete {{name}}?",
-  "This removes the connection, its local vault cache, unlock key and sync sign-in from this device. It does not sign out other sessions, and saved settings that refer to it will show it as unavailable.":
-    "This removes the connection, its local vault cache, unlock key and sync sign-in from this device. It does not sign out other sessions, and saved settings that refer to it will show it as unavailable.",
+  "This removes the connection, its local vault copy, unlock key and sync sign-in from this device. It does not sign out other sessions, and saved settings that refer to it will show it as unavailable.":
+    "This removes the connection, its local vault copy, unlock key and sync sign-in from this device. It does not sign out other sessions, and saved settings that refer to it will show it as unavailable.",
   "Keep connection": "Keep connection",
   "Review changed custom fields in {{name}}": "Review changed custom fields in {{name}}",
   "Affected items stay unavailable until their field settings are reviewed; refreshing does not approve them.":
     "Affected items stay unavailable until their field settings are reviewed; refreshing does not approve them.",
-  "Reload saved settings to review the current field list. Your unsaved policy draft is preserved until you choose Reload.":
-    "Reload saved settings to review the current field list. Your unsaved policy draft is preserved until you choose Reload.",
+  "Reload saved settings to review the current fields. Your unsaved settings changes are kept until you reload.":
+    "Reload saved settings to review the current fields. Your unsaved settings changes are kept until you reload.",
+  "Reload saved settings to review the current fields.":
+    "Reload saved settings to review the current fields.",
   "Manual verification": "Manual verification",
   "Verification method": "Verification method",
   "Authenticator code": "Authenticator code",
@@ -157,14 +160,15 @@ export const bitwardenEn = {
   Email: "Email",
   "Master password": "Master password",
   "Enable automatic unlock on this device": "Enable automatic unlock on this device",
-  "Use this connection": "Use this connection",
   "The master password and verification codes are not saved. An unlock key, an encrypted vault copy and a sync sign-in stay on this device.":
     "The master password and verification codes are not saved. An unlock key, an encrypted vault copy and a sync sign-in stay on this device.",
-  "Chrome asks for access to {{hosts}}": "Chrome asks for access to {{hosts}}",
+  "Chrome asks for access to {{hosts}}.": "Chrome asks for access to {{hosts}}.",
   "Enter an HTTPS server address, or HTTP on localhost or 127.0.0.1.":
     "Enter an HTTPS server address, or HTTP on localhost or 127.0.0.1.",
   "Sign in and sync": "Sign in and sync",
   "Connect Bitwarden": "Connect Bitwarden",
+  "More than 5 connections. The official Bitwarden extension allows up to 5 accounts, and each unlocked vault uses more memory.":
+    "More than 5 connections. The official Bitwarden extension allows up to 5 accounts, and each unlocked vault uses more memory.",
   "Add another connection": "Add another connection",
   "{{count}} item": "{{count}} item",
   "{{count}} field": "{{count}} field",
@@ -196,7 +200,7 @@ export const bitwardenEn = {
   "{{vault}}: Exclude {{field}} from {{item}}": "{{vault}}: Exclude {{field}} from {{item}}",
   "Exclude {{field}} from {{item}}": "Exclude {{field}} from {{item}}",
   "Unavailable connection": "Unavailable connection",
-  "{{id}}. Its saved settings are preserved.": "{{id}}. Its saved settings are preserved.",
+  "{{id}}. Its saved settings are kept.": "{{id}}. Its saved settings are kept.",
   "{{count}} item_one": "{{count}} item",
   "{{count}} item_other": "{{count}} items",
   "{{count}} field_one": "{{count}} field",
@@ -224,7 +228,7 @@ export const bitwardenEn = {
   "The code email could not be requested. Resend to try again.":
     "The code email could not be requested. Resend to try again.",
   "Loading stopped.": "Loading stopped.",
-  "Enter the master password to finish setting up this connection. Automatic unlock is enabled, as when adding it.":
-    "Enter the master password to finish setting up this connection. Automatic unlock is enabled, as when adding it.",
+  "Enter the master password to finish setting up this connection. Automatic unlock is turned on, as when adding it.":
+    "Enter the master password to finish setting up this connection. Automatic unlock is turned on, as when adding it.",
   "Resend code": "Resend code",
 } as const;

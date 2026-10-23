@@ -128,6 +128,111 @@ describe("verified local unlock material with the actual official SDK", () => {
   });
 });
 
+describe("offline master password check with the actual official SDK", () => {
+  it.each(["v1", "v2", "organization"] satisfies VaultFixtureKind[])(
+    "tells the %s account's master password from another one, also after an offline restore",
+    async (kind) => {
+      const prepared = preparedVault(kind);
+      const opened = await createLocalCryptoSession(
+        input(prepared, {
+          kind: "password",
+          password: v1Password,
+          masterPasswordUnlock: prepared.masterPasswordUnlock,
+        }),
+        sdk,
+      );
+      if (!opened.ok) throw new Error("Synthetic password unlock failed");
+      sessions.push(opened.data);
+      const exported = opened.data.exportUnlockMaterial();
+      if (!exported.ok) throw new Error("Verified key export failed");
+      const restored = await createLocalCryptoSession(
+        input(prepared, { kind: "decrypted-key", userKey: exported.data.userKey }),
+        sdk,
+      );
+      if (!restored.ok) throw new Error("Offline native restore failed");
+      sessions.push(restored.data);
+      for (const session of [opened.data, restored.data]) {
+        const check = (password: string) =>
+          session.verifyMasterPassword({
+            password,
+            masterPasswordUnlock: prepared.masterPasswordUnlock,
+          });
+        expect(check(v1Password)).toEqual({ ok: true, data: { matches: true } });
+        expect(check(`${v1Password}x`)).toEqual({ ok: true, data: { matches: false } });
+        expect(check(v1Password.toUpperCase())).toEqual({ ok: true, data: { matches: false } });
+      }
+    },
+  );
+
+  it("does not accept the right password for another account's unlock data", async () => {
+    const prepared = preparedVault("v1");
+    const other = preparedVault("v2");
+    const opened = await createLocalCryptoSession(
+      input(prepared, {
+        kind: "password",
+        password: v1Password,
+        masterPasswordUnlock: prepared.masterPasswordUnlock,
+      }),
+      sdk,
+    );
+    if (!opened.ok) throw new Error("Synthetic password unlock failed");
+    sessions.push(opened.data);
+    // Both synthetic accounts share the password, so only the key comparison tells them apart.
+    expect(
+      opened.data.verifyMasterPassword({
+        password: v1Password,
+        masterPasswordUnlock: other.masterPasswordUnlock,
+      }),
+    ).toEqual({ ok: true, data: { matches: false } });
+  });
+
+  it("refuses after dispose and rejects malformed or oversized unlock data", async () => {
+    const prepared = preparedVault();
+    const opened = await createLocalCryptoSession(
+      input(prepared, {
+        kind: "password",
+        password: v1Password,
+        masterPasswordUnlock: prepared.masterPasswordUnlock,
+      }),
+      sdk,
+    );
+    if (!opened.ok) throw new Error("Synthetic password unlock failed");
+    sessions.push(opened.data);
+    const unlock = prepared.masterPasswordUnlock;
+    expect(
+      opened.data.verifyMasterPassword({ password: "", masterPasswordUnlock: unlock }),
+    ).toEqual({ ok: false, error: { code: "invalid-crypto-input" } });
+    expect(
+      opened.data.verifyMasterPassword({
+        password: v1Password,
+        masterPasswordUnlock: { ...unlock, kdf: { pBKDF2: { iterations: 2_000_001 } } },
+      }),
+    ).toEqual({ ok: false, error: { code: "resource-limit" } });
+    // The SDK refuses these settings for any password, so the answer is no "wrong password".
+    for (const kdf of [
+      { pBKDF2: { iterations: 1 } },
+      { argon2id: { iterations: 1, memory: 64, parallelism: 4 } },
+      { argon2id: { iterations: 3, memory: 8, parallelism: 4 } },
+    ])
+      expect(
+        opened.data.verifyMasterPassword({
+          password: v1Password,
+          masterPasswordUnlock: { ...unlock, kdf },
+        }),
+      ).toEqual({ ok: false, error: { code: "invalid-crypto-input" } });
+    expect(
+      opened.data.verifyMasterPassword({
+        password: v1Password,
+        masterPasswordUnlock: { ...unlock, masterKeyWrappedUserKey: "0.AAAA|AAAA" },
+      }),
+    ).toEqual({ ok: false, error: { code: "unsupported-crypto" } });
+    opened.data.dispose();
+    expect(
+      opened.data.verifyMasterPassword({ password: v1Password, masterPasswordUnlock: unlock }),
+    ).toEqual({ ok: false, error: { code: "crypto-locked" } });
+  });
+});
+
 describe("offline encrypted prepared-context admission", () => {
   it("binds the canonical connection and provider rather than trusting stored metadata", () => {
     const prepared = preparedVault();
