@@ -458,16 +458,11 @@ export function ServiceConnection({
             </fieldset>
           )}
           {replacement && (
-            <div
-              role="group"
-              aria-labelledby="sync-service-replace-heading"
+            <fieldset
               aria-describedby="sync-service-replace-detail"
-              className="flex flex-col gap-3 rounded-xl bg-warning-tint px-4 py-3 text-sm/5"
+              className="m-0 flex min-w-0 flex-col gap-3 rounded-xl border-0 bg-warning-tint px-4 py-3 text-sm/5"
             >
-              <p
-                id="sync-service-replace-heading"
-                className="m-0 flex items-start gap-2 font-semibold"
-              >
+              <legend className="float-left m-0 flex w-full items-start gap-2 p-0 font-semibold">
                 <TriangleAlert
                   aria-hidden
                   size={16}
@@ -477,7 +472,7 @@ export function ServiceConnection({
                 {t("Replace this device's site settings with {{profile}}'s?", {
                   profile: replacement.profile.name,
                 })}
-              </p>
+              </legend>
               <p id="sync-service-replace-detail" className="m-0">
                 {replacement.exclusions < 0
                   ? t(
@@ -536,7 +531,7 @@ export function ServiceConnection({
                   {t("Back")}
                 </Button>
               </div>
-            </div>
+            </fieldset>
           )}
           {addressError && (
             <p id="sync-service-error" className="validation-error m-0" role="alert">
