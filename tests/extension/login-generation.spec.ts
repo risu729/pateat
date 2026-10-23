@@ -62,8 +62,9 @@ type Prompt = {
  * the fixture pages: fill the password and press "Log in", or on a page without a password
  * input fill the account and press "Next", then mark "Sign out" as the signed-in evidence.
  * A judged page that asks how to verify names its "Select Password." control as the
- * button that goes on to the password (ADR 0048). The page descriptions it receives, and
- * when each arrived, are recorded.
+ * button that goes on to the password (ADR 0048), and an optional page after the sign-in,
+ * one with a "Remind me later" button, is `optional` (ADR 0065). The page descriptions it
+ * receives, and when each arrived, are recorded.
  */
 function syntheticClaude({ abstainOnPassword = false }: { abstainOnPassword?: boolean } = {}) {
   const prompts: Prompt[] = [];
@@ -116,6 +117,9 @@ function syntheticClaude({ abstainOnPassword = false }: { abstainOnPassword?: bo
     const choice = prompt.observation.candidates.some(
       ({ target }) => target.by === "accessible-name" && target.value === "Select Password.",
     );
+    const optional = prompt.observation.candidates.some(
+      ({ target }) => target.by === "id" && target.value === "remind-later",
+    );
     // A page without a login form (ADR 0031): its "Login" link opens the sign-in page.
     const result =
       prompt.task === "entry"
@@ -126,14 +130,16 @@ function syntheticClaude({ abstainOnPassword = false }: { abstainOnPassword?: bo
                 decision: "challenge",
                 passwordButton: byTarget("Select Password.", "accessible-name"),
               }
-            : signedIn
-              ? { decision: "signed-in", marker: byTarget("sign-out") }
-              : prompt.observation.candidates.some(
-                    ({ target }) => target.by === "text" && target.value === "My page",
-                  )
-                ? // The `link` marker variant's account link has no id, so only its text names it.
-                  { decision: "signed-in", marker: byTarget("My page", "text") }
-                : { decision: "rejected" }
+            : optional
+              ? { decision: "optional" }
+              : signedIn
+                ? { decision: "signed-in", marker: byTarget("sign-out") }
+                : prompt.observation.candidates.some(
+                      ({ target }) => target.by === "text" && target.value === "My page",
+                    )
+                  ? // The `link` marker variant's account link has no id, so only its text names it.
+                    { decision: "signed-in", marker: byTarget("My page", "text") }
+                  : { decision: "rejected" }
           : passwordPage && abstainOnPassword
             ? { decision: "abstain", reason: "ambiguous" }
             : passwordPage
@@ -524,6 +530,92 @@ for (const { name, start, query, passwordPath } of [
       await fixture.close();
     }
   });
+
+test("an optional page after the sign-in completes the login as signed in, presses nothing and learns no marker there (ADR 0065)", async () => {
+  test.setTimeout(120_000);
+  const fixture = await startLoginFixture(0, { password });
+  const claude = syntheticClaude();
+  const service = await startSyncService({ claude: claude.answer });
+  try {
+    await withVaultProfile(
+      async (open) => {
+        const browser = await open();
+        await serveSite(browser.context, fixture);
+        const options = await connect(browser, service);
+        const clicks = (page: Page) =>
+          page.evaluate(() => ({
+            submitClicks: Number(sessionStorage.getItem("submitClicks") || 0),
+            verifyClicks: Number(sessionStorage.getItem("verifyClicks") || 0),
+            laterClicks: Number(sessionStorage.getItem("laterClicks") || 0),
+          }));
+        const signedIn = () =>
+          expect
+            .poll(() => send(options, { version: 1, type: "login.probe.status" }), {
+              timeout: 30_000,
+            })
+            .toMatchObject({
+              attempts: [{ state: "authenticated", outcome: "authenticated", handlers: [] }],
+            });
+        const unconfirmed = async () =>
+          (
+            (await send(options, { version: 1, type: "login.probe.status" })) as {
+              attempts: { unconfirmed?: true }[];
+            }
+          ).attempts[0]?.unconfirmed;
+        const recipe = async () =>
+          (
+            (await (await service.request("/v1/recipes")).json()) as {
+              changes: { recipe?: { handlers?: unknown; completion?: unknown } }[];
+            }
+          ).changes.map((change) => change.recipe);
+
+        const page = await browser.context.newPage();
+        await page.goto(`${site}/sign-in?optional`);
+        // The password goes in and /checkup is judged optional: the login ends there as
+        // signed in, and the page stays as it is.
+        await expect(page.locator("#optional-page")).toBeVisible({ timeout: 60_000 });
+        await signedIn();
+        expect(await unconfirmed()).toBeUndefined();
+        expect(await clicks(page)).toEqual({ submitClicks: 1, verifyClicks: 0, laterClicks: 0 });
+        expect(new URL(page.url()).pathname).toBe("/checkup");
+        expect(claude.prompts.map((prompt) => [prompt.task, prompt.observation.path])).toEqual([
+          ["generate", "/sign-in"],
+          ["judge-sign-in", "/checkup"],
+        ]);
+        expect(JSON.stringify(claude.prompts)).not.toContain(password);
+        // Nothing is learned on the optional page.
+        const [learned] = await recipe();
+        expect(learned).not.toHaveProperty("completion");
+        expect(learned).not.toHaveProperty("handlers");
+
+        // The next login that meets it completes the same way, with no model call.
+        await page.close();
+        const next = await browser.context.newPage();
+        await next.goto(`${site}/sign-in?optional`);
+        await expect(next.locator("#optional-page")).toBeVisible({ timeout: 30_000 });
+        await signedIn();
+        expect(await unconfirmed()).toBeUndefined();
+        expect(await clicks(next)).toEqual({ submitClicks: 1, verifyClicks: 0, laterClicks: 0 });
+        expect(claude.prompts).toHaveLength(2);
+
+        // A login that reaches the usual signed-in page learns its marker there.
+        await next.close();
+        const usual = await browser.context.newPage();
+        await usual.goto(`${site}/sign-in`);
+        await expect(usual.locator("#signed-in")).toBeVisible({ timeout: 30_000 });
+        await signedIn();
+        expect(claude.prompts.map((prompt) => prompt.observation.path).at(-1)).toBe("/account");
+        await expect
+          .poll(recipe)
+          .toMatchObject([{ completion: [{ target: { by: "id", value: "sign-out" } }] }]);
+      },
+      { args: ["--ignore-certificate-errors"] },
+    );
+  } finally {
+    await service.close();
+    await fixture.close();
+  }
+});
 
 test("a generated identifier page learns the password choice, presses it and continues on the password form it shows (ADR 0048)", async () => {
   test.setTimeout(90_000);

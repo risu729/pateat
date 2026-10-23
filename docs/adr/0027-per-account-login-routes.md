@@ -105,6 +105,9 @@ at each step, and a refused takeover logs why
 ([saved bindings that lack a slot](#amendment-2026-10-19-saved-bindings-that-lack-a-slot)),
 which amends [ADR 0013](0013-service-held-recipes-and-settings.md) (bindings are
 widened) and [ADR 0018](0018-recipe-generation-route.md) (the takeover); implemented.
+Amended on 2026-10-23 by [ADR 0065](0065-optional-pages-after-a-sign-in.md) (owner,
+12:27 UTC): a watched login's page judged `optional`, with no sign and no evidence,
+completes it as `signed-in` does (implemented, local tests only).
 
 Date: 2026-10-11
 

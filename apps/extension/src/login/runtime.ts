@@ -183,7 +183,12 @@ import {
   type SignInDecision,
   type SignInSigns,
 } from "./sign-in-state";
-import { judgedCompletionResult, settleCompletion, undecidedCandidate } from "./completion-policy";
+import {
+  judgedCompletionResult,
+  optionalPage,
+  settleCompletion,
+  undecidedCandidate,
+} from "./completion-policy";
 import type { AlertMiss } from "../page/sign-in-state";
 import type { LoginSites } from "./sites";
 import { linkRefusal, namesReturnPath, type OnSite } from "./entry";
@@ -1120,9 +1125,10 @@ export interface LoginGeneration {
      * `retry` for a temporary refusal before any model call, which gives the page back:
      * no paired service, a rejected device, an unreachable or busy service, the service's
      * own request limit, or a request that failed before the model. `unclear` covers
-     * every other answer, including permanent refusals and failed model calls.
+     * every other answer, including permanent refusals and failed model calls. `optional`
+     * is a page after the sign-in that the person may put off (ADR 0065).
      */
-    verdict: "signed-in" | "rejected" | "challenge" | "unclear" | "retry";
+    verdict: "signed-in" | "rejected" | "challenge" | "optional" | "unclear" | "retry";
     /** For `retry` and `unclear`: the refusal or failure code, for the local log. */
     reason?: string;
     /** A chooser login's is the whole chooser (ADR 0028). */
@@ -1783,15 +1789,23 @@ export type LoginReport = (
        * `sent` when the page goes out; the service's verdict when it answers; `not-sent`,
        * with the reason, when the page is not sent or could not be described for it.
        */
-      verdict: "sent" | "not-sent" | "signed-in" | "rejected" | "challenge" | "unclear" | "retry";
+      verdict:
+        | "sent"
+        | "not-sent"
+        | "signed-in"
+        | "rejected"
+        | "challenge"
+        | "optional"
+        | "unclear"
+        | "retry";
       reason?: string;
       /** For a returned revision: whether this login took it over. */
       takenOver?: boolean;
       /** A page of a watched login, judged from the watch's own pages (ADR 0027). */
       watched?: true;
       /**
-       * The judge could not decide a page with no sign and no evidence, so the login
-       * completed on it (ADR 0029).
+       * The judge could not decide a page with no sign and no evidence, or found it an
+       * optional page after the sign-in, so the login completed on it (ADR 0029, ADR 0065).
        */
       completed?: true;
       /**
@@ -5571,7 +5585,8 @@ export function createLoginRuntime(
     if (verdict === "retry") await change(run, { type: "UNJUDGED", operationId });
     // A page with no sign and no evidence completes when the judge cannot decide, unless
     // the login is watched (ADR 0027); one with a sign of another sign-in step goes to the
-    // person, as does a page judged `challenge` before (ADR 0029).
+    // person, as does a page judged `challenge` before (ADR 0029). An optional page after
+    // the sign-in completes as signed in, watched or not, and is left as it is (ADR 0065).
     const candidate = undecidedCandidate({
       verdict,
       reason,
@@ -11275,7 +11290,7 @@ export function createLoginRuntime(
         hidden.observation,
         spin.sent(() => reportJudge("sent")),
         // A description that left out a disabled field says so (ADR 0029); only `signed-in`
-        // completes a moved login anyway.
+        // completes a moved login then, and `optional` (ADR 0065) only without one.
         record.chooser ? chooserClickBranch(record.chooser.click) : undefined,
         ...(disabledLeftOut ? [true as const] : []),
       )
@@ -11283,7 +11298,11 @@ export function createLoginRuntime(
     spend(record.id, Date.now() - asked, timing);
     if (timing) timed = { timing };
     reportJudge(verdict, reason);
-    if (verdict !== "signed-in" && !(verdict === "unclear" && reason === "judged-signed-in"))
+    if (
+      verdict !== "signed-in" &&
+      !(verdict === "unclear" && reason === "judged-signed-in") &&
+      !(optionalPage(verdict, reason) && !disabledLeftOut)
+    )
       return false;
     // The answer can take a while: the page must still be loaded and show no sign-in step.
     let again: unknown;

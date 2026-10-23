@@ -917,10 +917,10 @@ export async function judgeCompletion(
           ),
         )
         .limit(1);
-      // A later login of the revision completes on the path only after a `signed-in` or
-      // undecided verdict (ADR 0029): one judged `challenge` or `rejected`, still being
-      // judged, or whose request failed does not. A row of an earlier judge prompt does not
-      // count: a page it judged `challenge` but kept no handler for, such as a code split
+      // A later login of the revision completes on the path only after a `signed-in`,
+      // `optional` (ADR 0065) or undecided verdict (ADR 0029): one judged `challenge` or
+      // `rejected`, still being judged, or whose request failed does not. A row of an
+      // earlier judge prompt does not count: a page it judged `challenge` but kept no handler for, such as a code split
       // into one-digit inputs before those were learned, is judged again. A page the model
       // could not decide on a description that left out a disabled field, as a code field
       // waiting for its code may be, is judged again once the path is described in full; a
@@ -935,7 +935,9 @@ export async function judgeCompletion(
               ? "judgement-unanswered"
               : judged.verdict === "signed-in"
                 ? "judged-signed-in"
-                : "already-judged";
+                : judged.verdict === "optional"
+                  ? "judged-optional"
+                  : "already-judged";
       const [today] = await db
         .select({ value: count() })
         .from(pageJudgements)
@@ -1037,6 +1039,10 @@ export async function judgeCompletion(
   }
   await keepVerdict(judgement.decision);
   if (judgement.decision === "rejected") return { version: 1, status: "rejected" };
+  // A page the person may put off is signed in, but nothing is learned there (ADR 0065):
+  // its elements may never show on the usual signed-in page, so a marker comes only from a
+  // page judged `signed-in`.
+  if (judgement.decision === "optional") return { version: 1, status: "optional" };
   if (judgement.decision === "challenge") {
     // A page may offer both a security key and a TOTP code, or a button that goes on to
     // the password (ADR 0048); each handler that passes its checks is kept, in one revision

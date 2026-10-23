@@ -413,6 +413,61 @@ describe("password button on a page that asks how to verify (ADR 0048)", () => {
   });
 });
 
+describe("optional page after the sign-in (ADR 0065)", () => {
+  // A synthetic page shown after the sign-in that asks to check two-factor settings and can
+  // be put off.
+  const checkup = {
+    ...signedIn,
+    path: "/checkup",
+    title: "Verify your two-factor settings",
+    headings: ["Verify your two-factor authentication settings"],
+    candidates: [
+      { id: "verify", role: "button", target: { by: "id", value: "verify" }, label: "Verify now" },
+      {
+        id: "later",
+        role: "button",
+        target: { by: "id", value: "later" },
+        label: "Remind me later",
+      },
+    ],
+  };
+  const optional = { ...request, observation: checkup };
+  const withField = (field: Record<string, unknown>) => ({
+    ...optional,
+    observation: {
+      ...checkup,
+      candidates: [...checkup.candidates, { target: { by: "id", value: "f" }, ...field }],
+    },
+  });
+
+  it("passes an optional page through, logged without any element", async () => {
+    const outcome = await judgeReturning({ decision: "optional" }).judge(optional);
+    expect(outcome).toMatchObject({ status: "ok", value: { decision: "optional" } });
+    expect(outcome.answer).toEqual({ decision: "optional" });
+  });
+
+  it.each([
+    ["a password field", { id: "pw", role: "password", label: "Password" }],
+    ["a username field", { id: "user", role: "email", autocomplete: "username" }],
+    ["a one-time-code field", { id: "otp", role: "text", autocomplete: "one-time-code" }],
+    ["a numeric code field", { id: "otp", role: "text", inputMode: "numeric", maxLength: 6 }],
+  ])("reads an optional answer on a page with %s as a challenge", async (_name, field) => {
+    const outcome = await judgeReturning({ decision: "optional" }).judge(withField(field));
+    expect(outcome).toMatchObject({ status: "ok", value: { decision: "challenge" } });
+    // The log keeps the model's own answer.
+    expect(outcome.answer).toEqual({ decision: "optional" });
+  });
+
+  it("tells the model what such a page is and what stays a challenge", () => {
+    expect(completionInstructions).toMatch(
+      /A page shown after the sign-in whose content is only an offer or reminder the person may put off, .* is optional, not a challenge and not signed-in\./u,
+    );
+    expect(completionInstructions).toMatch(
+      /A page that asks for a password, a code, a CAPTCHA, a confirmation of the sign-in or another step before the account opens is a challenge, never optional, and so is a security notice about this sign-in, .* even one with Dismiss\./u,
+    );
+  });
+});
+
 describe("TOTP code on a challenge page (ADR 0027)", () => {
   const codeField = {
     id: "code",

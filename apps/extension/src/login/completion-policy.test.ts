@@ -99,6 +99,62 @@ describe("undecidedCandidate", () => {
   );
 });
 
+describe("an optional page after the sign-in (ADR 0065)", () => {
+  const verdicts = [
+    { verdict: "optional" },
+    { verdict: "unclear", reason: "judged-optional" },
+  ] as const;
+
+  it.each(verdicts)("completes confirmed, watched or not, on either route: %j", (answer) => {
+    for (const change of [{}, { watched: true }, { route: "passkey" as const }, { stopAt: 0 }]) {
+      const { completes, stopHeld } = undecidedCandidate({ ...candidate, ...answer, ...change });
+      expect({ completes, stopHeld }).toEqual({ completes: true, stopHeld: false });
+      expect(judgedCompletionResult({ ...answer, completes, stopHeld, route: "password" })).toEqual(
+        { result: "authenticated", confirmed: true },
+      );
+    }
+  });
+
+  it.each(verdicts)("fails closed as a challenge on a page with a sign: %j", (answer) => {
+    for (const reading of [
+      undefined,
+      { decision: "judge" as const, confirmed: false },
+      { decision: "continuing" as const, confirmed: true },
+      { decision: "unknown" as const, confirmed: true },
+      { decision: "rejected" as const, confirmed: true },
+      { decision: "signed-in" as const, confirmed: true },
+    ]) {
+      const { completes, stopHeld } = undecidedCandidate({ ...candidate, ...answer, reading });
+      expect(completes).toBe(false);
+      expect(
+        judgedCompletionResult({ ...answer, reading, completes, stopHeld, route: "password" }),
+      ).toEqual({ result: "challenge", confirmed: false });
+    }
+  });
+
+  it("fails closed when the fresh reading shows a sign or a disabled field was left out", () => {
+    const optional = undecidedCandidate({ ...candidate, verdict: "optional" });
+    for (const settled of [
+      settleCompletion({ ...optional, again: { decision: "continuing", loaded: true } }),
+      settleCompletion({ ...optional, again: { decision: "judge", loaded: false } }),
+      settleCompletion({
+        ...optional,
+        again: { decision: "judge", loaded: true },
+        disabledLeftOut: true,
+      }),
+    ]) {
+      expect(
+        judgedCompletionResult({
+          verdict: "optional",
+          completes: settled.completes,
+          stopHeld: false,
+          route: "password",
+        }).result,
+      ).toBe("challenge");
+    }
+  });
+});
+
 describe("settleCompletion", () => {
   it.each([
     [undefined, false],

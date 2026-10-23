@@ -85,6 +85,11 @@ export const generationUnavailableReasonSchema = v.picklist([
    */
   "judged-signed-in",
   /**
+   * As `already-judged`, and that judgement was `optional`: the person is signed in on a
+   * page they may put off, so a later login completes there as signed in (ADR 0065).
+   */
+  "judged-optional",
+  /**
    * As `already-judged`, and that judgement was `challenge`: the page asks for a step the
    * person takes, so it never completes a login (ADR 0029).
    */
@@ -403,6 +408,12 @@ export const recipeCompletionResultSchema = v.variant("status", [
     status: v.literal("challenge"),
     change: v.optional(activeChange),
   }),
+  /**
+   * The person is signed in and the page only offers something they may put off, such as a
+   * prompt to check two-factor settings or add a passkey (ADR 0065). Nothing is learned:
+   * the login completes there as signed in and leaves the page to the person.
+   */
+  v.strictObject({ version: v.literal(1), status: v.literal("optional") }),
   v.strictObject({ version: v.literal(1), status: v.literal("unclear") }),
   v.strictObject({
     version: v.literal(1),

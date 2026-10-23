@@ -1231,12 +1231,16 @@ items the owner mentioned and gates still open on 2026-10-11.
   A PIN or card code asked in an ordinary input is the
   [phase 2](#phase-2-use-it-and-fix-what-comes-up) item on personal details asked
   during a login.
-- Optional confirmation pages after a login, such as
-  GitHub's "Verify your two-factor authentication (2FA) settings": Pateat should
-  complete them itself (owner, 2026-10-12 04:08 UTC), as a general rule rather than for
-  one site ([ADR 0033](adr/0033-no-site-specific-features.md), owner 13:46 UTC). Until
-  then, [ADR 0029](adr/0029-local-sign-in-state.md) treats the login as complete there
-  and leaves the page to the person.
+- Done (local tests and a judge benchmark only, not checked on a real site): optional
+  confirmation pages after a login, such as GitHub's "Verify your two-factor
+  authentication (2FA) settings" or an "Add a passkey?" offer, which the owner wanted
+  handled by a general rule (2026-10-12 04:08 UTC;
+  [ADR 0033](adr/0033-no-site-specific-features.md), 13:46 UTC). The owner chose on
+  2026-10-23 12:27 UTC to treat the account as signed in there, leave the page as it is
+  and press nothing ([ADR 0065](adr/0065-optional-pages-after-a-sign-in.md)): the judge
+  answers `optional`, the login completes as signed in without the yellow "!", and
+  nothing is learned on the page; a page that shows a sign-in or code field stays
+  `challenge`.
 - Re-verification asked while already signed in, such as a secret question before
   profile settings open (ポイントインカム's `/my/my_profile_change.php`, seen on
   2026-10-12) or a password asked again before a sensitive change: Pateat should answer

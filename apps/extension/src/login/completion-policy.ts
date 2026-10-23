@@ -1,7 +1,7 @@
 import type { LoginRoute } from "@pateat/contracts";
 import type { SignInDecision } from "./sign-in-state";
 
-type JudgeVerdict = "signed-in" | "rejected" | "challenge" | "unclear" | "retry";
+type JudgeVerdict = "signed-in" | "rejected" | "challenge" | "optional" | "unclear" | "retry";
 type Reading = { decision: SignInDecision; confirmed: boolean };
 
 /**
@@ -20,7 +20,18 @@ const UNDECIDED_COMPLETES = new Set([
   "monthly-limit",
 ]);
 
-/** Whether an undecided page can complete, pending a fresh reading after the judge. */
+/**
+ * Whether the judge found an optional page after the sign-in (ADR 0065), now or on an
+ * earlier login of the revision.
+ */
+export const optionalPage = (verdict: JudgeVerdict, reason?: string) =>
+  verdict === "optional" || (verdict === "unclear" && reason === "judged-optional");
+
+/**
+ * Whether an undecided page can complete, pending a fresh reading after the judge. An
+ * optional page (ADR 0065) completes on the same readings as a signed-in one, watched or
+ * not, on either route and before a stop, but only while it shows no sign and no evidence.
+ */
 export function undecidedCandidate({
   verdict,
   reason,
@@ -36,14 +47,16 @@ export function undecidedCandidate({
   route: LoginRoute;
   stopAt?: number | undefined;
 }): { completes: boolean; stopHeld: boolean } {
-  const undecided = verdict === "unclear";
+  const optional = optionalPage(verdict, reason);
+  const undecided = verdict === "unclear" && !optional;
   // A login stopped before its missing password needs the judge's own signed-in answer
   // (ADR 0036), including a path it found signed in before.
   const stopHeld = undecided && stopAt !== undefined && reason !== "judged-signed-in";
+  const quiet = reading?.confirmed === true && reading.decision === "judge";
+  if (optional) return { completes: quiet, stopHeld };
   const completes =
     undecided &&
-    reading?.confirmed === true &&
-    reading.decision === "judge" &&
+    quiet &&
     !watched &&
     route !== "passkey" &&
     UNDECIDED_COMPLETES.has(reason) &&
@@ -99,16 +112,22 @@ export function judgedCompletionResult({
   result: "authenticated" | "credential-rejected" | "challenge" | "unknown";
   confirmed: boolean;
 } {
+  const optional = optionalPage(verdict, reason);
   if (verdict === "signed-in" || completes)
     return {
       result: "authenticated",
       confirmed:
-        verdict === "signed-in" || (verdict === "unclear" && reason === "judged-signed-in"),
+        verdict === "signed-in" ||
+        optional ||
+        (verdict === "unclear" && reason === "judged-signed-in"),
     };
+  // An optional page that shows a sign of a sign-in step, or that changed before the fresh
+  // reading, fails closed (ADR 0065).
   const result =
     verdict === "rejected"
       ? "credential-rejected"
       : verdict === "challenge" ||
+          optional ||
           reason === "judged-challenge" ||
           (verdict === "unclear" && continuing(reading)) ||
           stopHeld

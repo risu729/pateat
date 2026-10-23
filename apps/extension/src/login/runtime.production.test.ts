@@ -3051,6 +3051,27 @@ describe("production login document admission", () => {
           expect(at(origin)).toMatchObject({ state: "authenticated" });
         }, 15_000);
         it.each([
+          ["answers optional", { verdict: "optional" }],
+          ["found the page optional before", { verdict: "unclear", reason: "judged-optional" }],
+        ] as const)(
+          "completes when the judge %s (ADR 0065)",
+          async (_name, answer) => {
+            const { h } = await judged(async () => answer);
+            await navigate(h, `${www}/home`, "home-document", false);
+            expect(at(origin)).toMatchObject({ state: "authenticated", outcome: "authenticated" });
+            expect(at(origin)).not.toHaveProperty("unconfirmed");
+          },
+          15_000,
+        );
+        it("ends left-origin on an optional page that shows a code field once the answer is back", async () => {
+          const { h } = await judged(async () => {
+            fake.state.signs = { ...quiet, code: true };
+            return { verdict: "optional" };
+          });
+          await navigate(h, `${www}/home`, "home-document", false);
+          expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+        }, 15_000);
+        it.each([
           ["cannot decide", { verdict: "unclear" }],
           ["found the page undecided before", { verdict: "unclear", reason: "already-judged" }],
           ["answers challenge", { verdict: "challenge" }],
@@ -21179,6 +21200,76 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
       await until(() => executed().length === withPress.length + 1);
       await vi.advanceTimersByTimeAsync(20_000);
       expect(executed()).toEqual([...withPress, "fill:email"]);
+    });
+  });
+
+  describe("an optional page after the sign-in (ADR 0065)", () => {
+    /** The page after Log in: a prompt to verify two-factor settings that can be put off. */
+    const checkupPage = describedPage("/checkup", [
+      { id: "c1", role: "button", target: target("verify-now"), label: "Verify now" },
+      { id: "c2", role: "button", target: target("remind-later"), label: "Remind me later" },
+    ]);
+    const passwordRecipe = continuedOn("/signin");
+    const steps = ["fill:email", "click:next", "fill:password", "click:login"];
+    /** The page signs of ADR 0029 with none shown. */
+    const noSigns = { password: false, code: false, captcha: false, invalid: false, alert: false };
+    /** Next shows the password form; Log in shows the optional page. */
+    const checkup = (signs: Partial<typeof noSigns> = {}) => {
+      fake.state.onExecute = async (message) => {
+        const step = (
+          message["operation"] as { step: { kind: string; target?: { value: string } } }
+        ).step;
+        if (step.kind !== "click") return;
+        if (step.target?.value === "next") {
+          fake.state.present = new Set(["password", "login"]);
+          fake.state.signIn = true;
+        }
+        if (step.target?.value === "login") {
+          fake.state.observedPath = "/checkup";
+          fake.state.present = new Set(["verify-now", "remind-later"]);
+          fake.state.signIn = false;
+          fake.state.extracted = { "signed-in": checkupPage };
+          // No sign of a sign-in step and no evidence of one (ADR 0029), unless given.
+          fake.state.signs = { ...noSigns, ...signs };
+        }
+      };
+    };
+
+    it("completes as signed in, presses nothing and leaves the page", async () => {
+      checkup();
+      const service = generation(undefined, async () => ({ verdict: "optional" }));
+      const h = start(service, { recipe: passwordRecipe });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("authenticated"));
+      expect(executed()).toEqual(steps);
+      expect(service.judge.mock.calls.map((call) => call[3])).toEqual([checkupPage.observation]);
+      expect(status()![0]).toMatchObject({ state: "authenticated", handlers: [] });
+      // Signed in, not the yellow mark of an unconfirmed sign-in.
+      expect(status()![0]!["unconfirmed"]).toBeUndefined();
+    });
+
+    it("completes a later login of a path judged optional before the same way", async () => {
+      checkup();
+      const service = generation(undefined, async () => ({
+        verdict: "unclear",
+        reason: "judged-optional",
+      }));
+      const h = start(service, { recipe: passwordRecipe });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("authenticated"));
+      expect(executed()).toEqual(steps);
+      expect(status()![0]!["unconfirmed"]).toBeUndefined();
+    });
+
+    it("fails closed as a challenge when the page shows a code field", async () => {
+      checkup({ code: true });
+      const service = generation(undefined, async () => ({ verdict: "optional" }));
+      const h = start(service, { recipe: passwordRecipe });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("watching"));
+      expect(executed()).toEqual(steps);
+      expect(service.judge).toHaveBeenCalledTimes(1);
+      expect(status()![0]).toMatchObject({ outcome: "challenge" });
     });
   });
 
