@@ -312,8 +312,16 @@ export function createConnectionRuntime(
         ? transport.data.config({ connectionId: configuration.profile.connectionId })
         : transport;
     },
-    /** Internal only. No page/options API returns vault field values. */
-    async resolveField(connectionId: string, ref: LocalFieldReference) {
+    /**
+     * Internal only. No page/options API returns vault field values. `code` resolves the
+     * field as a TOTP code and never returns its raw value.
+     */
+    async resolveField(
+      connectionId: string,
+      ref: LocalFieldReference,
+      grant: { code?: true } = {},
+    ) {
+      const code = grant.code === true;
       let captured: LocalFieldReference;
       try {
         captured = structuredClone(ref);
@@ -345,6 +353,7 @@ export function createConnectionRuntime(
       const resolved = await vault.manager.resolveField(handle, captured, {
         snapshotId: captured.snapshotId,
         allowedFieldIds: item.fields.map((entry) => entry.id).filter((id) => !denied.includes(id)),
+        ...(code ? { code: true as const } : {}),
       });
       const latest = await settings.handle({ version: 1, type: "settings.get" });
       return latest.ok && latest.snapshot.revision === saved.snapshot.revision

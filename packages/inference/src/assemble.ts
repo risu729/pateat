@@ -326,7 +326,8 @@ export type HandlerRejection =
  * Adds a handler for the judged page to a generated recipe in its next revision (ADR
  * 0027): a `passkey` handler for its security-key or passkey button, a `password` handler
  * for its button that goes on to the password (ADR 0048), or a `totp` handler for its
- * TOTP code field and the button that submits it. The route's steps
+ * TOTP code field and the button that submits it, or the field alone on a page that
+ * shows no button for it (ADR 0027 amendment of 2026-10-23). The route's steps
  * are kept as they are, so a running login can take the result over (`extendsRecipe`).
  * The page may be on a route path: a second-factor form on the sign-in path still gets a
  * handler. A `totp` handler's button may even be the route's own submit button on that
@@ -340,7 +341,7 @@ export function addHandler(
   page: Pick<LoginObservation, "origin" | "path" | "candidates">,
   handler:
     | { kind: "passkey" | "password"; target: LoginTarget }
-    | { kind: "totp"; field: LoginFieldTarget; target: LoginTarget }
+    | { kind: "totp"; field: LoginFieldTarget; target?: LoginTarget | undefined }
     | {
         kind: "detail";
         fields: { detail: LoginDetail; format?: BirthDateFormat; target: LoginFieldTarget }[];
@@ -348,10 +349,13 @@ export function addHandler(
       },
 ): { ok: true; recipe: LoginRecipe } | { ok: false; reason: HandlerRejection } {
   if (base.origin !== page.origin) return { ok: false, reason: "origin-mismatch" };
-  const button = page.candidates.find(
-    (candidate) => candidate.role === "button" && sameTarget(candidate.target, handler.target),
-  );
-  if (!button) return { ok: false, reason: "not-on-page" };
+  const { target } = handler;
+  const button =
+    target &&
+    page.candidates.find(
+      (candidate) => candidate.role === "button" && sameTarget(candidate.target, target),
+    );
+  if (target && !button) return { ok: false, reason: "not-on-page" };
   const handlers = base.handlers ?? [];
   if (handlers.some((entry) => entry.kind === handler.kind && entry.path === page.path))
     return { ok: false, reason: "duplicate" };
@@ -362,6 +366,8 @@ export function addHandler(
     ...handlerElements(base, page.path),
   ];
   if (handler.kind === "detail") {
+    // A detail handler always has a button, which must be on the page (ADR 0061).
+    if (!button) return { ok: false, reason: "not-on-page" };
     // The judge's checks, again (ADR 0061). The route's sign-in form may still show beside
     // the inputs, so no input or button is a route step's, a route fill field anywhere, or
     // another element the recipe checks.
@@ -379,13 +385,14 @@ export function addHandler(
     const fills = routeFillTargets(base, "password");
     if (
       [...fills, ...routeTargets(base, page.path), ...others].some((element) =>
-        [...handler.fields.map((entry) => entry.target), handler.target].some((target) =>
-          sameTarget(element, target),
+        [...handler.fields.map((entry) => entry.target), handler.target].some((own) =>
+          sameTarget(element, own),
         ),
       )
     )
       return { ok: false, reason: "step-target" };
   } else if (handler.kind !== "totp") {
+    if (!button) return { ok: false, reason: "not-on-page" };
     // The label, the text and an id, name or test ID locator all count.
     if (handler.kind === "passkey" && registersPasskey(button))
       return { ok: false, reason: "registration" };
@@ -426,7 +433,7 @@ export function addHandler(
     );
     if (!field) return { ok: false, reason: "not-on-page" };
     // The judge's own checks, again: the executor fills a TOTP code only into such a field
-    // (ADR 0013), and one per form with its button.
+    // (ADR 0013), and one per form with its button, or in a form that shows none.
     if (!isTotpCode(page, field, button)) return { ok: false, reason: "not-code-field" };
     const fills = routeFillTargets(base, "password");
     // A split code's other inputs are filled too.
@@ -435,11 +442,12 @@ export function addHandler(
       [...fills, ...routeTargets(base, page.path), ...others].some((element) =>
         filled.some((input) => sameTarget(element, input)),
       ) ||
-      [
-        ...fills,
-        ...(base.passkey?.path === page.path ? [base.passkey.target] : []),
-        ...others,
-      ].some((element) => sameTarget(element, handler.target))
+      (target !== undefined &&
+        [
+          ...fills,
+          ...(base.passkey?.path === page.path ? [base.passkey.target] : []),
+          ...others,
+        ].some((element) => sameTarget(element, target)))
     )
       return { ok: false, reason: "step-target" };
   }

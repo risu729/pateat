@@ -152,7 +152,7 @@ function recipeFacts(recipe: StoredLoginRecipe): {
           ? recipe.handlers
               .map((handler) =>
                 handler.kind === "totp"
-                  ? `totp fills ${describeTarget(handler.field)} and clicks ${describeTarget(handler.target)} on ${handler.path}`
+                  ? `totp fills ${describeTarget(handler.field)}${handler.target ? ` and clicks ${describeTarget(handler.target)}` : " and lets the page submit it"} on ${handler.path}`
                   : handler.kind === "detail"
                     ? `detail fills one of ${handler.fields.map((field) => `${describeTarget(field.target)} (${field.detail}${field.format ? ` ${field.format}` : ""})`).join(", ")} and clicks ${describeTarget(handler.target)} on ${handler.path}`
                     : `${handler.kind} clicks ${describeTarget(handler.target)} on ${handler.path}`,

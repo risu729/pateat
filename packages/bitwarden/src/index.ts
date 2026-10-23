@@ -21,7 +21,7 @@ export {
   type LocalFieldGrant,
   type LocalFieldValue,
 } from "./fields";
-export { generateLocalTotp, type LocalOtpValue, type LocalTotpOptions } from "./totp";
+export { generateLocalTotp, isTotpSeed, type LocalOtpValue, type LocalTotpOptions } from "./totp";
 export {
   admitBitwardenUriMatchContext,
   createBitwardenUriMatcher,
@@ -34,7 +34,7 @@ export {
   type UriMatchOptions,
 } from "./uri";
 export type { BitwardenServerConfig, EncryptedSyncEnvelope, PreloginResponse } from "./models";
-export { derivePasswordAuthentication } from "./auth-crypto";
+export { derivePasswordAuthentication, derivesAuthenticationWithArgon2id } from "./auth-crypto";
 export type {
   AuthenticationTokens,
   EmailLoginCodeOutcome,
