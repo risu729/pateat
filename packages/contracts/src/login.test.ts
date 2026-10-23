@@ -302,6 +302,58 @@ describe("declarative login boundaries", () => {
       expect(() => parseLoginRecipe(malformed)).toThrow();
   });
 
+  it("submits a form that shows no button by Enter in the field typed last (ADR 0064)", () => {
+    const account = { by: "id", value: "account" } as const;
+    const valid = {
+      ...recipe(),
+      slots: ["account", "password"],
+      maxSubmissions: 2,
+      steps: [
+        { kind: "fill", path: "/login", fields: [{ slot: "account", target: account }] },
+        { kind: "click", path: "/login", target: account, purpose: "advance", press: "enter" },
+        {
+          kind: "fill",
+          path: "/login",
+          fields: [{ slot: "password", target: { by: "id", value: "password" } }],
+        },
+        { kind: "click", path: "/login", target: { by: "id", value: "login" }, purpose: "submit" },
+      ],
+    };
+    expect(parseLoginRecipe(valid)).toEqual({
+      ...valid,
+      steps: valid.steps.map((step) =>
+        step.kind === "fill" ? { ...step, effect: "prepare" } : step,
+      ),
+    });
+    const [fill, enter, ...rest] = valid.steps;
+    for (const malformed of [
+      // Not after a fill, or after one on another path.
+      { ...valid, steps: [enter, fill, ...rest] },
+      { ...valid, steps: [{ ...fill, path: "/other" }, enter, ...rest] },
+      // Not in the field the fill typed last.
+      { ...valid, steps: [fill, { ...enter, target: { by: "id", value: "other" } }, ...rest] },
+      {
+        ...valid,
+        steps: [
+          {
+            ...fill,
+            fields: [...fill!.fields, { slot: "password", target: { by: "id", value: "pin" } }],
+          },
+          enter,
+        ],
+      },
+      // A button's text or accessible name names no field.
+      { ...valid, steps: [fill, { ...enter, target: { by: "text", value: "Next" } }, ...rest] },
+      // Into a code.
+      {
+        ...valid,
+        slots: ["totp", "password"],
+        steps: [{ ...fill, fields: [{ slot: "totp", target: account }] }, enter, ...rest],
+      },
+    ])
+      expect(() => parseLoginRecipe(malformed)).toThrow();
+  });
+
   it("counts both input advancement and a later click against the effect budget", () => {
     const valid = {
       ...recipe(),
@@ -376,6 +428,7 @@ describe("declarative login boundaries", () => {
       { by: "name", value: "user[login]" },
       { by: "id", value: "a'b\"c" },
       { by: "test-id", value: "sign-in" },
+      { by: "data-test", value: "register-button" },
       { by: "password-form-name", value: "acct" },
       { by: "autocomplete", value: "username" },
       { by: "autocomplete", value: "current-password" },
@@ -388,6 +441,7 @@ describe("declarative login boundaries", () => {
       { by: "id", value: "会員" },
       { by: "id", value: "a\u0000" },
       { by: "test-id", value: "a$b" },
+      { by: "data-test", value: "a b" },
       { by: "password-form-name", value: "a b" },
       { by: "autocomplete", value: "new-password" },
       { by: "autocomplete", value: "Username" },

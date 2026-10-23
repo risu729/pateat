@@ -27,13 +27,15 @@ describe("findTargets", () => {
   it("compares attribute strings, so selector syntax in a value is inert", () => {
     page(
       `<input id="a" name="ctl00$Main$txtUserId"><input id="b" name="user[login]">
-      <input id="c" data-testid="go"><input id="d" name="x'] , [name"><input id="e" name="x">`,
+      <input id="c" data-testid="go"><input id="d" name="x'] , [name"><input id="e" name="x">
+      <input id="f" data-test="go">`,
     );
     expect(ids(findTargets(document, { by: "name", value: "ctl00$Main$txtUserId" }))).toEqual([
       "a",
     ]);
     expect(ids(findTargets(document, { by: "name", value: "user[login]" }))).toEqual(["b"]);
     expect(ids(findTargets(document, { by: "test-id", value: "go" }))).toEqual(["c"]);
+    expect(ids(findTargets(document, { by: "data-test", value: "go" }))).toEqual(["f"]);
     // Only inside a form with a shown password input that is not for a new password.
     document.body.insertAdjacentHTML(
       "beforeend",

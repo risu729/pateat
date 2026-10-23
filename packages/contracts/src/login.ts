@@ -54,7 +54,7 @@ export const loginAutocompleteTokens = [
   "webauthn",
 ] as const;
 /**
- * An attribute locator: the element whose `id`, `name` or `data-testid` equals the
+ * An attribute locator: the element whose `id`, `name`, `data-testid` or `data-test` equals the
  * value, or the `<input>` whose `autocomplete` attribute holds the token among its
  * whitespace-separated tokens, ignoring case (for fields with no `id` or `name`, such as
  * `autocomplete="username webauthn"`). `id` and `name` take any ASCII except whitespace
@@ -67,8 +67,10 @@ export const loginAttributeTargetSchema = v.variant("by", [
     by: v.picklist(["id", "name"]),
     value: v.pipe(v.string(), v.minLength(1), v.maxLength(120), v.regex(/^[\x21-\x7e]+$/u)),
   }),
+  // `data-test` is the test attribute some pages use instead (Duolingo's sign-in
+  // submit, 2026-10-23; ADR 0071).
   v.strictObject({
-    by: v.literal("test-id"),
+    by: v.picklist(["test-id", "data-test"]),
     value: v.pipe(v.string(), v.minLength(1), v.maxLength(120), v.regex(/^[a-zA-Z0-9_.:-]+$/)),
   }),
   v.strictObject({ by: v.literal("autocomplete"), value: v.picklist(loginAutocompleteTokens) }),
@@ -200,12 +202,26 @@ export const loginStepSchema = v.variant("kind", [
       "Effectful fill requires one field and one trigger event",
     ),
   ),
-  v.strictObject({
-    kind: v.literal("click"),
-    path,
-    target: loginTargetSchema,
-    purpose: v.picklist(["advance", "submit"]),
-  }),
+  v.pipe(
+    v.strictObject({
+      kind: v.literal("click"),
+      path,
+      target: loginTargetSchema,
+      purpose: v.picklist(["advance", "submit"]),
+      /**
+       * For a form that shows no button to press (ADR 0064): the target is the field the
+       * fill just before typed last, and the step submits that field's form as pressing
+       * Enter there does instead of clicking anything.
+       */
+      press: v.optional(v.literal("enter")),
+    }),
+    v.check(
+      (step) =>
+        step.press === undefined ||
+        (step.target.by !== "text" && step.target.by !== "accessible-name"),
+      "Enter is pressed in a field",
+    ),
+  ),
   v.strictObject({
     kind: v.literal("wait"),
     path,
@@ -261,7 +277,29 @@ const recipeSlotList = v.pipe(
   v.maxLength(20),
   v.check(unique, "Duplicate recipe slots"),
 );
-const routeStepList = v.pipe(v.array(loginStepSchema), v.minLength(1), v.maxLength(32));
+const routeStepList = v.pipe(
+  v.array(loginStepSchema),
+  v.minLength(1),
+  v.maxLength(32),
+  // Enter goes into the field the fill just before typed last, never a code (ADR 0064).
+  v.check(
+    (steps) =>
+      steps.every((step, index) => {
+        if (step.kind !== "click" || step.press === undefined) return true;
+        const before = steps[index - 1];
+        const last = before?.kind === "fill" ? before.fields.at(-1) : undefined;
+        return (
+          before?.kind === "fill" &&
+          before.effect === "prepare" &&
+          before.path === step.path &&
+          last !== undefined &&
+          last.slot !== TOTP_HANDLER_SLOT &&
+          sameLoginTarget(last.target, step.target)
+        );
+      }),
+    "Enter is pressed only in the field the fill before typed last",
+  ),
+);
 /** At most 3 alternatives, so a password route has at most 4 variants (ADR 0027). */
 export const MAX_PASSWORD_ALTERNATIVES = 3;
 /** A recipe learns at most four signed-in markers (ADR 0029). */
