@@ -2,3 +2,7 @@
 
 [tasks.test]
 run = "node ../../node_modules/vitest/vitest.mjs run"
+
+[tasks."test:orders"]
+description = "Walk every order of events of the small logins in src/*.orders-*.test.ts."
+run = "node ../../node_modules/vitest/vitest.mjs run orders-"
