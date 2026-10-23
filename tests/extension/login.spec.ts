@@ -1322,10 +1322,11 @@ for (const [result, query] of [
         if (wrong) {
           // The page enables Verify again for another code. The login holds the page for
           // the person and never clicks it, past the click step's own wait: it checks the
-          // held page at most twice a round, half a second apart, so ten checks take longer.
+          // held page at most twice a round, half a second apart, so these checks span
+          // more rounds than that wait has.
           await expect(page.locator("#verify")).toBeEnabled();
           await expect.poll(status).toContain('"state":"reconciling"');
-          await checkedAgain(options, 10);
+          await checkedAgain(options, 2 * Math.ceil(SHORT_STEP_WAIT_MS / 500) + 4);
           expect(await status()).toContain('"state":"reconciling"');
         } else {
           await expect(page.locator("#authenticated")).toBeVisible();

@@ -184,7 +184,13 @@ function expectNativeAssertion(result: Serialized, origin: string, challenge: st
   });
 }
 
-type ProbeControl = { ok: boolean; signatures: number; stopped: number; remembered: string[] };
+type ProbeControl = {
+  ok: boolean;
+  signatures: number;
+  delayed: number;
+  stopped: number;
+  remembered: string[];
+};
 /** Probe controls are accepted only from the extension's own options page. */
 async function probeControls(context: BrowserContext, extensionId: string) {
   const options = await context.newPage();
@@ -197,6 +203,8 @@ async function probeControls(context: BrowserContext, extensionId: string) {
         await send({ version: 1, type: "passkey.probe.configure", ...settings }),
       ).toMatchObject({ ok: true }),
     signatures: async () => (await send({ version: 1, type: "passkey.probe.status" })).signatures,
+    /** Delayed signatures that started. */
+    delayed: async () => (await send({ version: 1, type: "passkey.probe.status" })).delayed,
     /** Delayed signatures that cancellation or the deadline stopped; they never sign. */
     stopped: async () => (await send({ version: 1, type: "passkey.probe.status" })).stopped,
     remembered: async () => (await send({ version: 1, type: "passkey.probe.status" })).remembered,
@@ -341,8 +349,10 @@ test("abort rejects with the caller's reason and a slow bridge delegates", async
       await probe.configure({ signDelayMs: 3000, timeoutMs: 300 });
       const slow = challengeHex();
       expectNativeAssertion(await clickRequest(page, { challenge: slow }), origin, slow);
-      // Cancellation and the deadline stopped both delayed signatures, so neither signs.
+      // Cancellation and the deadline stopped both delayed signatures, so neither signs, and
+      // no signature started again after its stop.
       await expect.poll(probe.stopped).toBe(2);
+      expect(await probe.delayed()).toBe(2);
       expect(await probe.signatures()).toBe(0);
     });
   } finally {

@@ -54,6 +54,7 @@ describe("probe passkey source", () => {
     expect(probe.control({ version: 1, type: "passkey.probe.status" })).toEqual({
       ok: true,
       signatures: 3,
+      delayed: 0,
       stopped: 0,
       remembered: [],
     });
@@ -115,6 +116,7 @@ describe("probe passkey source", () => {
       expect(probe.control({ version: 1, type: "passkey.probe.status" })).toEqual({
         ok: true,
         signatures: 0,
+        delayed: 1,
         stopped: 1,
         remembered: [],
       });
