@@ -334,4 +334,5 @@ export const en = {
   "your PIN": "your PIN",
   "This page shows another account, so nothing was filled.":
     "This page shows another account, so nothing was filled.",
+  "ID {{id}}": "ID {{id}}",
 } as const;
