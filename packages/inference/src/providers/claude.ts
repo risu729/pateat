@@ -29,11 +29,25 @@ export const claudeBenchmarkModels = {
 
 export type ClaudeBenchmarkModel = keyof typeof claudeBenchmarkModels;
 
+/**
+ * Fast mode's rates (Claude API research preview: the same model, faster output), for the
+ * models that offer it.
+ */
+export const claudeFastModeRates = {
+  "claude-opus-5-5": { input: 8, output: 40, checked: "2026-10-23" },
+  "claude-opus-5": { input: 10, output: 50, checked: "2026-10-23" },
+} as const satisfies Partial<Record<ClaudeBenchmarkModel, ClaudeRates>>;
+
 export const claudeEfforts = ["low", "medium", "high", "xhigh", "max"] as const;
 export type ClaudeEffort = (typeof claudeEfforts)[number];
 
-/** A model and effort to run, with its rates. */
-export type ClaudeModelChoice = { modelId: string; effort: ClaudeEffort; rates: ClaudeRates };
+/** A model and effort to run, with its rates; `fast` runs it in fast mode. */
+export type ClaudeModelChoice = {
+  modelId: string;
+  effort: ClaudeEffort;
+  rates: ClaudeRates;
+  speed?: "fast";
+};
 
 // Pinned so ANTHROPIC_BASE_URL in the environment can never redirect the key elsewhere.
 const anthropicBaseUrl = "https://api.anthropic.com/v1";
@@ -79,6 +93,7 @@ export function createClaudeGenerationModel(
         providerOptions: {
           anthropic: {
             effort: choice.effort,
+            ...("speed" in choice && choice.speed ? { speed: choice.speed } : {}),
             // Opus 5.5 rejects the forced tool call of the JSON-tool mode.
             structuredOutputMode: "outputFormat",
           },

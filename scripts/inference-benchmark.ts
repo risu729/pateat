@@ -13,6 +13,7 @@ import { japanesePageCorpus, realPageCorpus } from "../packages/inference/src/co
 import {
   claudeBenchmarkModels,
   claudeEfforts,
+  claudeFastModeRates,
   claudeGeneration,
   type ClaudeBenchmarkModel,
   type ClaudeEffort,
@@ -36,6 +37,7 @@ const { values } = parseArgs({
     count: { type: "string" },
     model: { type: "string", default: claudeGeneration.modelId },
     effort: { type: "string", default: claudeGeneration.effort },
+    speed: { type: "string", default: "standard" },
   },
 });
 if (!Object.hasOwn(corpora, values.corpus)) {
@@ -92,14 +94,29 @@ if (!(claudeEfforts as readonly string[]).includes(values.effort)) {
   process.exit(2);
 }
 
+const fastRates = Object.hasOwn(claudeFastModeRates, values.model)
+  ? claudeFastModeRates[values.model as keyof typeof claudeFastModeRates]
+  : undefined;
+if (values.speed !== "standard" && (values.speed !== "fast" || fastRates === undefined)) {
+  console.error(`Fast mode runs only on ${Object.keys(claudeFastModeRates).join(", ")}.`);
+  process.exit(2);
+}
 const run = {
   apiKey,
   maxCostUsd: Number(values["max-cost-usd"]),
-  choice: {
-    modelId: values.model,
-    effort: values.effort as ClaudeEffort,
-    rates: claudeBenchmarkModels[values.model as ClaudeBenchmarkModel],
-  },
+  choice:
+    values.speed === "fast"
+      ? {
+          modelId: values.model,
+          effort: values.effort as ClaudeEffort,
+          rates: fastRates!,
+          speed: "fast" as const,
+        }
+      : {
+          modelId: values.model,
+          effort: values.effort as ClaudeEffort,
+          rates: claudeBenchmarkModels[values.model as ClaudeBenchmarkModel],
+        },
 };
 const result =
   values.corpus === "judge"

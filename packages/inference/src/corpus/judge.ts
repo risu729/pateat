@@ -82,7 +82,7 @@ const unclear: JudgeExpected = { decisions: ["unclear"] };
 
 /**
  * Candidates get the extension's IDs (`c1`, `c2` …) in page order, as real observations
- * carry them, so the readable IDs written here never hint at the answer.
+ * carry them; the readable names written here stay only as the elements' DOM IDs.
  */
 function withObservedIds(testCase: JudgeCase): JudgeCase {
   const ids = new Map(
@@ -149,7 +149,7 @@ const cases: JudgeCase[] = [
       ],
       { title: "Dashboard", headings: ["Your projects"], headerText: "Home Settings Sign out" },
     ),
-    expected: signedIn("sign-out", "nav-settings"),
+    expected: signedIn("sign-out", "nav-settings", "nav-home"),
   },
   {
     id: "en-name-menu",
@@ -167,7 +167,8 @@ const cases: JudgeCase[] = [
       ],
       { title: "Shop home", headerText: "Alex Kim Orders Log out Cart (2)" },
     ),
-    expected: signedIn("log-out", "orders"),
+    // "Orders" may show to a visitor who is not signed in too.
+    expected: signedIn("log-out"),
   },
   {
     id: "en-count-balance",
@@ -240,6 +241,7 @@ const cases: JudgeCase[] = [
       ],
       { title: "コミュニティ", headerText: "たろう ランキング 新着" },
     ),
+    // The account link by its path is the marker ADR 0029 allows for such a page.
     expected: signedIn("nickname"),
   },
   {
@@ -403,6 +405,7 @@ const cases: JudgeCase[] = [
       ],
       { title: "Sign in", headings: ["How do you want to sign in?"] },
     ),
+    // The passkey button also fits passkeyButton, so only the password button is scored.
     expected: { decisions: ["challenge"], passwordButton: "opt-password" },
   },
   {

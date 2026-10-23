@@ -24,12 +24,13 @@ const worstCaseCallUsd = (rates: ClaudeRates) =>
   (limits.maxInputBytes * rates.input + maxOutputTokens * rates.output) / 1_000_000;
 const maxCallsPerCase = limits.maxRetries + 1;
 
-// The model, recording each model ID the API reports serving.
+// The model, recording each model ID and speed the API reports serving.
 function benchmarkModel(
   options: { apiKey: string; fetch?: typeof globalThis.fetch },
   choice: ClaudeModelChoice,
 ) {
   const servedModels = new Set<string>();
+  const servedSpeeds = new Set<string>();
   const model = wrapLanguageModel({
     model: createClaudeGenerationModel({
       apiKey: options.apiKey,
@@ -41,19 +42,26 @@ function benchmarkModel(
       wrapGenerate: async ({ doGenerate }) => {
         const result = await doGenerate();
         servedModels.add(result.response?.modelId ?? "unreported");
+        const usage = result.providerMetadata?.["anthropic"]?.["usage"] as
+          | { speed?: unknown }
+          | undefined;
+        servedSpeeds.add(typeof usage?.speed === "string" ? usage.speed : "unreported");
         return result;
       },
     },
   });
-  return { model, servedModels };
+  return { model, servedModels, servedSpeeds };
 }
 
 export type ClaudeBenchmarkReport = {
   model: string;
   effort: ClaudeModelChoice["effort"];
+  speed: "fast" | "standard";
   rates: ClaudeRates;
   /** Model IDs the API reported serving, to show that no other model answered. */
   servedModels: string[];
+  /** Speeds the API reported serving at, to show that fast mode ran when asked. */
+  servedSpeeds: string[];
   /** Estimated from reported usage; calls without usage count at the worst case. */
   estimatedCostUsd: number;
   report: EvaluationReport;
@@ -77,7 +85,7 @@ export async function runClaudeBenchmark(options: {
     throw new RangeError("Set a cost cap between 0 and 10 USD");
   const choice = options.choice ?? claudeGeneration;
   const callUsd = worstCaseCallUsd(choice.rates);
-  const { model, servedModels } = benchmarkModel(options, choice);
+  const { model, servedModels, servedSpeeds } = benchmarkModel(options, choice);
   const generate = createRecipeGenerator({
     model,
     limits,
@@ -98,8 +106,10 @@ export async function runClaudeBenchmark(options: {
   return {
     model: choice.modelId,
     effort: choice.effort,
+    speed: "speed" in choice && choice.speed ? choice.speed : "standard",
     rates: choice.rates,
     servedModels: [...servedModels],
+    servedSpeeds: [...servedSpeeds],
     estimatedCostUsd: spent,
     report,
   };
@@ -125,7 +135,7 @@ export async function runClaudeJudgeBenchmark(options: {
     throw new RangeError("Set a cost cap between 0 and 10 USD");
   const choice = options.choice ?? claudeGeneration;
   const callUsd = worstCaseCallUsd(choice.rates);
-  const { model, servedModels } = benchmarkModel(options, choice);
+  const { model, servedModels, servedSpeeds } = benchmarkModel(options, choice);
   const judge = createCompletionJudge({
     model,
     limits,
@@ -145,8 +155,10 @@ export async function runClaudeJudgeBenchmark(options: {
   return {
     model: choice.modelId,
     effort: choice.effort,
+    speed: "speed" in choice && choice.speed ? choice.speed : "standard",
     rates: choice.rates,
     servedModels: [...servedModels],
+    servedSpeeds: [...servedSpeeds],
     estimatedCostUsd: spent,
     report,
   };

@@ -5,8 +5,9 @@ import { percentile } from "./evaluate";
 import type { InferenceOutcome } from "./outcome";
 
 /**
- * `false-signed-in` is an answer of signed-in where the truth is not: the worst mistake,
- * since it stores a marker for a page that is no signed-in page.
+ * `false-signed-in` is an answer of signed-in where the truth is not: the worst mistake in
+ * judgement, since a marker for a page that is no signed-in page would be stored unless a
+ * local check refuses it.
  */
 export type JudgeVerdict =
   | "correct"

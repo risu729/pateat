@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { runClaudeBenchmark, runClaudeJudgeBenchmark } from "./bench";
 import { evaluationCorpus, expectedFields } from "./corpus/cases";
 import { judgeCorpus } from "./corpus/judge";
-import { claudeBenchmarkModels } from "./providers/claude";
+import { claudeBenchmarkModels, claudeFastModeRates } from "./providers/claude";
 import { caseFor } from "./testing/fake-models";
 
 // Answers every corpus page with its ground truth, shaped like the Messages API.
@@ -147,6 +147,46 @@ describe("Claude benchmark runner", () => {
     expect(result).toMatchObject({ model: "claude-haiku-5-5", effort: "medium" });
     expect(result.servedModels).toEqual(["claude-haiku-5-5"]);
     expect(result.estimatedCostUsd).toBeCloseTo(0.1);
+  });
+
+  it("asks for fast mode and reports the speed served", async () => {
+    const sent: { speed: unknown; beta: string | null }[] = [];
+    const fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      sent.push({ speed: body.speed, beta: new Headers(init?.headers).get("anthropic-beta") });
+      return Response.json({
+        id: "msg_synthetic",
+        type: "message",
+        role: "assistant",
+        model: body.model,
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({ result: { decision: "abstain", reason: "ambiguous" } }),
+          },
+        ],
+        stop_reason: "end_turn",
+        stop_sequence: null,
+        usage: { input_tokens: 1_000_000, output_tokens: 0, speed: "fast" },
+      });
+    }) as typeof globalThis.fetch;
+    const result = await runClaudeBenchmark({
+      apiKey: "sk-ant-test-synthetic",
+      maxCostUsd: 9,
+      cases: evaluationCorpus.slice(0, 1),
+      choice: {
+        modelId: "claude-opus-5-5",
+        effort: "low",
+        rates: claudeFastModeRates["claude-opus-5-5"],
+        speed: "fast",
+      },
+      fetch,
+    });
+    expect(sent).toEqual([
+      { speed: "fast", beta: expect.stringContaining("fast-mode-2026-02-01") },
+    ]);
+    expect(result).toMatchObject({ speed: "fast", servedSpeeds: ["fast"] });
+    expect(result.estimatedCostUsd).toBeCloseTo(8);
   });
 
   it("scores the judge on its own answers", async () => {
