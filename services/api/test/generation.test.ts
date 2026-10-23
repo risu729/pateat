@@ -3803,6 +3803,116 @@ describe("page judgement (ADR 0027)", () => {
     });
   });
 
+  describe("detail handlers (ADR 0061)", () => {
+    // A synthetic page that asks for the birth year and month or a phone's last 4 digits.
+    const birth = { ...element("birth", "text", "Year and month of birth"), maxLength: 6 };
+    const phone = { ...element("phone", "tel", "Last 4 digits of your phone"), maxLength: 4 };
+    const cardCode = element("card-code", "text", "Security code");
+    const confirm = element("confirm", "button", "Next");
+    const details = [
+      { field: "birth", value: "birth-date", format: "yyyymm" },
+      { field: "phone", value: "phone-last-4" },
+    ];
+
+    it("keeps the inputs that pass their checks with their button, and logs each dropped one", async () => {
+      const device = await owner();
+      const change = await twoPageRecipe(device);
+      const info = vi.spyOn(console, "info").mockImplementation(() => {});
+      replies.push(
+        judgeReply({
+          decision: "challenge",
+          // A security code in a text input without a length is no detail input.
+          details: [...details, { field: "card-code", value: "card-code" }],
+          detailSubmit: "confirm",
+        }),
+      );
+      const page = observation("/login/confirm", [birth, phone, cardCode, confirm]);
+      expect((await complete(device, change.recipeId, 2, page)).body).toMatchObject({
+        status: "challenge",
+        change: {
+          revision: 3,
+          recipe: {
+            revision: 3,
+            steps: route(change.recipe).steps,
+            handlers: [
+              {
+                kind: "detail",
+                path: "/login/confirm",
+                fields: [
+                  { detail: "birth-date", format: "yyyymm", target: { by: "id", value: "birth" } },
+                  { detail: "phone-last-4", target: { by: "id", value: "phone" } },
+                ],
+                target: { by: "id", value: "confirm" },
+              },
+            ],
+          },
+        },
+      });
+      expect(await head(device, change.recipeId)).toBe(3);
+      // Kinds and reasons only: never an element, label or value.
+      expect(info).toHaveBeenCalledWith("Judged page handlers", {
+        recipeId: change.recipeId,
+        handlers: [
+          { kind: "detail", kept: true },
+          { kind: "detail", kept: false, reason: "not-input" },
+        ],
+      });
+      info.mockRestore();
+    });
+
+    it("keeps a detail beside a passkey handler in one revision", async () => {
+      const device = await owner();
+      const change = await twoPageRecipe(device);
+      replies.push(
+        judgeReply({
+          decision: "challenge",
+          passkeyButton: "key",
+          details: [details[1]],
+          detailSubmit: "confirm",
+        }),
+      );
+      const page = observation("/login/confirm", [
+        phone,
+        confirm,
+        element("key", "button", "Use security key"),
+      ]);
+      const judged = await complete(device, change.recipeId, 2, page);
+      expect(judged.body).toMatchObject({ status: "challenge", change: { revision: 3 } });
+      if (!("change" in judged.body) || !judged.body.change) throw new Error("no change");
+      expect(route(judged.body.change.recipe).handlers?.map((handler) => handler.kind)).toEqual([
+        "passkey",
+        "detail",
+      ]);
+    });
+
+    it("answers a plain challenge when no input passes, logging why", async () => {
+      const device = await owner();
+      const change = await twoPageRecipe(device);
+      const info = vi.spyOn(console, "info").mockImplementation(() => {});
+      replies.push(
+        judgeReply({
+          decision: "challenge",
+          details: [{ field: "birth", value: "birth-date" }, details[1]],
+          detailSubmit: "missing",
+        }),
+      );
+      const page = observation("/login/confirm", [birth, phone, confirm]);
+      expect((await complete(device, change.recipeId, 2, page)).body).toEqual({
+        version: 1,
+        status: "challenge",
+      });
+      expect(await head(device, change.recipeId)).toBe(2);
+      expect(info).toHaveBeenCalledWith("Judged page handlers", {
+        recipeId: change.recipeId,
+        handlers: [
+          { kind: "detail", kept: false, reason: "unknown-submit" },
+          { kind: "detail", kept: false, reason: "unknown-submit" },
+        ],
+      });
+      info.mockRestore();
+    });
+  });
+
   it("names a revoked, moved or missing head as stale", async () => {
     const device = await owner();
     const change = await twoPageRecipe(device);
@@ -3965,6 +4075,72 @@ describe("page judgement (ADR 0027)", () => {
           verdict: "challenge",
         },
       ]);
+    });
+
+    it("keeps no detail handler for inputs beside the password field (ADR 0061)", async () => {
+      const device = await owner();
+      const change = await twoPageRecipe(device);
+      const info = vi.spyOn(console, "info").mockImplementation(() => {});
+      const page = observation("/password", [
+        ...stopPage.candidates,
+        { ...element("phone", "tel", "Last 4 digits of your phone"), maxLength: 4 },
+        { ...element("birth", "text", "Year and month of birth"), maxLength: 6 },
+        element("confirm", "button", "Next"),
+      ]);
+      replies.push(
+        judgeReply({
+          decision: "challenge",
+          passkeyButton: "passkey",
+          // One input that passes, and one that its local checks drop.
+          details: [
+            { field: "phone", value: "phone-last-4" },
+            { field: "birth", value: "birth-date" },
+          ],
+          detailSubmit: "confirm",
+        }),
+      );
+      expect(await atStop(device, change.recipeId, 2, page)).toMatchObject({
+        status: 200,
+        body: {
+          version: 1,
+          status: "challenge",
+          change: {
+            revision: 3,
+            recipe: { handlers: [{ kind: "passkey", path: "/password", target: passkey.target }] },
+          },
+        },
+      });
+      // The kept detail is logged as refused at the stop; the dropped input is not logged.
+      expect(info).toHaveBeenCalledWith("Judged page handlers", {
+        recipeId: change.recipeId,
+        handlers: [
+          { kind: "passkey", kept: true },
+          { kind: "detail", kept: false, reason: "stop" },
+        ],
+      });
+      info.mockRestore();
+    });
+
+    it("answers a plain challenge for a stop's page that asks only for a detail", async () => {
+      const device = await owner();
+      const change = await twoPageRecipe(device);
+      const page = observation("/password", [
+        ...stopPage.candidates,
+        { ...element("phone", "tel", "Last 4 digits of your phone"), maxLength: 4 },
+        element("confirm", "button", "Next"),
+      ]);
+      replies.push(
+        judgeReply({
+          decision: "challenge",
+          details: [{ field: "phone", value: "phone-last-4" }],
+          detailSubmit: "confirm",
+        }),
+      );
+      expect((await atStop(device, change.recipeId, 2, page)).body).toEqual({
+        version: 1,
+        status: "challenge",
+      });
+      expect(await head(device, change.recipeId)).toBe(2);
     });
 
     it("keeps no marker, rejection or registration button from the stop's page", async () => {
