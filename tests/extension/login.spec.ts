@@ -1468,6 +1468,54 @@ test("clicks a submit button or image button named by its text, and refuses a du
   }
 });
 
+test("submits a form without a button by Enter in its last field, never through a button it showed (ADR 0064)", async () => {
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, _worker, id) => {
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin);
+      const count = (page: Page, key: string) =>
+        page.evaluate((name) => Number(sessionStorage.getItem(name) || 0), key);
+      // Without a submit button the form is submitted with `requestSubmit()`; with one that
+      // appeared as the password went in, that button is clicked, as Enter does.
+      /* eslint-disable no-await-in-loop */
+      for (const [query, buttonClicks] of [
+        ["", 0],
+        ["?late", 1],
+      ] as const) {
+        const page = await context.newPage();
+        await page.goto(`${fixture.origin}/enter-submit${query}`);
+        await expect(page.locator("#authenticated")).toBeVisible();
+        expect(await clicks(page)).toBe(1);
+        expect(await count(page, "buttonClicks")).toBe(buttonClicks);
+        await page.close();
+      }
+      // A "Sign up" submit button or image input shown before the fill is never pressed,
+      // nor the form sent: the step fails as a click that finds no target does.
+      for (const query of ["?shown", "?image"]) {
+        const shown = await context.newPage();
+        await shown.goto(`${fixture.origin}/enter-submit${query}`);
+        await expect
+          .poll(async () => await send(options, { version: 1, type: "login.probe.status" }))
+          .toMatchObject({
+            attempts: [{ recipeId: "demo-enter-submit", outcome: "structural-mismatch" }],
+          });
+        await expect(shown.locator("#password")).not.toHaveValue("");
+        expect(await clicks(shown)).toBe(0);
+        expect(await count(shown, "signUpClicks")).toBe(0);
+        await shown.close();
+        // Closing the tab releases its record before the next page starts.
+        await expect
+          .poll(async () => await send(options, { version: 1, type: "login.probe.status" }))
+          .toMatchObject({ attempts: [] });
+      }
+      /* eslint-enable no-await-in-loop */
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
 test("waits for delayed same-page success and rejection without resubmitting", async () => {
   const fixture = await startLoginFixture();
   try {
