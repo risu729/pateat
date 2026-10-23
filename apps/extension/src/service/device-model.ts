@@ -326,6 +326,22 @@ export function createDeviceModel(options: {
   }
 
   return {
+    /**
+     * The key's own calls, for generation on a device without a pairing (ADR 0040): the
+     * saved setting (none without one; rejects for a record that cannot be read or is no
+     * key), the spend stop it reached, one call to Anthropic, and its cost.
+     */
+    direct: {
+      async setting(): Promise<DeviceModelSetting | undefined> {
+        const stored = await storage.read();
+        const setting = parseDeviceModelSetting(stored);
+        if (!setting && stored !== undefined) throw new Error("The saved key is unreadable");
+        return setting;
+      },
+      stopped,
+      send,
+      charge,
+    },
     /** The three requests, made with this device's key when one is saved. */
     wrap(transport: DeviceModelRequests): DeviceModelRequests {
       return {

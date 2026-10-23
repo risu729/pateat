@@ -7,11 +7,7 @@ import {
   type ModelConfig,
   type ModelEffort,
 } from "@pateat/contracts";
-import {
-  claudeModelRates,
-  claudePricedModels,
-  type ClaudeCredential,
-} from "@pateat/inference";
+import { claudeModelRates, claudePricedModels, type ClaudeCredential } from "@pateat/inference";
 import { and, desc, eq, gt } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import * as v from "valibot";

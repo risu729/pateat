@@ -1090,8 +1090,9 @@ Once the fixes have settled:
   Anthropic API key and call the model itself, also while paired, where the service only
   checks, stores and shares the results. The paired part is implemented, and so are the
   recipes a device keeps on unpairing, which logins use without the service and which
-  are uploaded once after pairing again. Generation on an unpaired device, then export
-  and import, follow in that order.
+  are uploaded once after pairing again, and generation on an unpaired device with its
+  own key, which runs the service's routes against the device's own store. Export and
+  import follow.
 - The finite-choice role with Clef, which the owner chose to implement here. On
   2026-10-11 the owner asked for a larger corpus of real pages before planning it. After
   Clef has been tried, compare it with Jev on the same pages (owner, 2026-10-13 15:11

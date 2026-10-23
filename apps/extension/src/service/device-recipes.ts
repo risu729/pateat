@@ -1,4 +1,9 @@
-import { storedLoginRecipeSchema, type StoredLoginRecipe } from "@pateat/contracts";
+import {
+  MAX_ACTIVE_RECIPE_BYTES,
+  storedLoginRecipeSchema,
+  type StoredLoginRecipe,
+  type SyncRecipeWrite,
+} from "@pateat/contracts";
 import * as v from "valibot";
 import type { ServiceConnection } from "./runtime";
 import type { RecipeWriteResult, ServiceTransport } from "./transport";
@@ -45,11 +50,16 @@ export interface DeviceRecipeStorage {
   clear(): Promise<void>;
 }
 
+/** Active recipes a device holds at once, as the service's `MAX_ACTIVE_RECIPES` (ADR 0040). */
+export const MAX_DEVICE_ACTIVE_RECIPES = 1_000;
+
 export class DeviceRecipesUnavailable extends Error {}
 export class DeviceRecipesCorrupt extends Error {}
 export class DeviceRecipesTooLarge extends Error {}
 
 const encoder = new TextEncoder();
+const documentBytes = (recipe: StoredLoginRecipe) =>
+  encoder.encode(JSON.stringify(recipe)).byteLength;
 const sameRecipe = (left: StoredLoginRecipe, right: StoredLoginRecipe) =>
   JSON.stringify(left) === JSON.stringify(right);
 
@@ -137,6 +147,66 @@ export function createDeviceRecipes(options: {
         if (encoder.encode(JSON.stringify({ version: 1, recipes: next })).byteLength > maxBytes)
           throw new DeviceRecipesTooLarge();
         await save({ ...store, recipes: next });
+      });
+    },
+
+    /** The recipe kept here under `recipeId`; rejects when the recipes cannot be read. */
+    async head(recipeId: string): Promise<StoredLoginRecipe | undefined> {
+      await queue;
+      return (await load()).recipes.find((recipe) => recipe.id === recipeId);
+    },
+
+    /**
+     * How many recipes are kept here and their documents' UTF-8 bytes, as the service
+     * counts its active recipes (ADR 0040).
+     */
+    async usage(): Promise<{ count: number; bytes: number }> {
+      await queue;
+      const { recipes } = await load();
+      return {
+        count: recipes.length,
+        bytes: recipes.reduce((sum, recipe) => sum + documentBytes(recipe), 0),
+      };
+    },
+
+    /**
+     * Writes the next revision of a recipe generated on this device while no service is
+     * paired (ADR 0040), when `expectedRevision` is still the one kept here (0 for none): a
+     * write another one beat gets the recipe kept now. A write that would hold more than
+     * the service's recipes or bytes, or more than fits here, is `limited`. Revoking
+     * removes the recipe, since nothing here syncs its tombstone.
+     */
+    write(
+      recipeId: string,
+      write: SyncRecipeWrite,
+    ): Promise<
+      | { ok: true; recipe: StoredLoginRecipe | undefined }
+      | { ok: false; limited: false; current: StoredLoginRecipe | undefined }
+      | { ok: false; limited: true }
+    > {
+      return enqueue(async () => {
+        const store = await load();
+        const current = store.recipes.find((recipe) => recipe.id === recipeId);
+        if ((current?.revision ?? 0) !== write.expectedRevision)
+          return { ok: false, limited: false, current };
+        const others = store.recipes.filter((recipe) => recipe.id !== recipeId);
+        if (write.state === "revoked") {
+          await save({ ...store, recipes: others });
+          return { ok: true, recipe: undefined };
+        }
+        if (write.recipe.id !== recipeId) return { ok: false, limited: false, current };
+        const next = [...others, write.recipe];
+        const bytes = next.reduce((sum, recipe) => sum + documentBytes(recipe), 0);
+        if (
+          (!current && next.length > MAX_DEVICE_ACTIVE_RECIPES) ||
+          // As on the service, only a write that adds a recipe or grows one is held to it.
+          (bytes > MAX_ACTIVE_RECIPE_BYTES &&
+            (!current || documentBytes(write.recipe) > documentBytes(current))) ||
+          encoder.encode(JSON.stringify({ version: 1, recipes: next })).byteLength > maxBytes
+        )
+          return { ok: false, limited: true };
+        await save({ ...store, recipes: next });
+        return { ok: true, recipe: write.recipe };
       });
     },
 

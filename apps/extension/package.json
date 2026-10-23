@@ -9,6 +9,7 @@
     "@noble/curves": "2.4.0",
     "@pateat/bitwarden": "workspace:*",
     "@pateat/contracts": "workspace:*",
+    "@pateat/generation": "workspace:*",
     "@pateat/inference": "workspace:*",
     "@tanstack/react-form": "1.33.5",
     "@tanstack/react-query": "5.104.5",
