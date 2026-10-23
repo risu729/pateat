@@ -1,5 +1,6 @@
 import {
   isGeneratedRecipeId,
+  safeLogoutName,
   type LoginLogoutRecipe,
   type LogoutAbstention,
   type LogoutGenerationRequest,
@@ -70,8 +71,8 @@ const logoutAbstentions = new Set<string>([
  * bad request. Without `base` a stored logout recipe of the origin and path (`local`'s path
  * after a local click) answers without a model call; with `base`, a head newer than it
  * does, as another device appended the page first. The answer's click is appended as the
- * next revision, after `local`'s click or in place of `base`'s clicks past `keep`; a
- * `signed-out` answer and an abstention store nothing.
+ * next revision, after `base`'s clicks (those before `keep` when it is set) and then
+ * `local`'s click; a `signed-out` answer and an abstention store nothing.
  */
 export async function generateLogout(
   env: GenerationEnv,
@@ -81,8 +82,13 @@ export async function generateLogout(
 ): Promise<LogoutGenerationResult | undefined> {
   const { observation, base, local } = request;
   const { origin, path } = observation;
-  // A control the extension found by its words never names an account (ADR 0028's rule).
-  if (local && accountText.test(local.target.value)) return undefined;
+  // A control the extension found by its words never names an account (ADR 0028's rule),
+  // nor logs out elsewhere or ends the account (ADR 0063).
+  if (
+    local &&
+    (accountText.test(local.target.value) || !safeLogoutName(local.target.value, "logout"))
+  )
+    return undefined;
   const recipeId = base?.recipeId ?? (await generatedLogoutRecipeId(origin, local?.path ?? path));
   if (!isGeneratedRecipeId(recipeId)) return undefined;
   const headAtStart = await readHead(env.DB, scope.ownerId, recipeId);
@@ -97,7 +103,8 @@ export async function generateLogout(
       recipeId,
       branch: "",
       baseRevision: headAtStart?.revision ?? 0,
-      page: base || local ? "continuation" : "first",
+      // Its own page, so the dashboard keeps logouts apart from login generation.
+      page: "logout",
     },
   } satisfies UnsentRequest;
   const unsent = (answer: Extract<LogoutGenerationResult, UnsentAnswer>) =>
@@ -190,23 +197,26 @@ export async function generateLogout(
     };
   const answer = outcome.value;
   if (answer.decision === "signed-out") return { version: 1, status: "signed-out" };
-  // The page follows a local click, which the recipe starts with, or replaces the base's
-  // clicks past those that still worked (`keep`).
-  const kept = before.base?.logout.targets.slice(0, base?.keep);
-  const start: LoginLogoutRecipe | undefined = local
+  // The base's clicks that still worked (all of them without `keep`), then the local click
+  // the page follows, if any; the answer's click comes after them.
+  const kept = before.base?.logout.targets.slice(0, base?.keep) ?? [];
+  const localClick = local && {
+    kind: "click" as const,
+    path: local.path,
+    target: local.target,
+    purpose: "logout" as const,
+  };
+  const targets = localClick ? [...kept, localClick] : kept;
+  const start: LoginLogoutRecipe | undefined = targets.length
     ? {
         version: 1,
         id: recipeId,
         revision: baseRevision,
         origin,
-        logout: {
-          path: local.path,
-          targets: [{ kind: "click", path: local.path, target: local.target, purpose: "logout" }],
-        },
+        // The recipe starts where its ID was derived: the base's path, else the local click's.
+        logout: { path: before.base?.logout.path ?? local?.path ?? path, targets },
       }
-    : before.base && kept?.length
-      ? { ...before.base, logout: { ...before.base.logout, targets: kept } }
-      : undefined;
+    : undefined;
   const built = appendLogoutClick(
     start,
     { id: recipeId, revision: baseRevision + 1, origin, path },

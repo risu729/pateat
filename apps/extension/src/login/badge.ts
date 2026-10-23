@@ -159,7 +159,7 @@ function choiceTitle({ count, ask, paused }: Choice, t: TFunction): string {
           "relogin-limit":
             "Pateat: this site was logged in again twice in 10 minutes. Click to choose an account.",
           "one-time-pick":
-            "Pateat: you chose an account here without making it the default. Click to choose an account.",
+            "Pateat: you chose an account here without making it the default, so Pateat asks until an account is made the default. Click to choose an account.",
         }[ask],
       )
     : t("Pateat: {{count}} accounts match this page. Click to choose one.", { count });

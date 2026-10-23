@@ -396,6 +396,47 @@ describe("an account switch's logout (ADR 0063)", () => {
     expect(driver.findLocal).toHaveBeenCalledTimes(1);
   });
 
+  it("sends a stored menu click, the local click and its confirmation dialog together", async () => {
+    // The stored recipe opens the menu; its "Log out" is found by its words and opens a
+    // confirmation dialog, which goes to the model with both clicks before it.
+    const { driver, clicked } = tab(
+      {
+        "account-menu": { page: page("menu"), signIn: false },
+        "log-out": { page: page("dialog"), signIn: false },
+        yes: { page: page("signin", "/signin"), signIn: true },
+      },
+      { menu: id("log-out") },
+      { "log-out": "dialog" },
+    );
+    const stored = recipe([{ value: "account-menu", purpose: "menu" }]);
+    const logout = service(
+      [stored],
+      [
+        {
+          outcome: "recipe",
+          recipe: recipe([
+            { value: "account-menu", purpose: "menu" },
+            { value: "log-out", purpose: "logout" },
+            { value: "yes", purpose: "confirm" },
+          ]),
+        },
+      ],
+    );
+    expect(await runLogout(driver, logout)).toMatchObject({
+      outcome: "signed-out",
+      clicks: 3,
+      learned: true,
+    });
+    expect(clicked).toEqual(["account-menu", "log-out", "yes"]);
+    expect(logout.generate).toHaveBeenCalledOnce();
+    expect(logout.generate).toHaveBeenCalledWith({
+      version: 1,
+      observation: observation("/home"),
+      base: { recipeId: stored.id, revision: stored.revision },
+      local: { path: "/home", target: id("log-out") },
+    });
+  });
+
   it("asks again once for a stored click whose control is gone, in its place", async () => {
     const { driver, clicked } = tab({
       "account-menu": { page: page("menu"), signIn: false },
@@ -515,13 +556,58 @@ describe("account picks for a switch and the browser session (ADR 0063)", () => 
     expect(await picks.switchFor(1, "other.example.test", false)).toBeUndefined();
     expect(await picks.switchFor(1, "shop.example.test", true)).toBeUndefined();
     expect(await picks.switchFor(2, "shop.example.test", false)).toBeUndefined();
-    // A worker restarted in the same session still has it.
-    expect(
-      await createAccountPicks(() => now).switchFor(1, "shop.example.test", false),
-    ).toMatchObject(item);
+    // A worker restarted in the same session still has it once the switch signed out.
+    await picks.signedOut(1);
+    const restarted = createAccountPicks(() => now);
+    expect(await restarted.switchFor(1, "shop.example.test", false)).toMatchObject(item);
+    expect(await restarted.restored()).toEqual({
+      interrupted: [],
+      signedOut: [expect.objectContaining({ tabId: 1, signedOut: true })],
+    });
     now += SWITCH_PICK_MS;
     expect(await picks.switchFor(1, "shop.example.test", false)).toBeUndefined();
     await vi.waitFor(() => expect(session.values[SWITCH_PICKS_KEY]).toEqual([]));
+  });
+
+  it("ends a switch whose logout ran when its worker stopped, once", async () => {
+    const picks = createAccountPicks();
+    await picks.startSwitch({
+      tabId: 1,
+      site: "shop.example.test",
+      incognito: false,
+      makeDefault: false,
+      ...item,
+    });
+    const restarted = createAccountPicks();
+    expect(await restarted.switchFor(1, "shop.example.test", false)).toBeUndefined();
+    expect(await restarted.restored()).toEqual({
+      interrupted: [expect.objectContaining({ tabId: 1, ...item })],
+      signedOut: [],
+    });
+    expect(await restarted.restored()).toEqual({ interrupted: [], signedOut: [] });
+    await vi.waitFor(() => expect(session.values[SWITCH_PICKS_KEY]).toEqual([]));
+  });
+
+  it("holds the site for other tabs of the same window kind while a switch's pick lasts", async () => {
+    let now = 1_000_000;
+    const picks = createAccountPicks(() => now);
+    expect(picks.switchingElsewhere(2, "shop.example.test", false)).toBe(false);
+    await picks.startSwitch({
+      tabId: 1,
+      site: "shop.example.test",
+      incognito: false,
+      makeDefault: false,
+      ...item,
+    });
+    expect(picks.switchingElsewhere(2, "shop.example.test", false)).toBe(true);
+    // A tab whose window kind is not known yet may share the cookies.
+    expect(picks.switchingElsewhere(2, "shop.example.test")).toBe(true);
+    expect(picks.switchingElsewhere(1, "shop.example.test", false)).toBe(false);
+    expect(picks.switchingElsewhere(2, "shop.example.test", true)).toBe(false);
+    expect(picks.switchingElsewhere(2, "other.example.test", false)).toBe(false);
+    expect(picks.switchingElsewhere(2, undefined, false)).toBe(false);
+    now += SWITCH_PICK_MS;
+    expect(picks.switchingElsewhere(2, "shop.example.test", false)).toBe(false);
   });
 
   it("ends a switch's pick once taken", async () => {

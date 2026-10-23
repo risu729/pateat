@@ -22,6 +22,7 @@ import {
   isMenuItem,
   localLogoutControl,
   logoutControlName,
+  logoutName,
   menuItemText,
   openMenus,
 } from "../page/logout-controls";
@@ -120,6 +121,14 @@ export type ObservationResult =
 const maxCandidates = 48;
 /** Where account menus usually sit: the page's header and navigation. */
 const landmarks = chromeSelector;
+/**
+ * An account area outside them: an element whose ID, class or `aria-label` names the
+ * account, user or profile, as an account menu's container. No site is named.
+ */
+const accountAreas = ["account", "user", "profile", "avatar"]
+  .flatMap((word) => [`[id*='${word}' i]`, `[class*='${word}' i]`, `[aria-label*='${word}' i]`])
+  .concat(["[aria-label*='アカウント']"])
+  .join(", ");
 /**
  * How far above a login form a button outside every form still counts as the form's,
  * such as a passkey button beside the password form (SBI Securities: form, list item,
@@ -1948,9 +1957,13 @@ function logoutLocator(
 /**
  * A signed-in page for an account switch's logout (ADR 0063): its shown, enabled buttons,
  * links and menu items outside a form with a field to fill, never a link that opens a new
- * window or downloads, each by {@link logoutLocator}. Those of an open dialog come first,
- * then those of an open menu, then the page's header and navigation, so a page with more
- * than 48 still shows them. Texts lose their numbers, as a count or an account number.
+ * window or downloads, each by {@link logoutLocator}. Only those that may lead to the
+ * logout are described: those of an open dialog first, then those of an open menu, then
+ * the page's header, navigation and account areas, and elsewhere only a control whose
+ * name says it logs out, so a page with more than 48 still shows them. The page's title
+ * and the controls' labels are its only texts: no headings, descriptions or nearby texts,
+ * as a signed-in page shows the person's own content. Texts lose their numbers, as a count
+ * or an account number, and are redacted as a login page's are.
  */
 export function extractLogoutObservation(
   document: Document = globalThis.document,
@@ -2014,27 +2027,43 @@ export function extractLogoutObservation(
       ? 3
       : element.closest(openMenus)
         ? 2
-        : element.closest(landmarks)
+        : element.closest(landmarks) || element.closest(accountAreas)
           ? 1
           : 0;
   // A stable sort keeps document order within each rank.
   const chosen = shownControls
     .map((entry) => ({ entry, rank: rank(entry.draft.element) }))
+    .filter(
+      ({ entry, rank: at }) =>
+        at > 0 || (entry.draft.label !== undefined && logoutName(entry.draft.label) !== undefined),
+    )
     .sort((left, right) => right.rank - left.rank)
-    .map(({ entry }) => entry)
+    .map(({ entry: { draft, ...entry } }): Chosen => {
+      // A control's description may quote the page's content; its label names it.
+      const { description: _description, placeholder: _placeholder, ...named }: Draft = draft;
+      return { ...entry, draft: named };
+    })
     .slice(0, maxCandidates);
   if (chosen.length === 0) return { ok: false, reason: "no-candidates" };
-  return observe(document, chosen, true, (text) => withoutNumbers(text));
+  const result = observe(document, chosen, true, (text) => withoutNumbers(text));
+  if (!result.ok) return result;
+  // The page's headings are its content, never needed to find its logout.
+  const { headings: _headings, ...observation } = result.observation;
+  return { ...result, observation };
 }
 
 /**
  * The one control of a signed-in page that says it logs out of this site
  * ({@link localLogoutControl}), with its {@link logoutLocator}: the account switch clicks
  * it without asking the model (ADR 0063, owner 2026-10-23). `ambiguous` when several say
- * so, and `unlocated` when it has no locator a recipe could keep.
+ * so, and `unlocated` when it has no locator a recipe could keep. A link that opens a new
+ * window or downloads, or whose `href` leads off the site (`onSite`, as for an entry link,
+ * by scheme, host and query), is `none`: its click would show another site's page, never
+ * this site signed out.
  */
 export function extractLocalLogout(
   document: Document = globalThis.document,
+  onSite: OnSite = () => false,
 ):
   | { ok: true; target: LoginMarkerTarget }
   | { ok: false; reason: "none" | "ambiguous" | "unlocated" } {
@@ -2044,6 +2073,14 @@ export function extractLocalLogout(
   if (typeof control === "string") return { ok: false, reason: control };
   if (!enabled(control) || control.closest("form")?.querySelector(fields))
     return { ok: false, reason: "none" };
+  const refusal = entryElementRefusal(control);
+  if (refusal === "new-window" || refusal === "download") return { ok: false, reason: "none" };
+  // A link that follows its `href`; a script link or `href="#"` stays on the page.
+  if (refusal !== "not-link" && refusal !== "script-link" && control instanceof HTMLAnchorElement) {
+    const href = linkUrl(control);
+    const leads = href && linkRefusal(href, onSite, new URL(location.href));
+    if (!href || (leads && leads !== "link-same-page")) return { ok: false, reason: "none" };
+  }
   const target = logoutLocator(control, locatorIndex(document), redactsPath(location.pathname));
   return target ? { ok: true, target } : { ok: false, reason: "unlocated" };
 }

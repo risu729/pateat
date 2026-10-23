@@ -75,15 +75,20 @@ is not in the observation until the menu is open.
   when a dialog or menu opened, or the page changed and still shows the account, the
   page goes to the model with that click (`local`), and the recipe the model answers
   starts with it. Several matching controls, or none, also send the page to the model.
-- The model request: the tab's top page is observed (redacted as a login page is, its
-  shown buttons, links and menu items, at most 48, those of an open dialog or menu
-  first) and sent to the service, whose model answers the control that logs out or,
-  when none is shown, the control that opens a menu holding it. After a click the page
-  is observed and sent again, also for a confirmation dialog, for at most three clicks,
-  through `POST /v1/recipes/logout`. The answer is a logout recipe, a signed-out page,
-  or an abstention (`no-logout-control`, `ambiguous`, `insufficient-evidence`,
-  `unsafe-instructions`). After each click Pateat waits for the page to be quiet for
-  1.5 seconds, at most 15 seconds.
+- The model request: the tab's top page is observed and sent to the service with only
+  what finds its logout: the page's title and the shown buttons, links and menu items of
+  its open dialogs and menus, header, navigation and account areas (an element whose ID,
+  class or label names the account, user or profile), and elsewhere only a control whose
+  name says it logs out, at most 48, those of an open dialog or menu first, each by its
+  label. No heading, description or other text of the page is sent, the texts are
+  redacted as a login page's are, numbers removed, and the request log keeps no more
+  than it keeps of a login page's request. The service's model answers the control that
+  logs out or, when none is shown, the control that opens a menu holding it. After a
+  click the page is observed and sent again, also for a confirmation dialog, for at most
+  three clicks, through `POST /v1/recipes/logout`. The answer is a logout recipe, a
+  signed-out page, or an abstention (`no-logout-control`, `ambiguous`,
+  `insufficient-evidence`, `unsafe-instructions`). After each click Pateat waits for the
+  page to be quiet for 1.5 seconds, at most 15 seconds.
 - A stored click whose control is gone, or no longer alone, is asked for once more in
   its place (`base.keep`): the service replaces the recipe's clicks from there with the
   answer. A switch fails with `no-logout-control`, `still-signed-in`, `page-unreadable`,

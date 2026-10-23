@@ -569,7 +569,12 @@ export type GeneratedPageRejection =
   /** An account-list answer that failed {@link validateAccountList} (ADR 0028). */
   | AccountListRejection
   /** A request with slots was answered with a sign-in entry (ADR 0031). */
-  | "unexpected-entry";
+  | "unexpected-entry"
+  /**
+   * A logout answer names a control that also logs out other devices or sessions, or
+   * deletes, closes or cancels the account (ADR 0063).
+   */
+  | "unsafe-control";
 
 /**
  * A generated page plan reduced to what the request log may keep of it once the checks

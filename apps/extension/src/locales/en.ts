@@ -283,8 +283,8 @@ export const en = {
     "Pateat: the site did not accept the last login in another tab. Click to choose an account.",
   "Pateat: this site was logged in again twice in 10 minutes. Click to choose an account.":
     "Pateat: this site was logged in again twice in 10 minutes. Click to choose an account.",
-  "Pateat: you chose an account here without making it the default. Click to choose an account.":
-    "Pateat: you chose an account here without making it the default. Click to choose an account.",
+  "Pateat: you chose an account here without making it the default, so Pateat asks until an account is made the default. Click to choose an account.":
+    "Pateat: you chose an account here without making it the default, so Pateat asks until an account is made the default. Click to choose an account.",
   "Pateat: automatic login is paused on this site until {{time}}.":
     "Pateat: automatic login is paused on this site until {{time}}.",
   "Automatic login is paused on this site": "Automatic login is paused on this site",
@@ -292,8 +292,8 @@ export const en = {
     "The site did not accept the last login in another tab",
   "Pateat logged in to this site twice in the last 10 minutes, so it waits for you to choose":
     "Pateat logged in to this site twice in the last 10 minutes, so it waits for you to choose",
-  "You chose an account here without making it the default, so Pateat asks each time until the browser closes":
-    "You chose an account here without making it the default, so Pateat asks each time until the browser closes",
+  "You chose an account here without making it the default, so Pateat asks each time until an account is made the default":
+    "You chose an account here without making it the default, so Pateat asks each time until an account is made the default",
   "{{name}} does not match this page.": "{{name}} does not match this page.",
   "Pateat is not running on this page yet. Reload it, then try again.":
     "Pateat is not running on this page yet. Reload it, then try again.",
@@ -303,11 +303,9 @@ export const en = {
     "An account switch is already running in this tab.",
   "A login is running in this tab. Wait for it to end, then try again.":
     "A login is running in this tab. Wait for it to end, then try again.",
-  "Another tab's login to this site is running or waits for a code. Finish or close it, then try again.":
-    "Another tab's login to this site is running or waits for a code. Finish or close it, then try again.",
+  "Another tab's login or account switch on this site is running or waits for a code. Finish or close it, then try again.":
+    "Another tab's login or account switch on this site is running or waits for a code. Finish or close it, then try again.",
   "Pateat settings could not be read. Try again.": "Pateat settings could not be read. Try again.",
-  "Automatic login is paused for this site, so Pateat did not switch accounts.":
-    "Automatic login is paused for this site, so Pateat did not switch accounts.",
   "Pateat needs its service to find how to log out. Pair it in the settings.":
     "Pateat needs its service to find how to log out. Pair it in the settings.",
   "Logging out to switch to {{name}}…": "Logging out to switch to {{name}}…",
@@ -315,6 +313,10 @@ export const en = {
     "Logged out. Pateat logs in with {{name}} on this site's login page in this tab",
   "Pateat found no way to log out on this page, so it did not switch to {{name}}. Log out yourself, then choose the account":
     "Pateat found no way to log out on this page, so it did not switch to {{name}}. Log out yourself, then choose the account",
+  "The only control Pateat found to log out may also log out other devices or close the account, so it did not switch to {{name}}. Log out yourself, then choose the account":
+    "The only control Pateat found to log out may also log out other devices or close the account, so it did not switch to {{name}}. Log out yourself, then choose the account",
+  "Pateat stopped while logging out, so it did not switch to {{name}}. Check whether you are logged out, then choose the account":
+    "Pateat stopped while logging out, so it did not switch to {{name}}. Check whether you are logged out, then choose the account",
   "The site still shows you logged in after 3 tries, so Pateat did not switch to {{name}}. Log out yourself, then choose the account":
     "The site still shows you logged in after 3 tries, so Pateat did not switch to {{name}}. Log out yourself, then choose the account",
   "Pateat could not log out to switch to {{name}}. Log out yourself, then choose the account":

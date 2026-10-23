@@ -130,7 +130,8 @@ export const MANAGE_DASHBOARD_RANGE_MS = {
 /** Below this many values a p90 says little, so the values themselves are given. */
 export const MANAGE_DASHBOARD_P90_MIN = 20;
 const milliseconds = v.pipe(v.number(), v.integer(), v.minValue(0));
-const dashboardRole = v.picklist(["generate", "judge"]);
+/** A request log role; `logout`, an account switch's logout requests (ADR 0063). */
+const dashboardRole = v.picklist(["generate", "judge", "logout"]);
 /**
  * Durations in milliseconds: how many (`n`), the nearest-rank median (null when none) and,
  * from `MANAGE_DASHBOARD_P90_MIN` values, the p90; below that, the values ascending

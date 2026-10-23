@@ -37,7 +37,7 @@ describe("the popup's reason for asking (ADR 0021)", () => {
     );
     // An account picked without making it the default (ADR 0063).
     expect(choiceReason("one-time-pick", 2, en)).toBe(
-      "You chose an account here without making it the default, so Pateat asks each time until the browser closes",
+      "You chose an account here without making it the default, so Pateat asks each time until an account is made the default",
     );
   });
 
@@ -101,9 +101,11 @@ describe("the popup's account switch (ADR 0063)", () => {
     expect(switchRefusal("not-a-candidate", "taro@example.com", en)).toBe(
       "taro@example.com does not match this page.",
     );
-    expect(switchRefusal("paused", "Example", en)).toBe(
-      "Automatic login is paused for this site, so Pateat did not switch accounts.",
+    expect(switchRefusal("site-held", "Example", en)).toBe(
+      "Another tab's login or account switch on this site is running or waits for a code. Finish or close it, then try again.",
     );
+    // A paused site is no refusal: the switch is the person's pick.
+    expect(switchRefusalSchema.options).not.toContain("paused");
     for (const reason of switchRefusalSchema.options)
       expect(switchRefusal(reason, "Example", en)).not.toBe("");
   });
@@ -117,6 +119,12 @@ describe("the popup's account switch (ADR 0063)", () => {
     );
     expect(switchStatus("failed", "no-logout-control", "Example", en)).toBe(
       "Pateat found no way to log out on this page, so it did not switch to Example. Log out yourself, then choose the account",
+    );
+    expect(switchStatus("failed", "unsafe-control", "Example", en)).toBe(
+      "The only control Pateat found to log out may also log out other devices or close the account, so it did not switch to Example. Log out yourself, then choose the account",
+    );
+    expect(switchStatus("failed", "interrupted", "Example", en)).toBe(
+      "Pateat stopped while logging out, so it did not switch to Example. Check whether you are logged out, then choose the account",
     );
     expect(switchStatus("failed", "still-signed-in", "Example", en)).toBe(
       "The site still shows you logged in after 3 tries, so Pateat did not switch to Example. Log out yourself, then choose the account",
@@ -137,11 +145,12 @@ describe("the popup's account switch (ADR 0063)", () => {
     };
     expect(v.parse(switchRequestSchema, request)).toEqual(request);
     expect(v.safeParse(switchRequestSchema, { ...request, documentId: "d" }).success).toBe(false);
-    expect(v.parse(switchResponseSchema, { ok: false, reason: "paused" })).toEqual({
+    expect(v.parse(switchResponseSchema, { ok: false, reason: "site-held" })).toEqual({
       ok: false,
-      reason: "paused",
+      reason: "site-held",
     });
     expect(v.safeParse(switchResponseSchema, { ok: false, reason: "other" }).success).toBe(false);
+    expect(v.safeParse(switchResponseSchema, { ok: false, reason: "paused" }).success).toBe(false);
     const status = {
       ok: true,
       origin: "https://login.example",

@@ -27993,6 +27993,8 @@ describe("account switching from the popup (ADR 0063)", () => {
     const { h, reports } = await signedIn({ logout });
     fake.state.logoutLocal = { ok: true, target: target("bye") };
     fake.state.logoutClick = { ok: true, reacted: "navigated" };
+    const hosts = fake.state.entry.hosts;
+    fake.state.entry.hosts = { ok: true, hosts: ["login.example", "other.example"] };
     leadsToSignIn(h, "bye");
     expect(await switchTo(h)).toEqual({ ok: true });
     await vi.waitFor(() =>
@@ -28000,7 +28002,13 @@ describe("account switching from the popup (ADR 0063)", () => {
         { account: { itemId: otherItemId }, document: { documentId: "signin-again" } },
       ]),
     );
+    fake.state.entry.hosts = hosts;
     expect(logout.generate).not.toHaveBeenCalled();
+    // The page is told which of its hosts are on the site: a logout link elsewhere is not
+    // this site's.
+    expect(
+      fake.state.messages.filter((entry) => entry.type === "login.logout.local"),
+    ).toMatchObject([{ onSite: ["login.example"] }]);
     // The click watches the page for 5 seconds for a reaction.
     expect(
       fake.state.messages.filter((entry) => entry.type === "login.logout.click"),
@@ -28032,6 +28040,112 @@ describe("account switching from the popup (ADR 0063)", () => {
       ]),
     );
   });
+
+  it("holds the site in other tabs sharing its cookies until the switch ends", async () => {
+    const logout = {
+      recipes: vi.fn(async () => []),
+      generate: vi.fn<LogoutService["generate"]>(async () => ({
+        outcome: "abstained",
+        reason: "no-logout-control",
+      })),
+    };
+    const { h } = await signedIn({ logout });
+    fake.state.tabUrls[1] = homeUrl;
+    fake.state.extracted = { logout: homePage };
+    fake.state.logoutLocal = { ok: true, target: target("bye") };
+    let answer!: (value: unknown) => void;
+    fake.state.logoutClick = new Promise((resolve) => {
+      answer = resolve;
+    });
+    expect(await switchTo(h)).toEqual({ ok: true });
+    await vi.waitFor(() => expect(clicks()).toEqual([target("bye")]));
+    // Another tab's login page logs in with nothing meanwhile: it would sign the site back
+    // in with the account being left.
+    fake.state.pageUrl = signinUrl;
+    fake.state.tabUrls[2] = signinUrl;
+    const fills = h.fields.mock.calls.length;
+    expect(await h.hello({ tab: { id: 2 }, documentId: "tab-2" })).toEqual({
+      ok: false,
+      reason: "origin-busy",
+    });
+    expect(h.fields.mock.calls).toHaveLength(fills);
+    // A second switch on the site is refused, also from that tab.
+    expect(await switchTo(h, { tabId: 2 })).toEqual({ ok: false, reason: "site-held" });
+    // An incognito window keeps its own cookies.
+    fake.state.tabUrls[3] = signinUrl;
+    expect(await h.hello({ tab: { id: 3, incognito: true }, documentId: "tab-3" })).toEqual({
+      ok: true,
+    });
+    // The switch fails: the hold ends with it.
+    answer({ ok: false, reason: "missing" });
+    await vi.waitFor(() => expect(fake.state.session["pateat.login-switch-picks.v1"]).toEqual([]));
+    expect(await status(h)).toMatchObject({ switch: { state: "failed" } });
+    expect(await h.hello({ tab: { id: 2 }, documentId: "tab-2-again" })).toEqual({ ok: true });
+  }, 15_000);
+
+  it("goes on in the tab that replaced its tab while it logs out", async () => {
+    const logout = {
+      recipes: vi.fn(async () => []),
+      generate: vi.fn<LogoutService["generate"]>(async () => ({
+        outcome: "abstained",
+        reason: "no-logout-control",
+      })),
+    };
+    const { h, reports } = await signedIn({ logout });
+    fake.state.tabUrls[1] = homeUrl;
+    fake.state.extracted = { logout: homePage };
+    fake.state.logoutLocal = { ok: true, target: target("bye") };
+    let answer!: (value: unknown) => void;
+    fake.state.logoutClick = new Promise((resolve) => {
+      answer = resolve;
+    });
+    expect(await switchTo(h)).toEqual({ ok: true });
+    await vi.waitFor(() => expect(clicks()).toEqual([target("bye")]));
+    fake.state.tabUrls[2] = homeUrl;
+    for (const listener of fake.state.replaced) listener(2, 1);
+    expect(await h.hello({ tab: { id: 2 }, documentId: "home-2" }, false)).toMatchObject({
+      ok: false,
+    });
+    // The new tab's switch is the one running; the gone tab has none.
+    expect(await switchTo(h, { tabId: 2 })).toEqual({ ok: false, reason: "in-progress" });
+    answer({ ok: false, reason: "missing" });
+    await vi.waitFor(() =>
+      expect(reports().at(-1)).toMatchObject({ stage: "end", outcome: "failed", tabId: 2 }),
+    );
+    const switchOf = async (tabId: number) =>
+      v.parse(
+        statusResponseSchema,
+        await h.login.handle({ version: 1, type: "login.status.get", tabId }, popup),
+      );
+    expect(await switchOf(2)).toMatchObject({ switch: { state: "failed" } });
+    expect(await switchOf(1)).not.toHaveProperty("switch");
+    await vi.waitFor(() => expect(fake.state.session["pateat.login-switch-picks.v1"]).toEqual([]));
+  }, 15_000);
+
+  it("ends a switch whose worker stopped while it logged out, and says so", async () => {
+    const logout = { recipes: vi.fn(async () => []), generate: vi.fn<LogoutService["generate"]>() };
+    const { h } = await signedIn({ logout });
+    fake.state.logoutLocal = { ok: true, target: target("bye") };
+    fake.state.logoutClick = new Promise(() => {});
+    expect(await switchTo(h)).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(fake.state.session["pateat.login-switch-picks.v1"]).toMatchObject([{ tabId: 1 }]),
+    );
+    // The worker restarts in the same browser session.
+    const restarted = harness({}, { uris: async () => ({ ok: true, data: both }), logout });
+    expect(await status(restarted)).toMatchObject({
+      switch: { state: "failed", reason: "interrupted", connectionId, itemId: otherItemId },
+    });
+    await vi.waitFor(() => expect(fake.state.session["pateat.login-switch-picks.v1"]).toEqual([]));
+    // The site's next login page logs in as without the switch: with the saved default.
+    fake.state.pageUrl = signinUrl;
+    expect(await restarted.hello({ documentId: "signin-later" })).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(restarted.fields.mock.calls.at(-1)?.[0]).toMatchObject({
+        account: { connectionId, itemId },
+      }),
+    );
+  }, 15_000);
 
   it("opens the menu the model names, then clicks the logout it names there", async () => {
     const menu = logoutRecipe([{ target: target("account-menu"), purpose: "menu" }]);
@@ -28149,18 +28263,6 @@ describe("account switching from the popup (ADR 0063)", () => {
       { itemId: "unlisted-item" },
       "not-a-candidate",
     ],
-    [
-      "a site paused after its login",
-      () => ({
-        pauses: {
-          until: async () => (pausedNow ? Date.now() + 60 * 60_000 : undefined),
-          pause: async () => Date.now() + 60 * 60_000,
-          resume: async () => false,
-        },
-      }),
-      {},
-      "paused",
-    ],
     ["a worker without the service's logout", () => ({ logout: undefined }), {}, "unavailable"],
   ])("refuses %s", async (_name, live, overrides, reason) => {
     const logout = { recipes: vi.fn(async () => []), generate: vi.fn<LogoutService["generate"]>() };
@@ -28189,10 +28291,52 @@ describe("account switching from the popup (ADR 0063)", () => {
       ),
     ).toBeUndefined();
     expect(await switchTo(h, { tabId: 4 })).toEqual({ ok: false, reason: "no-page" });
-    h.settings.settings.excludedSites = [{ hostname: "login.example", includeSubdomains: false }];
-    // An exclusion rule pauses the site until turned back on (ADR 0062).
-    expect(await switchTo(h)).toEqual({ ok: false, reason: "paused" });
   });
+
+  it.each([
+    ["paused", (_h: ReturnType<typeof harness>) => (pausedNow = true)],
+    [
+      "excluded",
+      (h: ReturnType<typeof harness>) =>
+        (h.settings.settings.excludedSites = [
+          { hostname: "login.example", includeSubdomains: false },
+        ]),
+    ],
+  ])(
+    "switches on a site %s since its login: the switch is the person's pick",
+    async (_name, stop) => {
+      const logout = {
+        recipes: vi.fn(async () => [
+          logoutRecipe([{ target: target("sign-out"), purpose: "logout" }]),
+        ]),
+        generate: vi.fn<LogoutService["generate"]>(),
+      };
+      pausedNow = false;
+      const { h } = await signedIn({
+        logout,
+        pauses: {
+          until: async () => (pausedNow ? Date.now() + 60 * 60_000 : undefined),
+          pause: async () => Date.now() + 60 * 60_000,
+          resume: async () => false,
+        },
+      });
+      stop(h);
+      leadsToSignIn(h);
+      expect(await switchTo(h)).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(attempts()).toMatchObject([
+          {
+            account: { itemId: otherItemId },
+            document: { documentId: "signin-again" },
+            state: "authenticated",
+          },
+        ]),
+      );
+      expect(clicks()).toEqual([target("sign-out")]);
+      pausedNow = false;
+    },
+    15_000,
+  );
 
   it("asks on every page of the site after a pick without the default, apart for incognito windows", async () => {
     const report = vi.fn<(entry: LoginReport) => void>();
@@ -28378,6 +28522,8 @@ describe("account switching from the popup (ADR 0063)", () => {
             itemId: otherItemId,
             makeDefault: false,
             until: Date.now() + 60_000,
+            // Kept past a worker restart once the switch signed out.
+            signedOut: true,
           },
         ];
       fake.state.pageUrl = `${origin}/`;
