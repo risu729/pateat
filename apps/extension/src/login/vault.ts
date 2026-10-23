@@ -10,18 +10,24 @@ export type LoginFieldRequest = {
   /** Catalog entry from the same settings read that authorized this operation. */
   connection: VaultConnectionMetadata;
   fieldId: string;
+  /**
+   * Resolve the field as a TOTP code (the `totp` slot): the provider generates it from the
+   * login TOTP or a custom field's seed, and a source answers only with a generated code.
+   */
+  code?: true;
 };
 /** Resolve one bound field for an immediate fill. Values are never cached or persisted. */
 export type LoginFieldSource = (request: LoginFieldRequest) => Promise<string | undefined>;
 
 /**
  * Live connections resolve through the connection runtime, which rechecks the saved
- * snapshot, eligibility, quarantine and field exclusions. Only text-like values fill inputs.
+ * snapshot, eligibility, quarantine and field exclusions. Only text-like values fill inputs,
+ * and a `code` request fills only a generated code, never a field's raw value.
  */
 export function createVaultFieldSource(
   connections: Pick<ConnectionRuntime, "registry" | "vaultFor" | "resolveField">,
 ): LoginFieldSource {
-  return async ({ account, connection, fieldId }) => {
+  return async ({ account, connection, fieldId, code }) => {
     if (
       connection.provider !== "bitwarden" ||
       connection.id !== account.connectionId ||
@@ -33,14 +39,18 @@ export function createVaultFieldSource(
     const handle = connections.vaultFor(configuration.profile).manager.status().handle;
     // The authorizing catalog must describe the snapshot that is currently open.
     if (!handle || handle.snapshotId !== connection.snapshotId) return undefined;
-    const resolved = await connections.resolveField(account.connectionId, {
+    const ref = {
       connectionId: account.connectionId,
       userId: handle.userId,
       itemId: account.itemId,
       snapshotId: connection.snapshotId,
       fieldId,
-    });
+    };
+    const resolved = await (code
+      ? connections.resolveField(account.connectionId, ref, { code })
+      : connections.resolveField(account.connectionId, ref));
     if (!resolved.ok) return undefined;
+    if (code) return resolved.data.kind === "otp" ? resolved.data.value : undefined;
     return resolved.data.kind === "text" || resolved.data.kind === "otp"
       ? resolved.data.value
       : undefined;
@@ -112,8 +122,8 @@ export function loginFillsUsername(
 }
 
 /** Bundled synthetic values; the probe build is the only caller. */
-export const dummyFieldSource: LoginFieldSource = async ({ connection, fieldId }) =>
-  connection.provider === "dummy" ? resolveDummyField(fieldId) : undefined;
+export const dummyFieldSource: LoginFieldSource = async ({ connection, fieldId, code }) =>
+  connection.provider === "dummy" ? resolveDummyField(fieldId, code ? { code } : {}) : undefined;
 
 /** Dispatch by catalog provider. A provider without a source never receives a fallback. */
 export function combineFieldSources(

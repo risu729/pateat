@@ -176,6 +176,18 @@ Pateat's rule is `besideForm` in `packages/inference/src/plan.ts`
   ([ADR 0052](adr/0052-immediate-ui-stored-passkeys.md); owner's decision, 2026-10-19
   at 22:42 UTC).
 
+## Decrypted items in memory
+
+- While a vault is unlocked, the official clients keep every decrypted item in memory
+  state (decrypted again after each change), removed on lock or logout
+  ([ciphers.state.ts](https://github.com/bitwarden/clients/blob/8246ae9c9a484a0a69f8b27203034555fb872523/libs/common/src/vault/services/key-state/ciphers.state.ts#L22-L29),
+  [cipher.service.ts](https://github.com/bitwarden/clients/blob/8246ae9c9a484a0a69f8b27203034555fb872523/libs/common/src/vault/services/cipher.service.ts#L239-L258)).
+  Pateat's crypto Worker keeps no decrypted item between requests: each field listing
+  or resolution decrypts its one item with the SDK and disposes it before replying
+  ([vault adapter](architecture.md#vault-adapter); owner's decision 2026-10-23, which
+  chose this over a copy narrowed to the allowed fields). It costs one SDK decryption
+  per request; a login reads only a few fields.
+
 ## Self-hosted server address
 
 - The official clients accept any `http://` or `https://` server URL and add `https://`
@@ -191,6 +203,23 @@ Pateat's rule is `besideForm` in `packages/inference/src/plan.ts`
   `localhost.` or `vault.localhost` are refused, and so is `[::1]`, which Chrome's
   extension CSP cannot name (`http://localhost` reaches a server listening on `::1`;
   leaving it out is the agent's narrowing, not confirmed by the owner).
+
+## Connections and key derivation
+
+- The official browser extension lets at most 5 accounts be logged in at once
+  (`ACCOUNT_LIMIT = 5`,
+  [account-switcher.service.ts](https://github.com/bitwarden/clients/blob/dd4d85816be0bed40c92d0890d6e7f1a497a85e8/apps/browser/src/auth/popup/account-switching/services/account-switcher.service.ts#L47-L74))
+  and then offers no "Add account". Pateat does not cap connections; with more than 5,
+  the options page warns that the official extension allows 5 accounts and that each
+  unlocked vault uses more memory (`BITWARDEN_ACCOUNT_LIMIT` in
+  `apps/extension/src/options/bitwarden-setup.tsx`, owner's choice 2026-10-23 at 12:31
+  UTC). Each connection with an open vault keeps its own Worker with the SDK.
+- The official clients run a key derivation without a time limit. Pateat runs it in a
+  Worker it stops after 30 seconds, or 60 seconds for Argon2id (`ARGON2ID_JOB_BUDGET_MS`
+  in `apps/extension/src/crypto/wire.ts`, owner's choice 2026-10-23), so a stuck Worker
+  is reclaimed. It accepts the whole Argon2id range the official clients allow, memory
+  16–1024 MiB
+  ([kdf-config.ts](https://github.com/bitwarden/clients/blob/dd4d85816be0bed40c92d0890d6e7f1a497a85e8/libs/legacy-crypto/src/models/kdf-config.ts#L71-L73)).
 
 ## Email two-step codes
 
@@ -229,3 +258,22 @@ pinned at
   Pateat keeps the sign-in form, where the master password goes, and says next to it
   when the sign-in timed out, or that it ended early because Pateat's background
   stopped, since its waiting sign-in lives in a service worker Chrome can stop.
+
+## TOTP keys in custom fields
+
+Pateat's side is `isTotpSeed` in `packages/bitwarden/src/totp.ts` and
+`totpFieldReference` in `packages/contracts/src/recipes.ts`
+([ADR 0027](adr/0027-per-account-login-routes.md#amendment-2026-10-23-a-totp-code-from-a-custom-field),
+owner 2026-10-23). Official code is pinned at
+[`8246ae9`](https://github.com/bitwarden/clients/tree/8246ae9c9a484a0a69f8b27203034555fb872523).
+
+- The official extension fills a custom field by its name with the field's value as it
+  is, whatever that value holds
+  ([autofill.service.ts](https://github.com/bitwarden/clients/blob/8246ae9c9a484a0a69f8b27203034555fb872523/apps/browser/src/autofill/services/autofill.service.ts#L844-L893)),
+  and makes TOTP codes only from the login's TOTP key
+  ([autofill.service.ts](https://github.com/bitwarden/clients/blob/8246ae9c9a484a0a69f8b27203034555fb872523/apps/browser/src/autofill/services/autofill.service.ts#L1153)).
+  Pateat never fills a Text or Hidden custom field shaped like a TOTP key as text and
+  never offers it to recipe generation: it makes codes from it for the `totp` slot, and
+  takes it as the item's TOTP field when the login's own TOTP holds no value. A key
+  typed into a page as it is would give the second factor away, and a person who keeps a
+  key in a custom field, as Bitwarden lets them, means it for codes.

@@ -128,27 +128,31 @@ const RESULT_TEXT = { failed: "!", succeeded: "✓", unsettled: "!" } as const;
 function resultTitle(result: BadgeResult, t: TFunction): string {
   if (result.kind === "succeeded") return t("Pateat: logged in.");
   if (result.kind === "unsettled")
-    return t("Pateat: the login's result is not known ({{reason}}). Open Pateat for details.", {
+    return t("Pateat: the result of the login is not known ({{reason}}). Click for details.", {
       reason: result.reason,
     });
-  return t("Pateat: the login did not succeed ({{reason}}). Open Pateat for details.", {
+  return t("Pateat: the login did not succeed ({{reason}}). Click for details.", {
     reason: result.reason,
   });
 }
 
-/** The tooltip of a tab whose login waits for an account choice (ADR 0021). */
+/**
+ * The tooltip of a tab whose login waits for an account choice (ADR 0021): the popup's
+ * reason line (`choiceReason`), then what a click does. The badge never knows whether
+ * another tab's login was rejected, so `other-tab` keeps the sentence that covers both.
+ */
 function choiceTitle({ count, logout }: Choice, t: TFunction): string {
   return logout
     ? t(
         {
           "this-tab":
-            "Pateat: you logged out of this site in this tab. Click to choose an account.",
+            "Pateat: you were logged out of this site in this tab. Click to choose an account.",
           rejected:
             "Pateat: the site did not accept the last login in this tab. Click to choose an account.",
           "stopped-login":
             "Pateat: the last login on this site stopped in this tab. Click to choose an account.",
           "other-tab":
-            "Pateat: you logged out of this site in another tab. Click to choose an account.",
+            "Pateat: you were logged out of this site in another tab, or the site did not accept a login there. Click to choose an account.",
         }[logout],
       )
     : t("Pateat: {{count}} accounts match this page. Click to choose one.", { count });

@@ -77,7 +77,7 @@ type VaultBrowser = {
  * service and pairs the device, so the site's recipe and binding come only from the
  * service and no site default is saved.
  */
-async function prepare(browser: VaultBrowser, service: SyncService) {
+async function prepare(browser: VaultBrowser, service: SyncService, others: { id: string }[] = []) {
   const options = await browser.context.newPage();
   await options.goto(`chrome-extension://${browser.extensionId}/options.html`);
   const accepted = await setupRequest(options, {
@@ -112,6 +112,14 @@ async function prepare(browser: VaultBrowser, service: SyncService) {
     body: { version: 1, expectedRevision: 0, state: "active", recipe },
   });
   expect(published.status).toBe(200);
+  for (const other of others) {
+    // oxlint-disable-next-line no-await-in-loop -- one recipe at a time, as a device stores them
+    const stored = await service.request(`/v1/recipes/${other.id}`, {
+      method: "PUT",
+      body: { version: 1, expectedRevision: 0, state: "active", recipe: other },
+    });
+    expect(stored.status).toBe(200);
+  }
   const account = { provider: "bitwarden", userId: connection.userId, itemId: item.id };
   const binding = {
     recipeId,
@@ -162,9 +170,11 @@ async function prepare(browser: VaultBrowser, service: SyncService) {
     expectedRevision: local.snapshot.revision,
     settings: local.snapshot.settings,
   });
-  await expect
-    .poll(async () => JSON.stringify(await storedRecipes(browser.background)))
-    .toContain(recipeId);
+  for (const id of [recipeId, ...others.map((other) => other.id)])
+    // oxlint-disable-next-line no-await-in-loop -- each recipe arrives with the same sync
+    await expect
+      .poll(async () => JSON.stringify(await storedRecipes(browser.background)))
+      .toContain(id);
   // The sync names the binding's account after this device's connection.
   const named = { ...binding, accountName: connection.label };
   await expect
@@ -363,6 +373,114 @@ test("a password page shown alone, as for an account the site remembers, logs in
               { state: "authenticated", outcome: "authenticated", startStep: 4, submissions: 1 },
             ],
           });
+      },
+      { args: ["--ignore-certificate-errors"] },
+    );
+  } finally {
+    await service.close();
+    await fixture.close();
+  }
+});
+
+test("a page whose recipe was generated as a verification only watches, and logs what it showed and how the person left it (ADR 0035)", async () => {
+  const fixture = await startLoginFixture(0, { password: "test_password" });
+  const service = await startSyncService();
+  try {
+    await withVaultProfile(
+      async (open) => {
+        const browser = await open();
+        await serveSite(browser.context, fixture);
+        await setupProbe(browser.page, { action: "configure", variant: "uri" });
+        const confirm = {
+          version: 1,
+          id: "synthetic-confirm",
+          revision: 1,
+          origin: site,
+          pageKind: "confirm",
+          slots: ["password"],
+          steps: [
+            {
+              kind: "fill",
+              path: "/confirm-transfer",
+              fields: [{ slot: "password", target: target("confirm-password") }],
+            },
+            {
+              kind: "click",
+              path: "/confirm-transfer",
+              target: target("confirm"),
+              purpose: "submit",
+            },
+          ],
+          completion: [{ target: target("authenticated") }],
+          maxSubmissions: 1,
+        };
+        const { options } = await prepare(browser, service, [confirm]);
+
+        const page = await browser.context.newPage();
+        // The site still knows the account, so its result page shows the recipes' marker.
+        await page.addInitScript(() => {
+          sessionStorage.setItem("identityMatched", "true");
+          sessionStorage.setItem("passwordMatched", "true");
+        });
+        await page.goto(`${site}/account`);
+        await page.goto(`${site}/confirm-transfer`);
+        await expect(page.locator("#confirm-password")).toBeVisible();
+        // Nothing is filled or pressed there; the person confirms the transfer themselves.
+        await page.waitForTimeout(2_000);
+        await expect(page.locator("#confirm-password")).toHaveValue("");
+        await page.locator("#confirm").click();
+        await expect(page.locator("#authenticated")).toBeVisible();
+        expect(await send(options, { version: 1, type: "login.probe.status" })).toMatchObject({
+          attempts: [],
+        });
+
+        const diagnostics = await browser.context.newPage();
+        const entries = async () => {
+          await diagnostics.goto(`chrome-extension://${browser.extensionId}/diagnostics.html`);
+          await diagnostics.getByRole("button", { name: "Download logs" }).click();
+          const text = (await diagnostics.locator("#logs-preview").textContent()) ?? "";
+          return text
+            .trim()
+            .split("\n")
+            .slice(1)
+            .map((line) => JSON.parse(line) as Record<string, unknown>);
+        };
+        await expect
+          .poll(async () =>
+            (await entries()).filter((entry) => entry["event"] === "login.confirm-left"),
+          )
+          .toEqual([
+            expect.objectContaining({
+              recipe: "synthetic-confirm",
+              recipeRevision: 1,
+              pageKind: "confirm",
+              personSubmitted: true,
+              nextE1: true,
+              url: "/confirm-transfer",
+            }),
+          ]);
+        const logged = await entries();
+        expect(
+          logged.filter(
+            (entry) =>
+              entry["event"] === "login.refused" && entry["detail"] === "confirm-unsupported",
+          ),
+        ).toEqual([
+          expect.objectContaining({
+            reason: "not-started",
+            recipe: "synthetic-confirm",
+            recipeRevision: 1,
+            pageKind: "confirm",
+            amount: true,
+            e1: false,
+            previousUrl: "/account",
+            url: "/confirm-transfer",
+          }),
+        ]);
+        // No value or page text is logged.
+        const text = JSON.stringify(logged);
+        for (const absent of ["1,200", "Confirm", "test_password"])
+          expect(text).not.toContain(absent);
       },
       { args: ["--ignore-certificate-errors"] },
     );
