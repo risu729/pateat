@@ -461,12 +461,14 @@ export const generationAttempts = sqliteTable(
 /**
  * What the judge answered for a page; `unclear` when the model abstained (ADR 0029), and
  * `partial` when it abstained on a description that left out a disabled field, so the
- * path is judged again once it is described in full.
+ * path is judged again once it is described in full; `optional` for a page after the
+ * sign-in that the person may put off (ADR 0065).
  */
 export const pageJudgementVerdicts = [
   "signed-in",
   "challenge",
   "rejected",
+  "optional",
   "unclear",
   "partial",
 ] as const;

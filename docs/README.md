@@ -111,6 +111,7 @@ owner the reason when the amendment changes a recorded owner instruction.
 - [0058: Recipes that are not used or cannot run are removed automatically](adr/0058-automatic-recipe-removal.md)
 - [0059: The latest Vaultwarden release is a supported server](adr/0059-latest-vaultwarden-server.md)
 - [0064: A form that shows no button is submitted by Enter in its last field](adr/0064-enter-in-a-form-without-a-button.md)
+- [0065: Optional pages after a sign-in end the login as signed in](adr/0065-optional-pages-after-a-sign-in.md)
 - [0066: Warning, error and did-nothing log lines are sent to the service](adr/0066-problem-lines-sent-to-the-service.md)
 - [0071: Elements may be named by their `data-test` attribute](adr/0071-data-test-locators.md)
 - [0072: A field may be named by its `name` within the sign-in form](adr/0072-field-name-in-the-sign-in-form.md)
