@@ -202,10 +202,10 @@ const redactions: readonly (readonly [RegExp, string])[] = [
   // `price=100@shop` stay. A domain's labels may be internationalized (`taro@例え.jp`).
   // An ASCII last label ends the address, so text right after it stays:
   // `taro@example.comでログイン` becomes `[email]でログイン`. A last label that is not ASCII
-  // (`taro@例え.日本`) cannot be told apart from text glued to it, so the address and
-  // that text go together.
+  // (`taro@例え.日本`, `taro@mail.例え.日本`) cannot be told apart from text glued to it,
+  // so the address and that text go together.
   [
-    /[A-Za-z0-9.!#$%'*+^_`{|}~\-●•＊Ａ-Ｚａ-ｚ０-９．＿％＋－]+[@＠](?:(?:[\p{L}\p{M}\p{N}\-*●•＊－]+[.．])*[A-Za-z0-9\-*●•＊Ａ-Ｚａ-ｚ０-９－]+|(?:[\p{L}\p{M}\p{N}\-*●•＊－]+[.．])+[\p{L}\p{M}\p{N}\-－]+)/gu,
+    /[A-Za-z0-9.!#$%'*+^_`{|}~\-●•＊Ａ-Ｚａ-ｚ０-９．＿％＋－]+[@＠](?:(?:[\p{L}\p{M}\p{N}\-*●•＊－]+[.．])*[A-Za-z0-9\-*●•＊Ａ-Ｚａ-ｚ０-９－]+(?![A-Za-z0-9\-*●•＊Ａ-Ｚａ-ｚ０-９－]|[.．][\p{L}\p{M}\p{N}\-*●•＊－])|(?:[\p{L}\p{M}\p{N}\-*●•＊－]+[.．])+[\p{L}\p{M}\p{N}\-－]+)/gu,
     "[email]",
   ],
   [/[*●•＊]{3,}/gu, "[masked]"],

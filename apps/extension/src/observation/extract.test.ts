@@ -1121,6 +1121,7 @@ describe("extractLoginObservation", () => {
     page(
       `<h1>o'brien@example.com</h1><h2>taro#1@example.com さん</h2><h3>taro@例え.jp でログイン</h3>
       <h3>連絡先 taro@例え.日本 まで</h3><h3>ID: taro@例え.日本でログイン中</h3>
+      <h3>宛先 taro@mail.例え.日本</h3>
       <form id="f"><input id="u"><input id="pw" type="password"><button id="go">Go</button></form>`,
     );
     // A last label that is not ASCII takes the text glued to it along.
@@ -1130,6 +1131,7 @@ describe("extractLoginObservation", () => {
       "[email] でログイン",
       "連絡先 [email] まで",
       "ID: [email]",
+      "宛先 [email]",
     ]);
   });
 
