@@ -3187,9 +3187,14 @@ steady-state API calls carry no cookie.
   page, counts as rate limiting or an unexpected failure instead. On "sign in first" the
   settings page opens `<service>/pair/signed-in` in a new tab once per click, where
   Access signs the browser in and the page asks the user to return; it retries once when
-  it is shown or focused again, and offers **Try again** and **Open sign-in page**. A
-  refused sign-in, an unlisted extension ID, a service without pairing settings and a
-  service that could not fetch Access's signing keys each have their own message.
+  it is shown or focused again, and offers **Try again** and **Open sign-in page**.
+  Editing the address or device name, also while a request runs or the tab opens, drops
+  that retry and both buttons, and a request answered after an edit opens no tab (owner,
+  2026-10-23 12:59 UTC). A refused sign-in, an unlisted extension
+  ID, a service without pairing settings and a service that could not fetch Access's
+  signing keys each have their own message. Before sending, the form checks both fields
+  at once: each invalid one is marked (`aria-invalid`) with its own error under the
+  fields, and the first invalid one takes focus.
 - Lifetime and recovery. A credential expires once it has gone unused for 90 days, and
   each authenticated use renews it; there is no absolute lifetime and no rotation (owner
   decision, 2026-10-11). The service records a device's last use at most once a day
