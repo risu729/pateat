@@ -41,6 +41,8 @@ const plan = (
   JSON.stringify({
     result: {
       decision: "plan",
+      pageKind: "sign-in",
+      irreversible: "no",
       fields: fields.map(([slot, candidate]) => ({ slot, candidate })),
       action: { candidate: action, purpose },
       ...(accountSwitch === undefined ? {} : { accountSwitch }),
@@ -66,6 +68,13 @@ describe("recipe generation role", () => {
     expect(report.falseSubmits).toBe(0);
     expect(report.calls).toBe(evaluationCorpus.length);
     expect(report.usage.inputTokens).toBe(120 * evaluationCorpus.length);
+    // Every corpus page is a sign-in page (ADR 0035).
+    expect(report.pageKinds).toEqual({
+      "sign-in": evaluationCorpus.filter((entry) => entry.expected.kind === "plan").length,
+      confirm: 0,
+      unclear: 0,
+    });
+    expect(report.cases.find((entry) => entry.plan)?.plan).toMatchObject({ pageKind: "sign-in" });
   });
 
   it("returns locally validated recipe steps and records usage", async () => {
@@ -97,6 +106,45 @@ describe("recipe generation role", () => {
     ]);
   });
 
+  it("answers the page's kind and whether its submission cannot be undone (ADR 0035)", async () => {
+    const answer = (pageKind: string, irreversible: string) =>
+      JSON.stringify({
+        result: {
+          ...JSON.parse(plan([["password", "password"]])).result,
+          pageKind,
+          irreversible,
+        },
+      });
+    const { model, generate } = generatorReturning(answer("confirm", "yes"));
+    const outcome = await generate({ ...request, signedIn: true });
+    if (outcome.status !== "ok" || "accountList" in outcome.value)
+      throw new Error("expected a plan");
+    expect(outcome.value).toMatchObject({ pageKind: "confirm", irreversible: "yes" });
+    // The request log keeps both with the model's own answer.
+    expect(outcome.answer).toMatchObject({ pageKind: "confirm", irreversible: "yes" });
+    // The device's hint reaches the model beside the page.
+    expect(generationRequest(model.doGenerateCalls[0]!)).toMatchObject({ signedIn: true });
+    for (const [pageKind, irreversible] of [
+      ["personal-details", "no"],
+      ["sign-in", "maybe"],
+    ]) {
+      const { generate: refused } = generatorReturning(answer(pageKind!, irreversible!));
+      // oxlint-disable-next-line no-await-in-loop -- Each answer is checked on its own.
+      expect(await refused(request)).toMatchObject({ status: "failed", error: "invalid-output" });
+    }
+    const { generate: kindless } = generatorReturning(
+      JSON.stringify({
+        result: { decision: "plan", irreversible: "no", fields: [], action: {} },
+      }),
+    );
+    expect(await kindless(request)).toMatchObject({ status: "failed", error: "invalid-output" });
+    expect(planDescription("pageKind")).toMatch(
+      /^sign-in: a login .* confirm: a user already signed in/u,
+    );
+    expect(planDescription("irreversible")).toMatch(/cannot be undone/u);
+    expect(generationInstructions).toContain("a sign-in form shown again after a session");
+  });
+
   it("returns the account switch a plan names as its locator", async () => {
     // The corpus page has no switch; a link stands in for one.
     const { generate } = generatorReturning(
@@ -119,6 +167,7 @@ describe("recipe generation role", () => {
     const { model, generate } = generatorReturning(plan([["email", "email"]]));
     await generate(request);
     const call = model.doGenerateCalls[0]!;
+    // A request without the signedIn hint, as a continuation, sends none (ADR 0035).
     expect(generationRequest(call)).toEqual({
       task: "generate",
       slots: page.slots,
@@ -245,6 +294,8 @@ describe("recipe generation role", () => {
           JSON.stringify({
             result: {
               decision: "plan",
+              pageKind: "sign-in",
+              irreversible: "no",
               fields: [
                 { slot: "custom-1", candidate: "branch" },
                 { slot: "custom-2", candidate: "account" },
@@ -326,6 +377,8 @@ describe("recipe generation role", () => {
       JSON.stringify({
         result: {
           decision: "plan",
+          pageKind: "sign-in",
+          irreversible: "no",
           fields: [
             { slot: "email", candidate: "email" },
             { slot: "password", candidate: "password" },
@@ -349,6 +402,8 @@ describe("recipe generation role", () => {
       JSON.stringify({
         result: {
           decision: "plan",
+          pageKind: "sign-in",
+          irreversible: "no",
           fields: [
             { slot: "username", candidate: "c1" },
             { slot: "password", candidate: "c2" },
@@ -591,6 +646,8 @@ describe("the answer kept for the request log (ADR 0012)", () => {
     const myjcb = japanesePageCorpus.find((entry) => entry.id === "ja-myjcb")!;
     const answer = {
       decision: "plan",
+      pageKind: "sign-in",
+      irreversible: "no",
       fields: [
         { slot: "username", candidate: "c1" },
         { slot: "password", candidate: "c2" },
@@ -613,6 +670,8 @@ describe("the answer kept for the request log (ADR 0012)", () => {
     const twoSets = evaluationCorpus.find((entry) => entry.id === "ja-bank-two-identifier-sets")!;
     const sets = {
       decision: "plan",
+      pageKind: "sign-in",
+      irreversible: "no",
       fields: [
         { slot: "custom-1", candidate: "branch" },
         { slot: "custom-2", candidate: "account" },
@@ -641,6 +700,8 @@ describe("the answer kept for the request log (ADR 0012)", () => {
     const myjcb = japanesePageCorpus.find((entry) => entry.id === "ja-myjcb")!;
     const passkey = {
       decision: "plan",
+      pageKind: "sign-in",
+      irreversible: "no",
       fields: [
         { slot: "username", candidate: "c1" },
         { slot: "password", candidate: "c2" },
@@ -664,6 +725,8 @@ describe("the answer kept for the request log (ADR 0012)", () => {
       JSON.stringify({
         result: {
           decision: "plan",
+          pageKind: "sign-in",
+          irreversible: "no",
           fields: [
             { slot: "email", candidate: "email" },
             { slot: "Customer password", candidate: "password" },
@@ -683,6 +746,8 @@ describe("the answer kept for the request log (ADR 0012)", () => {
     expect(outcome).toMatchObject({ status: "failed", error: "invalid-output" });
     expect(outcome.answer).toEqual({
       decision: "plan",
+      pageKind: "sign-in",
+      irreversible: "no",
       fields: [
         { slot: "email", candidate: "email" },
         { slot: "?", candidate: "password" },

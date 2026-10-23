@@ -402,6 +402,7 @@ export default defineBackground(() => {
         signedTabs,
         // ADR 0021 D: so does one after a control that logs out was clicked in the tab.
         logoutClicked: login.logoutClicked,
+        reverification: login.passkeyReverification,
         conditional: login.conditionalRequest,
         hold: () => vaultSync.enter(false),
       })
@@ -420,6 +421,8 @@ export default defineBackground(() => {
         signedTabs,
         // ADR 0021 D: so does one after a control that logs out was clicked in the tab.
         logoutClicked: login.logoutClicked,
+        // ADR 0035: a re-verification after Pateat's login in the tab is handed on.
+        reverification: login.passkeyReverification,
         // ADR 0034: the page's own conditional request waits for the login of its page.
         conditional: login.conditionalRequest,
         // The open vault is not replaced while a passkey request is looked up or signed.

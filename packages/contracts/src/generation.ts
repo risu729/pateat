@@ -157,7 +157,22 @@ export const recipeGenerationRequestSchema = v.pipe(
     passkeyOnly: v.optional(v.literal(true)),
     base: v.optional(v.strictObject({ recipeId: syncRecipeIdSchema, revision: writtenRevision })),
     branch: v.optional(chooserBranchSchema),
+    /**
+     * A hint for the page's kind (ADR 0035): whether a signed-in marker of the origin's
+     * recipes or the username of a matching vault item shows in the page's header or
+     * navigation (ADR 0029's E1 and E2). Only the flag leaves the device, never the page
+     * text or username. Sent with a recipe's first page that is no list of accounts, the
+     * only pages whose kind the model answers for the recipe: a continuation keeps its
+     * first page's kind, and a list of accounts is always `sign-in`.
+     */
+    signedIn: v.optional(v.boolean()),
   }),
+  v.check(
+    (request) =>
+      (request.signedIn !== undefined) ===
+      (request.base === undefined && request.observation.accounts === undefined),
+    "A recipe's first page that lists no accounts, and only it, carries signedIn",
+  ),
   v.check(
     (request) => request.passkeyOnly === true || request.slots.length > 0,
     "A request has at least one slot",
