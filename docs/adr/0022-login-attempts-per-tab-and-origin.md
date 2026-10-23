@@ -67,7 +67,9 @@ anything instead of being refused `origin-busy` (owner's request, 13:49 UTC, aft
 person restarted an expired QR approval on 三菱UFJ銀行 and Pateat did nothing until the
 old tab closed; on 2026-10-13 this became the end of the watch without a logout, so that
 tab logs in as before,
-[ADR 0027](0027-per-account-login-routes.md#watching-after-a-challenge)). Amended again
+[ADR 0027](0027-per-account-login-routes.md#watching-after-a-challenge); since
+2026-10-23 the watched login holds the site for its whole watch instead, and no hold
+crosses between incognito and normal windows). Amended again
 on 2026-10-12 (21:18 UTC, owner's choice 「AI判定」 on a decision card): a `password`
 login whose tab moves to another origin of the same site right after the submission
 completes when the new page shows the account's username,

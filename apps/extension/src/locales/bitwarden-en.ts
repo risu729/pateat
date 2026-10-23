@@ -167,6 +167,8 @@ export const bitwardenEn = {
     "Enter an HTTPS server address, or HTTP on localhost or 127.0.0.1.",
   "Sign in and sync": "Sign in and sync",
   "Connect Bitwarden": "Connect Bitwarden",
+  "More than 5 connections. The official Bitwarden extension allows up to 5 accounts, and each unlocked vault uses more memory.":
+    "More than 5 connections. The official Bitwarden extension allows up to 5 accounts, and each unlocked vault uses more memory.",
   "Add another connection": "Add another connection",
   "{{count}} item": "{{count}} item",
   "{{count}} field": "{{count}} field",

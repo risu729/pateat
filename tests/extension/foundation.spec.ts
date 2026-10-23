@@ -33,6 +33,7 @@ async function withExtension(
   directory: string,
   run: (context: BrowserContext, worker: Worker, extensionId: string) => Promise<void>,
   profileDirectory?: string,
+  { scrollbars = false }: { scrollbars?: boolean } = {},
 ): Promise<void> {
   const profile = profileDirectory ?? (await mkdtemp(resolve(tmpdir(), "pateat-browser-test-")));
   let context: BrowserContext | undefined;
@@ -41,6 +42,8 @@ async function withExtension(
       channel: "chromium",
       headless: true,
       args: [`--disable-extensions-except=${directory}`, `--load-extension=${directory}`],
+      // Playwright hides scrollbars in headless Chrome unless told otherwise.
+      ...(scrollbars && { ignoreDefaultArgs: ["--hide-scrollbars"] }),
     });
     const worker = context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker"));
     const extensionId = new URL(worker.url()).hostname;
@@ -330,6 +333,65 @@ test("options reloaded at a section link still read settings and the service", a
     );
     await expect(page.getByLabel("Service address", { exact: true })).toBeVisible();
     await expect(page.getByText("Pateat did not answer", { exact: false })).toHaveCount(0);
+  });
+});
+
+test("dragging the page scrollbar releases a clicked section link", async () => {
+  await withExtension(
+    probeDirectory,
+    async (context, _worker, id) => {
+      const page = await context.newPage();
+      await page.setViewportSize({ width: 800, height: 600 });
+      await page.goto(`chrome-extension://${id}/options.html`);
+      await expect(page.locator("#settings-status")).toContainText("Saved settings loaded");
+      const nav = page.getByRole("navigation", { name: "Sections" });
+      const sync = nav.getByRole("link", { name: "Sync service", exact: true });
+      await sync.click();
+      await expect(page).toHaveURL(/options\.html#sync$/u);
+      await expect(sync).toHaveAttribute("aria-current", "location");
+      const view = await page.evaluate(() => ({
+        width: innerWidth,
+        height: innerHeight,
+        scrollbar: innerWidth - document.documentElement.clientWidth,
+        // The thumb's middle sits as far down the track as the window's middle is down the page.
+        thumb: ((scrollY + innerHeight / 2) / document.documentElement.scrollHeight) * innerHeight,
+      }));
+      expect(view.scrollbar).toBeGreaterThan(0);
+      // Chrome sends pointerdown for a press on the page's own scrollbar, which ends the
+      // clicked link's hold; a drag to the top then marks the first section.
+      const x = view.width - view.scrollbar / 2;
+      await page.mouse.move(x, view.thumb);
+      await page.mouse.down();
+      await page.mouse.move(x, 0, { steps: 10 });
+      await page.mouse.up();
+      await expect.poll(() => page.evaluate(() => scrollY)).toBe(0);
+      await expect(nav.getByRole("link", { name: "Bitwarden", exact: true })).toHaveAttribute(
+        "aria-current",
+        "location",
+      );
+      await expect(sync).not.toHaveAttribute("aria-current");
+    },
+    undefined,
+    { scrollbars: true },
+  );
+});
+
+test("Back to an earlier section link releases a clicked section link", async () => {
+  await withExtension(probeDirectory, async (context, _worker, id) => {
+    const page = await context.newPage();
+    await page.setViewportSize({ width: 800, height: 600 });
+    await page.goto(`chrome-extension://${id}/options.html`);
+    await expect(page.locator("#settings-status")).toContainText("Saved settings loaded");
+    const nav = page.getByRole("navigation", { name: "Sections" });
+    const bitwarden = nav.getByRole("link", { name: "Bitwarden", exact: true });
+    const sync = nav.getByRole("link", { name: "Sync service", exact: true });
+    await bitwarden.click();
+    await sync.click();
+    await expect(sync).toHaveAttribute("aria-current", "location");
+    // Back comes from the browser, with no wheel, key or pointer press in the page.
+    await page.goBack();
+    await expect(page).toHaveURL(/options\.html#bitwarden$/u);
+    await expect(bitwarden).toHaveAttribute("aria-current", "location");
   });
 });
 

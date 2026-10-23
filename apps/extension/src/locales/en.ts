@@ -42,8 +42,8 @@ export const en = {
   "Logging in with {{name}}.": "Logging in with {{name}}.",
   "The page changed, so nothing was started. Reload it to choose again.":
     "The page changed, so nothing was started. Reload it to choose again.",
-  "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. Close that tab, or wait up to 5 minutes, then choose again.":
-    "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. Close that tab, or wait up to 5 minutes, then choose again.",
+  "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. Close that tab, or wait up to 10 minutes, then choose again.":
+    "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. Close that tab, or wait up to 10 minutes, then choose again.",
   "Pateat could not log in with {{name}} on this page. Reload the page to choose again.":
     "Pateat could not log in with {{name}} on this page. Reload the page to choose again.",
   "This page no longer waits for an account choice.":
@@ -89,8 +89,8 @@ export const en = {
     "The site did not accept the last login in this tab.",
   "The last login on this site stopped in this tab.":
     "The last login on this site stopped in this tab.",
-  "Another tab's login to this site is running or did not succeed. Close that tab, or wait up to 5 minutes.":
-    "Another tab's login to this site is running or did not succeed. Close that tab, or wait up to 5 minutes.",
+  "Another tab's login to this site is running or did not succeed. Close that tab, or wait up to 10 minutes.":
+    "Another tab's login to this site is running or did not succeed. Close that tab, or wait up to 10 minutes.",
   "Account to log in with": "Account to log in with",
   "Make it the default for {{hostname}}": "Make it the default for {{hostname}}",
   "Log in": "Log in",
@@ -240,8 +240,8 @@ export const en = {
     "After a logout, Pateat only fills the sign-in form and presses nothing; sign in when you are ready.",
   "The page changed, so nothing was started. {{name}} was not made the default. Reload it to choose again.":
     "The page changed, so nothing was started. {{name}} was not made the default. Reload it to choose again.",
-  "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. {{name}} was not made the default. Close that tab, or wait up to 5 minutes, then choose again.":
-    "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. {{name}} was not made the default. Close that tab, or wait up to 5 minutes, then choose again.",
+  "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. {{name}} was not made the default. Close that tab, or wait up to 10 minutes, then choose again.":
+    "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. {{name}} was not made the default. Close that tab, or wait up to 10 minutes, then choose again.",
   "Pateat could not log in with {{name}} on this page. {{name}} was not made the default. Reload the page to choose again.":
     "Pateat could not log in with {{name}} on this page. {{name}} was not made the default. Reload the page to choose again.",
   "This page no longer waits for an account choice. {{name}} was not made the default.":
@@ -302,6 +302,6 @@ export const en = {
     "Pateat: you were logged out of this site in another tab, or the site did not accept a login there. Click to choose an account.",
   "Pateat: {{count}} accounts match this page. Click to choose one.":
     "Pateat: {{count}} accounts match this page. Click to choose one.",
-  "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait up to 5 minutes and reload this page, to log in here.":
-    "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait up to 5 minutes and reload this page, to log in here.",
+  "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait up to 10 minutes and reload this page, to log in here.":
+    "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait up to 10 minutes and reload this page, to log in here.",
 } as const;

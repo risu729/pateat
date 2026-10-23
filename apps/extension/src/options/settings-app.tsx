@@ -623,22 +623,47 @@ function SectionNav({ sections }: { sections: NavSection[] }) {
   const { t } = useTranslation(undefined, { i18n });
   const [current, setCurrent] = useState(sections[0]?.id);
   const ids = sections.map((section) => section.id).join(" ");
+  // A clicked link's section stays marked while the page jumps to it, until the person
+  // scrolls or the address changes to another fragment, such as by Back.
+  const clicked = useRef<string>(undefined);
   useEffect(() => {
-    const visible = new Map<string, boolean>();
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) visible.set(entry.target.id, entry.isIntersecting);
-        // The first section in page order that is in the upper part of the window.
-        const first = ids.split(" ").find((id) => visible.get(id));
-        if (first) setCurrent(first);
-      },
-      { rootMargin: "0px 0px -60% 0px" },
-    );
-    for (const id of ids.split(" ")) {
-      const element = document.getElementById(id);
-      if (element) observer.observe(element);
-    }
-    return () => observer.disconnect();
+    const update = () => {
+      if (clicked.current) return;
+      // Look sections up on each scroll: some remount, such as Sites once settings load.
+      const tops = ids.split(" ").flatMap((id) => {
+        const element = document.getElementById(id);
+        return element ? [{ id, top: element.getBoundingClientRect().top }] : [];
+      });
+      const atBottom =
+        scrollY > 0 && scrollY + innerHeight >= document.documentElement.scrollHeight - 1;
+      // The last section whose top has reached the upper part of the window; at the
+      // bottom of the page, where short last sections never get there, the last one shown.
+      const line = atBottom ? innerHeight : innerHeight * 0.4;
+      const reached = tops.findLast((section) => section.top <= line) ?? tops[0];
+      if (reached) setCurrent(reached.id);
+    };
+    // Wheel, touch, scrollbar drags and scrolling keys start with one of these.
+    const userInput = ["wheel", "pointerdown", "keydown"] as const;
+    const release = () => {
+      clicked.current = undefined;
+    };
+    // Back, Forward and other address changes from the browser bring no page input.
+    const addressChanged = () => {
+      if (clicked.current === undefined || location.hash === `#${clicked.current}`) return;
+      release();
+      update();
+    };
+    update();
+    addEventListener("scroll", update, { passive: true });
+    addEventListener("resize", update);
+    addEventListener("hashchange", addressChanged);
+    for (const type of userInput) addEventListener(type, release, { capture: true, passive: true });
+    return () => {
+      removeEventListener("scroll", update);
+      removeEventListener("resize", update);
+      removeEventListener("hashchange", addressChanged);
+      for (const type of userInput) removeEventListener(type, release, { capture: true });
+    };
   }, [ids]);
   return (
     <nav
@@ -652,7 +677,10 @@ function SectionNav({ sections }: { sections: NavSection[] }) {
               href={`#${id}`}
               className={navLinkClass}
               aria-current={current === id ? "location" : undefined}
-              onClick={() => setCurrent(id)}
+              onClick={() => {
+                clicked.current = id;
+                setCurrent(id);
+              }}
             >
               <Icon aria-hidden size={16} strokeWidth={2} />
               {label}

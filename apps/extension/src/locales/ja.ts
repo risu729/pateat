@@ -44,8 +44,8 @@ export const ja = {
   "Logging in with {{name}}.": "{{name}} でログインしています。",
   "The page changed, so nothing was started. Reload it to choose again.":
     "ページが変わったため、ログインを開始しませんでした。もう一度選ぶには、ページを再読み込みしてください。",
-  "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. Close that tab, or wait up to 5 minutes, then choose again.":
-    "別のタブでこのサイトへのログインが進行中か、成功していないため、このタブではログインしませんでした。そのタブを閉じるか、最大 5 分待ってから、もう一度選んでください。",
+  "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. Close that tab, or wait up to 10 minutes, then choose again.":
+    "別のタブでこのサイトへのログインが進行中か、成功していないため、このタブではログインしませんでした。そのタブを閉じるか、最大 10 分待ってから、もう一度選んでください。",
   "Pateat could not log in with {{name}} on this page. Reload the page to choose again.":
     "このページでは {{name}} でログインできませんでした。もう一度選ぶには、ページを再読み込みしてください。",
   "This page no longer waits for an account choice.":
@@ -90,8 +90,8 @@ export const ja = {
     "このタブでの前回のログインはサイトに受け付けられませんでした。",
   "The last login on this site stopped in this tab.":
     "このタブでのこのサイトへの前回のログインは中断されました。",
-  "Another tab's login to this site is running or did not succeed. Close that tab, or wait up to 5 minutes.":
-    "別のタブでこのサイトへのログインが進行中か、成功していません。そのタブを閉じるか、最大 5 分お待ちください。",
+  "Another tab's login to this site is running or did not succeed. Close that tab, or wait up to 10 minutes.":
+    "別のタブでこのサイトへのログインが進行中か、成功していません。そのタブを閉じるか、最大 10 分お待ちください。",
   "Account to log in with": "ログインに使うアカウント",
   "Make it the default for {{hostname}}": "{{hostname}} の既定のアカウントにする",
   "Log in": "ログイン",
@@ -243,8 +243,8 @@ export const ja = {
     "ログアウト後は、Pateat はログインフォームに入力するだけで、ボタンは押しません。準備ができたらログインしてください。",
   "The page changed, so nothing was started. {{name}} was not made the default. Reload it to choose again.":
     "ページが変わったため、ログインを開始しませんでした。{{name}} は既定のアカウントになっていません。もう一度選ぶには、ページを再読み込みしてください。",
-  "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. {{name}} was not made the default. Close that tab, or wait up to 5 minutes, then choose again.":
-    "別のタブでこのサイトへのログインが進行中か、成功していないため、このタブではログインしませんでした。{{name}} は既定のアカウントになっていません。そのタブを閉じるか、最大 5 分待ってから、もう一度選んでください。",
+  "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. {{name}} was not made the default. Close that tab, or wait up to 10 minutes, then choose again.":
+    "別のタブでこのサイトへのログインが進行中か、成功していないため、このタブではログインしませんでした。{{name}} は既定のアカウントになっていません。そのタブを閉じるか、最大 10 分待ってから、もう一度選んでください。",
   "Pateat could not log in with {{name}} on this page. {{name}} was not made the default. Reload the page to choose again.":
     "このページでは {{name}} でログインできませんでした。{{name}} は既定のアカウントになっていません。もう一度選ぶには、ページを再読み込みしてください。",
   "This page no longer waits for an account choice. {{name}} was not made the default.":
@@ -305,6 +305,6 @@ export const ja = {
     "Pateat：別のタブでこのサイトからログアウトされたか、そのタブでのログインがサイトに受け付けられませんでした。クリックしてアカウントを選んでください。",
   "Pateat: {{count}} accounts match this page. Click to choose one.":
     "Pateat：{{count}} 件のアカウントがこのページに一致します。クリックして選んでください。",
-  "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait up to 5 minutes and reload this page, to log in here.":
-    "Pateat：別のタブでこのサイトへのログインが進行中か、成功していません。ここでログインするには、そのタブを閉じるか、最大 5 分待ってからこのページを再読み込みしてください。",
+  "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait up to 10 minutes and reload this page, to log in here.":
+    "Pateat：別のタブでこのサイトへのログインが進行中か、成功していません。ここでログインするには、そのタブを閉じるか、最大 10 分待ってからこのページを再読み込みしてください。",
 } satisfies Record<keyof typeof en, string>;

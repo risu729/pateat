@@ -24,7 +24,7 @@ import {
   TriangleAlert,
   UserRound,
 } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "../options/button";
 import { SETTINGS_QUERY_KEY, type SettingsClient } from "../options/client";
 import { siteAccountOptions } from "../options/site-policy";
@@ -307,6 +307,23 @@ export function SiteApp({
   // The switch shows its new position while that change is saved.
   const [switching, setSwitching] = useState<boolean>();
   const say = (text: NoticeText, tone: Tone) => setNotice({ text, tone });
+  // Buttons that start a change are only marked disabled while it runs, since Chrome moves
+  // focus away from a focused control that becomes disabled. A control the result
+  // removes or disables, such as Remove default once the default is gone, leaves focus on
+  // the result message, so a keyboard user is not sent back to the top of the popup. A
+  // mouse click also focuses the button, so the move does not scroll.
+  const message = useRef<HTMLOutputElement>(null);
+  const wasBusy = useRef(false);
+  useEffect(() => {
+    const focused = document.activeElement;
+    if (
+      wasBusy.current &&
+      !busy &&
+      (!focused || focused === document.body || (focused as HTMLButtonElement).disabled)
+    )
+      message.current?.focus({ preventScroll: true });
+    wasBusy.current = busy;
+  }, [busy]);
   const tab = useQuery({
     queryKey: ["popup", "tab"],
     queryFn: async () => (await host.currentTab()) ?? null,
@@ -684,6 +701,7 @@ export function SiteApp({
         type="button"
         variant="outline"
         disabled={busy || listing}
+        focusableWhenDisabled={busy}
         onClick={removeDefault}
       >
         {t("Remove default")}
@@ -720,7 +738,7 @@ export function SiteApp({
                 <TriangleAlert size={16} strokeWidth={2} aria-hidden="true" />
                 <span>
                   {t(
-                    "Another tab's login to this site is running or did not succeed. Close that tab, or wait up to 5 minutes.",
+                    "Another tab's login to this site is running or did not succeed. Close that tab, or wait up to 10 minutes.",
                   )}
                 </span>
               </p>
@@ -750,6 +768,7 @@ export function SiteApp({
               type="button"
               className="w-full gap-2"
               disabled={busy || offered.held || !shownPick}
+              focusableWhenDisabled={busy}
               aria-describedby={offered.held ? "popup-pick-held" : undefined}
               onClick={() => {
                 const selected = pickOptions.find((entry) => entry.value === shownPick);
@@ -848,6 +867,7 @@ export function SiteApp({
                     id="popup-set-default"
                     type="button"
                     disabled={busy || !shown || shown === currentValue}
+                    focusableWhenDisabled={busy}
                     onClick={setDefault}
                   >
                     {t("Use as default")}
@@ -915,7 +935,13 @@ export function SiteApp({
         </div>
         {switchControl}
       </header>
-      <output id="popup-message" className="popup-message" aria-live="polite">
+      <output
+        id="popup-message"
+        ref={message}
+        className="popup-message"
+        aria-live="polite"
+        tabIndex={-1}
+      >
         {notice.text && (
           <span className={`popup-notice popup-notice--${notice.tone}`}>
             <NoticeIcon size={16} strokeWidth={2} aria-hidden="true" />

@@ -36,8 +36,8 @@ export const serviceJa = {
   "Forget saved connection": "保存した接続情報を削除",
   "Enter an HTTPS address such as https://pateat.example.com.":
     "https://pateat.example.com のような HTTPS アドレスを入力してください。",
-  "Use a device name of up to 64 characters without control characters.":
-    "デバイス名は制御文字を含まない 64 文字以内で入力してください。",
+  "Use a device name of up to 64 characters without control characters, line breaks or text-direction marks.":
+    "デバイス名は制御文字、改行、文字の向きを変える記号を含まない 64 文字以内で入力してください。",
   "Enter a device name.": "デバイス名を入力してください。",
   "Service address": "サービスのアドレス",
   "Device name": "デバイス名",

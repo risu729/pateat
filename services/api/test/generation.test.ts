@@ -669,6 +669,23 @@ describe("recipe generation", () => {
     ]);
   });
 
+  it("logs the provider's refusal category code with a refused call (ADR 0014)", async () => {
+    const device = await owner();
+    replies.push({ refusal: "cyber" }, { refusal: "general_harms" });
+    expect(await generate(device, emailPage)).toMatchObject({ error: "refused" });
+    // The owner approved recording the category code, never the provider's explanation.
+    const logged = await rows(
+      "SELECT outcome, result FROM inference_log WHERE owner_id = ? ORDER BY created_at",
+      device.ownerId,
+    );
+    expect(
+      logged.map(({ outcome, result }) => ({ outcome, result: JSON.parse(String(result)) })),
+    ).toEqual([
+      { outcome: "refused", result: { refusalCategory: "cyber" } },
+      { outcome: "refused", result: { refusalCategory: "general_harms" } },
+    ]);
+  });
+
   it("asks no other model once the refused call reached the daily spend stop", async () => {
     const device = await owner();
     await env.DB.prepare(

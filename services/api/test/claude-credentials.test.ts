@@ -2,11 +2,8 @@ import { env, exports } from "cloudflare:workers";
 import { Jwt } from "hono/utils/jwt";
 import type { HonoJsonWebKey } from "hono/utils/jwt/jws";
 import { describe, expect, it } from "vitest";
-import {
-  resolveClaudeCredential,
-  saveWifCredential,
-  type WifIdentifiers,
-} from "../src/claude/credentials";
+import type { WifIdentifiers } from "@pateat/contracts";
+import { resolveClaudeCredential, saveWifCredential } from "../src/claude/credentials";
 import { readIssuerConfig, signOwnerAssertion } from "../src/claude/issuer";
 
 // Synthetic issuer key (generated per run in vitest.config.ts), owners and federation

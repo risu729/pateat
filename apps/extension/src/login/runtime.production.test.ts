@@ -342,7 +342,8 @@ const sender = (overrides: Record<string, unknown> = {}) => {
   const parsed = typeof url === "string" ? URL.parse(url) : null;
   return {
     id: "synthetic-extension",
-    tab: { id: 1 },
+    // Chrome always says whether the tab is in an incognito window.
+    tab: { id: 1, incognito: false },
     frameId: 0,
     documentId: "synthetic-document",
     ...(parsed ? { origin: parsed.origin } : {}),
@@ -3713,7 +3714,7 @@ describe("production login document admission", () => {
         reason: "origin-busy",
       });
       expect(fake.state.badges[2]?.title).toBe(
-        "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait up to 5 minutes and reload this page, to log in here.",
+        "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait up to 10 minutes and reload this page, to log in here.",
       );
       expect(executes()).toHaveLength(2);
       // Once that tab closes, this tab logs in and its tooltip is reset.
@@ -6195,6 +6196,32 @@ describe("production login document admission", () => {
           await vi.waitFor(() => expect(attempts()).toHaveLength(2));
           expect(logouts()).toEqual([]);
         });
+        it("never asks in an incognito tab, which keeps its own cookies", async () => {
+          const h = await loggedOut();
+          const before = steps().length;
+          // An incognito window's session did not log out (owner, 2026-10-23).
+          fake.state.tabUrls[2] = fake.state.pageUrl;
+          expect(
+            await h.hello({ tab: { id: 2, incognito: true }, documentId: "incognito" }),
+          ).toEqual({ ok: true });
+          await vi.waitFor(() =>
+            expect(attempts()).toContainEqual(
+              expect.objectContaining({
+                state: "authenticated",
+                document: expect.objectContaining({ tabId: 2 }),
+              }),
+            ),
+          );
+          expect(
+            steps()
+              .slice(before)
+              .map((step) => step.kind),
+          ).toContain("click");
+          expect(fake.state.badges[2]?.title).not.toBe(
+            "Pateat: you were logged out of this site in another tab, or the site did not accept a login there. Click to choose an account.",
+          );
+          expect(logouts()).toEqual([{ tabId: 1, origin }]);
+        });
       });
     });
     it("needs a manual binding when the recipe has a slot other than the built-ins", async () => {
@@ -6883,6 +6910,47 @@ describe("production login document admission", () => {
       const after = await ask();
       expect(after).not.toHaveProperty("asking");
       expect(tabBadge.asking(1)).toBe(false);
+    });
+
+    it("logs why a page was described without a field", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout"], shouldAdvanceTime: true });
+      onTestFinished(() => void vi.useRealTimers());
+      fake.state.extracted = {
+        login: {
+          ok: false,
+          reason: "no-candidates",
+          detail: "n2.d0.text-hidden-attr.password-hidden-attr",
+        },
+      };
+      const service = generation();
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness(unsaved, {
+        allowedOrigins: [],
+        uris,
+        username: true,
+        custom: [],
+        generation: service,
+        report,
+      });
+      h.recipes.recipe.mockResolvedValue(undefined);
+      h.recipes.starts.mockResolvedValue(startsOf([]));
+      expect(await h.hello({}, false)).toMatchObject({ generate: true });
+      await h.signIn();
+      await vi.waitFor(() =>
+        expect(fake.state.messages.map((entry) => entry.type)).toContain("login.extract"),
+      );
+      await vi.advanceTimersByTimeAsync(9_000);
+      await vi.waitFor(() =>
+        expect(report).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: "generation",
+            outcome: "skipped",
+            reason: "no-candidates",
+            detail: "n2.d0.text-hidden-attr.password-hidden-attr",
+          }),
+        ),
+      );
+      expect(service.generate).not.toHaveBeenCalled();
     });
 
     it("clips a page's over-long refusal reason to the popup's limit", async () => {
@@ -15707,33 +15775,71 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       );
     });
 
-    it("ends the watch when the person starts over in another tab, which logs in as before", async () => {
+    it("keeps the site from another tab while the watch lasts, so no second code is sent", async () => {
       const { h } = await watched();
       const steps = executed().length;
-      // The approval expired and the person opened the sign-in page in a new tab.
-      expect(await signInPage(h, 2, "other-tab")).toEqual({ ok: true });
-      expect(reports).not.toHaveBeenCalledWith(expect.objectContaining({ type: "logout" }));
-      expect(reports).toHaveBeenCalledWith(abandoned("challenge-abandoned", 1));
-      expect(fake.state.session["pateat.login-logouts.v1"]).toEqual([]);
-      // Only the watched tab asks if its own sign-in page shows again.
-      expect(fake.state.session["pateat.login-stopped-asks.v1"]).toEqual([{ tabId: 1, origin }]);
-      // The new tab logs in and presses the button.
+      // While the first tab waits for its code, the person opens the sign-in page in a new
+      // tab (Instagram on Real Chrome, 2026-10-23): it neither logs in nor ends the watch.
+      expect(await signInPage(h, 2, "other-tab")).toEqual({ ok: false, reason: "origin-busy" });
+      expect(executed().slice(steps)).toEqual([]);
+      expect(reports).not.toHaveBeenCalledWith(abandoned("challenge-abandoned", 1));
+      expect(status()).toMatchObject([{ state: "watching", document: { tabId: 1 } }]);
+      // Past the hold's 5 minutes the watch still keeps it.
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      expect(await signInPage(h, 2, "other-tab-later")).toEqual({
+        ok: false,
+        reason: "origin-busy",
+      });
+      expect(executed().slice(steps)).toEqual([]);
+      // Once the watch's 10 minutes are over, the other tab logs in as before.
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      expect(await signInPage(h, 2, "other-tab-after")).toEqual({ ok: true });
       expect(
         executed()
           .slice(steps)
           .map((step) => step.kind),
       ).toEqual(["fill", "click"]);
-      expect(reports).not.toHaveBeenCalledWith(
-        expect.objectContaining({ type: "start", tabId: 2, fillOnly: true }),
-      );
-      // The watched tab's own sign-in page then only fills.
-      const before = executed().length;
-      expect(await signInPage(h, 1, "document-signin")).toEqual({ ok: true });
+    });
+
+    it("lets another tab log in once the watched tab closes", async () => {
+      const { h } = await watched();
+      const steps = executed().length;
+      expect(await signInPage(h, 2, "other-tab")).toEqual({ ok: false, reason: "origin-busy" });
+      for (const listener of fake.state.removed) listener(1);
+      await vi.waitFor(() => expect(status() ?? []).toEqual([]));
+      expect(await signInPage(h, 2, "other-tab-again")).toEqual({ ok: true });
       expect(
         executed()
-          .slice(before)
+          .slice(steps)
           .map((step) => step.kind),
-      ).toEqual(["fill"]);
+      ).toEqual(["fill", "click"]);
+    });
+
+    it("never keeps an incognito tab from logging in while a normal tab's login is watched", async () => {
+      const { h } = await watched();
+      const steps = executed().length;
+      // An incognito window keeps its own cookies, so its login sends no second code to
+      // the same session (owner, 2026-10-23).
+      fake.state.pageUrl = `${origin}/signin`;
+      fake.state.observedPath = "/signin";
+      fake.state.present = new Set(["password", "login"]);
+      fake.state.tabUrls[2] = fake.state.pageUrl;
+      expect(await h.hello({ tab: { id: 2, incognito: true }, documentId: "incognito" })).toEqual({
+        ok: true,
+      });
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(
+        executed()
+          .slice(steps)
+          .map((step) => step.kind),
+      ).toEqual(["fill", "click"]);
+      // The normal tab's login is still watched.
+      expect(status()).toContainEqual(
+        expect.objectContaining({
+          state: "watching",
+          document: expect.objectContaining({ tabId: 1 }),
+        }),
+      );
     });
 
     it("keeps holding the site against another tab's page left open from before", async () => {

@@ -291,7 +291,7 @@ describe("login badge", () => {
     h.badge.choice(tabId, { count: 2 });
     h.badge.note(
       8,
-      "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait up to 5 minutes and reload this page, to log in here.",
+      "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait up to 10 minutes and reload this page, to log in here.",
     );
     await h.flush();
     expect(h.view()).toMatchObject({ text: "2", title: choose(2) });
@@ -306,7 +306,7 @@ describe("login badge", () => {
       title: "Pateat：2 件のアカウントがこのページに一致します。クリックして選んでください。",
     });
     expect(h.view(8).title).toBe(
-      "Pateat：別のタブでこのサイトへのログインが進行中か、成功していません。ここでログインするには、そのタブを閉じるか、最大 5 分待ってからこのページを再読み込みしてください。",
+      "Pateat：別のタブでこのサイトへのログインが進行中か、成功していません。ここでログインするには、そのタブを閉じるか、最大 10 分待ってからこのページを再読み込みしてください。",
     );
     // An outcome code stays as the log names it inside the translated text.
     h.badge.choice(tabId, undefined);
