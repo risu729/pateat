@@ -138,7 +138,8 @@ export function createConnectionRuntime(
     ...(options.baseCatalog ? { initialCatalog: options.baseCatalog } : {}),
   });
   const policy = createConnectionPolicy({ settings, current });
-  // Deletes before 2026-10-23 left the connection's settings behind; drop such leftovers.
+  // Drops settings a delete could not remove: its best-effort step failed or the worker
+  // stopped first. Older deletes, which left them all, are cleared the same way.
   void registry
     .list()
     .then((configurations) =>

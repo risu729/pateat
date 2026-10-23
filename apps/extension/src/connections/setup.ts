@@ -868,7 +868,8 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
          * setup flow for this connection is active. The registry entry goes last, so a
          * failed step leaves the connection listed for another attempt; this device's
          * settings for it follow on a best-effort basis, since unreadable settings must not
-         * block deletion and a leftover entry names an ID that is never reused. */
+         * block deletion; a leftover entry names an ID that is never reused, and the
+         * runtime's start-up prune drops it. */
         async remove(connectionId: string): Promise<SetupReply> {
           const setupActive = () => {
             const current = active.get(connectionId);

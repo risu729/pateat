@@ -686,8 +686,9 @@ open. These controls wait while saved settings load. A saved entry for a connect
 that has no row is listed under the rows when it is a demo vault, with the same
 controls. An entry for a connection this device no longer has is not listed: Delete
 connection removes it, and when the background starts it drops any entry whose
-connection is neither registered nor a demo vault, which clears those left by deletes
-before 2026-10-23 (shown then as "Unavailable connection" with a bare connection ID).
+connection is neither registered nor a demo vault. That clears entries a delete could
+not remove because that best-effort step failed or the worker stopped first, and those
+older deletes left (shown then as "Unavailable connection" with a bare connection ID).
 Connections the running background registered are never dropped, so a sign-in that
 starts the background is not raced. Without a Bitwarden setup (the
 demo preview) the vaults are listed in their own Demo vaults panel. Custom-field
