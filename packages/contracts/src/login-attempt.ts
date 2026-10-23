@@ -1561,18 +1561,22 @@ export function transitionLoginAttempt(
   const event = v.parse(loginAttemptEventSchema, eventValue);
   if (metadata.state === "authenticated" || metadata.state === "blocked") return metadata;
   const snapshot = loginAttemptMachine.resolveState({ value: metadata.state, context: metadata });
-  // A login that has submitted nothing, and has nothing in flight that may have, has no
-  // result to settle as unknown: the page goes on as one that does not show its step yet,
-  // which the step's own bounded wait and the retries decide (ADR 0022).
+  // A login still at its first step that has submitted nothing, and has nothing in flight
+  // that may have, has no result to settle as unknown: the page goes on, at the same step, as
+  // one that does not show that step yet, which the step's own bounded wait and the retries
+  // decide (ADR 0022). After a fill the person may have submitted the values themselves.
   const unsubmitted =
     event.type === "OBSERVED" &&
     event.result === "unknown" &&
     metadata.submissions === 0 &&
+    metadata.stepIndex === (metadata.route === "password" ? (metadata.startStep ?? 0) : 0) &&
     !maySubmit(metadata)
       ? transition(loginAttemptMachine, snapshot, { ...event, result: "continue" })[0]
       : undefined;
   const [next] =
-    unsubmitted && (unsubmitted.value === "ready" || unsubmitted.value === "retryable")
+    unsubmitted &&
+    (unsubmitted.value === "ready" || unsubmitted.value === "retryable") &&
+    unsubmitted.context.stepIndex === metadata.stepIndex
       ? [unsubmitted]
       : transition(loginAttemptMachine, snapshot, event);
   const { watch, ...moved } = {

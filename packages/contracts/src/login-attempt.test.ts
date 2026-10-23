@@ -917,11 +917,10 @@ describe("submission and failure reconciliation", () => {
     });
     filled = transitionLoginAttempt(filled, { type: "MUTATION_INTENT", operationId: "fill-one" });
     filled = transitionLoginAttempt(filled, { type: "OPERATION_OK", operationId: "fill-one" });
-    // A new page of the origin, or a restarted worker, before the next step ran: a page
+    // A new page of the origin, or a restarted worker, before the first step ran: a page
     // that does not show that step yet is no unknown result, since nothing was submitted.
     for (const [between, paused, page] of [
       [ready, transitionLoginAttempt(ready, { type: "NAVIGATED", document: next }), next],
-      [filled, transitionLoginAttempt(filled, { type: "NAVIGATED", document: next }), next],
       [ready, recoverLoginAttempt(ready), top],
     ] as const) {
       expect(paused).toMatchObject({ state: "reconciling", outcome: "interrupted" });
@@ -944,6 +943,18 @@ describe("submission and failure reconciliation", () => {
         stepIndex: between.stepIndex,
       });
     }
+    // After a fill the person may have submitted the values themselves: such a page still
+    // settles as unknown and is watched.
+    const afterFill = transitionLoginAttempt(
+      transitionLoginAttempt(filled, { type: "NAVIGATED", document: next }),
+      { type: "OBSERVED", result: "unknown", document: next },
+      5000,
+    );
+    expect(afterFill).toMatchObject({
+      state: "reconciling",
+      outcome: "unknown-submit",
+      settled: true,
+    });
   });
 
   it("treats a fill that confirmed it changed nothing as no possible submission (ADR 0022)", () => {
@@ -1019,6 +1030,45 @@ describe("submission and failure reconciliation", () => {
     expect(
       transitionLoginAttempt(possible, { type: "OBSERVED", result: "unknown", document: top }),
     ).toMatchObject({ state: "reconciling", outcome: "unknown-submit", settled: true });
+    // An advance fill waiting to be tried again is never taken past its own step.
+    let advancing = transitionLoginAttempt(
+      transitionLoginAttempt(
+        createAttemptMetadata({
+          timing: noTimeBefore,
+          id: "attempt-top",
+          recipe,
+          policyRevision: 3,
+          account: { origin: top.origin, connectionId: "demo-personal", itemId: "primary" },
+          choice: { route: "password", variant: 0 },
+          facts,
+          document: top,
+        }),
+        { type: "RESOLVE" },
+      ),
+      { type: "PREPARE", operationId: "fill-one", kind: "fill", effect: "advance" },
+    );
+    advancing = transitionLoginAttempt(advancing, {
+      type: "MUTATION_INTENT",
+      operationId: "fill-one",
+    });
+    advancing = transitionLoginAttempt(advancing, {
+      type: "FAILED",
+      reason: "structural-mismatch",
+      mutation: "none",
+      operationId: "fill-one",
+      document: top,
+    });
+    expect(advancing).toMatchObject({
+      state: "retryable",
+      operationEffect: "advance",
+      submissions: 0,
+    });
+    const again = transitionLoginAttempt(
+      recoverLoginAttempt(advancing),
+      { type: "OBSERVED", result: "unknown", document: top },
+      5000,
+    );
+    expect(again.stepIndex).toBe(0);
   });
 
   it("values the page would not accept end the attempt without a retry", () => {
