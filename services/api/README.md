@@ -658,6 +658,29 @@ SELECT datetime(logged_at / 1000, 'unixepoch') AS at, event, level,
 FROM problem_log ORDER BY created_at DESC, seq DESC LIMIT 50;
 ```
 
+## Model calls a device makes with its own key
+
+[ADR 0040](../../docs/adr/0040-running-without-the-service.md), in
+`src/claude/calls.ts`. `POST /v1/recipes/generate` (recipes and entry requests) and
+`POST /v1/recipes/:recipeId/completion` take an optional
+`deviceModel: { responses }` (at most 6) from a device that holds its own Anthropic API
+key. The route runs as usual, but where it would call the model it answers 200
+`{ version: 1, status: "model-call", call: { index, headers, body } }`: the Messages
+request body (at most 160 KiB) and its `anthropic-version`, `anthropic-beta` and
+`content-type` headers. The device sends it to Anthropic and sends the request again
+with one more response: `{ kind: "response", request, status, body }` (body at most
+16 KiB), `{ kind: "timeout", request }` or `{ kind: "unreachable", request }`, where
+`request` is the hex SHA-256 of the body it answers. The service takes response `index`
+in place of call `index`; a response whose hash does not match the body built now is
+asked for again with the same index. In this mode the route first runs without
+writes to learn whether another call is needed, and writes the attempt record, log rows
+and recipe only in the run that has every response.
+
+Such calls need no credential on the service and skip its spend stops. Each is logged
+with `source = 'device'` (migration `0031_inference_log_source`), its cost from the
+reported usage, `token_ms` and `model_ms` null, and nothing added to `inference_spend`.
+The automatic stop of fast mode counts the rows of its own source only.
+
 ## Schema and tests
 
 `src/db/schema.ts` is the Drizzle schema. Run

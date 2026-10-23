@@ -20,6 +20,7 @@ import {
   withChooserLayout,
   withLoginLayout,
   type ChooserBranch,
+  type DeviceModelCall,
   type EntryGenerationRequest,
   type EntryGenerationResult,
   type GenerationUnavailableReason,
@@ -176,6 +177,9 @@ const failed = (error: Failure) => ({ version: 1, status: "failed", error }) as 
 // Nobody waits on a cancelled request, so it reads as the timeout that usually causes it.
 const failureOf = (error: InferenceErrorCode): Failure =>
   error === "cancelled" ? "timeout" : error;
+/** The model call a device with its own key makes next (ADR 0040). */
+const modelCall = (call: { call: DeviceModelCall["call"] }) =>
+  ({ version: 1, status: "model-call", call: call.call }) as const;
 const active = (change: SyncRecipeChange | null) =>
   change?.state === "active" ? change : undefined;
 /**
@@ -605,6 +609,7 @@ export async function generateRecipe(
 
   const call = await callClaude(env, scope.ownerId, trace, {
     ...logged,
+    device: request.deviceModel,
     recipe: { ...logged.recipe, baseRevision, ...(base ? {} : { layout: meta.key }) },
     ...attemptWindow(
       scope.ownerId,
@@ -658,6 +663,7 @@ export async function generateRecipe(
     },
   });
   if (call.status === "unavailable") return unsent(raced ?? unavailable(call.reason));
+  if (call.status === "device-call") return modelCall(call);
   const { logId, served } = call;
   /** The provenance of the units this call's write adds (ADR 0060). */
   const generated = (units: RecipeUnit[]): UnitSources => ({
@@ -888,6 +894,7 @@ export async function generateEntry(
 
   const call = await callClaude(env, scope.ownerId, trace, {
     ...logged,
+    device: request.deviceModel,
     recipe: { ...logged.recipe, baseRevision },
     ...attemptWindow(
       scope.ownerId,
@@ -906,6 +913,7 @@ export async function generateEntry(
     logValue: ({ entry: candidate }) => ({ entry: candidate }),
   });
   if (call.status === "unavailable") return unsent(raced ?? unavailable(call.reason));
+  if (call.status === "device-call") return modelCall(call);
   const result = unsettled(call.outcome);
   // A request the role refused locally, as one too large, was never sent; the roles refuse
   // locally only with a failure.
@@ -1116,6 +1124,7 @@ export async function judgeCompletion(
   );
   const call = await callClaude(env, scope.ownerId, trace, {
     ...logged(loginPaths),
+    device: request.deviceModel,
     // Each revision, origin and path is judged once per judge prompt version, and a recipe
     // 20 times a UTC day (ADR 0027), counting a stop's pages and those beside the sign-in
     // form.
@@ -1215,6 +1224,7 @@ export async function judgeCompletion(
     logValue: (judgement) => judgement,
   });
   if (call.status === "unavailable") return unsent(unavailable(call.reason), loginPaths);
+  if (call.status === "device-call") return modelCall(call);
   const { outcome } = call;
   /**
    * The provenance of the handlers or marker this judgement adds to the judged layout and

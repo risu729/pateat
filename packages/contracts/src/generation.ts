@@ -1,4 +1,5 @@
 import * as v from "valibot";
+import { deviceModelCallSchema, deviceModelSchema } from "./device-model";
 import {
   customSlotIdSchema,
   fillRoles,
@@ -169,6 +170,8 @@ export const recipeGenerationRequestSchema = v.pipe(
      * first page's kind, and a list of accounts is always `sign-in`.
      */
     signedIn: v.optional(v.boolean()),
+    /** The device makes the model calls with its own key (ADR 0040). */
+    deviceModel: v.optional(deviceModelSchema),
   }),
   v.check(
     (request) =>
@@ -222,7 +225,12 @@ export const isEntryObservation = (observation: LoginObservation) =>
  * of accounts.
  */
 export const entryGenerationRequestSchema = v.pipe(
-  v.strictObject({ version: v.literal(1), observation: loginObservationSchema }),
+  v.strictObject({
+    version: v.literal(1),
+    observation: loginObservationSchema,
+    /** The device makes the model call with its own key (ADR 0040). */
+    deviceModel: v.optional(deviceModelSchema),
+  }),
   v.check(
     (request) => isEntryObservation(request.observation),
     "An entry request's page shows no field and lists no accounts",
@@ -264,6 +272,8 @@ const generationAnswers = [
     status: v.literal("unavailable"),
     reason: generationUnavailableReasonSchema,
   }),
+  /** Only for a request with `deviceModel`: the model call the device makes next. */
+  deviceModelCallSchema,
 ] as const;
 const rejectsOnlyInvalidOutput = (result: {
   status: string;
@@ -373,6 +383,8 @@ export const recipeCompletionRequestSchema = v.pipe(
      * `detail` handler from it. Never with `stop`.
      */
     beside: v.optional(v.literal(true)),
+    /** The device makes the model calls with its own key (ADR 0040). */
+    deviceModel: v.optional(deviceModelSchema),
   }),
   v.check(
     (request) =>
@@ -445,6 +457,8 @@ export const recipeCompletionResultSchema = v.variant("status", [
     status: v.literal("unavailable"),
     reason: generationUnavailableReasonSchema,
   }),
+  /** Only for a request with `deviceModel`: the model call the device makes next. */
+  deviceModelCallSchema,
 ]);
 
 export type RecipeGenerationRequest = v.InferOutput<typeof recipeGenerationRequestSchema>;

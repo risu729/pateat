@@ -3211,7 +3211,11 @@ access, not guaranteed erasure of offline cached material.
 Claude credentials are per owner
 ([ADR 0015](adr/0015-per-owner-claude-credentials.md)): the Worker holds only its
 OIDC signing key, and D1 holds each owner's Workload Identity Federation
-identifiers.
+identifiers. A device may hold its own Anthropic API key
+([ADR 0040](adr/0040-running-without-the-service.md)): it then makes the model calls
+of the generation and judge routes itself, sending the request bodies the service
+hands it to Anthropic only, and the service checks and stores the result as before.
+The key never reaches the service.
 
 Version recipes immutably with a current pointer and revocation/tombstones. The owner
 revokes a recipe on `/manage`, and the service revokes one unused for 90 days

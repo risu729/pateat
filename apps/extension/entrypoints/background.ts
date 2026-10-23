@@ -50,6 +50,11 @@ import {
   rememberVaultPasskey,
   type VaultPasskeyCandidate,
 } from "../src/passkeys/vault";
+import {
+  createDeviceModel,
+  DEVICE_MODEL_KEY,
+  DEVICE_MODEL_SPEND_KEY,
+} from "../src/service/device-model";
 import { createLoginGeneration } from "../src/service/generation";
 import { createLoginRecords } from "../src/service/login-records";
 import { createLoginOutcomes } from "../src/service/outcomes";
@@ -279,6 +284,11 @@ export default defineBackground(() => {
     transport: serviceTransport,
     report: diagnosticsLog.recipeUse,
   });
+  // ADR 0040: with this device's own key saved, the device makes the model calls itself.
+  const modelRequests = createDeviceModel({
+    storage: trustedRecord(DEVICE_MODEL_KEY),
+    spend: trustedRecord(DEVICE_MODEL_SPEND_KEY),
+  }).wrap(serviceTransport);
   const recipeCacheStorage = createBrowserRecipeCacheStorage();
   const recipeScheduleStorage = createBrowserRecipeScheduleStorage();
   const recipeSync = createRecipeSync({
@@ -362,9 +372,9 @@ export default defineBackground(() => {
     generation: createLoginGeneration({
       service,
       transport: {
-        generateRecipe: (...request) => keepAlive(serviceTransport.generateRecipe(...request)),
-        generateEntry: (...request) => keepAlive(serviceTransport.generateEntry(...request)),
-        judgeCompletion: (...request) => keepAlive(serviceTransport.judgeCompletion(...request)),
+        generateRecipe: (...request) => keepAlive(modelRequests.generateRecipe(...request)),
+        generateEntry: (...request) => keepAlive(modelRequests.generateEntry(...request)),
+        judgeCompletion: (...request) => keepAlive(modelRequests.judgeCompletion(...request)),
         samplePage: (...request) => keepAlive(serviceTransport.samplePage(...request)),
         revokeRecipe: (...request) => keepAlive(serviceTransport.revokeRecipe(...request)),
       },

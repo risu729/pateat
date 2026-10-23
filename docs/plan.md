@@ -1046,9 +1046,12 @@ Once the fixes have settled:
   docs. The [operations runbook](operations.md) now documents current retry/revert
   procedures and the unverified D1 restore and rollback-automation boundaries; this
   does not complete installed-Chrome or disaster-recovery acceptance.
-- A mode without the service. Where recipes, settings and AI calls come from without the
-  service, which [ADR 0013](adr/0013-service-held-recipes-and-settings.md) makes their
-  source of truth, needs a design the owner approves before implementation.
+- A mode without the service, designed with the owner on 2026-10-23
+  ([ADR 0040](adr/0040-running-without-the-service.md)): a device may hold its own
+  Anthropic API key and call the model itself, also while paired, where the service only
+  checks, stores and shares the results. The paired part is implemented; generation on
+  an unpaired device with the one-time upload after pairing, and export and import with
+  the choice to keep or delete on unpairing, follow in that order.
 - The finite-choice role with Clef, which the owner chose to implement here. On
   2026-10-11 the owner asked for a larger corpus of real pages before planning it. After
   Clef has been tried, compare it with Jev on the same pages (owner, 2026-10-13 15:11
