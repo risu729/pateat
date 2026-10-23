@@ -1,5 +1,6 @@
 import {
   deviceLabelSchema,
+  VISIBLE_LABEL_CHARACTER,
   normalizeServiceOrigin,
   type ServiceErrorCode,
   type ServiceResponse,
@@ -262,8 +263,9 @@ export function ServiceConnection({
             const name = v.safeParse(deviceLabelSchema, label);
             if (!name.success) {
               setAddressError(
-                label.trim()
-                  ? "Use a device name of up to 64 characters without control characters."
+                // A name of invisible characters alone looks empty, so it reads as missing.
+                VISIBLE_LABEL_CHARACTER.test(label)
+                  ? "Use a device name of up to 64 characters without control characters, line breaks or text-direction marks."
                   : "Enter a device name.",
               );
               return;

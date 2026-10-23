@@ -206,6 +206,66 @@ test.each([
   expect(client.begin).not.toHaveBeenCalled();
 });
 
+test("pasted name, email and server address are trimmed before they are checked and sent", async () => {
+  const { client } = await mount();
+  await fillNew();
+  await page.getByLabelText("Name", { exact: true }).fill("  Synthetic vault ");
+  await page.getByLabelText("Email", { exact: true }).fill(" test@example.test ");
+  await page.getByRole("combobox", { name: "Server", exact: true }).selectOptions("self-hosted");
+  await page.getByLabelText("Server address", { exact: true }).fill(" https://vault.example.test ");
+  await expect
+    .element(page.getByText(/Chrome asks for access to vault\.example\.test/))
+    .toBeVisible();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  await vi.waitFor(() => expect(client.begin).toHaveBeenCalledTimes(1));
+  expect(client.requestProviderPermission.mock.calls[0]![0]).toMatchObject({
+    kind: "self-hosted",
+    baseUrl: expect.stringMatching(/^https:\/\/vault\.example\.test\/?$/),
+  });
+  expect(client.begin.mock.calls[0]![0]).toMatchObject({
+    kind: "new",
+    label: "Synthetic vault",
+    email: "test@example.test",
+  });
+});
+
+test("verification codes are sent with their ends trimmed and a blank code sends nothing", async () => {
+  const client = mockClient();
+  client.begin.mockResolvedValue({
+    ok: true,
+    kind: "mfa-required",
+    flowId,
+    providers: [0],
+    expiresAt,
+  });
+  client.continue.mockResolvedValue({
+    ok: true,
+    kind: "new-device-verification-required",
+    flowId,
+    invalidOtp: false,
+    expiresAt,
+  });
+  await mount(client);
+  await fillNew();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  const mfaCode = page.getByLabelText("Verification code", { exact: true });
+  await mfaCode.fill("   ");
+  await expect
+    .element(page.getByRole("button", { name: "Verify code", exact: true }))
+    .toBeDisabled();
+  await mfaCode.fill(" 123456\t");
+  await page.getByRole("button", { name: "Verify code", exact: true }).click();
+  await vi.waitFor(() => expect(client.continue).toHaveBeenCalledTimes(1));
+  expect(client.continue).toHaveBeenCalledWith({
+    flowId,
+    twoFactor: { provider: 0, code: "123456" },
+  });
+  await page.getByLabelText("New-device verification code", { exact: true }).fill("\t987654 ");
+  await page.getByRole("button", { name: "Verify code", exact: true }).click();
+  await vi.waitFor(() => expect(client.continue).toHaveBeenCalledTimes(2));
+  expect(client.continue).toHaveBeenLastCalledWith({ flowId, newDeviceOtp: "987654" });
+});
+
 test("manual MFA clears the code on submission and never resends without another user action", async () => {
   const client = mockClient();
   client.begin.mockResolvedValue({
@@ -1963,6 +2023,40 @@ test("each connection's row holds its vault access, which waits for saved settin
   await expect.element(page.getByText("Saved settings loaded. Revision 4")).toBeVisible();
   await expect.element(use).toBeEnabled();
   await expect.element(use).not.toBeChecked();
+});
+
+test("past Bitwarden's 5 accounts, adding and listing connections warns without refusing", async () => {
+  const warning =
+    "More than 5 connections. The official Bitwarden extension allows up to 5 accounts, and each unlocked vault uses more memory.";
+  const listed = (count: number) =>
+    Array.from({ length: count }, (_, index) => ({
+      ...registered,
+      connectionId: `listed-${index + 1}`,
+      label: `Vault ${index + 1}`,
+      state: "ready" as const,
+      providerSession: "active" as const,
+    }));
+  const client = mockClient();
+  client.list
+    .mockResolvedValueOnce({ ...status(), connections: listed(5) })
+    .mockResolvedValue({ ...status(), connections: listed(6) });
+  client.begin.mockImplementation(async () => ({ ...ready(), connectionId: "listed-6" }));
+  await mount(client);
+  // Five are within the official limit; the closed form holds the warning hidden.
+  await expect.element(page.getByText(warning)).not.toBeVisible();
+  await page.getByText("Add a connection", { exact: true }).first().click();
+  // The sixth connection is warned about in the form, and Connect stays available.
+  await expect.element(page.getByText(warning)).toBeVisible();
+  await fillNew();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  await expect
+    .element(page.getByRole("button", { name: "Vault 6: Sync", exact: true }))
+    .toBeVisible();
+  // With six listed, the warning stays under the list.
+  await expect.element(page.getByText(warning)).toBeVisible();
+  expect(
+    document.getElementById("bitwarden-connections")?.nextElementSibling?.textContent,
+  ).toContain(warning);
 });
 
 const statusOutput = () => page.elementLocator(document.getElementById("bitwarden-setup-status")!);

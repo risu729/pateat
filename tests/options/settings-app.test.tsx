@@ -8,6 +8,7 @@ import {
   SETTINGS_QUERY_KEY,
   type SettingsClient,
 } from "../../apps/extension/src/options/client";
+import type { ServiceClient } from "../../apps/extension/src/options/service-client";
 import { SettingsApp } from "../../apps/extension/src/options/settings-app";
 import { SITE_ACCOUNTS_DELAY_MS } from "../../apps/extension/src/options/site-policy";
 import {
@@ -77,11 +78,11 @@ function control(id: string) {
   return page.getById(id);
 }
 
-async function mount(client: SettingsClient = mockClient()) {
+async function mount(client: SettingsClient = mockClient(), serviceClient?: ServiceClient) {
   const queryClient = createMetadataQueryClient();
   await render(
     <QueryClientProvider client={queryClient}>
-      <SettingsApp client={client} />
+      <SettingsApp client={client} {...(serviceClient && { serviceClient })} />
     </QueryClientProvider>,
   );
   await expect.element(control("settings-status")).toMatchTextContent("Saved settings loaded");
@@ -375,6 +376,143 @@ test("the add form validates locally and keeps focus on the origin after adds an
       accountName: "Demo personal vault",
     },
   ]);
+});
+
+test("an account that cannot be saved marks the account select, not the origin", async () => {
+  const client = mockClient();
+  // The same account connected twice cannot be told apart.
+  const response = saved();
+  response.catalog.connections[1]!.userId = "demo-personal-account";
+  client.getSettings.mockResolvedValue(response);
+  await mount(client);
+  // With no matching item the select is disabled, so focus stays on the valid origin.
+  await control("site-origin").fill("https://none.example");
+  await expect.element(control("default-account-note")).toMatchTextContent("No vault item matches");
+  await control("add-default").click();
+  await expect
+    .element(page.getByRole("alert"))
+    .toMatchTextContent("Choose an available default account.");
+  await expect.element(control("site-origin")).toHaveAttribute("aria-invalid", "false");
+  await expect.element(control("site-origin")).not.toHaveAttribute("aria-describedby");
+  await expect.element(control("default-account")).toHaveAttribute("aria-invalid", "true");
+  await expect
+    .element(control("default-account"))
+    .toHaveAccessibleDescription(/Choose an available default account\./);
+  await expect.element(control("site-origin")).toHaveFocus();
+  // Listing every item enables the select, so its stale error goes.
+  await control("default-account-all").click();
+  await expect.element(page.getByRole("alert")).not.toBeInTheDocument();
+  await expect.element(control("default-account")).toHaveAttribute("aria-invalid", "false");
+  await control("default-account-all").click();
+
+  // An enabled select that names an ambiguous account takes focus.
+  await control("site-origin").fill("https://mail.example");
+  await expect.element(page.getByRole("alert")).not.toBeInTheDocument();
+  await expect.element(control("default-account")).toHaveAttribute("aria-invalid", "false");
+  await expect.element(control("default-account-note")).toMatchTextContent("1 matching item");
+  await control("add-default").click();
+  await expect
+    .element(page.getByRole("alert"))
+    .toMatchTextContent("This vault account is connected more than once.");
+  await expect.element(control("site-origin")).toHaveAttribute("aria-invalid", "false");
+  await expect.element(control("default-account")).toHaveAttribute("aria-invalid", "true");
+  await expect.element(control("default-account")).toHaveFocus();
+  // Choosing another account clears the error.
+  await control("default-account-all").click();
+  await control("default-account").selectOptions(JSON.stringify(["demo-personal", "primary"]));
+  await expect.element(page.getByRole("alert")).not.toBeInTheDocument();
+  await expect.element(control("default-account")).toHaveAttribute("aria-invalid", "false");
+  expect(client.saveSettings).not.toHaveBeenCalled();
+});
+
+test("saving while accounts load marks the account select until they are listed", async () => {
+  const client = mockClient();
+  const listed = deferred<Awaited<ReturnType<typeof demoSiteAccounts>>>();
+  client.findSiteAccounts.mockReturnValue(listed.promise);
+  await mount(client);
+  await control("site-origin").fill("https://bank.example");
+  await control("add-default").click();
+  await expect
+    .element(page.getByRole("alert"))
+    .toMatchTextContent("Wait until the matching accounts are listed.");
+  await expect.element(control("site-origin")).toHaveAttribute("aria-invalid", "false");
+  await expect.element(control("default-account")).toHaveAttribute("aria-invalid", "true");
+  await expect
+    .element(control("default-account"))
+    .toHaveAccessibleDescription(/Wait until the matching accounts are listed\./);
+  listed.resolve(await demoSiteAccounts("https://bank.example"));
+  await expect.element(control("default-account-note")).toMatchTextContent("3 matching items");
+  await expect.element(page.getByRole("alert")).not.toBeInTheDocument();
+  await expect.element(control("default-account")).toHaveAttribute("aria-invalid", "false");
+  expect(client.saveSettings).not.toHaveBeenCalled();
+});
+
+test("after a default is saved the next origin starts from its best match", async () => {
+  const client = mockClient();
+  await mount(client);
+  await control("site-origin").fill("https://bank.example");
+  await expect.element(control("default-account-note")).toMatchTextContent("3 matching items");
+  await control("default-account").selectOptions(JSON.stringify(["demo-work", "primary"]));
+  await control("add-default").click();
+  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 1");
+  // The work account is offered for mail.example too, but does not match it.
+  await control("default-account-all").click();
+  await control("site-origin").fill("https://mail.example");
+  await expect.element(control("default-account-note")).toMatchTextContent("1 matching item");
+  await expect
+    .element(control("default-account"))
+    .toHaveValue(JSON.stringify(["demo-personal", "secondary"]));
+});
+
+test("an origin in another spelling is saved in its canonical form", async () => {
+  const client = mockClient();
+  await mount(client);
+  for (const spelling of [
+    "https://bank.example/",
+    "https://bank.example/path",
+    "https://bank.example?query",
+    "https://bank.example#hash",
+    "https://user@bank.example",
+    "https://bank_example",
+  ]) {
+    // oxlint-disable-next-line no-await-in-loop
+    await control("site-origin").fill(spelling);
+    // oxlint-disable-next-line no-await-in-loop
+    await control("add-default").click();
+    // oxlint-disable-next-line no-await-in-loop
+    await expect
+      .element(page.getByRole("alert"))
+      .toMatchTextContent("Enter an exact HTTP(S) origin without a path or trailing slash.");
+  }
+  // A Unicode hostname is searched and saved as punycode.
+  await control("site-origin").fill("https://bücher.example");
+  await expect.element(control("default-account-note")).toMatchTextContent("No vault item matches");
+  expect(client.findSiteAccounts).toHaveBeenLastCalledWith(
+    "https://xn--bcher-kva.example",
+    expect.anything(),
+  );
+  for (const [revision, spelling] of [
+    "HTTPS://Bank.Example",
+    "https://bank.example:443",
+  ].entries()) {
+    // oxlint-disable-next-line no-await-in-loop
+    await control("site-origin").fill(spelling);
+    // oxlint-disable-next-line no-await-in-loop
+    await expect.element(control("default-account-note")).toMatchTextContent("3 matching items");
+    // oxlint-disable-next-line no-await-in-loop
+    await control("add-default").click();
+    // oxlint-disable-next-line no-await-in-loop
+    await expect
+      .element(control("settings-status"))
+      .toMatchTextContent(`saved locally. Revision ${revision + 1}`);
+    expect(client.findSiteAccounts).toHaveBeenLastCalledWith(
+      "https://bank.example",
+      expect.anything(),
+    );
+    expect(client.saveSettings.mock.calls[revision]?.[0].settings.siteDefaults).toEqual([
+      expect.objectContaining({ origin: "https://bank.example", itemId: "primary" }),
+    ]);
+  }
 });
 
 test("an origin row changes its default only on Save, and No default removes it", async () => {
@@ -860,4 +998,74 @@ test("malformed save responses are rejected at the runtime boundary and keep the
   expect(
     send.mock.calls.filter(([request]) => (request as { type: string }).type === "settings.save"),
   ).toHaveLength(1);
+});
+
+function navLink(name: string) {
+  return page
+    .getByRole("navigation", { name: "Sections" })
+    .getByRole("link", { name, exact: true });
+}
+
+/** A disconnected sync service adds the page's last, short section. */
+function disconnectedService(): ServiceClient {
+  const disconnected = { ok: true as const, state: { kind: "disconnected" as const } };
+  return {
+    get: vi.fn<ServiceClient["get"]>().mockResolvedValue(disconnected),
+    requestSiteAccess: vi.fn<ServiceClient["requestSiteAccess"]>().mockResolvedValue(true),
+    forget: vi.fn<ServiceClient["forget"]>().mockResolvedValue(disconnected),
+    pair: vi.fn<ServiceClient["pair"]>(),
+    disconnect: vi.fn<ServiceClient["disconnect"]>().mockResolvedValue(disconnected),
+    openSignIn: vi.fn<ServiceClient["openSignIn"]>().mockResolvedValue(undefined),
+  };
+}
+
+test("the section nav marks the section scrolled into view after settings load", async () => {
+  await page.viewport(400, 300);
+  try {
+    await mount();
+    await expect.element(navLink("Demo vaults")).toHaveAttribute("aria-current", "location");
+    // Loading replaced the placeholder Sites section; the nav must follow the new one.
+    document.getElementById("sites")?.scrollIntoView({ block: "start" });
+    await expect.element(navLink("Sites")).toHaveAttribute("aria-current", "location");
+    await expect.element(navLink("Demo vaults")).not.toHaveAttribute("aria-current");
+    document.getElementById("demo-vaults")?.scrollIntoView({ block: "start" });
+    await expect.element(navLink("Demo vaults")).toHaveAttribute("aria-current", "location");
+  } finally {
+    await page.viewport(414, 896);
+  }
+});
+
+test("at the bottom of the page the section nav marks the last section shown", async () => {
+  await page.viewport(800, 600);
+  try {
+    await mount(mockClient(), disconnectedService());
+    await expect.element(control("sync")).toBeInTheDocument();
+    window.scrollTo(0, document.documentElement.scrollHeight);
+    await expect.element(navLink("Sync service")).toHaveAttribute("aria-current", "location");
+  } finally {
+    await page.viewport(414, 896);
+  }
+});
+
+test("a clicked section link stays current until the user scrolls", async () => {
+  await page.viewport(800, 600);
+  try {
+    await mount(mockClient(), disconnectedService());
+    await expect.element(control("sync")).toBeInTheDocument();
+    for (const name of ["Sites", "Sync service"]) {
+      window.scrollTo(0, 0);
+      // oxlint-disable-next-line no-await-in-loop
+      await navLink(name).click();
+      // The page cannot scroll the section to the top; the jump must not move the mark.
+      // oxlint-disable-next-line no-await-in-loop
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      // oxlint-disable-next-line no-await-in-loop
+      await expect.element(navLink(name)).toHaveAttribute("aria-current", "location");
+    }
+    document.dispatchEvent(new WheelEvent("wheel", { bubbles: true }));
+    window.scrollTo(0, 0);
+    await expect.element(navLink("Demo vaults")).toHaveAttribute("aria-current", "location");
+  } finally {
+    await page.viewport(414, 896);
+  }
 });

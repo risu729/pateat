@@ -6885,6 +6885,47 @@ describe("production login document admission", () => {
       expect(tabBadge.asking(1)).toBe(false);
     });
 
+    it("logs why a page was described without a field", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout"], shouldAdvanceTime: true });
+      onTestFinished(() => void vi.useRealTimers());
+      fake.state.extracted = {
+        login: {
+          ok: false,
+          reason: "no-candidates",
+          detail: "n2.d0.text-hidden-attr.password-hidden-attr",
+        },
+      };
+      const service = generation();
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness(unsaved, {
+        allowedOrigins: [],
+        uris,
+        username: true,
+        custom: [],
+        generation: service,
+        report,
+      });
+      h.recipes.recipe.mockResolvedValue(undefined);
+      h.recipes.starts.mockResolvedValue(startsOf([]));
+      expect(await h.hello({}, false)).toMatchObject({ generate: true });
+      await h.signIn();
+      await vi.waitFor(() =>
+        expect(fake.state.messages.map((entry) => entry.type)).toContain("login.extract"),
+      );
+      await vi.advanceTimersByTimeAsync(9_000);
+      await vi.waitFor(() =>
+        expect(report).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: "generation",
+            outcome: "skipped",
+            reason: "no-candidates",
+            detail: "n2.d0.text-hidden-attr.password-hidden-attr",
+          }),
+        ),
+      );
+      expect(service.generate).not.toHaveBeenCalled();
+    });
+
     it("clips a page's over-long refusal reason to the popup's limit", async () => {
       vi.useFakeTimers({ toFake: ["setTimeout"], shouldAdvanceTime: true });
       onTestFinished(() => void vi.useRealTimers());

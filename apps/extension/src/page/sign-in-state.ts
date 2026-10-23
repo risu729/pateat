@@ -1,3 +1,4 @@
+import { latinWord } from "./account-list";
 import { visible } from "./code-submission";
 import { autocompleteTokens } from "./targets";
 import { collapseText, readBehindModal, renderedText } from "./text";
@@ -63,6 +64,12 @@ const alertReadLimit = 1000;
 const landmarkReadLimit = 4000;
 /** Shorter usernames match too much unrelated text; the observation's hiding uses it too. */
 export const minUsernameLength = 3;
+/**
+ * Digits an all-digit username, such as a member number, needs to show beside kana or
+ * kanji (`会員番号12345678さん`); a shorter number there may be a date or a count, as in
+ * `2026年10月` or `残り123件` (owner, 2026-10-23).
+ */
+const memberNumberMinDigits = 8;
 /**
  * Frames of the CAPTCHA services, by host and path: reCAPTCHA (`google.com/recaptcha/`,
  * `recaptcha.net/recaptcha/`), hCaptcha and Cloudflare Turnstile.
@@ -325,7 +332,10 @@ export function showsCaptcha(document: Document): boolean {
 
 /**
  * E2: the username, ignoring case, as a whole word of the header or navigation text,
- * read behind an open modal dialog too, as the signed-in page's description is.
+ * read behind an open modal dialog too, as the signed-in page's description is. As in
+ * ADR 0028, a username with a Latin letter whose edge is a Latin letter or digit may
+ * touch a letter of another script, such as kana or kanji, there (`taro_yさん`). An all-digit one may touch kana or kanji only
+ * with {@link memberNumberMinDigits} digits or more, and no other letter.
  */
 function showsUsername(document: Document, username: string): boolean {
   // Page text is read without format characters, so the username is compared without them.
@@ -340,13 +350,26 @@ function showsUsername(document: Document, username: string): boolean {
       (landmark) => renderedText(landmark, landmarkReadLimit, { everyElement: true }) ?? "",
     ),
   );
+  // `risu` is not shown by `risu729` nor by `x.risu@example.com`.
+  // An all-digit username, such as a member number, keeps the strict rule (`2026年`)
+  // unless it is long enough to be a member number.
+  const latin = /\p{Script=Latin}/u.test(name);
+  const blockedBefore =
+    latin && latinWord.test(name[0]!) ? /[\p{Script=Latin}\p{N}_.@-]/u : /[\p{L}\p{N}_.@-]/u;
+  const blockedAfter =
+    latin && latinWord.test(name.at(-1)!) ? /[\p{Script=Latin}\p{N}_@-]/u : /[\p{L}\p{N}_@-]/u;
+  const memberNumber =
+    /^\p{Decimal_Number}+$/u.test(name) && [...name].length >= memberNumberMinDigits;
+  // Script extensions also cover ー and 〆, which `メンバー` and `〆切` use.
+  const kanaOrKanji = /[\p{scx=Han}\p{scx=Hiragana}\p{scx=Katakana}]/u;
+  const blocks = (blocked: RegExp, edge: string) =>
+    blocked.test(edge) && !(memberNumber && kanaOrKanji.test(edge));
   return texts.some((raw) => {
     const text = raw.normalize("NFKC").toLowerCase();
     for (let at = text.indexOf(name); at >= 0; at = text.indexOf(name, at + 1)) {
       const before = text.slice(0, at).at(-1) ?? " ";
       const after = text[at + name.length] ?? " ";
-      // `risu` is not shown by `risu729` nor by `x.risu@example.com`.
-      if (!/[\p{L}\p{N}_.@-]/u.test(before) && !/[\p{L}\p{N}_@-]/u.test(after)) return true;
+      if (!blocks(blockedBefore, before) && !blocks(blockedAfter, after)) return true;
     }
     return false;
   });
