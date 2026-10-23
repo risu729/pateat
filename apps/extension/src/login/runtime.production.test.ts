@@ -139,6 +139,10 @@ const fake = vi.hoisted(() => {
     },
     /** Runs when the document presses its sign-in entry. */
     onPress: undefined as undefined | (() => void),
+    /** Tabs in an incognito window (ADR 0062). */
+    incognito: new Set<number>(),
+    /** The open tabs `tabs.query` lists, by ID; none when unset. */
+    openTabs: undefined as number[] | undefined,
   };
   const browser = {
     runtime: {
@@ -187,8 +191,17 @@ const fake = vi.hoisted(() => {
       },
     },
     tabs: {
-      query: async () => [],
-      get: async (id: number) => ({ id, url: state.tabUrls[id] ?? state.pageUrl }),
+      query: async () =>
+        (state.openTabs ?? []).map((id) => ({
+          id,
+          url: state.tabUrls[id] ?? state.pageUrl,
+          incognito: state.incognito.has(id),
+        })),
+      get: async (id: number) => ({
+        id,
+        url: state.tabUrls[id] ?? state.pageUrl,
+        incognito: state.incognito.has(id),
+      }),
       sendMessage: async (
         _tabId: number,
         message: Record<string, unknown>,
@@ -641,6 +654,17 @@ const shownHello = (
     sender(from),
   );
 
+/** The toolbar popup pauses or resumes automatic login of a tab's site (ADR 0062). */
+const setPause = (
+  h: { login: { handle(message: unknown, sender: unknown): Promise<unknown> } },
+  paused: boolean,
+  tabId = 1,
+) =>
+  h.login.handle(
+    { version: 1, type: "login.pause.set", tabId, paused },
+    { id: "synthetic-extension", url: "chrome-extension://synthetic-extension/popup.html" },
+  );
+
 describe("production login document admission", () => {
   afterEach(() => {
     // Close every test's tabs, so no attempt left reconciling answers a later test.
@@ -672,6 +696,8 @@ describe("production login document admission", () => {
     fake.state.extracted = {};
     fake.state.signs = undefined;
     fake.state.loaded = true;
+    fake.state.incognito = new Set();
+    fake.state.openTabs = undefined;
   });
   it("completes a saved-default HTTPS login with a local recipe and live field", async () => {
     const h = harness();
@@ -8360,6 +8386,23 @@ describe("production login document admission", () => {
       });
 
       describe("sending the page", () => {
+        it("sends no page of a paused site (ADR 0062)", async () => {
+          const { service, h, reports } = setup();
+          expect(await setPause(h, true)).toEqual({ ok: true, until: expect.any(Number) });
+          expect(await h.hello({}, false)).toEqual({ ok: false, reason: "recipe-not-found" });
+          expect(await entryHello(h)).toEqual({ ok: false, reason: "recipe-not-found" });
+          expect(service.generateEntry).not.toHaveBeenCalled();
+          expect(service.generate).not.toHaveBeenCalled();
+          expect(reports("generation")).toEqual([
+            expect.objectContaining({ outcome: "skipped", reason: "paused" }),
+          ]);
+          // Once resumed, the page is offered again.
+          expect(await setPause(h, false)).toEqual({ ok: true });
+          expect(await h.hello({ documentId: "after-resume" }, false)).toMatchObject({
+            generate: true,
+            entry: true,
+          });
+        });
         it("sends a page whose URL names another path of its site, without slots", async () => {
           const { service, h, reports } = setup();
           expect(await h.hello({}, false)).toEqual({
@@ -9133,6 +9176,16 @@ describe("production login document admission", () => {
               outcome: "refused",
               reason: "site-record",
             });
+          });
+
+          it("refuses a press while the site is paused (ADR 0062)", async () => {
+            fake.state.entry.inspect = inspected();
+            const { h, reports } = setup({ entries: [entryRecipe] });
+            await setPause(h, true);
+            expect(await h.hello({}, false)).toMatchObject({ reason: "entry" });
+            await vi.waitFor(() => expect(reports("entry")).toHaveLength(1));
+            expect(reports("entry")[0]).toMatchObject({ outcome: "refused", reason: "paused" });
+            expect(sent("login.entry.press")).toEqual([]);
           });
 
           it("refuses a press while another tab's login holds the site", async () => {
@@ -26245,5 +26298,275 @@ describe("revoking a recipe the chosen item cannot run (ADR 0058 A)", () => {
       });
       await vi.waitFor(() => expect(generation.replace).toHaveBeenCalledTimes(1));
     });
+  });
+});
+
+describe("pausing automatic login of a site (ADR 0062)", () => {
+  const PAUSES = "pateat.login-pauses.v1";
+  const popup = {
+    id: "synthetic-extension",
+    url: "chrome-extension://synthetic-extension/popup.html",
+  } as never;
+  afterEach(() => {
+    vi.useRealTimers();
+    for (const listener of fake.state.removed.splice(0))
+      for (const tabId of [1, 2, 3, 4]) listener(tabId);
+    fake.state.replaced.length = 0;
+  });
+  beforeEach(() => {
+    fake.state.storage = {};
+    fake.state.session = {};
+    fake.state.badges = {};
+    fake.state.reconnects = [];
+    fake.state.onReconnect = undefined;
+    fake.state.messages = [];
+    fake.state.granted = true;
+    fake.state.pageUrl = "https://login.example/signin";
+    fake.state.onExecute = undefined;
+    fake.state.tabUrls = {};
+    fake.state.observed = ["unique", "missing"];
+    fake.state.observedPath = "/signin";
+    fake.state.present = undefined;
+    fake.state.unusable = new Set();
+    fake.state.awaited = { ok: true };
+    fake.state.onAwait = undefined;
+    fake.state.executeReply = undefined;
+    fake.state.gone = new Set();
+    fake.state.extracted = {};
+    fake.state.signs = undefined;
+    fake.state.loaded = true;
+    fake.state.incognito = new Set();
+    fake.state.openTabs = undefined;
+  });
+  const stored = () =>
+    (fake.state.storage["pateat.login-attempts.v5"] ?? []) as Record<string, unknown>[];
+  const executes = () => fake.state.messages.filter((entry) => entry.type === "login.execute");
+  /** A runtime whose reports and badge the test reads. */
+  const paused = (live: Parameters<typeof harness>[1] = {}) => {
+    const reports: LoginReport[] = [];
+    const h = harness(
+      {},
+      {
+        ...live,
+        report: (entry) => reports.push(entry),
+        badge: createLoginBadge({ setBadge: setActionBadge, storage: memoryBadgeStorage() }),
+      },
+    );
+    const refused = () => reports.filter((entry) => entry.type === "refused");
+    return { h, reports, refused };
+  };
+  const status = async (h: ReturnType<typeof harness>, tabId = 1) =>
+    v.parse(
+      statusResponseSchema,
+      await h.login.handle({ version: 1, type: "login.status.get", tabId }, popup),
+    );
+
+  it("refuses the site's automatic logins in every tab, and offers its account", async () => {
+    const { h, reports, refused } = paused();
+    fake.state.openTabs = [1, 2];
+    fake.state.tabUrls[2] = "https://www.login.example/account";
+    const answer = (await setPause(h, true)) as { ok: true; until: number };
+    expect(answer).toEqual({ ok: true, until: expect.any(Number) });
+    expect(answer.until - Date.now()).toBeGreaterThan(59 * 60_000);
+    expect(fake.state.session[PAUSES]).toEqual([
+      { site: "login.example", incognito: false, until: new Date(answer.until).toISOString() },
+    ]);
+    expect(reports).toContainEqual({ type: "pause", tabId: 1, origin, action: "paused" });
+    // Every tab of the registrable site shows the pause.
+    await vi.waitFor(() => expect(fake.state.badges[2]?.text).toBe("II"));
+    expect(fake.state.badges[2]?.title).toMatch(
+      /^Pateat: automatic login is paused on this site until \d\d:\d\d\.$/u,
+    );
+    expect(await h.hello()).toEqual({ ok: false, reason: "paused" });
+    fake.state.tabUrls[3] = fake.state.pageUrl;
+    expect(await h.hello({ tab: { id: 3 }, documentId: "third" })).toEqual({
+      ok: false,
+      reason: "paused",
+    });
+    expect(executes()).toEqual([]);
+    expect(refused()).toEqual([
+      expect.objectContaining({ tabId: 1, reason: "paused", candidates: 1 }),
+      expect.objectContaining({ tabId: 3, reason: "paused", candidates: 1 }),
+    ]);
+    // The saved default alone is offered, and the choice's amber count shows over the pause.
+    expect(await h.login.handle({ version: 1, type: "login.choice.get", tabId: 1 }, popup)).toEqual(
+      {
+        ok: true,
+        origin,
+        documentId: "synthetic-document",
+        candidates: [{ connectionId, itemId }],
+        paused: true,
+      },
+    );
+    await vi.waitFor(() => expect(fake.state.badges[1]?.text).toBe("1"));
+    expect(fake.state.badges[1]?.title).toBe(
+      "Pateat: automatic login is paused on this site. Click to choose an account.",
+    );
+    expect(await status(h)).toMatchObject({
+      ok: true,
+      pause: { until: answer.until },
+      page: { state: "denied", reason: "paused" },
+    });
+  });
+
+  it("leaves other sites logging in", async () => {
+    const { h } = paused();
+    fake.state.tabUrls[3] = "https://elsewhere.example/";
+    expect(await setPause(h, true, 3)).toEqual({ ok: true, until: expect.any(Number) });
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(stored()).toMatchObject([{ state: "authenticated" }]));
+    expect((await status(h)).ok && (await status(h))).not.toHaveProperty("pause");
+  });
+
+  it("keeps normal and incognito windows apart", async () => {
+    const { h } = paused();
+    fake.state.incognito = new Set([2]);
+    fake.state.tabUrls[2] = fake.state.pageUrl;
+    await setPause(h, true, 2);
+    expect(fake.state.session[PAUSES]).toMatchObject([{ site: "login.example", incognito: true }]);
+    expect(await h.hello({ tab: { id: 2 }, documentId: "incognito" })).toEqual({
+      ok: false,
+      reason: "paused",
+    });
+    // The normal window's tab of the same site still logs in.
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(stored()).toMatchObject([{ state: "authenticated", document: { tabId: 1 } }]),
+    );
+  });
+
+  it("pauses a frame's login when its tab's site or its own site is paused", async () => {
+    const { h } = paused();
+    const top = "https://top.example/page";
+    const frame = { frameId: 4, documentId: "frame", tab: { id: 1, url: top } };
+    fake.state.tabUrls[1] = top;
+    // Unpaused, the frame is refused for another reason: the item does not match the tab.
+    const before = (await h.hello(frame)) as { reason: string };
+    expect(before.reason).toBe("frame-top-mismatch");
+    await setPause(h, true);
+    expect(await h.hello({ ...frame, documentId: "frame-2" })).toEqual({
+      ok: false,
+      reason: "paused",
+    });
+    await setPause(h, false);
+    fake.state.tabUrls[2] = fake.state.pageUrl;
+    await setPause(h, true, 2);
+    expect(await h.hello({ ...frame, documentId: "frame-3" })).toEqual({
+      ok: false,
+      reason: "paused",
+    });
+  });
+
+  it("ends by itself after an hour; an open page waits for its next announcement", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const { h } = paused();
+    await setPause(h, true);
+    expect(await h.hello()).toEqual({ ok: false, reason: "paused" });
+    expect(fake.state.reconnects).toEqual([]);
+    vi.setSystemTime(Date.now() + 60 * 60_000);
+    // Nothing asks the page to announce again.
+    expect(fake.state.reconnects).toEqual([]);
+    expect(await status(h)).not.toHaveProperty("pause");
+    expect(await h.hello({ documentId: "reloaded" })).toEqual({ ok: true });
+  });
+
+  it("survives a worker restart", async () => {
+    const first = paused();
+    await setPause(first.h, true);
+    const restarted = paused();
+    expect(await restarted.h.hello()).toEqual({ ok: false, reason: "paused" });
+  });
+
+  it("logs in once with a popup pick, whose sign-in ends the pause", async () => {
+    const { h, reports } = paused();
+    fake.state.openTabs = [1, 2];
+    fake.state.tabUrls[2] = fake.state.pageUrl;
+    await setPause(h, true);
+    expect(await h.hello()).toEqual({ ok: false, reason: "paused" });
+    fake.state.onReconnect = () => h.hello();
+    expect(
+      await h.login.handle(
+        {
+          version: 1,
+          type: "login.choice.pick",
+          tabId: 1,
+          documentId: "synthetic-document",
+          connectionId,
+          itemId,
+          makeDefault: false,
+        },
+        popup,
+      ),
+    ).toEqual({ ok: true });
+    await vi.waitFor(() => expect(stored()).toMatchObject([{ state: "authenticated" }]));
+    await vi.waitFor(() => expect(fake.state.session[PAUSES]).toEqual([]));
+    expect(reports).toContainEqual({ type: "pause", tabId: 1, origin, action: "picked" });
+    await vi.waitFor(() => expect(fake.state.badges[2]?.text).toBe(""));
+    // The site's other tabs log in by themselves again.
+    expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({ ok: true });
+  });
+
+  it("does not end the pause on a login that was not picked", async () => {
+    const { h } = paused();
+    fake.state.tabUrls[2] = fake.state.pageUrl;
+    // A login that started before the pause goes on, and its sign-in keeps the pause.
+    fake.state.onExecute = () => new Promise((resolve) => setTimeout(resolve, 50));
+    expect(await h.hello()).toEqual({ ok: true });
+    await setPause(h, true);
+    await vi.waitFor(() => expect(stored()).toMatchObject([{ state: "authenticated" }]));
+    expect(fake.state.session[PAUSES]).toHaveLength(1);
+    expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({
+      ok: false,
+      reason: "paused",
+    });
+  });
+
+  it("asks the site's tabs to announce again on resume, so they log in at once", async () => {
+    const { h, reports } = paused();
+    fake.state.openTabs = [1, 2, 3];
+    fake.state.tabUrls[2] = fake.state.pageUrl;
+    fake.state.tabUrls[3] = "https://elsewhere.example/";
+    await setPause(h, true);
+    expect(await h.hello()).toEqual({ ok: false, reason: "paused" });
+    fake.state.onReconnect = () => h.hello();
+    // Only the resume's own requests count, not the worker start's.
+    fake.state.reconnects = [];
+    expect(await setPause(h, false)).toEqual({ ok: true });
+    expect(reports).toContainEqual({ type: "pause", tabId: 1, origin, action: "resumed" });
+    expect(fake.state.session[PAUSES]).toEqual([]);
+    expect(fake.state.reconnects).toEqual([{ tabId: 1 }, { tabId: 2 }]);
+    await vi.waitFor(() => expect(stored()).toMatchObject([{ state: "authenticated" }]));
+    // The pause's choice ended with it.
+    expect(await h.login.handle({ version: 1, type: "login.choice.get", tabId: 1 }, popup)).toEqual(
+      { ok: false, reason: "no-choice" },
+    );
+    // Nothing is left to resume.
+    expect(await setPause(h, false)).toEqual({ ok: true });
+    expect(fake.state.reconnects).toHaveLength(2);
+  });
+
+  it("has no site to pause on a page that is not a website", async () => {
+    const { h } = paused();
+    fake.state.tabUrls[1] = "chrome://newtab/";
+    expect(await setPause(h, true)).toEqual({ ok: false, reason: "no-site" });
+    expect(fake.state.session[PAUSES]).toBeUndefined();
+  });
+
+  it("hands the site's own conditional passkey requests on at once", async () => {
+    const { h } = paused();
+    fake.state.openTabs = [1];
+    const request = (documentId: string) =>
+      h.login.conditionalRequest({
+        tabId: 1,
+        origin,
+        documentId,
+        signal: new AbortController().signal,
+      });
+    // One already waiting is handed on when the pause starts.
+    const waiting = request("synthetic-document");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await setPause(h, true);
+    expect(await waiting).toEqual({ kind: "delegate", reason: "paused" });
+    expect(await request("later")).toEqual({ kind: "delegate", reason: "paused" });
   });
 });

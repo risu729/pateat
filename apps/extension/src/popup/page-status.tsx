@@ -47,6 +47,7 @@ const NOT_STARTED: Record<string, string> = {
   "no-recipe-on-path": "no recipe of this site starts on this page",
   "logged-out": "you logged out of this site; choose an account to log in again",
   "account-ambiguous": "several accounts match; choose one to log in",
+  paused: "automatic login is paused on this site; choose an account to log in",
   "origin-busy": "another tab's login to this site is running or did not succeed",
   "tab-busy": "another login runs in this tab",
   "attempt-limit": "Pateat already holds as many login records as it can",
@@ -68,6 +69,7 @@ const NOT_SENT: Record<string, string> = {
   "connection-disabled": "the vault connection is turned off",
   "after-sign-in": "this page came right after a sign-in",
   "nothing-offered": "the page showed no sign-in form",
+  paused: "automatic login is paused on this site",
 };
 
 const plain = (table: Record<string, string>, code: string) => table[code] ?? code;

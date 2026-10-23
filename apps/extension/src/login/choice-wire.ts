@@ -17,7 +17,13 @@ export const logoutReasonSchema = v.picklist([
 ]);
 export type LogoutReason = v.InferOutput<typeof logoutReasonSchema>;
 /** The toolbar popup's line saying why it asks for an account (ADR 0021). */
-export function choiceReason(logout: LogoutReason | undefined, matches: number): string {
+export function choiceReason(
+  logout: LogoutReason | undefined,
+  matches: number,
+  paused = false,
+): string {
+  // A paused site asks with any matching account, also with one (ADR 0062).
+  if (paused) return "Automatic login is paused on this site";
   if (logout === undefined) return `${matches} accounts match this page`;
   return {
     "this-tab": "You logged out of this site in this tab",
@@ -56,6 +62,11 @@ export const choiceResponseSchema = v.variant("ok", [
     ),
     /** The tab asks after a logout (ADR 0021 D), and why. */
     logout: v.optional(logoutReasonSchema),
+    /**
+     * Automatic login of the page's site is paused (ADR 0062): any matching account, also
+     * the saved default or the only match, is offered, and a pick logs in once.
+     */
+    paused: v.optional(v.literal(true)),
     /** Another tab's login holds the site, so a pick cannot start yet (ADR 0022). */
     held: v.optional(v.literal(true)),
     /**
@@ -152,6 +163,8 @@ export const statusResponseSchema = v.variant("ok", [
      * for a vault item with neither a password nor a passkey, until the next login starts.
      */
     refused: v.optional(v.strictObject({ reason: code, detail: v.optional(code) })),
+    /** Automatic login of the tab's site is paused until then, in epoch ms (ADR 0062). */
+    pause: v.optional(v.strictObject({ until: v.pipe(v.number(), v.integer(), v.minValue(0)) })),
     /** The tab's last page sent for generation on this origin's page, and what came back. */
     generation: v.optional(
       v.strictObject({
@@ -163,7 +176,26 @@ export const statusResponseSchema = v.variant("ok", [
   }),
   v.strictObject({ ok: v.literal(false), reason: v.literal("no-page") }),
 ]);
+/**
+ * The popup pauses automatic login of the tab's site for an hour, or resumes it (ADR 0062);
+ * the pause covers the registrable site in every tab of the tab's window kind.
+ */
+export const pauseRequestSchema = v.strictObject({
+  version: v.literal(1),
+  type: v.literal("login.pause.set"),
+  tabId,
+  paused: v.boolean(),
+});
+export const pauseResponseSchema = v.variant("ok", [
+  v.strictObject({
+    ok: v.literal(true),
+    /** While paused: when the pause ends, in epoch milliseconds. */
+    until: v.optional(v.pipe(v.number(), v.integer(), v.minValue(0))),
+  }),
+  v.strictObject({ ok: v.literal(false), reason: v.picklist(["no-site", "storage-unavailable"]) }),
+]);
 export type ChoiceResponse = v.InferOutput<typeof choiceResponseSchema>;
+export type PauseResponse = v.InferOutput<typeof pauseResponseSchema>;
 export type StatusResponse = v.InferOutput<typeof statusResponseSchema>;
 export type PickRequest = Omit<v.InferOutput<typeof pickRequestSchema>, "version" | "type">;
 export type PickResponse = v.InferOutput<typeof pickResponseSchema>;
@@ -174,6 +206,8 @@ export interface ChoiceClient {
   pick(request: PickRequest): Promise<PickResponse>;
   /** What Pateat did on the tab's page, for the popup's page section (ADR 0038). */
   status(tabId: number): Promise<StatusResponse>;
+  /** Pauses automatic login of the tab's site, or resumes it (ADR 0062). */
+  pause(tabId: number, paused: boolean): Promise<PauseResponse>;
 }
 
 export function createChoiceClient(send: (message: unknown) => Promise<unknown>): ChoiceClient {
@@ -192,6 +226,11 @@ export function createChoiceClient(send: (message: unknown) => Promise<unknown>)
       v.parse(
         statusResponseSchema,
         await send({ version: 1, type: "login.status.get", tabId: tab }),
+      ),
+    pause: async (tab, paused) =>
+      v.parse(
+        pauseResponseSchema,
+        await send({ version: 1, type: "login.pause.set", tabId: tab, paused }),
       ),
   };
 }

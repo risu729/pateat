@@ -310,6 +310,12 @@ export const LOG_EVENTS = {
     fields: { origin: "origin", ask: "code", cause: "code", elsewhere: "flag" },
   },
   "login.choice": { level: "info", fields: { origin: "origin", outcome: "code", url: "url" } },
+  // Automatic login of a site paused or resumed in the popup, or ended by a picked login
+  // that authenticated (ADR 0062).
+  "login.pause": {
+    level: "info",
+    fields: { origin: "origin", action: "code", incognito: "flag", url: "url" },
+  },
   "login.popup": {
     level: "info",
     fields: {
@@ -317,6 +323,7 @@ export const LOG_EVENTS = {
       choice: "code",
       candidates: "count",
       logout: "code",
+      paused: "flag",
       held: "flag",
       rejectedElsewhere: "flag",
       recordState: "code",
