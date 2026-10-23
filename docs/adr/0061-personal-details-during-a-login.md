@@ -61,6 +61,11 @@ catalog ([feasibility note](../research/2026-10-12-card-security-code.md)).
    code goes only into a password or short numeric input.
 5. Values never leave the device; the service and the AI see only which kind of value a
    page asks for.
+6. A page that still shows the sign-in form with a detail form beside it is judged
+   ([below](#judging-a-page-beside-the-sign-in-form)), as built (2026-10-23 12:25 UTC,
+   「判定に送る」). This reverses, for such a page only,
+   [ADR 0027](0027-per-account-login-routes.md)'s rule that a page showing a
+   route fill field is never judged.
 
 ## Decision
 
