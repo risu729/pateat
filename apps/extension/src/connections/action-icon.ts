@@ -2,7 +2,8 @@
 import type { VaultEntry, VaultResult } from "../vault/record";
 import type { DurableVaultStore } from "../vault/storage";
 
-export type VaultRecordState = "active" | "disabled" | "absent" | "unreadable";
+/** `active` is usable without a password: its key is on disk or in this session's memory. */
+export type VaultRecordState = "active" | "locked" | "disabled" | "absent" | "unreadable";
 export type ActionIconState = "unlocked" | "locked";
 
 export const ACTION_ICON_PATHS: Record<ActionIconState, Record<16 | 32, string>> = {

@@ -33,6 +33,7 @@ async function withExtension(
   directory: string,
   run: (context: BrowserContext, worker: Worker, extensionId: string) => Promise<void>,
   profileDirectory?: string,
+  { scrollbars = false }: { scrollbars?: boolean } = {},
 ): Promise<void> {
   const profile = profileDirectory ?? (await mkdtemp(resolve(tmpdir(), "pateat-browser-test-")));
   let context: BrowserContext | undefined;
@@ -41,6 +42,8 @@ async function withExtension(
       channel: "chromium",
       headless: true,
       args: [`--disable-extensions-except=${directory}`, `--load-extension=${directory}`],
+      // Playwright hides scrollbars in headless Chrome unless told otherwise.
+      ...(scrollbars && { ignoreDefaultArgs: ["--hide-scrollbars"] }),
     });
     const worker = context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker"));
     const extensionId = new URL(worker.url()).hostname;
@@ -172,7 +175,7 @@ test("production package permits local storage, the crypto host and the HTTPS lo
       js: ["content-scripts/passkey-main.js"],
     },
   ]);
-  expect(manifest.permissions).toEqual(["storage", "offscreen", "alarms"]);
+  expect(manifest.permissions).toEqual(["storage", "offscreen", "alarms", "idle"]);
   expect(manifest.host_permissions).toEqual(["https://*/*", "http://*/*"]);
   // Chrome omits an optional entry the required hosts already cover, with a warning.
   expect(manifest.optional_host_permissions).toBeUndefined();
@@ -191,7 +194,7 @@ test("production package permits local storage, the crypto host and the HTTPS lo
   );
   // URL rechecks and worker reconnect require host access in addition to script
   // matches. Loopback HTTP belongs only to the synthetic build.
-  expect(probeManifest.permissions).toEqual(["storage", "offscreen", "alarms"]);
+  expect(probeManifest.permissions).toEqual(["storage", "offscreen", "alarms", "idle"]);
   expect(probeManifest.host_permissions).toEqual(["https://*/*", "http://127.0.0.1/*"]);
   expect(probeManifest.optional_host_permissions).toBeUndefined();
   // WebAuthn rejects IP-address origins, so only the passkey probe scripts use localhost.
@@ -305,7 +308,9 @@ test("probe options support keyboard policy validation and pass accessibility ch
     expect(invalid.violations).toEqual([]);
     await page.locator("#site-origin").fill("https://bank.example");
     // The matching accounts are listed again for the corrected origin before it is added.
-    await expect(page.locator("#default-account-note")).toContainText("matching item");
+    await expect(page.locator("#default-account-note")).toContainText(
+      /\d+ items? match(?:es)? this origin\./u,
+    );
     await page.locator("#site-origin").press("Enter");
     await expect(page.locator("#site-list")).toContainText("https://bank.example");
     await expect(page.locator("#site-origin")).toBeFocused();
@@ -327,7 +332,66 @@ test("options reloaded at a section link still read settings and the service", a
       "Connections loaded. Add a vault or sign in again below.",
     );
     await expect(page.getByLabel("Service address", { exact: true })).toBeVisible();
-    await expect(page.getByText("The extension did not answer", { exact: false })).toHaveCount(0);
+    await expect(page.getByText("Pateat did not answer", { exact: false })).toHaveCount(0);
+  });
+});
+
+test("dragging the page scrollbar releases a clicked section link", async () => {
+  await withExtension(
+    probeDirectory,
+    async (context, _worker, id) => {
+      const page = await context.newPage();
+      await page.setViewportSize({ width: 800, height: 600 });
+      await page.goto(`chrome-extension://${id}/options.html`);
+      await expect(page.locator("#settings-status")).toContainText("Saved settings loaded");
+      const nav = page.getByRole("navigation", { name: "Sections" });
+      const sync = nav.getByRole("link", { name: "Sync service", exact: true });
+      await sync.click();
+      await expect(page).toHaveURL(/options\.html#sync$/u);
+      await expect(sync).toHaveAttribute("aria-current", "location");
+      const view = await page.evaluate(() => ({
+        width: innerWidth,
+        height: innerHeight,
+        scrollbar: innerWidth - document.documentElement.clientWidth,
+        // The thumb's middle sits as far down the track as the window's middle is down the page.
+        thumb: ((scrollY + innerHeight / 2) / document.documentElement.scrollHeight) * innerHeight,
+      }));
+      expect(view.scrollbar).toBeGreaterThan(0);
+      // Chrome sends pointerdown for a press on the page's own scrollbar, which ends the
+      // clicked link's hold; a drag to the top then marks the first section.
+      const x = view.width - view.scrollbar / 2;
+      await page.mouse.move(x, view.thumb);
+      await page.mouse.down();
+      await page.mouse.move(x, 0, { steps: 10 });
+      await page.mouse.up();
+      await expect.poll(() => page.evaluate(() => scrollY)).toBe(0);
+      await expect(nav.getByRole("link", { name: "Bitwarden", exact: true })).toHaveAttribute(
+        "aria-current",
+        "location",
+      );
+      await expect(sync).not.toHaveAttribute("aria-current");
+    },
+    undefined,
+    { scrollbars: true },
+  );
+});
+
+test("Back to an earlier section link releases a clicked section link", async () => {
+  await withExtension(probeDirectory, async (context, _worker, id) => {
+    const page = await context.newPage();
+    await page.setViewportSize({ width: 800, height: 600 });
+    await page.goto(`chrome-extension://${id}/options.html`);
+    await expect(page.locator("#settings-status")).toContainText("Saved settings loaded");
+    const nav = page.getByRole("navigation", { name: "Sections" });
+    const bitwarden = nav.getByRole("link", { name: "Bitwarden", exact: true });
+    const sync = nav.getByRole("link", { name: "Sync service", exact: true });
+    await bitwarden.click();
+    await sync.click();
+    await expect(sync).toHaveAttribute("aria-current", "location");
+    // Back comes from the browser, with no wheel, key or pointer press in the page.
+    await page.goBack();
+    await expect(page).toHaveURL(/options\.html#bitwarden$/u);
+    await expect(bitwarden).toHaveAttribute("aria-current", "location");
   });
 });
 
@@ -453,7 +517,7 @@ test("the toolbar popup edits the active tab's site through the settings store",
     await toggle.click();
     await expect(toggle).not.toBeChecked();
     await expect(site.locator("#popup-site-status")).toHaveText(
-      "No logins or passkey answers on this site",
+      "Pateat does not log in or answer passkey requests on this site.",
     );
     expect(await get(site)).toMatchObject({
       ok: true,
@@ -606,7 +670,7 @@ test("local policies and account defaults survive a browser restart", async () =
           .selectOption(JSON.stringify(["demo-personal", "primary"]));
         // Each change is saved as it is made.
         await page.locator("#add-default").click();
-        await expect(page.locator("#settings-status")).toContainText("saved locally");
+        await expect(page.locator("#settings-status")).toContainText("Settings saved");
       },
       profile,
     );
@@ -678,7 +742,7 @@ test("a stale settings page preserves its draft and cannot overwrite newer polic
     );
     await first.locator("#site-origin").fill("protected.example");
     await first.locator("#add-site").click();
-    await expect(first.locator("#settings-status")).toContainText("saved locally");
+    await expect(first.locator("#settings-status")).toContainText("Settings saved");
     await second.locator("#site-origin").fill("draft.example");
     await second.locator("#add-site").click();
     await expect(second.locator("#settings-status")).toContainText("Reload");

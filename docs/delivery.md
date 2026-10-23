@@ -132,7 +132,7 @@ The owner decided these on 2026-10-11, following the kogane repository:
   empty value turns it off while "pateat pair" does not exist; once it exists, Access
   issues only its audience on `/pair`, so emptying the secret then stops all pairing.
   `/manage`, and `/extension/profiles` where the extension edits other settings profiles
-  ([ADR 0075](adr/0075-settings-profiles-delivered.md)), keep requiring WARP. If another
+  ([ADR 0076](adr/0076-settings-profiles-delivered.md)), keep requiring WARP. If another
   identity provider is added under Integrations, Identity providers, Policy 2 still
   admits One-time PIN sign-ins only. After pairing on a vendor's machine, open
   `https://<team domain>/cdn-cgi/access/logout` there (the `ACCESS_TEAM_DOMAIN` host);

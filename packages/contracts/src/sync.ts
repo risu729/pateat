@@ -1,8 +1,9 @@
 import * as v from "valibot";
 import {
-  chooserBranchSchema,
   loginIdentifierSchema,
   loginOutcomeSchema,
+  recipeBranchSchema,
+  recipeLayoutKeySchema,
   storedLoginRecipeSchema,
 } from "./login";
 import { profileIdSchema } from "./pairing";
@@ -45,7 +46,7 @@ export const syncSettingsStateSchema = v.pipe(
     settings: v.nullable(localSettingsSchema),
     /**
      * Set while no device has written this profile's own settings yet, as for a profile
-     * created during pairing: the first device then keeps its own entries (ADR 0075).
+     * created during pairing: the first device then keeps its own entries (ADR 0076).
      */
     newProfile: v.optional(v.literal(true)),
   }),
@@ -81,7 +82,8 @@ export const syncSettingsWriteSchema = v.pipe(
 
 /**
  * The stored recipe carries the sync identity, so a cached copy cannot drift from it. It is
- * a login route recipe, an entry recipe (ADR 0031) or a chooser recipe (ADR 0028).
+ * a login recipe with its layouts (ADR 0060), an entry recipe (ADR 0031) or a chooser
+ * recipe (ADR 0028) with its layouts.
  */
 export const syncRecipeChangeSchema = v.pipe(
   v.variant("state", [
@@ -238,6 +240,9 @@ export const loginOutcomeCauseSchema = v.picklist([
   "code-watch-failed",
   "form-off-origin",
   "form-destination-unchecked",
+  "keypad-missing",
+  "keypad-key-missing",
+  "keypad-pressed",
   // Flags of the attempt itself.
   "settled",
   "unconfirmed",
@@ -251,13 +256,18 @@ export const loginOutcomeCauseSchema = v.picklist([
 export const loginOutcomeReportSchema = v.strictObject({
   version: v.literal(1),
   revision: writtenRevision,
-  /** For a chooser recipe (ADR 0028): the branch the login took. */
-  branch: v.optional(chooserBranchSchema),
+  /** The layout the login ran (ADR 0060), and for a chooser recipe the branch it took. */
+  branch: recipeBranchSchema,
   outcome: loginOutcomeSchema,
   cause: v.optional(loginOutcomeCauseSchema),
   /** The attempt's step index when it ended: route steps and entered handlers' (at most 40). */
   step: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(40)),
 });
+/** The extension's build: its commit, or `development` for a build outside git. */
+export const extensionBuildSchema = v.pipe(
+  v.string(),
+  v.regex(/^(?:[0-9a-f]{7,40}|development)$/u),
+);
 /** The longest time a login record carries: a day; no login takes that long. */
 export const MAX_LOGIN_RECORD_MS = 86_400_000;
 const loginMilliseconds = v.pipe(
@@ -276,12 +286,11 @@ const loginMilliseconds = v.pipe(
 export const loginRecordSchema = v.strictObject({
   version: v.literal(1),
   revision: writtenRevision,
-  /** For a chooser recipe (ADR 0028): the branch the login took. */
-  branch: v.optional(chooserBranchSchema),
+  /** The layout the login ran (ADR 0060), and for a chooser recipe the branch it took. */
+  branch: recipeBranchSchema,
   outcome: loginOutcomeSchema,
   cause: v.optional(loginOutcomeCauseSchema),
-  /** The extension's build: its commit, or `development` for a build outside git. */
-  extensionBuild: v.pipe(v.string(), v.regex(/^(?:[0-9a-f]{7,40}|development)$/u)),
+  extensionBuild: extensionBuildSchema,
   /** From when the extension saw the login's first page until the login ended. */
   totalMs: loginMilliseconds,
   /** Waiting for the service: generation, judging and the recipe sync after them. */
@@ -301,15 +310,17 @@ export const loginRecordSchema = v.strictObject({
   pageMs: loginMilliseconds,
 });
 /**
- * `POST /v1/recipes/:recipeId/use`: a login started on this recipe revision, whatever
- * happened after, so the service does not revoke the recipe as unused (ADR 0058). It also
- * covers the logins that send no login record, as a fill-only one or one that stops before
- * an item's missing password. The revision only: never a URL, origin, page text, value or
- * username, and the service adds the time.
+ * `POST /v1/recipes/:recipeId/use`: a login started on this recipe revision and layout,
+ * whatever happened after, so the service does not revoke the recipe or the layout as
+ * unused (ADR 0058, ADR 0060). It also covers the logins that send no login record, as a
+ * fill-only one or one that stops before an item's missing password. The revision and
+ * layout key only: never a URL, origin, page text, value or username, and the service adds
+ * the time.
  */
 export const recipeUseReportSchema = v.strictObject({
   version: v.literal(1),
   revision: writtenRevision,
+  layout: recipeLayoutKeySchema,
 });
 export type LoginOutcomeCause = v.InferOutput<typeof loginOutcomeCauseSchema>;
 export type LoginOutcomeReport = v.InferOutput<typeof loginOutcomeReportSchema>;

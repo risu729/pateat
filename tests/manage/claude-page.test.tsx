@@ -64,6 +64,7 @@ function mockClient(initial: ManageClaude = stateOf(null)) {
       unreadable: [],
     })),
     revokeRecipe: vi.fn<ManageClient["revokeRecipe"]>(),
+    revokeLayout: vi.fn<ManageClient["revokeLayout"]>(),
     requestLog: vi.fn<ManageClient["requestLog"]>(),
     deleteRequestLog: vi.fn<ManageClient["deleteRequestLog"]>(),
     models: vi.fn<ManageClient["models"]>(async () => ({
@@ -90,6 +91,7 @@ function mockClient(initial: ManageClaude = stateOf(null)) {
     renameProfile: vi.fn<ManageClient["renameProfile"]>(),
     deleteProfile: vi.fn<ManageClient["deleteProfile"]>(),
     assignProfile: vi.fn<ManageClient["assignProfile"]>(),
+    problems: vi.fn<ManageClient["problems"]>(),
     replace(next: ManageClaude) {
       state = next;
     },

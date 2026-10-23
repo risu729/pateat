@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LocalFieldSnapshot } from "@pateat/bitwarden";
+import { rfcTotpSecrets } from "../../../../packages/bitwarden/src/__fixtures__/totp";
 import type { HostCommand, HostSessionRef } from "./wire";
 
 type CapturedSnapshot = LocalFieldSnapshot & { dispose: ReturnType<typeof vi.fn> };
@@ -10,6 +11,7 @@ const mocks = vi.hoisted(() => ({
     data: cipher as unknown,
   })),
   snapshots: new Map<string, CapturedSnapshot[]>(),
+  verify: vi.fn((_input: unknown) => ({ ok: true as const, data: { matches: true } })),
   // Unless a test answers, every Regex URI stays unevaluated, as when no Worker can start.
   regexRun: vi.fn(async (_patterns: readonly string[], _url: string) => new Map<string, boolean>()),
 }));
@@ -26,6 +28,7 @@ vi.mock("@pateat/bitwarden", async (importOriginal) => {
         metadata: { accountVersion: 1 },
         decryptCipher: mocks.decrypt,
         decryptCatalogGroups: async () => ({ ok: true, data: [] }),
+        verifyMasterPassword: mocks.verify,
       },
     })),
     createLocalFieldSnapshot: (input: unknown) => {
@@ -52,6 +55,8 @@ const otherSnapshotId = "30000000-0000-4000-8000-000000000004";
 const itemId = (index: number) => `a0000000-0000-4000-8000-${index.toString().padStart(12, "0")}`;
 const loginCount = 129;
 // Received but not readable as fields: an unsupported item type and a login without its login.
+/** The last login item holds a Hidden custom field with an RFC 6238 TOTP key. */
+const seedIndex = loginCount;
 const unsupportedIndex = 130;
 const invalidIndex = 131;
 const unknownIndex = 999;
@@ -60,6 +65,7 @@ const worker = {
   postMessage: vi.fn<(message: { result: unknown }) => void>(),
 };
 let session: HostSessionRef;
+const syntheticUnlock = { kdf: { pBKDF2: { iterations: 600_000 } }, salt: "synthetic" };
 /** The first items' saved URIs: Domain, Host and StartsWith rules, then unevaluable ones. */
 const savedUris = [
   [{ uri: "https://router.example", match: 0 }],
@@ -171,6 +177,9 @@ async function openWorker(
           name: `Synthetic item ${index + 1}`,
           collectionIds: [],
           login: { password: `synthetic-password-${index + 1}`, uris: uris[index] ?? [] },
+          ...(index + 1 === seedIndex
+            ? { fields: [{ name: "seed", value: rfcTotpSecrets.SHA1, type: 1, linkedId: null }] }
+            : {}),
         })),
         ...(withUnreadable
           ? [
@@ -185,6 +194,7 @@ async function openWorker(
           : []),
       ],
       uriMatchContext: { equivalentDomains: [], defaultMatch },
+      masterPasswordUnlock: syntheticUnlock,
     },
   });
   expect(opened).toMatchObject({ ok: true });
@@ -195,6 +205,7 @@ async function openWorker(
 
 beforeEach(async () => {
   mocks.decrypt.mockClear();
+  mocks.verify.mockClear();
   mocks.regexRun.mockReset();
   mocks.regexRun.mockImplementation(async () => new Map());
   worker.postMessage.mockReset();
@@ -207,6 +218,26 @@ beforeEach(async () => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+describe("crypto Worker master password check", () => {
+  it("checks the password against the unlock data retained from the opened account", async () => {
+    expect(
+      await command({ kind: "verify-password", session, password: "synthetic-guess" }),
+    ).toEqual({ ok: true, data: { matches: true } });
+    expect(mocks.verify).toHaveBeenCalledExactlyOnceWith({
+      password: "synthetic-guess",
+      masterPasswordUnlock: syntheticUnlock,
+    });
+  });
+
+  it("answers only for the session it opened", async () => {
+    const other = { ...session, sessionId: "30000000-0000-4000-8000-000000000009" };
+    expect(
+      await command({ kind: "verify-password", session: other, password: "synthetic-guess" }),
+    ).toEqual({ ok: false, error: { code: "crypto-locked" } });
+    expect(mocks.verify).not.toHaveBeenCalled();
+  });
 });
 
 describe("crypto Worker URI matching on plain HTTP pages (ADR 0050)", () => {
@@ -537,4 +568,43 @@ describe("crypto Worker field requests", () => {
       expect(allSnapshots()).toEqual([]);
     },
   );
+});
+
+describe("crypto Worker TOTP code grant", () => {
+  it("passes the code grant to the field snapshot", async () => {
+    const fieldId = `custom.${snapshotId}.0`;
+    const ref = { connectionId, userId, snapshotId, itemId: itemId(seedIndex), fieldId };
+    const coded = await command({
+      kind: "resolve",
+      session,
+      ref,
+      allowedFieldIds: [fieldId],
+      nowMs: 59_000,
+      code: true,
+    });
+    expect(coded).toEqual({
+      ok: true,
+      data: { kind: "otp", value: "287082", period: 30, validUntilMs: 60_000 },
+    });
+    expect(JSON.stringify(coded)).not.toContain(rfcTotpSecrets.SHA1);
+    // Without the grant, a field shaped like a TOTP key is never returned as text.
+    const plain = await command({ kind: "resolve", session, ref, allowedFieldIds: [fieldId] });
+    expect(plain).toEqual({ ok: false, error: { code: "unsupported-field" } });
+    expect(JSON.stringify(plain)).not.toContain(rfcTotpSecrets.SHA1);
+  });
+
+  it("flags the field in the value-free catalog (owner, 2026-10-23)", async () => {
+    expect(await command({ kind: "verify-received-ciphers", session })).toMatchObject({ ok: true });
+    const catalog = await command({ kind: "catalog", session });
+    expect(JSON.stringify(catalog)).not.toContain(rfcTotpSecrets.SHA1);
+    const items = (catalog as { data: { items: { id: string; fields: object[] }[] } }).data.items;
+    expect(items.find((item) => item.id === itemId(seedIndex))?.fields).toContainEqual({
+      id: `custom.${snapshotId}.0`,
+      label: "seed",
+      name: "seed",
+      kind: "hidden",
+      totpSeed: true,
+    });
+    expect(JSON.stringify(items.find((item) => item.id === itemId(2)))).not.toContain("totpSeed");
+  });
 });

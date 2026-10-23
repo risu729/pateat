@@ -270,6 +270,12 @@ the page shows another account, the fill ends and the tab asks. The log shows su
 login as `login.attempt` with reason `fill-only`, then the asking as `login.refused`
 `logged-out` with the tab that logged out.
 
+Amended on 2026-10-23 by [ADR 0067](0067-software-keyboard-entry.md), Claude's default
+safety tightening after an independent review, not confirmed by the owner: a fill on a
+page's software keyboard counts as a step with an effect here, since a key press may
+submit, as a PIN pad does at its last digit. The fill-only login ends before it and the
+contract refuses it, so after a logout a keypad login is left to the person.
+
 Implementation detail, not confirmed by the owner (2026-10-21,
 [#831](https://github.com/risu729/pateat/issues/831)): a document is filled once on
 each path, so a start on another path of the same document, as the password step
@@ -337,9 +343,12 @@ the site then only filled. Now such a login ends `challenge-abandoned` (from a
 `challenge`) or `watch-abandoned` (from a result settled as unknown), and only the
 watched login's tab asks and fills without pressing anything, as after a stopped login
 above (`pateat.login-stopped-asks.v1`, `logged-out` with `stopped-login`). The site's
-other tabs and new tabs log in as before, which may show the challenge again there. The
-same holds when the first step shows in another tab first: that tab logs in, and the
-watched tab asks if its own first step shows again. `login.logout` and
+other tabs and new tabs log in as before, which may show the challenge again there.
+Since 2026-10-23 (owner) only the watched tab's own first step ends the watch; until it
+ends, the site's other tabs that share its cookies are refused `origin-busy`
+([ADR 0027](0027-per-account-login-routes.md#watching-after-a-challenge)). A logout or a
+rejection in a tab of an incognito window makes no tab outside such windows ask, nor the
+other way around, since they keep separate cookies. `login.logout` and
 `pateat.login-logouts.v1` are left for a logout after a finished login, and for a
 rejection, as above.
 

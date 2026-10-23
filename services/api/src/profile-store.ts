@@ -1,6 +1,6 @@
 import { newId } from "@pateat/contracts/ids";
 
-// Settings profiles (ADR 0024, ADR 0075). Every statement names the owner, so one owner's
+// Settings profiles (ADR 0024, ADR 0076). Every statement names the owner, so one owner's
 // request can never reach another owner's profile. Deleted profiles keep their row for
 // the revoked devices that name them, and every read and write here skips them.
 

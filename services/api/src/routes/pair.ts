@@ -29,7 +29,7 @@ export async function createPairedDevice(
   const { label, profileId: requestedProfile, newProfile } = c.req.valid("json");
   const identity = c.get("identity");
   // An existing owner's device takes the profile the request chose, existing or new, and
-  // a request that chose none is answered with the profiles to choose from (ADR 0075). A
+  // a request that chose none is answered with the profiles to choose from (ADR 0076). A
   // first pairing has no profile to choose: its owner, first profile and device are
   // created in one batch below.
   const existing = await findOwner(c.env.DB, identity);
@@ -85,7 +85,7 @@ export async function createPairedDevice(
       })
       .from(ownerIdentities)
       .where(
-        // A profile deleted since the check above takes no device (ADR 0075).
+        // A profile deleted since the check above takes no device (ADR 0076).
         and(
           identityIs(identity),
           sql`EXISTS (SELECT 1 FROM ${profiles} WHERE ${profiles.ownerId} = ${ownerIdentities.ownerId} AND ${profiles.id} = ${profileId === undefined ? sql`${ownerIdentities.ownerId}` : profileId} AND ${profiles.deletedAt} IS NULL)`,

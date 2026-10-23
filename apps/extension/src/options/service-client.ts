@@ -32,7 +32,7 @@ export class ProfileEditorError extends Error {
 
 /**
  * Edits profiles other than this device's on the service's WARP application, with the
- * browser's sign-in there (ADR 0075). Each call throws a `ProfileEditorError`.
+ * browser's sign-in there (ADR 0076). Each call throws a `ProfileEditorError`.
  */
 export interface ProfileEditorClient {
   list(origin: string): Promise<{ version: 1; profiles: { id: string; name: string }[] }>;

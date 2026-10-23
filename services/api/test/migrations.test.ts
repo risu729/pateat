@@ -8,9 +8,9 @@ const { MIGRATION_DB: db, TEST_MIGRATIONS: migrations } = env as unknown as {
   TEST_MIGRATIONS: D1Migration[];
 };
 
-it("rebuilds devices for settings profiles while recipe revisions and settings name a device", async () => {
+it("rebuilds devices for settings profiles while recipe revisions, problem lines and settings name a device", async () => {
   const profiles = migrations.findIndex((migration) =>
-    migration.name.startsWith("0029_settings_profiles"),
+    migration.name.startsWith("0031_settings_profiles"),
   );
   expect(profiles).toBeGreaterThan(0);
   await applyD1Migrations(db, migrations.slice(0, profiles));
@@ -38,6 +38,11 @@ it("rebuilds devices for settings profiles while recipe revisions and settings n
         "INSERT INTO settings (owner_id, revision, document, updated_at, updated_by_device_id) VALUES (?, 3, '{}', 1, ?)",
       )
       .bind(owner, device),
+    db
+      .prepare(
+        "INSERT INTO problem_log (owner_id, device_id, log_id, seq, extension_build, level, event, fields, logged_at, created_at) VALUES (?, ?, 'log', 0, 'build', 'warn', 'event', '{}', 1, 1)",
+      )
+      .bind(owner, device),
   ]);
   await applyD1Migrations(db, migrations.slice(profiles));
   expect(await db.prepare("SELECT id, profile_id, label FROM devices").all()).toMatchObject({
@@ -49,6 +54,9 @@ it("rebuilds devices for settings profiles while recipe revisions and settings n
   expect(await db.prepare("SELECT created_by_device_id FROM recipe_revisions").all()).toMatchObject(
     { results: [{ created_by_device_id: device }] },
   );
+  expect(await db.prepare("SELECT device_id FROM problem_log").all()).toMatchObject({
+    results: [{ device_id: device }],
+  });
   expect((await db.prepare("SELECT COUNT(*) AS n FROM settings").first<{ n: number }>())?.n).toBe(
     0,
   );

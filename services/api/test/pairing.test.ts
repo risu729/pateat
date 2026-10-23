@@ -52,7 +52,7 @@ function pair(by: Owner | undefined, options: PairOptions = {}) {
   return request("/pair", pairInit(by?.token, options));
 }
 
-/** Pairs an existing owner's later device into the first profile it offers (ADR 0075). */
+/** Pairs an existing owner's later device into the first profile it offers (ADR 0076). */
 async function pairAgain(by: Owner) {
   const asked = await pair(by);
   expect(asked.status).toBe(409);
@@ -508,7 +508,7 @@ describe("pairing limits and methods", () => {
     for (let attempt = 0; attempt <= PAIR_LIMIT; attempt += 1)
       // oxlint-disable-next-line no-await-in-loop -- the limiter counts sequential calls
       statuses.push((await send(by)).status);
-    // The first creates the owner; the rest ask which profile to take (ADR 0075).
+    // The first creates the owner; the rest ask which profile to take (ADR 0076).
     expect(statuses.slice(0, PAIR_LIMIT)).toEqual(
       Array.from({ length: PAIR_LIMIT }, (_, index) => (index ? 409 : 201)),
     );

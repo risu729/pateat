@@ -372,7 +372,7 @@ describe("extension profile editor authorization", () => {
       (await editor(by, path, { headers: { Origin: "https://attacker.example" } })).status,
     ).toBe(403);
     // A sign-in through the pairing application, which needs no WARP, is not enough
-    // (ADR 0030, ADR 0075).
+    // (ADR 0030, ADR 0076).
     const viaPair = await pairOwner(by.subject);
     expect((await editor(viaPair, path)).status).toBe(403);
   });

@@ -77,7 +77,7 @@ are assigned now so that profiles can be added without moving data again:
 ## Amendment, 2026-10-23
 
 Profiles are built for `excludedSites` and `siteDefaults`, with `bindings` shared, as
-"Later: adding profiles" describes; [ADR 0075](0075-settings-profiles-delivered.md)
+"Later: adding profiles" describes; [ADR 0076](0076-settings-profiles-delivered.md)
 records how, and the owner's choices made while building them. Two points differ from
 the text above: a pairing must choose a profile even when the owner has only one, and
 `devices.profile_id` refers to profiles that are deleted softly. ADR 0023's lists and

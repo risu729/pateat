@@ -300,7 +300,7 @@ export function createSettingsSync(options: {
     const serviceCopy = (state: SyncSettingsState) =>
       state.settings ? syncedSettings(state.settings) : emptySynced;
     // A matching profile base preserves local edits. A new pairing or a profile switch
-    // adopts the profile's own parts below (ADR 0075); only a profile no device has
+    // adopts the profile's own parts below (ADR 0076); only a profile no device has
     // written yet (`newProfile`, or the owner's first settings) starts from local policy.
     // Bindings belong to the owner, not a profile, so they keep merging either way.
     let base: SyncBase = { service: emptySynced, local: emptySynced };

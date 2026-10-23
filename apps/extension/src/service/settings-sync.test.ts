@@ -223,7 +223,7 @@ describe("settings sync on a new pairing", () => {
   });
 
   it("keeps this device's bindings when it adopts a profile's site settings", async () => {
-    // Bindings belong to the owner, not to a profile (ADR 0075).
+    // Bindings belong to the owner, not to a profile (ADR 0076).
     const local = settingsOf({
       excludedSites: [site("local-only.example")],
       bindings: [binding("https://local.example")],

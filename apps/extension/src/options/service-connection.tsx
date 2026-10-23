@@ -10,6 +10,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { formatLocale, i18n } from "../i18n";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import * as v from "valibot";
 import { CircleCheck, CircleX, Clock, Link, Lock, TriangleAlert } from "lucide-react";
 import { Button } from "./button";
@@ -47,7 +48,7 @@ function errorMessage(error: ServiceErrorCode, origin?: string): ServiceMessage 
     case "storage-corrupt":
       return "Pateat cannot read its saved service connection. Forget it here, then revoke the old device on the service's management page if it was paired.";
     case "site-access-needed":
-      return "Chrome is not letting Pateat reach this service. Allow site access when Chrome asks, or in the extension's site access settings.";
+      return "Chrome does not let Pateat reach this service. Allow site access when Chrome asks, or in Pateat's site access settings in Chrome.";
     case "unreachable":
       return "The service could not be reached. Check the address, then try again.";
     case "rate-limited":
@@ -82,7 +83,7 @@ const NEW_PROFILE = "new";
 
 /**
  * A pairing to an existing profile that would replace this device's own site settings
- * (ADR 0075): the counts are what this device holds now.
+ * (ADR 0076): the counts are what this device holds now.
  */
 type Replacement = {
   origin: string;
@@ -129,6 +130,8 @@ export function ServiceConnection({
   const confirmedProfile = useRef("");
   const [label, setLabel] = useState("Chrome");
   const [addressError, setAddressError] = useState("");
+  const [labelError, setLabelError] = useState("");
+  const [profileError, setProfileError] = useState("");
   const [corrupt, setCorrupt] = useState(false);
   const [attempt, setAttempt] = useState<Attempt | undefined>();
   const mounted = useRef(true);
@@ -137,6 +140,20 @@ export function ServiceConnection({
   const acting = useRef(false);
   // A one-shot retry for when the user comes back from the sign-in tab.
   const retryOnReturn = useRef<{ origin: string; label: string } | undefined>(undefined);
+  const addressInput = useRef<HTMLInputElement>(null);
+  const labelInput = useRef<HTMLInputElement>(null);
+  const profileGroup = useRef<HTMLFieldSetElement>(null);
+  // Counts edits so a request that answers after one does not leave a retry behind.
+  const edits = useRef(0);
+
+  /** An edited address or device name is a new request: drop the old one's retry. */
+  function edited() {
+    edits.current += 1;
+    retryOnReturn.current = undefined;
+    setAttempt(undefined);
+    // The warning names the address and device name it was shown for.
+    setReplacement(undefined);
+  }
 
   function receive(response: ServiceResponse, success?: ServiceMessage) {
     if (!mounted.current) return;
@@ -166,24 +183,29 @@ export function ServiceConnection({
     try {
       await run();
     } catch {
-      if (mounted.current) setMessage("The extension did not answer. Reload this page to retry.");
+      if (mounted.current) setMessage("Pateat did not answer. Reload this page to try again.");
     } finally {
       acting.current = false;
       if (mounted.current) setBusy(false);
     }
   }
 
-  /** Opens the sign-in page and retries once when this page is shown again. */
+  /**
+   * Opens the sign-in page and retries once when this page is shown again,
+   * unless the address or device name was edited while the tab opened.
+   */
   async function openSignIn(origin: string, name: string) {
+    const edit = edits.current;
     await client.openSignIn(origin);
-    retryOnReturn.current = { origin, label: name };
+    if (edit === edits.current) retryOnReturn.current = { origin, label: name };
   }
 
   /**
    * Sends one pairing request. Only the Pair click itself opens the sign-in page;
    * a retry that still needs a sign-in leaves that to the "Open sign-in page" button.
+   * `edit` is the edit count when the user asked; an edit since then drops the retry.
    */
-  async function pair(origin: string, name: string, signInTab: boolean) {
+  async function pair(origin: string, name: string, signInTab: boolean, edit = edits.current) {
     retryOnReturn.current = undefined;
     const response = await client.pair(
       origin,
@@ -203,7 +225,7 @@ export function ServiceConnection({
       return;
     }
     receive(response);
-    if (response.state && response.state.kind !== "disconnected") {
+    if (edit !== edits.current || (response.state && response.state.kind !== "disconnected")) {
       setAttempt(undefined);
       return;
     }
@@ -226,9 +248,14 @@ export function ServiceConnection({
 
   /**
    * Pairs, unless the chosen existing profile would replace site settings this device
-   * holds: then the warning below asks first (ADR 0075). A new profile keeps them.
+   * holds: then the warning below asks first (ADR 0076). A new profile keeps them.
    */
-  async function pairOrWarn(origin: string, name: string, signInTab: boolean) {
+  async function pairOrWarn(
+    origin: string,
+    name: string,
+    signInTab: boolean,
+    edit = edits.current,
+  ) {
     const profile = profiles.find((entry) => entry.id === profileChoice);
     if (profile && confirmedProfile.current !== profile.id) {
       const local = await settingsClient?.getSettings().catch(() => undefined);
@@ -242,14 +269,14 @@ export function ServiceConnection({
         return;
       }
     }
-    await pair(origin, name, signInTab);
+    await pair(origin, name, signInTab, edit);
   }
 
   useEffect(() => {
     mounted.current = true;
     void client.get().then(
       (response) => receive(response),
-      () => setMessage("The extension did not answer. Reload this page to retry."),
+      () => setMessage("Pateat did not answer. Reload this page to try again."),
     );
     return () => {
       mounted.current = false;
@@ -334,43 +361,50 @@ export function ServiceConnection({
           onSubmit={(event) => {
             event.preventDefault();
             const origin = normalizeServiceOrigin(address);
-            if (!origin) {
-              setAddressError("Enter an HTTPS address such as https://pateat.example.com.");
-              return;
-            }
             const name = v.safeParse(deviceLabelSchema, label);
-            if (!name.success) {
+            const newName = profileName.trim();
+            const profile =
+              profiles.length > 0 && !profileChoice
+                ? "Choose a profile for this device."
+                : profileChoice === NEW_PROFILE && !v.safeParse(profileNameSchema, newName).success
+                  ? newName
+                    ? "Use a profile name of up to 64 characters without control characters."
+                    : "Enter a name for the new profile."
+                  : "";
+            // Each field shows its own error, and the first invalid one takes focus
+            // after the error is linked, so the field is announced with it.
+            flushSync(() => {
               setAddressError(
-                // A name of invisible characters alone looks empty, so it reads as missing.
-                VISIBLE_LABEL_CHARACTER.test(label)
-                  ? "Use a device name of up to 64 characters without control characters, line breaks or text-direction marks."
-                  : "Enter a device name.",
+                origin ? "" : "Enter an HTTPS address such as https://pateat.example.com.",
               );
-              return;
-            }
-            if (profiles.length > 0 && !profileChoice) {
-              setAddressError("Choose a profile for this device.");
-              return;
-            }
-            if (
-              profileChoice === NEW_PROFILE &&
-              !v.safeParse(profileNameSchema, profileName.trim()).success
-            ) {
-              setAddressError(
-                profileName.trim()
-                  ? "Use a profile name of up to 64 characters without control characters."
-                  : "Enter a name for the new profile.",
+              setLabelError(
+                name.success
+                  ? ""
+                  : // A name of invisible characters alone looks empty, so it reads as missing.
+                    VISIBLE_LABEL_CHARACTER.test(label)
+                    ? "Use a device name of up to 64 characters without control characters, line breaks or text-direction marks."
+                    : "Enter a device name.",
               );
-              return;
-            }
-            setAddressError("");
+              setProfileError(profile);
+            });
+            if (!origin) addressInput.current?.focus();
+            else if (!name.success) labelInput.current?.focus();
+            else if (profile)
+              profileGroup.current
+                ?.querySelector<HTMLInputElement>(
+                  profileChoice === NEW_PROFILE ? "#sync-service-profile-name" : "input",
+                )
+                ?.focus();
+            if (!origin || !name.success || profile) return;
+            // Read before the site access prompt, so an edit while it is open counts.
+            const edit = edits.current;
             void act(async () => {
               // Requested before any other await so Chrome still sees the click.
               if (!(await client.requestSiteAccess(origin))) {
                 if (mounted.current) setMessage(errorMessage("site-access-needed"));
                 return;
               }
-              await pairOrWarn(origin, name.output, true);
+              await pairOrWarn(origin, name.output, true, edit);
             });
           }}
         >
@@ -379,6 +413,7 @@ export function ServiceConnection({
               {t("Service address")}
               <input
                 id="sync-service-address"
+                ref={addressInput}
                 className={controlClass}
                 type="url"
                 inputMode="url"
@@ -387,27 +422,41 @@ export function ServiceConnection({
                 placeholder="https://pateat.example.com"
                 value={address}
                 aria-invalid={addressError ? true : undefined}
-                aria-describedby={addressError ? "sync-service-error" : undefined}
-                onChange={(event) => setAddress(event.target.value)}
+                aria-describedby={addressError ? "sync-service-address-error" : undefined}
+                onChange={(event) => {
+                  setAddress(event.target.value);
+                  edited();
+                }}
               />
             </label>
             <label className={fieldClass}>
               {t("Device name")}
               <input
                 id="sync-service-label"
+                ref={labelInput}
                 className={controlClass}
                 type="text"
                 maxLength={64}
                 autoComplete="off"
                 value={label}
-                onChange={(event) => setLabel(event.target.value)}
+                aria-invalid={labelError ? true : undefined}
+                aria-describedby={labelError ? "sync-service-label-error" : undefined}
+                onChange={(event) => {
+                  setLabel(event.target.value);
+                  edited();
+                }}
               />
             </label>
           </div>
           {profiles.length > 0 && (
             <fieldset
+              ref={profileGroup}
               className="m-0 flex min-w-0 flex-col gap-2 border-0 p-0"
-              aria-describedby="sync-service-profile-hint"
+              aria-describedby={
+                profileError && profileChoice !== NEW_PROFILE
+                  ? "sync-service-profile-hint sync-service-profile-error"
+                  : "sync-service-profile-hint"
+              }
               disabled={busy || replacement !== undefined}
             >
               <legend className="mb-1.5 p-0 text-sm font-semibold">{t("Settings profile")}</legend>
@@ -451,6 +500,8 @@ export function ServiceConnection({
                     maxLength={64}
                     autoComplete="off"
                     value={profileName}
+                    aria-invalid={profileError ? true : undefined}
+                    aria-describedby={profileError ? "sync-service-profile-error" : undefined}
                     onChange={(event) => setProfileName(event.target.value)}
                   />
                 </label>
@@ -497,6 +548,7 @@ export function ServiceConnection({
                   disabled={busy}
                   onClick={() => {
                     const confirmed = replacement;
+                    const edit = edits.current;
                     confirmedProfile.current = confirmed.profile.id;
                     setReplacement(undefined);
                     void act(async () => {
@@ -504,7 +556,7 @@ export function ServiceConnection({
                         if (mounted.current) setMessage(errorMessage("site-access-needed"));
                         return;
                       }
-                      await pair(confirmed.origin, confirmed.label, true);
+                      await pair(confirmed.origin, confirmed.label, true, edit);
                     });
                   }}
                 >
@@ -534,8 +586,18 @@ export function ServiceConnection({
             </fieldset>
           )}
           {addressError && (
-            <p id="sync-service-error" className="validation-error m-0" role="alert">
-              {addressError ? t(addressError) : ""}
+            <p id="sync-service-address-error" className="validation-error m-0" role="alert">
+              {t(addressError)}
+            </p>
+          )}
+          {labelError && (
+            <p id="sync-service-label-error" className="validation-error m-0" role="alert">
+              {t(labelError)}
+            </p>
+          )}
+          {profileError && (
+            <p id="sync-service-profile-error" className="validation-error m-0" role="alert">
+              {t(profileError)}
             </p>
           )}
           <StatusLines
@@ -545,7 +607,7 @@ export function ServiceConnection({
                 tone: "idle",
                 icon: Lock,
                 text: t(
-                  "Syncs recipes, site exclusions, saved accounts and account bindings. Never sends vault values, passwords or keys.",
+                  "Syncs recipes, site exclusions, default accounts and account bindings. Never sends vault values, passwords or keys.",
                 ),
               },
             ]}
@@ -564,16 +626,17 @@ export function ServiceConnection({
                 type="button"
                 variant="outline"
                 disabled={busy}
-                onClick={() =>
+                onClick={() => {
+                  const edit = edits.current;
                   void act(async () => {
                     // Requested before any other await so Chrome still sees the click.
                     if (!(await client.requestSiteAccess(attempt.origin))) {
                       if (mounted.current) setMessage(errorMessage("site-access-needed"));
                       return;
                     }
-                    await pairOrWarn(attempt.origin, attempt.label, false);
-                  })
-                }
+                    await pairOrWarn(attempt.origin, attempt.label, false, edit);
+                  });
+                }}
               >
                 {t("Try again")}
               </Button>
@@ -611,7 +674,7 @@ export function ServiceConnection({
                           tone: "err",
                           icon: CircleX,
                           text: t(
-                            "The service no longer accepts this device. Login keeps using the recipes synced before; disconnect and pair again to sync.",
+                            "The service no longer accepts this device. Logins keep using the recipes synced before; disconnect and pair again to sync.",
                           ),
                         }
                       : state.cacheFull
@@ -619,14 +682,14 @@ export function ServiceConnection({
                             tone: "warn",
                             icon: TriangleAlert,
                             text: t(
-                              "Your recipes or settings no longer fit, so newer changes are not applied. Login keeps using what was synced before.",
+                              "Your recipes or settings no longer fit on this device, so newer changes are not applied. Logins keep using what was synced before.",
                             ),
                           }
                         : state.syncedAt === undefined
                           ? {
                               tone: "idle",
                               icon: Clock,
-                              text: t("Recipes and settings have not finished syncing yet"),
+                              text: t("Recipes and settings not synced yet"),
                             }
                           : {
                               tone: "ok",

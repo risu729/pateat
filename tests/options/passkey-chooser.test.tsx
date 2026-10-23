@@ -42,7 +42,7 @@ afterEach(async () => {
 test("names the site and lists each passkey by its user name, item and connection", async () => {
   await render(<ChooserApp client={client(view())} />);
   await expect
-    .element(page.getByRole("heading", { name: "Sign in to login.example.test" }))
+    .element(page.getByRole("heading", { name: "Log in to login.example.test" }))
     .toBeVisible();
   const list = page.getByRole("list", { name: "Matching passkeys" });
   await expect
@@ -53,7 +53,7 @@ test("names the site and lists each passkey by its user name, item and connectio
     .toHaveTextContent("synthetic-user-2Example (work) in Probe");
   await expect.element(list.getByRole("button").nth(2)).toHaveTextContent("Unnamed item");
   await expect
-    .element(page.getByText("Pateat signed in here from this tab before"))
+    .element(page.getByText("Pateat answered a passkey request from this site in this tab before."))
     .not.toBeInTheDocument();
   await expect
     .element(
@@ -64,12 +64,16 @@ test("names the site and lists each passkey by its user name, item and connectio
 
 test("says why it asks again: Pateat's sign-in in the tab, or a logout clicked there", async () => {
   await render(<ChooserApp client={client(view({ again: true }))} />);
-  await expect.element(page.getByText("Pateat signed in here from this tab before")).toBeVisible();
+  await expect
+    .element(page.getByText("Pateat answered a passkey request from this site in this tab before."))
+    .toBeVisible();
   await cleanup();
   await render(<ChooserApp client={client(view({ again: true, loggedOut: true }))} />);
-  await expect.element(page.getByText("You logged out of this site in this tab")).toBeVisible();
   await expect
-    .element(page.getByText("Pateat signed in here from this tab before"))
+    .element(page.getByText("You were logged out of this site in this tab."))
+    .toBeVisible();
+  await expect
+    .element(page.getByText("Pateat answered a passkey request from this site in this tab before."))
     .not.toBeInTheDocument();
 });
 

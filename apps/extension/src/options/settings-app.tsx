@@ -10,7 +10,7 @@ import {
 } from "@pateat/contracts";
 import { useForm, useSelector } from "@tanstack/react-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bug, Globe, Info, Link, Shield, Vault, type LucideIcon } from "lucide-react";
+import { Bug, Globe, Info, Link, Shield, Timer, Vault, type LucideIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as v from "valibot";
 import { Logo } from "../logo";
@@ -25,6 +25,7 @@ import type { ServiceClient } from "./service-client";
 import { ServiceConnection } from "./service-connection";
 import { LanguageSelect } from "./language-select";
 import { ThemeSelect } from "./theme-select";
+import { VaultTimeoutPanel, type VaultTimeoutClient } from "./vault-timeout";
 import { Panel, StatusLines, type LocalizedMessage } from "./ui";
 
 type AcceptedSettings = Extract<SettingsResponse, { ok: true }>;
@@ -39,10 +40,13 @@ export function SettingsApp({
   client,
   connectionClient,
   serviceClient,
+  vaultTimeoutClient,
 }: {
   client: SettingsClient;
   connectionClient?: ConnectionClient;
   serviceClient?: ServiceClient;
+  /** This device's vault timeout (ADR 0075), shown with a real Bitwarden connection. */
+  vaultTimeoutClient?: VaultTimeoutClient;
 }) {
   const { t } = useTranslation(undefined, { i18n });
   const queryClient = useQueryClient();
@@ -105,7 +109,7 @@ export function SettingsApp({
       if (!v.safeParse(localSettingsSchema, value).success) {
         setMessage((translate) =>
           translate(
-            "Invalid settings. Your unsaved draft has been preserved. Review this draft; the next change saves it again.",
+            "These settings are not valid, so they were not saved. Your unsaved changes are kept. Correct them, and the next change saves them again.",
           ),
         );
         return;
@@ -123,9 +127,33 @@ export function SettingsApp({
         });
         if (epoch !== catalogGeneration.current) {
           setSaveBlocked(true);
+          if (!result.ok) {
+            setMessage((translate) =>
+              translate(
+                "Your vaults changed while the settings were being saved. Your unsaved changes are kept. Reload saved settings before you change anything else; reloading drops them.",
+              ),
+            );
+            return;
+          }
+          // The save went through, so its edits are no longer unsaved; only edits made
+          // while it ran still are.
+          queryClient.setQueryData(SETTINGS_QUERY_KEY, result);
+          lastSaveSucceeded.current = true;
+          retried.current = false;
+          unsavedEdits.current.splice(0, submittedUnsaved);
+          const next = structuredClone(result);
+          acceptedRef.current = next;
+          setAccepted(next);
+          const pending = submitted !== edits.current;
+          if (!pending) {
+            setDirty(false);
+            dirtyRef.current = false;
+          }
           setMessage((translate) =>
             translate(
-              "Vault metadata changed while settings were being saved. Your draft has been preserved. Reload saved settings before saving again. Reloading discards the draft.",
+              pending
+                ? "Your vaults changed while the settings were being saved. The change was saved, and later changes are kept. Reload saved settings before you change anything else; reloading drops them."
+                : "Your vaults changed while the settings were being saved. The change was saved; reload saved settings before you change anything else.",
             ),
           );
           return;
@@ -144,7 +172,7 @@ export function SettingsApp({
             setSaveBlocked(true);
             setMessage((translate) =>
               translate(
-                "Vault metadata changed while settings were being saved. Your draft has been preserved. Reload saved settings before saving again. Reloading discards the draft.",
+                "Your vaults changed while the settings were being saved. Your unsaved changes are kept. Reload saved settings before you change anything else; reloading drops them.",
               ),
             );
             return;
@@ -160,8 +188,8 @@ export function SettingsApp({
               ? saveConflictMessage(causes)(translate)
               : translate(
                   blocked
-                    ? "{{error}} Your unsaved draft has been preserved. Reload saved settings to retry. Reloading discards the draft."
-                    : "{{error}} Your unsaved draft has been preserved.",
+                    ? "{{error}} Your unsaved changes are kept. Reload saved settings to try again; reloading drops them."
+                    : "{{error}} Your unsaved changes are kept.",
                   { error: translate(result.error.message) },
                 ),
           );
@@ -175,7 +203,7 @@ export function SettingsApp({
           accept(
             result,
             (translate) =>
-              translate("Settings saved locally. Revision {{revision}}", {
+              translate("Settings saved (revision {{revision}}).", {
                 revision: result.snapshot.revision,
               }),
             false,
@@ -190,7 +218,7 @@ export function SettingsApp({
         setSaveBlocked(true);
         setMessage((translate) =>
           translate(
-            "Unable to confirm saved settings. Your unsaved draft has been preserved. Reload saved settings before trying again. Reloading discards the draft.",
+            "Pateat could not confirm that the settings were saved. Your unsaved changes are kept. Reload saved settings before you try again; reloading drops any that were not saved.",
           ),
         );
       }
@@ -264,22 +292,17 @@ export function SettingsApp({
     initialHandled.current = true;
     if (settings.isError || !settings.data)
       setMessage((translate) =>
-        translate(
-          "Unable to read saved settings. Your existing draft has been preserved. Reload saved settings to retry. Reloading discards the draft.",
-        ),
+        translate("Pateat could not read the saved settings. Reload saved settings to try again."),
       );
     else if (!settings.data.ok) {
       const error = settings.data.error.message;
       setMessage((translate) =>
-        translate(
-          "{{error}} Reload saved settings to retry. Your existing draft has been preserved. Reloading discards the draft.",
-          { error: translate(error) },
-        ),
+        translate("{{error}} Reload saved settings to try again.", { error: translate(error) }),
       );
     } else if (catalogGeneration.current) {
       setMessage((translate) =>
         translate(
-          "Vault metadata changed while settings were loading. Reload saved settings to read the current catalog.",
+          "Your vaults changed while the settings were loading. Reload saved settings to see the current vaults.",
         ),
       );
     } else {
@@ -290,7 +313,7 @@ export function SettingsApp({
       saveBlockedRef.current = false;
       setSaveBlockedState(false);
       setMessage((translate) =>
-        translate("Saved settings loaded. Revision {{revision}}", {
+        translate("Saved settings loaded (revision {{revision}}).", {
           revision: next.snapshot.revision,
         }),
       );
@@ -314,7 +337,7 @@ export function SettingsApp({
     if (saveBlockedRef.current)
       setMessage((translate) =>
         translate(
-          "This change is kept in the draft but was not saved. Reload saved settings before editing; reloading discards the draft.",
+          "This change was kept but not saved. Reload saved settings before you change anything else; reloading drops it.",
         ),
       );
     void save();
@@ -327,6 +350,8 @@ export function SettingsApp({
     setSaveBlocked(true);
     setMessage((translate) => translate("Loading saved settings…"));
     const epoch = catalogGeneration.current;
+    // Only an edited draft has unsaved changes to keep, which reloading would drop.
+    const unsaved = dirtyRef.current;
     try {
       const result = await queryClient.fetchQuery({
         queryKey: SETTINGS_QUERY_KEY,
@@ -337,7 +362,9 @@ export function SettingsApp({
       if (epoch !== catalogGeneration.current) {
         setMessage((translate) =>
           translate(
-            "Vault metadata changed while settings were loading. Your draft has been preserved. Reload saved settings again. Reloading discards the draft.",
+            unsaved
+              ? "Your vaults changed while the settings were loading. Your unsaved changes are kept. Reload saved settings again; reloading drops them."
+              : "Your vaults changed while the settings were loading. Reload saved settings again.",
           ),
         );
         return;
@@ -345,7 +372,9 @@ export function SettingsApp({
       if (!result.ok) {
         setMessage((translate) =>
           translate(
-            "{{error}} Reload saved settings to retry. Your existing draft has been preserved. Reloading discards the draft.",
+            unsaved
+              ? "{{error}} Your unsaved changes are kept. Reload saved settings to try again; reloading drops them."
+              : "{{error}} Reload saved settings to try again.",
             { error: translate(result.error.message) },
           ),
         );
@@ -354,7 +383,7 @@ export function SettingsApp({
       accept(
         result,
         (translate) =>
-          translate("Saved settings loaded. Revision {{revision}}", {
+          translate("Saved settings loaded (revision {{revision}}).", {
             revision: result.snapshot.revision,
           }),
         true,
@@ -362,7 +391,9 @@ export function SettingsApp({
     } catch {
       setMessage((translate) =>
         translate(
-          "Unable to read saved settings. Your existing draft has been preserved. Reload saved settings to retry. Reloading discards the draft.",
+          unsaved
+            ? "Pateat could not read the saved settings. Your unsaved changes are kept. Reload saved settings to try again; reloading drops them."
+            : "Pateat could not read the saved settings. Reload saved settings to try again.",
         ),
       );
     } finally {
@@ -385,7 +416,7 @@ export function SettingsApp({
         submittedCatalog.current = catalogGeneration.current;
         lastSaveSucceeded.current = false;
         rebased.current = false;
-        setMessage((translate) => translate("Saving local settings…"));
+        setMessage((translate) => translate("Saving settings…"));
         // Sequential: each save expects the revision the previous one produced.
         // eslint-disable-next-line no-await-in-loop
         await form.handleSubmit();
@@ -406,9 +437,13 @@ export function SettingsApp({
     ++catalogGeneration.current;
     if (dirtyRef.current || operation.current || saveBlockedRef.current) {
       setSaveBlocked(true);
+      // Only an edited draft has unsaved changes to keep, which reloading would drop.
+      const unsaved = dirtyRef.current;
       setMessage((translate) =>
         translate(
-          "Vault metadata changed. Your unsaved draft has been preserved. Reload saved settings to review the latest catalog before saving. Reloading discards the draft.",
+          unsaved
+            ? "Your vaults changed. Your unsaved changes are kept. Reload saved settings to see the current vaults before you change anything else; reloading drops them."
+            : "Your vaults changed. Reload saved settings to see the current vaults before you change anything else.",
         ),
       );
       return;
@@ -424,11 +459,11 @@ export function SettingsApp({
     <StatusLines
       muted
       lines={[
-        { tone: "idle", icon: Info, text: t("Exclusions win over selected groups and items") },
+        { tone: "idle", icon: Info, text: t("Exclusions win over selected groups and items.") },
         {
           tone: "idle",
           icon: Info,
-          text: t("These limits apply to Pateat only and do not change vault permissions"),
+          text: t("These limits apply to Pateat only and do not change vault permissions."),
         },
       ]}
     />
@@ -437,6 +472,9 @@ export function SettingsApp({
     connectionClient
       ? { id: "bitwarden", label: "Bitwarden", icon: Shield }
       : { id: "demo-vaults", label: t("Demo vaults"), icon: Vault },
+    ...(vaultTimeoutClient
+      ? [{ id: "vault-timeout", label: t("Vault timeout"), icon: Timer }]
+      : []),
     { id: "sites", label: t("Sites"), icon: Globe },
     ...(serviceClient ? [{ id: "sync", label: t("Sync service"), icon: Link }] : []),
   ];
@@ -496,6 +534,7 @@ export function SettingsApp({
               onCatalogChanged={catalogChanged}
               acceptedSettings={accepted}
               reviewBlocked={dirty || busy || saveBlocked}
+              unsavedChanges={dirty}
               renderAccess={(id) => {
                 const connection = draft.connections.find((entry) => entry.connectionId === id);
                 const metadata = accepted?.catalog.connections.find((entry) => entry.id === id);
@@ -534,6 +573,7 @@ export function SettingsApp({
               )}
             />
           )}
+          {vaultTimeoutClient && <VaultTimeoutPanel client={vaultTimeoutClient} />}
           <fieldset
             id="settings-controls"
             className="m-0 flex min-w-0 flex-col gap-6 border-0 p-0"
@@ -591,22 +631,47 @@ function SectionNav({ sections }: { sections: NavSection[] }) {
   const { t } = useTranslation(undefined, { i18n });
   const [current, setCurrent] = useState(sections[0]?.id);
   const ids = sections.map((section) => section.id).join(" ");
+  // A clicked link's section stays marked while the page jumps to it, until the person
+  // scrolls or the address changes to another fragment, such as by Back.
+  const clicked = useRef<string>(undefined);
   useEffect(() => {
-    const visible = new Map<string, boolean>();
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) visible.set(entry.target.id, entry.isIntersecting);
-        // The first section in page order that is in the upper part of the window.
-        const first = ids.split(" ").find((id) => visible.get(id));
-        if (first) setCurrent(first);
-      },
-      { rootMargin: "0px 0px -60% 0px" },
-    );
-    for (const id of ids.split(" ")) {
-      const element = document.getElementById(id);
-      if (element) observer.observe(element);
-    }
-    return () => observer.disconnect();
+    const update = () => {
+      if (clicked.current) return;
+      // Look sections up on each scroll: some remount, such as Sites once settings load.
+      const tops = ids.split(" ").flatMap((id) => {
+        const element = document.getElementById(id);
+        return element ? [{ id, top: element.getBoundingClientRect().top }] : [];
+      });
+      const atBottom =
+        scrollY > 0 && scrollY + innerHeight >= document.documentElement.scrollHeight - 1;
+      // The last section whose top has reached the upper part of the window; at the
+      // bottom of the page, where short last sections never get there, the last one shown.
+      const line = atBottom ? innerHeight : innerHeight * 0.4;
+      const reached = tops.findLast((section) => section.top <= line) ?? tops[0];
+      if (reached) setCurrent(reached.id);
+    };
+    // Wheel, touch, scrollbar drags and scrolling keys start with one of these.
+    const userInput = ["wheel", "pointerdown", "keydown"] as const;
+    const release = () => {
+      clicked.current = undefined;
+    };
+    // Back, Forward and other address changes from the browser bring no page input.
+    const addressChanged = () => {
+      if (clicked.current === undefined || location.hash === `#${clicked.current}`) return;
+      release();
+      update();
+    };
+    update();
+    addEventListener("scroll", update, { passive: true });
+    addEventListener("resize", update);
+    addEventListener("hashchange", addressChanged);
+    for (const type of userInput) addEventListener(type, release, { capture: true, passive: true });
+    return () => {
+      removeEventListener("scroll", update);
+      removeEventListener("resize", update);
+      removeEventListener("hashchange", addressChanged);
+      for (const type of userInput) removeEventListener(type, release, { capture: true });
+    };
   }, [ids]);
   return (
     <nav
@@ -620,7 +685,10 @@ function SectionNav({ sections }: { sections: NavSection[] }) {
               href={`#${id}`}
               className={navLinkClass}
               aria-current={current === id ? "location" : undefined}
-              onClick={() => setCurrent(id)}
+              onClick={() => {
+                clicked.current = id;
+                setCurrent(id);
+              }}
             >
               <Icon aria-hidden size={16} strokeWidth={2} />
               {label}

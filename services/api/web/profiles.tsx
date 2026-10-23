@@ -43,7 +43,7 @@ const INPUT_CLASSES =
   "min-h-10 rounded-lg border border-border-strong bg-surface px-3 text-sm text-ink focus-visible:outline-2 focus-visible:outline-focus";
 
 /**
- * The owner's settings profiles (ADR 0075): each holds site exclusions and saved
+ * The owner's settings profiles (ADR 0076): each holds site exclusions and saved
  * accounts, and every device uses one. Bindings are the owner's, shared by all of them.
  */
 export function ProfilesPage({ client }: { client: ManageClient }) {

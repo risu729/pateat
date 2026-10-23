@@ -71,7 +71,7 @@ export const serviceRequestSchema = v.variant("type", [
 
 export const serviceErrorCodeSchema = v.picklist([
   "invalid-request",
-  /** The owner has profiles; `profiles` lists them for the choice (ADR 0075). */
+  /** The owner has profiles; `profiles` lists them for the choice (ADR 0076). */
   "profile-required",
   /** The chosen profile no longer exists. */
   "profile-not-found",

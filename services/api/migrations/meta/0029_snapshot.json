@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "8994abe3-94c5-41c5-b575-609cc86cf85b",
-  "prevId": "90daeab7-76a3-4c04-911c-2b7df00f5ccb",
+  "id": "7e8cfd45-f564-4096-a48f-7573f0085f3b",
+  "prevId": "f98309f5-0832-4cd5-ab5f-b3c927ce96b3",
   "tables": {
     "devices": {
       "name": "devices",
@@ -16,13 +16,6 @@
         },
         "owner_id": {
           "name": "owner_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "profile_id": {
-          "name": "profile_id",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -85,15 +78,6 @@
           "tableTo": "owners",
           "columnsFrom": ["owner_id"],
           "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "devices_owner_id_profile_id_profiles_owner_id_id_fk": {
-          "name": "devices_owner_id_profile_id_profiles_owner_id_id_fk",
-          "tableFrom": "devices",
-          "tableTo": "profiles",
-          "columnsFrom": ["owner_id", "profile_id"],
-          "columnsTo": ["owner_id", "id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -402,6 +386,13 @@
         },
         "branch": {
           "name": "branch",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "layout": {
+          "name": "layout",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -1063,8 +1054,8 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "profiles": {
-      "name": "profiles",
+    "problem_log": {
+      "name": "problem_log",
       "columns": {
         "owner_id": {
           "name": "owner_id",
@@ -1073,51 +1064,106 @@
           "notNull": true,
           "autoincrement": false
         },
-        "id": {
-          "name": "id",
+        "device_id": {
+          "name": "device_id",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "name": {
-          "name": "name",
+        "log_id": {
+          "name": "log_id",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "document": {
-          "name": "document",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "deleted_at": {
-          "name": "deleted_at",
+        "seq": {
+          "name": "seq",
           "type": "integer",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "extension_build": {
+          "name": "extension_build",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "level": {
+          "name": "level",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "event": {
+          "name": "event",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "fields": {
+          "name": "fields",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "logged_at": {
+          "name": "logged_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
           "autoincrement": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "problem_log_owner_created": {
+          "name": "problem_log_owner_created",
+          "columns": ["owner_id", "created_at"],
+          "isUnique": false
+        },
+        "problem_log_created": {
+          "name": "problem_log_created",
+          "columns": ["created_at"],
+          "isUnique": false
+        }
+      },
       "foreignKeys": {
-        "profiles_owner_id_owners_id_fk": {
-          "name": "profiles_owner_id_owners_id_fk",
-          "tableFrom": "profiles",
+        "problem_log_owner_id_owners_id_fk": {
+          "name": "problem_log_owner_id_owners_id_fk",
+          "tableFrom": "problem_log",
           "tableTo": "owners",
           "columnsFrom": ["owner_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "problem_log_device_id_devices_id_fk": {
+          "name": "problem_log_device_id_devices_id_fk",
+          "tableFrom": "problem_log",
+          "tableTo": "devices",
+          "columnsFrom": ["device_id"],
           "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {
-        "profiles_owner_id_id_pk": {
-          "columns": ["owner_id", "id"],
-          "name": "profiles_owner_id_id_pk"
+        "problem_log_device_id_log_id_seq_pk": {
+          "columns": ["device_id", "log_id", "seq"],
+          "name": "problem_log_device_id_log_id_seq_pk"
         }
       },
       "uniqueConstraints": {},
@@ -1221,6 +1267,59 @@
         }
       }
     },
+    "recipe_layout_uses": {
+      "name": "recipe_layout_uses",
+      "columns": {
+        "owner_id": {
+          "name": "owner_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "recipe_id": {
+          "name": "recipe_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "layout": {
+          "name": "layout",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "last_used_at": {
+          "name": "last_used_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "recipe_layout_uses_owner_id_recipe_id_recipe_heads_owner_id_recipe_id_fk": {
+          "name": "recipe_layout_uses_owner_id_recipe_id_recipe_heads_owner_id_recipe_id_fk",
+          "tableFrom": "recipe_layout_uses",
+          "tableTo": "recipe_heads",
+          "columnsFrom": ["owner_id", "recipe_id"],
+          "columnsTo": ["owner_id", "recipe_id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "recipe_layout_uses_owner_id_recipe_id_layout_pk": {
+          "columns": ["owner_id", "recipe_id", "layout"],
+          "name": "recipe_layout_uses_owner_id_recipe_id_layout_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "recipe_revisions": {
       "name": "recipe_revisions",
       "columns": {
@@ -1306,6 +1405,169 @@
         "recipe_revisions_document_check": {
           "name": "recipe_revisions_document_check",
           "value": "(\"recipe_revisions\".\"state\" = 'active' AND \"recipe_revisions\".\"document\" IS NOT NULL) OR (\"recipe_revisions\".\"state\" = 'revoked' AND \"recipe_revisions\".\"document\" IS NULL)"
+        }
+      }
+    },
+    "recipe_unit_sources": {
+      "name": "recipe_unit_sources",
+      "columns": {
+        "owner_id": {
+          "name": "owner_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "recipe_id": {
+          "name": "recipe_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "layout": {
+          "name": "layout",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "unit": {
+          "name": "unit",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "digest": {
+          "name": "digest",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "origin": {
+          "name": "origin",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "provider": {
+          "name": "provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "model": {
+          "name": "model",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "effort": {
+          "name": "effort",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "speed": {
+          "name": "speed",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "prompt_version": {
+          "name": "prompt_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "build": {
+          "name": "build",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "device_id": {
+          "name": "device_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "log_id": {
+          "name": "log_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "recipe_unit_sources_unit_unique": {
+          "name": "recipe_unit_sources_unit_unique",
+          "columns": ["owner_id", "recipe_id", "layout", "unit"],
+          "isUnique": true
+        },
+        "recipe_unit_sources_entry_unique": {
+          "name": "recipe_unit_sources_entry_unique",
+          "columns": ["owner_id", "recipe_id", "unit"],
+          "isUnique": true,
+          "where": "\"recipe_unit_sources\".\"layout\" IS NULL"
+        },
+        "recipe_unit_sources_owner_unit": {
+          "name": "recipe_unit_sources_owner_unit",
+          "columns": ["owner_id", "unit"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "recipe_unit_sources_device_id_devices_id_fk": {
+          "name": "recipe_unit_sources_device_id_devices_id_fk",
+          "tableFrom": "recipe_unit_sources",
+          "tableTo": "devices",
+          "columnsFrom": ["device_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "recipe_unit_sources_owner_id_recipe_id_recipe_heads_owner_id_recipe_id_fk": {
+          "name": "recipe_unit_sources_owner_id_recipe_id_recipe_heads_owner_id_recipe_id_fk",
+          "tableFrom": "recipe_unit_sources",
+          "tableTo": "recipe_heads",
+          "columnsFrom": ["owner_id", "recipe_id"],
+          "columnsTo": ["owner_id", "recipe_id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "recipe_unit_sources_origin_check": {
+          "name": "recipe_unit_sources_origin_check",
+          "value": "\"recipe_unit_sources\".\"origin\" IN ('generated', 'judged', 'device')"
         }
       }
     },

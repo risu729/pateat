@@ -115,11 +115,11 @@ test("service address validation changes language without requesting access or l
   await render(<ServiceConnection client={value} pollMs={60_000} />);
   await page.getByLabelText("Service address", { exact: true }).fill("http://invalid.example");
   await page.getByRole("button", { name: "Pair this device", exact: true }).click();
-  const error = document.getElementById("sync-service-error")?.textContent;
+  const error = document.getElementById("sync-service-address-error")?.textContent;
   expect(error).toContain("HTTPS");
   await i18n.changeLanguage("ja");
   await expect
-    .poll(() => document.getElementById("sync-service-error")?.textContent)
+    .poll(() => document.getElementById("sync-service-address-error")?.textContent)
     .not.toBe(error);
   await expect
     .element(page.getByLabelText(japanese("Service address"), { exact: true }))

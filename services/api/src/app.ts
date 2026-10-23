@@ -79,6 +79,7 @@ export const app = new Hono<ApiEnv>()
   .all("/manage/api/models", methodNotAllowed("GET, PUT"))
   .all("/manage/api/claude", methodNotAllowed("GET, PUT"))
   .all("/manage/api/claude/test", methodNotAllowed("POST"))
+  .all("/manage/api/problems", methodNotAllowed("GET"))
   .get("/manage/assets/*", requireAccess, appAsset)
   // Each page the app renders; any other path under /manage is not found.
   .get("/manage", requireAccess, appPage)
@@ -91,12 +92,14 @@ export const app = new Hono<ApiEnv>()
   .all("/manage/claude", methodNotAllowed("GET"))
   .get("/manage/profiles", requireAccess, appPage)
   .all("/manage/profiles", methodNotAllowed("GET"))
+  .get("/manage/problems", requireAccess, appPage)
+  .all("/manage/problems", methodNotAllowed("GET"))
   .get("/manage/sites", requireAccess, appPage)
   .all("/manage/sites", methodNotAllowed("GET"))
   // One site's page, for the origin `<scheme>://<host>`; the app checks the host.
   .get("/manage/sites/:scheme{https?}/:host", requireAccess, appPage)
   .all("/manage/sites/:scheme{https?}/:host", methodNotAllowed("GET"))
-  // Editing any profile from the extension's settings page (ADR 0075). Only the host-wide
+  // Editing any profile from the extension's settings page (ADR 0076). Only the host-wide
   // Access application's audience is accepted, which requires WARP, never the pairing
   // one (ADR 0030), and only from an extension the pairing allowlist names. A device
   // credential grants no access here.
@@ -157,6 +160,7 @@ export const app = new Hono<ApiEnv>()
   )
   .route("/v1/device", deviceRoutes)
   .all("/v1/device", methodNotAllowed("GET, DELETE"))
+  .all("/v1/device/problems", methodNotAllowed("POST"))
   .route("/v1/settings", settingsRoutes)
   .all("/v1/settings", methodNotAllowed("GET, PUT"))
   .route("/v1/recipes", recipeRoutes)

@@ -1,7 +1,6 @@
 import {
   isEntryObservation,
   loginObservationSchema,
-  loginStepSchema,
   pageKindSchema,
   semanticSlotsSchema,
   type LoginObservation,
@@ -130,11 +129,6 @@ export const generatedPlanSchema = v.strictObject({
 
 // Sent to the provider as the response format, so it counts toward the request bound.
 const outputSchemaJson = JSON.stringify(toJsonSchema(generatedPlanSchema));
-
-const repairSchema = v.strictObject({
-  reason: v.picklist(["structural-mismatch", "recipe-failure"]),
-  previousSteps: v.pipe(v.array(loginStepSchema), v.minLength(1), v.maxLength(8)),
-});
 
 /**
  * How a plan answers its page's kind (ADR 0035), in the instructions of every request that
@@ -266,8 +260,6 @@ export type GenerationRequest = {
    * with a recipe's first page.
    */
   signedIn?: boolean;
-  /** Present when a cached recipe failed on this page; previous steps carry locators only. */
-  repair?: unknown;
   /**
    * False for a page after the start page, whose alternatives and passkey button are
    * checked but dropped, so the slots are named from the kept set alone. Defaults to true.
@@ -367,8 +359,9 @@ function generationCall(config: GenerationConfig) {
 }
 
 /**
- * Recipe generation/repair role. Uses exactly the configured model: errors are
- * returned, never retried on another provider or model.
+ * Recipe generation role, which also answers a repair's page as a first page or a
+ * continuation (ADR 0041): the stale steps never reach the model. Uses exactly the
+ * configured model: errors are returned, never retried on another provider or model.
  */
 export function createRecipeGenerator(config: GenerationConfig) {
   const call = generationCall(config);
@@ -382,25 +375,19 @@ export function createRecipeGenerator(config: GenerationConfig) {
       request.passkeyOnly === true ||
       (observation.success && observation.output.accounts !== undefined);
     const slots = v.safeParse(slotless ? v.strictTuple([]) : semanticSlotsSchema, request.slots);
-    const repair =
-      request.repair === undefined ? undefined : v.safeParse(repairSchema, request.repair);
-    if (!observation.success || !slots.success || (repair && !repair.success))
+    if (!observation.success || !slots.success)
       return { status: "failed", error: "invalid-request", calls: 0, usage: noUsage };
-    if (
-      request.passkeyOnly &&
-      (!isEntryObservation(observation.output) || request.repair !== undefined)
-    )
+    if (request.passkeyOnly && !isEntryObservation(observation.output))
       return { status: "failed", error: "invalid-request", calls: 0, usage: noUsage };
     if (!observation.output.complete)
       return { status: "failed", error: "incomplete-observation", calls: 0, usage: noUsage };
 
     const prompt = JSON.stringify({
-      task: repair ? "repair" : "generate",
+      task: "generate",
       slots: slots.output,
       ...(request.passkeyOnly ? { passkeyOnly: true } : {}),
       ...(request.signedIn === undefined ? {} : { signedIn: request.signedIn }),
       observation: observation.output,
-      ...(repair?.success ? { repair: repair.output } : {}),
     });
 
     return call({

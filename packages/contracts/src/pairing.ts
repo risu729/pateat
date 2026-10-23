@@ -67,7 +67,7 @@ export const devicePairRequestSchema = v.strictObject({
   label: deviceLabelSchema,
   /**
    * The profile an existing owner's device takes; `newProfile` names one to create for
-   * it instead. A first pairing names neither (ADR 0075).
+   * it instead. A first pairing names neither (ADR 0076).
    */
   profileId: v.optional(profileIdSchema),
   newProfile: v.optional(profileNameSchema),
@@ -81,7 +81,7 @@ export const devicePairResultSchema = v.strictObject({
 
 export const pairErrorCodeSchema = v.picklist([
   "bad_request",
-  /** The owner has profiles; the request must name one or a new one (ADR 0075). */
+  /** The owner has profiles; the request must name one or a new one (ADR 0076). */
   "profile_required",
   "profile_not_found",
   /** Another profile of the owner already has the new profile's name. */

@@ -25,8 +25,11 @@ export const SMOKE_OWNER_PREFIX = "smoke-";
  * A Worker test fails when a table with an `owner_id` column is missing here.
  */
 export const OWNER_TABLES = [
+  "recipe_unit_sources",
+  "recipe_layout_uses",
   "recipe_revisions",
   "recipe_heads",
+  "recipe_repairs",
   "settings",
   "generation_attempts",
   "page_judgements",
@@ -35,6 +38,7 @@ export const OWNER_TABLES = [
   "inference_log",
   "login_outcomes",
   "login_timings",
+  "problem_log",
   "inference_credentials",
   "inference_model_configs",
   "devices",
@@ -91,22 +95,33 @@ function recipeDocument(id: string, revision: number) {
     id,
     revision,
     origin: "https://smoke.pateat.invalid",
-    pageKind: "sign-in",
-    slots: ["username", "password"],
-    steps: [
+    layouts: [
       {
-        kind: "fill",
-        effect: "prepare",
-        path: "/login",
-        fields: [
-          { slot: "username", target: { by: "id", value: "username" } },
-          { slot: "password", target: { by: "id", value: "password" } },
+        key: "1000",
+        createdAt: 1000,
+        pageKind: "sign-in",
+        slots: ["username", "password"],
+        steps: [
+          {
+            kind: "fill",
+            effect: "prepare",
+            path: "/login",
+            fields: [
+              { slot: "username", target: { by: "id", value: "username" } },
+              { slot: "password", target: { by: "id", value: "password" } },
+            ],
+          },
+          {
+            kind: "click",
+            path: "/login",
+            target: { by: "id", value: "submit" },
+            purpose: "submit",
+          },
         ],
+        completion: [{ target: { by: "id", value: "welcome" } }],
+        maxSubmissions: 1,
       },
-      { kind: "click", path: "/login", target: { by: "id", value: "submit" }, purpose: "submit" },
     ],
-    completion: [{ target: { by: "id", value: "welcome" } }],
-    maxSubmissions: 1,
   };
 }
 

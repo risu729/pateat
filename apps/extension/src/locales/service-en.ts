@@ -6,8 +6,8 @@ export const serviceEn = {
     "Pateat could not read or save its service connection on this device.",
   "Pateat cannot read its saved service connection. Forget it here, then revoke the old device on the service's management page if it was paired.":
     "Pateat cannot read its saved service connection. Forget it here, then revoke the old device on the service's management page if it was paired.",
-  "Chrome is not letting Pateat reach this service. Allow site access when Chrome asks, or in the extension's site access settings.":
-    "Chrome is not letting Pateat reach this service. Allow site access when Chrome asks, or in the extension's site access settings.",
+  "Chrome does not let Pateat reach this service. Allow site access when Chrome asks, or in Pateat's site access settings in Chrome.":
+    "Chrome does not let Pateat reach this service. Allow site access when Chrome asks, or in Pateat's site access settings in Chrome.",
   "The service could not be reached. Check the address, then try again.":
     "The service could not be reached. Check the address, then try again.",
   "The service asked Pateat to slow down. Wait a minute, then try again.":
@@ -25,8 +25,8 @@ export const serviceEn = {
   "The connection changed elsewhere. This page now shows its current state.":
     "The connection changed elsewhere. This page now shows its current state.",
   "That request was not valid.": "That request was not valid.",
-  "The extension did not answer. Reload this page to retry.":
-    "The extension did not answer. Reload this page to retry.",
+  "Pateat did not answer. Reload this page to try again.":
+    "Pateat did not answer. Reload this page to try again.",
   "This device is paired.": "This device is paired.",
   "Sign in to {{origin}} in the new tab, then come back here. If the service refuses your account, ask its operator.":
     "Sign in to {{origin}} in the new tab, then come back here. If the service refuses your account, ask its operator.",
@@ -39,19 +39,18 @@ export const serviceEn = {
   "Enter a device name.": "Enter a device name.",
   "Service address": "Service address",
   "Device name": "Device name",
-  "Syncs recipes, site exclusions, saved accounts and account bindings. Never sends vault values, passwords or keys.":
-    "Syncs recipes, site exclusions, saved accounts and account bindings. Never sends vault values, passwords or keys.",
+  "Syncs recipes, site exclusions, default accounts and account bindings. Never sends vault values, passwords or keys.":
+    "Syncs recipes, site exclusions, default accounts and account bindings. Never sends vault values, passwords or keys.",
   "Pair this device": "Pair this device",
   "Try again": "Try again",
   "Open sign-in page": "Open sign-in page",
   Paired: "Paired",
   "Named {{label}} on the service": "Named {{label}} on the service",
-  "The service no longer accepts this device. Login keeps using the recipes synced before; disconnect and pair again to sync.":
-    "The service no longer accepts this device. Login keeps using the recipes synced before; disconnect and pair again to sync.",
-  "Your recipes or settings no longer fit, so newer changes are not applied. Login keeps using what was synced before.":
-    "Your recipes or settings no longer fit, so newer changes are not applied. Login keeps using what was synced before.",
-  "Recipes and settings have not finished syncing yet":
-    "Recipes and settings have not finished syncing yet",
+  "The service no longer accepts this device. Logins keep using the recipes synced before; disconnect and pair again to sync.":
+    "The service no longer accepts this device. Logins keep using the recipes synced before; disconnect and pair again to sync.",
+  "Your recipes or settings no longer fit on this device, so newer changes are not applied. Logins keep using what was synced before.":
+    "Your recipes or settings no longer fit on this device, so newer changes are not applied. Logins keep using what was synced before.",
+  "Recipes and settings not synced yet": "Recipes and settings not synced yet",
   "Recipes and settings synced {{time}}": "Recipes and settings synced {{time}}",
   "Disconnected on this device, but the service could not confirm it. Revoke this device from {{url}} in a browser that can open it.":
     "Disconnected on this device, but the service could not confirm it. Revoke this device from {{url}} in a browser that can open it.",

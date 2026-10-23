@@ -12,7 +12,7 @@ const profileParam = v.strictObject({ profileId: profileIdSchema });
 
 /**
  * Profile editing from an allowed extension's settings page with the owner's WARP-backed
- * session (ADR 0075); it never changes which profile the extension's device uses.
+ * session (ADR 0076); it never changes which profile the extension's device uses.
  */
 export const profileEditorRoutes = new Hono<ApiEnv>()
   .get("/", async (c) => {

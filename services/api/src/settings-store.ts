@@ -17,7 +17,7 @@ export const profileDocument = (document: LocalSettings) => ({
 /**
  * Reads the profile and the shared bindings at the owner's revision in one statement. A
  * profile with no document of its own yet answers `newProfile`, so the first device to
- * sync it keeps its own entries (ADR 0075).
+ * sync it keeps its own entries (ADR 0076).
  */
 export async function readSettings(
   db: D1Database,

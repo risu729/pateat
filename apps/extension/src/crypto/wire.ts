@@ -44,8 +44,10 @@ export type HostOperation =
       ref: LocalFieldReference;
       allowedFieldIds: readonly string[];
       nowMs?: number;
+      code?: true;
     }
   | { kind: "match-uris"; session: HostSessionRef; targetUrl: string }
+  | { kind: "verify-password"; session: HostSessionRef; password: string }
   | { kind: "custom-digest"; session: HostSessionRef; itemIds: readonly string[] }
   | { kind: "passkey-find"; session: HostSessionRef; rpId: string }
   | {
@@ -101,6 +103,12 @@ export const commandSchema = v.strictObject({
       nowMs: v.optional(
         v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(Number.MAX_SAFE_INTEGER)),
       ),
+      code: v.optional(v.literal(true)),
+    }),
+    v.strictObject({
+      kind: v.literal("verify-password"),
+      session: sessionSchema,
+      password: v.pipe(v.string(), v.minLength(1)),
     }),
     v.strictObject({
       kind: v.literal("match-uris"),
@@ -219,6 +227,9 @@ export type HostCommand = v.InferOutput<typeof commandSchema>;
 /** Whether a job derives a key with Argon2id and so gets `ARGON2ID_JOB_BUDGET_MS`. */
 export function derivesArgon2id(operation: HostOperation | HostCommand["operation"]): boolean {
   if (operation.kind === "derive-auth") return derivesAuthenticationWithArgon2id(operation.input);
+  // The Worker checks a master password with the account's own KDF, which the operation
+  // does not name, so it gets the longer budget either way.
+  if (operation.kind === "verify-password") return true;
   // An open with a retained key runs no KDF.
   if (operation.kind !== "open" || operation.unlock.kind !== "password") return false;
   const kdf: unknown = (operation.prepared as { kdf?: unknown } | null | undefined)?.kdf;

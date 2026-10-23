@@ -8,6 +8,7 @@ import { DashboardPage } from "./dashboard";
 import { SETTINGS_QUERY_KEY } from "./settings";
 import { DevicesPage } from "./devices";
 import { PROFILES_QUERY_KEY, ProfilesPage, storedProfile, storeProfile } from "./profiles";
+import { ProblemsPage } from "./problems";
 import { RequestLogPage } from "./request-log";
 import { SitePage } from "./site";
 import { siteOrigin, SitesPage } from "./sites";
@@ -30,6 +31,7 @@ const PAGES = [
   { path: "/manage/profiles", title: "Profiles", Page: ProfilesPage },
   { path: "/manage", title: "Devices", Page: DevicesPage },
   { path: "/manage/claude", title: "Claude", Page: ClaudePage },
+  { path: "/manage/problems", title: "Problems", Page: ProblemsPage },
   { path: "/manage/request-log", title: "Request log", Page: RequestLogPage },
 ] as const;
 

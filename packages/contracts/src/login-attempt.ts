@@ -10,8 +10,10 @@ import {
   loginOriginSchema,
   loginOutcomeSchema,
   loginRouteSchema,
+  keypadStep,
   loginStepEffect,
   MAX_PASSWORD_ALTERNATIVES,
+  recipeLayoutKeySchema,
   parseLoginRecipe,
   passwordVariants,
   routeSlots,
@@ -58,7 +60,7 @@ export const attemptTimingSchema = v.strictObject({
 export type AttemptTiming = v.InferOutput<typeof attemptTimingSchema>;
 /** Steps and effects an attempt may hold: its route's, plus those of handlers it entered. */
 const MAX_ATTEMPT_STEPS = 40;
-const MAX_ATTEMPT_SUBMISSIONS = 12;
+export const MAX_ATTEMPT_SUBMISSIONS = 12;
 const MAX_ENTERED_HANDLERS = 4;
 /** Pages the model may judge after one effect step (ADR 0027). */
 export const MAX_JUDGED_PAGES = 2;
@@ -68,15 +70,19 @@ const MAX_RECIPE_EFFECTS = 8;
 /** Pages already sent to be judged after effect step `operationId`. */
 export const judgedPages = (
   metadata: Pick<LoginAttemptMetadata, "judged">,
-  operationId: string,
-): number => (metadata.judged?.operationId === operationId ? metadata.judged.pages : 0);
+  operationId: string | undefined,
+): number =>
+  operationId !== undefined && metadata.judged?.operationId === operationId
+    ? metadata.judged.pages
+    : 0;
 /**
  * Pages the model may still judge for the attempt's current effect step: while the login
- * is watched (ADR 0027), the watch's own pages, else those after the step.
+ * is watched (ADR 0027), the watch's own pages, else those after the step. A login watched
+ * at its stop (ADR 0036) has no step in flight and names none.
  */
 export const pagesLeft = (
   metadata: Pick<LoginAttemptMetadata, "judged" | "watch">,
-  operationId: string,
+  operationId: string | undefined,
 ): number =>
   MAX_JUDGED_PAGES - (metadata.watch ? metadata.watch.pages : judgedPages(metadata, operationId));
 export const loginAttemptStateSchema = v.picklist([
@@ -117,6 +123,11 @@ export const attemptMetadataSchema = v.pipe(
     id: identifier,
     recipeId: identifier,
     recipeRevision: integer(Number.MAX_SAFE_INTEGER - 1),
+    /**
+     * The layout of the recipe the login runs, chosen when it started (ADR 0060); a resumed
+     * login and a later revision it takes over keep it.
+     */
+    layout: v.optional(recipeLayoutKeySchema),
     policyRevision: integer(Number.MAX_SAFE_INTEGER - 1),
     account: loginAccountSchema,
     /** The route chosen when the login started (ADR 0027). */
@@ -136,11 +147,18 @@ export const attemptMetadataSchema = v.pipe(
      */
     chooser: v.optional(v.strictObject({ click: chooserClickSchema })),
     /**
-     * Handlers this login entered, in order: `index` in the recipe's handlers, and `start`,
-     * where its steps begin in the attempt's plan (`attemptPlan`).
+     * Handlers this login entered, in order: `index` in the recipe's handlers, `start`,
+     * where its steps begin in the attempt's plan (`attemptPlan`), and for a `detail`
+     * handler the input it fills (`field`, ADR 0061).
      */
     handlers: v.pipe(
-      v.array(v.strictObject({ index: integer(15), start: integer(MAX_ATTEMPT_STEPS) })),
+      v.array(
+        v.strictObject({
+          index: integer(15),
+          start: integer(MAX_ATTEMPT_STEPS),
+          field: v.optional(integer(2)),
+        }),
+      ),
       v.maxLength(MAX_ENTERED_HANDLERS),
       v.check(
         (entries) => new Set(entries.map((entry) => entry.index)).size === entries.length,
@@ -399,14 +417,16 @@ export const loginAttemptEventSchema = v.variant("type", [
   /**
    * The page would not accept this fill's values (ADR 0010): `before-fill` when a value
    * does not fit its input and nothing was filled, `after-fill` when the page rejected
-   * a preparing fill. It ends the attempt without a retry, since the same values would
-   * be rejected again.
+   * a preparing fill, `code-refused` when the page kept a character of a TOTP code typed as
+   * its own submission out of an input it still shows (ADR 0027 amendment of 2026-10-23),
+   * so it never had the whole code. It ends the attempt without a retry, since the same
+   * values would be rejected again.
    */
   v.strictObject({
     type: v.literal("VALUE_REJECTED"),
     operationId: identifier,
     document: loginDocumentSchema,
-    stage: v.picklist(["before-fill", "after-fill"]),
+    stage: v.picklist(["before-fill", "after-fill", "code-refused"]),
   }),
   /**
    * The attempt takes over a newer revision of its recipe that only adds handlers or
@@ -419,11 +439,12 @@ export const loginAttemptEventSchema = v.variant("type", [
   /**
    * A page after the current effect step is about to be sent to be judged. It counts
    * against the step's pages before the request, so a restart cannot resend without
-   * bound (ADR 0027).
+   * bound (ADR 0027). A login watched at its stop (ADR 0036) has no step in flight, so its
+   * watch's pages name none.
    */
-  v.strictObject({ type: v.literal("JUDGING"), operationId: identifier }),
+  v.strictObject({ type: v.literal("JUDGING"), operationId: v.optional(identifier) }),
   /** The page sent under `JUDGING` reached no model, so it is given back. */
-  v.strictObject({ type: v.literal("UNJUDGED"), operationId: identifier }),
+  v.strictObject({ type: v.literal("UNJUDGED"), operationId: v.optional(identifier) }),
   /**
    * The watch of a login (ADR 0027) is over: it ends where it stopped, `challenge` or an
    * unknown result, and its later pages are no longer read. `abandoned`: the recipe's first
@@ -455,6 +476,24 @@ export const loginAttemptEventSchema = v.variant("type", [
     stopAt: v.optional(v.pipe(integer(MAX_ATTEMPT_STEPS), v.minValue(1))),
   }),
   /**
+   * The login runs another layout of its recipe from here on (ADR 0060): one whose steps
+   * before the step at hand are the attempt's own, and whose step there shows on the page
+   * while the attempt's own does not. After an effect step that may have advanced, the login
+   * goes on to that step, as on `OBSERVED` `continue`; with nothing in flight it stays at its
+   * step. `steps` and `maxSubmissions` are the layout's, and `recipeRevision` the revision it
+   * was read from. Only a `password` login on its recipe's own steps (variant 0) switches,
+   * with no handler entered, no stop, no chooser and not only filling; the runtime checks the
+   * layout's earlier steps and the account's plan on it before sending it.
+   */
+  v.strictObject({
+    type: v.literal("LAYOUT"),
+    layout: recipeLayoutKeySchema,
+    recipeRevision: integer(Number.MAX_SAFE_INTEGER - 1),
+    steps: v.pipe(integer(MAX_ATTEMPT_STEPS), v.minValue(1)),
+    maxSubmissions: v.pipe(integer(MAX_ATTEMPT_SUBMISSIONS), v.minValue(1)),
+    document: loginDocumentSchema,
+  }),
+  /**
    * After an effect step, the page shows the recipe's handler `handler` (its index in the
    * recipe's handlers): its `steps` follow the effect step, and its `effects` grow the
    * submission budget (ADR 0027). At a login's stop before its item's missing password, with
@@ -464,6 +503,8 @@ export const loginAttemptEventSchema = v.variant("type", [
   v.strictObject({
     type: v.literal("HANDLER"),
     handler: integer(15),
+    /** A `detail` handler's input that the login fills (ADR 0061). */
+    field: v.optional(integer(2)),
     steps: v.pipe(integer(4), v.minValue(1)),
     effects: v.pipe(integer(4), v.minValue(1)),
     document: loginDocumentSchema,
@@ -543,10 +584,26 @@ const leftOrigin = (left: LoginDocument, right: LoginDocument) =>
   right.frameId === 0 &&
   left.tabId === right.tabId &&
   left.origin !== right.origin;
-/** The current operation may have submitted or changed the page. */
+/**
+ * Whether a login of an item without a password is watched at its stop with nothing in
+ * flight (ADR 0036): its watch's pages are judged, though no step names them.
+ */
+export const watchedAtStop = (
+  context: Pick<LoginAttemptMetadata, "state" | "watch" | "stopAt" | "stepIndex" | "operationId">,
+): boolean =>
+  context.state === "watching" &&
+  context.watch !== undefined &&
+  context.stopAt !== undefined &&
+  context.stepIndex === context.stopAt &&
+  context.operationId === undefined;
+/**
+ * The current operation may have submitted or changed the page. A fill whose failure
+ * confirmed that it changed nothing, or that failed before its intent, waits to be tried
+ * again and did not (ADR 0022).
+ */
 const maySubmit = (context: LoginAttemptMetadata) =>
   context.mutationIntent === true ||
-  context.operationKind === "fill" ||
+  (context.operationKind === "fill" && context.retryRequired !== true) ||
   (context.operationKind === "click" && context.submissions > 0);
 const operationMatches = (context: LoginAttemptMetadata, event: LoginAttemptEvent) =>
   "operationId" in event && event.operationId === context.operationId;
@@ -715,7 +772,7 @@ function record(
       };
     }
     case "VALUE_REJECTED":
-      if (event.stage === "after-fill") return { outcome: "fill-rejected" };
+      if (event.stage !== "before-fill") return { outcome: "fill-rejected" };
       return {
         outcome: "value-mismatch",
         // As with a wrong account, the reserved fill effect never started.
@@ -731,6 +788,7 @@ function record(
       return { policyRevision: event.policyRevision };
     case "JUDGING":
       if (context.watch) return { watch: { ...context.watch, pages: context.watch.pages + 1 } };
+      if (event.operationId === undefined) return {};
       return {
         judged: {
           operationId: event.operationId,
@@ -739,6 +797,7 @@ function record(
       };
     case "UNJUDGED":
       if (context.watch) return { watch: { ...context.watch, pages: context.watch.pages - 1 } };
+      if (event.operationId === undefined) return {};
       return {
         judged: {
           operationId: event.operationId,
@@ -771,12 +830,37 @@ function record(
         retryRequired: undefined,
         settled: undefined,
       };
+    case "LAYOUT":
+      return {
+        layout: event.layout,
+        recipeRevision: event.recipeRevision,
+        // The effect step in flight is done: its page shows the layout's next step.
+        stepIndex: context.operationId === undefined ? context.stepIndex : context.stepIndex + 1,
+        stepCount: event.steps,
+        maxSubmissions: event.maxSubmissions,
+        document: event.document,
+        continuation: undefined,
+        operationId: undefined,
+        operationKind: undefined,
+        operationEffect: undefined,
+        mutationIntent: undefined,
+        outcome: undefined,
+        retryRequired: undefined,
+        settled: undefined,
+      };
     case "HANDLER": {
       // After an effect step the handler's steps follow it; at a stop, with nothing in
       // flight, they go in at the stop step itself (ADR 0036).
       const start = context.operationId === undefined ? context.stepIndex : context.stepIndex + 1;
       return {
-        handlers: [...context.handlers, { index: event.handler, start }],
+        handlers: [
+          ...context.handlers,
+          {
+            index: event.handler,
+            start,
+            ...(event.field === undefined ? {} : { field: event.field }),
+          },
+        ],
         // The handler's steps go in before the stop, which moves along with the plan.
         ...(context.route === "password" && context.stopAt !== undefined
           ? { stopAt: context.stopAt + event.steps }
@@ -959,8 +1043,12 @@ function createLoginAttemptMachine() {
         operationMatches(context, event) &&
         context.operationKind === "fill" &&
         sameLoginDocument(context.document, event.document) &&
-        // Only a preparing fill is checked after filling; an effectful one has submitted.
-        (event.stage === "before-fill" || context.operationEffect === "prepare"),
+        // Only a preparing fill is checked after filling; an effectful one has submitted,
+        // unless it is a code the page kept a character of out.
+        (event.stage === "before-fill" ||
+          (event.stage === "after-fill"
+            ? context.operationEffect === "prepare"
+            : context.operationEffect === "submit")),
       retryAvailable: ({ context, event }) =>
         context.retries < context.maxRetries && !(event.type === "RETRY" && event.final),
       failedPossibleMutation: ({ context, event }) =>
@@ -1049,13 +1137,22 @@ function createLoginAttemptMachine() {
       // the step, then again while the login is watched (ADR 0027).
       canJudge: ({ context, event }) =>
         event.type === "JUDGING" &&
+        event.operationId !== undefined &&
         operationMatches(context, event) &&
         (context.operationKind === "click" ||
           context.operationEffect === "advance" ||
           context.operationEffect === "submit") &&
         pagesLeft(context, event.operationId) > 0,
+      // So are the pages of a login watched at its stop, which has no step in flight to name
+      // (ADR 0036).
+      canJudgeWatchedStop: ({ context, event }) =>
+        event.type === "JUDGING" &&
+        event.operationId === undefined &&
+        watchedAtStop(context) &&
+        pagesLeft(context, undefined) > 0,
       canUnjudge: ({ context, event }) =>
         event.type === "UNJUDGED" &&
+        (event.operationId !== undefined || watchedAtStop(context)) &&
         (context.watch ? context.watch.pages : judgedPages(context, event.operationId)) > 0,
       watchEnds: ({ context }) => context.watch !== undefined,
       // One request per final advance, recorded before it is sent (ADR 0018). A login with
@@ -1095,6 +1192,37 @@ function createLoginAttemptMachine() {
         context.stepCount + event.steps <= MAX_ATTEMPT_STEPS &&
         context.maxSubmissions + event.effects <= MAX_ATTEMPT_SUBMISSIONS &&
         sameScope(context.document, event.document),
+      // At a step where the layouts of the recipe part (ADR 0060): after an effect step that
+      // may have advanced, as `observedContinue` takes it, or with nothing in flight. The
+      // layout's step there must exist, and its budget must hold what was spent already.
+      canSwitchLayout: ({ context, event }) => {
+        if (event.type !== "LAYOUT") return false;
+        const inFlight = context.operationId !== undefined;
+        const at = inFlight ? context.stepIndex + 1 : context.stepIndex;
+        return (
+          context.layout !== undefined &&
+          event.layout !== context.layout &&
+          event.recipeRevision >= context.recipeRevision &&
+          context.route === "password" &&
+          context.variant === 0 &&
+          context.handlers.length === 0 &&
+          context.chooser === undefined &&
+          context.stopAt === undefined &&
+          context.fillOnly !== true &&
+          (inFlight
+            ? (context.operationKind === "click" || context.operationEffect === "advance") &&
+              context.mutationIntent === true &&
+              context.submissions > 0
+            : context.retryRequired !== true) &&
+          at >= 1 &&
+          at < event.steps &&
+          // Past the login's own last step only after an advance, whose next page the
+          // layout already holds; never after a submission that ended the login's plan.
+          (at < context.stepCount || context.operationEffect === "advance") &&
+          context.submissions <= event.maxSubmissions &&
+          sameScope(context.document, event.document)
+        );
+      },
       // Before anything was submitted, between steps, on the first route a login took.
       canSwitchRoute: ({ context, event }) =>
         event.type === "ROUTE" &&
@@ -1221,6 +1349,7 @@ function createLoginAttemptMachine() {
           STOP_JUDGING: { guard: "canJudgeAtStop", actions: "record" },
           HANDLER: { guard: "canEnterHandlerAtStop", target: "ready", actions: "record" },
           ROUTE: { guard: "canSwitchRoute", target: "ready", actions: "record" },
+          LAYOUT: { guard: "canSwitchLayout", target: "ready", actions: "record" },
           NOT_LISTED: {
             guard: ({ context }) =>
               context.chooser !== undefined &&
@@ -1280,6 +1409,7 @@ function createLoginAttemptMachine() {
           UNCONTINUED: { guard: "canUncontinue", actions: "record" },
           CONTINUED: { guard: "continued", target: "ready", actions: "record" },
           HANDLER: { guard: "canEnterHandler", target: "ready", actions: "record" },
+          LAYOUT: { guard: "canSwitchLayout", target: "ready", actions: "record" },
           ROUTE: { guard: "canFallBack", target: "ready", actions: "record" },
           FAILED: [{ guard: "staleFailure" }, { target: "reconciling", actions: "record" }],
         },
@@ -1295,6 +1425,7 @@ function createLoginAttemptMachine() {
           UNCONTINUED: { guard: "canUncontinue", actions: "record" },
           CONTINUED: { guard: "continued", target: "ready", actions: "record" },
           HANDLER: { guard: "canEnterHandler", target: "ready", actions: "record" },
+          LAYOUT: { guard: "canSwitchLayout", target: "ready", actions: "record" },
           ROUTE: { guard: "canFallBack", target: "ready", actions: "record" },
         },
       },
@@ -1314,7 +1445,10 @@ function createLoginAttemptMachine() {
             { guard: "observedAuthenticated", target: "authenticated", actions: "record" },
             { guard: "observedCredentialRejected", target: "blocked", actions: "record" },
           ],
-          JUDGING: { guard: "canJudge", actions: "record" },
+          JUDGING: [
+            { guard: "canJudge", actions: "record" },
+            { guard: "canJudgeWatchedStop", actions: "record" },
+          ],
           UNJUDGED: { guard: "canUnjudge", actions: "record" },
           WATCH_ENDED: { target: "blocked", actions: "watchEnded" },
           // A restart or a new page of the tab keeps the watch; it has nothing in flight.
@@ -1374,6 +1508,7 @@ export function createAttemptMetadata(input: {
     id: input.id,
     recipeId: recipe.id,
     recipeRevision: recipe.revision,
+    ...(recipe.layout === undefined ? {} : { layout: recipe.layout }),
     policyRevision: input.policyRevision,
     account: input.account,
     route: input.choice.route,
@@ -1543,6 +1678,11 @@ export const effectfulStep = (step: LoginStep): boolean => {
   const effect = loginStepEffect(step);
   return effect !== undefined && effect !== "prepare";
 };
+/**
+ * A step a fill-only login never takes (ADR 0021 D): one with an effect, or a fill on a
+ * page's software keyboard, whose presses the page may act on (ADR 0067).
+ */
+export const fillOnlyStops = (step: LoginStep): boolean => effectfulStep(step) || keypadStep(step);
 
 /**
  * Applies one event. `now` starts the watch of a login that becomes watched (ADR 0027); a
@@ -1557,7 +1697,24 @@ export function transitionLoginAttempt(
   const event = v.parse(loginAttemptEventSchema, eventValue);
   if (metadata.state === "authenticated" || metadata.state === "blocked") return metadata;
   const snapshot = loginAttemptMachine.resolveState({ value: metadata.state, context: metadata });
-  const [next] = transition(loginAttemptMachine, snapshot, event);
+  // A login still at its first step that has submitted nothing, and has nothing in flight
+  // that may have, has no result to settle as unknown: the page goes on, at the same step, as
+  // one that does not show that step yet, which the step's own bounded wait and the retries
+  // decide (ADR 0022). After a fill the person may have submitted the values themselves.
+  const unsubmitted =
+    event.type === "OBSERVED" &&
+    event.result === "unknown" &&
+    metadata.submissions === 0 &&
+    metadata.stepIndex === (metadata.route === "password" ? (metadata.startStep ?? 0) : 0) &&
+    !maySubmit(metadata)
+      ? transition(loginAttemptMachine, snapshot, { ...event, result: "continue" })[0]
+      : undefined;
+  const [next] =
+    unsubmitted &&
+    (unsubmitted.value === "ready" || unsubmitted.value === "retryable") &&
+    unsubmitted.context.stepIndex === metadata.stepIndex
+      ? [unsubmitted]
+      : transition(loginAttemptMachine, snapshot, event);
   const { watch, ...moved } = {
     ...next.context,
     state: next.value as LoginAttemptMetadata["state"],
@@ -1661,7 +1818,7 @@ export function attemptPlan(
     plan.splice(
       entry.start,
       0,
-      ...handlerSteps(handler).map((step) => ({ step, handler: entry.index })),
+      ...handlerSteps(handler, entry.field).map((step) => ({ step, handler: entry.index })),
     );
   }
   return plan;
@@ -1682,6 +1839,7 @@ export function nextLoginOperation(
     !sameLoginDocument(metadata.document, document) ||
     metadata.recipeId !== recipe.id ||
     metadata.recipeRevision !== recipe.revision ||
+    metadata.layout !== recipe.layout ||
     metadata.account.origin !== recipe.origin ||
     metadata.usedOperationIds.includes(operationId)
   )
@@ -1694,9 +1852,9 @@ export function nextLoginOperation(
     // The step that fills the password of an item without one, and every later step, never
     // runs (ADR 0036).
     !beforeStop(metadata, metadata.stepIndex) ||
-    (effectfulStep(step) &&
-      // A fill-only attempt never takes a step with an effect (ADR 0021 D).
-      (metadata.fillOnly === true || metadata.submissions >= stepBudget(metadata)))
+    // A fill-only attempt never takes a step with an effect or a keypad (ADR 0021 D).
+    (metadata.fillOnly === true && fillOnlyStops(step)) ||
+    (effectfulStep(step) && metadata.submissions >= stepBudget(metadata))
   )
     return undefined;
   return v.parse(loginOperationSchema, {
@@ -1729,7 +1887,7 @@ export function validateLoginOperation(
       : metadata.state === "executing";
   return (
     readyToExecute &&
-    !(metadata.fillOnly === true && effectfulStep(operation.step)) &&
+    !(metadata.fillOnly === true && fillOnlyStops(operation.step)) &&
     beforeStop(metadata, operation.stepIndex) &&
     (!(operation.step.kind === "fill" || operation.step.kind === "click") ||
       metadata.mutationIntent === true) &&

@@ -1,4 +1,4 @@
-# ADR 0075: Settings profiles, delivered
+# ADR 0076: Settings profiles, delivered
 
 Status: accepted by the owner on 2026-10-23. The owner chose each point marked "owner"
 below on 2026-10-19 and 2026-10-23; the rest follow the accepted

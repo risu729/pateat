@@ -8,6 +8,7 @@ import {
   manageErrorSchema,
   manageModelsSchema,
   manageProfileInUseSchema,
+  manageProblemsSchema,
   manageRecipeConflictSchema,
   manageRecipesSchema,
   manageRequestLogDeletedSchema,
@@ -169,6 +170,22 @@ export function createManageClient(fetcher: ManageFetch = (input, init) => fetch
       });
       return read(response, syncRecipeWriteResultSchema);
     },
+    /**
+     * Removes one layout of the recipe (ADR 0060) only if `expectedRevision` is still its
+     * current revision; removing its last layout revokes it.
+     */
+    async revokeLayout(recipeId: string, layout: string, expectedRevision: number) {
+      const response = await call(
+        fetcher,
+        `/recipes/${encodeURIComponent(recipeId)}/layouts/${encodeURIComponent(layout)}/revoke`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ version: 1, expectedRevision }),
+        },
+      );
+      return read(response, syncRecipeWriteResultSchema);
+    },
     /** The model configuration and the models it may name (ADR 0014). */
     async models() {
       return read(await call(fetcher, "/models"), manageModelsSchema);
@@ -204,6 +221,10 @@ export function createManageClient(fetcher: ManageFetch = (input, init) => fetch
     /** Exchanges one token with the saved identifiers; the token never reaches the page. */
     async testClaude() {
       return read(await call(fetcher, "/claude/test", { method: "POST" }), manageClaudeTestSchema);
+    },
+    /** The newest problem lines devices sent (ADR 0066). */
+    async problems() {
+      return read(await call(fetcher, "/problems"), manageProblemsSchema);
     },
   };
 }
