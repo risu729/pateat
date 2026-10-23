@@ -1,6 +1,6 @@
 import { INFERENCE_LOG_RETENTION_MS, MANAGE_PROBLEMS_LIMIT } from "@pateat/contracts";
 import { useQuery } from "@tanstack/react-query";
-import { Clock, FileText, TriangleAlert } from "lucide-react";
+import { Clock, FileText, Info, TriangleAlert } from "lucide-react";
 import { describeError, type ManageClient } from "./api";
 import { formatTime } from "./devices";
 import {
@@ -18,10 +18,13 @@ import {
 export const PROBLEMS_QUERY_KEY = ["problems"] as const;
 
 const RETENTION_DAYS = INFERENCE_LOG_RETENTION_MS / (24 * 60 * 60 * 1000);
+/** Each level its own badge: a did-nothing `info` line is no warning. */
+const LEVEL_TONES = { error: "danger", warn: "warning", info: "muted" } as const;
 
 /**
  * The newest warning and error lines, and lines saying why Pateat did nothing, devices sent
- * from their local logs (ADR 0066), so failures are found without a report. Deleting them goes with the request log.
+ * from their local logs (ADR 0066), so failures are found without a report. Deleting them
+ * goes with the request log.
  */
 export function ProblemsPage({ client }: { client: ManageClient }) {
   const problems = useQuery({ queryKey: PROBLEMS_QUERY_KEY, queryFn: () => client.problems() });
@@ -50,7 +53,11 @@ export function ProblemsPage({ client }: { client: ManageClient }) {
             // oxlint-disable-next-line no-array-index-key -- lines have no ID here; the list is read-only
             <li key={index} className={ROW_CLASSES}>
               <RowIcon>
-                <TriangleAlert size={16} aria-hidden />
+                {problem.level === "info" ? (
+                  <Info size={16} aria-hidden />
+                ) : (
+                  <TriangleAlert size={16} aria-hidden />
+                )}
               </RowIcon>
               <RowMain
                 title={problem.event}
@@ -68,7 +75,7 @@ export function ProblemsPage({ client }: { client: ManageClient }) {
                   </>
                 }
               />
-              <Badge tone={problem.level === "error" ? "warning" : "muted"}>{problem.level}</Badge>
+              <Badge tone={LEVEL_TONES[problem.level]}>{problem.level}</Badge>
             </li>
           ))}
         </RowList>

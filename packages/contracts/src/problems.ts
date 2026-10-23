@@ -2,10 +2,10 @@ import * as v from "valibot";
 import { extensionBuildSchema } from "./sync";
 
 // What one `warn` or `error` line, or `info` line saying why Pateat did nothing, of a
-// device's local log may carry to the service (ADR 0066). The extension's log allowlists every event's fields by kind (ADR
-// 0019); this is that allowlist less the item and connection pseudonyms, with a page URL
-// as a redacted path, so the service checks each field by its kind too and the extension's
-// own reduction is not the only boundary.
+// device's local log may carry to the service (ADR 0066). The extension's log allowlists
+// every event's fields by kind (ADR 0019); this is that allowlist less the item and
+// connection pseudonyms, with a page URL as a redacted path, so the service checks each
+// field by its kind too and the extension's own reduction is not the only boundary.
 
 /** Log lines one problem report carries at most. */
 export const MAX_PROBLEM_ENTRIES = 100;
@@ -410,9 +410,9 @@ export const problemEntrySchema = v.pipe(
 );
 /**
  * `POST /v1/device/problems`: the device's `warn` and `error` log lines, and `info` lines of
- * {@link PROBLEM_INFO_LINES}, it has not sent yet, oldest first. Never a vault value, page text, query, fragment, email address, or item
- * or connection pseudonym. The service adds the device, from the credential, and its own
- * time.
+ * {@link PROBLEM_INFO_LINES}, it has not sent yet, oldest first. Never a vault value, page
+ * text, query, fragment, email address, or item or connection pseudonym. The service adds
+ * the device, from the credential, and its own time.
  */
 export const problemReportSchema = v.strictObject({
   version: v.literal(1),

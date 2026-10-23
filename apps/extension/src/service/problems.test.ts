@@ -34,7 +34,7 @@ const blocked = (fields: LogEntry["fields"] = {}): LogEntry => ({
     recipe: "gen-0123456789abcdef0123456789abcdef",
     recipeRevision: 4,
     state: "blocked",
-    outcome: "target-missing",
+    outcome: "wrong-account",
     cause: "step-timeout",
     url: "/login?user=",
     tab: 12,
@@ -169,7 +169,7 @@ describe("problem reports (ADR 0066)", () => {
             recipe: "gen-0123456789abcdef0123456789abcdef",
             recipeRevision: 4,
             state: "blocked",
-            outcome: "target-missing",
+            outcome: "wrong-account",
             cause: "step-timeout",
             // The path alone, its token-like segment redacted as in an observation.
             url: "/oauth2/[id]/v1/authorize",

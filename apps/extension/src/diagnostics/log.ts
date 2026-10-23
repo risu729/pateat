@@ -1283,41 +1283,102 @@ export function sentToService(entry: Pick<LogEntry, "level" | "event" | "fields"
   return entry.level === "info" && problemInfoLine(entry.event, entry.fields);
 }
 
-/** Generation reasons and details for a page whose path may hold the account's username. */
-const USERNAME_PAGE_REASONS: ReadonlySet<unknown> = new Set([
-  "after-sign-in",
-  "username-in-path",
-  "username-shown",
+/**
+ * Blocked outcomes of a login that filled and clicked nothing at its step (`login.attempt`):
+ * a wrong account, a value that does not fit, a fill the page refused, an account its list
+ * does not show. Every other outcome may follow a submit, such as a challenge, a watch that
+ * ended, a cancel or a move to another origin.
+ */
+const PRE_SUBMIT_BLOCKS: ReadonlySet<unknown> = new Set([
+  "wrong-account",
+  "account-switched",
+  "value-mismatch",
+  "fill-rejected",
+  "account-not-listed",
 ]);
+/**
+ * Refusals of a sign-in entry press (`login.entry`, ADR 0031) checked before the press, on
+ * the page at the entry recipe's own path. `unconfirmed`, `exception` and `page-changed`
+ * are not: the press may have happened, or the page moved.
+ */
+const PRE_PRESS_ENTRY_REFUSALS: ReadonlySet<unknown> = new Set([
+  "blocked",
+  "recipe-changed",
+  "no-return-target",
+  "no-site",
+  "site-record",
+  "site-held",
+  "logged-out",
+  "logout-clicked",
+  "press-limit",
+  "settings-unavailable",
+  "site-excluded",
+  "no-vault-match",
+  "storage-unavailable",
+  "in-progress",
+  "no-answer",
+  "target-missing",
+  "target-ambiguous",
+  "not-link",
+  "script-link",
+  "hidden",
+  "no-text",
+  "new-window",
+  "download",
+  "link-off-site",
+  "link-not-https",
+  "link-query-off-site",
+  "link-same-page",
+  "destination-excluded",
+  "target-changed",
+  "cancelled",
+]);
+/** Generation outcomes of a page that went out after its usernames were hidden (ADR 0039). */
+const SENT_GENERATIONS: ReadonlySet<unknown> = new Set(["abstained", "unavailable", "failed"]);
+/** Generation skips of a page already sent, so it passed the same checks. */
+const SENT_SKIPS: ReadonlySet<unknown> = new Set(["sending", "sent"]);
 
 /**
- * Whether a line may carry its page's path: only events of pages known to come before a
- * submit, as the start of a login, its steps, a refused start or entry press and a page
- * sent for generation. A page after a submit is likely signed in and its path may hold the
- * account's own identifier, which the log cannot read the vault to hide, so a line sends
- * no path when its login is watched for its result (`state` `watching`) or settled, when
- * its page was sent as signed in (`signedIn`), when a start was refused because the tab's
- * login already finished (`logged-in`), when generation was skipped after a sign-in or
- * because a username shows in the path, and for every other event, such as a judged page,
- * a signed-in page sample, a sign-in state check, a move or the popup.
+ * Whether a line may carry its page's path (ADR 0066): only a combination of event and
+ * state, outcome or reason known to come before a login's submit, where the page's path is
+ * a recipe's own or one already sent for generation. A page after a submit is likely signed
+ * in and its path may hold the account's identifier, which the log cannot read the vault
+ * to hide. Every other line, and every event or reason added to the log later, sends no
+ * path until it is listed here.
  */
 function pathAllowed(entry: LogEntry): boolean {
   const { fields } = entry;
-  if (fields["state"] === "watching" || fields["settled"] === true || fields["signedIn"] === true)
-    return false;
   switch (entry.event) {
-    case "login.attempt":
-    case "login.exception":
+    // A login's start, and a recipe revoked for a new login on its first page (ADR 0058 A).
     case "login.start":
-    case "login.handler":
-    case "login.entry":
     case "recipe.revoke":
       return true;
+    // A login that stopped at a step it neither filled nor clicked, outside a handler (as a
+    // code page after the password) and before any result was watched or settled.
+    case "login.attempt":
+      return (
+        fields["state"] === "blocked" &&
+        PRE_SUBMIT_BLOCKS.has(fields["outcome"]) &&
+        fields["handler"] === undefined &&
+        fields["settled"] === undefined
+      );
+    // An exception before the login's first step ran.
+    case "login.exception":
+      return (
+        fields["state"] === "detected" || (fields["state"] === "ready" && fields["step"] === 0)
+      );
+    case "login.entry":
+      return fields["outcome"] === "refused" && PRE_PRESS_ENTRY_REFUSALS.has(fields["reason"]);
+    // A new login's page where a recipe starts but its first step is not found. Other
+    // refusals may come from a resumed login's later page, after a submit.
     case "login.refused":
-      return fields["detail"] !== "logged-in";
+      return fields["reason"] === "not-started" && fields["detail"] === "first-step-missing";
+    // A page sent for generation and not read as signed in (ADR 0035).
     case "recipe.generate":
       return (
-        !USERNAME_PAGE_REASONS.has(fields["reason"]) && !USERNAME_PAGE_REASONS.has(fields["detail"])
+        fields["signedIn"] !== true &&
+        (SENT_GENERATIONS.has(fields["outcome"]) ||
+          (fields["outcome"] === "skipped" && SENT_SKIPS.has(fields["reason"])))
       );
     default:
       return false;

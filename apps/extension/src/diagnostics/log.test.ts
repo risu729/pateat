@@ -3002,7 +3002,7 @@ describe("problem lines (ADR 0066)", () => {
         recipe: "gen-0123456789abcdef0123456789abcdef",
         recipeRevision: 2,
         state: "blocked",
-        outcome: "target-missing",
+        outcome: "wrong-account",
         url: "https://bank.example/u/aus1a2b3c4d5e6f7g8h9/alice@example.com/b%2540c.example/login?user=alice@example.com#/step?code=1",
       },
       { level: "warn", source: { tabId: 9, origin: "https://bank.example" } },
@@ -3033,7 +3033,7 @@ describe("problem lines (ADR 0066)", () => {
         recipe: "gen-0123456789abcdef0123456789abcdef",
         recipeRevision: 2,
         state: "blocked",
-        outcome: "target-missing",
+        outcome: "wrong-account",
         // The token, the email address and the doubly encoded one become `[id]`.
         url: "/u/[id]/[id]/[id]/login",
         tab: 9,
@@ -3051,63 +3051,125 @@ describe("problem lines (ADR 0066)", () => {
     expect(JSON.stringify(lines)).not.toMatch(/alice|code=|user=|raw-|b%25/u);
   });
 
-  it("sends no path of a page after a submit, nor a cut value", async () => {
+  it("sends a path only for lines known to come before a submit, and no cut value", async () => {
     const { logger } = setup();
     const page = { origin: "https://bank.example", url: "https://bank.example/users/alice/home" };
-    await logger.log("login.attempt", { ...page, state: "watching" }, { level: "warn" });
-    await logger.log("login.attempt", { ...page, state: "unknown", settled: true });
-    await logger.log("recipe.judge", { ...page, verdict: "unclear", watched: true });
-    await logger.log("recipe.sample", { ...page, outcome: "failed" }, { level: "warn" });
-    await logger.log("login.attempt", { ...page, state: "blocked" });
-    await logger.log("login.attempt", {
-      origin: "https://bank.example",
-      state: "blocked",
-      reason: "x".repeat(600),
-      url: `https://bank.example/${"a/".repeat(300)}partial`,
-    });
-    // Pages after a submit or likely signed in, for any event, and events not known to
-    // come before a submit.
-    await logger.log("login.exception", { ...page, state: "watching", name: "TypeError" });
-    await logger.log("login.refused", { ...page, reason: "not-started", detail: "logged-in" });
-    await logger.log("recipe.generate", {
-      ...page,
-      outcome: "failed",
-      reason: "error",
-      signedIn: true,
-    });
-    await logger.log("login.state", { ...page, decision: "signed-in" });
-    await logger.log("login.move", { ...page, reason: "left" });
-    await logger.log("login.logout", { ...page, clicked: true });
-    await logger.log("login.popup", { ...page, choice: "offered" });
-    // Pages before a submit keep theirs.
-    await logger.log("login.exception", { ...page, state: "running", name: "TypeError" });
-    await logger.log("recipe.generate", { ...page, outcome: "failed", reason: "error" });
-    const lines = (await logger.entries()).map((entry) => problemLine({ ...entry, level: "warn" }));
-    for (const line of [...lines.slice(0, 4), ...lines.slice(6, 13)])
-      expect(line?.fields, line?.event).not.toHaveProperty("url");
-    expect(lines[4]?.fields["url"]).toBe("/users/alice/home");
-    expect(lines[13]?.fields["url"]).toBe("/users/alice/home");
-    expect(lines[14]?.fields["url"]).toBe("/users/alice/home");
+    const blocked = { ...page, state: "blocked" };
+    // Lines known to come before a submit keep their path.
+    const before: [LogEventName, Record<string, unknown>][] = [
+      ["login.start", { ...page, route: "password" }],
+      ["login.attempt", { ...blocked, outcome: "wrong-account", step: 0, steps: 3 }],
+      ["login.attempt", { ...blocked, outcome: "value-mismatch", step: 1, steps: 3 }],
+      ["login.attempt", { ...blocked, outcome: "fill-rejected", step: 2, steps: 3 }],
+      ["login.attempt", { ...blocked, outcome: "account-not-listed", step: 0, steps: 2 }],
+      ["login.exception", { ...page, state: "detected", name: "TypeError" }],
+      ["login.exception", { ...page, state: "ready", step: 0, name: "TypeError" }],
+      ["login.entry", { ...page, outcome: "refused", reason: "target-missing" }],
+      ["login.refused", { ...page, reason: "not-started", detail: "first-step-missing" }],
+      ["recipe.generate", { ...page, outcome: "failed", reason: "error" }],
+      ["recipe.generate", { ...page, outcome: "abstained", reason: "not-login" }],
+      ["recipe.generate", { ...page, outcome: "skipped", reason: "sent" }],
+      ["recipe.revoke", { ...page, outcome: "failed", reason: "error" }],
+    ];
+    // Every other line sends none: (A) a login whose result was watched, that ended its
+    // watch, was cancelled, left the origin, stopped in a handler such as a code page, or
+    // awaited or reconciled a result; (B) a refusal not known to come before a submit; (C)
+    // generation skipped on a signed-in page or one whose path may hold a username; and
+    // every other event, including any added to the log later.
+    const after: [LogEventName, Record<string, unknown>][] = [
+      ["login.attempt", { ...page, state: "watching", outcome: "challenge" }],
+      ["login.attempt", { ...page, state: "awaiting-result", step: 2, steps: 3 }],
+      ["login.attempt", { ...page, state: "reconciling", step: 2, steps: 3, settled: true }],
+      ["login.attempt", { ...blocked, outcome: "challenge" }],
+      ["login.attempt", { ...blocked, outcome: "challenge-abandoned", cause: "watch-ended" }],
+      ["login.attempt", { ...blocked, outcome: "watch-abandoned" }],
+      ["login.attempt", { ...blocked, outcome: "cancelled" }],
+      ["login.attempt", { ...blocked, outcome: "left-origin" }],
+      ["login.attempt", { ...blocked, outcome: "credential-rejected", step: 2, steps: 3 }],
+      ["login.attempt", { ...blocked, outcome: "unknown-submit", step: 2, steps: 3 }],
+      ["login.attempt", { ...blocked, outcome: "structural-mismatch", step: 2, steps: 3 }],
+      ["login.attempt", { ...blocked, outcome: "timeout", step: 2, steps: 3 }],
+      ["login.attempt", { ...blocked, outcome: "value-mismatch", handler: 0, step: 3 }],
+      ["login.attempt", { ...blocked, outcome: "wrong-account", settled: true }],
+      ["login.attempt", { ...blocked }],
+      ["login.exception", { ...page, state: "reconciling", step: 3, name: "TypeError" }],
+      ["login.exception", { ...page, state: "awaiting-result", step: 3, name: "TypeError" }],
+      ["login.exception", { ...page, state: "watching", step: 3, name: "TypeError" }],
+      ["login.exception", { ...page, state: "executing", step: 2, name: "TypeError" }],
+      ["login.exception", { ...page, state: "ready", step: 1, name: "TypeError" }],
+      ["login.exception", { ...page, name: "TypeError" }],
+      ["login.refused", { ...page, reason: "not-started", detail: "logged-in" }],
+      ["login.refused", { ...page, reason: "not-started", detail: "stopped-login" }],
+      ["login.refused", { ...page, reason: "not-started", detail: "confirm-unsupported" }],
+      ["login.refused", { ...page, reason: "not-started", detail: "no-recipe-on-path" }],
+      ["login.refused", { ...page, reason: "logged-out", detail: "rejected" }],
+      ["login.refused", { ...page, reason: "tab-busy" }],
+      ["login.refused", { ...page, reason: "account-ambiguous", candidates: 2 }],
+      ["login.refused", { ...page, reason: "no-route", detail: "password-empty" }],
+      ["login.refused", { ...page, reason: "entry-blocked" }],
+      ["login.refused", { ...page, reason: "site-excluded" }],
+      ["login.entry", { ...page, outcome: "blocked", reason: "no-sign-in" }],
+      ["login.entry", { ...page, outcome: "refused", reason: "unconfirmed" }],
+      ["login.entry", { ...page, outcome: "refused", reason: "exception" }],
+      ["login.entry", { ...page, outcome: "refused", reason: "page-changed" }],
+      ["recipe.generate", { ...page, outcome: "failed", reason: "error", signedIn: true }],
+      ["recipe.generate", { ...page, outcome: "skipped", reason: "signed-in-elsewhere" }],
+      ["recipe.generate", { ...page, outcome: "skipped", reason: "after-sign-in" }],
+      ["recipe.generate", { ...page, outcome: "skipped", reason: "username-shown" }],
+      [
+        "recipe.generate",
+        { ...page, outcome: "skipped", reason: "no-listed-account", detail: "username-in-path" },
+      ],
+      ["recipe.generate", { ...page, outcome: "skipped", reason: "vault-unavailable" }],
+      ["recipe.judge", { ...page, verdict: "unclear", watched: true }],
+      ["recipe.sample", { ...page, outcome: "failed" }],
+      ["login.state", { ...page, decision: "signed-in" }],
+      ["login.move", { ...page, reason: "left" }],
+      ["login.logout", { ...page, clicked: true }],
+      ["login.popup", { ...page, choice: "offered" }],
+      ["login.handler", { ...page, kind: "totp", outcome: "entered" }],
+    ];
+    for (const [event, fields] of [...before, ...after])
+      // eslint-disable-next-line no-await-in-loop
+      await logger.log(event, fields as never, { level: "warn" });
+    await logger.log(
+      "login.attempt",
+      {
+        origin: "https://bank.example",
+        state: "blocked",
+        outcome: "value-mismatch",
+        reason: "x".repeat(600),
+        url: `https://bank.example/${"a/".repeat(300)}partial`,
+      },
+      { level: "warn" },
+    );
+    const lines = (await logger.entries()).map(problemLine);
+    expect(lines).toHaveLength(before.length + after.length + 1);
+    for (const line of lines.slice(0, before.length))
+      expect(line?.fields["url"], line?.event).toBe("/users/alice/home");
+    for (const [index, line] of lines.slice(before.length, -1).entries())
+      expect(line?.fields, JSON.stringify(after[index])).not.toHaveProperty("url");
     // A path cut at the field limit loses its last, maybe partial, segment.
-    const cut = lines[5]?.fields["url"];
+    const cut = lines.at(-1)?.fields["url"];
     expect(cut).toMatch(/^\/(?:a\/)+\[id\]$/u);
-    expect(lines[5]?.fields).not.toHaveProperty("reason");
+    expect(lines.at(-1)?.fields).not.toHaveProperty("reason");
   });
 
   it("lets the info lines that say why Pateat did nothing leave, under the same rules", async () => {
     const { logger } = setup();
     const page = { origin: "https://bank.example", url: "https://bank.example/u/alice/login?x=1" };
-    await logger.log("login.refused", { ...page, reason: "account-ambiguous", candidates: 2 });
+    await logger.log("login.refused", {
+      ...page,
+      reason: "not-started",
+      detail: "first-step-missing",
+    });
     await logger.log("login.entry", { ...page, outcome: "refused", reason: "target-missing" });
     await logger.log("login.entry", { ...page, outcome: "pressed" });
-    await logger.log("recipe.generate", {
-      ...page,
-      outcome: "skipped",
-      reason: "incomplete-observation",
-    });
+    await logger.log("recipe.generate", { ...page, outcome: "skipped", reason: "sending" });
     await logger.log("recipe.generate", { ...page, outcome: "abstained", reason: "not-login" });
     await logger.log("recipe.generate", { ...page, outcome: "sent", page: "page" });
-    // Pages whose path may hold the account's username send no path.
+    // Lines not known to come before a submit send no path.
+    await logger.log("login.refused", { ...page, reason: "account-ambiguous", candidates: 2 });
     await logger.log("login.refused", { ...page, reason: "not-started", detail: "logged-in" });
     await logger.log("recipe.generate", { ...page, outcome: "skipped", reason: "after-sign-in" });
     await logger.log("recipe.generate", { ...page, outcome: "skipped", reason: "username-shown" });
@@ -3119,8 +3181,8 @@ describe("problem lines (ADR 0066)", () => {
       time: entries[0]!.time,
       fields: {
         origin: "https://bank.example",
-        reason: "account-ambiguous",
-        candidates: 2,
+        reason: "not-started",
+        detail: "first-step-missing",
         url: "/u/alice/login",
       },
     });
