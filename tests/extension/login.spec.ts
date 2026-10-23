@@ -1469,8 +1469,6 @@ test("clicks a submit button or image button named by its text, and refuses a du
 });
 
 test("submits a form without a button by Enter in its last field, never through a button it showed (ADR 0064)", async () => {
-  // The refused Enter's step waits ten seconds, then twice more on its retries.
-  test.setTimeout(90_000);
   const fixture = await startLoginFixture();
   try {
     await withLoginExtension(async (context, _worker, id) => {
@@ -1491,18 +1489,15 @@ test("submits a form without a button by Enter in its last field, never through 
         expect(await count(page, "buttonClicks")).toBe(buttonClicks);
         await page.close();
       }
-      // A "Sign up" submit button shown before the fill is never pressed, nor the form sent.
+      // A "Sign up" submit button shown before the fill is never pressed, nor the form sent:
+      // the step fails as a click that finds no target does.
       const shown = await context.newPage();
       await shown.goto(`${fixture.origin}/enter-submit?shown`);
       await expect
-        .poll(
-          async () =>
-            JSON.stringify(await send(options, { version: 1, type: "login.probe.status" })),
-          {
-            timeout: 45_000,
-          },
-        )
-        .toContain("retry-limit");
+        .poll(async () => await send(options, { version: 1, type: "login.probe.status" }))
+        .toMatchObject({
+          attempts: [{ recipeId: "demo-enter-submit", outcome: "structural-mismatch" }],
+        });
       await expect(shown.locator("#password")).not.toHaveValue("");
       expect(await clicks(shown)).toBe(0);
       expect(await count(shown, "signUpClicks")).toBe(0);

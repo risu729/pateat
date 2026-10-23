@@ -71,8 +71,9 @@ form, else calls `requestSubmit()` on it
   and with an added "次へ" button it named that button instead (2 of 2). Signing in on
   x.com itself is not tested; it needs the owner's account.
 - A page whose only submit button stays visible from the start, such as a form with a
-  "Sign up" submit before the login fields, is never submitted this way: the step fails
-  and is retried, then ends `retry-limit`.
+  "Sign up" submit before the login fields, is never submitted this way: the login ends
+  `structural-mismatch` (`target-missing`) after the fill, as a click that finds no
+  button does.
 - A form that a person can only submit through a script button outside the form, or
   that has no `<form>`, still gets no recipe.
 - `requestSubmit()` goes beyond what Enter does in one case: a form with no submit button
