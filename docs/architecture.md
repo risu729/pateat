@@ -3613,15 +3613,16 @@ these yet. Each says what a device does and how to recover.
   sync already treated it as not committed, it merges against the base before it; the
   late write's entries then read as changes on the service, so it can put back a value
   the person changed since or remove one the person added since, until the next write of
-  that entry.
-- A sync that wrote nothing, because local settings already matched the merge, but whose
-  base record at its end was lost (a storage failure or a stopped service worker). The
-  base then misses changes both sides made the same way, as when two devices added the
-  same entry, and a person's later reversal of such a change on this device reads as no
-  change, so the service's value comes back. A device's first sync, which has no base to
-  record its pending upload beside, has the same gap when its upload's answer is lost.
-  So has a download whose final base was lost when more than 16 local changes followed
-  it, since the local change history no longer shows that write.
+  that entry. A device's first sync, which has no base to record its pending upload
+  beside, has the same gap when its upload's answer is lost. So has a download whose
+  final base was lost when more than 16 local changes followed it, since the local
+  change history no longer shows that write.
+- A sync whose last attempt wrote nothing locally, because local settings already
+  matched the merge, and whose base record at its end was lost (a storage failure or a
+  stopped service worker). The base then misses changes both sides made the same way, as
+  when two devices added the same entry or the person made locally what the service
+  already held, and a person's later reversal of such a change on this device reads as
+  no change, so the service's value comes back.
 - A device credential that could not be written after `POST /pair`. It is kept only in
   the worker's memory and saved on the next request; if the worker stops first, it is
   lost. The device stays active on the service until it is revoked on the management

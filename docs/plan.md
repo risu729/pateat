@@ -2174,19 +2174,19 @@ each device's winning write (`devices.settings_write_id`, migration 0034).
 alone as `written`, so the next sync knows whether an upload whose answer was lost
 committed: the pending base when `written` is its write ID, and the base before it
 otherwise. A later attempt of the same sync records its own pending upload beside the
-base an earlier attempt's committed upload made, even when the record after that upload
-was lost. Before a local write, the base records the merge with the local revision that
-write takes and the profile whose entries it puts in place (`localWrite`); no local
-write happens when that record cannot be written. When the local change history (the
-last 16 revisions) shows that revision written by `service-sync`, the local copy holds
-the merge and that profile's entries, so a profile switch it made is applied, and only
-later local changes count as edits. While a profile switch is not applied locally yet,
-these records keep the old profile, so the next sync still replaces the old profile's
-entries. The base recorded at the end of a sync stays best effort: after a write, losing
-it leaves the records above. A sync that wrote nothing has no other record, so losing
-that one is a case Pateat does not handle ([architecture](architecture.md)).
-Disconnecting forgets the base but keeps local settings, so pairing with another owner's
-service uploads this device's synced settings there. The merge is written back with a
+base last recorded, which already includes an earlier attempt's committed upload. Before
+a local write, the base records the merge with the local revision that write takes and
+the profile whose entries it puts in place (`localWrite`); no local write happens when
+that record cannot be written. When the local change history (the last 16 revisions)
+shows that revision written by `service-sync`, the local copy holds the merge and that
+profile's entries, so a profile switch it made is applied, and only later local changes
+count as edits. While a profile switch is not applied locally yet, these records keep
+the old profile, so the next sync still replaces the old profile's entries. The base
+recorded at the end of a sync stays best effort: after its last attempt wrote locally,
+losing it leaves the records above. When the last attempt wrote nothing locally, losing
+it is a case Pateat does not handle ([architecture](architecture.md)). Disconnecting
+forgets the base but keeps local settings, so pairing with another owner's service
+uploads this device's synced settings there. The merge is written back with a
 conditional `PUT /v1/settings`, and a stale service or local revision merges again, in
 up to three attempts per sync. A merge over the settings limits (1,000 entries per list,
 or an uploaded document over 120 KiB of the service's 128 KiB body limit) is not

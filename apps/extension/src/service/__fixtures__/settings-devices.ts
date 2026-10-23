@@ -33,8 +33,13 @@ export const site = (hostname: string) => ({ hostname, includeSubdomains: false 
 export const hostnames = (settings: LocalSettings | null | undefined) =>
   (settings?.excludedSites ?? []).map((entry) => entry.hostname).toSorted();
 
-/** One upload the service stored: who sent it and the document before and after. */
-export type Commit = { credential: string; before: LocalSettings | null; after: LocalSettings };
+/** One upload the service stored: who sent it, its write ID and the document before and after. */
+export type Commit = {
+  credential: string;
+  writeId?: string;
+  before: LocalSettings | null;
+  after: LocalSettings;
+};
 
 /** `committed` is told of each upload the service stores, as it stores it. */
 export function settingsService(committed?: (commit: Commit) => void) {
@@ -68,8 +73,14 @@ export function settingsService(committed?: (commit: Commit) => void) {
           if (write.expectedRevision !== state.revision)
             return { kind: "conflict", current: answer(credential) };
           const after = structuredClone(write.settings);
-          commits.push({ credential, before: state.settings, after });
-          committed?.({ credential, before: state.settings, after });
+          const commit = {
+            credential,
+            ...(write.writeId === undefined ? {} : { writeId: write.writeId }),
+            before: state.settings,
+            after,
+          };
+          commits.push(commit);
+          committed?.(commit);
           state = { ...state, revision: state.revision + 1, settings: after };
           if (write.writeId === undefined) written.delete(credential);
           else written.set(credential, write.writeId);
@@ -159,19 +170,8 @@ export function settingsDevice(
       return next;
     },
   };
-  /** The last service state this device received. */
-  let received: SyncSettingsState | undefined;
-  const note = (result: SettingsResult) => {
-    if (result.kind === "state") received = result.state;
-    if (result.kind === "conflict") received = result.current;
-    return result;
-  };
-  const transport = service.transport(faults);
-  const watched: typeof transport = {
-    settings: async (...args) => note(await transport.settings(...args)),
-    saveSettings: async (...args) => note(await transport.saveSettings(...args)),
-  };
-  const start = () => createSettingsSync({ transport: watched, settings, storage });
+  const start = () =>
+    createSettingsSync({ transport: service.transport(faults), settings, storage });
   let sync = start();
   return {
     connection,
@@ -193,7 +193,6 @@ export function settingsDevice(
       })),
     settings: () => snapshot.settings,
     base: () => base,
-    received: () => received,
   };
 }
 

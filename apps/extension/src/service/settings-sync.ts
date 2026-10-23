@@ -665,13 +665,6 @@ export function createSettingsSync(options: {
         timed?.(saved.timing);
         if (saved.kind === "rejected") return "rejected";
         if (saved.kind === "failed") return saved.error;
-        // Settled here too, so a later attempt's pending record keeps a committed upload
-        // even when the record below fails.
-        if (recorded)
-          recorded = resolvePending(
-            recorded,
-            saved.kind === "conflict" ? saved.current.written : saved.state.written,
-          );
         if (saved.kind === "conflict") {
           if (service.profileId !== saved.current.profileId) {
             // The device moved meanwhile: the old profile's base says nothing about the

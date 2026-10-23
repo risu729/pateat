@@ -15,10 +15,10 @@ import {
 // A sync may write over an owed value locally only when the other device changed that
 // entry after the service revision of this device's recorded merge base when the person
 // set it: the merge takes the service's side of a change both made since that base. A
-// sync that wrote nothing records its new base only at its end, and Pateat does not
-// handle losing that record (docs/architecture.md): values set while it is lost may be
-// written over too. With the faults gone, both devices end where the
-// service is.
+// sync whose last attempt wrote nothing locally records its new base only at its end,
+// and Pateat does not handle losing that record when it differs from the stored base
+// (docs/architecture.md): values set while it is lost may be written over too. With the
+// faults gone, both devices end where the service is.
 
 const KEYS = ["x.example", "y.example"];
 
@@ -47,7 +47,7 @@ function nth<T>(planned: { at: number; fault: T } | undefined) {
 
 /**
  * A value a person set, the revision of its device's recorded merge base then, and
- * whether that base missed the end of a sync that wrote nothing.
+ * whether that base missed the end of a sync whose last attempt wrote nothing locally.
  */
 type Owed = { value: boolean; seen: number; unrecorded: boolean };
 
@@ -81,9 +81,28 @@ it("never puts back or drops another device's change, whatever fails and in any 
       const wroteLocally = [false, false];
       /** Per device, whether its base missed the end of a sync that wrote nothing. */
       const unrecorded = [false, false];
+      type Recorded = {
+        revision: number;
+        settings: Commit["after"];
+        local: Commit["after"];
+        pending?: Recorded & { writeId: string };
+      };
+      /** The device's stored base, with its pending upload settled as the service did. */
+      const stored = (index: number) => {
+        const base = devices[index]!.base() as Recorded | undefined;
+        const pending = base?.pending;
+        return pending && service.commits.some((commit) => commit.writeId === pending.writeId)
+          ? pending
+          : base;
+      };
+      const sameBase = (a: Recorded | undefined, b: Recorded) =>
+        a !== undefined &&
+        a.revision === b.revision &&
+        KEYS.every(
+          (key) => has(a.settings, key) === has(b.settings, key) && has(a.local, key) === has(b.local, key),
+        );
       const holds = (index: number) => {
-        const base = devices[index]!.base() as { revision?: number } | undefined;
-        held[index] = base?.revision ?? 0;
+        held[index] = stored(index)?.revision ?? 0;
       };
       const devices = [1, 2].map((number) =>
         settingsDevice(service, number, (snapshot) => {
@@ -143,7 +162,13 @@ it("never puts back or drops another device's change, whatever fails and in any 
             const base = nth(step.sync.base);
             device.faults.base = (next) => {
               const planned = base();
-              if (planned && !next["localWrite"] && !next["pending"] && !wroteLocally[index])
+              if (
+                planned &&
+                !next["localWrite"] &&
+                !next["pending"] &&
+                !wroteLocally[index] &&
+                !sameBase(stored(index), next as Recorded)
+              )
                 unrecorded[index] = true;
               if (!planned && !next["pending"]) unrecorded[index] = false;
               return planned;
