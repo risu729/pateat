@@ -60,7 +60,7 @@ export const attemptTimingSchema = v.strictObject({
 export type AttemptTiming = v.InferOutput<typeof attemptTimingSchema>;
 /** Steps and effects an attempt may hold: its route's, plus those of handlers it entered. */
 const MAX_ATTEMPT_STEPS = 40;
-const MAX_ATTEMPT_SUBMISSIONS = 12;
+export const MAX_ATTEMPT_SUBMISSIONS = 12;
 const MAX_ENTERED_HANDLERS = 4;
 /** Pages the model may judge after one effect step (ADR 0027). */
 export const MAX_JUDGED_PAGES = 2;
@@ -476,6 +476,24 @@ export const loginAttemptEventSchema = v.variant("type", [
     stopAt: v.optional(v.pipe(integer(MAX_ATTEMPT_STEPS), v.minValue(1))),
   }),
   /**
+   * The login runs another layout of its recipe from here on (ADR 0060): one whose steps
+   * before the step at hand are the attempt's own, and whose step there shows on the page
+   * while the attempt's own does not. After an effect step that may have advanced, the login
+   * goes on to that step, as on `OBSERVED` `continue`; with nothing in flight it stays at its
+   * step. `steps` and `maxSubmissions` are the layout's, and `recipeRevision` the revision it
+   * was read from. Only a `password` login on its recipe's own steps (variant 0) switches,
+   * with no handler entered, no stop, no chooser and not only filling; the runtime checks the
+   * layout's earlier steps and the account's plan on it before sending it.
+   */
+  v.strictObject({
+    type: v.literal("LAYOUT"),
+    layout: recipeLayoutKeySchema,
+    recipeRevision: integer(Number.MAX_SAFE_INTEGER - 1),
+    steps: v.pipe(integer(MAX_ATTEMPT_STEPS), v.minValue(1)),
+    maxSubmissions: v.pipe(integer(MAX_ATTEMPT_SUBMISSIONS), v.minValue(1)),
+    document: loginDocumentSchema,
+  }),
+  /**
    * After an effect step, the page shows the recipe's handler `handler` (its index in the
    * recipe's handlers): its `steps` follow the effect step, and its `effects` grow the
    * submission budget (ADR 0027). At a login's stop before its item's missing password, with
@@ -802,6 +820,24 @@ function record(
           context.maxSubmissions +
           event.effects -
           (event.stopAt !== undefined && event.stopAt < context.stepCount + event.steps ? 1 : 0),
+        document: event.document,
+        continuation: undefined,
+        operationId: undefined,
+        operationKind: undefined,
+        operationEffect: undefined,
+        mutationIntent: undefined,
+        outcome: undefined,
+        retryRequired: undefined,
+        settled: undefined,
+      };
+    case "LAYOUT":
+      return {
+        layout: event.layout,
+        recipeRevision: event.recipeRevision,
+        // The effect step in flight is done: its page shows the layout's next step.
+        stepIndex: context.operationId === undefined ? context.stepIndex : context.stepIndex + 1,
+        stepCount: event.steps,
+        maxSubmissions: event.maxSubmissions,
         document: event.document,
         continuation: undefined,
         operationId: undefined,
@@ -1156,6 +1192,37 @@ function createLoginAttemptMachine() {
         context.stepCount + event.steps <= MAX_ATTEMPT_STEPS &&
         context.maxSubmissions + event.effects <= MAX_ATTEMPT_SUBMISSIONS &&
         sameScope(context.document, event.document),
+      // At a step where the layouts of the recipe part (ADR 0060): after an effect step that
+      // may have advanced, as `observedContinue` takes it, or with nothing in flight. The
+      // layout's step there must exist, and its budget must hold what was spent already.
+      canSwitchLayout: ({ context, event }) => {
+        if (event.type !== "LAYOUT") return false;
+        const inFlight = context.operationId !== undefined;
+        const at = inFlight ? context.stepIndex + 1 : context.stepIndex;
+        return (
+          context.layout !== undefined &&
+          event.layout !== context.layout &&
+          event.recipeRevision >= context.recipeRevision &&
+          context.route === "password" &&
+          context.variant === 0 &&
+          context.handlers.length === 0 &&
+          context.chooser === undefined &&
+          context.stopAt === undefined &&
+          context.fillOnly !== true &&
+          (inFlight
+            ? (context.operationKind === "click" || context.operationEffect === "advance") &&
+              context.mutationIntent === true &&
+              context.submissions > 0
+            : context.retryRequired !== true) &&
+          at >= 1 &&
+          at < event.steps &&
+          // Past the login's own last step only after an advance, whose next page the
+          // layout already holds; never after a submission that ended the login's plan.
+          (at < context.stepCount || context.operationEffect === "advance") &&
+          context.submissions <= event.maxSubmissions &&
+          sameScope(context.document, event.document)
+        );
+      },
       // Before anything was submitted, between steps, on the first route a login took.
       canSwitchRoute: ({ context, event }) =>
         event.type === "ROUTE" &&
@@ -1282,6 +1349,7 @@ function createLoginAttemptMachine() {
           STOP_JUDGING: { guard: "canJudgeAtStop", actions: "record" },
           HANDLER: { guard: "canEnterHandlerAtStop", target: "ready", actions: "record" },
           ROUTE: { guard: "canSwitchRoute", target: "ready", actions: "record" },
+          LAYOUT: { guard: "canSwitchLayout", target: "ready", actions: "record" },
           NOT_LISTED: {
             guard: ({ context }) =>
               context.chooser !== undefined &&
@@ -1341,6 +1409,7 @@ function createLoginAttemptMachine() {
           UNCONTINUED: { guard: "canUncontinue", actions: "record" },
           CONTINUED: { guard: "continued", target: "ready", actions: "record" },
           HANDLER: { guard: "canEnterHandler", target: "ready", actions: "record" },
+          LAYOUT: { guard: "canSwitchLayout", target: "ready", actions: "record" },
           ROUTE: { guard: "canFallBack", target: "ready", actions: "record" },
           FAILED: [{ guard: "staleFailure" }, { target: "reconciling", actions: "record" }],
         },
@@ -1356,6 +1425,7 @@ function createLoginAttemptMachine() {
           UNCONTINUED: { guard: "canUncontinue", actions: "record" },
           CONTINUED: { guard: "continued", target: "ready", actions: "record" },
           HANDLER: { guard: "canEnterHandler", target: "ready", actions: "record" },
+          LAYOUT: { guard: "canSwitchLayout", target: "ready", actions: "record" },
           ROUTE: { guard: "canFallBack", target: "ready", actions: "record" },
         },
       },

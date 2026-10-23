@@ -504,6 +504,12 @@ export const commandSchema = v.variant("type", [
      * answer reports them as `before`.
      */
     next: v.optional(inPlaceNextSchema),
+    /**
+     * With an advance where another layout of the recipe goes on along the same steps (ADR
+     * 0060): that layout's next step on the advance's path, measured as `next` is. The answer
+     * reports them as `siblingsBefore`, in this order.
+     */
+    siblings: v.optional(v.pipe(v.array(inPlaceNextSchema), v.maxLength(2))),
   }),
   v.strictObject({
     version: v.literal(1),
@@ -724,6 +730,10 @@ export const executionResultSchema = v.strictObject({
    * first input, in the same task.
    */
   before: v.optional(v.pipe(v.array(targetStateSchema), v.maxLength(20))),
+  /** With the command's `siblings`: each one's targets as `before` measures `next`'s. */
+  siblingsBefore: v.optional(
+    v.pipe(v.array(v.pipe(v.array(targetStateSchema), v.maxLength(20))), v.maxLength(2)),
+  ),
 });
 export const awaitResultSchema = v.strictObject({
   ok: v.boolean(),

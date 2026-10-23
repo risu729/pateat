@@ -797,6 +797,9 @@ export function createDiagnosticsLog(options: {
             unconfirmed: report.unconfirmed,
             unsubmitted: report.unsubmitted,
             routeChange: report.routeChange,
+            // A switch of layouts names both (ADR 0060).
+            layout: report.layoutFrom === undefined ? undefined : report.branch,
+            layoutFrom: report.layoutFrom,
             stop: report.stop,
             ...report.times,
           },
@@ -821,7 +824,8 @@ export function createDiagnosticsLog(options: {
                   ? "warn"
                   : report.state === "authenticated" ||
                       report.state === "retryable" ||
-                      report.routeChange !== undefined
+                      report.routeChange !== undefined ||
+                      report.layoutFrom !== undefined
                     ? "info"
                     : "debug",
           },

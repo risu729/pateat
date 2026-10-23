@@ -1065,6 +1065,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     }
     // An advance's next step as measured just before its effect, answered with the result.
     let before: TargetState[] | undefined;
+    // And those of another layout's next step on the same path (ADR 0060).
+    let siblingsBefore: TargetState[][] | undefined;
     void (async () => {
       const operation = command.operation;
       let mutated = false;
@@ -1163,6 +1165,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         const next = command.next;
         if (next)
           before = next.targets.map((target) => targetState(document, target, next.require));
+        siblingsBefore = command.siblings?.map((sibling) =>
+          sibling.targets.map((target) => targetState(document, target, sibling.require)),
+        );
       };
       /**
        * Submits the form of `target`, the field the fill just before typed last, as pressing
@@ -1761,6 +1766,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             ...result,
             ...(before && (result.ok || ("reason" in result && result.reason === "captcha"))
               ? { before }
+              : {}),
+            ...(siblingsBefore && (result.ok || ("reason" in result && result.reason === "captcha"))
+              ? { siblingsBefore }
               : {}),
             operationId: command.operation.operationId,
             documentId: command.operation.document.documentId,
