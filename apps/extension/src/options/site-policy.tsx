@@ -777,7 +777,10 @@ export function SitePolicy({
               id="default-account-all"
               type="checkbox"
               checked={showAllAccounts}
-              onChange={(event) => setShowAllAccounts(event.target.checked)}
+              onChange={(event) => {
+                setShowAllAccounts(event.target.checked);
+                setAccountError("");
+              }}
             />
             {t("Also list items that do not match")}
           </label>

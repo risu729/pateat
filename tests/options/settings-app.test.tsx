@@ -398,6 +398,11 @@ test("an account that cannot be saved marks the account select, not the origin",
     .element(control("default-account"))
     .toHaveAccessibleDescription(/Choose an available default account\./);
   await expect.element(control("site-origin")).toHaveFocus();
+  // Listing every item enables the select, so its stale error goes.
+  await control("default-account-all").click();
+  await expect.element(page.getByRole("alert")).not.toBeInTheDocument();
+  await expect.element(control("default-account")).toHaveAttribute("aria-invalid", "false");
+  await control("default-account-all").click();
 
   // An enabled select that names an ambiguous account takes focus.
   await control("site-origin").fill("https://mail.example");
