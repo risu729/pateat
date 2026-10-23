@@ -20699,12 +20699,14 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
     /**
      * Next shows the choice page, with the elements `beside` it, or the password form with
      * `skip`; the Password button shows the password form, beside the choice with `keep`,
-     * or does nothing with `dead`; Log in signs in on `/home`.
+     * or does nothing with `dead`; with `hide` it hides the choice, kept in the document,
+     * and shows the password form a moment later; Log in signs in on `/home`.
      */
     const choosing = ({
       skip = false,
       dead = false,
       keep = false,
+      hide = false,
       beside = [] as string[],
     } = {}) => {
       const passwordForm = () => {
@@ -20727,7 +20729,13 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
           fake.state.signIn = false;
           fake.state.extracted = { "signed-in": choicePage };
         }
-        if (step.target?.value === "choose-password" && !dead) passwordForm();
+        if (step.target?.value === "choose-password" && hide) {
+          fake.state.unusable = new Set(["choose-password", "mobile"]);
+          setTimeout(() => {
+            passwordForm();
+            fake.state.present!.add("choose-password").add("mobile");
+          }, 300);
+        } else if (step.target?.value === "choose-password" && !dead) passwordForm();
         if (step.target?.value === "login") {
           fake.state.observedPath = "/home";
           fake.state.present = new Set(["logout"]);
@@ -20791,6 +20799,21 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
       await until(settled("authenticated"), 60_000);
       expect(executed()).toEqual(withPress);
       expect(service.generate).toHaveBeenCalledTimes(1);
+    });
+
+    it("continues on the password form after the page hid the button it pressed", async () => {
+      // The choice stays in the document, hidden, which is no sign of it shown again.
+      choosing({ hide: true });
+      let h!: ReturnType<typeof harness>;
+      const service = generation(
+        answering(() => h, continued),
+        async (_id, revision) =>
+          revision === 1 ? { verdict: "challenge", recipe: withHandler } : { verdict: "signed-in" },
+      );
+      h = start(service);
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("authenticated"), 60_000);
+      expect(executed()).toEqual(withPress);
     });
 
     it("presses it on a later login when the page shows, then types the password", async () => {
