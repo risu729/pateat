@@ -8,10 +8,10 @@ import {
 import * as v from "valibot";
 import { describe, expect, it } from "vitest";
 import { validateGeneratedPage, validatePagePlan } from "../plan";
+import { valueShapeOf } from "../values";
 import { expectedFields, type EvaluationCase } from "./cases";
 import formasaurus from "./formasaurus.json";
 import japanese from "./japanese.json";
-import { valueShapeOf } from "../values";
 import {
   japanesePageCorpus,
   livePageSlots,
@@ -78,7 +78,7 @@ const expectSourced = (
 };
 
 describe("live page slots", () => {
-  it("sends an item's own fields in order, numbering its custom fields from custom-1", () => {
+  it("sends the built-in slots first, then the custom fields from custom-1 in order", () => {
     expect(
       livePageSlots([
         { name: "Account ID", value: "123456789012" },
@@ -87,6 +87,8 @@ describe("live page slots", () => {
         "password",
       ]),
     ).toEqual([
+      builtInLoginSlots.username,
+      builtInLoginSlots.password,
       {
         id: "custom-1",
         kind: "identifier",
@@ -94,14 +96,12 @@ describe("live page slots", () => {
         fieldName: "Account ID",
         valueShape: valueShapeOf({ source: "text", value: "123456789012" }),
       },
-      builtInLoginSlots.username,
       {
         id: "custom-2",
         kind: "hidden",
         description: customFieldSlotDescriptions.hidden,
         fieldName: "Security number",
       },
-      builtInLoginSlots.password,
     ]);
   });
 });

@@ -22,9 +22,9 @@ export type RealPageCase = {
 };
 
 /**
- * A vault item's field, in the order the item lists it: a built-in username or password,
- * or a custom field by name. A Text field gives a synthetic value only for its name and
- * value shape; a Hidden or secret one gives none.
+ * A vault item's field: a built-in username or password, or a custom field by name. A
+ * Text field gives a synthetic value only for its name and value shape; a Hidden or
+ * secret one gives none.
  */
 export type PageSlot =
   | "username"
@@ -68,29 +68,34 @@ export const bankPageSlots: SemanticSlot[] = [
   builtInLoginSlots.password,
 ];
 
-/** The slots a live page case sends; custom fields take `custom-1` and on, in order. */
+/**
+ * The slots a live page case sends, as the extension orders them: the built-in slots
+ * first, then the custom fields as `custom-1` and on, in the listed order.
+ */
 export const livePageSlots = (slotSet: LivePageCase<string>["slots"]): SemanticSlot[] => {
   if (slotSet === "login") return realPageSlots;
   if (slotSet === "bank") return bankPageSlots;
-  let custom = 0;
-  return slotSet.map((entry) => {
-    if (entry === "username" || entry === "password") return builtInLoginSlots[entry];
-    custom += 1;
-    const id = `custom-${custom}`;
-    if ("value" in entry) {
-      return customField(
-        { id, kind: "identifier", description: customFieldSlotDescriptions.identifier },
-        entry.name,
-        entry.value,
-      );
-    }
-    return {
-      id,
-      kind: entry.kind,
-      description: customFieldSlotDescriptions[entry.kind],
-      fieldName: entry.name,
-    };
-  });
+  const builtIn = (["username", "password"] as const).filter((slot) => slotSet.includes(slot));
+  const custom = slotSet.filter((entry) => typeof entry !== "string");
+  return [
+    ...builtIn.map((slot) => builtInLoginSlots[slot]),
+    ...custom.map((entry, index): SemanticSlot => {
+      const id = `custom-${index + 1}`;
+      if ("value" in entry) {
+        return customField(
+          { id, kind: "identifier", description: customFieldSlotDescriptions.identifier },
+          entry.name,
+          entry.value,
+        );
+      }
+      return {
+        id,
+        kind: entry.kind,
+        description: customFieldSlotDescriptions[entry.kind],
+        fieldName: entry.name,
+      };
+    }),
+  ];
 };
 
 const livePageCorpus = (cases: LivePageCase<string>[]): EvaluationCase[] =>
