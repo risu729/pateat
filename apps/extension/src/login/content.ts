@@ -820,7 +820,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           cancelled ||
           pagePath() !== command.path ||
           !setter ||
-          fields.some((field, at) => !usable(controls[at], field))
+          fields.some((field, position) => !usable(controls[position], field))
         )
           return { ok: false };
         // Every part is in one form, or every part outside any form, as a login's fill
@@ -836,11 +836,11 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           })
         )
           return { ok: false, reason: "other-account" };
-        for (const [at, field] of fields.entries()) {
-          const control = controls[at] as Control;
+        for (const [position, field] of fields.entries()) {
+          const control = controls[position] as Control;
           // The page's handlers for the previous input run first.
           // eslint-disable-next-line no-await-in-loop
-          if (at > 0) await pause(FIELD_GAP_MS);
+          if (position > 0) await pause(FIELD_GAP_MS);
           // The radio's click may change the input, so its checks run again.
           if (
             cancelled ||
@@ -1456,7 +1456,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         const lastIn = () => {
           codeIn = true;
         };
-        const taken = (input: HTMLInputElement, stopped: string) =>
+        const taken = (input: Control, stopped: string) =>
           codeIn &&
           (stopped !== "refused" || !input.isConnected || !writable(input) || input.value === "");
         try {
