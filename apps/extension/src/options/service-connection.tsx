@@ -6,7 +6,7 @@ import {
   type ServiceState,
 } from "@pateat/contracts";
 import { useTranslation } from "react-i18next";
-import { i18n } from "../i18n";
+import { formatLocale, i18n } from "../i18n";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import * as v from "valibot";
 import { CircleCheck, CircleX, Clock, Link, Lock, TriangleAlert } from "lucide-react";
@@ -78,7 +78,7 @@ export function ServiceConnection({
       : t(value.key, { origin: t("the service"), ...value.values });
   const syncTime = (value: number) => {
     try {
-      return Temporal.Instant.fromEpochMilliseconds(value).toLocaleString(i18n.resolvedLanguage, {
+      return Temporal.Instant.fromEpochMilliseconds(value).toLocaleString(formatLocale(), {
         dateStyle: "medium",
         timeStyle: "short",
       });

@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { i18n } from "../i18n";
+import { formatLocale, i18n } from "../i18n";
 import { diagnosticsCheckLabel, diagnosticsCode } from "./presentation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -71,7 +71,7 @@ const NOTE = "m-0 text-[13px]/5 text-ink-muted";
 /** UTC first, as in the copied report, then the local time for reading. */
 function time(ms: number | undefined): string {
   if (ms === undefined) return "—";
-  return `${isoMinute(ms)} (${Temporal.Instant.fromEpochMilliseconds(ms).toLocaleString(i18n.resolvedLanguage)})`;
+  return `${isoMinute(ms)} (${Temporal.Instant.fromEpochMilliseconds(ms).toLocaleString(formatLocale())})`;
 }
 
 function Row({ term, children, id }: { term: string; children: React.ReactNode; id?: string }) {

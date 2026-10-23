@@ -49,6 +49,17 @@ export function resolveLanguage(
   return "en";
 }
 
+/**
+ * The locale for dates and lists in the UI language: the browser's own regional form of it
+ * when the browser lists one (`en-GB` for English), else the language itself.
+ */
+export function formatLocale(
+  language: string = i18n.resolvedLanguage ?? "en",
+  languages: readonly string[] = navigator.languages,
+): string {
+  return languages.find((tag) => tag.toLowerCase().split("-")[0] === language) ?? language;
+}
+
 let activePreference: LanguagePreference = "system";
 
 function applyLanguagePreference(preference: LanguagePreference): void {

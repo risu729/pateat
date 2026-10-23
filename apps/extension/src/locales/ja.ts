@@ -12,7 +12,7 @@ export const ja = {
   Language: "言語",
   "Browser setting": "ブラウザーの設定に従う",
   Pateat: "Pateat",
-  "Pateat passkey sign-in": "Pateat のパスキーでログイン",
+  "Pateat passkey sign-in": "Pateat：パスキーでログイン",
   "Passkey request ended": "パスキーのリクエストが終了しました",
   "The site stopped waiting, or Pateat restarted. Close this window and try again.":
     "サイトの待機が終了したか、Pateat が再起動しました。このウィンドウを閉じて、もう一度お試しください。",
@@ -24,7 +24,7 @@ export const ja = {
   "Replace the default account for {{host}} with this one":
     "{{host}} の既定のアカウントをこのアカウントに変更する",
   "Use this account for {{host}} from now on": "今後 {{host}} ではこのアカウントを使う",
-  "Matching passkeys": "利用できるパスキー",
+  "Matching passkeys": "一致するパスキー",
   "{{item}} in {{account}}": "{{account}} の {{item}}",
   Default: "既定",
   "Use the browser or another extension": "ブラウザーまたは別の拡張機能を使う",
@@ -50,24 +50,22 @@ export const ja = {
   "The login could not be started. Reopen this popup and try again.":
     "ログインを開始できませんでした。このポップアップを開き直して、もう一度お試しください。",
   "Loading…": "読み込み中…",
-  // Untranslated: English from main until a Japanese translation is added.
   "Pateat works on websites (HTTP and HTTPS). Open a website, then click the Pateat icon again.":
-    "Pateat works on websites (HTTP and HTTPS). Open a website, then click the Pateat icon again.",
-  // Untranslated: English from main until a Japanese translation is added.
+    "Pateat はウェブサイト（HTTP と HTTPS）で動作します。ウェブサイトを開いてから、もう一度 Pateat のアイコンをクリックしてください。",
   "Pateat cannot read this tab's address. It works on websites it has site access to; a page that is still loading shows this too.":
-    "Pateat cannot read this tab's address. It works on websites it has site access to; a page that is still loading shows this too.",
+    "Pateat はこのタブのアドレスを読み取れません。Pateat が動作するのは、サイトへのアクセスが許可されたウェブサイトです。読み込み中のページでもこの表示になります。",
   "Pateat settings could not be loaded": "Pateat の設定を読み込めませんでした",
   "{{hostname}} is no longer excluded": "{{hostname}} の除外を解除しました",
   "{{hostname}} is now excluded": "{{hostname}} を除外しました",
   "Vault account": "保管庫のアカウント",
   "{{account}}, not available here": "{{account}}（ここでは利用できません）",
   "Finding the vault items that match this site…":
-    "このサイトに一致する保管庫の項目を検索しています…",
+    "このサイトに一致する保管庫のアイテムを検索しています…",
   "Finding the vault items that match this site took too long. Wait a moment, then reopen this popup":
-    "このサイトに一致する保管庫の項目の検索に時間がかかりすぎました。少し待ってから、このポップアップを開き直してください",
+    "このサイトに一致する保管庫のアイテムの検索に時間がかかりすぎました。少し待ってから、このポップアップを開き直してください",
   "The matching accounts could not be listed": "一致するアカウントを表示できませんでした",
   "No vault item matches this site. Add the site's URI or passkey to the item in your vault, then sync":
-    "このサイトに一致する保管庫の項目がありません。保管庫の項目にこのサイトの URI またはパスキーを追加してから、同期してください",
+    "このサイトに一致する保管庫のアイテムがありません。保管庫のアイテムにこのサイトの URI またはパスキーを追加してから、同期してください",
   "This account is unavailable. Choose another one or use the settings page.":
     "このアカウントは利用できません。別のアカウントを選ぶか、設定ページを使ってください。",
   "This vault account is connected more than once. Choose the default in the settings page.":
@@ -93,12 +91,12 @@ export const ja = {
   "The saved default, {{title}} ({{sub}}), is not one of these accounts":
     "保存された既定のアカウント {{title}}（{{sub}}）は、この一覧に含まれていません",
   "Some vaults or items could not be checked, so the site's matches may be incomplete":
-    "確認できなかった保管庫や項目があるため、一致するアカウントがすべて表示されていない可能性があります",
+    "確認できなかった保管庫やアイテムがあるため、一致するアカウントがすべて表示されていない可能性があります",
   "Default account": "既定のアカウント",
   "No default account. With exactly one matching item, Pateat uses that item":
-    "既定のアカウントはありません。一致する項目が 1 件だけの場合、Pateat はその項目を使います",
+    "既定のアカウントはありません。一致するアイテムが 1 件だけの場合、Pateat はそのアイテムを使います",
   "Some vaults or items could not be checked, so this list may be incomplete":
-    "確認できなかった保管庫や項目があるため、この一覧は不完全な可能性があります",
+    "確認できなかった保管庫やアイテムがあるため、この一覧は不完全な可能性があります",
   "Takes effect at the next login": "次回のログインから有効になります",
   "Use as default": "既定として使う",
   "Excluded by a rule for other sites too":
@@ -154,26 +152,26 @@ export const ja = {
     "Pateat が保持できるログイン記録の上限に達しました",
   "Pateat could not save the login's state": "ログインの状態を保存できませんでした",
   "the recipe has no way to log in with this vault item":
-    "この保管庫の項目でログインする方法がレシピにありません",
+    "この保管庫のアイテムでログインする方法がレシピにありません",
   "the site's sign-in link was not pressed": "サイトのログインリンクを押しませんでした",
   "the chosen account changed": "選択されたアカウントが変更されました",
   "the vault item's username could not be read, so its account cannot be found on the list":
-    "保管庫の項目のユーザー名を読み取れないため、一覧からアカウントを見つけられません",
+    "保管庫のアイテムのユーザー名を読み取れないため、一覧からアカウントを見つけられません",
   "another request for this page is already being sent to the AI":
     "このページの別のリクエストを AI に送信中です",
   "the AI was asked about this page within the last 10 minutes, so it is not asked again yet":
     "過去 10 分以内にこのページを AI に送信しているため、まだ再送信しません",
   "Pateat is not connected to its service": "Pateat がサービスに接続されていません",
-  "no vault item matches this site": "このサイトに一致する保管庫の項目がありません",
+  "no vault item matches this site": "このサイトに一致する保管庫のアイテムがありません",
   "the vault could not be read": "保管庫を読み取れませんでした",
   "the vault connection is turned off": "保管庫の接続が無効になっています",
   "this page came right after a sign-in": "このページはログイン直後のページです",
   "the page showed no sign-in form": "ページにログインフォームが表示されていませんでした",
   "the vault item has neither a password nor a passkey":
-    "保管庫の項目にパスワードもパスキーもありません",
+    "保管庫のアイテムにパスワードもパスキーもありません",
   "the vault item has no password, and the recipe has no way on without one":
-    "保管庫の項目にパスワードがなく、パスワードなしで進める手順がレシピにありません",
-  "the vault item has no password": "保管庫の項目にパスワードがありません",
+    "保管庫のアイテムにパスワードがなく、パスワードなしで進める手順がレシピにありません",
+  "the vault item has no password": "保管庫のアイテムにパスワードがありません",
   "the site's sign-in link": "サイトのログインリンク",
   "the site's list of accounts": "サイトのアカウント一覧",
   "the rest of the site's sign-in": "サイトのログインの続き",
@@ -194,8 +192,7 @@ export const ja = {
   "Not sent to the AI: {{why}}.": "AI に送信しませんでした：{{why}}。",
   "Pateat did not log in: {{why}}.": "Pateat はログインしませんでした：{{why}}。",
   "No login started: {{why}}.": "ログインを開始しませんでした：{{why}}。",
-  // Untranslated: English from main until a Japanese translation is added.
-  "The sign-in could not be confirmed.": "The sign-in could not be confirmed.",
+  "The sign-in could not be confirmed.": "ログインを確認できませんでした。",
   "Logged in.": "ログインしました。",
   "The site did not accept the last login; choose an account to try again.":
     "サイトが前回のログインを受け付けませんでした。再試行するにはアカウントを選んでください。",
@@ -216,4 +213,28 @@ export const ja = {
   matchingAccounts: "{{count}} 件のアカウントがこのページに一致します",
   "{{title}}, {{sub}}, default": "{{title}}、{{sub}}（既定）",
   "{{title}}, {{sub}}": "{{title}}、{{sub}}",
+  "{{text}}. Pateat signs in with its passkey only when the passkey needs no username, and the page asks for a passkey or the recipe presses a passkey button":
+    "{{text}}。Pateat がパスキーでログインするのは、ユーザー名が不要なパスキーで、ページがパスキーを求めるか、レシピがパスキーのボタンを押す場合だけです",
+  "the vault item has no password, and Pateat goes on to a passkey only on a recipe with one way to sign in":
+    "保管庫のアイテムにパスワードがなく、Pateat がパスキーに進むのは、ログイン方法が 1 つだけのレシピの場合だけです",
+  "the vault item has no password, and the recipe neither asks for one nor goes on to another page":
+    "保管庫のアイテムにパスワードがなく、レシピはパスワードを求めず、別のページにも進みません",
+  "the vault item has no password, and the recipe needs another value the item lacks before it":
+    "保管庫のアイテムにパスワードがなく、レシピはその前に、アイテムにない別の値を必要とします",
+  "the vault item has no password, and the account fills its password from another field":
+    "保管庫のアイテムにパスワードがなく、このアカウントはパスワードを別のフィールドから入力します",
+  "the vault item has no password, and this page asks for it":
+    "保管庫のアイテムにパスワードがなく、このページはパスワードを求めています",
+  "the vault item has no password, and Pateat goes on without one only in the page itself, not in a frame":
+    "保管庫のアイテムにパスワードがなく、Pateat がパスワードなしで進むのはページ本体だけで、フレーム内では進みません",
+  "After a logout, Pateat only fills the sign-in form and presses nothing; sign in when you are ready.":
+    "ログアウト後は、Pateat はログインフォームに入力するだけで、ボタンは押しません。準備ができたらログインしてください。",
+  "The page changed, so nothing was started. {{name}} was not made the default. Reload it to choose again.":
+    "ページが変わったため、ログインを開始しませんでした。{{name}} は既定のアカウントになっていません。もう一度選ぶには、ページを再読み込みしてください。",
+  "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. {{name}} was not made the default. Close that tab or wait up to 5 minutes, then choose again.":
+    "別のタブでこのサイトへのログインが進行中か、成功していないため、このタブではログインしませんでした。{{name}} は既定のアカウントになっていません。そのタブを閉じるか、最大 5 分待ってから、もう一度選んでください。",
+  "Pateat could not log in with {{name}} on this page. {{name}} was not made the default. Reload the page to choose again.":
+    "このページでは {{name}} でログインできませんでした。{{name}} は既定のアカウントになっていません。もう一度選ぶには、ページを再読み込みしてください。",
+  "This page is no longer waiting for a choice. {{name}} was not made the default.":
+    "このページはアカウントの選択を待っていません。{{name}} は既定のアカウントになっていません。",
 } satisfies Record<keyof typeof en, string>;

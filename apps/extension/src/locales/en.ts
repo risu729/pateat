@@ -209,4 +209,28 @@ export const en = {
   matchingAccounts: "{{count}} accounts match this page",
   "{{title}}, {{sub}}, default": "{{title}}, {{sub}}, default",
   "{{title}}, {{sub}}": "{{title}}, {{sub}}",
+  "{{text}}. Pateat signs in with its passkey only when the passkey needs no username, and the page asks for a passkey or the recipe presses a passkey button":
+    "{{text}}. Pateat signs in with its passkey only when the passkey needs no username, and the page asks for a passkey or the recipe presses a passkey button",
+  "the vault item has no password, and Pateat goes on to a passkey only on a recipe with one way to sign in":
+    "the vault item has no password, and Pateat goes on to a passkey only on a recipe with one way to sign in",
+  "the vault item has no password, and the recipe neither asks for one nor goes on to another page":
+    "the vault item has no password, and the recipe neither asks for one nor goes on to another page",
+  "the vault item has no password, and the recipe needs another value the item lacks before it":
+    "the vault item has no password, and the recipe needs another value the item lacks before it",
+  "the vault item has no password, and the account fills its password from another field":
+    "the vault item has no password, and the account fills its password from another field",
+  "the vault item has no password, and this page asks for it":
+    "the vault item has no password, and this page asks for it",
+  "the vault item has no password, and Pateat goes on without one only in the page itself, not in a frame":
+    "the vault item has no password, and Pateat goes on without one only in the page itself, not in a frame",
+  "After a logout, Pateat only fills the sign-in form and presses nothing; sign in when you are ready.":
+    "After a logout, Pateat only fills the sign-in form and presses nothing; sign in when you are ready.",
+  "The page changed, so nothing was started. {{name}} was not made the default. Reload it to choose again.":
+    "The page changed, so nothing was started. {{name}} was not made the default. Reload it to choose again.",
+  "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. {{name}} was not made the default. Close that tab or wait up to 5 minutes, then choose again.":
+    "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. {{name}} was not made the default. Close that tab or wait up to 5 minutes, then choose again.",
+  "Pateat could not log in with {{name}} on this page. {{name}} was not made the default. Reload the page to choose again.":
+    "Pateat could not log in with {{name}} on this page. {{name}} was not made the default. Reload the page to choose again.",
+  "This page is no longer waiting for a choice. {{name}} was not made the default.":
+    "This page is no longer waiting for a choice. {{name}} was not made the default.",
 } as const;

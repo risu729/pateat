@@ -60,8 +60,7 @@ export const bitwardenEn = {
     "Connections loaded. Add a vault or sign in again below.",
   "Unable to read connection status. Refresh to retry.":
     "Unable to read connection status. Refresh to retry.",
-  "Enter a manual two-step verification code. No code is sent automatically.":
-    "Enter a manual two-step verification code. No code is sent automatically.",
+  "Enter a two-step verification code.": "Enter a two-step verification code.",
   "The new-device code was rejected. Enter a new code manually.":
     "The new-device code was rejected. Enter a new code manually.",
   "Enter the new-device verification code from your email.":
@@ -81,8 +80,8 @@ export const bitwardenEn = {
     "Automatic unlock disabled. Sign in again with Enable automatic unlock to restore it.",
   "The operation could not be confirmed. Refresh and reload saved settings. Your previous draft is preserved.":
     "The operation could not be confirmed. Refresh and reload saved settings. Your previous draft is preserved.",
-  "Enter a connection name, valid email and master password. Self-hosted addresses must be ordinary HTTPS roots without a path, credentials, query or fragment.":
-    "Enter a connection name, valid email and master password. Self-hosted addresses must be ordinary HTTPS roots without a path, credentials, query or fragment.",
+  "Enter a connection name, valid email and master password. Self-hosted addresses must be HTTPS roots, or HTTP on localhost or 127.0.0.1, without a path, credentials, query or fragment.":
+    "Enter a connection name, valid email and master password. Self-hosted addresses must be HTTPS roots, or HTTP on localhost or 127.0.0.1, without a path, credentials, query or fragment.",
   "Requesting provider access and connecting…": "Requesting provider access and connecting…",
   "Provider access was not granted. No sign-in request was sent.":
     "Provider access was not granted. No sign-in request was sent.",
@@ -129,15 +128,13 @@ export const bitwardenEn = {
   "Email code": "Email code",
   "Verification code": "Verification code",
   "New-device verification code": "New-device verification code",
-  "Enter an email code you already received. Sending an email verification code is not available here.":
-    "Enter an email code you already received. Sending an email verification code is not available here.",
   "Verify code": "Verify code",
   "Sign in to {{name}} again": "Sign in to {{name}} again",
   "Add a connection": "Add a connection",
   Server: "Server",
   "Bitwarden Cloud US": "Bitwarden Cloud US",
   "Bitwarden Cloud EU": "Bitwarden Cloud EU",
-  "Self-hosted HTTPS": "Self-hosted HTTPS",
+  "Self-hosted": "Self-hosted",
   "Server address": "Server address",
   Name: "Name",
   Personal: "Personal",
@@ -148,7 +145,8 @@ export const bitwardenEn = {
   "The master password and verification codes are not saved. An unlock key, an encrypted vault copy and a sync sign-in stay on this device.":
     "The master password and verification codes are not saved. An unlock key, an encrypted vault copy and a sync sign-in stay on this device.",
   "Chrome asks for access to {{hosts}}": "Chrome asks for access to {{hosts}}",
-  "Enter a valid HTTPS server address.": "Enter a valid HTTPS server address.",
+  "Enter an HTTPS server address, or HTTP on localhost or 127.0.0.1.":
+    "Enter an HTTPS server address, or HTTP on localhost or 127.0.0.1.",
   "Sign in and sync": "Sign in and sync",
   "Connect Bitwarden": "Connect Bitwarden",
   "Add another connection": "Add another connection",
@@ -197,4 +195,20 @@ export const bitwardenEn = {
     "Vault accepted. {{count}} item needs its field settings reviewed before use.",
   "Vault accepted. {{count}} item needs its field settings reviewed before use._other":
     "Vault accepted. {{count}} items need their field settings reviewed before use.",
+  "Asking the server to email a verification code…":
+    "Asking the server to email a verification code…",
+  "The server sent a verification code to the account's two-step email.":
+    "The server sent a verification code to the account's two-step email.",
+  "The server is limiting code emails. Wait a few minutes before resending.":
+    "The server is limiting code emails. Wait a few minutes before resending.",
+  "This server cannot send email codes. Use another method or a code you already received.":
+    "This server cannot send email codes. Use another method or a code you already received.",
+  "The server did not send a code. Resend or use another method.":
+    "The server did not send a code. Resend or use another method.",
+  "The code email could not be requested. Resend to try again.":
+    "The code email could not be requested. Resend to try again.",
+  "Loading stopped.": "Loading stopped.",
+  "Enter the master password to finish setting up this connection. Automatic unlock is enabled, as when adding it.":
+    "Enter the master password to finish setting up this connection. Automatic unlock is enabled, as when adding it.",
+  "Resend code": "Resend code",
 } as const;

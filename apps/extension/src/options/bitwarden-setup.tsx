@@ -1,6 +1,6 @@
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
-import { i18n } from "../i18n";
+import { formatLocale, i18n } from "../i18n";
 import {
   bitwardenEmail,
   normalizeBitwardenProfile,
@@ -734,7 +734,7 @@ export function BitwardenSetup({
                       server: serverName(connection.environment, t),
                     })}
                   </RowSub>
-                  <StatusLines lines={statusLines(connection, t, i18n.resolvedLanguage ?? "en")} />
+                  <StatusLines lines={statusLines(connection, t, formatLocale())} />
                 </>
               }
               actions={
@@ -1189,7 +1189,7 @@ export function BitwardenSetup({
                       tone: "idle",
                       icon: Globe,
                       text: t("Chrome asks for access to {{hosts}}", {
-                        hosts: listHosts(origins.data, i18n.resolvedLanguage ?? "en"),
+                        hosts: listHosts(origins.data, formatLocale()),
                       }),
                     }
                   : {

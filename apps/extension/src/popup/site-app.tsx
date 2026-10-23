@@ -78,7 +78,7 @@ function hostnameOf(origin: string): string {
 }
 
 /**
- * The t("Pateat on this site") switch. It is on unless an exclusion rule covers the
+ * The "Pateat on this site" switch. It is on unless an exclusion rule covers the
  * hostname, and the popup changes only the hostname's own exact rule: a rule for a parent
  * domain, or one that includes subdomains, also covers other sites, so only the settings
  * page changes it.

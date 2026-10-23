@@ -120,7 +120,10 @@ function refusalText(refused: NonNullable<Status["refused"]>, t: TFunction): str
         : "the vault item has no password",
     );
     return HELD_PASSKEY.has(why)
-      ? t("{{text}}. Pateat signs in with its passkey only when the passkey needs no username, and the page asks for a passkey or the recipe presses a passkey button", { text })
+      ? t(
+          "{{text}}. Pateat signs in with its passkey only when the passkey needs no username, and the page asks for a passkey or the recipe presses a passkey button",
+          { text },
+        )
       : text;
   }
   if (reason === "no-route")

@@ -5,9 +5,9 @@ export const serviceJa = {
   "at an unknown time": "日時不明",
   "Sync service": "同期サービス",
   "Pateat could not read or save its service connection on this device.":
-    "この端末でサービスへの接続情報を読み取るか保存できませんでした。",
+    "このデバイスでサービスへの接続情報を読み取るか保存できませんでした。",
   "Pateat cannot read its saved service connection. Forget it here, then revoke the old device on the service's management page if it was paired.":
-    "保存したサービスへの接続情報を読み取れません。ここで接続情報を削除し、ペアリング済みの場合はサービスの管理ページで以前の端末を無効にしてください。",
+    "保存したサービスへの接続情報を読み取れません。ここで接続情報を削除し、ペアリング済みの場合はサービスの管理ページで以前のデバイスを無効にしてください。",
   "Chrome is not letting Pateat reach this service. Allow site access when Chrome asks, or in the extension's site access settings.":
     "Chrome によりサービスへのアクセスが制限されています。Chrome の確認画面か拡張機能のサイトへのアクセス設定で許可してください。",
   "The service could not be reached. Check the address, then try again.":
@@ -27,7 +27,7 @@ export const serviceJa = {
   "That request was not valid.": "リクエストが無効です。",
   "The extension did not answer. Reload this page to retry.":
     "拡張機能から応答がありません。このページを再読み込みしてお試しください。",
-  "This device is paired.": "この端末をペアリングしました。",
+  "This device is paired.": "このデバイスをペアリングしました。",
   "Sign in to {{origin}} in the new tab, then come back here. If the service refuses your account, ask its operator.":
     "新しいタブで {{origin}} にログインし、完了後にここへ戻ってください。アカウントが拒否される場合は、サービスの管理者にお問い合わせください。",
   "Saved connection forgotten.": "保存した接続情報を削除しました。",
@@ -35,26 +35,26 @@ export const serviceJa = {
   "Enter an HTTPS address such as https://pateat.example.com.":
     "https://pateat.example.com のような HTTPS アドレスを入力してください。",
   "Use a device name of up to 64 characters without control characters.":
-    "端末名は制御文字を含まない 64 文字以内で入力してください。",
-  "Enter a device name.": "端末名を入力してください。",
+    "デバイス名は制御文字を含まない 64 文字以内で入力してください。",
+  "Enter a device name.": "デバイス名を入力してください。",
   "Service address": "サービスのアドレス",
-  "Device name": "端末名",
+  "Device name": "デバイス名",
   "Syncs recipes, site exclusions, saved accounts and account bindings. Never sends vault values, passwords or keys.":
     "レシピ、除外サイト、保存したアカウントとフィールドの対応付けを同期します。保管庫の値、パスワード、鍵は送信しません。",
-  "Pair this device": "この端末をペアリング",
+  "Pair this device": "このデバイスをペアリング",
   "Try again": "再試行",
   "Open sign-in page": "ログインページを開く",
   Paired: "ペアリング済み",
-  "Named {{label}} on the service": "サービスでの端末名: {{label}}",
+  "Named {{label}} on the service": "サービスでのデバイス名：{{label}}",
   "The service no longer accepts this device. Login keeps using the recipes synced before; disconnect and pair again to sync.":
-    "この端末はサービスで無効になっています。ログインには以前同期したレシピを引き続き使用します。同期を再開するには、接続を解除してペアリングし直してください。",
+    "このデバイスはサービスで無効になっています。ログインには以前同期したレシピを引き続き使用します。同期を再開するには、接続を解除してペアリングし直してください。",
   "Your recipes or settings no longer fit, so newer changes are not applied. Login keeps using what was synced before.":
     "レシピまたは設定が保存容量を超えたため、新しい変更は適用されていません。ログインには以前同期した内容を引き続き使用します。",
   "Recipes and settings have not finished syncing yet": "レシピと設定の同期はまだ完了していません",
-  "Recipes and settings synced {{time}}": "レシピと設定の同期日時: {{time}}",
+  "Recipes and settings synced {{time}}": "レシピと設定の同期日時：{{time}}",
   "Disconnected on this device, but the service could not confirm it. Revoke this device from {{url}} in a browser that can open it.":
-    "この端末の接続を解除しましたが、サービスでの解除を確認できませんでした。{{url}} を開けるブラウザーで、この端末を無効にしてください。",
+    "このデバイスの接続を解除しましたが、サービスでの解除を確認できませんでした。{{url}} を開けるブラウザーで、このデバイスを無効にしてください。",
   "Disconnected. The service no longer accepts this device.":
-    "接続を解除しました。この端末はサービスで無効になりました。",
-  "Disconnect this device": "この端末の接続を解除",
+    "接続を解除しました。このデバイスはサービスで無効になりました。",
+  "Disconnect this device": "このデバイスの接続を解除",
 } satisfies Record<keyof typeof serviceEn, string>;
