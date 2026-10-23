@@ -560,19 +560,21 @@ describe("saved login plan authorization", () => {
     ).toMatchObject({ ok: false });
   });
 
-  it("exclusion wins over a saved recipe, default and available field", () => {
-    const excluded = snapshot();
-    excluded.settings.excludedSites = [{ hostname: "bank.example", includeSubdomains: true }];
+  it("a field exclusion wins over a saved recipe, default and available field", () => {
+    // A site exclusion rule only pauses automatic login, which the login runtime enforces;
+    // a pick there still plans its account (ADR 0062).
+    const paused = snapshot();
+    paused.settings.excludedSites = [{ hostname: "bank.example", includeSubdomains: true }];
     expect(
       resolveLoginPlan(
-        excluded,
+        paused,
         DUMMY_VAULT_CATALOG,
         "https://bank.example/identity",
         recipe(),
         binding(),
         recipe().slots,
       ),
-    ).toMatchObject({ ok: false });
+    ).toMatchObject({ ok: true });
     const fieldExcluded = snapshot();
     fieldExcluded.settings.connections[0]!.excludedFields = [
       { itemId: "primary", fieldId: "password" },

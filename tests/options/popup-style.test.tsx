@@ -64,7 +64,9 @@ test("long hostnames and usernames wrap inside the 360px popup", async () => {
     }),
     pick: vi.fn<ChoiceClient["pick"]>(),
     pause: vi.fn<ChoiceClient["pause"]>(),
-    status: vi.fn<ChoiceClient["status"]>().mockResolvedValue({ ok: false, reason: "no-page" }),
+    status: vi
+      .fn<ChoiceClient["status"]>()
+      .mockResolvedValue({ ok: true, origin: ORIGIN, recipe: "page" }),
   };
   await render(
     <QueryClientProvider client={createMetadataQueryClient()}>
@@ -93,9 +95,10 @@ test("long hostnames and usernames wrap inside the 360px popup", async () => {
   const message = document.querySelector("#popup-message")!;
   expect(message.textContent).toBe("");
   expect(getComputedStyle(message).display).not.toBe("none");
-  // The switch keeps its size beside its label.
-  const toggle = page.getByRole("switch", { name: "Pateat on this site" }).element();
-  expect(toggle.getBoundingClientRect()).toMatchObject({ width: 36, height: 20 });
+  // The pause row's three lengths fit inside the popup.
+  const row = page.getByRole("group", { name: "Pause automatic login" }).element();
+  expect(row.getBoundingClientRect().right).toBeLessThanOrEqual(360);
+  expect(row.scrollWidth).toBeLessThanOrEqual(row.clientWidth);
 });
 
 test("the page section's long log codes wrap inside the 360px popup", async () => {

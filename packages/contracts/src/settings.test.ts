@@ -5,6 +5,7 @@ import {
   DUMMY_VAULT_CATALOG,
   getItemEligibility,
   isSiteExcluded,
+  isSupportedSite,
   normalizeHostname,
   parseLocalSettings,
   parseSettingsResponse,
@@ -315,11 +316,23 @@ describe("scoped metadata eligibility and next-login defaults", () => {
       ok: false,
       reason: "item-excluded",
     });
+    // An exclusion rule pauses automatic login only; a pick still resolves (ADR 0062).
+    settings.connections[0]!.excludedItemIds = [];
     settings.excludedSites = [{ hostname: "bank.example", includeSubdomains: false }];
-    expect(resolveSiteAccount(settings, DUMMY_VAULT_CATALOG, "https://bank.example")).toEqual({
-      ok: false,
-      reason: "site-excluded",
-    });
+    expect(resolveSiteAccount(settings, DUMMY_VAULT_CATALOG, "https://bank.example")).toMatchObject(
+      { ok: true, itemId: "primary" },
+    );
+  });
+
+  it("runs on HTTP(S) pages with a policy-valid hostname, whatever the rules", () => {
+    expect(isSupportedSite("https://bank.example/login")).toBe(true);
+    expect(isSupportedSite("http://127.0.0.1:8080/")).toBe(true);
+    expect(isSupportedSite("https://my_host.example/")).toBe(false);
+    expect(isSupportedSite("chrome://extensions/")).toBe(false);
+    const settings = createDefaultSettings();
+    settings.excludedSites = [{ hostname: "bank.example", includeSubdomains: true }];
+    expect(isSiteExcluded(settings, "https://login.bank.example/")).toBe(true);
+    expect(isSupportedSite("https://login.bank.example/")).toBe(true);
   });
 });
 

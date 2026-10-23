@@ -333,7 +333,7 @@ describe("login badge", () => {
       title: `Pateat: automatic login is paused on this site until ${localClock(until)}.`,
     };
     h.badge.observe(attempt({ outcome: "credential-rejected" }));
-    h.badge.paused(tabId, until);
+    h.badge.paused(tabId, { until });
     await h.flush();
     // A pause shows over a result, and a waiting choice's amber count over a pause.
     expect(h.view()).toEqual(PAUSED);
@@ -344,7 +344,7 @@ describe("login badge", () => {
     await h.flush();
     expect(h.view()).toEqual(PAUSED);
     // Another tab of the site shows it too; the pause ends by itself.
-    h.badge.paused(8, until);
+    h.badge.paused(8, { until });
     await vi.advanceTimersByTimeAsync(60 * 60_000 - 1);
     expect(h.view(8)).toMatchObject({ text: PAUSED_TEXT });
     await vi.advanceTimersByTimeAsync(1);
@@ -356,7 +356,7 @@ describe("login badge", () => {
     const h = harness();
     const until = Date.now() + 60_000;
     h.badge.loaded(tabId, `${origin}/signin`);
-    h.badge.paused(tabId, until);
+    h.badge.paused(tabId, { until });
     await h.flush();
     expect(h.view()).toMatchObject({ text: PAUSED_TEXT });
     // Another origin of the same registrable site keeps the pause, through any redraw.
@@ -372,7 +372,7 @@ describe("login badge", () => {
     await h.flush();
     expect(h.view()).toMatchObject({ text: "", title: "Pateat: held." });
     h.badge.note(tabId, undefined);
-    h.badge.paused(tabId, until);
+    h.badge.paused(tabId, { until });
     await h.flush();
     expect(h.view()).toMatchObject({ text: PAUSED_TEXT });
     h.badge.replaced(9, tabId);
@@ -382,9 +382,27 @@ describe("login badge", () => {
     await h.flush();
     expect(h.view(9)).toMatchObject(NONE);
     // An end already past shows nothing.
-    h.badge.paused(9, Date.now());
+    h.badge.paused(9, { until: Date.now() });
     await h.flush();
     expect(h.view(9)).toMatchObject(NONE);
+  });
+
+  it("shows II until turned back on for a site an exclusion rule pauses (ADR 0062)", async () => {
+    const h = harness();
+    h.badge.paused(tabId, { rule: true });
+    await h.flush();
+    expect(h.view()).toEqual({
+      text: PAUSED_TEXT,
+      color: "#6b7280",
+      textColor: "#ffffff",
+      title: "Pateat: automatic login is paused on this site until turned back on.",
+    });
+    // It has no end of its own.
+    await vi.advanceTimersByTimeAsync(24 * 60 * 60_000);
+    expect(h.view()).toMatchObject({ text: PAUSED_TEXT });
+    h.badge.paused(tabId, undefined);
+    await h.flush();
+    expect(h.view()).toMatchObject(NONE);
   });
 
   it("keeps the tab's badge through a revocation report (ADR 0058 A)", async () => {

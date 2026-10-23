@@ -1,6 +1,5 @@
 import {
   getItemEligibility,
-  isSiteExcluded,
   siteAccountsRequestSchema,
   type LocalSettings,
   type SettingsRequest,
@@ -39,8 +38,6 @@ export async function findSiteAccounts(input: {
 }): Promise<SiteAccountsResponse> {
   const { settings } = input;
   const { catalog } = input.saved;
-  if (isSiteExcluded(settings, input.origin))
-    return { version: 1, ok: false, reason: "site-excluded" };
   const accounts = new Map<
     string,
     { connectionId: string; itemId: string; uri: boolean; passkey: boolean; username?: string }
@@ -76,12 +73,7 @@ export async function findSiteAccounts(input: {
     url: `${input.origin}/`,
     match: input.matchUris,
   });
-  if (!uris.ok)
-    return {
-      version: 1,
-      ok: false,
-      reason: uris.reason === "site-excluded" ? "site-excluded" : "invalid-request",
-    };
+  if (!uris.ok) return { version: 1, ok: false, reason: "invalid-request" };
   for (const entry of uris.candidates) add(entry.connectionId, entry.itemId, "uri");
   // An item whose rules could not be evaluated may still match; never report "no match".
   if (uris.unavailableConnections.length || uris.incompleteItems.length) complete = false;

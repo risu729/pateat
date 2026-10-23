@@ -164,8 +164,10 @@ import {
   createLoginPauses,
   LOGIN_PAUSES_KEY,
   pauseSite,
+  pausedByRule,
   type LoginPauses,
   type PauseLength,
+  type PauseState,
 } from "./pause";
 import { customFieldOffers, type CustomFieldOffer } from "./generation-slots";
 import { emailUsername, namesUsername, type EntryMiss, type OtherMiss } from "../page/account-list";
@@ -1945,14 +1947,41 @@ export function createLoginRuntime(
     options.badge ?? createLoginBadge({ setBadge: setActionBadge, storage: memoryBadgeStorage() });
   const pauses = options.pauses ?? createLoginPauses(sessionValue(LOGIN_PAUSES_KEY));
   /**
-   * When the pause covering a document ends, while it runs: a frame is paused when its own
-   * site or its tab's is (ADR 0062). A pause that cannot be read counts as none.
+   * When the pause the person set for a document's site ends, while it runs: a frame is
+   * paused when its own site or its tab's is (ADR 0062). A pause that cannot be read
+   * counts as none.
    */
   const pausedUntil = (live: {
     url: string;
     topUrl?: string | undefined;
     incognito?: boolean | undefined;
   }) => pauses.until([live.url, live.topUrl], live.incognito).catch(() => undefined);
+  /**
+   * The saved exclusion rules, read as document admission reads them, before any recipe or
+   * vault access; undefined when they cannot be read, or without site admission.
+   */
+  const exclusionRules = () => sites?.rules().catch(() => undefined) ?? Promise.resolve(undefined);
+  /**
+   * What pauses automatic login of a document, if anything (ADR 0062): an exclusion rule of
+   * the settings covering its site or its tab's, which holds until turned back on, else a
+   * pause of a chosen length. Settings or pauses that cannot be read count as none.
+   */
+  const pauseOf = async (live: {
+    url: string;
+    topUrl?: string | undefined;
+    incognito?: boolean | undefined;
+  }): Promise<PauseState | undefined> => {
+    // Both are read at once, so the pause costs a request no more time than before.
+    const [excludedSites, until] = await Promise.all([exclusionRules(), pausedUntil(live)]);
+    if (
+      excludedSites &&
+      [live.url, live.topUrl].some(
+        (page) => page !== undefined && pausedByRule({ excludedSites }, page),
+      )
+    )
+      return { rule: true };
+    return until === undefined ? undefined : { until };
+  };
   /** Spins the tab's badge from a model request's `sent` until `stop`, once the request returns. */
   function spinning(tabId: number) {
     let stop: (() => void) | undefined;
@@ -2262,8 +2291,6 @@ export function createLoginRuntime(
     });
     void quietly(saveSession);
     badge.choice(document.tabId, choiceBadge(candidates, ask, paused));
-    // The site may have been excluded while the refusal was decided from older settings.
-    void choiceExclusions();
   }
   function clearChoice(tabId: number): void {
     if (!pending.delete(tabId)) return;
@@ -2518,17 +2545,12 @@ export function createLoginRuntime(
       if (waiting && live) clearChoice(tabId);
       return { ok: false, reason: "no-choice" };
     }
-    // An excluded site runs no login, so its choice ends; a default saved since the refusal
-    // decides the page's next login instead.
+    // A default saved since the refusal decides the page's next login instead.
     const snapshot = await settings.handle({ version: 1, type: "settings.get" });
     if (pending.get(tabId) !== waiting) return { ok: false, reason: "no-choice" };
-    if (snapshot.ok && choiceExcluded(snapshot.snapshot.settings, waiting)) {
-      clearChoice(tabId);
-      return { ok: false, reason: "no-choice" };
-    }
     // A paused choice ends once its pause has (ADR 0062); the page's next announcement
     // logs in.
-    if (waiting.paused && (await pausedUntil(live)) === undefined) {
+    if (waiting.paused && (await pauseOf(live)) === undefined) {
       if (pending.get(tabId) === waiting) clearChoice(tabId);
       return { ok: false, reason: "no-choice" };
     }
@@ -2567,17 +2589,6 @@ export function createLoginRuntime(
         ? { rejectedElsewhere: true as const }
         : {}),
     };
-  }
-  /** Whether the settings exclude a choice's site, or the tab's site around its frame. */
-  function choiceExcluded(
-    saved: LocalSettings,
-    waiting: PendingChoice,
-    topUrl = documents.get(frameKey(waiting.document))?.topUrl,
-  ): boolean {
-    return (
-      isSiteExcluded(saved, waiting.document.origin) ||
-      (topUrl !== undefined && isSiteExcluded(saved, topUrl))
-    );
   }
   /** By tab: the popup's last logged answer, so an open popup asking each second logs once. */
   const popupAnswers = new Map<number, string>();
@@ -2709,7 +2720,7 @@ export function createLoginRuntime(
   /** Shows the pause of the tab's page, or its end, on the tab's badge (ADR 0062). */
   async function showTabPause(tab: Browser.tabs.Tab): Promise<void> {
     if (tab.id === undefined || !tab.url || pauseSite(tab.url) === undefined) return;
-    badge.paused?.(tab.id, await pausedUntil({ url: tab.url, incognito: tab.incognito }));
+    badge.paused?.(tab.id, await pauseOf({ url: tab.url, incognito: tab.incognito }));
   }
   /** Shows the pause of `url`'s site, or its end, on the badge of each of its tabs. */
   async function showPause(url: string, incognito: boolean): Promise<Browser.tabs.Tab[]> {
@@ -3648,8 +3659,6 @@ export function createLoginRuntime(
     granted: VaultCatalog,
   ): Promise<{ reason: string } | undefined> {
     if (!live.topUrl) return undefined;
-    const top = new URL(live.topUrl).origin;
-    if (isSiteExcluded(snapshot.snapshot.settings, top)) return { reason: "site-excluded" };
     const connection = snapshot.catalog.connections.find(
       (entry) => entry.id === selected.connectionId,
     );
@@ -5391,15 +5400,14 @@ export function createLoginRuntime(
         outcome,
         ...(reason ? { reason } : {}),
       });
-    /** Why the saved settings no longer allow the sample: the site was excluded meanwhile. */
+    /**
+     * Why the sample is not sent: the site is paused, as when a pause or an exclusion rule
+     * started meanwhile, since a paused site sends no page (ADR 0062).
+     */
     const excluded = async (): Promise<string | undefined> => {
       const snapshot = await settings.handle({ version: 1, type: "settings.get" });
       if (!snapshot.ok) return "settings-unavailable";
-      const saved = snapshot.snapshot.settings;
-      return isSiteExcluded(saved, live.document.origin) ||
-        (live.topUrl !== undefined && isSiteExcluded(saved, live.topUrl))
-        ? "site-excluded"
-        : undefined;
+      return (await pauseOf(live)) ? "paused" : undefined;
     };
     /** The page as the judge would get it, while it is still the one the login ended on. */
     const describe = async (): Promise<{ observation: LoginObservation } | { unsent: string }> => {
@@ -5427,7 +5435,7 @@ export function createLoginRuntime(
         ...(branch ? { branch } : {}),
       },
       describe,
-      // An exclusion saved while the page was described or the sample recorded still stops it.
+      // A pause started while the page was described or the sample recorded still stops it.
       async () => {
         const stop = await excluded();
         if (!stop) reportSample("sent");
@@ -7392,7 +7400,7 @@ export function createLoginRuntime(
    * again, so it is refused as paused.
    */
   async function pausedMeanwhile(live: LiveDocument, page?: "entry" | "other"): Promise<boolean> {
-    if ((await pausedUntil(live)) === undefined) return false;
+    if ((await pauseOf(live)) === undefined) return false;
     skipGeneration(live, "paused", page);
     void browser.tabs
       .sendMessage(
@@ -8119,9 +8127,9 @@ export function createLoginRuntime(
     documents.set(key, live);
     // Automatic login of the page's site is paused (ADR 0062): its own site's or, for a
     // frame, also its tab's. The tab's page shows the pause on the badge.
-    const until = await pausedUntil(live);
-    const paused = until !== undefined;
-    if (document.frameId === 0) badge.paused?.(document.tabId, until);
+    const pause = await pauseOf(live);
+    const paused = pause !== undefined;
+    if (document.frameId === 0) badge.paused?.(document.tabId, pause);
     if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
     // The first other top document of the tab after an effect step, when it comes soon
     // enough to be the site's answer to it (ADR 0029). One announced later, as after the
@@ -9124,7 +9132,7 @@ export function createLoginRuntime(
       !recipeInUse(recipe.id)
     ) {
       // A pause that started meanwhile admits the document again (ADR 0062).
-      if ((await pausedUntil(live)) !== undefined) return { ok: false, reason: CHOICE_SAVED };
+      if ((await pauseOf(live)) !== undefined) return { ok: false, reason: CHOICE_SAVED };
       live.state = "generating";
       delete live.reason;
       await publish(live);
@@ -9245,7 +9253,7 @@ export function createLoginRuntime(
     const picking = previous
       ? picked.get(document.tabId)?.attemptId === previous.id
       : "chosen" in plan && plan.chosen?.source === "pick";
-    if (!paused && !picking && (await pausedUntil(live)) !== undefined) {
+    if (!paused && !picking && (await pauseOf(live)) !== undefined) {
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
       return { ok: false, reason: CHOICE_SAVED };
     }
@@ -9858,14 +9866,13 @@ export function createLoginRuntime(
     if (siteRecorded(tabId, site)) return "site-record";
     if (siteHeldElsewhere(tabId, site)) return "site-held";
     // Pateat presses nothing by itself on a paused site (ADR 0062).
-    if ((await pausedUntil({ ...live, url })) !== undefined) return "paused";
+    if ((await pauseOf({ ...live, url })) !== undefined) return "paused";
     const last = entryPresses.get(tabId);
     if (last && Date.now() - isoTimeMs(last.pressedAt) < ENTRY_PRESS_MS) return "press-limit";
     const snapshot = await settings
       .handle({ version: 1, type: "settings.get" })
       .catch(() => undefined);
     if (!snapshot?.ok) return "settings-unavailable";
-    if (isSiteExcluded(snapshot.snapshot.settings, url)) return "site-excluded";
     if (!(await vaultMatches({ ...live, url }).catch(() => false))) return "no-vault-match";
     return undefined;
   }
@@ -10158,12 +10165,14 @@ export function createLoginRuntime(
    * stops only when they no longer plan its account (ADR 0027).
    */
   function settingsChanged(source: "synced" | "saved"): void {
+    const stopped = new Set<number>();
     for (const run of attempts.values()) {
       if (terminal(run.metadata)) continue;
       if (run.metadata.watch !== undefined) {
         void allowed(run).catch(() => undefined);
         continue;
       }
+      stopped.add(run.live.document.tabId);
       // Stop in-flight DOM waits promptly; the journal write may be slower.
       void send(run.live, { type: "login.cancel" }).catch(() => undefined);
       void change(
@@ -10174,34 +10183,65 @@ export function createLoginRuntime(
     }
     // A site default saved for a page's origin ends its popup choice (ADR 0034).
     void choiceDefaults();
-    void choiceExclusions();
+    void rulesChanged(stopped).catch(() => undefined);
   }
+  /** The exclusion rules last applied (ADR 0062), so a settings change can tell what moved. */
+  let appliedRules: LocalSettings["excludedSites"] | undefined;
+  const rulesRead = (async () => {
+    appliedRules ??= await exclusionRules();
+  })();
   /**
-   * Ends each popup choice whose site is excluded by now, so the tab's badge stops asking:
-   * the popup asks for no choice on an excluded site, so it never ends one there itself.
-   * Runs after settings are saved or synced and after a choice is offered.
+   * Applies changed exclusion rules, which pause automatic login until turned back on, as
+   * the popup's pause and resume apply a pause (ADR 0062): every tab's badge shows its page's
+   * pause, waiting conditional passkey requests of a page a rule now pauses go to the
+   * browser, and the tabs of a login that the settings change stopped on such a page
+   * announce again, so they ask as paused pages. A page refused as paused, or a choice
+   * offered because of a pause, that only a removed rule paused announces again, so it logs
+   * in at once; one a running pause still covers stays.
    */
-  async function choiceExclusions(): Promise<void> {
+  async function rulesChanged(stopped: ReadonlySet<number>): Promise<void> {
     await sessionLoaded;
-    if (!pending.size) return;
-    const snapshot = await settings
-      .handle({ version: 1, type: "settings.get" })
-      .catch(() => undefined);
-    if (!snapshot?.ok) return;
-    const saved = snapshot.snapshot.settings;
-    await Promise.all(
-      [...pending].map(async ([tabId, waiting]) => {
-        // A frame's choice restored after a worker restart knows its tab's page only from
-        // the tab itself until the frame announces again.
-        const topUrl =
-          documents.get(frameKey(waiting.document))?.topUrl ??
-          (waiting.document.frameId === 0
-            ? undefined
-            : (await browser.tabs.get(tabId).catch(() => undefined))?.url);
-        if (pending.get(tabId) === waiting && choiceExcluded(saved, waiting, topUrl))
-          clearChoice(tabId);
-      }),
-    );
+    await rulesRead;
+    const after = await exclusionRules();
+    if (!after) return;
+    const before = appliedRules;
+    appliedRules = after;
+    if (before !== undefined && JSON.stringify(before) === JSON.stringify(after)) return;
+    const was = (page: string | undefined) =>
+      before !== undefined && page !== undefined && pausedByRule({ excludedSites: before }, page);
+    const tabs = await browser.tabs.query({}).catch(() => []);
+    await Promise.all(tabs.map((tab) => showTabPause(tab).catch(() => undefined)));
+    const incognitoOf = new Map(tabs.map((tab) => [tab.id, tab.incognito]));
+    const announce = new Set<number>();
+    for (const parked of [...parkedRequests])
+      if (pausedByRule({ excludedSites: after }, parked.origin))
+        parked.settle({ kind: "delegate", reason: "paused" });
+    reviewRequests();
+    for (const live of documents.values()) {
+      // eslint-disable-next-line no-await-in-loop
+      const now = await pauseOf(live);
+      if (now && stopped.has(live.document.tabId)) announce.add(live.document.tabId);
+      else if (!now && live.reason === "paused" && (was(live.url) || was(live.topUrl)))
+        announce.add(live.document.tabId);
+    }
+    for (const [tabId, waiting] of [...pending]) {
+      if (!waiting.paused) continue;
+      const live = documents.get(frameKey(waiting.document));
+      const page = live ?? { url: waiting.document.origin, incognito: incognitoOf.get(tabId) };
+      // eslint-disable-next-line no-await-in-loop
+      if (
+        !(await pauseOf(page)) &&
+        (was(page.url) || was(live?.topUrl)) &&
+        pending.get(tabId) === waiting
+      ) {
+        clearChoice(tabId);
+        announce.add(tabId);
+      }
+    }
+    for (const id of announce)
+      void browser.tabs
+        .sendMessage(id, { version: 1, type: "login.reconnect" })
+        .catch(() => undefined);
   }
   /**
    * Ends each popup choice whose origin has a site default by now, so the page's own
@@ -10974,8 +11014,7 @@ export function createLoginRuntime(
     // A paused site's own request goes to the browser at once (ADR 0062).
     const incognito =
       input.incognito ?? (await browser.tabs.get(input.tabId).catch(() => undefined))?.incognito;
-    const pausedPage = async () =>
-      (await pausedUntil({ url: input.origin, incognito })) !== undefined;
+    const pausedPage = async () => (await pauseOf({ url: input.origin, incognito })) !== undefined;
     if (await pausedPage()) return { kind: "delegate", reason: "paused" };
     const run = attempts.get(input.tabId);
     if (run?.live.document.documentId !== input.documentId) {
@@ -11655,7 +11694,7 @@ export function createLoginRuntime(
      * as none.
      */
     passkeyPaused: async (input: { origin: string; incognito: boolean }) =>
-      (await pausedUntil({ url: input.origin, incognito: input.incognito })) !== undefined,
+      (await pauseOf({ url: input.origin, incognito: input.incognito })) !== undefined,
     /** A tab's page changed: a page of a paused site shows `II` on its badge (ADR 0062). */
     tabLoaded: (tab: Browser.tabs.Tab) => showTabPause(tab).catch(() => undefined),
   };

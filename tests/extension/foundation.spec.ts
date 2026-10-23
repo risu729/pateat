@@ -281,7 +281,7 @@ test("probe options support keyboard policy validation and pass accessibility ch
     await expect(page.locator("#site-list")).toContainText("keyboard.example");
     await expect(page.locator("#site-origin")).toHaveValue("");
     await expect(page.locator("#site-origin")).toBeFocused();
-    await page.getByRole("button", { name: "Allow keyboard.example", exact: true }).click();
+    await page.getByRole("button", { name: "Resume keyboard.example", exact: true }).click();
     await expect(page.locator("#site-origin")).toBeFocused();
 
     await page
@@ -448,19 +448,12 @@ test("the toolbar popup edits the active tab's site through the settings store",
       reason: "no-choice",
     });
     await expect(site.locator("#popup-choice-heading")).toHaveCount(0);
-    const toggle = site.getByRole("switch", { name: "Pateat on this site" });
-    await expect(toggle).toBeChecked();
-    await toggle.click();
-    await expect(toggle).not.toBeChecked();
-    await expect(site.locator("#popup-site-status")).toHaveText(
-      "No logins or passkey answers on this site",
-    );
+    // Nothing matches and the site has no recipe, so Pateat would not log in there by
+    // itself, and no pause is offered (ADR 0062).
+    await expect(site.getByRole("group", { name: "Pause automatic login" })).toHaveCount(0);
     expect(await get(site)).toMatchObject({
       ok: true,
-      snapshot: {
-        revision: 1,
-        settings: { excludedSites: [{ hostname: "bank.example", includeSubdomains: false }] },
-      },
+      snapshot: { revision: 0, settings: { excludedSites: [] } },
     });
   });
 });

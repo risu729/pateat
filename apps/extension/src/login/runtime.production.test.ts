@@ -936,14 +936,12 @@ describe("production login document admission", () => {
       "http://login.example/signin",
       { excludedSites: [{ hostname: "login.example", includeSubdomains: false }] },
     ],
-  ])("ignores %s before any policy, vault or page access", async (_name, url, overrides) => {
+  ])("fills nothing on %s, which the rule pauses (ADR 0062)", async (_name, url, overrides) => {
     fake.state.pageUrl = url;
     const h = harness(overrides as Partial<LocalSettings>);
-    expect(await h.hello()).toEqual({ ok: false, reason: "unauthorized-document" });
-    expect(h.store.handle).not.toHaveBeenCalled();
-    expect(h.recipes.recipe).not.toHaveBeenCalled();
+    expect(await h.hello()).toMatchObject({ ok: false });
     expect(h.fields).not.toHaveBeenCalled();
-    expect(fake.state.messages).toEqual([]);
+    expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.execute");
   });
   it.each([
     // Chrome withholds the tab's URL without host access to the tab's page.
@@ -1099,7 +1097,7 @@ describe("production login document admission", () => {
         }),
       ).toEqual([{ ok: true }, { ok: false, reason: "item-mismatch" }]);
     });
-    it("refuses a destination on an excluded host of the site", async () => {
+    it("admits a destination on a host of the site a rule pauses (ADR 0062)", async () => {
       expect(
         await check(
           ["https://auth.login.example/session"],
@@ -1108,7 +1106,8 @@ describe("production login document admission", () => {
           {},
           { excludedSites: [{ hostname: "auth.login.example", includeSubdomains: false }] },
         ),
-      ).toEqual([{ ok: false, reason: "no-site-access" }]);
+        // The login's next page there is paused, which stops an automatic login.
+      ).toEqual([{ ok: true }]);
     });
     it("refuses every check once site access is withdrawn", async () => {
       expect(
@@ -1260,35 +1259,31 @@ describe("production login document admission", () => {
       { type: "refused", tabId: 1, origin, reason: "recipe-not-found", unrelated: true },
     ]);
   });
-  it.each([
-    [
-      "an excluded site",
-      { excludedSites: [{ hostname: "login.example", includeSubdomains: false }] },
-      "site-excluded",
-    ],
-    ["a site whose access the user withheld", undefined, "no-site-access"],
-  ])("logs why the page of %s with a recipe is not admitted", async (_name, overrides, reason) => {
-    const report = vi.fn<(report: LoginReport) => void>();
-    if (!overrides) fake.state.granted = false;
-    const h = harness((overrides ?? {}) as Partial<LocalSettings>, { report });
-    const refusals = () => report.mock.calls.map(([entry]) => entry);
-    expect(await h.hello()).toEqual({ ok: false, reason: "unauthorized-document" });
-    // The same page again is a repeat.
-    expect(await h.hello({}, false)).toEqual({ ok: false, reason: "unauthorized-document" });
-    // A frame is not the tab's page, and an origin without a recipe is ordinary browsing.
-    expect(await h.hello({ frameId: 1 })).toEqual({ ok: false, reason: "unauthorized-document" });
-    h.recipes.starts.mockResolvedValue([]);
-    expect(await h.hello({ documentId: "other" })).toEqual({
-      ok: false,
-      reason: "unauthorized-document",
-    });
-    expect(refusals()).toEqual([
-      { type: "refused", tabId: 1, origin, reason },
-      { type: "refused", tabId: 1, origin, reason, repeat: true },
-    ]);
-    expect(h.store.handle).not.toHaveBeenCalled();
-    expect(h.recipes.recipe).not.toHaveBeenCalled();
-  });
+  it.each([["a site whose access the user withheld", undefined, "no-site-access"]])(
+    "logs why the page of %s with a recipe is not admitted",
+    async (_name, overrides, reason) => {
+      const report = vi.fn<(report: LoginReport) => void>();
+      if (!overrides) fake.state.granted = false;
+      const h = harness((overrides ?? {}) as Partial<LocalSettings>, { report });
+      const refusals = () => report.mock.calls.map(([entry]) => entry);
+      expect(await h.hello()).toEqual({ ok: false, reason: "unauthorized-document" });
+      // The same page again is a repeat.
+      expect(await h.hello({}, false)).toEqual({ ok: false, reason: "unauthorized-document" });
+      // A frame is not the tab's page, and an origin without a recipe is ordinary browsing.
+      expect(await h.hello({ frameId: 1 })).toEqual({ ok: false, reason: "unauthorized-document" });
+      h.recipes.starts.mockResolvedValue([]);
+      expect(await h.hello({ documentId: "other" })).toEqual({
+        ok: false,
+        reason: "unauthorized-document",
+      });
+      expect(refusals()).toEqual([
+        { type: "refused", tabId: 1, origin, reason },
+        { type: "refused", tabId: 1, origin, reason, repeat: true },
+      ]);
+      expect(h.store.handle).not.toHaveBeenCalled();
+      expect(h.recipes.recipe).not.toHaveBeenCalled();
+    },
+  );
   it("logs a page that gave up starting after its tries were stale", async () => {
     const report = vi.fn<(report: LoginReport) => void>();
     const h = harness({}, { report });
@@ -1862,17 +1857,13 @@ describe("production login document admission", () => {
       expect(await h.hello(framed(top))).toEqual({ ok: true });
       await vi.waitFor(() => expect(executes()).toHaveLength(2));
     });
-    it("ignores a frame on an excluded page before any policy or vault access", async () => {
+    it("fills nothing in a frame of a page a rule pauses (ADR 0062)", async () => {
       const h = harness({
         excludedSites: [{ hostname: "evil.example", includeSubdomains: false }],
       });
-      expect(await h.hello(framed("https://evil.example/"))).toEqual({
-        ok: false,
-        reason: "unauthorized-document",
-      });
-      expect(h.store.handle).not.toHaveBeenCalled();
-      expect(h.recipes.recipe).not.toHaveBeenCalled();
-      expect(fake.state.messages).toEqual([]);
+      expect(await h.hello(framed("https://evil.example/"))).toMatchObject({ ok: false });
+      expect(h.fields).not.toHaveBeenCalled();
+      expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.execute");
     });
     it("starts one attempt when the page and its frame announce at the same time", async () => {
       fake.state.onExecute = () => new Promise(() => undefined);
@@ -5433,27 +5424,22 @@ describe("production login document admission", () => {
         expect(fake.state.badges[1]).toEqual({ text: "", title: "Pateat" });
         expect(fake.state.reconnects).toEqual([]);
       });
-      it("ends the choice and clears the badge once the site is excluded", async () => {
+      it("keeps the choice once a rule pauses the site, as a pause does (ADR 0062)", async () => {
         const h = await refused();
         expect(fake.state.badges[1]?.text).toBe("2");
         h.settings.settings.excludedSites = [
           { hostname: "login.example", includeSubdomains: false },
         ];
-        // The popup asks for no choice on an excluded site, so the saved settings end it.
         h.login.settingsChanged("saved");
-        await vi.waitFor(() => expect(fake.state.badges[1]).toEqual({ text: "", title: "Pateat" }));
-        expect(fake.state.session["pateat.login-choices.v1"]).toEqual([]);
-        expect(await ask(h)).toEqual({ ok: false, reason: "no-choice" });
-        expect(await pick(h)).toEqual({ ok: false, reason: "no-choice" });
-        expect(fake.state.reconnects).toEqual([]);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        // The waiting choice's count shows over the pause.
+        expect(fake.state.badges[1]?.text).toBe("2");
+        expect(await ask(h)).toEqual(offered);
       });
-      it("takes no pick once the site is excluded, before the settings change is handled", async () => {
+      it("takes a pick on a site a rule pauses, as a pick on a paused site logs in", async () => {
         const h = await refused();
         h.settings.settings.excludedSites = [{ hostname: "example", includeSubdomains: true }];
-        expect(await pick(h)).toEqual({ ok: false, reason: "no-choice" });
-        expect(fake.state.badges[1]).toEqual({ text: "", title: "Pateat" });
-        expect(fake.state.reconnects).toEqual([]);
-        expect(h.fields).not.toHaveBeenCalled();
+        expect(await pick(h)).toEqual({ ok: true });
       });
       it("keeps the choice when another site is excluded", async () => {
         const h = await refused();
@@ -5465,7 +5451,7 @@ describe("production login document admission", () => {
         expect(fake.state.badges[1]?.text).toBe("2");
         expect(await ask(h)).toEqual(offered);
       });
-      it("ends a choice decided from settings read before the site was excluded", async () => {
+      it("keeps a choice decided while a rule paused the site", async () => {
         let h: ReturnType<typeof harness> | undefined;
         h = harness(unsaved, {
           allowedOrigins: [],
@@ -5479,10 +5465,9 @@ describe("production login document admission", () => {
           },
         });
         expect(await h.hello()).toEqual({ ok: false, reason: "account-ambiguous" });
-        await vi.waitFor(() => expect(fake.state.badges[1]).toEqual({ text: "", title: "Pateat" }));
-        expect(await ask(h)).toEqual({ ok: false, reason: "no-choice" });
+        expect(await ask(h)).toMatchObject({ ok: true });
       });
-      it("ends a frame's choice once the tab's site around it is excluded", async () => {
+      it("keeps a frame's choice once a rule pauses the tab's site around it", async () => {
         // Both the frame's and the tab's URL match each item, so the frame is refused.
         const h = harness(unsaved, {
           allowedOrigins: [],
@@ -5503,8 +5488,9 @@ describe("production login document admission", () => {
           { hostname: "portal.example", includeSubdomains: false },
         ];
         h.login.settingsChanged("synced");
-        await vi.waitFor(() => expect(fake.state.badges[1]).toEqual({ text: "", title: "Pateat" }));
-        expect(await ask(h)).toEqual({ ok: false, reason: "no-choice" });
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(fake.state.badges[1]?.text).toBe("2");
+        expect(await ask(h)).toMatchObject({ ok: true });
       });
       it("keeps the pick with the attempt it started and forgets it when the tab closes", async () => {
         const h = await refused();
@@ -11283,7 +11269,7 @@ describe("production login document admission", () => {
         expect(samplePage).not.toHaveBeenCalled();
       }, 12_000);
 
-      it("sends nothing for a site excluded since the login started", async () => {
+      it("sends nothing for a site a rule paused since the login started", async () => {
         let h: ReturnType<typeof harness> | undefined;
         const { service, descriptions } = sampling(() => {
           h!.settings.settings.excludedSites = [
@@ -11292,14 +11278,14 @@ describe("production login document admission", () => {
         });
         const signedIn = await signIn(service, marked, ["logout"], (created) => (h = created));
         await vi.waitFor(() => expect(signedIn.samples()).toHaveLength(1), { timeout: 5_000 });
-        expect(descriptions).toEqual([{ unsent: "site-excluded" }]);
+        expect(descriptions).toEqual([{ unsent: "paused" }]);
         expect(signedIn.samples()).toEqual([
-          expect.objectContaining({ outcome: "not-sent", reason: "site-excluded" }),
+          expect.objectContaining({ outcome: "not-sent", reason: "paused" }),
         ]);
         expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.extract");
       }, 12_000);
 
-      it("sends nothing for a site excluded after its page was described", async () => {
+      it("sends nothing for a site a rule paused after its page was described", async () => {
         let h: ReturnType<typeof harness> | undefined;
         const { service, descriptions } = sampling(undefined, undefined, () => {
           h!.settings.settings.excludedSites = [
@@ -11312,7 +11298,7 @@ describe("production login document admission", () => {
         expect(descriptions[0]).toHaveProperty("observation");
         // The last check before the request stops it; `sent` is never reported.
         expect(signedIn.samples()).toEqual([
-          expect.objectContaining({ outcome: "not-sent", reason: "site-excluded" }),
+          expect.objectContaining({ outcome: "not-sent", reason: "paused" }),
         ]);
       }, 12_000);
 
@@ -26264,7 +26250,7 @@ describe("pausing automatic login of a site (ADR 0062)", () => {
         site: "login.example",
         incognito: false,
         length: "10m",
-        until: new Date(Date.now() + 400).toISOString(),
+        until: new Date(Date.now() + 1500).toISOString(),
       },
     ];
     // The restarted worker draws the badges of the paused site's tabs without any page
@@ -26274,7 +26260,7 @@ describe("pausing automatic login of a site (ADR 0062)", () => {
     await vi.waitFor(() => expect(fake.state.badges[2]?.text).toBe("II"));
     expect(fake.state.badges[3]?.text ?? "").toBe("");
     // It ends by itself at the end time.
-    await vi.waitFor(() => expect(fake.state.badges[1]?.text).toBe(""), { timeout: 2000 });
+    await vi.waitFor(() => expect(fake.state.badges[1]?.text).toBe(""), { timeout: 4000 });
     expect(fake.state.badges[2]?.text).toBe("");
   });
 
@@ -26347,6 +26333,90 @@ describe("pausing automatic login of a site (ADR 0062)", () => {
     // Nothing is left to resume.
     expect(await setPause(h, false)).toEqual({ ok: true });
     expect(fake.state.reconnects).toHaveLength(2);
+  });
+
+  /** A runtime whose settings hold `rules`, with a badge the test reads. */
+  const ruled = (rules: LocalSettings["excludedSites"]) =>
+    harness(
+      { excludedSites: rules },
+      { badge: createLoginBadge({ setBadge: setActionBadge, storage: memoryBadgeStorage() }) },
+    );
+
+  it("pauses a site an exclusion rule covers until turned back on, in every tab and window kind", async () => {
+    fake.state.openTabs = [1, 2, 3];
+    fake.state.incognito.add(2);
+    fake.state.tabUrls[2] = "https://www.login.example/account";
+    fake.state.tabUrls[3] = "https://elsewhere.example/";
+    // The worker draws the badges of the covered site's tabs as it starts.
+    const h = ruled([{ hostname: "login.example", includeSubdomains: true }]);
+    expect(await h.hello()).toEqual({ ok: false, reason: "paused" });
+    expect(executes()).toEqual([]);
+    expect(h.fields).not.toHaveBeenCalled();
+    // The page offers its account in the popup, as a paused page does.
+    expect(
+      await h.login.handle({ version: 1, type: "login.choice.get", tabId: 1 }, popup),
+    ).toMatchObject({ ok: true, paused: true });
+    // The page's waiting choice shows its count; every other tab of the site shows `II`
+    // until turned back on, incognito ones too.
+    await vi.waitFor(() => expect(fake.state.badges[1]?.text).toBe("1"));
+    await vi.waitFor(() =>
+      expect(fake.state.badges[2]).toEqual({
+        text: "II",
+        title: "Pateat: automatic login is paused on this site until turned back on.",
+      }),
+    );
+    expect(fake.state.badges[3]?.text ?? "").toBe("");
+    // The rule holds in both window kinds, for the page's own passkey requests too.
+    expect(await h.login.passkeyPaused({ origin, incognito: false })).toBe(true);
+    expect(await h.login.passkeyPaused({ origin, incognito: true })).toBe(true);
+    expect(
+      await h.login.passkeyPaused({ origin: "https://elsewhere.example", incognito: false }),
+    ).toBe(false);
+    expect(
+      await h.login.conditionalRequest({
+        tabId: 1,
+        origin,
+        documentId: "synthetic-document",
+        signal: new AbortController().signal,
+        incognito: false,
+      }),
+    ).toEqual({ kind: "delegate", reason: "paused" });
+    // The popup reads the rule from the settings; the worker reports no pause of a length.
+    expect(await status(h)).not.toHaveProperty("pause");
+  });
+
+  it("applies a rule saved or removed elsewhere as a pause and a resume (ADR 0062)", async () => {
+    const h = ruled([]);
+    fake.state.openTabs = [1, 2];
+    fake.state.tabUrls[2] = "https://www.login.example/account";
+    // A conditional request of the page waits for its login.
+    const waiting = h.login.conditionalRequest({
+      tabId: 1,
+      origin,
+      documentId: "synthetic-document",
+      signal: new AbortController().signal,
+      incognito: false,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    h.settings.settings.excludedSites = [{ hostname: "login.example", includeSubdomains: true }];
+    h.login.settingsChanged("saved");
+    expect(await waiting).toEqual({ kind: "delegate", reason: "paused" });
+    await vi.waitFor(() => expect(fake.state.badges[1]?.text).toBe("II"));
+    await vi.waitFor(() => expect(fake.state.badges[2]?.text).toBe("II"));
+    expect(await h.hello()).toEqual({ ok: false, reason: "paused" });
+    expect(executes()).toEqual([]);
+    // Removing the rule asks the paused pages to announce again, so they log in at once.
+    fake.state.reconnects = [];
+    h.settings.settings.excludedSites = [];
+    h.login.settingsChanged("synced");
+    await vi.waitFor(() => expect(fake.state.reconnects).toContainEqual({ tabId: 1 }));
+    await vi.waitFor(() => expect(fake.state.badges[1]?.text).toBe(""));
+    expect(fake.state.badges[2]?.text).toBe("");
+    // An unrelated settings change asks no page again.
+    fake.state.reconnects = [];
+    h.login.settingsChanged("saved");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(fake.state.reconnects).toEqual([]);
   });
 
   it("pauses for the length the person chose, and logs it", async () => {

@@ -436,7 +436,23 @@ export function getItemEligibility(
   return { eligible: true, item, fieldIds };
 }
 
-export function isSiteExcluded(settings: LocalSettings, value: string): boolean {
+/**
+ * Whether Pateat runs on a page at all: an HTTP(S) URL whose hostname policy inputs accept.
+ * Exclusion rules do not decide this; they pause automatic login (ADR 0062).
+ */
+export function isSupportedSite(value: string): boolean {
+  const url = parseSiteUrl(value);
+  return Boolean(url && normalizeHostname(url.hostname));
+}
+
+/**
+ * Whether an exclusion rule covers the page, or the page is not one Pateat runs on. A rule
+ * pauses automatic login of the site until it is removed (ADR 0062).
+ */
+export function isSiteExcluded(
+  settings: Pick<LocalSettings, "excludedSites">,
+  value: string,
+): boolean {
   const url = parseSiteUrl(value);
   const hostname = url && normalizeHostname(url.hostname);
   // Invalid destinations are blocked, never treated as a permission grant.
@@ -454,7 +470,6 @@ export type SiteAccountResolution =
       ok: false;
       reason:
         | "invalid-url"
-        | "site-excluded"
         | "default-not-set"
         | "item-origin-mismatch"
         | "account-ambiguous"
@@ -487,7 +502,10 @@ export function siteDefaultConnection(
     : { ok: false, reason: "connection-missing" };
 }
 
-/** Pure next-login selection. This never switches a current browser session. */
+/**
+ * Pure next-login selection. This never switches a current browser session. An exclusion
+ * rule does not refuse it: on a paused site only a popup pick logs in (ADR 0062).
+ */
 export function resolveSiteAccount(
   settings: LocalSettings,
   catalog: VaultCatalog,
@@ -495,7 +513,7 @@ export function resolveSiteAccount(
 ): SiteAccountResolution {
   const url = parseSiteUrl(value);
   if (!url || !normalizeHostname(url.hostname)) return { ok: false, reason: "invalid-url" };
-  if (isSiteExcluded(settings, value)) return { ok: false, reason: "site-excluded" };
+  // An exclusion rule only pauses automatic login, and a pick still logs in (ADR 0062).
   const selected = settings.siteDefaults.find((entry) => entry.origin === url.origin);
   if (!selected) return { ok: false, reason: "default-not-set" };
   const connection = siteDefaultConnection(selected, catalog);

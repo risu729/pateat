@@ -3,6 +3,7 @@
 // `storage.session` in spanning mode but not cookies, so each keeps its own pause.
 import * as v from "valibot";
 import { domainKey } from "@pateat/bitwarden";
+import { isSiteExcluded, isSupportedSite, type LocalSettings } from "@pateat/contracts";
 import { isoTime, isoTimeMs, isoTimeSchema } from "../time";
 import { PAUSE_LENGTHS, pauseLengthSchema, type PauseLength } from "./choice-wire";
 
@@ -35,6 +36,21 @@ export function pauseSite(value: string | URL): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+/** What pauses automatic login of a page (ADR 0062). */
+export type PauseState =
+  /** A pause of a length the person chose, until then, in epoch milliseconds. */
+  | { readonly until: number }
+  /** An exclusion rule of the settings covers the site: paused until turned back on. */
+  | { readonly rule: true };
+
+/**
+ * Whether an exclusion rule of the settings covers the page, which pauses automatic login
+ * there until the rule is removed (ADR 0062). A page Pateat does not run on is not paused.
+ */
+export function pausedByRule(settings: Pick<LocalSettings, "excludedSites">, url: string): boolean {
+  return isSupportedSite(url) && isSiteExcluded(settings, url);
 }
 
 export type LoginPauses = ReturnType<typeof createLoginPauses>;

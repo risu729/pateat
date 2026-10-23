@@ -268,98 +268,106 @@ test("a default saved while the popup is open shows without reopening it", async
   expect(host.unwatched).toHaveBeenCalledOnce();
 });
 
-test("the switch excludes the site by its exact hostname, and turns it back on", async () => {
+/** A status for a page of `origin`, where a pause is offered. */
+function pageOf(origin: string, fields: Parameters<typeof onPage>[0] = {}) {
+  return onPage({ origin, recipe: "page", ...fields });
+}
+
+test("Until turned back on pauses the whole site with a rule, and Resume removes it (ADR 0062)", async () => {
   const { client, current } = store();
-  await mount(client, "https://login.bank.example/");
-  const toggle = page.getByRole("switch", { name: "Pateat on this site" });
-  await expect.element(toggle).toBeChecked();
-  await expect.element(toggle).toBeEnabled();
-  await userEvent.click(toggle);
-  await expect.element(page.getByText("login.bank.example is now excluded")).toBeVisible();
-  await expect.element(toggle).not.toBeChecked();
-  // Saving does not disable the switch, so it keeps keyboard focus.
-  expect(document.activeElement).toBe(toggle.element());
-  await expect.element(page.getByText("No logins or passkey answers on this site")).toBeVisible();
-  expect(current().snapshot.settings.excludedSites).toEqual([
-    { hostname: "login.bank.example", includeSubdomains: false },
-  ]);
-  // An excluded site is not searched and offers no default.
+  const choices = pageOf("https://login.bank.example");
+  await mount(client, "https://login.bank.example/", choices);
+  const row = page.getByRole("group", { name: "Pause automatic login" });
+  await userEvent.click(row.getByRole("button", { name: "Until turned back on" }));
   await expect
-    .element(page.getByRole("group", { name: "Default account" }))
-    .not.toBeInTheDocument();
-  await expect.element(toggle).toBeEnabled();
-  await expect.element(toggle).not.toHaveAttribute("aria-describedby");
-  await userEvent.click(toggle);
-  await expect.element(page.getByText("login.bank.example is no longer excluded")).toBeVisible();
-  await expect.element(toggle).toBeChecked();
-  expect(current().snapshot.settings.excludedSites).toEqual([]);
+    .element(page.getByText("Automatic login on this site is paused until turned back on"))
+    .toBeVisible();
+  // One rule for the registrable site and its subdomains, as the pause covers the site.
+  expect(current().snapshot.settings.excludedSites).toEqual([
+    { hostname: "bank.example", includeSubdomains: true },
+  ]);
+  expect(choices.pause).not.toHaveBeenCalled();
+  await expect
+    .element(page.getByText("Paused until turned back on", { exact: true }))
+    .toBeVisible();
+  // A paused site still lists its accounts: a pick logs in.
   await expect.element(page.getByRole("group", { name: "Default account" })).toBeVisible();
+  await userEvent.click(page.getByRole("button", { name: "Resume" }));
+  await expect.element(page.getByText("Automatic login on this site resumed")).toBeVisible();
+  expect(current().snapshot.settings.excludedSites).toEqual([]);
+  // No pause of a length ran, so the worker is not asked to end one.
+  expect(choices.pause).not.toHaveBeenCalled();
+  await expect.element(row).toBeVisible();
 });
 
-test("a parent rule that includes subdomains is shown but changed only in settings", async () => {
+test("Resume removes the site's own covering rules and ends a pause of a length too", async () => {
   const settings = createDefaultSettings();
   settings.excludedSites.push(
     { hostname: "bank.example", includeSubdomains: true },
+    { hostname: "login.bank.example", includeSubdomains: false },
+    { hostname: "mail.bank.example", includeSubdomains: false },
+  );
+  const { client, current } = store(saved(3, settings));
+  const choices = pageOf("https://login.bank.example", { pause: { until: Date.now() + 60_000 } });
+  await mount(client, "https://login.bank.example/", choices);
+  // A rule wins over the pause of a length: it has no end.
+  await expect
+    .element(page.getByText("Paused until turned back on", { exact: true }))
+    .toBeVisible();
+  await userEvent.click(page.getByRole("button", { name: "Resume" }));
+  await expect.poll(() => choices.pause.mock.calls.length).toBe(1);
+  expect(choices.pause).toHaveBeenCalledWith(7, { paused: false });
+  // A rule for another host of the site that does not cover this one stays.
+  expect(current().snapshot.settings.excludedSites).toEqual([
+    { hostname: "mail.bank.example", includeSubdomains: false },
+  ]);
+});
+
+test("a rule for other sites too is shown but changed only in settings", async () => {
+  const settings = createDefaultSettings();
+  settings.excludedSites.push(
+    { hostname: "example", includeSubdomains: true },
     { hostname: "login.bank.example", includeSubdomains: false },
     { hostname: "mail.example", includeSubdomains: false },
   );
   const { client } = store(saved(4, settings));
   const host = await mount(client, "https://login.bank.example/");
-  const toggle = page.getByRole("switch", { name: "Pateat on this site" });
-  await expect.element(toggle).not.toBeChecked();
-  // The site's own exact rule is not removed here either: the parent rule would still
-  // exclude the site.
-  await expect.element(toggle).toBeDisabled();
   await expect
-    .element(toggle)
-    .toHaveAccessibleDescription("Excluded by a rule for other sites too");
-  await expect.element(page.getByText("bank.example", { exact: true })).toBeVisible();
+    .element(page.getByText("Paused until turned back on", { exact: true }))
+    .toBeVisible();
+  await expect.element(page.getByText("Paused by a rule for other sites too")).toBeVisible();
+  await expect.element(page.getByText("example", { exact: true })).toBeVisible();
   await expect.element(page.getByText("and its subdomains")).toBeVisible();
   await expect.element(page.getByText("mail.example", { exact: false })).not.toBeInTheDocument();
-  await userEvent.click(page.getByRole("link", { name: "Change in settings for bank.example" }));
+  // Resume would leave the site paused by the shared rule, so none is offered.
+  await expect.element(page.getByRole("button", { name: "Resume" })).not.toBeInTheDocument();
+  await userEvent.click(page.getByRole("link", { name: "Change in settings for example" }));
   expect(host.openSettings).toHaveBeenCalledOnce();
   expect(client.saveSettings).not.toHaveBeenCalled();
-  // The site is excluded, so no account is searched.
-  expect(client.findSiteAccounts).not.toHaveBeenCalled();
+  // A paused site still lists its matching accounts.
+  await expect.poll(() => client.findSiteAccounts.mock.calls.length).toBeGreaterThan(0);
 });
 
-test("an exact rule that includes subdomains is changed only in settings", async () => {
-  const settings = createDefaultSettings();
-  settings.excludedSites.push({ hostname: "bank.example", includeSubdomains: true });
-  const { client } = store(saved(2, settings));
-  await mount(client, "https://bank.example/");
-  const toggle = page.getByRole("switch", { name: "Pateat on this site" });
-  await expect.element(toggle).not.toBeChecked();
-  await expect.element(toggle).toBeDisabled();
-  await expect
-    .element(toggle)
-    .toHaveAccessibleDescription("Excluded by a rule for other sites too");
-  await expect
-    .element(page.getByRole("link", { name: "Change in settings for bank.example" }))
-    .toBeVisible();
-});
-
-test("a switch change that is not saved returns to the saved state", async () => {
+test("a pause that is not saved changes nothing", async () => {
   const { client, current } = store();
   client.saveSettings.mockResolvedValueOnce({
     version: 1,
     ok: false,
     error: { code: "storage-unavailable", message: "Unavailable." },
   });
-  await mount(client, "https://bank.example/");
-  const toggle = page.getByRole("switch", { name: "Pateat on this site" });
-  await expect.element(toggle).toBeEnabled();
-  await userEvent.click(toggle);
+  await mount(client, "https://bank.example/", pageOf("https://bank.example"));
+  const until = page.getByRole("button", { name: "Until turned back on" });
+  await userEvent.click(until);
   await expect.element(page.getByText("The change could not be saved")).toBeVisible();
-  await expect.element(toggle).toBeChecked();
+  await expect.element(until).toBeVisible();
   expect(current().snapshot.settings.excludedSites).toEqual([]);
   // A save lost in transit may still have been saved.
   client.saveSettings.mockRejectedValueOnce(new Error("Port closed"));
-  await userEvent.click(toggle);
+  await userEvent.click(until);
   await expect
     .element(page.getByText("The change may not have been saved.", { exact: false }))
     .toBeVisible();
-  await expect.element(toggle).toBeChecked();
+  await expect.element(until).toBeVisible();
 });
 
 test("a tab whose address Pateat cannot read says so", async () => {
@@ -546,25 +554,24 @@ test("a waiting account choice shows its candidates when the site's matches do n
 
 test("a change saved elsewhere first is reloaded instead of overwritten", async () => {
   const state = store();
-  await mount(state.client, "https://bank.example/");
-  const toggle = page.getByRole("switch", { name: "Pateat on this site" });
-  await expect.element(toggle).toBeEnabled();
+  await mount(state.client, "https://bank.example/", pageOf("https://bank.example"));
+  const until = page.getByRole("button", { name: "Until turned back on" });
+  await expect.element(until).toBeVisible();
   const elsewhere = createDefaultSettings();
   elsewhere.excludedSites.push({ hostname: "mail.example", includeSubdomains: false });
   state.replace(saved(7, elsewhere));
-  await userEvent.click(toggle);
+  await userEvent.click(until);
   await expect
     .element(page.getByText("Changed elsewhere and reloaded. Nothing was changed."))
     .toBeVisible();
-  // The switch returns to the reloaded state.
-  await expect.element(toggle).toBeChecked();
   expect(state.current().snapshot).toMatchObject({ revision: 7, settings: elsewhere });
-  await userEvent.click(toggle);
-  await expect.element(page.getByText("bank.example is now excluded")).toBeVisible();
-  await expect.element(toggle).not.toBeChecked();
+  await userEvent.click(until);
+  await expect
+    .element(page.getByText("Automatic login on this site is paused until turned back on"))
+    .toBeVisible();
   expect(state.current().snapshot.settings.excludedSites).toEqual([
     { hostname: "mail.example", includeSubdomains: false },
-    { hostname: "bank.example", includeSubdomains: false },
+    { hostname: "bank.example", includeSubdomains: true },
   ]);
 });
 
@@ -577,7 +584,7 @@ test("settings that cannot be loaded change nothing", async () => {
   });
   await mount(client, "https://bank.example/");
   await expect.element(page.getByText("Pateat settings could not be loaded")).toBeVisible();
-  expect(page.getByRole("switch").query()).toBeNull();
+  expect(page.getByRole("group", { name: "Pause automatic login" }).query()).toBeNull();
   await expect.element(page.getByRole("button", { name: "Open settings" })).toBeVisible();
   expect(client.saveSettings).not.toHaveBeenCalled();
 });
@@ -627,11 +634,11 @@ test("a login refused for several matches is restarted with the account picked h
   expect(current().snapshot.revision).toBe(0);
 });
 
-test("an excluded site offers no account choice, even one that waited before", async () => {
+test("a site an exclusion rule covers is paused until turned back on and still offers its choice", async () => {
   const settings = createDefaultSettings();
   settings.excludedSites.push({ hostname: "bank.example", includeSubdomains: false });
   const { client } = store(saved(0, settings));
-  const choices = noChoice();
+  const choices = pageOf("https://bank.example");
   choices.get.mockResolvedValue({
     ok: true,
     origin: "https://bank.example",
@@ -642,25 +649,18 @@ test("an excluded site offers no account choice, even one that waited before", a
     ],
   });
   await mount(client, "https://bank.example/login", choices);
-  await expect.element(page.getByText("No logins or passkey answers on this site")).toBeVisible();
-  // Give the choice time to be asked for and drawn, as it would be on a site that is on.
-  await new Promise((resolve) => setTimeout(resolve, 300));
-  expect(choices.get).not.toHaveBeenCalled();
-  // The worker keeps a choice from before the exclusion; Log in would only be refused.
-  await expect
-    .element(page.getByRole("heading", { name: "Choose an account" }))
-    .not.toBeInTheDocument();
-  await expect.element(page.getByRole("button", { name: "Log in" })).not.toBeInTheDocument();
-  await expect
-    .element(
-      page.getByText("Checking whether this page waits for an account choice", { exact: false }),
-    )
-    .not.toBeInTheDocument();
+  await expect.element(page.getByText("Paused until turned back on")).toBeVisible();
+  await expect.element(page.getByRole("button", { name: "Resume" })).toBeVisible();
+  // The pause offers no shorter lengths while it runs.
+  expect(page.getByRole("button", { name: "10 minutes" }).query()).toBeNull();
+  // A pick still logs in on a paused site, so the waiting choice is offered.
+  await expect.element(page.getByRole("heading", { name: "Choose an account" })).toBeVisible();
+  await expect.element(page.getByRole("button", { name: "Log in" })).toBeVisible();
 });
 
-test("turning Pateat off for the site hides a waiting account choice", async () => {
+test("pausing the site until turned back on keeps a waiting account choice (ADR 0062)", async () => {
   const { client } = store();
-  const choices = noChoice();
+  const choices = pageOf("https://bank.example");
   choices.get.mockResolvedValue({
     ok: true,
     origin: "https://bank.example",
@@ -672,13 +672,13 @@ test("turning Pateat off for the site hides a waiting account choice", async () 
   });
   await mount(client, "https://bank.example/login", choices);
   await expect.element(page.getByRole("heading", { name: "Choose an account" })).toBeVisible();
-  await userEvent.click(page.getByRole("switch", { name: "Pateat on this site" }));
-  await expect.element(page.getByText("bank.example is now excluded")).toBeVisible();
-  await expect.element(page.getByText("No logins or passkey answers on this site")).toBeVisible();
+  await userEvent.click(page.getByRole("button", { name: "Until turned back on" }));
   await expect
-    .element(page.getByRole("heading", { name: "Choose an account" }))
-    .not.toBeInTheDocument();
-  await expect.element(page.getByRole("button", { name: "Log in" })).not.toBeInTheDocument();
+    .element(page.getByText("Automatic login on this site is paused until turned back on"))
+    .toBeVisible();
+  // A pick still logs in on a paused site.
+  await expect.element(page.getByRole("heading", { name: "Choose an account" })).toBeVisible();
+  await expect.element(page.getByRole("button", { name: "Log in" })).toBeVisible();
 });
 
 test("a choice that starts waiting after the popup opened is shown while it stays open", async () => {
@@ -1312,7 +1312,7 @@ test("a site Pateat logs in to by itself can be paused for 10 minutes or an hour
   const { client } = store();
   const choices = onPage({ recipe: "page" });
   await mount(client, "https://bank.example/login", choices);
-  // The row sits under the "Pateat on this site" switch and offers each length.
+  // The row sits in the header and offers each length.
   const row = page.getByRole("group", { name: "Pause automatic login" });
   await expect.element(row).toBeVisible();
   let until = 0;

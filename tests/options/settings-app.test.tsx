@@ -312,7 +312,7 @@ test("the add form validates locally and keeps focus on the origin after adds an
   await expect.element(control("site-list")).toMatchTextContent("keyboard.example");
   await expect.element(control("site-origin")).toHaveValue("");
   await expect.element(control("site-origin")).toHaveFocus();
-  await page.getByRole("button", { name: "Allow keyboard.example", exact: true }).click();
+  await page.getByRole("button", { name: "Resume keyboard.example", exact: true }).click();
   await expect.element(control("site-origin")).toHaveFocus();
   await expect.element(control("site-list")).not.toMatchTextContent("keyboard.example");
 
@@ -423,7 +423,7 @@ test("an origin row changes its default only on Save, and No default removes it"
   await expect.element(control("site-origin")).toHaveFocus();
 });
 
-test("excluding an origin keeps its default unused under the rule until it is allowed", async () => {
+test("pausing an origin keeps its default unused by itself under the rule until it is resumed", async () => {
   const client = mockClient();
   const response = saved(1);
   response.snapshot.settings.siteDefaults.push({
@@ -435,7 +435,9 @@ test("excluding an origin keeps its default unused under the rule until it is al
   client.getSettings.mockResolvedValue(response);
   await mount(client);
   await page
-    .getByRole("button", { name: "Exclude https://bank.example, all schemes and ports" })
+    .getByRole("button", {
+      name: "Pause automatic login on https://bank.example, all schemes and ports",
+    })
     .click();
   await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 2");
   expect(client.saveSettings.mock.calls[0]?.[0].settings).toMatchObject({
@@ -447,8 +449,10 @@ test("excluding an origin keeps its default unused under the rule until it is al
     .not.toBeInTheDocument();
   await expect
     .element(control("site-list"))
-    .toMatchTextContent("Default for https://bank.example kept, unused while excluded");
-  await page.getByRole("button", { name: "Allow bank.example", exact: true }).click();
+    .toMatchTextContent(
+      "Default for https://bank.example kept; while paused it is only listed first in the popup",
+    );
+  await page.getByRole("button", { name: "Resume bank.example", exact: true }).click();
   await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 3");
   await expect
     .element(page.getByRole("combobox", { name: "Default account for https://bank.example" }))
@@ -504,7 +508,9 @@ test("an origin with a trailing dot is excluded by its hostname without the dot"
   client.getSettings.mockResolvedValue(response);
   await mount(client);
   await page
-    .getByRole("button", { name: "Exclude https://bank.example., all schemes and ports" })
+    .getByRole("button", {
+      name: "Pause automatic login on https://bank.example., all schemes and ports",
+    })
     .click();
   await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 2");
   expect(client.saveSettings.mock.calls[0]?.[0].settings.excludedSites).toEqual([
@@ -512,17 +518,19 @@ test("an origin with a trailing dot is excluded by its hostname without the dot"
   ]);
   await expect
     .element(control("site-list"))
-    .toMatchTextContent("Default for https://bank.example. kept, unused while excluded");
+    .toMatchTextContent(
+      "Default for https://bank.example. kept; while paused it is only listed first in the popup",
+    );
   await expect
     .element(page.getByRole("button", { name: "Remove default for https://bank.example." }))
     .toBeVisible();
 });
 
-test("the add form excludes the entered origin's host, with its subdomains when asked", async () => {
+test("the add form pauses the entered origin's host, with its subdomains when asked", async () => {
   const client = mockClient();
   await mount(client);
   await expect
-    .element(page.getByText("No excluded sites or default accounts", { exact: true }))
+    .element(page.getByText("No paused sites or default accounts", { exact: true }))
     .toBeVisible();
   await control("site-origin").fill("http://localhost:8080");
   await control("add-site").click();
@@ -544,10 +552,10 @@ test("the add form excludes the entered origin's host, with its subdomains when 
     )
     .toEqual(["bank.example and subdomains", "localhost"]);
   await expect
-    .element(page.getByText("No excluded sites or default accounts", { exact: true }))
+    .element(page.getByText("No paused sites or default accounts", { exact: true }))
     .not.toBeInTheDocument();
   await expect
-    .element(page.getByRole("button", { name: "Allow bank.example and subdomains", exact: true }))
+    .element(page.getByRole("button", { name: "Resume bank.example and subdomains", exact: true }))
     .toBeVisible();
   await expect.element(control("site-subdomains")).not.toBeChecked();
 });
@@ -609,7 +617,7 @@ test("a draft that fails local validation is saved by the change that fixes it",
   await addSite("extra.example");
   await expect.element(control("settings-status")).toMatchTextContent("Invalid settings");
   expect(client.saveSettings).not.toHaveBeenCalled();
-  await page.getByRole("button", { name: "Allow site0.example", exact: true }).click();
+  await page.getByRole("button", { name: "Resume site0.example", exact: true }).click();
   await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 2");
   expect(client.saveSettings).toHaveBeenCalledTimes(1);
   const excluded = client.saveSettings.mock.calls[0]?.[0].settings.excludedSites;

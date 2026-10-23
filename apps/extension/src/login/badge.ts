@@ -4,7 +4,7 @@
 import * as v from "valibot";
 import { browser } from "wxt/browser";
 import { localClock } from "../time";
-import { pauseSite } from "./pause";
+import { pauseSite, type PauseState } from "./pause";
 import type { LoginReport } from "./runtime";
 
 export const LOGIN_BADGE_KEY = "session:pateat.login-badge.v1";
@@ -200,8 +200,8 @@ export function createLoginBadge(deps: {
   const now = deps.now ?? Date.now;
   const choices = new Map<number, Choice>();
   const notes = new Map<number, string>();
-  // When the pause of each tab's site ends (ADR 0062), and the timers that redraw then.
-  const pauses = new Map<number, number>();
+  // The pause of each tab's site (ADR 0062), and the timers that redraw when one ends.
+  const pauses = new Map<number, PauseState>();
   const pauseTimers = new Map<number, ReturnType<typeof setTimeout>>();
   const results = new Map<number, BadgeResult>();
   // Spins in flight; a tab spins while one names it. A replaced tab's spins move with it.
@@ -234,11 +234,13 @@ export function createLoginBadge(deps: {
       return { text: BUSY_FRAMES[frame] ?? "", ...STYLES.busy, title: "Pateat: asking the AI…" };
     // A waiting choice and a running model request show over a pause (ADR 0062).
     const paused = pauses.get(tabId);
-    if (paused !== undefined && paused > now())
+    if (paused && (!("until" in paused) || paused.until > now()))
       return {
         text: PAUSED_TEXT,
         ...STYLES.paused,
-        title: `Pateat: automatic login is paused on this site until ${localClock(paused)}.`,
+        title: `Pateat: automatic login is paused on this site until ${
+          "until" in paused ? localClock(paused.until) : "turned back on"
+        }.`,
       };
     const result = results.get(tabId);
     if (result && (result.until === undefined || result.until > now()))
@@ -388,23 +390,26 @@ export function createLoginBadge(deps: {
     for (const tabId of new Set([...spins].map((spin) => spin.tabId)))
       if (!writes.has(tabId)) draw(tabId);
   }
-  function setPause(tabId: number, until: number | undefined): boolean {
+  function setPause(tabId: number, pause: PauseState | undefined): boolean {
     clearTimeout(pauseTimers.get(tabId));
     pauseTimers.delete(tabId);
-    const live = until !== undefined && until > now();
-    const changed = live ? pauses.get(tabId) !== until : pauses.has(tabId);
+    const until = pause && "until" in pause ? pause.until : undefined;
+    const live = pause !== undefined && (until === undefined || until > now());
+    const before = pauses.get(tabId);
+    const changed = live ? JSON.stringify(before) !== JSON.stringify(pause) : before !== undefined;
     if (live) {
-      pauses.set(tabId, until);
-      // The pause ends by itself; the badge is drawn again then.
-      pauseTimers.set(
-        tabId,
-        setTimeout(() => {
-          pauseTimers.delete(tabId);
-          if (pauses.get(tabId) !== until) return;
-          pauses.delete(tabId);
-          draw(tabId);
-        }, until - now()),
-      );
+      pauses.set(tabId, pause);
+      // A pause of a chosen length ends by itself; the badge is drawn again then.
+      if (until !== undefined)
+        pauseTimers.set(
+          tabId,
+          setTimeout(() => {
+            pauseTimers.delete(tabId);
+            if (pauses.get(tabId) !== pause) return;
+            pauses.delete(tabId);
+            draw(tabId);
+          }, until - now()),
+        );
     } else pauses.delete(tabId);
     return changed;
   }
@@ -428,11 +433,11 @@ export function createLoginBadge(deps: {
       draw(tabId);
     },
     /**
-     * When the pause of the tab's site ends (ADR 0062), or undefined when its site is not
-     * paused; the badge shows a gray `II` until then.
+     * The pause of the tab's site (ADR 0062), or undefined when its site is not paused; the
+     * badge shows a gray `II` while it runs.
      */
-    paused(tabId: number, until: number | undefined): void {
-      if (setPause(tabId, until)) draw(tabId);
+    paused(tabId: number, pause: PauseState | undefined): void {
+      if (setPause(tabId, pause)) draw(tabId);
     },
     /** A tooltip for a tab that shows no badge, such as why its login is held. */
     note(tabId: number, title: string | undefined): void {

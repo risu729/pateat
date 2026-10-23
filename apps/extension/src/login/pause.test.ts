@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { localClock } from "../time";
-import { createLoginPauses, PAUSE_LENGTHS, pauseSite } from "./pause";
+import { createLoginPauses, PAUSE_LENGTHS, pausedByRule, pauseSite } from "./pause";
 
 function memory(initial?: unknown) {
   const box = { value: initial, writes: 0, fail: false, unreadable: 0 };
@@ -32,6 +32,17 @@ describe("pauseSite", () => {
   it("has no site for a page that is not HTTP(S) or not a URL", () => {
     expect(pauseSite("chrome://extensions/")).toBeUndefined();
     expect(pauseSite("not a url")).toBeUndefined();
+  });
+});
+
+describe("pausedByRule", () => {
+  it("pauses the pages an exclusion rule covers, until it is removed", () => {
+    const settings = { excludedSites: [{ hostname: "example.com", includeSubdomains: true }] };
+    expect(pausedByRule(settings, "https://login.example.com/")).toBe(true);
+    expect(pausedByRule(settings, "http://example.com:8080/")).toBe(true);
+    expect(pausedByRule(settings, "https://example.net/")).toBe(false);
+    // A page Pateat does not run on is not a paused site.
+    expect(pausedByRule(settings, "chrome://newtab/")).toBe(false);
   });
 });
 

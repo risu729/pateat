@@ -12,7 +12,7 @@ import {
 } from "@pateat/contracts";
 import { useForm, useSelector } from "@tanstack/react-form";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { Ban, CircleCheck, Clock, Info, TriangleAlert, type LucideIcon } from "lucide-react";
+import { CircleCheck, Clock, Info, Pause, TriangleAlert, type LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import * as v from "valibot";
 import { Button } from "./button";
@@ -41,7 +41,6 @@ const originSchema = v.pipe(
 function unavailableReason(reason: string): string {
   const descriptions: Record<string, string> = {
     "invalid-url": "The destination is invalid.",
-    "site-excluded": "This site is excluded.",
     "default-not-set": "No default account is configured.",
     "item-origin-mismatch": "This account does not match the exact origin.",
     "connection-missing": "The vault connection is unavailable.",
@@ -431,10 +430,7 @@ export function SitePolicy({
     accountNote = "Enter an origin to list the accounts that match it.";
   else if (accountsPending) accountNote = "Finding the vault items that match this origin…";
   else if (accounts.isError || (accounts.data && !accounts.data.ok))
-    accountNote =
-      accounts.data && !accounts.data.ok && accounts.data.reason === "site-excluded"
-        ? "This site is excluded."
-        : "The matching accounts could not be listed.";
+    accountNote = "The matching accounts could not be listed.";
   else if (!matchedCount)
     accountNote =
       "No vault item matches this origin. Add the site's URI or passkey to the item in your vault, then sync.";
@@ -530,7 +526,7 @@ export function SitePolicy({
             <Button
               type="button"
               variant="outline"
-              aria-label={`Exclude ${origin}, all schemes and ports`}
+              aria-label={`Pause automatic login on ${origin}, all schemes and ports`}
               onClick={() => {
                 edit((settings) => {
                   settings.excludedSites = settings.excludedSites.filter(
@@ -541,8 +537,8 @@ export function SitePolicy({
                 originInput.current?.focus();
               }}
             >
-              <Ban aria-hidden size={16} strokeWidth={2} />
-              Exclude
+              <Pause aria-hidden size={16} strokeWidth={2} />
+              Pause
             </Button>
           </>
         }
@@ -550,7 +546,10 @@ export function SitePolicy({
     );
   }
 
-  /** An exclusion rule, with the defaults it keeps from being used. */
+  /**
+   * An exclusion rule, which pauses automatic login of its hosts until it is removed
+   * (ADR 0062), with the defaults it keeps from being used by themselves.
+   */
   function ruleRow(rule: ExcludedSite) {
     const name = ruleName(rule);
     const kept = draft.siteDefaults.filter(
@@ -561,8 +560,8 @@ export function SitePolicy({
         key={`rule ${rule.hostname}`}
         title={name}
         badges={
-          <Badge muted icon={Ban}>
-            Excluded
+          <Badge muted icon={Pause}>
+            Paused
           </Badge>
         }
         lines={kept.map((entry) => (
@@ -573,7 +572,7 @@ export function SitePolicy({
                 {
                   tone: "idle",
                   icon: Info,
-                  text: `Default for ${entry.origin} kept, unused while excluded`,
+                  text: `Default for ${entry.origin} kept; while paused it is only listed first in the popup`,
                 },
               ]}
             />
@@ -594,7 +593,7 @@ export function SitePolicy({
           <Button
             type="button"
             variant="outline"
-            aria-label={`Allow ${name}`}
+            aria-label={`Resume ${name}`}
             onClick={() => {
               edit((settings) => {
                 settings.excludedSites = settings.excludedSites.filter(
@@ -604,7 +603,7 @@ export function SitePolicy({
               originInput.current?.focus();
             }}
           >
-            Allow
+            Resume
           </Button>
         }
       />
@@ -636,7 +635,7 @@ export function SitePolicy({
       {!rows.length && (
         <StatusLines
           muted
-          lines={[{ tone: "idle", icon: Info, text: "No excluded sites or default accounts" }]}
+          lines={[{ tone: "idle", icon: Info, text: "No paused sites or default accounts" }]}
         />
       )}
       <form
@@ -731,7 +730,7 @@ export function SitePolicy({
                   checked={field.state.value}
                   onChange={(event) => field.handleChange(event.target.checked)}
                 />
-                Exclude subdomains too
+                Pause subdomains too
               </label>
             )}
           </siteForm.Field>
@@ -746,15 +745,24 @@ export function SitePolicy({
             Save default
           </Button>
           <Button id="add-site" type="button" variant="outline" onClick={excludeEntered}>
-            <Ban aria-hidden size={16} strokeWidth={2} />
-            Exclude site
+            <Pause aria-hidden size={16} strokeWidth={2} />
+            Pause site
           </Button>
         </div>
       </form>
       <StatusLines
         muted
         lines={[
-          { tone: "idle", icon: Ban, text: "Excluding a site covers every scheme and port" },
+          {
+            tone: "idle",
+            icon: Pause,
+            text: "A paused site stays paused on every scheme and port, on all your devices, until it is resumed",
+          },
+          {
+            tone: "idle",
+            icon: Info,
+            text: "On a paused site Pateat logs in only with an account picked in the toolbar popup",
+          },
           { tone: "idle", icon: Clock, text: "A default account takes effect at the next login" },
         ]}
       />

@@ -77,65 +77,6 @@
   color: var(--ink);
 }
 
-/* The site switch is a row of its own: the label on the left, the switch on the right. */
-.popup-switch {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-height: 44px;
-  padding: 8px 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface);
-  font-size: 14px;
-  line-height: 20px;
-  font-weight: 500;
-  color: var(--ink);
-  cursor: pointer;
-}
-.popup-switch input {
-  appearance: none;
-  position: relative;
-  width: 36px;
-  height: 20px;
-  margin: 0;
-  flex: none;
-  border-radius: 999px;
-  background: var(--border-strong);
-  cursor: pointer;
-}
-.popup-switch input::after {
-  content: "";
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 16px;
-  height: 16px;
-  border-radius: 999px;
-  background: var(--surface);
-  transition: left 0.15s;
-}
-.popup-switch input:checked {
-  background: var(--accent);
-}
-.popup-switch input:checked::after {
-  left: 18px;
-}
-.popup-switch:has(input:disabled),
-.popup-switch input:disabled {
-  cursor: default;
-}
-.popup-switch:has(input:disabled) {
-  color: var(--ink-muted);
-}
-.popup-switch input:disabled {
-  opacity: 0.5;
-}
-.popup-switch input[aria-disabled="true"] {
-  cursor: default;
-}
-
 /* Kept in the accessibility tree while empty, without adding a gap. */
 .popup-message {
   display: block;
@@ -351,7 +292,7 @@
   gap: 8px;
 }
 
-/* The pause of automatic login sits under the site switch (ADR 0062). */
+/* The pause of automatic login sits in the header (ADR 0062). */
 .popup-pause {
   display: flex;
   flex-wrap: wrap;
@@ -366,6 +307,12 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+.popup-pause-shared {
+  flex-basis: 100%;
+}
+.popup .popup-pause-shared p {
+  margin: 0 0 4px;
 }
 
 .popup .popup-check {

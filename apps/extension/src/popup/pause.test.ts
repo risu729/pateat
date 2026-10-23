@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { StatusResponse } from "../login/choice-wire";
 import { pageStatusLines } from "./page-status";
-import { pauseLine, pauseShown } from "./pause";
+import { pauseLine, pauseShown, siteRules } from "./pause";
 
 type Status = Extract<StatusResponse, { ok: true }>;
 const status = (fields: Partial<Status> = {}): Status => ({
@@ -16,6 +16,7 @@ describe("pauseLine", () => {
     const at = Date.UTC(2026, 9, 23, 3, 40);
     expect(pauseLine(at, "Asia/Tokyo")).toBe("Paused until 12:40");
     expect(pauseLine(at, "UTC")).toBe("Paused until 03:40");
+    expect(pauseLine("rule")).toBe("Paused until turned back on");
   });
 });
 
@@ -49,5 +50,38 @@ describe("pauseShown", () => {
   });
   it("always shows a running pause, so it can be resumed", () => {
     expect(pauseShown(status({ pause: { until: 1 } }), false)).toBe(true);
+    // A rule pauses the site until turned back on, also before the worker answered.
+    expect(pauseShown(undefined, false, true)).toBe(true);
+  });
+});
+
+describe("siteRules", () => {
+  const rule = (hostname: string, includeSubdomains = false) => ({ hostname, includeSubdomains });
+  it("pauses the registrable site with its subdomains, replacing a rule of that name", () => {
+    const settings = { excludedSites: [rule("example.co.jp"), rule("other.example")] };
+    const value = structuredClone(settings) as Parameters<ReturnType<typeof siteRules>["pause"]>[0];
+    siteRules(settings, "https://login.example.co.jp").pause(value);
+    expect(value.excludedSites).toEqual([rule("other.example"), rule("example.co.jp", true)]);
+  });
+  it("resumes by removing the covering rules within the site, and names shared ones", () => {
+    const settings = {
+      excludedSites: [
+        rule("example.co.jp", true),
+        rule("login.example.co.jp"),
+        rule("mail.example.co.jp"),
+        rule("co.jp", true),
+      ],
+    };
+    const rules = siteRules(settings, "https://login.example.co.jp");
+    expect(rules.rules).toEqual([
+      rule("example.co.jp", true),
+      rule("login.example.co.jp"),
+      rule("co.jp", true),
+    ]);
+    // A rule for a public suffix covers other sites too.
+    expect(rules.shared).toEqual([rule("co.jp", true)]);
+    const value = structuredClone(settings) as Parameters<typeof rules.resume>[0];
+    rules.resume(value);
+    expect(value.excludedSites).toEqual([rule("mail.example.co.jp"), rule("co.jp", true)]);
   });
 });

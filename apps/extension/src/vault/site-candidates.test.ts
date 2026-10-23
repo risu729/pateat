@@ -92,15 +92,24 @@ describe("live provider URI candidates", () => {
     });
   });
 
-  it("does not query the vault for an excluded site or invalid URL", async () => {
+  it("lists a site a rule pauses, and never queries the vault for an invalid URL", async () => {
     const match = matcher({ ok: true, data: candidates() });
     const value = catalog();
     const local = settings(value);
     local.excludedSites.push({ hostname: "example.com", includeSubdomains: true });
-    expect(await findLiveSiteCandidates({ settings: local, catalog: value, url, match })).toEqual({
-      ok: false,
-      reason: "site-excluded",
-    });
+    // The rule pauses automatic login only; a pick still needs the matches (ADR 0062).
+    expect(
+      await findLiveSiteCandidates({ settings: local, catalog: value, url, match }),
+    ).toMatchObject({ ok: true });
+    match.mockClear();
+    expect(
+      await findLiveSiteCandidates({
+        settings: local,
+        catalog: value,
+        url: "https://my_host.example.com/",
+        match,
+      }),
+    ).toEqual({ ok: false, reason: "invalid-url" });
     expect(
       await findLiveSiteCandidates({
         settings: settings(value),
