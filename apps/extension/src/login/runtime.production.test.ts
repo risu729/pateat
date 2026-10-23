@@ -641,6 +641,24 @@ const shownHello = (
     sender(from),
   );
 
+// The runtime's waits (observation budgets, settle and recheck delays) run on a fake clock
+// that fires the next timer after each native macrotask, so they cost no real time. The
+// clock also runs on while a test sits in `vi.waitFor` or awaits a promise, so a long timer
+// can fire before an outcome the test expects sooner. A test that changes the page while the
+// runtime still waits, or that such a timer could answer instead, calls `realTime()`. Tests
+// that install their own fake timers replace this clock for their run.
+beforeEach(() => {
+  vi.useFakeTimers({
+    toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"],
+  });
+  vi.setTimerTickMode("nextTimerAsync");
+});
+afterEach(() => {
+  vi.useRealTimers();
+});
+/** Runs the test on real timers: it acts while one of the runtime's waits is pending. */
+const realTime = () => void vi.useRealTimers();
+
 describe("production login document admission", () => {
   afterEach(() => {
     // Close every test's tabs, so no attempt left reconciling answers a later test.
@@ -4901,8 +4919,6 @@ describe("production login document admission", () => {
       ] as const)(
         "saves a popup pick only after confirmed completion (%j, confirmed=%s)",
         async (answer, confirmed) => {
-          vi.useFakeTimers();
-          onTestFinished(() => void vi.useRealTimers());
           const signedIn = vi.fn<(tabId: number, origin: string) => void>();
           const report = vi.fn<(entry: LoginReport) => void>();
           const tabBadge = createLoginBadge({
@@ -8268,6 +8284,8 @@ describe("production login document admission", () => {
     });
 
     describe("a site's sign-in entry (ADR 0031)", () => {
+      // A press arms the check of the next page, which must not run before the test's checks.
+      beforeEach(realTime);
       const entryUrl = `${origin}/?return_to=%2Fbookmarks`;
       const loginUrl = "https://accounts.login.example/login";
       const entryRecipe: LoginEntryRecipe = {
@@ -11242,6 +11260,7 @@ describe("production login document admission", () => {
       }, 12_000);
 
       it("waits for the document to finish loading before it completes", async () => {
+        realTime();
         fake.state.extracted = { "signed-in": homePage };
         fake.state.signs = { ...noSigns, username: true };
         fake.state.loaded = false;
@@ -11299,6 +11318,7 @@ describe("production login document admission", () => {
       }, 20_000);
 
       it("leaves the page to the judge when the second reading shows no evidence", async () => {
+        realTime();
         fake.state.extracted = { "signed-in": homePage };
         fake.state.signs = { ...noSigns, username: true };
         const service = generation({ judge: async () => ({ verdict: "unclear" }) });
@@ -15946,6 +15966,7 @@ describe("password route variants (ADR 0027)", () => {
   );
 
   it("resumes on the recorded variant without reading the facts again", async () => {
+    realTime();
     // Only the contract variant fits when the login starts: the item has no branch field.
     const { h, passkeys } = start(
       { bindings: [everything] },
@@ -16522,6 +16543,7 @@ describe("the start page's passkey route (ADR 0027)", () => {
   }, 10_000);
 
   it("resumes on the passkey route without reading the facts again", async () => {
+    realTime();
     const passkeys = vi.fn(async () => ({ passkey: true, discoverable: true }));
     onClick({ [button.value]: { path: "/next", present: [] } });
     const { h, report } = start(learned, { passkeys });
@@ -21977,6 +21999,9 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
 });
 
 describe("the start page's own passkey request (ADR 0034)", () => {
+  // A request waits on a 1-second review and gives up after its park; on the fake clock
+  // that park could end first and settle a request the test expects decided sooner.
+  beforeEach(realTime);
   afterEach(() => {
     vi.useRealTimers();
     for (const listener of fake.state.removed.splice(0))
