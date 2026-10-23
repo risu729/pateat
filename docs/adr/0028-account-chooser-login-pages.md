@@ -32,6 +32,11 @@ Amended on 2026-10-23 (owner, 11:48 UTC, implemented):
 [a list is sent without slots](#amendment-2026-10-23-sent-without-slots) or value
 shapes.
 
+Amended on 2026-10-23 (owner, 22:32 UTC, implemented, local tests only): with several
+matching items and no default,
+[the value the page set in the account input](#amendment-2026-10-23-the-value-the-page-set-in-the-account-input)
+before anyone typed picks the item whose username equals it.
+
 Date: 2026-10-12
 
 Note added on 2026-10-12 with [ADR 0031](0031-sign-in-entry-pages.md): the retry window
@@ -582,3 +587,56 @@ with accounts lists saved accounts and has no fields, and its request has no slo
 answer account-list when choosing one of them leads on to signing in, else abstain.
 Never choose an account." So the generation role's slot mapping reads as not applying,
 and the list request's prompt version changes.
+
+## Amendment 2026-10-23: the value the page set in the account input
+
+The owner's decision (2026-10-23 22:32 UTC, "一旦それで", after the criteria below were
+proposed in the thread): on id.moneyforward.com two vault items matched, no site default
+was set, and every login was refused `account-ambiguous` (Real Chrome, build `c3197c3`,
+22:06 to 22:13 UTC). The site remembers the last account: its `/sign_in` page comes with
+the email already in the email input (`mfid_user[email]`'s `value` attribute set by the
+site), not as text on the page, so the entries and texts above never see it. The 04:45
+UTC decision still holds otherwise: without a default and without such a value, the
+account is chosen in the toolbar popup.
+
+When several items match and none is the site default, outside the asking after a
+logout, the login asks the document's content script which matching item's username
+equals the value the page itself set in the recipe's inputs for the `username` slot on
+the document's path. The item it names logs in, for that document only:
+
+- Only a value the page set before anyone could type counts. A content script that runs
+  at `document_start` in every page and frame (`login-start`) records each text, email
+  or telephone input's `value` attribute as the page inserts the input or sets the
+  attribute. It stops for the whole document at the first trusted `keydown`,
+  `beforeinput`, `input`, `change`, `paste`, `drop` or `compositionstart`, when Pateat
+  starts a step or a detail fill there, or after 64 inputs. A framework that copies
+  typed text into the attribute, or mounts a new input holding it, does so only after
+  such an event, and browser autofill and form restore set the property, not the
+  attribute.
+- Nothing recorded is nothing read: a document whose recording did not start with it,
+  as after an extension reload, or an input inside a shadow root, compares nothing, and
+  the attribute is never read later instead.
+- The input must still hold the recorded value, every such input of the recipe on the
+  path must hold the same one, and it must equal exactly one matching item's username,
+  ignoring ASCII case only, unmasked and untrimmed. Otherwise the login is refused
+  `account-ambiguous` as before.
+- The worker reads every matching item's username, at most 32 items, one at a time, and
+  sends them with the inputs' locators (`login.site.account`). An item whose username
+  cannot be read or is excluded by the person compares nothing. Only the item's index
+  comes back. The content script compares once per document, the first time every
+  such input is there, and answers nothing after that, so a page cannot try one value
+  after another to learn which accounts the vault holds.
+- The chosen item is kept as a popup pick for this document would be (ADR 0021), without
+  "make default": the login it starts uses it on its later pages, such as the password
+  page that no longer shows the email.
+- The values and usernames stay in the extension and are never stored, logged or sent.
+  The choice is never saved as the site default, unlike the single match, and the log's
+  `login.start` names it as `account` `site-value` with the item's ID.
+- Another password manager that fills on load with untrusted events, on a page whose
+  framework copies the value into the attribute, is recorded as the page's value: it is
+  still the person's saved username, not typed text.
+
+This is an exception to the rule that logins never read what the person types
+([architecture](../architecture.md)). It lets the page, not the person, choose which of
+the person's own matching items logs in; a credential still goes only to an item that
+matches the page.

@@ -468,6 +468,22 @@ export const chooseResultSchema = v.variant("ok", [
   ),
   v.strictObject({ ok: v.literal(false) }),
 ]);
+/**
+ * Which of the usernames `login.site.account` compared equals the value the page itself
+ * set in the recipe's account input, when exactly one does (ADR 0028 amendment of
+ * 2026-10-23); `ok: false` otherwise.
+ */
+export const siteAccountResultSchema = v.variant("ok", [
+  v.strictObject({
+    ok: v.literal(true),
+    index: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(31)),
+  }),
+  v.strictObject({
+    ok: v.literal(false),
+    /** The document compared its inputs' value and answers no more. */
+    spent: v.optional(v.literal(true)),
+  }),
+]);
 /** Hosts the content script asks the worker about at most (ADR 0031). */
 const hostList = v.pipe(v.array(v.pipe(v.string(), v.maxLength(253))), v.maxLength(256));
 const href = v.pipe(v.string(), v.maxLength(8192));
@@ -657,6 +673,23 @@ export const commandSchema = v.variant("type", [
     token: id,
     path,
     list: listInputSchema,
+  }),
+  /**
+   * Asks which of `usernames` equals the value the page itself put into the account input
+   * `targets` name before anyone typed (ADR 0028 amendment of 2026-10-23). Answered once
+   * per document; only the index leaves the content script.
+   */
+  v.strictObject({
+    version: v.literal(1),
+    type: v.literal("login.site.account"),
+    token: id,
+    path,
+    targets: v.pipe(v.array(loginFieldTargetSchema), v.minLength(1), v.maxLength(8)),
+    usernames: v.pipe(
+      v.array(v.pipe(v.string(), v.maxLength(4096))),
+      v.minLength(2),
+      v.maxLength(32),
+    ),
   }),
   /**
    * Clicks the account switch a `wrong-account` result of `operationId` reported as
