@@ -3,6 +3,7 @@ import type { LocalSettings, VaultCatalog } from "@pateat/contracts";
 import { describe, expect, it } from "vitest";
 import { catalogEntry } from "../connections/catalog";
 import { detailCandidates, linkedField } from "./details";
+import { connectionPolicy } from "../connections/__fixtures__/policy";
 
 // Synthetic vault data only: no real names or numbers.
 const userId = "60000000-0000-4000-8000-000000000001";
@@ -29,18 +30,11 @@ const projected: LocalVaultMetadata = {
   // Deleted or archived items come from the vault worker marked `inactive`.
   items: [card(active, "Synthetic card"), card(trashed, "Synthetic old card", true)],
 };
-const connection = catalogEntry("personal", "Synthetic vault", projected);
+const connection = catalogEntry("personal", "Synthetic vault", "cloud-us", projected);
 const catalog: VaultCatalog = { connections: [connection] };
 const settings: LocalSettings = {
-  connections: [
-    {
-      connectionId: "personal",
-      enabled: true,
-      selection: { mode: "all", groupIds: [], itemIds: [] },
-      excludedItemIds: [],
-      excludedFields: [],
-    },
-  ],
+  connections: [{ connectionId: "personal", enabled: true }],
+  ...connectionPolicy(connection),
   excludedSites: [],
   repromptSites: [],
   passkeyBrowserSites: [],

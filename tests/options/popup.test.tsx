@@ -209,6 +209,7 @@ test("the site default is chosen from the items that match the tab's origin, the
     {
       origin: "https://bank.example",
       provider: "dummy",
+      server: "cloud-us",
       userId: "demo-work-account",
       itemId: "primary",
       itemName: "Demo team account",
@@ -283,6 +284,7 @@ test("a default saved while the popup is open shows without reopening it", async
   settings.siteDefaults.push({
     origin: "https://bank.example",
     provider: "dummy",
+    server: "cloud-us",
     userId: "demo-work-account",
     itemId: "primary",
     itemName: "Demo team account",
@@ -604,6 +606,7 @@ test("the saved default is selected and marked, and an incomplete search is flag
   settings.siteDefaults.push({
     origin: "https://bank.example",
     provider: "dummy",
+    server: "cloud-us",
     userId: "demo-personal-account",
     itemId: "secondary",
   });
@@ -639,6 +642,7 @@ test("a saved default missing from the site's matches keeps its vault labels", a
   settings.siteDefaults.push({
     origin: "https://bank.example",
     provider: "dummy",
+    server: "cloud-us",
     userId: "demo-personal-account",
     itemId: "secondary",
   });
@@ -664,6 +668,7 @@ test("a saved default waits for the site's matches instead of showing its saved 
   settings.siteDefaults.push({
     origin: "https://bank.example",
     provider: "dummy",
+    server: "cloud-us",
     userId: "demo-work-account",
     itemId: "primary",
     itemName: "Demo team account",
@@ -710,6 +715,7 @@ test("a search for the site's matches that does not finish ends with the saved d
   settings.siteDefaults.push({
     origin: "https://bank.example",
     provider: "dummy",
+    server: "cloud-us",
     userId: "demo-work-account",
     itemId: "primary",
     itemName: "Demo team account",
@@ -1095,6 +1101,7 @@ test("after a logout, the popup lists the saved default first", async () => {
   settings.siteDefaults.push({
     origin: "https://bank.example",
     provider: "dummy",
+    server: "cloud-us",
     userId: "demo-work-account",
     itemId: "primary",
   });
@@ -1144,6 +1151,7 @@ test("while a choice waits, the saved default can still be removed, and one miss
   settings.siteDefaults.push({
     origin: "https://bank.example",
     provider: "dummy",
+    server: "cloud-us",
     userId: "demo-personal-account",
     itemId: "secondary",
     itemName: "Demo secondary account",

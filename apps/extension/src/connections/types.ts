@@ -125,7 +125,11 @@ export type SetupReply =
       };
     };
 export interface ConnectionPolicy {
-  quarantined?(connectionId: string, snapshotId: string): Promise<string[]>;
+  /**
+   * The items custom-field review blocks in an open vault's snapshot; `undefined` when the
+   * vault is not open, which this never does.
+   */
+  quarantined?(connectionId: string, snapshotId: string): Promise<string[] | undefined>;
   /** Items with custom-field exclusions or review history, whose fields a sync compares. */
   protectedItems?(connectionId: string): Promise<string[]>;
   review?(input: {
@@ -141,6 +145,8 @@ export interface ConnectionPolicy {
    * the first attempt failed or expired, then keeps that choice.
    */
   register(connectionId: string, enabled: boolean): Promise<void>;
+  /** Drops a deleted connection's add-form choice that no sign-in has applied yet. */
+  forget?(connectionId: string): Promise<void>;
   /** Reconcile after durable cache acceptance; an unmatched binding never authorizes release. */
   adopt(input: {
     previous: VaultEntry | null;

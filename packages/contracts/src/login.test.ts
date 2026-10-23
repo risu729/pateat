@@ -154,6 +154,7 @@ function snapshot(): SettingsSnapshot {
     {
       origin: "https://bank.example",
       provider: "dummy",
+      server: "cloud-us",
       userId: "demo-personal-account",
       itemId: "primary",
     },
@@ -702,7 +703,7 @@ describe("saved login plan authorization", () => {
       ),
     ).toMatchObject({ ok: false });
     const disabled = snapshot();
-    disabled.settings.connections[0]!.enabled = false;
+    disabled.settings.accountPolicies[0]!.enabled = false;
     expect(
       resolveLoginPlan(
         disabled,
@@ -741,8 +742,17 @@ describe("saved login plan authorization", () => {
       ),
     ).toMatchObject({ ok: false });
     const fieldExcluded = snapshot();
-    fieldExcluded.settings.connections[0]!.excludedFields = [
-      { itemId: "primary", fieldId: "password" },
+    fieldExcluded.settings.itemPolicies = [
+      {
+        provider: "dummy",
+        server: "cloud-us",
+        userId: "demo-personal-account",
+        itemId: "primary",
+        itemName: "Demo primary account",
+        selected: false,
+        excluded: false,
+        excludedFields: ["password"],
+      },
     ];
     expect(
       resolveLoginPlan(
@@ -2083,7 +2093,18 @@ describe("second-factor page handlers (ADR 0027)", () => {
       const primary = catalog.connections[0]!.items[0]!;
       primary.fields = builtIn().fields;
       const settings = createDefaultSettings(catalog);
-      settings.connections[0]!.excludedFields = [{ itemId: "primary", fieldId: "login.password" }];
+      settings.itemPolicies = [
+        {
+          provider: "dummy",
+          server: "cloud-us",
+          userId: "demo-personal-account",
+          itemId: "primary",
+          itemName: primary.label,
+          selected: false,
+          excluded: false,
+          excludedFields: ["login.password"],
+        },
+      ];
       const eligibility = getItemEligibility(settings, catalog, "demo-personal", "primary");
       expect(eligibility.eligible).toBe(true);
       if (eligibility.eligible)
