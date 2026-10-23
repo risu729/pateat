@@ -293,6 +293,25 @@ describe("controlName", () => {
       "Fallback",
     ]);
   });
+
+  it("reads a label hidden only by its own aria-hidden (proposed ADR 0048 amendment, 2026-10-23)", () => {
+    document.body.innerHTML = `<input id="a" type="submit" aria-labelledby="t1">
+      <span id="t1" aria-hidden="true">次に進む<span aria-hidden="true">spinner</span></span>
+      <button id="b" aria-labelledby="t2" aria-label="Fallback"></button>
+      <div aria-hidden="true"><span id="t2">Ancestor</span></div>
+      <button id="c" aria-labelledby="t3" aria-label="Fallback"></button>
+      <span id="t3" aria-hidden="true" inert>Inert</span>
+      <button id="d" aria-labelledby="t4" aria-label="Fallback"></button>
+      <span id="t4" aria-hidden="true" style="display:none">Gone</span>`;
+    // Its own aria-hidden alone does not hide it; an aria-hidden descendant, an aria-hidden
+    // ancestor, inert and CSS still do, and a label with no text falls back to aria-label.
+    expect(["a", "b", "c", "d"].map((id) => controlName(document.getElementById(id)!))).toEqual([
+      "次に進む",
+      "Fallback",
+      "Fallback",
+      "Fallback",
+    ]);
+  });
 });
 
 describe("controlContent", () => {

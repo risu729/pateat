@@ -805,7 +805,7 @@ const accountText = /\[(?:email|masked|number|account)\]|@|\d{4}/u;
  * control must be a button or link of the page, not hold account text and not be the
  * other control. A list whose accounts are all shown beside buttons needs a named
  * control. Its locator is never `autocomplete` or `label`, which name only inputs, nor
- * `accessible-name`, which names only a `password` handler's button.
+ * `accessible-name`, which names only a `password` handler's button or a route step's click.
  */
 export function validateAccountList(
   observation: LoginObservation,

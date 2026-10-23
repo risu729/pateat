@@ -2270,7 +2270,7 @@ ambiguous and an absent element's hidden copy still keeps it from proving the si
 A copy that shows later makes the step ambiguous, as for visible names; a copy hidden
 only from assistive technology, such as a page form behind a modal, still counts.
 
-A control is named by its accessible name only as a `password` handler's button (owner,
+A control is named by its accessible name as a `password` handler's button (owner,
 2026-10-19 01:26 UTC, option A1,
 [ADR 0048's amendment](adr/0048-password-method-button.md#amendment-controls-told-apart-by-their-accessible-names)):
 `{ "by": "accessible-name", "value": "Select Password." }` names the one shown control
@@ -2280,11 +2280,13 @@ outside an `<a href>`) or a fragment link (below); other links, fields and other
 never count. Role and script buttons count anywhere on the page, not only inside a
 login form. The name is the rendered text of the elements its `aria-labelledby` names,
 else its `aria-label`, collapsed as button text is; one over 120 characters gives none.
+A labelling element's own `aria-hidden="true"` does not hide its text here (proposed,
+below).
 It is counted apart from a field's visible name. The contract refuses it everywhere
-else: route steps,
+else, apart from a route step's click (proposed, below): other route steps,
 `passkey` and `totp` handlers, signed-in markers and their `absent` elements, the
 rejection, an account switch, a passkey route, a sign-in entry and a list of accounts.
-The extractor offers it only in a description sent to the judge, only for a shown
+For the handler, the extractor offers it only in a description sent to the judge, for a
 control that no `id`, `name`, `data-testid` or text locator names alone, and only when
 no other control on the page has that name, it holds no number, redaction leaves it
 unchanged, and it passes the handler's word check (below), so two controls that both

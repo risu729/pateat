@@ -671,7 +671,7 @@ export const loginRecipeSchema = v.pipe(
  * Only an `<a href>` link is to be pressed, which a `text` target names by its rendered
  * text as an `accountSwitch` does; its target is an `id`, `name`, `test-id` or `text`
  * locator, never `autocomplete` or `label`, which name only inputs, nor `accessible-name`,
- * which names only a `password` handler's button.
+ * which names only a `password` handler's button or a route step's click.
  *
  * The service generates it for an entry request (`entryGenerationRequestSchema`) and
  * stores it; devices cache it, but nothing sends such a request or presses it yet, it
@@ -685,7 +685,7 @@ export const loginEntryRecipeSchema = v.strictObject({
   entry: v.strictObject({
     path,
     // A link or button locator; `autocomplete` and `label` name only inputs, which are never
-    // pressed, and `accessible-name` only a `password` handler's button.
+    // pressed, and `accessible-name` only a `password` handler's button or a route click.
     target: v.variant("by", [
       loginAttributeTargetSchema.options[0],
       loginAttributeTargetSchema.options[1],
@@ -695,7 +695,7 @@ export const loginEntryRecipeSchema = v.strictObject({
 });
 /**
  * A list control's locator: never `autocomplete` or `label`, which name only inputs, nor
- * `accessible-name`, which names only a `password` handler's button.
+ * `accessible-name`, which names only a `password` handler's button or a route step's click.
  */
 const chooserTargetSchema = v.variant("by", [
   loginAttributeTargetSchema.options[0],
@@ -837,9 +837,10 @@ export type LoginMarkerTarget = v.InferOutput<typeof loginMarkerTargetSchema>;
 export const isLoginTarget = (target: LoginMarkerTarget): target is LoginTarget =>
   target.by !== "href";
 /**
- * Whether a locator may name a route step's element, or a handler's other than a
+ * Whether a locator may name any route step's element, or a handler's other than a
  * `password` handler's button: neither a link's path (ADR 0029) nor an accessible name
- * (ADR 0048 amendment of 2026-10-19).
+ * (ADR 0048 amendment of 2026-10-19), which a route step's click alone may also use
+ * (proposed amendment of 2026-10-23).
  */
 export const isStepTarget = (
   target: LoginMarkerTarget,

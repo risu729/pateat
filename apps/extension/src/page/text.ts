@@ -381,8 +381,8 @@ export function opensHere(link: HTMLAnchorElement): boolean {
  * reloads the page and never counts, nor does a script link, nor a fragment that starts
  * with `#/` or `#!`, which a page's router reads as a route (`#/account/delete`), so such
  * a link may go to another page in all but its URL. Only an accessible-name
- * locator, which only a `password` handler's button uses, counts such a link as a button;
- * everywhere else it stays a link.
+ * locator of a `password` handler's button counts such a link as a button; everywhere
+ * else, a route step's click by that name included, it stays a link.
  */
 export function isFragmentButton(element: Element): element is HTMLAnchorElement {
   if (!(element instanceof HTMLAnchorElement)) return false;
