@@ -1077,13 +1077,14 @@ Once the fixes have settled:
   [decisions still requiring evidence](#decisions-still-requiring-evidence)) with
   user-facing pages for installation, setup and permissions, plus the M6 operational
   docs. Started: [`apps/docs`](development.md#docs-website) builds in CI with English
-  pages for installation, setup, permissions and a draft privacy policy with the Chrome
-  Web Store Limited Use statement. Still to do: deploying it (a public assets-only
-  Worker with per-PR previews, owner 2026-10-23), the M6 operational docs, the Japanese
-  pages, and updating the installation page once releases exist. The
-  [operations runbook](operations.md) now documents current retry/revert procedures and
-  the unverified D1 restore and rollback-automation boundaries; this does not complete
-  installed-Chrome or disaster-recovery acceptance.
+  and Japanese pages ([ADR 0047](adr/0047-japanese-user-docs-locales.md)) for
+  installation, setup, permissions and a draft privacy policy with the Chrome Web Store
+  Limited Use statement. Still to do: deploying it (a public assets-only Worker with
+  per-PR previews, owner 2026-10-23), the M6 operational docs, and updating the
+  installation page once releases exist. The [operations runbook](operations.md) now
+  documents current retry/revert procedures and the unverified D1 restore and
+  rollback-automation boundaries; this does not complete installed-Chrome or
+  disaster-recovery acceptance.
 - A mode without the service, designed with the owner on 2026-10-23
   ([ADR 0040](adr/0040-running-without-the-service.md)): a device may hold its own
   Anthropic API key and call the model itself, also while paired, where the service only

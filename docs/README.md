@@ -102,6 +102,7 @@ owner the reason when the amendment changes a recorded owner instruction.
 - [0040: A device's own Anthropic API key, and running without the service](adr/0040-running-without-the-service.md)
 - [0041: A generated recipe is repaired by adding a layout (accepted)](adr/0041-repair-stale-recipes.md)
 - [0043: Extension language preference](adr/0043-extension-language-preference.md)
+- [0047: Japanese docs pages under `/ja/`, with no language redirect](adr/0047-japanese-user-docs-locales.md)
 - [0048: A learned button goes on to the password on a page that asks how to verify](adr/0048-password-method-button.md)
 - [0049: A login may start at a later step its page shows](adr/0049-start-at-a-later-step.md)
 - [0050: Plain HTTP pages log in with items saved for `http://`](adr/0050-http-pages-for-http-items.md)
