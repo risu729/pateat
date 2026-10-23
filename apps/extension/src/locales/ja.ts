@@ -471,6 +471,8 @@ export const ja = {
   "Pateat cannot read that field now. Unlock the vault and try again.":
     "そのフィールドを今は読み取れません。保管庫のロックを解除して、もう一度お試しください。",
   "The page did not accept the value.": "ページが値を受け付けませんでした。",
+  "The master password was not entered, so nothing was read or filled.":
+    "マスターパスワードが入力されなかったため、何も読み取らず入力もしていません。",
   "the answer to your secret question": "秘密の質問の答え",
   "your member or customer number": "会員番号またはお客様番号",
   "This page asks \u201C{{question}}\u201D.": "このページは「{{question}}」と尋ねています。",

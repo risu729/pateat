@@ -293,9 +293,11 @@ describe("generation on a device without a pairing (ADR 0040)", () => {
       promptVersion: "v2",
     };
     const stale = { expired: 1_000, versions: ["v2"] };
-    await backend.recordJudgement({ ...key, revision: 1 }, 500, stale);
-    await backend.recordJudgement({ ...key, promptVersion: "v1" }, 2_000, stale);
-    await backend.recordJudgement(key, 2_000, stale);
+    expect(await backend.recordJudgement({ ...key, revision: 1 }, 500, stale)).toBe(true);
+    expect(await backend.recordJudgement({ ...key, promptVersion: "v1" }, 2_000, stale)).toBe(true);
+    expect(await backend.recordJudgement(key, 2_000, stale)).toBe(true);
+    // Another request's row being judged is not taken (ADR 0018).
+    expect(await backend.recordJudgement(key, 2_500, stale)).toBe(false);
     expect(await backend.judgement(key)).toEqual({ verdict: null });
     // An older revision judged before the day started is forgotten; today's row stays.
     expect(await backend.judgement({ ...key, revision: 1 })).toBeUndefined();
@@ -304,10 +306,10 @@ describe("generation on a device without a pairing (ADR 0040)", () => {
 
     // A kept verdict stays; a `partial` one takes the slot again.
     await backend.keepVerdict(key, "signed-in");
-    await backend.recordJudgement(key, 3_000, stale);
+    expect(await backend.recordJudgement(key, 3_000, stale)).toBe(false);
     expect(await backend.judgement(key)).toEqual({ verdict: "signed-in" });
     await backend.keepVerdict(key, "partial");
-    await backend.recordJudgement(key, 3_000, stale);
+    expect(await backend.recordJudgement(key, 3_000, stale)).toBe(true);
     expect(await backend.judgement(key)).toEqual({ verdict: null });
   });
 
@@ -385,6 +387,21 @@ describe("the device's model calls (ADR 0040)", () => {
     });
     release();
     expect(await first).toMatchObject({ kind: "result", result: { status: "recipe" } });
+  });
+
+  it("sends nothing when the write before the first call stops the request", async () => {
+    const { backend, sent, spend } = setup({ replies: [plan] });
+    // As a judge request that finds another one's row (ADR 0018).
+    const generation = createDeviceGeneration({
+      ...backend,
+      call: (call) => backend.call({ ...call, beforeSend: async () => "judgement-unanswered" }),
+    });
+    expect(await generation.generateRecipe(DEVICE_GENERATION_ORIGIN, "", request)).toMatchObject({
+      kind: "result",
+      result: { status: "unavailable", reason: "judgement-unanswered" },
+    });
+    expect(sent).toEqual([]);
+    expect(spend()).toBeUndefined();
   });
 
   it("keeps an answer Anthropic charged when its spend cannot be written", async () => {

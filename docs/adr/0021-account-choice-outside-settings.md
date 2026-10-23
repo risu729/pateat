@@ -682,6 +682,11 @@ outside incognito), asks for it:
   passkey; in a list of passkeys, such a passkey asks for the password once it is
   chosen. A passkey request inside a login that already started with the item does not
   ask again.
+- A personal detail from another item with re-prompt, as an identity or a card, is read
+  as usual in a login started this way. In a login that did not, the window asks for
+  the password with that item before the read, from the login's detail page or the
+  popup's **Fill** (owner, 2026-10-23 21:50 UTC). The card guess never asks
+  ([ADR 0061](0061-personal-details-during-a-login.md#items-with-bitwardens-re-prompt)).
 - The background checks the password offline, one at a time, and never aborts a check
   midway; five wrong passwords end the request. The window's answer for such an entry is
   only accepted through the check (implemented).

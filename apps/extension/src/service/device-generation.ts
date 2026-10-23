@@ -161,8 +161,8 @@ export function createDeviceGenerationBackend(options: {
   const now = options.now ?? Date.now;
   // One change at a time, so two pages' requests both keep theirs.
   let queue: Promise<unknown> = Promise.resolve();
-  // One request's model calls at a time, as the service's lock per owner, until every call
-  // it sent has ended.
+  // One request's model calls at a time on this device, until every call it sent has
+  // ended; the service runs up to five of an owner's at once (ADR 0018).
   let calling = false;
   const inFlight = new Set<Promise<unknown>>();
 
@@ -204,7 +204,6 @@ export function createDeviceGenerationBackend(options: {
       const setting = await key.setting().catch(() => undefined);
       if (!setting) return { status: "unavailable", reason: "credentials-not-configured" };
       // The written record before the first request is sent, once (ADR 0016, ADR 0027).
-      // A reason means another request took what `gate` found free: nothing is sent.
       let reserved: Promise<GenerationUnavailableReason | void> | undefined;
       const reserve = () => (reserved ??= call.beforeSend?.(now()) ?? Promise.resolve());
       let timedOut = false;
@@ -222,7 +221,8 @@ export function createDeviceGenerationBackend(options: {
         const sent = { index: 0, headers, body: await outbound.text() };
         const checked = deviceModelCallBody(sent);
         if (!checked) throw new TypeError("Unexpected model request");
-        if (await reserve()) throw new TypeError("The request lost its reservation");
+        // A reason stops the request unsent (ADR 0018); the loop below answers with it.
+        if (await reserve()) throw new Error("Model call not sent");
         const sending = key.send(setting.apiKey, sent, checked, outbound.signal);
         inFlight.add(sending);
         try {
@@ -268,11 +268,10 @@ export function createDeviceGenerationBackend(options: {
           outcome = { status: "failed", error: "provider-error", calls: 1, usage: unknownUsage };
         }
         if (timedOut && outcome.status === "failed") outcome = { ...outcome, error: "timeout" };
-        // A failed write stopped the request before it was sent, and a reason another
-        // request took the reservation.
+        // A failed write, or a reason, stopped the request before it was sent.
         // oxlint-disable-next-line no-await-in-loop
-        const taken = reserved ? await reserved : undefined;
-        if (taken) return { status: "unavailable", reason: taken };
+        const refused = reserved && (await reserved);
+        if (refused) return { status: "unavailable", reason: refused };
         const modelMs = now() - modelStart;
         last = {
           status: "called",
@@ -403,18 +402,18 @@ export function createDeviceGenerationBackend(options: {
       ).length;
     },
     async recordJudgement(judged, at, stale) {
-      let took = false;
+      // Whether this request took the row: not while another request's row is there.
+      let taken = false;
       await change((record) => {
         const held = record.judgements.find(sameJudgement(judged));
-        took = !held || held.verdict === "partial" || held.verdict === "optional";
         // A `partial` or `optional` verdict takes today's slot again; any other stays.
-        const judgements =
-          held && held.verdict !== "partial" && held.verdict !== "optional"
-            ? record.judgements
-            : [
-                ...record.judgements.filter((entry) => !sameJudgement(judged)(entry)),
-                { ...judged, verdict: null, at },
-              ];
+        taken = !held || held.verdict === "partial" || held.verdict === "optional";
+        const judgements = taken
+          ? [
+              ...record.judgements.filter((entry) => !sameJudgement(judged)(entry)),
+              { ...judged, verdict: null, at },
+            ]
+          : record.judgements;
         return {
           ...record,
           judgements: judgements.filter(
@@ -425,7 +424,7 @@ export function createDeviceGenerationBackend(options: {
           ),
         };
       });
-      return took;
+      return taken;
     },
     keepVerdict(judged, verdict) {
       return change((record) => ({

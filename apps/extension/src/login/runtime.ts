@@ -173,6 +173,7 @@ import {
   LOGOUT_REACTION_MS,
   personSubmittedSchema,
   chooseResultSchema,
+  siteAccountResultSchema,
   type ListMissReport as ListMiss,
   probeControlSchema,
   loginReadiness,
@@ -284,6 +285,8 @@ import {
   type CardFacts,
   type DetailFillValue,
   type DetailOwner,
+  type DetailSite,
+  waitsForMasterPassword,
 } from "./details";
 import { cardBrandOf, cardBrands, MAX_CARD_LAST_4 } from "../page/card-hints";
 import {
@@ -613,6 +616,11 @@ type LiveDocument = {
   uriMatch?: { connectionId: string; itemId: string; snapshotId: string };
   /** A single-match account choice, valid while every connection's snapshot is unchanged. */
   autoChoice?: { snapshots: string; connectionId: string; itemId: string };
+  /**
+   * The document's content script compared the value the page set in its account input
+   * (ADR 0028 amendment of 2026-10-23), which it answers only once.
+   */
+  siteAsked?: true;
   /** A provider URI match for `topUrl`, valid while its snapshot is unchanged. */
   topMatch?: { connectionId: string; itemId: string; snapshotId: string };
   /** Why generation last skipped this document, so each reason is logged once. */
@@ -757,6 +765,12 @@ const pickedAccountSchema = v.strictObject({
   makeDefault: v.boolean(),
   /** How long the popup offered the choice before the pick: the person's time (ADR 0019). */
   waitedMs: v.pipe(v.number(), v.integer(), v.minValue(0)),
+  /**
+   * Chosen by the value the page set in its account input, not in the popup (ADR 0028
+   * amendment of 2026-10-23): kept like a pick so the login's later pages use it too, and
+   * never saved as the default.
+   */
+  site: v.optional(v.literal(true)),
 });
 type PickedAccount = v.InferOutput<typeof pickedAccountSchema>;
 /**
@@ -847,6 +861,17 @@ const detailOfferSchema = v.strictObject({
   target: loginTargetSchema,
 });
 type DetailOffer = v.InferOutput<typeof detailOfferSchema>;
+/** A saved link's field that a login reads only after the master password (ADR 0061). */
+type DetailWait = {
+  detail: LoginDetail;
+  itemId: string;
+  fieldId: string;
+  /** The waiting field's inputs, so its fill goes to that field and no other. */
+  targets: LoginFieldTarget[];
+};
+/** Whether two fields' inputs are the same, in the same order. */
+const sameInputs = (left: readonly LoginFieldTarget[], right: readonly LoginFieldTarget[]) =>
+  left.length === right.length && left.every((target, at) => sameLoginTarget(target, right[at]!));
 /** A link filled from the popup, saved once the tab's login `attemptId` is confirmed. */
 const pendingDetailSchema = v.strictObject({
   tabId: v.pipe(v.number(), v.integer(), v.minValue(0)),
@@ -1844,6 +1869,23 @@ type GenerationScope = {
 /** The items that matched a page and the settings they were matched under. */
 type VaultMatch = Pick<GenerationScope, "items" | "settings" | "catalog">;
 
+/**
+ * The recipe's inputs for the `username` slot on `path`, over every password variant, each
+ * once: where a site may show the account it remembers (ADR 0028 amendment of 2026-10-23).
+ */
+function accountTargetsOn(recipe: LoginRecipe, path: string): LoginFieldTarget[] {
+  const targets: LoginFieldTarget[] = [];
+  for (const variant of passwordVariants(recipe))
+    for (const step of variant.steps)
+      if (step.kind === "fill" && step.path === path)
+        for (const field of step.fields)
+          if (
+            field.slot === "username" &&
+            !targets.some((target) => sameLoginTarget(target, field.target))
+          )
+            targets.push(field.target);
+  return targets;
+}
 /** Each URI match's connection and item in the catalog; one the catalog lacks is left out. */
 function catalogItems(
   catalog: VaultCatalog,
@@ -1863,10 +1905,10 @@ function catalogItems(
  */
 /**
  * How a login's account was chosen (ADR 0013, ADR 0021): the saved default, the only match,
- * a pick in the popup, an account switch's pick, or the site's pick kept for the browser
- * session (ADR 0063).
+ * a pick in the popup, an account switch's pick (ADR 0063), or the account the page set in
+ * its input (ADR 0028).
  */
-export type AccountSource = "default" | "match" | "pick" | "switch";
+export type AccountSource = "default" | "match" | "pick" | "switch" | "site-value";
 /**
  * A value-free account of what the runtime decided, for the local log (ADR 0019). The
  * origin and recipe ID are reduced there; no account ID is included, and the only item ID,
@@ -2363,7 +2405,9 @@ export type LoginReport = (
        * budget is spent, or the login is at its stop before a missing password (ADR 0036);
        * for a `detail` handler (ADR 0061), `detail-manual` when its inputs ask only for
        * details Pateat never fills, `detail-unlinked` when no usable vault field is linked
-       * for a shown input, `detail-unreadable` when the linked value is no date or has too
+       * for a shown input, `detail-reprompt` when the only linked value is in an item that
+       * waits for the master password, which the chooser window asks for before the fill,
+       * `detail-unreadable` when the linked value is no date or has too
        * few digits, `detail-unavailable` when the vault could not give it, `detail-unfit`
        * when a value split over several inputs fits none of them, as when no option of a
        * select matches its part or a card's digits do not fit its boxes, and, about the
@@ -2379,6 +2423,7 @@ export type LoginReport = (
         | "no-room"
         | "detail-manual"
         | "detail-unlinked"
+        | "detail-reprompt"
         | "detail-unreadable"
         | "detail-unavailable"
         | "detail-unfit"
@@ -2859,6 +2904,40 @@ export function createLoginRuntime(
    * restarted worker asks again.
    */
   const repromptGrants = new Map<string, { connectionId: string; itemId: string; at: number }>();
+  /**
+   * Logins that hold the master password, by attempt ID, with its vault account: typed in
+   * the chooser window before the login started, or before it read a personal detail from
+   * another re-prompt item (ADR 0061, owner 2026-10-23 21:50 UTC). Such a login reads that
+   * account's re-prompt items without asking again. Kept in memory only, so a restarted
+   * worker asks again.
+   */
+  const repromptTyped = new Map<string, string>();
+  const holdPassword = (attemptId: string, connectionId: string) => {
+    repromptTyped.delete(attemptId);
+    repromptTyped.set(attemptId, connectionId);
+    for (const old of repromptTyped.keys()) {
+      if (repromptTyped.size <= 256) break;
+      repromptTyped.delete(old);
+    }
+  };
+  /** Where a login reads personal details from `connectionId` (`DetailSite`). */
+  const detailSite = (attemptId: string, connectionId: string, url: string): DetailSite => ({
+    url,
+    verified: repromptTyped.get(attemptId) === connectionId,
+  });
+  /**
+   * The chooser window asking for the master password, by tab and document: for a login's
+   * own item (`login`) or before a detail's read (`detail`), with the vault account it
+   * checks the password for. A second ask for the document waits for its answer.
+   */
+  const passwordAsks = new Map<
+    string,
+    {
+      kind: "login" | "detail";
+      connectionId: string;
+      answer: Promise<{ answer: "verified" | "closed" | "unavailable"; aborted: boolean }>;
+    }
+  >();
   /** The login each tab's top document refused for the master password, for the popup. */
   const repromptWaiting = new Map<
     number,
@@ -2878,6 +2957,8 @@ export function createLoginRuntime(
         repromptAsking.delete(key);
         controller.abort();
       }
+    // A closing window settles later; a document coming back meanwhile asks in a new one.
+    for (const key of passwordAsks.keys()) if (matches(key)) passwordAsks.delete(key);
     for (const key of repromptGrants.keys()) if (matches(key)) repromptGrants.delete(key);
     const waiting = repromptWaiting.get(tabId);
     if (waiting && (documentId === undefined || waiting.document.documentId === documentId))
@@ -3844,6 +3925,47 @@ export function createLoginRuntime(
    * its login starts with that item, as after a pick in the popup (ADR 0021 B), whose pick it
    * keeps. The check is never cut off by the page: an aborted check would lock the vault.
    */
+  function openPasswordWindow(
+    kind: "login" | "detail",
+    key: string,
+    input: {
+      tabId: number;
+      origin: string;
+      account: LoginAccount;
+      connection: VaultConnectionMetadata;
+      item: VaultItemMetadata;
+    },
+  ) {
+    const ask = options.askMasterPassword!;
+    const controller = new AbortController();
+    let settle!: (value: {
+      answer: "verified" | "closed" | "unavailable";
+      aborted: boolean;
+    }) => void;
+    const entry = {
+      kind,
+      connectionId: input.connection.id,
+      answer: new Promise<{ answer: "verified" | "closed" | "unavailable"; aborted: boolean }>(
+        (resolve) => (settle = resolve),
+      ),
+    };
+    // Both are set before the window is asked for, so its end always removes them.
+    repromptAsking.set(key, controller);
+    passwordAsks.set(key, entry);
+    void (async () => {
+      let answer: "verified" | "closed" | "unavailable";
+      try {
+        answer = await ask({ ...input, signal: controller.signal });
+      } catch {
+        answer = "unavailable";
+      } finally {
+        if (repromptAsking.get(key) === controller) repromptAsking.delete(key);
+        if (passwordAsks.get(key) === entry) passwordAsks.delete(key);
+      }
+      settle({ answer, aborted: controller.signal.aborted });
+    })();
+    return entry;
+  }
   async function askMasterPassword(
     asking: { document: LoginDocument; account: LoginAccount; pick?: PickedAccount },
     connection: VaultConnectionMetadata,
@@ -3852,30 +3974,30 @@ export function createLoginRuntime(
     const { document, account: login } = asking;
     const key = `${document.tabId} ${document.documentId}`;
     if (!options.askMasterPassword) return { ok: false, reason: "unavailable" };
-    if (repromptAsking.has(key)) return { ok: true };
-    const controller = new AbortController();
-    repromptAsking.set(key, controller);
-    let answer: "verified" | "closed" | "unavailable";
-    try {
-      answer = await options.askMasterPassword({
+    const open = passwordAsks.get(key);
+    if (open?.kind === "login") return { ok: true };
+    // A window that asks before a detail's read is answered first; its password counts
+    // for this login only when it was checked for the same vault account.
+    const asked =
+      open ??
+      openPasswordWindow("login", key, {
         tabId: document.tabId,
         origin: document.origin,
         account: login,
         connection,
         item,
-        signal: controller.signal,
       });
-    } catch {
-      answer = "unavailable";
-    } finally {
-      if (repromptAsking.get(key) === controller) repromptAsking.delete(key);
-    }
-    if (answer !== "verified") return { ok: false, reason: answer };
+    const { answer, aborted } = await asked.answer;
+    // Checked for another vault account, whatever its answer: once it ends, this login
+    // asks for its own, while the document still waits for it.
+    const other = asked.connectionId !== connection.id;
+    if (answer !== "verified" && !other) return { ok: false, reason: answer };
     const live = documents.get(frameKey(document));
-    if (live?.document.documentId !== document.documentId || controller.signal.aborted)
+    if (live?.document.documentId !== document.documentId || aborted)
       return { ok: false, reason: "document-gone" };
     // The document may have started another login meanwhile, as after a pick in the popup.
     if (live.reason !== "master-password-reprompt") return { ok: false, reason: "not-waiting" };
+    if (other) return askMasterPassword(asking, connection, item);
     repromptGrants.set(key, {
       connectionId: login.connectionId,
       itemId: login.itemId,
@@ -3896,6 +4018,41 @@ export function createLoginRuntime(
       return { ok: false, reason: "document-gone" };
     }
     return { ok: true };
+  }
+  /**
+   * Asks for the master password before a personal detail is read from `item`, another item
+   * of the login's vault account with Bitwarden's re-prompt (ADR 0061; owner, 2026-10-23
+   * 21:50 UTC), in the chooser window that asks for a login's own item, under its rules.
+   * Once the vault accepts it, the offer's login holds it (`holdPassword`), while the tab
+   * still runs that login. One window at a time per document: a second ask waits for the
+   * first one's answer. A closed window or one that cannot open gives no password.
+   */
+  async function askDetailPassword(
+    offer: DetailOffer,
+    connection: VaultConnectionMetadata,
+    item: VaultItemMetadata,
+  ): Promise<boolean> {
+    const { document } = offer;
+    const key = `${document.tabId} ${document.documentId}`;
+    if (!options.askMasterPassword) return false;
+    // A window already open for the document, for its login's item or another detail's,
+    // is answered once; each ask then checks its own login.
+    const asked =
+      passwordAsks.get(key) ??
+      openPasswordWindow("detail", key, {
+        tabId: document.tabId,
+        origin: document.origin,
+        account: offer.account,
+        connection,
+        item,
+      });
+    const { answer, aborted } = await asked.answer;
+    if (aborted || tabAttempt(document.tabId)?.id !== offer.attemptId) return false;
+    // Checked for another vault account: once it ends, this read asks for its own.
+    if (asked.connectionId !== connection.id) return askDetailPassword(offer, connection, item);
+    if (answer !== "verified") return false;
+    holdPassword(offer.attemptId, connection.id);
+    return true;
   }
   /** The popup's button for a tab whose login waits for the master password. */
   async function repromptFor(tabId: number): Promise<RepromptResponse> {
@@ -4905,6 +5062,8 @@ export function createLoginRuntime(
     asking?: "account-asked" | "relogin-limit",
     paused = false,
     fill = false,
+    /** The recipe's inputs for the `username` slot on the document's path. */
+    accountTargets: readonly LoginFieldTarget[] = [],
   ): Promise<Choice | Refusal> {
     await sessionLoaded;
     // An account switch's pick (ADR 0063) wins for the tab's next login page of its site,
@@ -4947,7 +5106,15 @@ export function createLoginRuntime(
     }
     // An account picked in the popup wins for the document it restarted and the attempt that
     // document started; its item must still match the page and pass every check below.
-    const pick = picked.get(live.document.tabId);
+    let pick = picked.get(live.document.tabId);
+    // The page's own account input is honoured only where an automatic login would choose
+    // among several matches: never on a paused site or a tab that asks (ADR 0062), where
+    // only the person's pick logs in.
+    if (pick?.site && pick.attemptId === undefined && (paused || asking)) {
+      picked.delete(live.document.tabId);
+      void quietly(saveSession);
+      pick = undefined;
+    }
     const owner = recordFor(live.document.tabId, live.document.origin);
     if (
       pick?.origin === live.document.origin &&
@@ -4959,7 +5126,7 @@ export function createLoginRuntime(
         connectionId: pick.connectionId,
         itemId: pick.itemId,
         saved: false,
-        source: "pick",
+        source: pick.site ? "site-value" : "pick",
         pick,
       };
     const saved = snapshot.snapshot.settings.siteDefaults.find(
@@ -5040,6 +5207,40 @@ export function createLoginRuntime(
     const found = await siteCandidates(snapshot, live);
     if ("reason" in found) return { reason: found.reason };
     const { candidates } = found;
+    if (candidates.length > 1) {
+      // The account the page itself put into the recipe's account input picks one of them,
+      // for this document and the login it starts only, and is never saved (ADR 0028
+      // amendment of 2026-10-23). It is kept as a pick, which the login's later pages use.
+      const shown =
+        accountTargets.length > 0 && !live.siteAsked
+          ? await siteAccount(snapshot, live, candidates, accountTargets)
+          : undefined;
+      if (shown) {
+        const site: PickedAccount = {
+          tabId: live.document.tabId,
+          origin: live.document.origin,
+          documentId: live.document.documentId,
+          connectionId: shown.connectionId,
+          itemId: shown.itemId,
+          makeDefault: false,
+          waitedMs: 0,
+          site: true,
+        };
+        // A running login's pick in the tab stays; this choice then covers this document.
+        if (picked.get(live.document.tabId)?.attemptId === undefined) {
+          picked.set(live.document.tabId, site);
+          await quietly(saveSession);
+        }
+        return {
+          connectionId: shown.connectionId,
+          itemId: shown.itemId,
+          saved: false,
+          source: "site-value",
+          candidates: candidates.length,
+          pick: site,
+        };
+      }
+    }
     if (candidates.length > 1)
       return {
         reason: "account-ambiguous",
@@ -5064,6 +5265,73 @@ export function createLoginRuntime(
       source: "match",
       candidates: candidates.length,
     };
+  }
+  /**
+   * The one candidate whose username equals the value the page itself set in one of
+   * `targets` before anyone typed, as the document's content script compares them (ADR
+   * 0028 amendment of 2026-10-23). The usernames are read one at a time, only for this
+   * comparison, and never kept, logged or sent; a username that cannot be read, or one
+   * the person excluded, compares nothing.
+   */
+  async function siteAccount(
+    snapshot: Extract<SettingsResponse, { ok: true }>,
+    live: LiveDocument,
+    candidates: readonly LiveSiteCandidate[],
+    targets: readonly LoginFieldTarget[],
+  ): Promise<LiveSiteCandidate | undefined> {
+    if (candidates.length > 32) return undefined;
+    const settingsValue = snapshot.snapshot.settings;
+    const usernames: string[] = [];
+    try {
+      for (const candidate of candidates) {
+        const connection = snapshot.catalog.connections.find(
+          (entry) => entry.id === candidate.connectionId,
+        );
+        if (!connection) return undefined;
+        const fieldId = loginUsernameFieldId(connection, candidate.itemId);
+        if (!fieldId) {
+          usernames.push("");
+          continue;
+        }
+        if (
+          isFieldExcluded(settingsValue, snapshot.catalog, connection.id, candidate.itemId, fieldId)
+        )
+          return undefined;
+        // Serial reads through the shared vault host, as for a fill.
+        // eslint-disable-next-line no-await-in-loop
+        const value = await fields({
+          account: {
+            origin: live.document.origin,
+            connectionId: connection.id,
+            itemId: candidate.itemId,
+          },
+          connection,
+          fieldId,
+        }).catch(() => undefined);
+        if (value === undefined) return undefined;
+        usernames.push(value);
+      }
+      const parsed = v.safeParse(
+        siteAccountResultSchema,
+        await send(live, {
+          type: "login.site.account",
+          path: live.path,
+          targets: targets.slice(0, 8),
+          usernames,
+        }).catch(() => undefined),
+      );
+      if (!parsed.success) return undefined;
+      // The document compared its value and answers no more (ADR 0028 amendment of
+      // 2026-10-23), so it is not asked again.
+      if (!parsed.output.ok) {
+        if (parsed.output.spent) live.siteAsked = true;
+        return undefined;
+      }
+      live.siteAsked = true;
+      return candidates[parsed.output.index];
+    } finally {
+      usernames.fill("");
+    }
   }
   /**
    * Origin scope for the chosen account of this document. A live provider URI match for
@@ -5467,6 +5735,7 @@ export function createLoginRuntime(
         request.asking,
         request.paused === true,
         request.fill === true,
+        accountTargetsOn(recipe, live.path),
       );
       if ("reason" in found)
         return {
@@ -5550,8 +5819,9 @@ export function createLoginRuntime(
             ...(named.accountName ? { accountName: named.accountName } : {}),
           });
         }
-        // A pick made for this login only is never saved.
-        if (unsaved && (!chosen.pick || chosen.pick.makeDefault))
+        // A pick made for this login only is never saved, nor an account the page's own
+        // value picked (ADR 0028 amendment of 2026-10-23).
+        if (unsaved && chosen.source !== "site-value" && (!chosen.pick || chosen.pick.makeDefault))
           choice = {
             binding: named,
             connectionId: chosen.connectionId,
@@ -6689,12 +6959,17 @@ export function createLoginRuntime(
    * detail Pateat fills, that has a saved link to a field the device may read, and that is
    * writable now. Undefined when none is.
    */
-  async function detailInput(run: Execution, handler: DetailHandler): Promise<number | undefined> {
+  async function detailInput(
+    run: Execution,
+    handler: DetailHandler,
+    waiting?: (wait: DetailWait) => void,
+  ): Promise<number | undefined> {
     const authorized = await allowed(run);
     if (!authorized) return undefined;
     const found = detailOwner(run.metadata.account, authorized.catalog);
     if (!found) return undefined;
     const answers = answerSources(authorized, found);
+    const site = detailSite(run.metadata.id, found.connection.id, run.live.url);
     const linked = handler.fields.flatMap((field, index) => {
       if (manualDetails.includes(field.detail)) return [];
       // A value split over several inputs needs every one of them (ADR 0061).
@@ -6703,9 +6978,17 @@ export function createLoginRuntime(
         return answers.length ? [{ index, targets, answer: true }] : [];
       if (refusedDetails.has(refusalKey(found.owner, field.detail))) return [];
       const link = savedDetailLink(authorized.settings, found.owner, field.detail);
-      return link && linkedField(authorized.settings, authorized.catalog, found.connection, link)
-        ? [{ index, targets, answer: false }]
-        : [];
+      const source =
+        link && linkedField(authorized.settings, authorized.catalog, found.connection, link);
+      if (!source) return [];
+      // A linked item with Bitwarden's re-prompt is read only once this login holds the
+      // master password (owner, 2026-10-23 21:50 UTC).
+      const item = found.connection.items.find((entry) => entry.id === source.itemId);
+      const wait =
+        item && waitsForMasterPassword(authorized.settings, item, found.owner.itemId, site)
+          ? { detail: field.detail, itemId: source.itemId, fieldId: source.fieldId, targets }
+          : undefined;
+      return [{ index, targets, answer: false, ...(wait ? { wait } : {}) }];
     });
     if (!linked.length) return undefined;
     const targets = linked.flatMap((entry) => entry.targets);
@@ -6718,10 +7001,16 @@ export function createLoginRuntime(
     // not have reached `run.live.path` yet.
     if (!observed || observed.path !== handler.path) return undefined;
     let first = 0;
+    // The first input whose linked item waits for the master password, when no other fits.
+    let waits: DetailWait | undefined;
     for (const entry of linked) {
       const states = observed.targets.slice(first, first + entry.targets.length);
       first += entry.targets.length;
       if (states.some((state) => state !== "unique")) continue;
+      if (entry.wait) {
+        waits ??= entry.wait;
+        continue;
+      }
       // An answer input needs one of the item's question fields to be the page's question.
       if (
         !entry.answer ||
@@ -6731,6 +7020,7 @@ export function createLoginRuntime(
         return entry.index;
       if (!current(run)) return undefined;
     }
+    if (waits) waiting?.(waits);
     return undefined;
   }
   /**
@@ -7148,6 +7438,19 @@ export function createLoginRuntime(
           : undefined;
     }
     if (!source) return "unavailable";
+    // Never a re-prompt item's value before the login holds the master password, which
+    // `detailInput` asks for instead of choosing such an input.
+    const sourceItem = found.connection.items.find((entry) => entry.id === source.itemId);
+    if (
+      sourceItem &&
+      waitsForMasterPassword(
+        authorized.settings,
+        sourceItem,
+        found.owner.itemId,
+        detailSite(run.metadata.id, found.connection.id, run.live.url),
+      )
+    )
+      return "unavailable";
     const read = await readDetail(
       run.metadata.account,
       authorized.connection,
@@ -7267,7 +7570,7 @@ export function createLoginRuntime(
     candidates: T[],
   ): Promise<{ candidates: T[]; preselect: boolean }> {
     const policy = snapshot.settings;
-    const byName = { candidates, preselect: true };
+    let byName = { candidates, preselect: true };
     const connection = catalog.connections.find((entry) => entry.id === offer.account.connectionId);
     if (
       !connection ||
@@ -7277,8 +7580,19 @@ export function createLoginRuntime(
     )
       return byName;
     const items = [...new Set(candidates.map((entry) => entry.itemId))];
+    // A card with Bitwarden's re-prompt is never read for the guess while the login does not
+    // hold the master password: it stays a candidate, not read, so the guess selects none,
+    // even by name, and its Fill asks (owner, 2026-10-23 21:50 UTC).
+    const site = detailSite(offer.attemptId, connection.id, live.url);
+    const readable = items.filter((itemId) => {
+      const item = connection.items.find((entry) => entry.id === itemId);
+      return !item || !waitsForMasterPassword(policy, item, offer.account.itemId, site);
+    });
+    if (readable.length < items.length) byName = { candidates, preselect: false };
     const slot = `${offer.attemptId} ${offer.document.documentId} ${JSON.stringify(target)}`;
-    const vault = `${snapshot.revision} ${connection.snapshotId ?? ""} ${items.join(",")}`;
+    // Whether the login holds the master password changes which cards are read.
+    const holds = repromptTyped.get(offer.attemptId) === connection.id;
+    const vault = `${snapshot.revision} ${connection.snapshotId ?? ""} ${items.join(",")} ${holds}`;
     const kept = cardGuesses.get(slot);
     const apply = (guess: { order: readonly string[]; preselect: boolean }) => ({
       candidates: [
@@ -7331,7 +7645,7 @@ export function createLoginRuntime(
     const facts = new Map<string, CardFacts>();
     let gave = false;
     try {
-      for (const itemId of items.slice(0, MAX_CARD_GUESS_READS)) {
+      for (const itemId of readable.slice(0, MAX_CARD_GUESS_READS)) {
         const held: CardFacts = {};
         for (const fieldId of cardGuessFields(policy, catalog, connection, itemId)) {
           let value: string | undefined;
@@ -7505,6 +7819,11 @@ export function createLoginRuntime(
    */
   async function popupDetailFill(
     request: v.InferOutput<typeof detailFillRequestSchema>,
+    /**
+     * `asked` once the window asked for the master password; `targets` for the fill after
+     * a login's own ask, which names the field it stopped at among those of the detail.
+     */
+    within: { asked?: boolean; targets?: LoginFieldTarget[] } = {},
   ): Promise<DetailFillResponse> {
     await sessionLoaded;
     const offer = detailOffers.get(request.tabId);
@@ -7516,7 +7835,15 @@ export function createLoginRuntime(
       tabAttempt(request.tabId)?.id !== offer.attemptId
     )
       return { ok: false, reason: "document-gone" };
-    const field = offer.fields.find((entry) => entry.detail === request.detail);
+    const field = offer.fields.find(
+      (entry) =>
+        entry.detail === request.detail &&
+        (within.targets === undefined ||
+          sameInputs(
+            detailFieldInputs(entry).map((input) => input.target),
+            within.targets,
+          )),
+    );
     if (!field) return { ok: false, reason: "not-a-candidate" };
     const snapshot = await settings
       .handle({ version: 1, type: "settings.get" })
@@ -7548,6 +7875,23 @@ export function createLoginRuntime(
       (entry) => entry.itemId === request.itemId && entry.fieldId === request.fieldId,
     );
     if (!chosen) return { ok: false, reason: "not-a-candidate" };
+    // An item with Bitwarden's re-prompt is read only once the login holds the master
+    // password; the window asks first, and then every check above is made again (owner,
+    // 2026-10-23 21:50 UTC).
+    const chosenItem = found.connection.items.find((entry) => entry.id === request.itemId);
+    if (
+      chosenItem &&
+      waitsForMasterPassword(
+        snapshot.snapshot.settings,
+        chosenItem,
+        offer.account.itemId,
+        detailSite(offer.attemptId, found.connection.id, live.url),
+      )
+    ) {
+      if (within.asked || !(await askDetailPassword(offer, found.connection, chosenItem)))
+        return { ok: false, reason: "no-master-password" };
+      return popupDetailFill(request, { ...within, asked: true });
+    }
     // A secret question's answer goes only under the page's own question: its field's name
     // or the question confirmed for it, or, confirmed by this Fill, the question the judge
     // paired with the field (ADR 0061).
@@ -7904,6 +8248,7 @@ export function createLoginRuntime(
       // such, and so is one with no linked value for a writable input.
       if (handler.kind === "detail") {
         if (detailPicks.get(entry.index) !== undefined) return undefined;
+        if (detailWaits.has(entry.index)) return "detail-reprompt" as const;
         return handler.fields.every((field) => manualDetails.includes(field.detail))
           ? ("detail-manual" as const)
           : ("detail-unlinked" as const);
@@ -7917,12 +8262,17 @@ export function createLoginRuntime(
     // Which input of each shown `detail` handler this login fills: the first with a linked
     // value it may read and that is writable now (ADR 0061).
     const detailPicks = new Map<number, number | undefined>();
+    // A handler whose only linked value is in an item that waits for the master password.
+    const detailWaits = new Map<number, DetailWait>();
     for (const entry of shown)
       if (
         entry.handler.kind === "detail" &&
         !run.metadata.handlers.some((entered) => entered.index === entry.index)
       )
-        detailPicks.set(entry.index, await detailInput(run, entry.handler));
+        detailPicks.set(
+          entry.index,
+          await detailInput(run, entry.handler, (wait) => detailWaits.set(entry.index, wait)),
+        );
     if (!current(run)) return true;
     // A `password` handler goes first; refused, as when its button shows again after its
     // press, it ends the login there, so the passkey button beside it is never pressed by a
@@ -7961,11 +8311,31 @@ export function createLoginRuntime(
       const handler = shown[0]!.handler;
       if (
         handler.kind === "detail" &&
-        (refused === "detail-unlinked" || newQuestion.has(shown[0]!.index)) &&
+        (refused === "detail-unlinked" ||
+          refused === "detail-reprompt" ||
+          newQuestion.has(shown[0]!.index)) &&
         !stop
       )
         await offerDetails(run, handler, shown[0]!.index);
       await challenge();
+      // The linked value's item waits for the master password (owner, 2026-10-23 21:50
+      // UTC): the window asks, and once the vault accepts it the value is filled as the
+      // popup's Fill fills it, leaving the button to the person.
+      const wait = detailWaits.get(shown[0]!.index);
+      if (refused === "detail-reprompt" && wait && !stop)
+        void popupDetailFill(
+          {
+            version: 1,
+            type: "login.detail.fill",
+            tabId: run.live.document.tabId,
+            documentId: run.live.document.documentId,
+            detail: wait.detail,
+            connectionId: run.metadata.account.connectionId,
+            itemId: wait.itemId,
+            fieldId: wait.fieldId,
+          },
+          { targets: wait.targets },
+        ).catch(() => undefined);
       return true;
     }
     if (fresh.handler.kind === "totp") {
@@ -13409,6 +13779,13 @@ export function createLoginRuntime(
       return { ok: false, reason: "generating" };
     }
     if (!plan.ok) {
+      // An account the page's value picked for a login that did not start is dropped, so
+      // a default saved or a logout later decides this document again.
+      const site = picked.get(document.tabId);
+      if (site?.site && site.attemptId === undefined && site.documentId === document.documentId) {
+        picked.delete(document.tabId);
+        void quietly(saveSession);
+      }
       // Only a fresh start can be restarted with a picked account (ADR 0021). The page
       // after an account switch belongs to that login, so it offers none.
       if (!previous && !switched && "candidates" in plan && plan.candidates) {
@@ -13505,6 +13882,8 @@ export function createLoginRuntime(
         recipe = route;
       }
     }
+    // The vault account whose master password this new login was started with, if any.
+    let typedFor: string | undefined;
     if (!previous) {
       // Another login's account choice, being saved now or saved since this snapshot was read,
       // bumps the revision this new login would be checked against: it is admitted again.
@@ -13536,6 +13915,7 @@ export function createLoginRuntime(
           Date.now() - grant.at <= REPROMPT_GRANT_MS
         ) {
           repromptGrants.delete(grantKey);
+          typedFor = grant.connectionId;
           if (document.frameId === 0) repromptWaiting.delete(document.tabId);
         } else {
           const awaiting = {
@@ -13671,6 +14051,7 @@ export function createLoginRuntime(
         if (begunIn.size <= 256) break;
         begunIn.delete(old);
       }
+      if (typedFor !== undefined) holdPassword(metadata.id, typedFor);
       // No listed account fits, and the list has no button for another one (ADR 0028).
       if (click === "none") metadata = transitionLoginAttempt(metadata, { type: "NOT_LISTED" });
     }
@@ -13723,7 +14104,9 @@ export function createLoginRuntime(
               ...(plan.chosen.candidates === undefined
                 ? {}
                 : { candidates: plan.chosen.candidates }),
-              ...(plan.chosen.source === "match" ? { itemId: metadata.account.itemId } : {}),
+              ...(plan.chosen.source === "match" || plan.chosen.source === "site-value"
+                ? { itemId: metadata.account.itemId }
+                : {}),
             }
           : {}),
         ...(metadata.fillOnly ? { fillOnly: true as const } : {}),
