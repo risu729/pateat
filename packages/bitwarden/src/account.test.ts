@@ -598,8 +598,7 @@ describe("account and provider binding admission", () => {
   it.each([
     { exp: accountNow },
     { exp: accountNow - 1 },
-    { exp: accountNow, nbf: accountNow - 60 },
-  ])("reports a token outside its validity window as expired %j", (claims) => {
+  ])("reports a token whose exp is not in the future as expired %j", (claims) => {
     const raw = rawV1Account();
     raw.token.access_token = syntheticJwt(claims);
     expect(mapRaw(raw)).toEqual({ ok: false, error: { code: "authentication-expired" } });

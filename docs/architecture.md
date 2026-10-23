@@ -178,7 +178,7 @@ The pure account mapper prepares trusted transport responses for local crypto.
 It correlates token subject, sync profile and a known account's canonical provider
 binding. Decoding unsigned JWT claims does not verify their signature or establish
 ownership; the calling host must preserve the fixed HTTPS response provenance.
-An access token whose `exp` has passed is expired. Like the official clients'
+An access token whose `exp` has been reached is expired. Like the official clients'
 `TokenService`, which reads only `exp`, the mapper never compares `nbf` (the server's
 issue second) with the local clock, so a clock behind the server's still accepts a
 fresh token; `nbf` and `iat` must only be non-negative integers. Authentication salt/KDF
