@@ -98,3 +98,25 @@ export async function withLoginExtension(
     await rm(profile, { recursive: true, force: true });
   }
 }
+
+/** The fields of the local log's `event` entries, read from the worker's IndexedDB. */
+export async function logs(worker: Worker, event: string): Promise<Record<string, unknown>[]> {
+  return worker.evaluate(
+    (name) =>
+      new Promise<Record<string, unknown>[]>((done, fail) => {
+        const open = indexedDB.open("pateat.diagnostics.v1");
+        open.onerror = () => fail(open.error);
+        open.onsuccess = () => {
+          const all = open.result.transaction("entries").objectStore("entries").getAll();
+          all.onerror = () => fail(all.error);
+          all.onsuccess = () =>
+            done(
+              (all.result as { event: string; fields: Record<string, unknown> }[])
+                .filter((entry) => entry.event === name)
+                .map((entry) => entry.fields),
+            );
+        };
+      }),
+    event,
+  );
+}

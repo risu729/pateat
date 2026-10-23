@@ -6,6 +6,7 @@ export * from "./site-accounts";
 export * from "./login";
 export * from "./login-attempt";
 export * from "./manage";
+export * from "./models";
 export * from "./observation";
 export * from "./pairing";
 export * from "./password-choice";

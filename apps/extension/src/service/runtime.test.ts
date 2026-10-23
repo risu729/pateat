@@ -123,6 +123,7 @@ describe("pairing", () => {
     "sign-in-rejected",
     "extension-not-allowed",
     "pairing-unavailable",
+    "access-keys-unavailable",
   ] as const)("reports %s and stores nothing", async (error) => {
     const { storage, runtime } = setup({ transport: fakeTransport({ kind: "failed", error }) });
     expect(await runtime.handle(pair)).toEqual({

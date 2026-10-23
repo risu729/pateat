@@ -67,7 +67,7 @@ export function createConnectionPolicy(options: {
       return protectedItemIds(await options.settings.read(), connectionId);
     },
     async register(connectionId, enabled) {
-      await options.settings.update(undefined, (snapshot) => {
+      await options.settings.update(undefined, "vault-added", (snapshot) => {
         if (!snapshot.settings.connections.some((entry) => entry.connectionId === connectionId))
           snapshot.settings.connections.push({
             connectionId,
@@ -85,7 +85,8 @@ export function createConnectionPolicy(options: {
       if (!accepted) throw new Error("invalid-request");
       const id = captured.next.profile.connectionId;
       let review: string[] = [];
-      await options.settings.update(undefined, (snapshot) => {
+      const cause = captured.automatic ? "automatic-vault-sync" : "vault-sync";
+      await options.settings.update(undefined, cause, (snapshot) => {
         let connection = snapshot.settings.connections.find((entry) => entry.connectionId === id);
         if (!connection) {
           connection = createDefaultSettings({ connections: [captured.catalog] }).connections[0]!;
@@ -164,7 +165,7 @@ export function createConnectionPolicy(options: {
       )
         throw new Error("invalid-request");
       let review: string[] = [];
-      await options.settings.update(captured.expectedRevision, (snapshot) => {
+      await options.settings.update(captured.expectedRevision, "field-review", (snapshot) => {
         review = quarantinedItems(snapshot, captured.connectionId, captured.snapshotId);
         if (!review.includes(captured.itemId)) throw new Error("revision-conflict");
         const connection = snapshot.settings.connections.find(

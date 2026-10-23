@@ -1,5 +1,5 @@
 import * as v from "valibot";
-import { isLoginRouteRecipe, type LoginRecipe, type StoredLoginRecipe } from "./login";
+import { isLoginRouteRecipe, runsLogin, type LoginRecipe, type StoredLoginRecipe } from "./login";
 import {
   savedLoginBindingSchema,
   type DetailLink,
@@ -12,16 +12,18 @@ import {
 // bindings come from the service cache; these functions only read them.
 
 /**
- * Every recipe with a login route for one exact origin, in cache order. An entry recipe
- * (ADR 0031) or a chooser recipe (ADR 0028) is left out: nothing starts either yet, and
- * neither starts or resumes a login.
+ * Every recipe with a login route for one exact origin that may start a login, in cache
+ * order. An entry recipe (ADR 0031) or a chooser recipe (ADR 0028) is left out: nothing
+ * starts either yet, and neither starts or resumes a login. So is a route recipe generated
+ * as `confirm` or `unclear` (ADR 0035).
  */
 export function loginRecipesForOrigin(
   recipes: readonly StoredLoginRecipe[],
   origin: string,
 ): LoginRecipe[] {
   return recipes.filter(
-    (recipe): recipe is LoginRecipe => isLoginRouteRecipe(recipe) && recipe.origin === origin,
+    (recipe): recipe is LoginRecipe =>
+      isLoginRouteRecipe(recipe) && recipe.origin === origin && runsLogin(recipe),
   );
 }
 

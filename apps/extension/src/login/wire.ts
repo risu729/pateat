@@ -128,7 +128,13 @@ export function loginReadiness(step: LoginStep): LoginReadiness {
         : [];
   return {
     path: step.path,
-    require: step.kind === "fill" ? "writable" : step.kind === "click" ? "clickable" : "present",
+    // Enter goes into a field (ADR 0064).
+    require:
+      step.kind === "fill" || (step.kind === "click" && step.press === "enter")
+        ? "writable"
+        : step.kind === "click"
+          ? "clickable"
+          : "present",
     targets,
   };
 }
@@ -634,10 +640,11 @@ export const executionResultSchema = v.strictObject({
    * failure, the form was replaced, the target is missing or not writable (or, for a
    * `password` handler's click, its text no longer names the password, ADR 0048), the form
    * changed before a click, an `assert` did not hold, the step was sent values it does not
-   * fill, its fields are in different forms, an input refused its secret, the page's inputs
-   * have no value setter, a code field's submission watch could not start, the form or
-   * the clicked button would send the form off the document's origin to a destination the
-   * background did not allow, or the background could not decide that now (ADR 0051).
+   * fill, two of its fields name the same input, its fields are in different forms, an
+   * input refused its secret, the page's inputs have no value setter, a code field's
+   * submission watch could not start, the form or the clicked button would send the form
+   * off the document's origin to a destination the background did not allow, or the
+   * background could not decide that now (ADR 0051).
    */
   detail: v.optional(
     v.picklist([
@@ -653,6 +660,7 @@ export const executionResultSchema = v.strictObject({
       "form-changed",
       "assert-failed",
       "unexpected-values",
+      "fields-shared",
       "fields-split",
       "secret-refused",
       "unsupported-input",
@@ -809,6 +817,14 @@ export const configureSchema = v.strictObject({
    * counts as holding a TOTP secret. The field's value is a fixed synthetic code.
    */
   totp: v.optional(v.literal(true)),
+  /**
+   * Probe-only wait in place of `LOGIN_STEP_WAIT_MS` for a step's elements and an
+   * advance's confirmation, so a test runs past those waits without sitting out ten
+   * seconds. Without it, as always in production, the full wait applies.
+   */
+  stepWaitMs: v.optional(
+    v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(LOGIN_STEP_WAIT_MS)),
+  ),
 });
 export const statusSchema = v.strictObject({
   version: v.literal(1),
