@@ -117,6 +117,11 @@ const landmarks = chromeSelector;
  * list). The body and the root element never count, so this never takes the whole page.
  */
 const besideDepth = 2;
+/**
+ * How far above the fields outside every form a control the executor cannot act on still
+ * counts as theirs (`formlessFieldsArea`); a footer's language picker is farther away.
+ */
+const formlessDepth = 4;
 const maxBeside = 4;
 const maxHeadings = 8;
 export const maxText = 120;
@@ -1390,9 +1395,11 @@ export function extractLoginObservation(
 }
 
 /**
- * Where the fillable fields outside every form sit: their nearest common container and
- * up to `besideDepth` levels above it, as for the buttons beside a login form, or
- * `undefined` when that reaches the body or the root element, so the whole page counts.
+ * Where the fillable fields outside every form sit: their nearest common ancestor (a
+ * lone field itself) and up to `formlessDepth` levels above it, or `undefined` when that
+ * reaches the body or the root element, so the whole page counts. With no `<form>` to
+ * start from, this reaches a little further than `besideDepth` does above a form, so a
+ * row of fields beside a row with a select still holds both.
  */
 function formlessFieldsArea(found: readonly Found[], document: Document): Element | undefined {
   const fields = found.flatMap((entry) =>
@@ -1402,7 +1409,7 @@ function formlessFieldsArea(found: readonly Found[], document: Document): Elemen
   );
   let area: Element | null = fields[0] ?? null;
   while (area && !fields.every((field) => area!.contains(field))) area = area.parentElement;
-  for (let depth = 0; depth < besideDepth && area; depth++) area = area.parentElement;
+  for (let depth = 0; depth < formlessDepth && area; depth++) area = area.parentElement;
   return area && area !== document.body && area !== document.documentElement ? area : undefined;
 }
 

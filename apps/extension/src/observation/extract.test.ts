@@ -1419,6 +1419,23 @@ describe("extractLoginObservation", () => {
     expect(
       outcome(`<input id="u" autocomplete="username">${picker}<button id="n">Next</button>`),
     ).toEqual([false, "unsupported-control"]);
+    // Rows of a grid layout: the select's row sits beside the fields' rows.
+    const row = (cell: string) => `<div class="row"><div class="col">${cell}</div></div>`;
+    expect(
+      outcome(`<div><main><div class="container">${row(`<input id="u" autocomplete="username">`)}
+        ${row(`<input id="p" type="password">`)}${row(picker)}${row(`<button id="go">Log in</button>`)}
+        </div></main></div>`),
+    ).toEqual([false, "unsupported-control"]);
+    expect(
+      outcome(`<div><main><div class="container">${row(`<input id="u" autocomplete="username">`)}
+        ${row(`<input type="radio" id="kind">`)}${row(`<button id="go">Log in</button>`)}</div></main></div>`),
+    ).toEqual([false, "unsupported-control"]);
+    // A text area far from two fields, such as a feedback box at the page's foot.
+    expect(
+      outcome(`<div><div><div><div><div><div><input id="u"><input id="p" type="password">
+        <button id="go">Log in</button></div></div></div></div></div>
+        <div><div><div><textarea id="feedback"></textarea></div></div></div></div>`),
+    ).toEqual([true, undefined]);
     // A field that cannot be filled counts anywhere outside a form.
     expect(
       outcome(
