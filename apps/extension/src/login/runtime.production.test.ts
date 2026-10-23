@@ -8260,9 +8260,11 @@ describe("production login document admission", () => {
             expect(request).not.toHaveProperty("passkeyOnly");
             expect(request.observation).toEqual(loginPage.observation);
             expect(request.slots.map((slot) => slot.id)).toContain("password");
-            expect(extracted().map((entry) => entry["page"])).toEqual([
-              offered === "passkey button" ? "passkey" : "accounts",
-              "login",
+            expect(extracted()).toEqual([
+              expect.objectContaining({
+                page: offered === "passkey button" ? "passkey" : "accounts",
+              }),
+              expect.objectContaining({ page: "login" }),
             ]);
             // Sent as a recipe's first page, with its signed-in hint and no `page`.
             expect(generations()).toContainEqual({
