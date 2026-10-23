@@ -297,6 +297,7 @@ export function detailLength(entry: {
   detail: LoginDetail;
   format?: BirthDateFormat | undefined;
 }): number {
+  if (entry.detail === "secret-answer" || entry.detail === "member-id") return 1;
   if (entry.detail !== "birth-date") return entry.detail === "card-code" ? 3 : 4;
   return entry.format === undefined ? 8 : entry.format.length;
 }

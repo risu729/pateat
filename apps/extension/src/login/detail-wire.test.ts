@@ -17,6 +17,8 @@ describe("how the popup names a personal detail (ADR 0061)", () => {
     expect(detailName("phone-last-4", en)).toBe("the last 4 digits of your phone number");
     expect(detailName("card-last-4", en)).toBe("the last 4 digits of your card number");
     expect(detailName("card-code", en)).toBe("your card's security code");
+    expect(detailName("secret-answer", en)).toBe("the answer to your secret question");
+    expect(detailName("member-id", en)).toBe("your member or customer number");
   });
 
   it("names them in Japanese (ADR 0043)", () => {

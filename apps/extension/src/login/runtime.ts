@@ -226,6 +226,7 @@ import {
   detailValue,
   linkedField,
   savedDetailLink,
+  savedDetailLinks,
   type DetailOwner,
 } from "./details";
 import {
@@ -719,7 +720,17 @@ const pendingDetailSchema = v.strictObject({
   link: detailLinkSchema,
 });
 type PendingDetail = v.InferOutput<typeof pendingDetailSchema>;
-const refusedDetailSchema = v.omit(detailLinkSchema, ["source"]);
+type DetailSourceField = DetailLink["source"]["field"];
+/** A link's source field as a key, the same whatever order its properties came in. */
+const sourceFieldKey = (field: DetailSourceField) =>
+  typeof field === "string"
+    ? field
+    : JSON.stringify([field.custom, field.position ?? null, field.count ?? null]);
+/** A refused link; a secret question's answer names its question's field too. */
+const refusedDetailSchema = v.strictObject({
+  ...v.omit(detailLinkSchema, ["source"]).entries,
+  field: v.optional(detailLinkSchema.entries.source.entries.field),
+});
 type RefusedDetail = v.InferOutput<typeof refusedDetailSchema>;
 /** A tab and origin that logged out after a Pateat login; it asks until a pick logs in. */
 const logoutSchema = v.strictObject({
@@ -766,6 +777,11 @@ type Execution = {
   metadata: LoginAttemptMetadata;
   /** The links this login's `detail` fills used were already removed as refused (ADR 0061). */
   detailsForgotten?: boolean;
+  /**
+   * The question field each `detail` handler this login filled a secret question's answer
+   * into read from, by handler (ADR 0061). Kept in memory only.
+   */
+  answers?: Map<number, DetailSourceField>;
   /** A chooser login's recipe (ADR 0028), whose list its first step clicks on. */
   chooser?: LoginChooserRecipe;
   /** A fill-only login's accounts, offered once it ends (ADR 0021 D). */
@@ -2568,8 +2584,16 @@ export function createLoginRuntime(
   const pendingDetails = new Map<number, PendingDetail[]>();
   /** Refused links not removed yet, by site, login item and detail (ADR 0061). */
   const refusedDetails = new Map<string, RefusedDetail>();
-  const refusalKey = (owner: DetailOwner, detail: LoginDetail) =>
-    JSON.stringify([owner.origin, owner.provider, owner.userId, owner.itemId, detail]);
+  // A secret question's answer has a link per question field; the other details one each.
+  const refusalKey = (owner: DetailOwner, detail: LoginDetail, field?: DetailSourceField) =>
+    JSON.stringify([
+      owner.origin,
+      owner.provider,
+      owner.userId,
+      owner.itemId,
+      detail,
+      detail === "secret-answer" && field !== undefined ? sourceFieldKey(field) : null,
+    ]);
   /** Account choices being saved; each bumps the policy revision (ADR 0022). */
   const savingChoices = new Set<Promise<void>>();
   /** Counts account choices saved or attempted, so a new login sees a bump it missed. */
@@ -2663,7 +2687,7 @@ export function createLoginRuntime(
     );
     if (refused.success)
       for (const entry of refused.output)
-        refusedDetails.set(refusalKey(entry, entry.detail), entry);
+        refusedDetails.set(refusalKey(entry, entry.detail, entry.field), entry);
   });
   const scopes = (keys: Set<string>) =>
     [...keys].map((key) => {
@@ -5407,12 +5431,15 @@ export function createLoginRuntime(
     if (!authorized) return undefined;
     const found = detailOwner(run.metadata.account, authorized.catalog);
     if (!found) return undefined;
+    const answers = answerSources(authorized, found);
     const linked = handler.fields.flatMap((field, index) => {
       if (manualDetails.includes(field.detail)) return [];
+      if (field.detail === "secret-answer")
+        return answers.length ? [{ index, target: field.target, answer: true }] : [];
       if (refusedDetails.has(refusalKey(found.owner, field.detail))) return [];
       const link = savedDetailLink(authorized.settings, found.owner, field.detail);
       return link && linkedField(authorized.settings, authorized.catalog, found.connection, link)
-        ? [{ index, target: field.target }]
+        ? [{ index, target: field.target, answer: false }]
         : [];
     });
     if (!linked.length) return undefined;
@@ -5422,7 +5449,92 @@ export function createLoginRuntime(
       linked.map(() => "writable" as const),
     );
     if (!observed || observed.path !== run.live.path) return undefined;
-    return linked.find((_, at) => observed.targets[at] === "unique")?.index;
+    for (const [at, entry] of linked.entries()) {
+      if (observed.targets[at] !== "unique") continue;
+      // An answer input needs one of the item's question fields to be the page's question.
+      // eslint-disable-next-line no-await-in-loop
+      if (!entry.answer || (await askedSource(run.live, handler.path, entry.target, answers)))
+        return entry.index;
+      if (!current(run)) return undefined;
+    }
+    return undefined;
+  }
+  /**
+   * The login item's saved links for secret questions' answers that the device may read
+   * and the site has not refused, with their question fields' names (ADR 0061).
+   */
+  function answerSources(
+    authorized: Pick<Authorized, "settings" | "catalog">,
+    found: NonNullable<ReturnType<typeof detailOwner>>,
+  ) {
+    return savedDetailLinks(authorized.settings, found.owner, "secret-answer").flatMap((link) => {
+      if (refusedDetails.has(refusalKey(found.owner, link.detail, link.source.field))) return [];
+      const source = linkedField(authorized.settings, authorized.catalog, found.connection, link);
+      return source?.name ? [{ link, source, name: source.name }] : [];
+    });
+  }
+  /**
+   * Which of `sources`, each with its question field's name, is the question the page asks
+   * beside `target` (ADR 0061): the document matches the names against its own text, which
+   * never leaves it.
+   */
+  async function askedSource<T extends { name: string }>(
+    live: LiveDocument,
+    path: string,
+    target: DetailHandler["fields"][number]["target"],
+    sources: readonly T[],
+  ): Promise<T | undefined> {
+    const named = sources.filter((entry) => entry.name.length <= 200).slice(0, 100);
+    if (!named.length) return undefined;
+    const answer = v.safeParse(
+      v.object({
+        ok: v.literal(true),
+        index: v.optional(v.pipe(v.number(), v.integer(), v.minValue(0))),
+      }),
+      await send(live, {
+        type: "login.detail.question",
+        path,
+        target,
+        names: named.map((entry) => entry.name),
+      }).catch(() => undefined),
+    );
+    return answer.success && answer.output.index !== undefined
+      ? named[answer.output.index]
+      : undefined;
+  }
+  /**
+   * Whether the page now asks, beside an answer input of `handler`, another of the login
+   * item's questions than the one whose answer this login filled (ADR 0061).
+   */
+  async function asksAnotherQuestion(
+    run: Execution,
+    handler: DetailHandler,
+    answered: DetailSourceField,
+  ): Promise<boolean> {
+    const authorized = await allowed(run);
+    if (!authorized) return false;
+    const found = detailOwner(run.metadata.account, authorized.catalog);
+    const item = found?.connection.items.find((entry) => entry.id === run.metadata.account.itemId);
+    if (!found || !item) return false;
+    const answeredId = resolveDetailSourceField(answered, item.fields);
+    const questions = detailCandidates(
+      authorized.settings,
+      authorized.catalog,
+      found.connection,
+      "secret-answer",
+      { host: new URL(run.metadata.account.origin).hostname, loginItemId: item.id },
+      Infinity,
+    ).flatMap((candidate) => {
+      const name = item.fields.find((entry) => entry.id === candidate.fieldId)?.name;
+      return name ? [{ fieldId: candidate.fieldId, name }] : [];
+    });
+    for (const field of handler.fields) {
+      if (field.detail !== "secret-answer") continue;
+      // eslint-disable-next-line no-await-in-loop
+      const asked = await askedSource(run.live, handler.path, field.target, questions);
+      if (asked) return asked.fieldId !== answeredId;
+    }
+    return false;
   }
   /**
    * Keeps the `detail` handler a login stopped at for want of a link, so the popup can
@@ -5451,13 +5563,23 @@ export function createLoginRuntime(
    * The saved link a login filled an entered `detail` handler's input from, by handler, for
    * removal once the site refused the value (ADR 0061).
    */
-  function filledDetails(run: Execution): { handler: number; detail: LoginDetail }[] {
-    return run.metadata.handlers.flatMap((entry) => {
-      const handler = run.recipe.handlers?.[entry.index];
-      if (handler?.kind !== "detail" || entry.field === undefined) return [];
-      const field = handler.fields[entry.field];
-      return field ? [{ handler: entry.index, detail: field.detail }] : [];
-    });
+  function filledDetails(
+    run: Execution,
+  ): { handler: number; detail: LoginDetail; field?: DetailSourceField }[] {
+    return run.metadata.handlers.flatMap(
+      (entry): { handler: number; detail: LoginDetail; field?: DetailSourceField }[] => {
+        const handler = run.recipe.handlers?.[entry.index];
+        if (handler?.kind !== "detail" || entry.field === undefined) return [];
+        const field = handler.fields[entry.field];
+        if (field?.detail !== "secret-answer")
+          return field ? [{ handler: entry.index, detail: field.detail }] : [];
+        // An answer is refused per question; one whose question is unknown here keeps it.
+        const answered = run.answers?.get(entry.index);
+        return answered === undefined
+          ? []
+          : [{ handler: entry.index, detail: field.detail, field: answered }];
+      },
+    );
   }
   /**
    * Writes `mutate` to the settings unless another tab's login is in progress, whose
@@ -5500,20 +5622,32 @@ export function createLoginRuntime(
       finish();
     }
   }
-  const sameLink = (link: DetailLink, owner: DetailOwner, detail: LoginDetail) =>
+  /**
+   * Whether `link` is the login item's link for `detail`; for a secret question's answer,
+   * the one for `field`, or any of them without one.
+   */
+  const sameLink = (
+    link: DetailLink,
+    owner: DetailOwner,
+    detail: LoginDetail,
+    field?: DetailSourceField,
+  ) =>
     link.origin === owner.origin &&
     link.provider === owner.provider &&
     link.userId === owner.userId &&
     link.itemId === owner.itemId &&
-    link.detail === detail;
+    link.detail === detail &&
+    (detail !== "secret-answer" ||
+      field === undefined ||
+      sourceFieldKey(link.source.field) === sourceFieldKey(field));
   /**
    * Removes the links whose values a login filled once the site refused them, as when the
    * handler's page showed again or the login was rejected, so the next login asks again
    * rather than submitting the same value (ADR 0061).
    */
-  async function forgetDetail(run: Execution): Promise<void> {
+  async function forgetDetail(run: Execution, kept: ReadonlySet<number> = new Set()) {
     if (run.detailsForgotten) return;
-    const filled = filledDetails(run);
+    const filled = filledDetails(run).filter((entry) => !kept.has(entry.handler));
     if (!filled.length) return;
     run.detailsForgotten = true;
     const snapshot = await settings
@@ -5528,9 +5662,10 @@ export function createLoginRuntime(
     // No login uses a refused link from here, even one the settings still hold.
     await sessionLoaded;
     for (const entry of filled)
-      refusedDetails.set(refusalKey(found.owner, entry.detail), {
+      refusedDetails.set(refusalKey(found.owner, entry.detail, entry.field), {
         ...found.owner,
         detail: entry.detail,
+        ...(entry.field === undefined ? {} : { field: entry.field }),
       });
     await quietly(saveSession);
     const written = await removeRefused(run);
@@ -5547,10 +5682,13 @@ export function createLoginRuntime(
     const refused = [...refusedDetails.values()];
     if (!refused.length) return "unchanged" as const;
     const written = await writeDetailLinks(run, (links) =>
-      links.filter((link) => !refused.some((entry) => sameLink(link, entry, entry.detail))),
+      links.filter(
+        (link) => !refused.some((entry) => sameLink(link, entry, entry.detail, entry.field)),
+      ),
     );
     if (written === "saved" || written === "unchanged") {
-      for (const entry of refused) refusedDetails.delete(refusalKey(entry, entry.detail));
+      for (const entry of refused)
+        refusedDetails.delete(refusalKey(entry, entry.detail, entry.field));
       await quietly(saveSession);
     }
     return written;
@@ -5579,7 +5717,10 @@ export function createLoginRuntime(
     if (!confirmed) return;
     const written = await writeDetailLinks(run, (links) => [
       ...links.filter(
-        (link) => !kept.some((entry) => sameLink(link, entry.link, entry.link.detail)),
+        (link) =>
+          !kept.some((entry) =>
+            sameLink(link, entry.link, entry.link.detail, entry.link.source.field),
+          ),
       ),
       ...kept.map((entry) => entry.link),
     ]);
@@ -5587,8 +5728,8 @@ export function createLoginRuntime(
     // then the settings may still hold the refused one. The session keeps the refusals, so
     // a restarted worker does not bring a lifted one back.
     if (written === "saved" || written === "unchanged") {
-      const lifted = kept.filter((entry) =>
-        refusedDetails.delete(refusalKey(entry.link, entry.link.detail)),
+      const lifted = kept.filter(({ link }) =>
+        refusedDetails.delete(refusalKey(link, link.detail, link.source.field)),
       );
       if (lifted.length) await quietly(saveSession);
     }
@@ -5603,23 +5744,42 @@ export function createLoginRuntime(
   /**
    * The value an entered `detail` handler's fill types (ADR 0061): read from the linked
    * field and made into what the input asks for, in this worker, so the whole phone or card
-   * number never reaches the page. A card code fills only a password or short numeric input.
+   * number never reaches the page. A card code fills only a password or short numeric input;
+   * a secret question's answer only while the page still asks its field's question.
    */
   async function detailFill(
     run: Execution,
     authorized: Authorized,
     stepIndex: number,
-  ): Promise<{ value: string; secret?: LoginSecretKind } | "unreadable" | "unavailable"> {
+  ): Promise<
+    { value: string; secret?: LoginSecretKind; question?: string } | "unreadable" | "unavailable"
+  > {
     const index = attemptPlan(run.recipe, run.metadata)?.[stepIndex]?.handler;
     const handler = index === undefined ? undefined : run.recipe.handlers?.[index];
     const at = run.metadata.handlers.find((entry) => entry.index === index)?.field;
     const field = handler?.kind === "detail" && at !== undefined ? handler.fields[at] : undefined;
     const found = detailOwner(run.metadata.account, authorized.catalog);
-    const link = field && found && savedDetailLink(authorized.settings, found.owner, field.detail);
-    const source =
-      link && found && linkedField(authorized.settings, authorized.catalog, found.connection, link);
-    if (!field || !source || refusedDetails.has(refusalKey(found.owner, field.detail)))
-      return "unavailable";
+    if (!field || !found || index === undefined || handler?.kind !== "detail") return "unavailable";
+    let source: { itemId: string; fieldId: string } | undefined;
+    let question: { field: DetailSourceField; name: string } | undefined;
+    if (field.detail === "secret-answer") {
+      const asked = await askedSource(
+        run.live,
+        handler.path,
+        field.target,
+        answerSources(authorized, found),
+      );
+      if (!current(run)) return "unavailable";
+      source = asked?.source;
+      question = asked && { field: asked.link.source.field, name: asked.name };
+    } else {
+      const link = savedDetailLink(authorized.settings, found.owner, field.detail);
+      source =
+        link && !refusedDetails.has(refusalKey(found.owner, field.detail))
+          ? linkedField(authorized.settings, authorized.catalog, found.connection, link)
+          : undefined;
+    }
+    if (!source) return "unavailable";
     let read: string | undefined;
     try {
       read = await fields({
@@ -5634,6 +5794,11 @@ export function createLoginRuntime(
     const value = detailValue(field.detail, field.format, read);
     read = "";
     if (value === undefined) return "unreadable";
+    if (question) {
+      // Refused, the answer's link is removed by its question field.
+      (run.answers ??= new Map()).set(index, question.field);
+      return { value, secret: "answer", question: question.name };
+    }
     return { value, secret: field.detail === "card-code" ? "card-code" : "detail" };
   }
   /** The tab's page, when it is an HTTP(S) page the popup has a section for. */
@@ -5660,6 +5825,22 @@ export function createLoginRuntime(
   function detailAccount(tabId: number, pageOrigin: string) {
     return shownOffer(tabId, pageOrigin)?.account ?? recordFor(tabId, pageOrigin)?.account;
   }
+  /** The candidate whose field's name is the question the page asks beside `target`. */
+  async function askedCandidate<T extends { itemId: string; fieldId: string }>(
+    live: LiveDocument,
+    path: string,
+    target: DetailHandler["fields"][number]["target"],
+    connection: VaultConnectionMetadata,
+    candidates: readonly T[],
+  ): Promise<T | undefined> {
+    const named = candidates.flatMap((candidate) => {
+      const name = connection.items
+        .find((item) => item.id === candidate.itemId)
+        ?.fields.find((entry) => entry.id === candidate.fieldId)?.name;
+      return name ? [{ candidate, name }] : [];
+    });
+    return (await askedSource(live, path, target, named))?.candidate;
+  }
   /**
    * What the popup shows about a page's personal details (ADR 0061): the handler the tab's
    * login stopped at with the fields that could give each detail, and the site's links for
@@ -5679,22 +5860,33 @@ export function createLoginRuntime(
     const policy = snapshot.snapshot.settings;
     const { catalog } = snapshot;
     const offer = shownOffer(tabId, pageOrigin);
-    const details = (offer?.fields ?? []).flatMap((field, at, all) => {
-      if (all.findIndex((other) => other.detail === field.detail) !== at) return [];
-      const candidates = detailCandidates(policy, catalog, found.connection, field.detail, {
+    const live = offer && documents.get(frameKey(offer.document));
+    const details = [];
+    for (const [at, field] of (offer?.fields ?? []).entries()) {
+      if (offer!.fields.findIndex((other) => other.detail === field.detail) !== at) continue;
+      let candidates = detailCandidates(policy, catalog, found.connection, field.detail, {
         host: page.url.hostname,
         title: page.title,
+        loginItemId: found.owner.itemId,
       });
-      return candidates.length
-        ? [
-            {
-              detail: field.detail,
-              ...(field.format ? { format: field.format } : {}),
-              candidates: candidates as [(typeof candidates)[number], ...typeof candidates],
-            },
-          ]
-        : [];
-    });
+      // A secret question's answer is offered only from the field named as the page's
+      // question, which the document finds.
+      if (field.detail === "secret-answer") {
+        const asked =
+          live &&
+          // eslint-disable-next-line no-await-in-loop
+          (await askedCandidate(live, offer!.path, field.target, found.connection, candidates));
+        candidates = asked ? [asked] : [];
+      }
+      if (candidates.length)
+        details.push({
+          detail: field.detail,
+          ...(field.format ? { format: field.format } : {}),
+          candidates: candidates as [(typeof candidates)[number], ...typeof candidates],
+          // A member ID's fields' names say little, so none is chosen for the owner.
+          ...(field.detail === "member-id" ? { preselect: false as const } : {}),
+        });
+    }
     const kept = pendingDetails.get(tabId) ?? [];
     const label = (itemId: string, field: DetailLink["source"]["field"]) => {
       const item = found.connection.items.find((entry) => entry.id === itemId);
@@ -5706,18 +5898,27 @@ export function createLoginRuntime(
           "A field no longer in the item",
       };
     };
+    // One row per detail; a secret question's answers, one link per question, share one.
     const links = loginDetailSchema.options.flatMap((detail) => {
-      const waiting = kept.find((entry) => sameLink(entry.link, found.owner, detail));
-      if (waiting)
-        return [
-          {
-            detail,
-            ...label(waiting.link.source.itemId, waiting.link.source.field),
-            pending: true as const,
-          },
-        ];
-      const saved = savedDetailLink(policy, found.owner, detail);
-      return saved ? [{ detail, ...label(saved.source.itemId, saved.source.field) }] : [];
+      const waiting = kept
+        .filter((entry) => sameLink(entry.link, found.owner, detail))
+        .map((entry) => entry.link);
+      const all = [
+        ...waiting,
+        ...savedDetailLinks(policy, found.owner, detail).filter(
+          (link) => !waiting.some((other) => sameLink(link, other, detail, other.source.field)),
+        ),
+      ];
+      const first = all[0];
+      if (!first) return [];
+      return [
+        {
+          detail,
+          ...label(first.source.itemId, first.source.field),
+          ...(all.length > 1 ? { fieldLabel: `${all.length} questions` } : {}),
+          ...(waiting.length ? { pending: true as const } : {}),
+        },
+      ];
     });
     return {
       ok: true,
@@ -5777,11 +5978,24 @@ export function createLoginRuntime(
       snapshot.catalog,
       found.connection,
       field.detail,
-      { host: new URL(offer.account.origin).hostname },
+      { host: new URL(offer.account.origin).hostname, loginItemId: offer.account.itemId },
       Infinity,
     );
+    const chosen = offered.find(
+      (entry) => entry.itemId === request.itemId && entry.fieldId === request.fieldId,
+    );
+    if (!chosen) return { ok: false, reason: "not-a-candidate" };
+    // A secret question's answer goes only under the page's own question.
+    const question =
+      field.detail === "secret-answer"
+        ? found.connection.items
+            .find((entry) => entry.id === request.itemId)
+            ?.fields.find((entry) => entry.id === request.fieldId)?.name
+        : undefined;
     if (
-      !offered.some((entry) => entry.itemId === request.itemId && entry.fieldId === request.fieldId)
+      field.detail === "secret-answer" &&
+      (!question ||
+        !(await askedCandidate(live, offer.path, field.target, found.connection, [chosen])))
     )
       return { ok: false, reason: "not-a-candidate" };
     const item = found.connection.items.find((entry) => entry.id === request.itemId);
@@ -5825,7 +6039,11 @@ export function createLoginRuntime(
       path: offer.path,
       target: field.target,
       value,
-      secret: field.detail === "card-code" ? ("card-code" as const) : ("detail" as const),
+      ...(question
+        ? { secret: "answer" as const, question }
+        : {
+            secret: field.detail === "card-code" ? ("card-code" as const) : ("detail" as const),
+          }),
     };
     const response = await send(live, command).catch(() => undefined);
     command.value = "";
@@ -5838,11 +6056,16 @@ export function createLoginRuntime(
     };
     pendingDetails.set(request.tabId, [
       // One link per handler: a second Fill, as after choosing another radio, replaces
-      // the first, so only the value last filled is saved.
+      // the first, so only the value last filled is saved; a secret question's answers,
+      // one per question.
       ...(pendingDetails.get(request.tabId) ?? []).filter(
         (entry) =>
-          !sameLink(entry.link, found.owner, field.detail) &&
-          !(entry.attemptId === offer.attemptId && entry.handler === offer.handler),
+          !sameLink(entry.link, found.owner, field.detail, link.source.field) &&
+          !(
+            entry.attemptId === offer.attemptId &&
+            entry.handler === offer.handler &&
+            field.detail !== "secret-answer"
+          ),
       ),
       {
         tabId: request.tabId,
@@ -5876,7 +6099,8 @@ export function createLoginRuntime(
       await quietly(saveSession);
       return { ok: true };
     }
-    if (!savedDetailLink(snapshot.snapshot.settings, found.owner, detail))
+    // A secret question's answers go together, as the popup shows them in one row.
+    if (!savedDetailLinks(snapshot.snapshot.settings, found.owner, detail).length)
       return { ok: false, reason: "no-link" };
     const written = await writeDetailLinks(undefined, (links) =>
       links.filter((link) => !sameLink(link, found.owner, detail)),
@@ -6114,11 +6338,25 @@ export function createLoginRuntime(
     // press, it ends the login there, so the passkey button beside it is never pressed by a
     // login that types its password (ADR 0048).
     // A `detail` handler's page shown again after its fill means the site refused the
-    // value, so its link is not used again (ADR 0061).
+    // value, so its link is not used again (ADR 0061); one that now asks another of the
+    // item's secret questions asks a new question instead, so the answer's link stays.
+    const newQuestion = new Set<number>();
+    for (const entry of shown) {
+      const answered = run.answers?.get(entry.index);
+      if (
+        entry.handler.kind === "detail" &&
+        answered !== undefined &&
+        refusal(entry) === "shown-again" &&
+        // eslint-disable-next-line no-await-in-loop
+        (await asksAnotherQuestion(run, entry.handler, answered))
+      )
+        newQuestion.add(entry.index);
+      if (!current(run)) return true;
+    }
     if (
       shown.some((entry) => entry.handler.kind === "detail" && refusal(entry) === "shown-again")
     ) {
-      await forgetDetail(run);
+      await forgetDetail(run, newQuestion);
       if (!current(run)) return true;
     }
     const fresh =
@@ -6131,7 +6369,11 @@ export function createLoginRuntime(
       // The popup proposes the vault fields that could give the details (ADR 0061), and a
       // link whose value the page asked for again is not used again.
       const handler = shown[0]!.handler;
-      if (handler.kind === "detail" && refused === "detail-unlinked" && !stop)
+      if (
+        handler.kind === "detail" &&
+        (refused === "detail-unlinked" || newQuestion.has(shown[0]!.index)) &&
+        !stop
+      )
         await offerDetails(run, handler, shown[0]!.index);
       await challenge();
       return true;
@@ -7763,7 +8005,8 @@ export function createLoginRuntime(
         );
         return;
       }
-      const values: { slot: string; value: string; secret?: LoginSecretKind }[] = [];
+      const values: { slot: string; value: string; secret?: LoginSecretKind; question?: string }[] =
+        [];
       let expected: { username: string } | undefined;
       let list: ({ username: string; others: string[] } & Record<string, unknown>) | undefined;
       let response: unknown;

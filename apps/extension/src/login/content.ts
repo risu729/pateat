@@ -69,6 +69,7 @@ import { observedPath } from "../observation/path";
 import { sendMessage } from "../messaging/protocol";
 import { acceptsSecret } from "./inputs";
 import { chooseFor } from "../page/choice-radio";
+import { askedQuestion } from "../page/question";
 import {
   commandSchema,
   destinationAnswerSchema,
@@ -105,6 +106,9 @@ function submitButton(element: Element): element is HTMLButtonElement | HTMLInpu
 function followable(element: Element | undefined): element is HTMLAnchorElement {
   return element instanceof HTMLAnchorElement && element.hasAttribute("href") && visible(element);
 }
+/** Whether `input` still asks the secret question named `question`, when the fill has one (ADR 0061). */
+const stillAsks = (input: HTMLInputElement, question: string | undefined) =>
+  question === undefined || askedQuestion(input, [question]) === 0;
 const isOnly = (found: readonly Element[], element: Element) =>
   found.length === 1 && found[0] === element;
 /** How long after a `wrong-account` result its account switch may still be clicked. */
@@ -828,6 +832,13 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     const parsed = v.safeParse(commandSchema, message);
     if (!parsed.success || parsed.output.token !== token) return false;
     const command = parsed.output;
+    if (command.type === "login.detail.question") {
+      const found = cancelled || pagePath() !== command.path ? [] : matches(command.target);
+      const input = found.length === 1 ? found[0] : undefined;
+      const index = writable(input) ? askedQuestion(input, command.names) : undefined;
+      respond(index === undefined ? { ok: true } : { ok: true, index });
+      return false;
+    }
     if (command.type === "login.detail.fill") {
       // The popup's fill of a personal detail (ADR 0061): one input, its radio first, and
       // nothing pressed. The value never leaves this handler.
@@ -842,6 +853,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           pagePath() !== command.path ||
           !writable(input) ||
           !acceptsSecret(input, command.secret) ||
+          !stillAsks(input, command.question) ||
           inputValueMismatch(input, value) !== undefined ||
           !setter
         )
@@ -851,7 +863,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           !chooseFor(input) ||
           !isOnly(matches(command.target), input) ||
           !writable(input) ||
-          !acceptsSecret(input, command.secret)
+          !acceptsSecret(input, command.secret) ||
+          !stillAsks(input, command.question)
         )
           return { ok: false };
         const stopped = await typeValue(input, value, setter, {
@@ -1661,7 +1674,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                   pagePath() !== step.path ||
                   !isOnly(matches(field.target), input) ||
                   !writable(input) ||
-                  !acceptsSecret(input, value.secret))
+                  !acceptsSecret(input, value.secret) ||
+                  !stillAsks(input, value.question))
               )
                 return fail("cancelled", "field-changed");
               filled.add(input);

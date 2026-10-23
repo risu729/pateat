@@ -13,7 +13,16 @@ import { alertMisses } from "../page/sign-in-state";
 
 const id = v.pipe(v.string(), v.minLength(1), v.maxLength(120));
 /** Which inputs a secret value may fill; see `acceptsSecret` in `inputs.ts`. */
-export const loginSecretKinds = ["password", "otp", "hidden", "card-code", "detail"] as const;
+export const loginSecretKinds = [
+  "password",
+  "otp",
+  "hidden",
+  "card-code",
+  "detail",
+  "answer",
+] as const;
+/** A custom field's name that a secret question's answer is filled under (ADR 0061). */
+const questionSchema = v.pipe(v.string(), v.minLength(1), v.maxLength(200));
 export type LoginSecretKind = (typeof loginSecretKinds)[number];
 const path = v.pipe(v.string(), v.minLength(1), v.maxLength(300));
 /** One target's state: no element, exactly one usable element, several, or one unusable. */
@@ -487,6 +496,11 @@ export const commandSchema = v.variant("type", [
           value: v.pipe(v.string(), v.maxLength(4096)),
           /** Secret values fill only matching inputs; other values fill any writable input. */
           secret: v.optional(v.picklist(loginSecretKinds)),
+          /**
+           * A secret question's answer goes in only while the input's question is still
+           * this field name (ADR 0061), checked just before it is typed.
+           */
+          question: v.optional(questionSchema),
         }),
       ),
       v.maxLength(20),
@@ -557,8 +571,21 @@ export const commandSchema = v.variant("type", [
     token: id,
     path,
     target: loginFieldTargetSchema,
-    value: v.pipe(v.string(), v.minLength(1), v.maxLength(16)),
+    value: v.pipe(v.string(), v.minLength(1), v.maxLength(128)),
     secret: v.optional(v.picklist(loginSecretKinds)),
+    question: v.optional(questionSchema),
+  }),
+  /**
+   * Which of the login item's custom field names is the secret question shown beside
+   * `target` (ADR 0061); page text never leaves the document.
+   */
+  v.strictObject({
+    version: v.literal(1),
+    type: v.literal("login.detail.question"),
+    token: id,
+    path,
+    target: loginFieldTargetSchema,
+    names: v.pipe(v.array(questionSchema), v.maxLength(100)),
   }),
   /**
    * Asks what a chooser's login would click on the list this document shows (ADR 0028),
