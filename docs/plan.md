@@ -2911,18 +2911,18 @@ those with one password field that is not `new-password`, or with a `username` o
 `one-time-code` field, as ADR 0016 detects a login; failing that, any with a password
 field; otherwise every form that holds a field. Any other form with such a control, such
 as a search form with a category select or a sign-up form with a birth-date select, is
-left out entirely, so every form the observation describes is complete. Fields outside
-every form count as one more form, whose controls are those outside every form; since
-2026-10-23 a control the executor cannot act on that is not a field counts there only
-inside the fields' area, their nearest common container and up to two levels above it
-(never the body or the root element), so a language picker in a page footer without
-footer markup, as on dアカウント's login page (`cfg.smt.docomo.ne.jp`, read in cloud
-Chromium on main `381116f`), no longer makes the page incomplete (agent fix, local
-tests only; not checked in the owner's Chrome). On the 233
+left out entirely, so every form the observation describes is complete. On the 233
 observed Formasaurus login pages of the real-page corpus (2026-10-11), this cut the
 incomplete ones from 108 to 52: 55 became complete, each still showing the form
 Formasaurus labels as the login form, and one whose login form has no locatable control
-now gives no observation. A field in any open shadow root marks it incomplete too, as it
+now gives no observation. Fields outside every form count as one more form, whose
+controls are those outside every form; since 2026-10-23 a control the executor cannot
+act on that is not a field counts there only inside the fields' area, their nearest
+common container and up to two levels above it (never the body or the root element), so
+a language picker in a page footer without footer markup, as on dアカウント's login page
+(`cfg.smt.docomo.ne.jp`, read in cloud Chromium on main `381116f`), no longer makes the
+page incomplete (agent fix, local tests only; not checked in the owner's Chrome). A
+field in any open shadow root marks it incomplete too, as it
 may be the real login. Links are context only: the plan check accepts only a button as
 the page action. Known limits: a read-only username shown again on a password step makes
 that step incomplete, and honeypot inputs moved to the right or clipped by
