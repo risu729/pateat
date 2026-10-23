@@ -119,7 +119,7 @@ export function PauseControl({
 }) {
   if (pause.kind === "running")
     return (
-      <div className="popup-pause" role="group" aria-labelledby="popup-pause-label">
+      <fieldset className="popup-pause popup-fieldset" aria-labelledby="popup-pause-label">
         <p id="popup-pause-label" className="popup-muted popup-status">
           <Pause size={16} strokeWidth={2} aria-hidden="true" />
           Pause automatic login
@@ -140,7 +140,7 @@ export function PauseControl({
             </Button>
           ))}
         </div>
-      </div>
+      </fieldset>
     );
   if (pause.kind === "private")
     return (

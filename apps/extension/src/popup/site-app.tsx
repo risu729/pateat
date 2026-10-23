@@ -456,10 +456,10 @@ export function SiteApp({
         length ? { paused: true, length } : { paused: false },
       );
       if (response.ok) {
-        const chosen = PAUSE_CHOICES.find((entry) => entry.length === length);
+        const lengthChosen = PAUSE_CHOICES.find((entry) => entry.length === length);
         say(
-          chosen
-            ? `Automatic login on this site is paused ${chosen.done}`
+          lengthChosen
+            ? `Automatic login on this site is paused ${lengthChosen.done}`
             : "Automatic login on this site resumed",
           "success",
         );

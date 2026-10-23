@@ -1713,6 +1713,7 @@ describe("a paused site's own modal and Immediate UI requests (ADR 0062)", () =>
         chooser: { choose },
         defaultUnset,
       });
+      // oxlint-disable-next-line no-await-in-loop -- each case runs alone
       expect(await runtime.handle(get(), sender())).toMatchObject({ kind: "assertion" });
     }
     expect(choose).not.toHaveBeenCalled();

@@ -1452,10 +1452,7 @@ test("a site Pateat logs in to by itself can be paused for 10 minutes or an hour
   });
   const clock = () =>
     new Date(until).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-  for (const [label, length, done] of [
-    ["10 minutes", "10m", "for 10 minutes"],
-    ["1 hour", "1h", "for an hour"],
-  ] as const) {
+  const pauseFor = async (label: string, length: "10m" | "1h", done: string) => {
     await userEvent.click(row.getByRole("button", { name: label }));
     expect(choices.pause).toHaveBeenLastCalledWith(7, { paused: true, length });
     await expect.element(page.getByText(`Paused until ${clock()}`, { exact: true })).toBeVisible();
@@ -1466,7 +1463,9 @@ test("a site Pateat logs in to by itself can be paused for 10 minutes or an hour
     expect(choices.pause).toHaveBeenLastCalledWith(7, { paused: false });
     await expect.element(row).toBeVisible();
     await expect.element(page.getByText("Automatic login on this site resumed")).toBeVisible();
-  }
+  };
+  await pauseFor("10 minutes", "10m", "for 10 minutes");
+  await pauseFor("1 hour", "1h", "for an hour");
 });
 
 test("no pause is offered where nothing matches and the site has no recipe", async () => {

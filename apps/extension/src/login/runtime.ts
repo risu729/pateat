@@ -8774,9 +8774,9 @@ export function createLoginRuntime(
     documents.set(key, live);
     // Automatic login of the page's site is paused (ADR 0062): its own site's or, for a
     // frame, also its tab's. The tab's page shows the pause on the badge.
-    const pause = await pauseOf(live);
-    const paused = pause !== undefined;
-    if (document.frameId === 0) badge.paused?.(document.tabId, pause);
+    const pauseState = await pauseOf(live);
+    const paused = pauseState !== undefined;
+    if (document.frameId === 0) badge.paused?.(document.tabId, pauseState);
     if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
     // The first other top document of the tab after an effect step, when it comes soon
     // enough to be the site's answer to it (ADR 0029). One announced later, as after the
