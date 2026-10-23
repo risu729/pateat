@@ -3817,7 +3817,7 @@ describe("page judgement (ADR 0027)", () => {
             observation("/password", [...besidePage.candidates, choose]),
           )
         ).body,
-      ).toEqual({ version: 1, status: "challenge" });
+      ).toEqual({ version: 1, status: "unclear" });
       expect(info).toHaveBeenCalledWith("Judged page handlers", {
         recipeId: change.recipeId,
         handlers: [{ kind: "password", kept: false, reason: "beside" }],
@@ -3832,7 +3832,7 @@ describe("page judgement (ADR 0027)", () => {
       expect((await besideRows(device)).map((row) => [row["path"], row["verdict"]]).sort()).toEqual(
         [
           ["/login", "unclear"],
-          ["/password", "challenge"],
+          ["/password", "unclear"],
         ],
       );
       // Each path is judged once, as for any page.
@@ -3840,9 +3840,77 @@ describe("page judgement (ADR 0027)", () => {
       expect((await beside(device, change.recipeId, 2)).body).toEqual({
         version: 1,
         status: "unavailable",
-        reason: "judged-challenge",
+        reason: "already-judged",
       });
       expect(sent).toHaveLength(calls);
+    });
+
+    it("keeps a challenge that adds no detail handler as undecided", async () => {
+      const info = vi.spyOn(console, "info").mockImplementation(() => {});
+      const key = inForm("box", element("passkey", "button", "Sign in with a passkey"));
+      const code = {
+        ...inForm("box", element("app-code", "text", "Authentication code")),
+        autocomplete: "one-time-code" as const,
+        inputMode: "numeric" as const,
+        maxLength: 6,
+      };
+      const page = observation("/password", [...besidePage.candidates, key, code]);
+      const besideVersion = await completionBesidePromptVersion();
+      for (const [reply, handlers] of [
+        // Only a passkey button and a code.
+        [
+          {
+            decision: "challenge",
+            passkeyButton: "passkey",
+            code: { field: "app-code", submit: "submit", source: "authenticator-app" },
+          },
+          [
+            { kind: "passkey", kept: false, reason: "beside" },
+            { kind: "totp", kept: false, reason: "beside" },
+          ],
+        ],
+        // Every detail dropped: no input of the page.
+        [
+          {
+            decision: "challenge",
+            details: [{ field: "missing", value: "phone-last-4" }],
+            detailSubmit: "submit",
+          },
+          [{ kind: "detail", kept: false, reason: "unknown-field" }],
+        ],
+        // No handler named at all.
+        [{ decision: "challenge" }, undefined],
+      ] as const) {
+        // oxlint-disable-next-line no-await-in-loop -- Each case has its own recipe.
+        const device = await owner();
+        // oxlint-disable-next-line no-await-in-loop -- Each case has its own recipe.
+        const change = await twoPageRecipe(device);
+        info.mockClear();
+        replies.push(judgeReply(reply));
+        // oxlint-disable-next-line no-await-in-loop -- Each page is judged on its own.
+        expect((await beside(device, change.recipeId, 2, page)).body).toEqual({
+          version: 1,
+          status: "unclear",
+        });
+        if (handlers)
+          expect(info).toHaveBeenCalledWith("Judged page handlers", {
+            recipeId: change.recipeId,
+            handlers,
+          });
+        else expect(info).not.toHaveBeenCalled();
+        // oxlint-disable-next-line no-await-in-loop -- Each recipe is read on its own.
+        expect(await head(device, change.recipeId)).toBe(2);
+        // oxlint-disable-next-line no-await-in-loop -- Each recipe is read on its own.
+        expect(await besideRows(device)).toEqual([
+          {
+            revision: 2,
+            path: "/password",
+            prompt_version: besideVersion,
+            verdict: "unclear",
+          },
+        ]);
+      }
+      info.mockRestore();
     });
 
     it("fails closed on a signed-in answer while the password field shows", async () => {

@@ -1048,12 +1048,13 @@ export async function judgeCompletion(
   // A stop's page keeps a `passkey` handler and nothing else: no rejection, no marker and
   // no `totp` or `password` handler. Its other answers are kept as undecided, under the
   // stop's version. So does a page beside the sign-in form, with a `detail` handler (ADR
-  // 0061).
+  // 0061), and its challenge that keeps none.
   if ((stop || beside) && judgement.decision !== "challenge") {
     await keepVerdict("unclear");
     return { version: 1, status: "unclear" };
   }
-  await keepVerdict(judgement.decision);
+  // A page beside the sign-in form keeps its verdict once its handlers are known.
+  if (!beside) await keepVerdict(judgement.decision);
   if (judgement.decision === "rejected") return { version: 1, status: "rejected" };
   if (judgement.decision === "challenge") {
     // A page may offer both a security key and a TOTP code, or a button that goes on to
@@ -1100,6 +1101,13 @@ export async function judgeCompletion(
         handlers.push({ kind: "detail", kept: false, reason });
     if (handlers.length) console.info("Judged page handlers", { recipeId, handlers });
     const withHandlers = changed && stored(head.recipe, branch, changed);
+    // A page beside the sign-in form is a challenge only with the `detail` handler it adds,
+    // its only handler there; without one it is still the sign-in page, kept as undecided
+    // (ADR 0061).
+    if (beside) {
+      await keepVerdict(withHandlers ? "challenge" : "unclear");
+      if (!withHandlers) return { version: 1, status: "unclear" };
+    }
     if (!withHandlers) return { version: 1, status: "challenge" };
     const written = await writeRecipe(
       env.DB,
