@@ -7,6 +7,7 @@ import {
   detailSourceFieldSchema,
   DUMMY_VAULT_CATALOG,
   getItemEligibility,
+  isPasskeyBrowserSite,
   isSiteExcluded,
   isSupportedSite,
   itemAsksForMasterPassword,
@@ -169,6 +170,59 @@ describe("host policy and URL validation", () => {
     settings.excludedSites = [{ hostname: "xn--bcher-kva.example", includeSubdomains: true }];
     expect(isSiteExcluded(settings, "https://bücher.example")).toBe(true);
     expect(isSiteExcluded(settings, "https://auth.bücher.example")).toBe(true);
+  });
+});
+
+describe("passkey browser sites", () => {
+  it("matches only the exact hostname, whatever the scheme, port or path", () => {
+    const settings = createDefaultSettings();
+    expect(isPasskeyBrowserSite(settings, "https://bank.example")).toBe(false);
+    settings.passkeyBrowserSites = [{ hostname: "bank.example" }];
+    for (const url of [
+      "https://bank.example",
+      "https://BANK.example:8443/login",
+      "https://bank.example./",
+    ])
+      expect(isPasskeyBrowserSite(settings, url), url).toBe(true);
+    for (const url of [
+      "https://auth.bank.example",
+      "https://notbank.example",
+      "https://bank.example.evil.test",
+      "https://other.example/?site=bank.example",
+    ])
+      expect(isPasskeyBrowserSite(settings, url), url).toBe(false);
+    // An excluded site is a separate list; it does not hand passkeys on by itself.
+    const excluded = createDefaultSettings();
+    excluded.excludedSites = [{ hostname: "bank.example", includeSubdomains: true }];
+    expect(isPasskeyBrowserSite(excluded, "https://bank.example")).toBe(false);
+  });
+
+  it("hands on an invalid destination", () => {
+    for (const url of ["bank.example", "javascript:alert(1)", "https://user@bank.example"])
+      expect(isPasskeyBrowserSite(createDefaultSettings(), url), url).toBe(true);
+  });
+
+  it("accepts canonical hostnames once each and nothing else", () => {
+    const settings = createDefaultSettings();
+    const valid = {
+      ...settings,
+      passkeyBrowserSites: [{ hostname: "bank.example" }, { hostname: "xn--bcher-kva.example" }],
+    };
+    expect(parseLocalSettings(valid)).toEqual(valid);
+    for (const passkeyBrowserSites of [
+      [{ hostname: "BANK.EXAMPLE" }],
+      [{ hostname: "bank.example." }],
+      [{ hostname: "bank.example:443" }],
+      [{ hostname: "https://bank.example" }],
+      [{ hostname: "*.bank.example" }],
+      [{ hostname: "bank.example", includeSubdomains: false }],
+      [{ hostname: "bank.example" }, { hostname: "bank.example" }],
+      Array.from({ length: 1001 }, (_, index) => ({ hostname: `s${index}.example` })),
+    ])
+      expect(() => parseLocalSettings({ ...settings, passkeyBrowserSites })).toThrow();
+    // Settings written before the list existed read as listing no site.
+    const { passkeyBrowserSites: _list, ...without } = settings;
+    expect(parseLocalSettings(without)).toEqual(settings);
   });
 });
 
@@ -565,6 +619,18 @@ describe("serialized persistent settings store", () => {
       ok: true,
       snapshot: { revision: 1, settings: withDefault() },
     });
+  });
+
+  it("loads a snapshot written before passkeyBrowserSites with an empty list", async () => {
+    const { passkeyBrowserSites: _list, ...old } = withDefault();
+    const memory = memoryStorage({ version: 1, revision: 4, settings: old });
+    const store = createSettingsStore(memory.storage);
+    expect(await store.handle(get)).toMatchObject({
+      ok: true,
+      snapshot: { revision: 4, settings: { ...old, passkeyBrowserSites: [] } },
+    });
+    expect(memory.writes).toHaveLength(0);
+    expect(await store.handle(save(4))).toMatchObject({ ok: true, snapshot: { revision: 5 } });
   });
 
   it("fails closed for corrupt/version-mismatched storage and never overwrites it", async () => {

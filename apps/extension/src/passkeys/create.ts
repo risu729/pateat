@@ -59,7 +59,8 @@ type CreateDetail = {
  * when, within `CREATE_AFTER_SIGN_IN_MS` of its own sign-in to that RP ID in the same tab, the
  * request's `excludeCredentials` lists a passkey Pateat could sign with there: the site already
  * holds it, and the page gets the NotAllowedError a dismissed browser prompt gives. Every other
- * request, and any failure, hands it on to the browser and later providers. Nothing is written.
+ * request, any request of a hostname whose passkey requests go to the browser, and any failure,
+ * hands it on to the browser and later providers. Nothing is written.
  */
 export function createPasskeyCreateHandler<TCandidate extends PasskeyCandidate>(
   source: PasskeySource<TCandidate>,
@@ -69,6 +70,11 @@ export function createPasskeyCreateHandler<TCandidate extends PasskeyCandidate>(
     timeoutMs?: () => number;
     /** Holds vault replacement off while the vault is read (ADR 0025). */
     hold?: () => Promise<() => void>;
+    /**
+     * Whether the origin's hostname is one whose passkey requests go to the browser; its
+     * registrations are handed on unchecked.
+     */
+    browserSite?: (origin: string) => Promise<boolean> | boolean;
     /** Receives a value-free report of each checked request. */
     report?: (report: PasskeyCreateReport) => void;
     now?: () => number;
@@ -130,6 +136,7 @@ export function createPasskeyCreateHandler<TCandidate extends PasskeyCandidate>(
     detail.excludeCredentials = excludeCredentials.length;
     if (mediation !== undefined)
       detail.mediation = mediation === "conditional" ? "conditional" : "other";
+    if (await options.browserSite?.(origin)) return delegate("browser-site");
     const resolved = resolveRpId(origin, parsed.output.rpId);
     if (!resolved.ok) return delegate(resolved.reason);
     const { rpId } = resolved;

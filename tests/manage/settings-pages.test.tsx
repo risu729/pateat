@@ -19,6 +19,7 @@ function settingsOf(parts: Partial<LocalSettings> = {}): LocalSettings {
   return {
     connections: [],
     excludedSites: [],
+    passkeyBrowserSites: [],
     repromptSites: [],
     siteDefaults: [],
     bindings: [],

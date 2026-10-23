@@ -64,7 +64,10 @@ export interface ServiceClient {
     label: string,
     profile?: { profileId: string } | { newProfile: string },
   ): Promise<ServiceResponse>;
-  disconnect(): Promise<ServiceResponse>;
+  /** Disconnects; `keepRecipes` keeps the synced recipes as this device's own (ADR 0040). */
+  disconnect(keepRecipes: boolean): Promise<ServiceResponse>;
+  /** Deletes the recipes this device holds as its own (ADR 0040). */
+  deleteRecipes(): Promise<ServiceResponse>;
   /** Forgets an unreadable local connection without contacting the service. */
   forget(): Promise<ServiceResponse>;
   /**
@@ -142,7 +145,8 @@ export function createServiceClient(deps: {
     get: () => call({ type: "service.get" }),
     requestSiteAccess: (origin) => deps.requestSiteAccess(origin).catch(() => false),
     pair: (origin, label, profile) => call({ type: "service.pair", origin, label, ...profile }),
-    disconnect: () => call({ type: "service.disconnect" }),
+    disconnect: (keepRecipes) => call({ type: "service.disconnect", keepRecipes }),
+    deleteRecipes: () => call({ type: "service.delete-recipes" }),
     forget: () => call({ type: "service.forget" }),
     openSignIn: async (origin) => {
       // Built here from a validated origin, never from a URL another context supplied.

@@ -1,4 +1,5 @@
 import {
+  detailFieldInputs,
   detailInputRefusal,
   extendsRecipe,
   fillRoles,
@@ -14,8 +15,7 @@ import {
   routeFillTargets,
   sameLoginTarget as sameTarget,
   splitCodeInputs,
-  type DetailFormat,
-  type LoginDetail,
+  type DetailField,
   type LoginFieldTarget,
   type LoginEntryRecipe,
   type LoginObservation,
@@ -342,11 +342,7 @@ export function addHandler(
   handler:
     | { kind: "passkey" | "password"; target: LoginTarget }
     | { kind: "totp"; field: LoginFieldTarget; target?: LoginTarget | undefined }
-    | {
-        kind: "detail";
-        fields: { detail: LoginDetail; format?: DetailFormat; target: LoginFieldTarget }[];
-        target: LoginTarget;
-      },
+    | { kind: "detail"; fields: DetailField[]; target: LoginTarget },
 ): { ok: true; recipe: LoginRecipe } | { ok: false; reason: HandlerRejection } {
   if (base.origin !== page.origin) return { ok: false, reason: "origin-mismatch" };
   const { target } = handler;
@@ -370,12 +366,15 @@ export function addHandler(
     if (!button) return { ok: false, reason: "not-on-page" };
     // The judge's checks, again (ADR 0061). The route's sign-in form may still show beside
     // the inputs, so no input or button is a route step's, a route fill field anywhere, or
-    // another element the recipe checks.
-    const inputs = handler.fields.map((entry) => ({
+    // another element the recipe checks. A split value's part may be a select, and a digit
+    // group's input must still allow its length (ADR 0061).
+    const entries = handler.fields.flatMap(detailFieldInputs);
+    const inputs = entries.map((entry) => ({
       entry,
       field: page.candidates.find(
         (candidate) =>
-          (fillRoles as readonly string[]).includes(candidate.role) &&
+          ((fillRoles as readonly string[]).includes(candidate.role) ||
+            candidate.role === "select") &&
           sameTarget(candidate.target, entry.target),
       ),
     }));
@@ -385,7 +384,7 @@ export function addHandler(
     const fills = routeFillTargets(base, "password");
     if (
       [...fills, ...routeTargets(base, page.path), ...others].some((element) =>
-        [...handler.fields.map((entry) => entry.target), handler.target].some((own) =>
+        [...entries.map((entry) => entry.target), handler.target].some((own) =>
           sameTarget(element, own),
         ),
       )

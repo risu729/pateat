@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import { cleanup, render } from "vitest-browser-react";
 // oxlint-disable-next-line import/no-unassigned-import -- Apply the options page stylesheet.
 import "../../apps/extension/entrypoints/options/style.css";
@@ -74,10 +74,13 @@ test("offers to replace an existing default, unticked", async () => {
   });
 });
 
-test("hands the request to the browser", async () => {
+test("hands the request to the browser just once", async () => {
   const value = client(view());
   await render(<ChooserApp client={value} />);
   await page.getByRole("button", { name: "Use the browser or another extension" }).click();
+  // Opening the menu answers nothing yet.
+  expect(value.send).toHaveBeenCalledOnce();
+  await page.getByRole("menuitem", { name: "Just once" }).click();
   expect(value.send).toHaveBeenLastCalledWith({
     version: 1,
     type: "passkey-chooser.answer",
@@ -116,6 +119,40 @@ test("on a paused site, says so and leaves the box unticked (ADR 0062)", async (
     request: REQUEST,
     answer: { kind: "chosen", index: 0, makeDefault: false },
   });
+});
+
+test("hands this and every later request of the site to the browser", async () => {
+  const value = client(view({ origin: "https://login.example.test:8443" }));
+  await render(<ChooserApp client={value} />);
+  await page.getByRole("button", { name: "Use the browser or another extension" }).click();
+  const always = page.getByRole("menuitem", { name: /^Always for this site/u });
+  // It names the hostname it covers, without the port, and how to undo it.
+  await expect
+    .element(always)
+    .toHaveTextContent(
+      "Always for this sitePateat leaves passkeys on login.example.test to the browser. Undo it in Pateat's settings.",
+    );
+  await always.click();
+  expect(value.send).toHaveBeenLastCalledWith({
+    version: 1,
+    type: "passkey-chooser.answer",
+    request: REQUEST,
+    answer: { kind: "browser-site" },
+  });
+});
+
+test("closes only the menu on Escape", async () => {
+  const value = client(view());
+  await render(<ChooserApp client={value} />);
+  await page.getByRole("button", { name: "Use the browser or another extension" }).click();
+  await expect.element(page.getByRole("menuitem", { name: "Just once" })).toBeVisible();
+  await userEvent.keyboard("{Escape}");
+  await expect.element(page.getByRole("menuitem", { name: "Just once" })).not.toBeInTheDocument();
+  expect(value.send).toHaveBeenCalledOnce();
+  // Only the menu closes; a second Escape closes the window, which hands the request on.
+  expect(value.close).not.toHaveBeenCalled();
+  await userEvent.keyboard("{Escape}");
+  expect(value.close).toHaveBeenCalledOnce();
 });
 
 /** A background that accepts only `right` as the master password. */

@@ -14,10 +14,11 @@ Date: 2026-10-23
 owner parts and described profiles as later work. This change builds them for the parts
 that exist today: `excludedSites` and `siteDefaults` are per profile, and `bindings`
 stay the owner's. `repromptSites` (the sites that ask for the master password, ADR 0021)
-joined the profile parts on 2026-10-23, and so did `loginInPrivateWindows` (automatic
-login in private windows, [ADR 0062](0062-log-in-again-after-a-logout.md)). ADR 0023's
-lists and ADR 0035's page permissions are not built yet; when they land, they add their
-fields to the profile document
+joined the profile parts on 2026-10-23, and so did `passkeyBrowserSites` (the sites
+whose passkey requests go to the browser, ADR 0007) and `loginInPrivateWindows`
+(automatic login in private windows, [ADR 0062](0062-log-in-again-after-a-logout.md)).
+ADR 0023's lists and ADR 0035's page permissions are not built yet; when they land, they
+add their fields to the profile document
 (`profileDocument` in `services/api/src/settings-store.ts`) and to the extension's
 merge.
 

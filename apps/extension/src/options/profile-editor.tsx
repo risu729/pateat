@@ -68,6 +68,7 @@ export function ProfileEditor({
       ...(remote.settings ?? {
         excludedSites: [],
         repromptSites: [],
+        passkeyBrowserSites: [],
         siteDefaults: [],
         bindings: [],
       }),

@@ -673,6 +673,17 @@ while a login picked in the toolbar popup and a passkey request the person start
 answered through the chooser, still run. Ordinary browser authentication is preserved.
 Apply them before collecting observations; policy changes cancel stale work.
 
+Separately, the synced `passkeyBrowserSites` lists exact hostnames whose passkey
+requests Pateat leaves to the browser
+([ADR 0007](adr/0007-existing-passkey-assertions.md), amended 2026-10-23). The passkey
+chooser's "Always for this site" adds the page's hostname, and the extension's settings
+page only removes one. On a listed host every bridged `get` (modal, conditional or
+Immediate UI) and `create` is handed on: nothing is signed, chosen or left to a login
+before the list is known, which the worker keeps in memory until the settings change,
+and a hostname just chosen holds at once, before its write lands. A login there treats
+its item as holding no passkey, so it takes a password route or none; observation,
+filling and recipe generation for passwords are unaffected.
+
 The account choice is a saved site default applied on the next login. A default names
 the provider account and item, not this device's connection. Without one, a single
 eligible provider URI match is used and saved only after confirmed `authenticated`; a
@@ -876,8 +887,9 @@ Do not inject `chrome-extension://` iframes, automatic overlays or unlock window
 the flow. There is no page UI; use an icon badge, the toolbar popup and manually opened
 settings. The one extension window is the passkey chooser of
 [ADR 0021](adr/0021-account-choice-outside-settings.md), opened for a pending request
-from a focused page, with several matches or after Pateat signed in from the same tab,
-and never in incognito. Do not attach our own
+from a focused page, with several matches or for any match while automatic login of
+the site is paused ([ADR 0062](adr/0062-log-in-again-after-a-logout.md)), and never in
+incognito. Do not attach our own
 debugger in normal operation. Another installed extension can still inject a conflicting
 frame; coexistence requires an explicit compatibility test and documented settings.
 
@@ -1428,7 +1440,9 @@ whole card number or a PIN, read only from the login item or a card item, as its
 digits; every linked value is filled, a whole card number and a PIN included, by the
 owner's decision of 2026-10-23 11:41 UTC). A `detail` handler with no usable link ends
 the attempt `challenge` with `detail-unlinked`, and the popup then proposes the vault
-fields that could give each detail; its **Fill** fills the input, unless the page shows
+fields that could give each detail, a card first when its last four digits or brand
+match those the page shows, compared in the service worker (owner, 2026-10-23 12:26
+UTC); its **Fill** fills the input, unless the page shows
 another account than the login item's, without pressing the button and keeps the link
 for the tab, saved only once the watched login ends `authenticated`. A link whose value
 the site refused, as when the login is rejected or the handler's page shows again, is
@@ -2568,9 +2582,8 @@ ASCII except whitespace and control characters, as in `ctl00$Main$txtUserId` or
 token, a fillable input's visible name
 ([ADR 0037](adr/0037-fields-by-visible-name.md), below) or its `name` within the
 sign-in form ([ADR 0072](adr/0072-field-name-in-the-sign-in-form.md), below), a
-`password` handler's
-button's accessible name (ADR 0048's amendment, below), or, for a click or a state
-check only, a button's text:
+`password` handler's or a route click's button's accessible name (ADR 0048's
+amendments, below), or, for a click or a state check only, a button's text:
 `{ "by": "text", "value": "ログイン" }` names the `<button>` whose rendered text (or,
 without any, its images' `alt`), the `<input type="submit|button">` whose value, or the
 `<input type="image">` whose `alt` equals the value after whitespace is collapsed (owner
@@ -2771,7 +2784,7 @@ ambiguous and an absent element's hidden copy still keeps it from proving the si
 A copy that shows later makes the step ambiguous, as for visible names; a copy hidden
 only from assistive technology, such as a page form behind a modal, still counts.
 
-A control is named by its accessible name only as a `password` handler's button (owner,
+A control is named by its accessible name as a `password` handler's button (owner,
 2026-10-19 01:26 UTC, option A1,
 [ADR 0048's amendment](adr/0048-password-method-button.md#amendment-controls-told-apart-by-their-accessible-names)):
 `{ "by": "accessible-name", "value": "Select Password." }` names the one shown control
@@ -2781,11 +2794,12 @@ outside an `<a href>`) or a fragment link (below); other links, fields and other
 never count. Role and script buttons count anywhere on the page, not only inside a
 login form. The name is the rendered text of the elements its `aria-labelledby` names,
 else its `aria-label`, collapsed as button text is; one over 120 characters gives none.
+A labelling element's own `aria-hidden="true"` does not hide its text here (below).
 It is counted apart from a field's visible name. The contract refuses it everywhere
-else: route steps,
+else, apart from a route step's click (below): other route steps,
 `passkey` and `totp` handlers, signed-in markers and their `absent` elements, the
 rejection, an account switch, a passkey route, a sign-in entry and a list of accounts.
-The extractor offers it only in a description sent to the judge, only for a shown
+For the handler, the extractor offers it only in a description sent to the judge, for a
 control that no `id`, `name`, `data-testid` or text locator names alone, and only when
 no other control on the page has that name, it holds no number, redaction leaves it
 unchanged, and it passes the handler's word check (below), so two controls that both
@@ -2801,6 +2815,18 @@ the click count such a link as a button; the extractor tries the name first for 
 describes it as a button. Everywhere else such a link stays a link (option A2, which
 would have counted it as a button on every page, was not chosen). UniSuper's choice of
 how to verify shows its two controls this way (2026-10-18).
+
+Since the owner's decision of 2026-10-23 11:52 UTC
+([ADR 0048's second amendment](adr/0048-password-method-button.md#amendment-a-login-forms-button-named-only-by-its-accessible-name)),
+a route step's click may also name its button so: the extractor gives a login page's
+login-form native button (a `<button>`, or an `<input>` of type `submit`, `button` or
+`image`) that no `id`, `name`, `data-testid` or text locator names alone its
+accessible name, under the same uniqueness, number and redaction rules but without the
+password word check, before an `id` another load may change, and the click by it
+presses only a native button, never a script button or a fragment link. Amazon.co.jp's
+sign-in submit, an `<input type="submit">` without a `value` labelled by an
+`aria-hidden` 「次に進む」 beside it, is named this way: the text of an element that
+`aria-labelledby` names is read even when its own `aria-hidden="true"` hides it.
 
 A text locator is stored in the recipe, unlike observation labels, which only reach
 inference. Redaction keeps email addresses and long numbers out of it, but a button such
@@ -3252,7 +3278,9 @@ identifiers. A device may hold its own Anthropic API key
 ([ADR 0040](adr/0040-running-without-the-service.md)): it then makes the model calls
 of the generation and judge routes itself, sending the request bodies the service
 hands it to Anthropic only, and the service checks and stores the result as before.
-The key never reaches the service.
+The key never reaches the service. A device that unpairs may keep the synced recipes as
+its own (`pateat.device-recipes.v1`); logins use them while no service is paired, and
+the next full sync after pairing uploads them once before it pulls.
 
 Version recipes immutably with a current pointer and revocation/tombstones. The owner
 revokes a recipe on `/manage`, and the service revokes one unused for 90 days

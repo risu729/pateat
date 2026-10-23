@@ -105,6 +105,35 @@ describe("passkey create check (ADR 0007)", () => {
     });
   });
 
+  it("hands every registration of a site whose passkey requests go to the browser on unchecked", async () => {
+    const signIns = signedIn({});
+    const browserSite = vi.fn(async () => true);
+    const check = handler(source(), signIns, { browserSite });
+    for (const mediation of [undefined, "conditional"])
+      expect(
+        // oxlint-disable-next-line no-await-in-loop -- one request after the other
+        await check.handle(create(request(mediation ? { mediation } : {})), sender()),
+      ).toEqual(delegate("browser-site"));
+    expect(browserSite).toHaveBeenCalledWith(origin);
+    expect(signIns.list).not.toHaveBeenCalled();
+    expect(check.backing.candidates).not.toHaveBeenCalled();
+    expect(check.hold).not.toHaveBeenCalled();
+    expect(check.report.mock.calls.map(([report]) => report)).toEqual([
+      { tabId: 7, origin, outcome: "delegate", reason: "browser-site", excludeCredentials: 1 },
+      {
+        tabId: 7,
+        origin,
+        outcome: "delegate",
+        reason: "browser-site",
+        excludeCredentials: 1,
+        mediation: "conditional",
+      },
+    ]);
+    // Once the site is removed, the same registration is checked again.
+    browserSite.mockResolvedValue(false);
+    expect(await check.handle(create(request()), sender())).toEqual({ kind: "decline" });
+  });
+
   it("uses the origin's host as the RP ID when the request names none", async () => {
     const check = handler(source([{ ...candidate, rpId: "login.example.com" }]));
     expect(await check.handle(create(request({ rpId: undefined })), sender())).toEqual({

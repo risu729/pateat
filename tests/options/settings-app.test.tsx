@@ -685,6 +685,42 @@ test("a default kept under a rule is listed once and can be removed", async () =
   await expect.element(control("site-origin")).toHaveFocus();
 });
 
+test("a site whose passkey requests go to the browser can only be removed", async () => {
+  const client = mockClient();
+  const response = saved(1);
+  response.snapshot.settings.passkeyBrowserSites.push(
+    { hostname: "shop.example" },
+    { hostname: "bank.example" },
+  );
+  client.getSettings.mockResolvedValue(response);
+  await mount(client);
+  const list = control("passkey-browser-sites");
+  // Listed by hostname, each with only a Remove button; nothing on the page adds one.
+  await expect.element(list.getByRole("listitem").nth(0)).toHaveTextContent("bank.exampleRemove");
+  await expect.element(list.getByRole("listitem").nth(1)).toHaveTextContent("shop.exampleRemove");
+  expect(list.getByRole("button").elements()).toHaveLength(2);
+  const region = page.getByRole("region", {
+    name: "Sites whose passkey requests go to the browser",
+  });
+  expect(region.getByRole("textbox").elements()).toHaveLength(0);
+  await page.getByRole("button", { name: "Remove bank.example from this list" }).click();
+  await expect.element(control("settings-status")).toMatchTextContent("saved (revision 2).");
+  expect(client.saveSettings).toHaveBeenCalledTimes(1);
+  expect(client.saveSettings.mock.calls[0]?.[0].settings).toMatchObject({
+    passkeyBrowserSites: [{ hostname: "shop.example" }],
+  });
+  await expect.element(list).not.toHaveTextContent("bank.example");
+  await expect
+    .element(page.getByRole("heading", { name: "Sites whose passkey requests go to the browser" }))
+    .toHaveFocus();
+  await page.getByRole("button", { name: "Remove shop.example from this list" }).click();
+  await expect.element(control("settings-status")).toMatchTextContent("saved (revision 3).");
+  expect(client.saveSettings.mock.calls[1]?.[0].settings).toMatchObject({
+    passkeyBrowserSites: [],
+  });
+  await expect.element(region.getByText("No sites listed")).toBeVisible();
+});
+
 test("an origin with a trailing dot is excluded by its hostname without the dot", async () => {
   const client = mockClient();
   const response = saved(1);
@@ -1084,6 +1120,7 @@ function disconnectedService(): ServiceClient {
     forget: vi.fn<ServiceClient["forget"]>().mockResolvedValue(disconnected),
     pair: vi.fn<ServiceClient["pair"]>(),
     disconnect: vi.fn<ServiceClient["disconnect"]>().mockResolvedValue(disconnected),
+    deleteRecipes: vi.fn<ServiceClient["deleteRecipes"]>().mockResolvedValue(disconnected),
     openSignIn: vi.fn<ServiceClient["openSignIn"]>().mockResolvedValue(undefined),
   };
 }

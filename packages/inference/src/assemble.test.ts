@@ -1058,6 +1058,50 @@ describe("judged detail handler (ADR 0061)", () => {
       });
   });
 
+  it("adds a value split over selects or boxes, each part checked again (ADR 0061)", () => {
+    const selects = ["year", "month", "day"].map((id) => input(id, "select"));
+    const boxes = ["c1", "c2", "c3", "c4"].map((id) => input(id, "tel", { maxLength: 4 }));
+    const date = {
+      detail: "birth-date" as const,
+      parts: [
+        { part: "year" as const, format: "yyyy" as const, target: target("year") },
+        { part: "month" as const, format: "mm" as const, target: target("month") },
+        { part: "day" as const, format: "d" as const, target: target("day") },
+      ],
+    };
+    const card = {
+      detail: "card-number" as const,
+      parts: boxes.map((_box, at) => ({ part: at + 1, length: 4, target: target(`c${at + 1}`) })),
+    };
+    const shown = { ...detailPage(), candidates: [...selects, ...boxes, button()] };
+    const added = addHandler(recipe, shown, {
+      kind: "detail",
+      fields: [date, card],
+      target: confirm,
+    });
+    if (!added.ok) throw new Error(added.reason);
+    expect(added.recipe.handlers).toEqual([
+      { kind: "detail", path: "/verify", fields: [date, card], target: confirm },
+    ]);
+    // A box whose maxlength is no longer its group's length, a select for a card's digits,
+    // and a part the page does not show are refused.
+    for (const [candidates, reason] of [
+      [
+        [...selects, ...boxes.slice(0, 3), input("c4", "tel", { maxLength: 3 }), button()],
+        "not-detail-field",
+      ],
+      [[...selects, ...boxes.slice(0, 3), input("c4", "select"), button()], "not-detail-field"],
+      [[...selects.slice(0, 2), ...boxes, button()], "not-on-page"],
+    ] as const)
+      expect(
+        addHandler(
+          recipe,
+          { ...shown, candidates: [...candidates] },
+          { kind: "detail", fields: [date, card], target: confirm },
+        ),
+      ).toEqual({ ok: false, reason });
+  });
+
   it("refuses a route field or button, and another handler's element on that path", () => {
     // The route's password field on its path, and a field the route fills on any path.
     for (const [path, field] of [

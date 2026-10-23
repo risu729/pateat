@@ -85,6 +85,7 @@
 - Create GitHub issues only in phase 4, or earlier where the owner asks for them
   ([phase 4](docs/plan.md#phase-4-issues-and-work-as-needed)). Until then,
   docs/plan.md is the tracker.
+- Label and close issues as in [Issue labels](docs/delivery.md#issue-labels).
 - A thread that researches something lands its findings in its own docs PR, including
   the roadmap lines they change.
 - Verify every claim of an external review against the code and write a plan; open a

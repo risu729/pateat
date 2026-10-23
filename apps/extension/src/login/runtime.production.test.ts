@@ -181,6 +181,8 @@ const fake = vi.hoisted(() => {
     logoutLocal: { ok: false, reason: "none" } as unknown,
     /** The open tabs `tabs.query` lists, by ID; none when unset. */
     openTabs: undefined as number[] | undefined,
+    /** The document's answer about the card it shows beside a card detail (ADR 0061). */
+    cardHints: undefined as unknown,
     /**
      * The secret question the page shows beside an answer input (ADR 0061), compared with
      * the names a `login.detail.question` sends as the content script does: the entry with
@@ -321,6 +323,7 @@ const fake = vi.hoisted(() => {
                 }
               : {}),
           };
+        if (message["type"] === "login.detail.card" && state.cardHints) return state.cardHints;
         if (message["type"] === "login.detail.question") {
           const shown = state.question;
           if (shown === undefined) return { ok: true };
@@ -531,6 +534,8 @@ function harness(
     passkeys?: (account: unknown) => Promise<{ passkey: boolean; discoverable: boolean }>;
     /** The items holding a discoverable passkey for an origin (ADR 0034). */
     passkeyItems?: (origin: string) => Promise<readonly PasskeyItem[]>;
+    /** A hostname chosen "Always for this site" whose write still waits (ADR 0007). */
+    pendingBrowserSite?: (origin: string) => boolean;
     /** Automatic vault sync (ADR 0025). */
     vault?: Parameters<typeof createLoginRuntime>[1]["vault"];
     /** Receives the runtime's reports for the local log, without page URLs unless `urls`. */
@@ -585,6 +590,7 @@ function harness(
       },
     ],
     excludedSites: [],
+    passkeyBrowserSites: [],
     repromptSites: [],
     siteDefaults: [{ origin, provider: "bitwarden", userId, itemId }],
     // Automatic login runs in private windows too, so the tests of incognito tabs see a
@@ -720,6 +726,7 @@ function harness(
     ...(live.repairs ? { repairs: live.repairs } : {}),
     ...(live.passkeys ? { passkeys: live.passkeys } : {}),
     ...(live.passkeyItems ? { passkeyItems: live.passkeyItems } : {}),
+    ...(live.pendingBrowserSite ? { pendingBrowserSite: live.pendingBrowserSite } : {}),
     ...(live.vault ? { vault: live.vault } : {}),
     ...(live.signedIn ? { signedIn: live.signedIn } : {}),
     ...(live.logout ? { logout: live.logout } : {}),
@@ -14773,6 +14780,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
     fake.state.gone = new Set();
     fake.state.extracted = {};
     fake.state.signs = undefined;
+    fake.state.cardHints = undefined;
     fake.state.question = undefined;
   });
 
@@ -15409,6 +15417,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         const settings = (excludedSites: { hostname: string; includeSubdomains: boolean }[]) => ({
           connections: [],
           excludedSites,
+          passkeyBrowserSites: [],
           repromptSites: [],
           siteDefaults: [],
           bindings: [],
@@ -17859,6 +17868,291 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       10_000,
     );
 
+    describe("a value split over several inputs (owner, 2026-10-23 12:26 UTC)", () => {
+      // A synthetic page that asks for a birth date in three selects, a year, a month
+      // written without a leading zero and a day with one.
+      const splitBirth = {
+        detail: "birth-date" as const,
+        parts: [
+          { part: "year" as const, format: "yyyy" as const, target: target("by") },
+          { part: "month" as const, format: "m" as const, target: target("bm") },
+          { part: "day" as const, format: "dd" as const, target: target("bd") },
+        ],
+      };
+      const born = parseLoginRecipe({
+        ...unlearned,
+        completion: home,
+        handlers: [{ ...detailHandler, path: "/signin", fields: [splitBirth] }],
+      });
+      it("chooses a birth date's year, month and day in three selects, made after one read", async () => {
+        onClick({
+          login: { path: "/signin", present: ["by", "bm", "bd", "confirm"] },
+          confirm: toHome,
+        });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(
+          {
+            detailLinks: [
+              {
+                origin,
+                provider: "bitwarden",
+                userId,
+                itemId,
+                detail: "birth-date",
+                source: { itemId: otherItemId, field: { custom: "生年月日" } },
+              },
+            ],
+          },
+          { passkeys: noPasskey, report, otherCustom: [{ name: "生年月日", kind: "text" }] },
+        );
+        h.fields.mockImplementation(async (request) =>
+          request.fieldId.startsWith("custom.") ? "1990-04-05" : "synthetic-secret",
+        );
+        h.recipes.recipe.mockResolvedValue(born);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+          timeout: 6_000,
+        });
+        // Each part goes to the content script on its own, never the whole date.
+        expect(detailFills().map((entry) => entry.values)).toEqual([
+          [
+            { slot: "detail", value: "1990", secret: "date-part", part: "year" },
+            { slot: "detail 2", value: "4", secret: "date-part", part: "month" },
+            { slot: "detail 3", value: "05", secret: "date-part", part: "day" },
+          ],
+        ]);
+        expect(JSON.stringify(fake.state.messages)).not.toContain("1990-04-05");
+        expect(h.fields.mock.calls.map(([request]) => request.account.itemId)).toEqual([
+          itemId,
+          otherItemId,
+        ]);
+        // Its selects are observed as ones a value can be set in before the fill is chosen.
+        expect(fake.state.messages).toContainEqual(
+          expect.objectContaining({
+            type: "login.observe",
+            targets: [target("by"), target("bm"), target("bd")],
+            require: ["settable", "settable", "settable"],
+          }),
+        );
+        expect(clicks("confirm")).toBe(1);
+        expect(handlerReports(report)).toEqual([[0, "detail", "entered", 2]]);
+      }, 10_000);
+
+      it("ends as a challenge with nothing chosen when a select has no option for its part", async () => {
+        onClick({
+          login: { path: "/signin", present: ["by", "bm", "bd", "confirm"] },
+          confirm: toHome,
+        });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(
+          {
+            detailLinks: [
+              {
+                origin,
+                provider: "bitwarden",
+                userId,
+                itemId,
+                detail: "birth-date",
+                source: { itemId: otherItemId, field: { custom: "生年月日" } },
+              },
+            ],
+          },
+          { passkeys: noPasskey, report, otherCustom: [{ name: "生年月日", kind: "text" }] },
+        );
+        h.fields.mockImplementation(async (request) =>
+          request.fieldId.startsWith("custom.") ? "1990-04-05" : "synthetic-secret",
+        );
+        // The content script finds no option for one part before it chooses any.
+        const clicked = fake.state.onExecute!;
+        fake.state.onExecute = async (message, tabId) => {
+          const values = message["values"] as { slot: string }[] | undefined;
+          if (values?.some((value) => value.slot === "detail 2"))
+            fake.state.executeReply = { ok: false, reason: "value-mismatch" };
+          return clicked(message, tabId);
+        };
+        h.recipes.recipe.mockResolvedValue(born);
+        expect(await h.hello()).toEqual({ ok: true });
+        // The person finishes the page, so the login is watched as after a judged
+        // challenge (ADR 0027).
+        await vi.waitFor(
+          () => expect(status()).toMatchObject([{ state: "watching", outcome: "challenge" }]),
+          { timeout: 6_000 },
+        );
+        expect(detailFills()).toHaveLength(1);
+        expect(clicks("confirm")).toBe(0);
+        expect(handlerReports(report)).toEqual([
+          [0, "detail", "entered", 2],
+          [0, "detail", "detail-unfit", 2],
+        ]);
+      }, 10_000);
+
+      it("types a card number's digits as groups into four boxes", async () => {
+        const boxed = parseLoginRecipe({
+          ...unlearned,
+          completion: home,
+          handlers: [
+            {
+              ...detailHandler,
+              path: "/signin",
+              fields: [
+                {
+                  detail: "card-number" as const,
+                  parts: [1, 2, 3, 4].map((part) => ({
+                    part,
+                    length: 4,
+                    target: target(`c${part}`),
+                  })),
+                },
+              ],
+            },
+          ],
+        });
+        onClick({
+          login: { path: "/signin", present: ["c1", "c2", "c3", "c4", "confirm"] },
+          confirm: toHome,
+        });
+        const h = harness(
+          {
+            detailLinks: [
+              {
+                origin,
+                provider: "bitwarden",
+                userId,
+                itemId,
+                detail: "card-number",
+                source: { itemId: otherItemId, field: "card.number" },
+              },
+            ],
+          },
+          { passkeys: noPasskey },
+        );
+        const original = h.store.handle.getMockImplementation()!;
+        h.store.handle.mockImplementation(async () => {
+          const response = await original();
+          if (response.ok)
+            response.catalog.connections[0]!.items[1]!.fields = [
+              { id: "card.number", label: "number", name: null, kind: "text" as const },
+            ];
+          return response;
+        });
+        h.fields.mockImplementation(async (request) =>
+          request.fieldId === "card.number" ? "4000 0000 0000 0002" : "synthetic-secret",
+        );
+        h.recipes.recipe.mockResolvedValue(boxed);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+          timeout: 6_000,
+        });
+        expect(detailFills().map((entry) => entry.values)).toEqual([
+          ["4000", "0000", "0000", "0002"].map((value, at) => ({
+            slot: at === 0 ? "detail" : `detail ${at + 1}`,
+            value,
+            secret: "card-number",
+            group: 4,
+          })),
+        ]);
+        expect(JSON.stringify(fake.state.messages)).not.toContain("4000000000000002");
+        expect(clicks("confirm")).toBe(1);
+      }, 10_000);
+
+      /** A login whose page asks for a card number in boxes of `lengths`. */
+      function boxedCard(lengths: number[], digits: string) {
+        const boxed = parseLoginRecipe({
+          ...unlearned,
+          completion: home,
+          handlers: [
+            {
+              ...detailHandler,
+              path: "/signin",
+              fields: [
+                {
+                  detail: "card-number" as const,
+                  parts: lengths.map((length, at) => ({
+                    part: at + 1,
+                    length,
+                    target: target(`c${at + 1}`),
+                  })),
+                },
+              ],
+            },
+          ],
+        });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(
+          {
+            detailLinks: [
+              {
+                origin,
+                provider: "bitwarden",
+                userId,
+                itemId,
+                detail: "card-number",
+                source: { itemId: otherItemId, field: "card.number" },
+              },
+            ],
+          },
+          { passkeys: noPasskey, report },
+        );
+        const original = h.store.handle.getMockImplementation()!;
+        h.store.handle.mockImplementation(async () => {
+          const response = await original();
+          if (response.ok)
+            response.catalog.connections[0]!.items[1]!.fields = [
+              { id: "card.number", label: "number", name: null, kind: "text" as const },
+            ];
+          return response;
+        });
+        h.fields.mockImplementation(async (request) =>
+          request.fieldId === "card.number" ? digits : "synthetic-secret",
+        );
+        h.recipes.recipe.mockResolvedValue(boxed);
+        return { h, report };
+      }
+
+      it("types a 16-digit card number into boxes whose last takes up to 7 digits", async () => {
+        onClick({
+          login: { path: "/signin", present: ["c1", "c2", "c3", "c4", "confirm"] },
+          confirm: toHome,
+        });
+        const { h } = boxedCard([4, 4, 4, 7], "4000 0000 0000 0002");
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+          timeout: 6_000,
+        });
+        // The last group goes only into a box of its input's length.
+        expect(detailFills().map((entry) => entry.values)).toEqual([
+          [
+            { slot: "detail", value: "4000", secret: "card-number", group: 4 },
+            { slot: "detail 2", value: "0000", secret: "card-number", group: 4 },
+            { slot: "detail 3", value: "0000", secret: "card-number", group: 4 },
+            { slot: "detail 4", value: "0002", secret: "card-number", group: 7 },
+          ],
+        ]);
+        expect(clicks("confirm")).toBe(1);
+      }, 10_000);
+
+      it("fills nothing, and leaves the page to the person, when the card's digits do not fit its boxes", async () => {
+        onClick({ login: { path: "/signin", present: ["c1", "c2", "c3", "confirm"] } });
+        // 16 digits leave 8 for a last box of 4.
+        const { h, report } = boxedCard([4, 4, 4], "4000 0000 0000 0002");
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(
+          () => expect(status()).toMatchObject([{ state: "watching", outcome: "challenge" }]),
+          { timeout: 6_000 },
+        );
+        expect(detailFills()).toEqual([]);
+        expect(clicks("confirm")).toBe(0);
+        expect(handlerReports(report)).toEqual([
+          [0, "detail", "entered", 2],
+          [0, "detail", "detail-unfit", 2],
+        ]);
+        // A value that does not fit the page is no change of the owner's settings.
+        expect(report.mock.calls.map(([entry]) => entry)).not.toContainEqual(
+          expect.objectContaining({ outcome: "policy-changed" }),
+        );
+      }, 10_000);
+    });
+
     describe("the popup's Fill", () => {
       const popup = {
         id: "synthetic-extension",
@@ -17875,7 +18169,14 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         onClick({
           login: {
             path: "/confirm",
-            present: [...fields.map((entry) => entry.target.value), "confirm"],
+            present: [
+              ...fields.flatMap((entry) =>
+                "parts" in entry
+                  ? entry.parts.map((part) => part.target.value)
+                  : [entry.target.value],
+              ),
+              "confirm",
+            ],
           },
           confirm: toHome,
         });
@@ -17952,8 +18253,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
           expect(popupFills()).toEqual([
             expect.objectContaining({
               path: "/confirm",
-              target: target("card"),
-              ...filled,
+              fields: [{ target: target("card"), ...filled }],
               account: { username: cardValues["login.username"] },
             }),
           ]);
@@ -17967,6 +18267,67 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         },
         10_000,
       );
+
+      it("offers and fills a card expiry split over two selects as its one link", async () => {
+        // Owner, 2026-10-23 12:26 UTC: a split value is offered like its one-input form.
+        const h = await stopped(
+          [
+            {
+              detail: "card-expiry",
+              parts: [
+                { part: "month", format: "mm", target: target("em") },
+                { part: "year", format: "yy", target: target("ey") },
+              ],
+            },
+          ],
+          { username: true },
+        );
+        asCard(h);
+        h.fields.mockImplementation(
+          async (request) => cardValues[request.fieldId] ?? "synthetic-secret",
+        );
+        const offered = await h.login.handle(
+          { version: 1, type: "login.detail.get", tabId: 1 },
+          popup,
+        );
+        expect(offered).toMatchObject({
+          offer: {
+            details: [
+              {
+                detail: "card-expiry",
+                candidates: [{ itemId: otherItemId, fieldId: "card.expMonth" }],
+              },
+            ],
+          },
+        });
+        expect(await fill(h, "card-expiry", otherItemId, "card.expMonth")).toEqual({ ok: true });
+        // Each select gets only its own part, checked as settable before the fill.
+        expect(popupFills()).toEqual([
+          expect.objectContaining({
+            path: "/confirm",
+            fields: [
+              { target: target("em"), value: "04", secret: "date-part", part: "month" },
+              {
+                target: target("ey"),
+                value: "31",
+                secret: "date-part",
+                part: "year",
+                shortYear: true,
+              },
+            ],
+          }),
+        ]);
+        expect(fake.state.messages).toContainEqual(
+          expect.objectContaining({
+            type: "login.observe",
+            targets: [target("em"), target("ey"), target("confirm")],
+            require: ["settable", "settable", "shown"],
+          }),
+        );
+        expect(
+          await h.login.handle({ version: 1, type: "login.detail.get", tabId: 1 }, popup),
+        ).toMatchObject({ links: [{ detail: "card-expiry", pending: true }] });
+      }, 10_000);
 
       it("fills the login item's PIN, and never another login item's", async () => {
         const h = await stopped([{ detail: "pin", target: target("pin") }], {
@@ -17992,7 +18353,10 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         expect(popupFills()).toEqual([]);
         expect(await fill(h, "pin", itemId, fieldId)).toEqual({ ok: true });
         expect(popupFills()).toEqual([
-          expect.objectContaining({ path: "/confirm", value: "0123", secret: "pin" }),
+          expect.objectContaining({
+            path: "/confirm",
+            fields: [{ target: target("pin"), value: "0123", secret: "pin" }],
+          }),
         ]);
         // The item has no username, so the page is not asked to compare accounts.
         expect(popupFills()[0]).not.toHaveProperty("account");
@@ -18054,6 +18418,266 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       },
       10_000,
     );
+
+    describe("the popup's guess of a card (owner 2026-10-23 12:26 UTC)", () => {
+      // A synthetic page that asks for a card's security code; synthetic card numbers only.
+      const coded = parseLoginRecipe({
+        ...unlearned,
+        completion: home,
+        handlers: [
+          { ...detailHandler, fields: [{ detail: "card-code" as const, target: target("code") }] },
+        ],
+      });
+      const popup = {
+        id: "synthetic-extension",
+        url: "chrome-extension://synthetic-extension/popup.html",
+      } as never;
+      const cards: Record<string, { number?: string; brand?: string }> = {
+        "card-a": { number: "4242 4242 4242 7351", brand: "Visa" },
+        "card-b": { number: "5555 5555 5555 9876", brand: "Mastercard" },
+        "card-c": { number: "3530 1113 3330 9876", brand: "JCB" },
+        // A card item without a brand.
+        "card-d": { number: "3530 2224 4440 9876" },
+      };
+      /** Stops at the code page with these card items in the vault, the page showing `hints`. */
+      async function stopped(
+        ids: string[],
+        hints: unknown,
+        overrides: Partial<LocalSettings> = {},
+      ) {
+        onClick({ login: { path: "/confirm", present: ["code", "confirm"] } });
+        fake.state.cardHints = hints;
+        const report = vi.fn<(entry: LoginReport) => void>();
+        const h = harness(overrides, { passkeys: noPasskey, report });
+        const vault = { state: "ready" as "ready" | "locked" };
+        const original = h.store.handle.getMockImplementation()!;
+        h.store.handle.mockImplementation(async () => {
+          const response = await original();
+          if (response.ok) response.catalog.connections[0]!.state = vault.state;
+          if (response.ok)
+            response.catalog.connections[0]!.items.push(
+              ...ids.map((id) => ({
+                id,
+                label: `Synthetic ${id}`,
+                allowedOrigins: [],
+                groupIds: [],
+                fields: ["card.number", "card.code", "card.brand"].map((field) => ({
+                  id: field,
+                  label: field.slice(5),
+                  name: null,
+                  kind: "text" as const,
+                })),
+              })),
+            );
+          return response;
+        });
+        h.fields.mockImplementation(async (request) => {
+          const card = cards[request.account.itemId];
+          if (!card) return "synthetic-secret";
+          // A field without a value reads as nothing, as the vault field source answers.
+          return request.fieldId === "card.number" ? card.number : card.brand;
+        });
+        h.recipes.recipe.mockResolvedValue(coded);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() =>
+          expect(status()).toMatchObject([{ state: "watching", outcome: "challenge" }]),
+        );
+        h.fields.mockClear();
+        return { h, report, vault };
+      }
+      const offered = async (h: ReturnType<typeof harness>) => {
+        const answer = (await h.login.handle(
+          { version: 1, type: "login.detail.get", tabId: 1 },
+          popup,
+        )) as {
+          offer?: { details: { candidates: { itemId: string }[]; preselect?: false }[] };
+        };
+        const [detail] = answer.offer!.details;
+        return {
+          order: detail!.candidates.map((entry) => entry.itemId),
+          preselect: detail!.preselect,
+        };
+      };
+      const reads = (h: ReturnType<typeof harness>) =>
+        h.fields.mock.calls.map(([request]) => [request.account.itemId, request.fieldId]);
+
+      it("puts first and selects the one card ending in the last digits the page shows", async () => {
+        const { h, report } = await stopped(["card-a", "card-b"], {
+          ok: true,
+          last4: ["9876"],
+          brands: [],
+        });
+        expect(await offered(h)).toEqual({ order: ["card-b", "card-a"], preselect: undefined });
+        // Each card's number and brand, one at a time, before any confirmation.
+        expect(reads(h)).toEqual([
+          ["card-a", "card.number"],
+          ["card-a", "card.brand"],
+          ["card-b", "card.number"],
+          ["card-b", "card.brand"],
+        ]);
+        expect(fake.state.messages).toContainEqual(
+          expect.objectContaining({ type: "login.detail.card", target: target("code") }),
+        );
+        // Neither the page's digits nor a card's leave the worker: not to a document, the
+        // log, the settings or the recipe service.
+        const out = JSON.stringify([
+          fake.state.messages,
+          report.mock.calls,
+          h.store.update.mock.calls,
+          h.recipes.recipe.mock.calls,
+          h.recipes.starts.mock.calls,
+        ]);
+        for (const digits of ["9876", "7351", "4242", "5555"]) expect(out).not.toContain(digits);
+      });
+
+      it("selects the only card of the brand the page names when no last digits match", async () => {
+        const { h } = await stopped(["card-a", "card-b"], {
+          ok: true,
+          last4: [],
+          brands: ["Mastercard"],
+        });
+        expect(await offered(h)).toEqual({ order: ["card-b", "card-a"], preselect: undefined });
+      });
+
+      it("selects none of two cards that end in the same digits", async () => {
+        const { h } = await stopped(["card-a", "card-b", "card-c"], {
+          ok: true,
+          last4: ["9876"],
+          brands: [],
+        });
+        expect(await offered(h)).toEqual({
+          order: ["card-b", "card-c", "card-a"],
+          preselect: false,
+        });
+      });
+
+      it("never reads an excluded card or an excluded number", async () => {
+        const { h } = await stopped(
+          ["card-a", "card-b", "card-c"],
+          {
+            ok: true,
+            last4: ["9876"],
+            brands: [],
+          },
+          {
+            connections: [
+              {
+                connectionId,
+                enabled: true,
+                selection: { mode: "all", groupIds: [], itemIds: [] },
+                excludedItemIds: ["card-c"],
+                excludedFields: [{ itemId: "card-b", fieldId: "card.number" }],
+              },
+            ],
+          },
+        );
+        // Card B's number is not allowed, so its digits are unknown and it comes before card
+        // A, whose digits differ, with none selected; card C is no candidate.
+        expect(await offered(h)).toEqual({ order: ["card-b", "card-a"], preselect: false });
+        expect(reads(h)).toEqual([
+          ["card-a", "card.number"],
+          ["card-a", "card.brand"],
+          ["card-b", "card.brand"],
+        ]);
+      });
+
+      it("keeps the order by name when a read fails, and reads nothing for a page that shows nothing", async () => {
+        const { h } = await stopped(["card-a", "card-b"], {
+          ok: true,
+          last4: ["9876"],
+          brands: [],
+        });
+        h.fields.mockRejectedValueOnce(new Error("locked"));
+        expect(await offered(h)).toEqual({ order: ["card-a", "card-b"], preselect: undefined });
+        expect(reads(h)).toEqual([["card-a", "card.number"]]);
+        h.fields.mockClear();
+        fake.state.cardHints = { ok: true, last4: [], brands: [] };
+        expect(await offered(h)).toEqual({ order: ["card-a", "card-b"], preselect: undefined });
+        // A page's answer that is not hints is none.
+        fake.state.cardHints = { ok: true, last4: ["12345"], brands: [] };
+        expect(await offered(h)).toEqual({ order: ["card-a", "card-b"], preselect: undefined });
+        expect(reads(h)).toEqual([]);
+      });
+
+      it("reads on past a card without a brand", async () => {
+        const { h } = await stopped(["card-a", "card-d"], {
+          ok: true,
+          last4: ["9876"],
+          brands: [],
+        });
+        expect(await offered(h)).toEqual({ order: ["card-d", "card-a"], preselect: undefined });
+        expect(reads(h)).toEqual([
+          ["card-a", "card.number"],
+          ["card-a", "card.brand"],
+          ["card-d", "card.number"],
+          ["card-d", "card.brand"],
+        ]);
+      });
+
+      it("reads the vault once for the popup's polls, and keeps its guess when the page does not answer", async () => {
+        const { h } = await stopped(["card-a", "card-b"], {
+          ok: true,
+          last4: ["9876"],
+          brands: [],
+        });
+        expect(await offered(h)).toEqual({ order: ["card-b", "card-a"], preselect: undefined });
+        expect(reads(h)).toHaveLength(4);
+        h.fields.mockClear();
+        expect(await offered(h)).toEqual({ order: ["card-b", "card-a"], preselect: undefined });
+        fake.state.cardHints = { ok: false };
+        expect(await offered(h)).toEqual({ order: ["card-b", "card-a"], preselect: undefined });
+        expect(reads(h)).toEqual([]);
+        // The page now shows other digits: the cards are read again.
+        fake.state.cardHints = { ok: true, last4: ["7351"], brands: [] };
+        expect(await offered(h)).toEqual({ order: ["card-a", "card-b"], preselect: undefined });
+        expect(reads(h)).toHaveLength(4);
+      });
+
+      it("keeps the order by name while the vault is locked or when it changes during the reads", async () => {
+        const { h, vault } = await stopped(["card-a", "card-b"], {
+          ok: true,
+          last4: ["9876"],
+          brands: [],
+        });
+        vault.state = "locked";
+        expect(await offered(h)).toEqual({ order: ["card-a", "card-b"], preselect: undefined });
+        expect(reads(h)).toEqual([]);
+        vault.state = "ready";
+        const read = h.fields.getMockImplementation()!;
+        // A vault that locked after its catalog was read gives no value at all.
+        h.fields.mockImplementation(async () => undefined);
+        expect(await offered(h)).toEqual({ order: ["card-a", "card-b"], preselect: undefined });
+        expect(reads(h)).toHaveLength(4);
+        h.fields.mockClear();
+        h.fields.mockImplementation(read);
+        // A sync opens another snapshot while the cards are read.
+        h.fields.mockImplementationOnce(async (request) => {
+          h.snapshot.current = "60000000-0000-4000-8000-000000000009";
+          return read(request);
+        });
+        expect(await offered(h)).toEqual({ order: ["card-a", "card-b"], preselect: undefined });
+        expect(reads(h)).toHaveLength(4);
+        // Nothing was kept, so the next poll reads the new snapshot.
+        expect(await offered(h)).toEqual({ order: ["card-b", "card-a"], preselect: undefined });
+        expect(reads(h)).toHaveLength(8);
+      });
+
+      it("selects none when more cards could give the value than one guess reads", async () => {
+        const many = Array.from({ length: 21 }, (_, index) => {
+          const id = `card-${String(index + 10)}`;
+          cards[id] = { number: `4242 4242 4242 ${String(index + 1000)}`, brand: "Visa" };
+          return id;
+        });
+        const { h } = await stopped(many, { ok: true, last4: ["1000"], brands: [] });
+        const guess = await offered(h);
+        expect(guess.order[0]).toBe("card-10");
+        expect(guess.order).toHaveLength(20);
+        expect(guess.preselect).toBe(false);
+        // The first 20 cards only, each its number and brand.
+        expect(reads(h)).toHaveLength(40);
+        expect(reads(h).some(([read]) => read === "card-30")).toBe(false);
+      });
+    });
   });
 
   // Owner, 2026-10-23: the judge gets the account's slots, and pairs a secret question with
@@ -18258,9 +18882,13 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       expect(answerFills()).toEqual([
         expect.objectContaining({
           type: "login.detail.fill",
-          target: target("answer"),
-          secret: "answer",
-          question: { question: "母親の旧姓は" },
+          fields: [
+            expect.objectContaining({
+              target: target("answer"),
+              secret: "answer",
+              question: { question: "母親の旧姓は" },
+            }),
+          ],
         }),
       ]);
       expect(h.settings.settings.detailLinks).toBeUndefined();
@@ -18392,7 +19020,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       expect(answerFills()).toEqual([
         expect.objectContaining({
           type: "login.detail.fill",
-          question: { name: "母親の旧姓は？" },
+          fields: [expect.objectContaining({ question: { name: "母親の旧姓は？" } })],
         }),
       ]);
     });
@@ -18484,6 +19112,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
     const passkeyOnlySetup = (
       passkeyItems: (origin: string) => Promise<readonly PasskeyItem[]>,
       candidates = uriMatch().candidates,
+      overrides: Partial<LocalSettings> = {},
     ) => {
       const service = {
         available: vi.fn(async (): Promise<true> => true),
@@ -18495,7 +19124,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       const report = vi.fn<(report: LoginReport) => void>();
       const lookup = vi.fn(passkeyItems);
       const h = harness(
-        { siteDefaults: [], bindings: [] },
+        { siteDefaults: [], bindings: [], ...overrides },
         {
           uris: async () => ({ ok: true as const, data: uriMatch({ candidates }) }),
           passkeyItems: lookup,
@@ -18530,6 +19159,21 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       ]);
       expect(service.generate).not.toHaveBeenCalled();
       expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.extract");
+    });
+
+    it("does not generate on a site whose passkey requests go to the browser (ADR 0007)", async () => {
+      const { h, service, lookup, skipped } = passkeyOnlySetup(
+        async () => [{ connectionId, itemId }],
+        uriMatch().candidates,
+        { passkeyBrowserSites: [{ hostname: new URL(origin).hostname }] },
+      );
+      expect(await showPasskey(h)).not.toEqual({ ok: false, reason: "generating" });
+      // Pateat answers no passkey request there, so no item holds one it may use.
+      expect(lookup).not.toHaveBeenCalled();
+      expect(skipped()).toEqual([
+        expect.objectContaining({ reason: "no-vault-match", detail: "no-passkey" }),
+      ]);
+      expect(service.generate).not.toHaveBeenCalled();
     });
 
     it("refuses a page announced as both an identifier page and a passkey page", async () => {
@@ -20129,16 +20773,14 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
             type: "login.observe",
             path: "/signin",
             targets: [target("birth"), target("confirm")],
-            require: ["writable", "shown"],
+            require: ["settable", "shown"],
           }),
         );
         expect(popupFills()).toEqual([
           expect.objectContaining({
             type: "login.detail.fill",
             path: "/signin",
-            target: target("birth"),
-            value: "199004",
-            secret: "detail",
+            fields: [{ target: target("birth"), value: "199004", secret: "detail" }],
           }),
         ]);
         expect(JSON.stringify(fake.state.messages)).not.toContain("1990-04-01");
@@ -20185,7 +20827,9 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         expect(
           await fill(h, "synthetic-document", { detail: "phone-last-4", fieldId: phoneField }),
         ).toEqual({ ok: true });
-        expect(popupFills().at(-1)).toMatchObject({ target: target("phone"), value: "5678" });
+        expect(popupFills().at(-1)).toMatchObject({
+          fields: [{ target: target("phone"), value: "5678" }],
+        });
         expect(fake.state.session[pendingKey]).toHaveLength(1);
         await signedIn(h);
         expect(savedLinks(h)).toEqual([
@@ -21281,6 +21925,70 @@ describe("the start page's passkey route (ADR 0027)", () => {
     expect(fills()).toBe(1);
     expect(clicks(button.value)).toBe(0);
     expect(clicks("login")).toBe(1);
+  });
+
+  it("fills the password route on a site whose passkey requests go to the browser (ADR 0007)", async () => {
+    fake.state.present = new Set(["password", "login", "Sign in with a passkey", "logout"]);
+    fake.state.observedPath = "/home";
+    const passkeys = discoverable();
+    const { h } = start(
+      learned,
+      { passkeys },
+      { passkeyBrowserSites: [{ hostname: new URL(origin).hostname }] },
+    );
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
+    expect(status()![0]).toMatchObject({
+      route: "password",
+      variant: 0,
+      facts: { passkey: false, discoverablePasskey: false },
+    });
+    expect(fills()).toBe(1);
+    expect(clicks(button.value)).toBe(0);
+    // The item's passkeys are not even looked up there.
+    expect(passkeys).not.toHaveBeenCalled();
+  });
+
+  it('treats a hostname chosen "Always" as listed while its write waits (ADR 0007)', async () => {
+    fake.state.present = new Set(["password", "login", "Sign in with a passkey", "logout"]);
+    fake.state.observedPath = "/home";
+    const passkeys = discoverable();
+    const pendingBrowserSite = vi.fn((page: string) => page === origin);
+    const { h } = start(learned, { passkeys, pendingBrowserSite });
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
+    expect(status()![0]).toMatchObject({ route: "password", facts: { passkey: false } });
+    expect(clicks(button.value)).toBe(0);
+    expect(passkeys).not.toHaveBeenCalled();
+    expect(pendingBrowserSite).toHaveBeenCalledWith(origin);
+  });
+
+  it("never takes the passkey route on such a site, even for an item without a password", async () => {
+    // As in the test below, only the passkey route could sign this item in.
+    const custom = parseLoginRecipe({
+      ...learned,
+      slots: ["member-number", "password"],
+      steps: [
+        {
+          kind: "fill",
+          path: "/signin",
+          fields: [
+            { slot: "member-number", target: target("member") },
+            { slot: "password", target: target("password") },
+          ],
+        },
+        recipe.steps[1]!,
+      ],
+    });
+    const passkeys = discoverable();
+    const { h } = start(
+      custom,
+      { passkeys },
+      { bindings: [], passkeyBrowserSites: [{ hostname: new URL(origin).hostname }] },
+    );
+    expect(await h.hello()).toEqual({ ok: false, reason: "binding-not-found" });
+    expect(clicks(button.value)).toBe(0);
+    expect(passkeys).not.toHaveBeenCalled();
   });
 
   it("takes the passkey route for an item without a password or a fitting binding", async () => {
@@ -29708,6 +30416,25 @@ describe("an item without a password, up to its password (ADR 0036)", () => {
     );
     expect(executed()).toEqual([]);
     expect(h.fields).not.toHaveBeenCalled();
+  });
+
+  it("refuses a passkey-only item on a site whose passkey requests go to the browser, naming the list", async () => {
+    // ADR 0007: the item holds a passkey, which Pateat does not use there.
+    const passkeys = vi.fn(async () => ({ passkey: true, discoverable: true }));
+    const { h, report } = start(
+      { passkeys },
+      { overrides: { passkeyBrowserSites: [{ hostname: new URL(origin).hostname }] } },
+    );
+    expect(await h.hello()).toEqual({ ok: false, reason: "no-route" });
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "refused",
+        reason: "no-route",
+        detail: "password-empty:passkey-browser-site",
+      }),
+    );
+    expect(passkeys).not.toHaveBeenCalled();
+    expect(executed()).toEqual([]);
   });
 
   // Netflix in the owner's Chrome: the only item has neither a password nor a passkey, and

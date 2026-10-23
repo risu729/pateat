@@ -46,6 +46,7 @@ type AcceptedSettings = Extract<SettingsResponse, { ok: true }>;
 const emptySettings: LocalSettings = {
   connections: [],
   excludedSites: [],
+  passkeyBrowserSites: [],
   repromptSites: [],
   siteDefaults: [],
   bindings: [],
@@ -349,6 +350,7 @@ export function SettingsApp({
     unsavedEdits.current.push(update);
     form.setFieldValue("connections", next.connections);
     form.setFieldValue("excludedSites", next.excludedSites);
+    form.setFieldValue("passkeyBrowserSites", next.passkeyBrowserSites);
     form.setFieldValue("repromptSites", next.repromptSites);
     form.setFieldValue("siteDefaults", next.siteDefaults);
     form.setFieldValue("loginInPrivateWindows", next.loginInPrivateWindows);

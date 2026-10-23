@@ -957,11 +957,13 @@ than in this repository.
   handler that the judge learns, delivery 2, judging a page that asks for a detail
   beside the sign-in form (`beside`), delivery 3, links to the items that hold the
   values, proposed in the popup, delivery 4, secret-question answers and member IDs,
-  delivery 5, whole card numbers, expiry dates and PINs, and delivery 6, the judge's
-  account slots and secret-question pairing, are implemented. エポスNet asks for the
-  card's security code after the password (owner, 2026-10-12 04:18 UTC: it can wait),
-  and other sites ask for a birth date or similar details as extra verification. The
-  owner sees these as one need (2026-10-12 05:29 UTC): the value is in a card or
+  delivery 5, whole card numbers, expiry dates and PINs, delivery 6, the judge's
+  account slots and secret-question pairing, delivery 7, the card guess from the last
+  digits and brand a page shows, and delivery 8, values split over several inputs and
+  selects, are implemented. エポスNet asks for the card's security code after the
+  password (owner, 2026-10-12 04:18 UTC: it can wait), and other sites ask for a birth
+  date or similar details as extra verification. The owner sees these as one need
+  (2026-10-12 05:29 UTC): the value is in a card or
   identity item, not in the login item, so the login has to be linked to that item. The
   owner chose how to link them (05:27 UTC): Pateat guesses the item from the site being
   logged into and what its pages show (such as a card name, brand or masked last
@@ -1091,9 +1093,10 @@ Once the fixes have settled:
 - A mode without the service, designed with the owner on 2026-10-23
   ([ADR 0040](adr/0040-running-without-the-service.md)): a device may hold its own
   Anthropic API key and call the model itself, also while paired, where the service only
-  checks, stores and shares the results. The paired part is implemented; generation on
-  an unpaired device with the one-time upload after pairing, and export and import with
-  the choice to keep or delete on unpairing, follow in that order.
+  checks, stores and shares the results. The paired part is implemented, and so are the
+  recipes a device keeps on unpairing, which logins use without the service and which
+  are uploaded once after pairing again. Generation on an unpaired device, then export
+  and import, follow in that order.
 - The finite-choice role with Clef, which the owner chose to implement here. On
   2026-10-11 the owner asked for a larger corpus of real pages before planning it. After
   Clef has been tried, compare it with Jev on the same pages (owner, 2026-10-13 15:11

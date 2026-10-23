@@ -1,12 +1,17 @@
 import * as v from "valibot";
 import {
+  datePartSchema,
   detailFormatFits,
   detailFormatSchema,
+  detailPartFormatFits,
+  detailPartFormatSchema,
   loginDetailSchema,
   parseSiteUrl,
   recipeSlotIdSchema,
   resolveSiteAccount,
+  type DatePart,
   type DetailFormat,
+  type DetailPartFormat,
   type LoginDetail,
   type SettingsSnapshot,
   type VaultCatalog,
@@ -123,11 +128,14 @@ export const loginLabelTargetSchema = v.strictObject({
  * empty, with whitespace collapsed to single spaces and format characters removed, and
  * at most 120 characters. A control is a button or a script button, as a text locator
  * matches them, or a link to a fragment of its own document that opens in the same tab
- * and downloads nothing (`<a href="#">`); fields never match. It names only a `password`
+ * and downloads nothing (`<a href="#">`); fields never match. It names a `password`
  * handler's button, such as `<a href="#" aria-label="Select Password.">Select</a>` beside
- * another "Select" for a phone, when no `id`, `name`, `data-testid` or unique text names
- * it: route steps, the `passkey` route, other handlers, signed-in markers, the rejection
- * and the account switch never use it.
+ * another "Select" for a phone, or a route step's click on a login form's button (ADR 0048
+ * amendment of 2026-10-23), such as an `<input type="submit">` without a `value` labelled
+ * by the text beside it, when no `id`, `name`, `data-testid` or unique text names it; a
+ * route step's click never presses a fragment link by it. Wait and assert steps, the
+ * `passkey` route, other handlers, signed-in markers, the rejection and the account
+ * switch never use it.
  */
 export const loginAccessibleNameTargetSchema = v.strictObject({
   by: v.literal("accessible-name"),
@@ -155,7 +163,8 @@ export const loginFieldTargetSchema = v.variant("by", [
 ]);
 /**
  * An allowlisted element locator; recipes cannot supply CSS, code, URLs or values. A recipe
- * uses an accessible-name locator only for a `password` handler's button.
+ * uses an accessible-name locator only for a `password` handler's button or a route step's
+ * click.
  */
 export const loginTargetSchema = v.variant("by", [
   ...loginAttributeTargetSchema.options,
@@ -319,7 +328,8 @@ export function detailLength(entry: {
       return 4;
   }
 }
-const detailFieldSchema = v.pipe(
+/** One input asks for the whole value. */
+const wholeDetailFieldSchema = v.pipe(
   v.strictObject({
     detail: loginDetailSchema,
     format: v.optional(detailFormatSchema),
@@ -330,6 +340,126 @@ const detailFieldSchema = v.pipe(
     "A birth date or card expiry input has a format of its own, and no other input has one",
   ),
 );
+/**
+ * At most this many inputs hold one split value (ADR 0061): a 19-digit card number in
+ * groups of four takes five.
+ */
+export const MAX_DETAIL_PARTS = 6;
+/**
+ * One input of a value split over several (ADR 0061): a date's `year`, `month` or `day`
+ * with its own `format`, which may be a select, or a card number's or PIN's digit group,
+ * numbered from 1 in order, with its `length`, the input's `maxlength` when the page was
+ * judged.
+ */
+export const detailPartSchema = v.strictObject({
+  part: v.union([
+    datePartSchema,
+    v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(MAX_DETAIL_PARTS)),
+  ]),
+  format: v.optional(detailPartFormatSchema),
+  length: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(19))),
+  target: loginFieldTargetSchema,
+});
+/** The parts a split date may have together, each once, as its one-input formats do. */
+const datePartSets: Partial<Record<LoginDetail, readonly (readonly DatePart[])[]>> = {
+  "birth-date": [
+    ["year", "month", "day"],
+    ["year", "month"],
+    ["month", "day"],
+  ],
+  "card-expiry": [["month", "year"]],
+};
+/** The digits a split card number or PIN has in all, as its whole value does. */
+const groupDigits: Partial<Record<LoginDetail, readonly [number, number]>> = {
+  "card-number": [12, 19],
+  pin: [4, 12],
+};
+/**
+ * Whether `parts` make one value of `detail` split over several inputs (ADR 0061): a
+ * birth date's year, month and day, its year and month, or its month and day, or a card
+ * expiry date's month and year, each part once with a format of its own and no length;
+ * or a card number's or a PIN's digit groups numbered 1 to n in order, each with a length
+ * and no format, that add up to a whole card number's 12 to 19 digits or a PIN's 4 to 12.
+ * No other detail is split.
+ */
+export function detailPartsFit(
+  detail: LoginDetail,
+  parts: readonly {
+    part: DatePart | number;
+    format?: DetailPartFormat | undefined;
+    length?: number | undefined;
+  }[],
+): boolean {
+  const sets = datePartSets[detail];
+  if (sets) {
+    const names = parts.map((entry) => entry.part);
+    return (
+      parts.every(
+        (entry) =>
+          typeof entry.part === "string" &&
+          entry.length === undefined &&
+          detailPartFormatFits(detail, entry.part, entry.format),
+      ) &&
+      unique(names.map(String)) &&
+      sets.some((set) => set.length === names.length && set.every((name) => names.includes(name)))
+    );
+  }
+  const digits = groupDigits[detail];
+  if (!digits) return false;
+  const total = parts.reduce((sum, entry) => sum + (entry.length ?? 0), 0);
+  return (
+    parts.every(
+      (entry, index) =>
+        entry.part === index + 1 && entry.format === undefined && entry.length !== undefined,
+    ) &&
+    total >= digits[0] &&
+    total <= digits[1]
+  );
+}
+/**
+ * Several inputs ask for one value split over them (ADR 0061), such as a birth date's
+ * year, month and day selects or a card number's four boxes; a login fills them together.
+ */
+const splitDetailFieldSchema = v.pipe(
+  v.strictObject({
+    detail: loginDetailSchema,
+    parts: v.pipe(v.array(detailPartSchema), v.minLength(2), v.maxLength(MAX_DETAIL_PARTS)),
+  }),
+  v.check(
+    (entry) => detailPartsFit(entry.detail, entry.parts),
+    "A split value has each of its parts once, as its detail allows",
+  ),
+);
+/** What a `detail` handler's field asks for: a value in one input, or one split over several. */
+export const detailFieldSchema = v.union([wholeDetailFieldSchema, splitDetailFieldSchema]);
+export type DetailField = v.InferOutput<typeof detailFieldSchema>;
+export type DetailPart = v.InferOutput<typeof detailPartSchema>;
+/** One input a detail field fills, with the part of the value it takes when split. */
+export type DetailInput = {
+  detail: LoginDetail;
+  format?: DetailFormat | DetailPartFormat | undefined;
+  part?: DetailPart["part"] | undefined;
+  length?: number | undefined;
+  target: LoginFieldTarget;
+};
+/** The inputs a detail field fills: its one input, or its parts in order. */
+export function detailFieldInputs(field: DetailField): DetailInput[] {
+  return "parts" in field
+    ? field.parts.map((part) => ({ detail: field.detail, ...part }))
+    : [field];
+}
+/**
+ * The one-input format a split birth date reads as (its year and month as `yyyymm`, its
+ * month and day as `mmdd`), so the popup names it as it names such an input; a field's own
+ * format otherwise.
+ */
+export function detailFieldFormat(field: DetailField): DetailFormat | undefined {
+  if (!("parts" in field)) return field.format;
+  if (field.detail !== "birth-date") return undefined;
+  const names = field.parts.map((entry) => entry.part);
+  if (!names.includes("day")) return "yyyymm";
+  return names.includes("year") ? undefined : "mmdd";
+}
 /**
  * A branch on the page that appears after an effect step (ADR 0027), entered when its
  * path matches and all its elements show, and run only for an item with the handler's
@@ -360,10 +490,10 @@ export const loginHandlerSchema = v.variant("kind", [
     ),
   ),
   /**
-   * A page that asks for a personal detail (ADR 0061): one to three inputs, each with the
-   * detail it asks for, of which a login fills the first it has a linked value for, and
-   * the button that submits it. A page that offers a choice, as radio buttons do, lists
-   * each input.
+   * A page that asks for a personal detail (ADR 0061): one to three fields, each the
+   * detail it asks for in one input or split over several, of which a login fills the
+   * first it has a linked value for, and the button that submits it. A page that offers a
+   * choice, as radio buttons do, lists each field.
    */
   v.pipe(
     v.strictObject({
@@ -373,13 +503,20 @@ export const loginHandlerSchema = v.variant("kind", [
       target: loginTargetSchema,
     }),
     v.check(
-      (handler) => unique(handler.fields.map((field) => JSON.stringify(field.target))),
+      (handler) =>
+        unique(
+          handler.fields.flatMap((field) =>
+            detailFieldInputs(field).map((input) => JSON.stringify(input.target)),
+          ),
+        ),
       "Duplicate detail inputs",
     ),
     v.check(
       (handler) =>
-        !handler.fields.some(
-          (field) => JSON.stringify(field.target) === JSON.stringify(handler.target),
+        !handler.fields.some((field) =>
+          detailFieldInputs(field).some(
+            (input) => JSON.stringify(input.target) === JSON.stringify(handler.target),
+          ),
         ),
       "A detail input cannot be its submit button",
     ),
@@ -454,7 +591,10 @@ export function handlerTargets(
   if (handler.kind === "totp")
     return handler.target ? [handler.field, handler.target] : [handler.field];
   if (handler.kind === "detail")
-    return [...handler.fields.map((field) => field.target), handler.target];
+    return [
+      ...handler.fields.flatMap((field) => detailFieldInputs(field).map((input) => input.target)),
+      handler.target,
+    ];
   return [handler.target];
 }
 /** The `passkey` route's one step: a click on its button that submits. */
@@ -802,8 +942,7 @@ const routeRules: readonly (readonly [(recipe: RouteBody) => boolean, string])[]
     (recipe) =>
       !variantsOf(recipe).some((variant) =>
         variant.steps.some(
-          (step) =>
-            step.kind === "fill" && step.fields.some((field) => field.slot === DETAIL_HANDLER_SLOT),
+          (step) => step.kind === "fill" && step.fields.some((field) => isDetailSlot(field.slot)),
         ),
       ) &&
       !(recipe.handlers ?? []).some((handler) => {
@@ -843,13 +982,15 @@ const routeRules: readonly (readonly [(recipe: RouteBody) => boolean, string])[]
     "A password handler's button is a route step target",
   ],
   // A control named by its accessible name is only ever a `password` handler's button
-  // (ADR 0048 amendment of 2026-10-19), never another element the executor presses or
-  // checks.
+  // (ADR 0048 amendment of 2026-10-19) or a route step's click (ADR 0048 amendment of
+  // 2026-10-23), never another element the executor presses or checks.
   [
     (recipe) =>
       ![
         ...variantsOf(recipe).flatMap((variant) =>
-          variant.steps.flatMap((step) => (step.kind === "fill" ? [] : [step.target])),
+          variant.steps.flatMap((step) =>
+            step.kind === "fill" || step.kind === "click" ? [] : [step.target],
+          ),
         ),
         ...(recipe.passkey ? [recipe.passkey.target] : []),
         ...(recipe.completion ?? []).flatMap((marker) => [marker.target, ...(marker.absent ?? [])]),
@@ -859,7 +1000,7 @@ const routeRules: readonly (readonly [(recipe: RouteBody) => boolean, string])[]
           handler.kind === "password" ? [] : handlerTargets(handler),
         ),
       ].some((target) => target.by === "accessible-name"),
-    "Only a password handler's button is named by its accessible name",
+    "Only a password handler's button or a click step is named by its accessible name",
   ],
   // The passkey route starts on the start page, beside the password route.
   [
@@ -996,7 +1137,7 @@ export const loginRecipeDocumentSchema = v.pipe(
  * Only an `<a href>` link is to be pressed, which a `text` target names by its rendered
  * text as an `accountSwitch` does; its target is an `id`, `name`, `test-id` or `text`
  * locator, never `autocomplete` or `label`, which name only inputs, nor `accessible-name`,
- * which names only a `password` handler's button.
+ * which names only a `password` handler's button or a route step's click.
  *
  * The service generates it for an entry request (`entryGenerationRequestSchema`) and
  * stores it; devices cache it, but nothing sends such a request or presses it yet, it
@@ -1010,7 +1151,7 @@ export const loginEntryRecipeSchema = v.strictObject({
   entry: v.strictObject({
     path,
     // A link or button locator; `autocomplete` and `label` name only inputs, which are never
-    // pressed, and `accessible-name` only a `password` handler's button.
+    // pressed, and `accessible-name` only a `password` handler's button or a route click.
     target: v.variant("by", [
       loginAttributeTargetSchema.options[0],
       loginAttributeTargetSchema.options[1],
@@ -1020,7 +1161,7 @@ export const loginEntryRecipeSchema = v.strictObject({
 });
 /**
  * A list control's locator: never `autocomplete` or `label`, which name only inputs, nor
- * `accessible-name`, which names only a `password` handler's button.
+ * `accessible-name`, which names only a `password` handler's button or a route step's click.
  */
 const chooserTargetSchema = v.variant("by", [
   loginAttributeTargetSchema.options[0],
@@ -1328,9 +1469,10 @@ export type LoginMarkerTarget = v.InferOutput<typeof loginMarkerTargetSchema>;
 export const isLoginTarget = (target: LoginMarkerTarget): target is LoginTarget =>
   target.by !== "href";
 /**
- * Whether a locator may name a route step's element, or a handler's other than a
+ * Whether a locator may name any route step's element, or a handler's other than a
  * `password` handler's button: neither a link's path (ADR 0029) nor an accessible name
- * (ADR 0048 amendment of 2026-10-19).
+ * (ADR 0048 amendment of 2026-10-19), which a route step's click alone may also use
+ * (ADR 0048 amendment of 2026-10-23).
  */
 export const isStepTarget = (
   target: LoginMarkerTarget,
@@ -2067,11 +2209,20 @@ export const TOTP_HANDLER_SLOT = "totp";
  */
 export const DETAIL_HANDLER_SLOT = "detail";
 /**
+ * The slot of a `detail` handler's fill of the `index`th input of its chosen field: the
+ * first `detail`, a split value's further parts `detail 2` to `detail 6` (ADR 0061).
+ */
+export const detailSlot = (index: number) =>
+  index === 0 ? DETAIL_HANDLER_SLOT : `${DETAIL_HANDLER_SLOT} ${index + 1}`;
+/** Whether `slot` is one a `detail` handler's fill uses, which no route step fills. */
+export const isDetailSlot = (slot: string) => /^detail(?: [2-6])?$/u.test(slot);
+/**
  * The steps a handler runs: a `passkey` handler's click, a `password` handler's click that
  * advances to the password page (ADR 0048), a `totp` handler's fill of the code into its
- * field, or a `detail` handler's fill of its input at `field` (ADR 0061), followed by the
- * click on its submit button. A `totp` handler without a button runs one fill that submits
- * through the code's own input (ADR 0027 amendment of 2026-10-23): nothing is clicked.
+ * field, or a `detail` handler's fill of its field at `field`, every input of a split
+ * value at once (ADR 0061), followed by the click on its submit button. A `totp` handler
+ * without a button runs one fill that submits through the code's own input (ADR 0027
+ * amendment of 2026-10-23): nothing is clicked.
  */
 export function handlerSteps(handler: LoginHandler, field = 0): LoginStep[] {
   if (handler.kind === "totp") {
@@ -2090,16 +2241,11 @@ export function handlerSteps(handler: LoginHandler, field = 0): LoginStep[] {
     purpose: handler.kind === "password" ? "advance" : "submit",
   };
   if (handler.kind !== "detail") return [click];
-  const target = (handler.fields[field] ?? handler.fields[0]!).target;
-  return [
-    {
-      kind: "fill",
-      path: handler.path,
-      fields: [{ slot: DETAIL_HANDLER_SLOT, target }],
-      effect: "prepare",
-    },
-    click,
-  ];
+  // A value split over several inputs fills them all in one step (ADR 0061).
+  const fills = detailFieldInputs(handler.fields[field] ?? handler.fields[0]!).map(
+    (input, index) => ({ slot: detailSlot(index), target: input.target }),
+  );
+  return [{ kind: "fill", path: handler.path, fields: fills, effect: "prepare" }, click];
 }
 
 /**

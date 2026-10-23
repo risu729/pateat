@@ -29,6 +29,7 @@ import {
   type SyncDeviceState,
   type SyncRecipeChange,
   type SyncRecipeChanges,
+  type SyncRecipeWrite,
   type SyncSettingsState,
   type SyncSettingsWrite,
 } from "@pateat/contracts";
@@ -263,6 +264,21 @@ export type RecipeRevokeResult = (
 ) &
   Timed;
 
+/**
+ * `PUT /v1/recipes/:recipeId`'s answer to a new active recipe from this device (ADR 0040):
+ * `written`, `conflict` when the service already holds the ID (also revoked), `refused`
+ * for a write it will never take (400, 405, 413 or a 409 that names no recipe), and
+ * `failed` for one to try again later, `recipe-limit` included.
+ */
+export type RecipeWriteResult = (
+  | { kind: "written"; change: SyncRecipeChange }
+  | { kind: "conflict"; current: SyncRecipeChange }
+  | { kind: "refused" }
+  | { kind: "rejected" }
+  | { kind: "failed"; error: TransportFailure | "recipe-limit" }
+) &
+  Timed;
+
 /** A recipe generation route's answer (ADR 0018); every answer is a 200 with a status. */
 /** `timeout`: no answer in time, though the service may have called the model. */
 export type InferenceResult<T> = (
@@ -386,6 +402,13 @@ export interface ServiceTransport {
     recipeId: string,
     expectedRevision: number,
   ): Promise<RecipeRevokeResult>;
+  /** A conditional `PUT /v1/recipes/:recipeId` of a new active recipe (ADR 0040). */
+  writeRecipe(
+    origin: string,
+    credential: string,
+    recipeId: string,
+    write: SyncRecipeWrite & { state: "active" },
+  ): Promise<RecipeWriteResult>;
   /** `POST /v1/recipes/:recipeId/completion`: the page after a recipe's final submission. */
   judgeCompletion(
     origin: string,
@@ -419,6 +442,7 @@ const settingsConflictSchema = v.strictObject({
   error: v.literal("settings_conflict"),
   current: syncSettingsStateSchema,
 });
+const recipeLimitSchema = v.strictObject({ error: v.literal("recipe_limit") });
 const recipeConflictSchema = v.strictObject({
   error: v.literal("recipe_conflict"),
   current: v.nullable(syncRecipeChangeSchema),
@@ -781,6 +805,42 @@ export function createServiceTransport(
           : { kind: "failed", error: "unexpected-response", ...timed };
       }
       if (rejected(response)) return { kind: "rejected", ...timed };
+      if (response.status === 429) return { kind: "failed", error: "rate-limited", ...timed };
+      return { kind: "failed", error: "unexpected-response", ...timed };
+    },
+    async writeRecipe(origin, credential, recipeId, write) {
+      const response = await call(
+        origin,
+        `/v1/recipes/${encodeURIComponent(recipeId)}`,
+        {
+          method: "PUT",
+          headers: { Authorization: `Bearer ${credential}`, "Content-Type": "application/json" },
+          body: JSON.stringify(write),
+        },
+        { limit: MAX_RECIPE_WRITE_BYTES },
+      );
+      const timed = { timing: response.timing };
+      if ("failed" in response) return { kind: "failed", error: response.failed, ...timed };
+      if (response.status === 200) {
+        const parsed = v.safeParse(syncRecipeWriteResultSchema, response.body);
+        return parsed.success &&
+          parsed.output.change.recipeId === recipeId &&
+          parsed.output.change.state === "active"
+          ? { kind: "written", change: parsed.output.change, ...timed }
+          : { kind: "failed", error: "unexpected-response", ...timed };
+      }
+      if (response.status === 409) {
+        const limit = v.safeParse(recipeLimitSchema, response.body);
+        if (limit.success) return { kind: "failed", error: "recipe-limit", ...timed };
+        const parsed = v.safeParse(recipeConflictSchema, response.body);
+        return parsed.success &&
+          parsed.output.current !== null &&
+          parsed.output.current.recipeId === recipeId
+          ? { kind: "conflict", current: parsed.output.current, ...timed }
+          : { kind: "refused", ...timed };
+      }
+      if (rejected(response)) return { kind: "rejected", ...timed };
+      if ([400, 405, 413].includes(response.status)) return { kind: "refused", ...timed };
       if (response.status === 429) return { kind: "failed", error: "rate-limited", ...timed };
       return { kind: "failed", error: "unexpected-response", ...timed };
     },

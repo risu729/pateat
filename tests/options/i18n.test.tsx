@@ -169,6 +169,12 @@ test("Japanese passkey chooser keeps interpolated account markup as literal text
     .toHaveTextContent("Synthetic userSynthetic account の <img src=x onerror=alert(1)>");
   expect(list.element().querySelector("img")).toBeNull();
   await page.getByRole("button", { name: "ブラウザーまたは別の拡張機能を使う" }).click();
+  await expect
+    .element(page.getByRole("menuitem", { name: /^このサイトでは常に/u }))
+    .toHaveTextContent(
+      "このサイトでは常にlogin.example.test のパスキーは今後ブラウザーに任せます。Pateat の設定で元に戻せます。",
+    );
+  await page.getByRole("menuitem", { name: "今回のみ" }).click();
   expect(send).toHaveBeenLastCalledWith({
     version: 1,
     type: "passkey-chooser.answer",

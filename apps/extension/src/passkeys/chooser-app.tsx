@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { i18n } from "../i18n";
-import { ChevronLeft, ChevronRight, KeyRound, LockKeyhole, Star } from "lucide-react";
+import { Menu } from "@base-ui/react/menu";
+import { ChevronDown, ChevronLeft, ChevronRight, KeyRound, LockKeyhole, Star } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 import * as v from "valibot";
 import { Logo } from "../logo";
@@ -10,6 +11,8 @@ import { chooserResponseSchema, type ChooserResponse, type ChooserView } from ".
 
 const MAIN = "mx-auto flex min-h-screen max-w-md flex-col gap-4 p-5";
 const HEADING = "m-0 text-xl/7 font-[650] wrap-anywhere";
+const MENU_ITEM =
+  "flex min-h-9 cursor-default flex-col justify-center rounded-md px-3 py-1.5 text-sm outline-none select-none data-[disabled]:opacity-50 data-[highlighted]:bg-accent-tint data-[highlighted]:outline-solid data-[highlighted]:outline-2 data-[highlighted]:-outline-offset-2 data-[highlighted]:outline-focus";
 
 export type ChooserClient = {
   /** The request token from the window's URL. */
@@ -106,7 +109,9 @@ function Header({ children }: { children: React.ReactNode }) {
 /**
  * Pateat's passkey chooser (ADR 0021): for several matches, or for any match while automatic
  * login of the site is paused (ADR 0062). Choosing signs in with that passkey; "Use the browser"
- * or closing the window hands the request to the browser or another extension.
+ * or closing the window hands the request to the browser or another extension. Its
+ * "Always for this site" also hands on every later request of the site's hostname until
+ * the site is removed in the settings (ADR 0007).
  */
 export function ChooserApp({ client }: { client: ChooserClient }) {
   const { t } = useTranslation(undefined, { i18n });
@@ -154,7 +159,9 @@ export function ChooserApp({ client }: { client: ChooserClient }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [client]);
 
-  const answer = async (value: { kind: "chosen"; index: number } | { kind: "browser" }) => {
+  const answer = async (
+    value: { kind: "chosen"; index: number } | { kind: "browser" | "browser-site" },
+  ) => {
     setSending(true);
     const response = await call(client, {
       version: 1,
@@ -206,9 +213,49 @@ export function ChooserApp({ client }: { client: ChooserClient }) {
   const canSave = !login && view.entries.some((entry) => !entry.preferred);
   const cancel = (
     <div className="mt-auto flex justify-end border-t border-border pt-4">
-      <Button variant="outline" disabled={sending} onClick={() => void answer({ kind: "browser" })}>
-        {login ? t("Cancel") : t("Use the browser or another extension")}
-      </Button>
+      {login ? (
+        <Button
+          variant="outline"
+          disabled={sending}
+          onClick={() => void answer({ kind: "browser" })}
+        >
+          {t("Cancel")}
+        </Button>
+      ) : (
+        // As the Bitwarden extension's "Use device or hardware key": once, or always here.
+        <Menu.Root>
+          <Menu.Trigger render={<Button variant="outline" />} disabled={sending}>
+            {t("Use the browser or another extension")}
+            <ChevronDown aria-hidden size={16} strokeWidth={2} />
+          </Menu.Trigger>
+          <Menu.Portal>
+            <Menu.Positioner sideOffset={4} align="end">
+              <Menu.Popup className="max-w-[calc(100vw-2.5rem)] min-w-56 rounded-lg border border-border bg-surface p-1 text-ink shadow-[var(--shadow-menu)] outline-none">
+                <Menu.Item
+                  className={MENU_ITEM}
+                  disabled={sending}
+                  onClick={() => void answer({ kind: "browser" })}
+                >
+                  {t("Just once")}
+                </Menu.Item>
+                <Menu.Item
+                  className={MENU_ITEM}
+                  disabled={sending}
+                  onClick={() => void answer({ kind: "browser-site" })}
+                >
+                  <span>{t("Always for this site")}</span>
+                  <span className="text-[13px]/5 wrap-anywhere text-ink-muted">
+                    {t(
+                      "Pateat leaves passkeys on {{hostname}} to the browser. Undo it in Pateat's settings.",
+                      { hostname: new URL(view.origin).hostname },
+                    )}
+                  </span>
+                </Menu.Item>
+              </Menu.Popup>
+            </Menu.Positioner>
+          </Menu.Portal>
+        </Menu.Root>
+      )}
     </div>
   );
   const asked = asking === undefined ? undefined : view.entries[asking];

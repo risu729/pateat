@@ -85,15 +85,14 @@ async function command(message: Record<string, unknown>): Promise<unknown> {
 }
 
 describe("the popup's fill of a personal detail (ADR 0061)", () => {
-  const fill = (token: string, overrides: Record<string, unknown> = {}) =>
+  // The fill names its one input as a field of `fields` (ADR 0061, split values).
+  const fill = (token: string, { path = "/confirm", ...field }: Record<string, unknown> = {}) =>
     command({
       version: 1,
       type: "login.detail.fill",
       token,
-      path: "/confirm",
-      target: target("phone"),
-      value: "1234",
-      ...overrides,
+      path,
+      fields: [{ target: target("phone"), value: "1234", ...field }],
     });
 
   it("checks the input's radio, types the value and presses nothing", async () => {
@@ -194,8 +193,7 @@ describe("the popup's fill of a personal detail (ADR 0061)", () => {
             type: "login.detail.fill",
             token: "another-token",
             path: "/confirm",
-            target: target("phone"),
-            value: "1234",
+            fields: [{ target: target("phone"), value: "1234" }],
           },
           { id: "synthetic-extension" },
           () => (answered = true),

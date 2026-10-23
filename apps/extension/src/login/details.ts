@@ -1,7 +1,10 @@
 import {
   getItemEligibility,
   resolveDetailSourceField,
+  type DatePart,
+  type DetailField,
   type DetailFormat,
+  type DetailPart,
   type DetailLink,
   type LocalSettings,
   type LoginDetail,
@@ -9,13 +12,15 @@ import {
   type VaultConnectionMetadata,
   type VaultItemMetadata,
 } from "@pateat/contracts";
+import type { CardBrand } from "../page/card-hints";
 import type { LoginSecretKind } from "./wire";
 
 // Personal details asked during a login (ADR 0061): which vault fields may give each
 // detail, the owner's links to them, and the value a page wants made from a field's
 // value. Values are made here, in the service worker, right after the vault read, so a
 // whole phone number never reaches the page, nor a whole card number except for a
-// `card-number` input.
+// `card-number` input, and a value split over several inputs reaches it only as its
+// parts: a date's year, month and day, or a card number's or PIN's digit groups.
 
 /** The login item a link belongs to: its site and its vault account and item. */
 export type DetailOwner = Pick<DetailLink, "origin" | "provider" | "userId" | "itemId">;
@@ -238,6 +243,94 @@ export function detailSecret(
   return detail === "card-code" || detail === "card-number" || detail === "pin" ? detail : "detail";
 }
 
+/** One value a `detail` fill types or chooses, and which inputs it may go into. */
+export type DetailFillValue = {
+  value: string;
+  secret: LoginSecretKind;
+  /**
+   * A digit group's input's `maxlength`: the group's length, or, for the last group, the
+   * length its input declared when its digits are fewer.
+   */
+  group?: number;
+  /** A split date's part, whose range a select's option values must lie in. */
+  part?: DatePart;
+  /** A card expiry year, which a select may write with two or four digits. */
+  shortYear?: true;
+};
+
+/** A split date's part as its format writes it: `yyyy` or `yy`, `mm` or `m`, `dd` or `d`. */
+function datePartText(
+  date: { year: string; month: number; day: number },
+  part: DatePart,
+  format: DetailPart["format"],
+): string | undefined {
+  if (part === "year") return format === "yy" ? date.year.slice(-2) : date.year;
+  const number = part === "month" ? date.month : date.day;
+  return format === "m" || format === "d" ? String(number) : String(number).padStart(2, "0");
+}
+
+/**
+ * The values a `detail` field's inputs want, in their order (ADR 0061), made from the
+ * linked field's value (and, for a card's expiry date, `cardYear`): one input's value as
+ * `detailValue` makes it, or one per part of a split value: a date's year, month and day
+ * each in its part's format, chosen in a select by that number; a card number's or PIN's
+ * digits cut into its groups' lengths, every group but the last exactly and the last
+ * with the digits left, at least one and at most its length. Undefined when the value is
+ * unreadable or the field is a secret question's, whose answer goes with its question;
+ * `unfit` when a readable card number's or PIN's digits do not fit its groups.
+ */
+export function detailFieldValues(
+  field: DetailField,
+  value: string,
+  cardYear?: string,
+): DetailFillValue[] | "unfit" | undefined {
+  if (field.detail === "secret-answer") return undefined;
+  if (!("parts" in field)) {
+    const made = detailValue(field.detail, field.format, value, cardYear);
+    return made === undefined ? undefined : [{ value: made, secret: detailSecret(field.detail) }];
+  }
+  if (field.detail === "birth-date" || field.detail === "card-expiry") {
+    const read = field.detail === "birth-date" ? readBirthDate(value) : undefined;
+    const expiry =
+      field.detail === "card-expiry" && cardYear !== undefined
+        ? readExpiry(value, cardYear)
+        : undefined;
+    const date = read
+      ? { year: String(read.year), month: read.month, day: read.day }
+      : expiry && { year: expiry.year, month: Number(expiry.month), day: 0 };
+    if (!date) return undefined;
+    const made: DetailFillValue[] = [];
+    for (const part of field.parts) {
+      if (typeof part.part !== "string") return undefined;
+      const text = datePartText(date, part.part, part.format);
+      if (text === undefined) return undefined;
+      made.push({
+        value: text,
+        secret: "date-part",
+        part: part.part,
+        ...(field.detail === "card-expiry" && part.part === "year"
+          ? { shortYear: true as const }
+          : {}),
+      });
+    }
+    return made;
+  }
+  const whole = detailValue(field.detail, undefined, value);
+  if (whole === undefined) return undefined;
+  const lengths = field.parts.map((part) => part.length ?? 0);
+  const earlier = lengths.slice(0, -1).reduce((sum, length) => sum + length, 0);
+  const last = whole.length - earlier;
+  if (last < 1 || last > lengths.at(-1)!) return "unfit";
+  const secret = detailSecret(field.detail);
+  let at = 0;
+  return lengths.map((length, index) => {
+    const size = index === lengths.length - 1 ? last : length;
+    const group = whole.slice(at, at + size);
+    at += size;
+    return { value: group, secret, group: length };
+  });
+}
+
 /**
  * The owner's saved links for the login item's `detail`: one at most, or for a secret
  * question's answer one per question field.
@@ -318,6 +411,9 @@ function readable(
   );
 }
 
+/** The most candidates the popup lists for a detail. */
+export const MAX_DETAIL_CANDIDATES = 20;
+
 /** One vault field that could give a detail, as the popup offers it. */
 export type DetailCandidate = {
   connectionId: string;
@@ -342,7 +438,7 @@ export function detailCandidates(
   connection: VaultConnectionMetadata,
   detail: LoginDetail,
   page: { host: string; title?: string | undefined; loginItemId: string },
-  limit = 20,
+  limit = MAX_DETAIL_CANDIDATES,
 ): DetailCandidate[] {
   const found: (DetailCandidate & { near: boolean })[] = [];
   for (const item of connection.items) {
@@ -397,4 +493,85 @@ function nearPage(name: string, page: { host: string; title?: string | undefined
   return (
     title !== undefined && name.trim().length > 0 && title.includes(name.normalize("NFKC").trim())
   );
+}
+
+/** The most card items whose number and brand one guess reads (ADR 0061). */
+export const MAX_CARD_GUESS_READS = 20;
+/** What a page shows about the card it asks for (`login.detail.card`). */
+export type CardHints = { last4: readonly string[]; brands: readonly CardBrand[] };
+/** What a card item holds, as read for the guess: its number's last four digits and its brand. */
+export type CardFacts = { last4?: string | undefined; brand?: CardBrand | undefined };
+
+/** Whether `detail` is read only from a card item's built-in fields. */
+export const isCardDetail = (detail: LoginDetail) => cardDetails.includes(detail);
+
+/**
+ * The fields of a card item the guess may read (ADR 0061): its number and its brand, each
+ * only while the item may be used and the field is in it and allowed, as a fill reads it.
+ */
+export function cardGuessFields(
+  settings: LocalSettings,
+  catalog: VaultCatalog,
+  connection: VaultConnectionMetadata,
+  itemId: string,
+): ("card.number" | "card.brand")[] {
+  const item = connection.items.find((entry) => entry.id === itemId);
+  if (!item || item.inactive || connection.quarantinedItemIds?.includes(item.id)) return [];
+  const eligibility = getItemEligibility(settings, catalog, connection.id, item.id);
+  if (!eligibility.eligible) return [];
+  return (["card.number", "card.brand"] as const).filter(
+    (id) => eligibility.fieldIds.includes(id) && item.fields.some((entry) => entry.id === id),
+  );
+}
+
+/** A card number's last four digits, read as a `card-last-4` value is made. */
+export const cardLast4 = (number: string) => detailValue("card-last-4", undefined, number);
+
+/**
+ * The card candidates in the order the popup proposes them (ADR 0061, owner 2026-10-23
+ * 12:26 UTC), from what the page shows and what each card item holds (`facts`, by item):
+ * the one card whose last four digits the page shows first; among several such cards, the
+ * one whose brand the page names too, and otherwise those cards first with none selected,
+ * so a tie is never chosen. When the page shows last digits and no card ends in them, the
+ * cards whose digits are unknown come before those whose digits differ, the brand's
+ * first, and none is selected. When it shows none, the only card of the brand it names
+ * comes first. Otherwise the order by name is kept. A brand counts only when the page
+ * names just one, and a candidate missing from `facts` was not read, so none is selected.
+ */
+export function rankCards<T extends { itemId: string }>(
+  candidates: readonly T[],
+  facts: ReadonlyMap<string, CardFacts>,
+  hints: CardHints,
+): { candidates: T[]; preselect: boolean } {
+  const items = [...new Set(candidates.map((entry) => entry.itemId))];
+  const brand = hints.brands.length === 1 ? hints.brands[0] : undefined;
+  const shows = (id: string) => {
+    const last4 = facts.get(id)?.last4;
+    return last4 !== undefined && hints.last4.includes(last4);
+  };
+  const named = (id: string) => brand !== undefined && facts.get(id)?.brand === brand;
+  const byDigits = items.filter(shows);
+  let first: string[] = [];
+  let preselect = true;
+  if (byDigits.length === 1) first = byDigits;
+  else if (byDigits.length > 1) {
+    const both = byDigits.filter(named);
+    first = both.length === 1 ? both : byDigits;
+    preselect = both.length === 1;
+  } else if (hints.last4.length > 0) {
+    const unknown = items.filter((id) => facts.get(id)?.last4 === undefined);
+    first = [...unknown.filter(named), ...unknown.filter((id) => !named(id))];
+    preselect = false;
+  } else {
+    const byBrand = items.filter(named);
+    if (byBrand.length === 1) first = byBrand;
+  }
+  if (items.some((id) => !facts.has(id))) preselect = false;
+  return {
+    candidates: [
+      ...first.flatMap((id) => candidates.filter((entry) => entry.itemId === id)),
+      ...candidates.filter((entry) => !first.includes(entry.itemId)),
+    ],
+    preselect,
+  };
 }

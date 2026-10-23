@@ -450,7 +450,9 @@ function namesOnly(
  * two words of the page's header (`paths` holds those words, `shownWords`), so an account
  * link whose text is the person's nickname still has a locator, while a handle or name the
  * page shows (`/taro_y` beside "@taro_y") is not used. A handle the page never shows can still pass,
- * which the judge must refuse.
+ * which the judge must refuse. With `names`, a native button none of those name is located
+ * by its accessible name (`buttonNameTarget`), before an ID another load may change, as a
+ * field's visible name is.
  */
 function locate(
   element: Element,
@@ -463,6 +465,7 @@ function locate(
     labels = false,
     roles = false,
     hidden = false,
+    names = false,
     paths,
   }: {
     redactAttributes?: boolean;
@@ -472,6 +475,7 @@ function locate(
     labels?: boolean | undefined;
     roles?: boolean;
     hidden?: boolean;
+    names?: boolean;
     paths?: ReadonlySet<string>;
   } = {},
 ): LoginMarkerTarget | undefined {
@@ -491,6 +495,7 @@ function locate(
   return (
     (paths ? pathTarget(element, index, paths) : undefined) ??
     contentTarget(element, index, links, labels, roles, hidden) ??
+    (names ? buttonNameTarget(element, index) : undefined) ??
     demoted
   );
 }
@@ -681,6 +686,29 @@ function passwordChoiceTarget(element: Element, index: LocatorIndex): LoginTarge
     observedText(name) !== name ||
     index.get("accessible-name")!.get(name) !== 1 ||
     !namesPasswordControl(name, controlContent(element))
+  )
+    return undefined;
+  const target = { by: "accessible-name" as const, value: name };
+  return v.is(loginTargetSchema, target) ? target : undefined;
+}
+
+/**
+ * The accessible-name locator of a login form's native button that no other locator names
+ * alone (ADR 0048 amendment of 2026-10-23), such as an `<input type="submit">`
+ * without a `value` labelled by the text it shows: its {@link controlName}, when exactly
+ * one shown control of the page has that name, counted as the executor sees the page, it
+ * holds no number and redaction leaves it unchanged, as a field's visible name (ADR 0037).
+ * A route step's click may then press it; script, role and fragment-link controls never
+ * get it here.
+ */
+function buttonNameTarget(element: Element, index: LocatorIndex): LoginTarget | undefined {
+  if (!isButton(element)) return undefined;
+  const name = controlName(element);
+  if (
+    name === undefined ||
+    /\p{Number}/u.test(name) ||
+    observedText(name) !== name ||
+    index.get("accessible-name")!.get(name) !== 1
   )
     return undefined;
   const target = { by: "accessible-name" as const, value: name };
@@ -1062,7 +1090,10 @@ function adjacentText(element: Element, keys?: ReadonlySet<Element>): string | u
  * A field's label. The keys of a page's software keyboards (`keys`, ADR 0067), with their
  * labels and order, are never part of it; the rest of a label around them is.
  */
-function fieldLabel(input: HTMLInputElement, keys?: ReadonlySet<Element>): string | undefined {
+function fieldLabel(
+  input: HTMLInputElement | HTMLSelectElement,
+  keys?: ReadonlySet<Element>,
+): string | undefined {
   const labels = [...(input.labels ?? [])].flatMap((label) => {
     const text = uncutText(renderedText(label, rawLimit, { leave: keys }));
     return text ? [text] : [];
@@ -1091,7 +1122,9 @@ function actionLabel(element: HTMLElement): string | undefined {
   );
 }
 
-function autocomplete(input: HTMLInputElement): ObservedCandidate["autocomplete"] {
+function autocomplete(
+  input: HTMLInputElement | HTMLSelectElement,
+): ObservedCandidate["autocomplete"] {
   const tokens = autocompleteTokens(input);
   if (tokens.length === 1 && tokens[0] === "off") return "off";
   return observedAutocompleteTokens.find((token) => tokens.includes(token));
@@ -1412,6 +1445,32 @@ function keypadPositionTarget(field: Element, container: Element): LoginKeypadTa
   return value === undefined ? undefined : { by: "position", value };
 }
 
+/** How many selects a judged page's description carries at most (ADR 0061). */
+const maxSelects = 12;
+/**
+ * The shown, enabled single-choice selects of a judged page (ADR 0061), each as a `select`
+ * with its label and `autocomplete`, never its options: the judge may name one as a split
+ * birth date's or card expiry date's part, and the fill matches an option by its number.
+ */
+function describeSelects(document: Document): { form: HTMLFormElement | null; draft: Draft }[] {
+  return [...document.querySelectorAll("select")].flatMap((select) => {
+    if (select.multiple || select.matches(":disabled") || presence(select) !== "visible") return [];
+    const label = fieldLabel(select);
+    const hint = autocomplete(select);
+    return [
+      {
+        form: select.form,
+        draft: {
+          element: select,
+          role: "select" as const,
+          ...(label ? { label } : {}),
+          ...(hint ? { autocomplete: hint } : {}),
+        },
+      },
+    ];
+  });
+}
+
 /**
  * Why a page's description found no field, as a log code of codes only (ADR 0019): how
  * many inputs other than hidden ones the page holds (`n`), how many fields `describe`
@@ -1711,7 +1770,12 @@ export function extractLoginObservation(
   // element, whatever its form, since one observation's candidates need distinct targets
   // and the login's own control needs that text more.
   let unlocated = false;
-  const located = (entries: typeof required, { optional = false, near = false } = {}) =>
+  // A login form's native button that nothing else names alone is named by its accessible
+  // name, which a route step's click may press (ADR 0048 amendment of 2026-10-23).
+  const located = (
+    entries: typeof required,
+    { optional = false, near = false, names = false } = {},
+  ) =>
     entries.flatMap((entry) => {
       const target = locate(entry.draft.element, index, {
         tokens,
@@ -1721,6 +1785,7 @@ export function extractLoginObservation(
           near ||
           entry.draft.role === "link" ||
           (entry.form !== null && loginForms.has(entry.form)),
+        names: names && entry.draft.role === "button" && loginForms.has(entry.form),
       });
       if (!target) unlocated = true;
       if (!target && !optional) flaw(entry.form, unlocatedGap(entry.draft.role));
@@ -1730,7 +1795,7 @@ export function extractLoginObservation(
     entries.filter((entry) => !flawed.has(entry.form) || loginForms.has(entry.form));
   const kept = (entries: typeof required, options?: { optional: boolean }) =>
     keep(located(entries, options));
-  const requiredFound = located(required);
+  const requiredFound = located(required, { names: true });
   const iconsFound = located(icons, { optional: true });
   const submitting = new Set(
     requiredFound.filter((entry) => entry.draft.role === "button").map((entry) => entry.form),
@@ -2419,9 +2484,12 @@ function mayBeSignIn(input: HTMLInputElement): boolean {
  * box with no ID, a password change form's field or a hotel search's read-only date
  * picker, is left out (owner, 2026-10-12, ADR 0029). A disabled one is left out too, but
  * the result says so (`disabledLeftOut`): it may be a code field waiting for a timer or a
- * sent code, so such a page completes only when the judge answers `signed-in`. A radio
- * button, select or text area, or an ARIA widget for one, is left out as well, and the
- * result says when the page shows one that is no part of a site search
+ * sent code, so such a page completes only when the judge answers `signed-in`. Up to
+ * twelve shown single-choice selects follow the fields as `select`, by their label and
+ * `autocomplete` and never their options, located by a lasting attribute or left out, so
+ * the judge can name a split birth date's or card expiry date's parts (ADR 0061). A radio
+ * button or text area, or an ARIA widget for one, is left out as well, and the result
+ * says when the page shows one, or any select, that is no part of a site search
  * (`inputLeftOut`, `leftOutInputs`): an `optional` answer does not complete such a page
  * (ADR 0065). Buttons
  * and links are only possible markers; those past the limit or without a locator are
@@ -2497,6 +2565,9 @@ function describeSignedIn(document: Document): ObservationResult {
         : [];
     });
   const fieldsFound = located(fieldEntries);
+  // A select is no sign-in field: one without a lasting locator, or past the limit, is
+  // left out (ADR 0061).
+  const selectsFound = located(describeSelects(document)).slice(0, maxSelects);
   if (fieldsFound.length > maxCandidates) gap ??= "too-many-fields";
   // A field nothing can locate is left out unless it may be a sign-in field, as a search
   // box with no ID or a password change form's fields are not (S2 of ADR 0029: a new
@@ -2545,9 +2616,10 @@ function describeSignedIn(document: Document): ObservationResult {
     ];
   });
   const ranked = byLandmark(markersFound, openModals(document));
+  const fieldsShown = [...fieldsFound, ...selectsFound].slice(0, maxCandidates);
   const chosen = [
-    ...fieldsFound.slice(0, maxCandidates),
-    ...ranked.slice(0, Math.max(0, maxCandidates - fieldsFound.length)),
+    ...fieldsShown,
+    ...ranked.slice(0, Math.max(0, maxCandidates - fieldsShown.length)),
   ];
   if (chosen.length === 0) return { ok: false, reason: "no-candidates" };
   const result = observe(

@@ -24,6 +24,10 @@ export const en = {
   "Unnamed item": "Unnamed item",
   Default: "Default",
   "Use the browser or another extension": "Use the browser or another extension",
+  "Just once": "Just once",
+  "Always for this site": "Always for this site",
+  "Pateat leaves passkeys on {{hostname}} to the browser. Undo it in Pateat's settings.":
+    "Pateat leaves passkeys on {{hostname}} to the browser. Undo it in Pateat's settings.",
   "Bitwarden asks for your master password before this item is used.":
     "Bitwarden asks for your master password before this item is used.",
   "Other passkeys": "Other passkeys",
@@ -261,6 +265,8 @@ export const en = {
   "the page showed no sign-in form": "the page showed no sign-in form",
   "the vault item has neither a password nor a passkey":
     "the vault item has neither a password nor a passkey",
+  "the vault item has no password, and Pateat leaves passkey requests on this site to the browser, as listed in its settings":
+    "the vault item has no password, and Pateat leaves passkey requests on this site to the browser, as listed in its settings",
   "the vault item has no password, and the recipe has no way on without one":
     "the vault item has no password, and the recipe has no way on without one",
   "the vault item has no password": "the vault item has no password",

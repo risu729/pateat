@@ -498,11 +498,14 @@ holds:
   chooser window was still open as the wait ran out, or `withheld` for a conditional
   request kept unanswered after a Pateat login of its page signed in, or after four
   minutes of waiting for that login or for a pick while its tab asks for an account) and
-  the delegate `reason`. A conditional request is handed on as `no-recipe` (no recipe
-  for the site), `no-login` (no login of its page started), `login-ended` (the login did
-  not sign in) or `no-pick` (the popup offered its page an ordinary choice of accounts,
-  outside an ask, with an item that holds a passkey, and nothing was picked within four
-  minutes), and at once as `paused` while automatic login of its site is paused
+  the delegate `reason`. Any request of a hostname listed under "Sites whose passkey
+  requests go to the browser" on the settings page is handed on first, as `browser-site`
+  ([ADR 0007](adr/0007-existing-passkey-assertions.md), amended 2026-10-23).
+  A conditional request is handed on as `no-recipe` (no recipe for the site),
+  `no-login` (no login of its page started), `login-ended` (the login did not sign in)
+  or `no-pick` (the popup offered its page an ordinary choice of accounts, outside an
+  ask, with an item that holds a passkey, and nothing was picked within four minutes),
+  and at once as `paused` while automatic login of its site is paused
   ([ADR 0062](adr/0062-log-in-again-after-a-logout.md))
   ([ADR 0034](adr/0034-answer-page-passkey-requests.md)). A request outside conditional
   mediation that names its credentials, in a tab whose Pateat login of the origin signed
@@ -517,14 +520,15 @@ holds:
   for the origin's site default item), `siteDefaultItem` (`unset`, `unresolved` when
   the saved account matches no connection, `not-searched` when the item is ineligible
   or its connection was not searched, or `searched`) and `complete`;
-- when the chooser window opened, `chooser`: `chosen`, `browser` (the user pressed "Use
-  the browser or another extension"), `closed` (the window or its tab was closed),
+- when the chooser window opened, `chooser`: `chosen`, `browser` (the user chose "Just
+  once" under "Use the browser or another extension"), `browser-site` (the user chose
+  "Always for this site" there), `closed` (the window or its tab was closed),
   `unavailable` (the window could not open, or another request held it), `timeout` (the
   wait ran out; the outcome is `not-allowed`) or `cancelled` (the page cancelled the
-  request). A `browser`, `closed` or `unavailable` ending delegates with the reason
-  `chooser-` plus that value; a choice that the settings no longer offer when it is
-  looked up again delegates with `settings-changed`, or `vault-incomplete` when the
-  vault could not be searched in full;
+  request). A `browser`, `browser-site`, `closed` or `unavailable` ending delegates with
+  the reason `chooser-` plus that value; a choice that the settings no longer offer when
+  it is looked up again delegates with `settings-changed`, or `vault-incomplete` when
+  the vault could not be searched in full;
 - `defaultUnset` when the site's default counted as unset, so the chooser opened even
   for one match or the default, with none preselected: with `paused` while automatic
   login of the site is paused, by a pause or an exclusion rule
@@ -536,7 +540,8 @@ holds:
   `default-unset`;
 - `cause`: for a `cancelled` outcome, who cancelled it (`page-cancelled` or
   `settings-changed`); for the `assertion-failed` reason, the step that threw
-  (`login-wait`, `account-lookup`, `passkey-lookup`, `chooser` or `signing`);
+  (`browser-site-lookup`, `login-wait`, `account-lookup`, `passkey-lookup`, `chooser` or
+  `signing`);
 - `mediation`: the request's mediation when it names one (`optional`, `conditional`,
   `required`, `silent`, `immediate` or `other`), whatever the outcome;
 - `uiMode`: `immediate` for Chrome's Immediate UI, separately from mediation
@@ -587,6 +592,7 @@ The sign-ins the check reads are kept per tab in `chrome.storage.session`
 
 - `origin` and `outcome`: `declined` (Pateat refused it with `NotAllowedError`) or
   `delegate` (handed on to the browser and other providers), with the delegate `reason`:
+  `browser-site` (the page's hostname is one whose passkey requests go to the browser),
   `not-signed-in` (no Pateat sign-in to that RP ID in the tab), `expired` (the latest
   one was more than five minutes ago), `not-listed` (no listed credential is a passkey
   Pateat could sign with there), `vault-incomplete` (none is, but a connection or item
@@ -732,6 +738,11 @@ schema change backfills them from the logs without opening login pages where pos
 A change that needs no new model output rewrites them in a migration; one that needs new
 model output is rebuilt from the request log's observations by a separate tool; a recipe
 that cannot be rebuilt is discarded and generated again on the next visit.
+
+A second exception, chosen by the owner on 2026-10-23 at 21:13 UTC: settings stored
+before the synced `passkeyBrowserSites` list existed read it as an empty list, in the
+service and in the extension's local snapshot
+([ADR 0007](adr/0007-existing-passkey-assertions.md)).
 
 ## Platform features
 

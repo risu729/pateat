@@ -7,8 +7,13 @@ import type {
   VaultItemMetadata,
 } from "@pateat/contracts";
 import {
+  cardGuessFields,
+  cardLast4,
+  rankCards,
+  type CardFacts,
   detailCandidates,
   detailFieldIds,
+  detailFieldValues,
   detailSecret,
   detailValue,
   givesDetail,
@@ -91,6 +96,7 @@ const policy = (excludedFields: { itemId: string; fieldId: string }[] = []): Loc
   ],
   excludedSites: [],
   repromptSites: [],
+  passkeyBrowserSites: [],
   siteDefaults: [],
   bindings: [],
 });
@@ -286,5 +292,227 @@ describe("links to card values and PINs", () => {
         link("card-number", { itemId: "card", field: "card.code" }),
       ),
     ).toBeUndefined();
+  });
+});
+
+describe("values split over several inputs (owner, 2026-10-23 12:26 UTC)", () => {
+  const at = (value: string) => ({ by: "name" as const, value });
+  const birth = (
+    ...parts: [part: "year" | "month" | "day", format: "yyyy" | "mm" | "m" | "dd" | "d"][]
+  ) => ({
+    detail: "birth-date" as const,
+    parts: parts.map(([part, format]) => ({ part, format, target: at(part) })),
+  });
+  const groups = (detail: "card-number" | "pin", ...lengths: number[]) => ({
+    detail,
+    parts: lengths.map((length, index) => ({ part: index + 1, length, target: at(`g${index}`) })),
+  });
+  const values = (made: { value: string }[] | "unfit" | undefined) =>
+    typeof made === "string" ? made : made?.map((entry) => entry.value);
+
+  it("makes a birth date's year, month and day in each part's format", () => {
+    const full = birth(["year", "yyyy"], ["month", "mm"], ["day", "dd"]);
+    expect(detailFieldValues(full, "1990-04-05")).toEqual([
+      { value: "1990", secret: "date-part", part: "year" },
+      { value: "04", secret: "date-part", part: "month" },
+      { value: "05", secret: "date-part", part: "day" },
+    ]);
+    expect(
+      values(detailFieldValues(birth(["year", "yyyy"], ["month", "m"], ["day", "d"]), "1990/4/5")),
+    ).toEqual(["1990", "4", "5"]);
+    expect(
+      values(detailFieldValues(birth(["year", "yyyy"], ["month", "m"]), "1990年4月5日")),
+    ).toEqual(["1990", "4"]);
+    expect(values(detailFieldValues(birth(["month", "mm"], ["day", "d"]), "19901205"))).toEqual([
+      "12",
+      "5",
+    ]);
+    // A value that is no date gives none of the parts.
+    expect(detailFieldValues(full, "1990-02-30")).toBeUndefined();
+    expect(detailFieldValues(full, "April 1990")).toBeUndefined();
+  });
+
+  it("makes a card expiry's month and its year with two or four digits", () => {
+    const expiry = (year: "yy" | "yyyy", month: "mm" | "m") => ({
+      detail: "card-expiry" as const,
+      parts: [
+        { part: "month" as const, format: month, target: at("month") },
+        { part: "year" as const, format: year, target: at("year") },
+      ],
+    });
+    // Only a card expiry year may be matched with the other number of digits in a select.
+    expect(detailFieldValues(expiry("yy", "mm"), "4", "2031")).toEqual([
+      { value: "04", secret: "date-part", part: "month" },
+      { value: "31", secret: "date-part", part: "year", shortYear: true },
+    ]);
+    expect(values(detailFieldValues(expiry("yyyy", "m"), "１２", "31"))).toEqual(["12", "2031"]);
+    expect(detailFieldValues(expiry("yy", "mm"), "13", "2031")).toBeUndefined();
+    expect(detailFieldValues(expiry("yy", "mm"), "4")).toBeUndefined();
+  });
+
+  it("cuts a card number's or a PIN's digits into its groups, which must hold all of them", () => {
+    expect(detailFieldValues(groups("card-number", 4, 4, 4, 4), "4000 0000 0000 0002")).toEqual(
+      ["4000", "0000", "0000", "0002"].map((value) => ({
+        value,
+        secret: "card-number",
+        group: 4,
+      })),
+    );
+    expect(values(detailFieldValues(groups("card-number", 4, 6, 5), "3400-000000-00009"))).toEqual([
+      "3400",
+      "000000",
+      "00009",
+    ]);
+    expect(detailFieldValues(groups("pin", 2, 2), "０１２３")).toEqual([
+      { value: "01", secret: "pin", group: 2 },
+      { value: "23", secret: "pin", group: 2 },
+    ]);
+    // The last group may hold fewer digits than its input allows, as a last box of 7 for
+    // card numbers of 16 to 19 digits; it still goes only into an input of its length.
+    expect(detailFieldValues(groups("card-number", 4, 4, 4, 7), "4000 0000 0000 0002")).toEqual([
+      { value: "4000", secret: "card-number", group: 4 },
+      { value: "0000", secret: "card-number", group: 4 },
+      { value: "0000", secret: "card-number", group: 4 },
+      { value: "0002", secret: "card-number", group: 7 },
+    ]);
+    expect(
+      values(detailFieldValues(groups("card-number", 4, 4, 4, 7), "4000 0000 0000 0000 006")),
+    ).toEqual(["4000", "0000", "0000", "0000006"]);
+    // Too few digits for the groups before the last, or too many for the last, fill none
+    // of them, and say the value does not fit.
+    expect(detailFieldValues(groups("card-number", 4, 4, 4), "4000 0000 0000 0002")).toBe("unfit");
+    expect(detailFieldValues(groups("card-number", 4, 4, 4, 4, 4), "4000 0000 0000 0002")).toBe(
+      "unfit",
+    );
+    expect(detailFieldValues(groups("pin", 2, 2), "12345")).toBe("unfit");
+    expect(detailFieldValues(groups("pin", 1, 1, 1, 1), "12345")).toBe("unfit");
+    // A PIN too short to be one is unreadable, whatever its groups.
+    expect(detailFieldValues(groups("pin", 1, 1, 1, 1), "123")).toBeUndefined();
+  });
+
+  it("makes one input's value as before, and never a secret question's answer", () => {
+    expect(
+      detailFieldValues({ detail: "birth-date", format: "yyyymm", target: at("b") }, "1990-04-05"),
+    ).toEqual([{ value: "199004", secret: "detail" }]);
+    expect(detailFieldValues({ detail: "pin", target: at("p") }, "0123")).toEqual([
+      { value: "0123", secret: "pin" },
+    ]);
+    expect(
+      detailFieldValues({ detail: "secret-answer", target: at("a") }, "synthetic answer"),
+    ).toBeUndefined();
+  });
+});
+
+describe("the popup's guess of a card (owner 2026-10-23 12:26 UTC)", () => {
+  const candidates = ["one", "two", "three"].map((itemId) => ({ itemId }));
+  const order = (result: { candidates: { itemId: string }[]; preselect: boolean }) => [
+    result.candidates.map((entry) => entry.itemId),
+    result.preselect,
+  ];
+  const facts = new Map<string, CardFacts>([
+    ["one", { last4: "1111", brand: "Visa" }],
+    ["two", { last4: "9876", brand: "Mastercard" }],
+    ["three", { last4: "9876", brand: "Visa" }],
+  ]);
+
+  it("puts the one card ending in the shown digits first and selects it", () => {
+    expect(order(rankCards(candidates, facts, { last4: ["1111"], brands: [] }))).toEqual([
+      ["one", "two", "three"],
+      true,
+    ]);
+    expect(
+      order(rankCards(candidates.slice(0, 2).reverse(), facts, { last4: ["1111"], brands: [] })),
+    ).toEqual([["one", "two"], true]);
+  });
+
+  it("never selects one of two cards ending in the same digits, unless only one has the brand", () => {
+    expect(order(rankCards(candidates, facts, { last4: ["9876"], brands: [] }))).toEqual([
+      ["two", "three", "one"],
+      false,
+    ]);
+    expect(order(rankCards(candidates, facts, { last4: ["9876"], brands: ["Visa"] }))).toEqual([
+      ["three", "one", "two"],
+      true,
+    ]);
+    // Two shown runs that each match a card are a tie too.
+    expect(
+      order(rankCards(candidates.slice(0, 2), facts, { last4: ["1111", "9876"], brands: [] })),
+    ).toEqual([["one", "two"], false]);
+  });
+
+  it("takes the only card of a shown brand when no digits match, and keeps the name order otherwise", () => {
+    expect(order(rankCards(candidates, facts, { last4: [], brands: ["Mastercard"] }))).toEqual([
+      ["two", "one", "three"],
+      true,
+    ]);
+    // Two Visa cards: the order by name stays.
+    expect(order(rankCards(candidates, facts, { last4: [], brands: ["Visa"] }))).toEqual([
+      ["one", "two", "three"],
+      true,
+    ]);
+    // A page that names several brands, as a list of accepted cards does, names none.
+    expect(
+      order(rankCards(candidates, facts, { last4: [], brands: ["Mastercard", "Visa"] })),
+    ).toEqual([["one", "two", "three"], true]);
+  });
+
+  it("selects none when the page shows last digits no card ends in", () => {
+    // A card whose known digits differ from the shown ones is not the page's card.
+    expect(
+      order(rankCards(candidates, facts, { last4: ["5555"], brands: ["Mastercard"] })),
+    ).toEqual([["one", "two", "three"], false]);
+    // Cards whose digits are unknown, as one without a number, come first, the brand's first.
+    const partly = new Map<string, CardFacts>([
+      ["one", { last4: "1111" }],
+      ["two", { brand: "Visa" }],
+      ["three", { brand: "Mastercard" }],
+    ]);
+    expect(
+      order(rankCards(candidates, partly, { last4: ["5555"], brands: ["Mastercard"] })),
+    ).toEqual([["three", "two", "one"], false]);
+  });
+
+  it("selects none while a candidate was not read", () => {
+    const some = new Map<string, CardFacts>([
+      ["one", { last4: "1111" }],
+      ["two", { last4: "9876" }],
+    ]);
+    expect(order(rankCards(candidates, some, { last4: ["1111"], brands: [] }))).toEqual([
+      ["one", "two", "three"],
+      false,
+    ]);
+  });
+
+  it("reads only a card's number and brand, while the item and the field are allowed", () => {
+    const branded = item("branded", "Synthetic branded card", [
+      ...cardFields.map(builtin),
+      builtin("card.brand"),
+    ]);
+    const withBrand = { ...connection, items: [...connection.items, branded] };
+    const all = { connections: [withBrand] };
+    expect(cardGuessFields(policy(), all, withBrand, "branded")).toEqual([
+      "card.number",
+      "card.brand",
+    ]);
+    expect(cardGuessFields(policy(), all, withBrand, "card")).toEqual(["card.number"]);
+    expect(
+      cardGuessFields(
+        policy([{ itemId: "branded", fieldId: "card.number" }]),
+        all,
+        withBrand,
+        "branded",
+      ),
+    ).toEqual(["card.brand"]);
+    const excluded = policy();
+    excluded.connections[0]!.excludedItemIds = ["branded"];
+    expect(cardGuessFields(excluded, all, withBrand, "branded")).toEqual([]);
+    expect(cardGuessFields(policy(), all, withBrand, "login")).toEqual([]);
+    expect(cardGuessFields(policy(), all, withBrand, "missing")).toEqual([]);
+  });
+
+  it("compares a card number by its last four digits", () => {
+    expect(cardLast4("4242 4242 4242 7351")).toBe("7351");
+    expect(cardLast4("４２４２-７３５１")).toBe("7351");
+    expect(cardLast4("735")).toBeUndefined();
   });
 });

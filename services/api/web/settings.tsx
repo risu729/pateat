@@ -16,6 +16,7 @@ export const SETTINGS_QUERY_KEY = ["settings"] as const;
 const EMPTY_SETTINGS: LocalSettings = {
   connections: [],
   excludedSites: [],
+  passkeyBrowserSites: [],
   repromptSites: [],
   siteDefaults: [],
   bindings: [],

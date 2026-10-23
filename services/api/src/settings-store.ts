@@ -16,6 +16,7 @@ import { hasProfile } from "./profile-store";
 export const profileDocument = (document: LocalSettings) => ({
   excludedSites: document.excludedSites,
   repromptSites: document.repromptSites,
+  passkeyBrowserSites: document.passkeyBrowserSites,
   siteDefaults: document.siteDefaults,
   ...(document.loginInPrivateWindows ? { loginInPrivateWindows: true as const } : {}),
 });
@@ -40,7 +41,7 @@ export async function readSettings(
   const shared = row.shared ? JSON.parse(row.shared) : { bindings: [] };
   const profile = row.document
     ? JSON.parse(row.document)
-    : { excludedSites: [], repromptSites: [], siteDefaults: [] };
+    : { excludedSites: [], repromptSites: [], passkeyBrowserSites: [], siteDefaults: [] };
   return v.parse(syncSettingsStateSchema, {
     version: 1,
     profileId,

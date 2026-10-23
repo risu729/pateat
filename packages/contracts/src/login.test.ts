@@ -8,7 +8,12 @@ import {
   CHOOSER_ENTRY_TARGET,
   continuesRecipe,
   DETAIL_HANDLER_SLOT,
+  detailFieldFormat,
+  detailFieldInputs,
   detailLength,
+  detailPartsFit,
+  detailSlot,
+  isDetailSlot,
   handlerFact,
   manualDetails,
   extendsRecipe,
@@ -47,6 +52,7 @@ import {
   parseLoginOperation,
   parseLoginRecipe,
   resolveLoginPlan,
+  type DetailField,
   type ChooserClick,
   type LoginAccountBinding,
   type LoginRecipe,
@@ -889,17 +895,27 @@ describe("second-factor page handlers (ADR 0027)", () => {
           );
       });
 
+      it("names a route step's click (ADR 0048 amendment of 2026-10-23)", () => {
+        const base = recipe();
+        const next = { by: "accessible-name", value: "次に進む" } as const;
+        const steps = base.steps.map((step, index) =>
+          index === 1 ? { ...step, target: next } : step,
+        );
+        expect(parseLoginRecipe({ ...base, steps }).steps[1]).toEqual({
+          kind: "click",
+          path: "/identity",
+          target: next,
+          purpose: "advance",
+        });
+      });
+
       it("names no other element of a recipe", () => {
         const base = recipe();
-        const steps = base.steps.map((step, index) =>
-          index === 1 ? { ...step, target: named } : step,
-        );
         const withPasskey = {
           ...base,
           passkey: { path: "/identity", target: named },
         };
         for (const value of [
-          { ...base, steps },
           withPasskey,
           { ...base, completion: [{ target: named }] },
           { ...base, completion: [{ target: { by: "id", value: "out" } }, { target: named }] },
@@ -1267,6 +1283,222 @@ describe("second-factor page handlers (ADR 0027)", () => {
         ["mm/yyyy", 7],
       ] as const)
         expect(detailLength({ detail: "card-expiry", format })).toBe(length);
+    });
+
+    describe("a value split over several inputs (owner, 2026-10-23 12:26 UTC)", () => {
+      const date = (parts: { part: string; format?: string; length?: number }[]) => ({
+        detail: "birth-date",
+        parts: parts.map((part) => ({ ...part, target: id(`birth-${part.part}`) })),
+      });
+      const year = { part: "year", format: "yyyy" };
+      const month = { part: "month", format: "mm" };
+      const day = { part: "day", format: "d" };
+      const groups = (asked: string, lengths: number[]) => ({
+        detail: asked,
+        parts: lengths.map((length, at) => ({ part: at + 1, length, target: id(`g${at + 1}`) })),
+      });
+      const expiry = (parts: { part: string; format: string }[]) => ({
+        detail: "card-expiry",
+        parts: parts.map((part) => ({ ...part, target: id(`exp-${part.part}`) })),
+      });
+
+      it("takes a birth date's year, month and day, its year and month, or its month and day", () => {
+        for (const parts of [
+          [year, month, day],
+          [day, month, year],
+          [year, month],
+          [month, { part: "day", format: "dd" }],
+          [year, { part: "month", format: "m" }, day],
+        ])
+          expect(parses([detail({ fields: [date(parts), phone] })]), JSON.stringify(parts)).toBe(
+            true,
+          );
+        // The split field keeps its shape; a one-input field beside it is unchanged.
+        const handler = detail({ fields: [date([year, month, day]), phone] });
+        expect(parseLoginRecipe(withHandlers([handler])).handlers).toEqual([handler]);
+      });
+
+      it("takes a card expiry date's month and year, and a card number's or PIN's groups", () => {
+        for (const field of [
+          expiry([
+            { part: "month", format: "mm" },
+            { part: "year", format: "yy" },
+          ]),
+          expiry([
+            { part: "month", format: "m" },
+            { part: "year", format: "yyyy" },
+          ]),
+          groups("card-number", [4, 4, 4, 4]),
+          groups("card-number", [4, 6, 5]),
+          groups("card-number", [4, 4, 4, 4, 3]),
+          groups("card-number", [6, 6]),
+          groups("pin", [1, 1, 1, 1]),
+          groups("pin", [2, 2]),
+        ])
+          expect(parses([detail({ fields: [field] })]), JSON.stringify(field)).toBe(true);
+      });
+
+      it.each([
+        ["a birth date with only its year", date([year])],
+        ["a birth date with its year and day", date([year, day])],
+        ["a birth date with its month twice", date([year, month, { ...month, format: "m" }])],
+        ["a two-digit birth year", date([{ ...year, format: "yy" }, month, day])],
+        ["a birth date's part without a format", date([{ part: "year" }, month, day])],
+        ["a birth date's part with a length", date([{ ...year, length: 4 }, month, day])],
+        ["a birth date's month in a day's format", date([year, { part: "month", format: "dd" }])],
+        ["a birth date with a numbered group", date([year, month, { part: 3 } as never])],
+        ["a card expiry date without its year", expiry([{ part: "month", format: "mm" }])],
+        [
+          "a card expiry date with a day",
+          expiry([
+            { part: "month", format: "mm" },
+            { part: "year", format: "yy" },
+            { part: "day", format: "dd" },
+          ]),
+        ],
+        ["a card number of 11 digits", groups("card-number", [4, 4, 3])],
+        ["a card number of 20 digits", groups("card-number", [4, 4, 4, 4, 4])],
+        ["a PIN of 13 digits", groups("pin", [7, 6])],
+        ["one group alone", groups("card-number", [16])],
+        [
+          "groups numbered out of order",
+          {
+            ...groups("card-number", [4, 4, 4, 4]),
+            parts: groups("card-number", [4, 4, 4, 4]).parts.reverse(),
+          },
+        ],
+        [
+          "a group without a length",
+          {
+            detail: "card-number",
+            parts: [
+              { part: 1, length: 8, target: id("g1") },
+              { part: 2, target: id("g2") },
+            ],
+          },
+        ],
+        [
+          "a group with a format",
+          {
+            detail: "pin",
+            parts: [
+              { part: 1, length: 2, format: "mm", target: id("g1") },
+              { part: 2, length: 2, target: id("g2") },
+            ],
+          },
+        ],
+        ["seven groups", groups("card-number", [2, 2, 2, 2, 2, 2, 2])],
+        ["a phone's last four digits split", groups("phone-last-4", [2, 2])],
+        ["a security code split", groups("card-code", [1, 1, 1])],
+        [
+          "a part with the format of a whole value",
+          date([{ part: "year", format: "yyyymm" }, month]),
+        ],
+        [
+          "a split field with a target of its own",
+          { ...date([year, month, day]), target: id("birth") },
+        ],
+      ])("refuses %s", (_label, field) => {
+        expect(parses([detail({ fields: [field] })])).toBe(false);
+      });
+
+      it("refuses an input used twice across its parts and fields, or a part that is its button", () => {
+        const twice = date([year, month, day]);
+        twice.parts[1]!.target = id("birth-year");
+        expect(parses([detail({ fields: [twice] })])).toBe(false);
+        expect(
+          parses([
+            detail({ fields: [date([year, month]), { ...phone, target: id("birth-year") }] }),
+          ]),
+        ).toBe(false);
+        expect(parses([detail({ fields: [date([year, month])], target: id("birth-month") })])).toBe(
+          false,
+        );
+      });
+
+      it("lists every part, and fills all of the chosen field's inputs in one step", () => {
+        const card = groups("card-number", [4, 4, 4, 4]);
+        const handler = parseLoginRecipe(withHandlers([detail({ fields: [phone, card] })]))
+          .handlers![0]!;
+        expect(handlerTargets(handler)).toEqual([
+          phone.target,
+          ...card.parts.map((part) => part.target),
+          confirm,
+        ]);
+        const steps = handlerSteps(handler, 1);
+        expect(steps).toEqual([
+          {
+            kind: "fill",
+            path: "/verify",
+            fields: card.parts.map((part, at) => ({ slot: detailSlot(at), target: part.target })),
+            effect: "prepare",
+          },
+          { kind: "click", path: "/verify", target: confirm, purpose: "submit" },
+        ]);
+        expect(card.parts.map((_part, at) => detailSlot(at))).toEqual([
+          "detail",
+          "detail 2",
+          "detail 3",
+          "detail 4",
+        ]);
+        expect(["detail", "detail 2", "detail 6"].every(isDetailSlot)).toBe(true);
+        expect(["details", "detail 7", "detail 10", "my detail"].some(isDetailSlot)).toBe(false);
+        expect(detailFieldInputs(card as DetailField)).toEqual(
+          card.parts.map((part) => ({ detail: "card-number", ...part })),
+        );
+      });
+
+      it("refuses a route step that fills a split value's slot", () => {
+        const base = recipe();
+        const named = {
+          ...base,
+          slots: ["branch", "detail 2", "password"],
+          steps: base.steps.map((step) =>
+            step.kind === "fill" && step.path === "/identity"
+              ? {
+                  ...step,
+                  fields: step.fields.map((field) =>
+                    field.slot === "account" ? { ...field, slot: "detail 2" } : field,
+                  ),
+                }
+              : step,
+          ),
+        };
+        expect(() => parseLoginRecipe(named)).toThrow(
+          "a route slot is named as a detail handler's",
+        );
+      });
+
+      it("reads a split birth date as the one-input format the popup names", () => {
+        expect(detailFieldFormat(date([year, month]) as DetailField)).toBe("yyyymm");
+        expect(detailFieldFormat(date([month, day]) as DetailField)).toBe("mmdd");
+        expect(detailFieldFormat(date([year, month, day]) as DetailField)).toBeUndefined();
+        expect(detailFieldFormat(birth)).toBe("yyyymm");
+        expect(detailFieldFormat(groups("pin", [2, 2]) as DetailField)).toBeUndefined();
+      });
+
+      it("fits parts only to the details that split", () => {
+        expect(detailPartsFit("birth-date", [{ part: "year", format: "yyyy" }])).toBe(false);
+        expect(
+          detailPartsFit("card-number", [
+            { part: 1, length: 6 },
+            { part: 2, length: 6 },
+          ]),
+        ).toBe(true);
+        for (const other of [
+          "phone-last-4",
+          "card-last-4",
+          "card-code",
+          "secret-answer",
+          "member-id",
+        ] as const)
+          expect(
+            detailPartsFit(other, [
+              { part: 1, length: 2 },
+              { part: 2, length: 2 },
+            ]),
+          ).toBe(false);
+      });
     });
   });
 

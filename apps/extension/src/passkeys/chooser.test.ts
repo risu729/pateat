@@ -235,6 +235,52 @@ describe("passkey chooser window", () => {
     expect(browser.removeWindow).not.toHaveBeenCalled();
   });
 
+  it.each(["browser", "browser-site"] as const)(
+    "hands a %s answer back once the window is gone and the tab is in front",
+    async (kind) => {
+      const { browser } = fakeBrowser();
+      const chooser = createPasskeyChooser(browser);
+      const answer = open(chooser);
+      await vi.waitFor(() => expect(browser.createWindow).toHaveBeenCalledOnce());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const url = openedUrl(browser);
+      const request = new URL(url).searchParams.get("request");
+      expect(
+        await chooser.handle(
+          { version: 1, type: "passkey-chooser.answer", request, answer: { kind } },
+          { url, tab: { windowId: 41 } },
+        ),
+      ).toEqual({ ok: true });
+      expect(await answer).toEqual({ kind });
+      expect(browser.removeWindow).toHaveBeenCalledWith(41);
+      // The browser's own prompt needs the page focused.
+      expect(browser.focusTab).toHaveBeenCalledWith(7);
+    },
+  );
+
+  it("refuses an answer of another shape", async () => {
+    const { browser } = fakeBrowser();
+    const chooser = createPasskeyChooser(browser);
+    void open(chooser);
+    await vi.waitFor(() => expect(browser.createWindow).toHaveBeenCalledOnce());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const url = openedUrl(browser);
+    const request = new URL(url).searchParams.get("request");
+    for (const answer of [
+      { kind: "browser-site", hostname: "evil.example" },
+      { kind: "always" },
+      { kind: "browser", always: true },
+    ])
+      expect(
+        // oxlint-disable-next-line no-await-in-loop -- one answer after the other
+        await chooser.handle(
+          { version: 1, type: "passkey-chooser.answer", request, answer },
+          { url, tab: { windowId: 41 } },
+        ),
+      ).toEqual({ ok: false });
+    expect(browser.removeWindow).not.toHaveBeenCalled();
+  });
+
   it("hands the answer back only once the window is gone", async () => {
     const { browser } = fakeBrowser();
     let removed!: () => void;

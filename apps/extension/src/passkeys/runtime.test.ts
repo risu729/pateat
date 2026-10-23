@@ -1355,6 +1355,44 @@ describe("a page's own conditional request through a login (ADR 0034)", () => {
     return { hold, events };
   }
 
+  it("hands on a parked request whose site was listed while it waited (ADR 0007)", async () => {
+    const backing = source();
+    const answered = vi.fn();
+    const { conditional, waiting } = decisions();
+    let listed = false;
+    const browserSite = vi.fn(async () => listed);
+    const runtime = createPasskeyRuntime(backing, { extensionId, conditional, browserSite });
+    const pending = runtime.handle(conditionalGet(), sender());
+    await vi.waitFor(() => expect(waiting).toHaveLength(1));
+    // "Always for this site" in another tab, while the request is parked for its login.
+    listed = true;
+    waiting[0]!.decide({ kind: "answer", item: loginItem, answered });
+    expect(await pending).toEqual({ kind: "delegate", reason: "browser-site" });
+    expect(backing.sign).not.toHaveBeenCalled();
+    expect(answered.mock.calls).toEqual([[false]]);
+  });
+
+  it("hands on a request whose site was listed during its lookup (ADR 0007)", async () => {
+    let listed = false;
+    const { promise: looked, resolve: look } = Promise.withResolvers<void>();
+    const backing = source({
+      candidates: vi.fn(async () => {
+        await looked;
+        return { candidates: [candidate], complete: true };
+      }),
+    });
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      browserSite: async () => listed,
+    });
+    const pending = runtime.handle(get(), sender());
+    await vi.waitFor(() => expect(backing.candidates).toHaveBeenCalled());
+    listed = true;
+    look();
+    expect(await pending).toEqual({ kind: "delegate", reason: "browser-site" });
+    expect(backing.sign).not.toHaveBeenCalled();
+  });
+
   it("waits for the login's decision and hands the request on with its reason", async () => {
     const report = vi.fn();
     const requested = vi.fn();
@@ -2144,5 +2182,170 @@ describe("passkey re-verification after Pateat's login (ADR 0035)", () => {
       reverification: async () => false,
     });
     expect(await none.handle(named(), sender())).toMatchObject({ kind: "assertion" });
+  });
+});
+
+describe("sites whose passkey requests go to the browser (ADR 0007)", () => {
+  const pair = [candidate, { ...candidate, credentialId: "BAUG" }];
+  const several = () =>
+    source({ candidates: vi.fn(async () => ({ candidates: pair, complete: true })) });
+  const withRequest = (overrides: Record<string, unknown>, userActivation = true) => ({
+    ...get(crypto.randomUUID(), userActivation),
+    request: { ...request, ...overrides },
+  });
+
+  it.each([
+    ["a modal request", withRequest({})],
+    ["a required-mediation request", withRequest({ mediation: "required" })],
+    ["a conditional request", withRequest({ mediation: "conditional" }, false)],
+    ["an Immediate UI request", withRequest({ uiMode: "immediate" })],
+    [
+      "a request naming its credentials",
+      withRequest({ allowCredentials: [{ type: "public-key", id: "AQID" }] }),
+    ],
+  ])("hands %s on, never signing, choosing or waiting for a login", async (_name, message) => {
+    const backing = several();
+    const choose = vi.fn<PasskeyChooser["choose"]>();
+    const conditional = vi.fn<() => Promise<ConditionalDecision>>();
+    const loginAccount = vi.fn(() => ({ connectionId: "personal", itemId: "login-item" }));
+    const reverification = vi.fn(async () => true);
+    const hold = vi.fn(async () => () => {});
+    const report = vi.fn();
+    const browserSite = vi.fn(async () => true);
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      chooser: { choose },
+      conditional,
+      loginAccount,
+      reverification,
+      hold,
+      report,
+      browserSite,
+    });
+    expect(await runtime.handle(message, sender())).toEqual({
+      kind: "delegate",
+      reason: "browser-site",
+    });
+    expect(browserSite).toHaveBeenCalledWith(origin);
+    expect(backing.sign).not.toHaveBeenCalled();
+    expect(choose).not.toHaveBeenCalled();
+    expect(conditional).not.toHaveBeenCalled();
+    await vi.waitFor(() =>
+      expect(report).toHaveBeenCalledWith(
+        expect.objectContaining({ outcome: "delegate", reason: "browser-site" }),
+      ),
+    );
+  });
+
+  it("answers as before on a site that is not listed", async () => {
+    const browserSite = vi.fn(async () => false);
+    const runtime = createPasskeyRuntime(source(), { extensionId, browserSite });
+    expect(await runtime.handle(get(), sender())).toMatchObject({ kind: "assertion" });
+    expect(browserSite).toHaveBeenCalledWith(origin);
+  });
+
+  it("hands the request on when the list cannot be read, naming that step", async () => {
+    const backing = source();
+    const report = vi.fn();
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      report,
+      browserSite: async () => Promise.reject(new Error("storage-unavailable")),
+    });
+    expect(await runtime.handle(get(), sender())).toEqual({
+      kind: "delegate",
+      reason: "assertion-failed",
+    });
+    expect(backing.sign).not.toHaveBeenCalled();
+    await vi.waitFor(() =>
+      expect(report).toHaveBeenCalledWith(
+        expect.objectContaining({ reason: "assertion-failed", cause: "browser-site-lookup" }),
+      ),
+    );
+  });
+
+  it.each([
+    ["signs once the list shows no such site", false, { kind: "assertion" }],
+    ["hands on once the list shows the site", true, { kind: "delegate", reason: "browser-site" }],
+  ])("looks the passkey up while the list is read, and %s", async (_name, isListed, outcome) => {
+    // The request's deadline runs as without the list: the lookup does not wait for it.
+    const backing = source();
+    const { promise: list, resolve } = Promise.withResolvers<boolean>();
+    const runtime = createPasskeyRuntime(backing, { extensionId, browserSite: () => list });
+    const pending = runtime.handle(get(), sender());
+    await vi.waitFor(() => expect(backing.candidates).toHaveBeenCalled());
+    await new Promise((done) => setTimeout(done, 10));
+    expect(backing.sign).not.toHaveBeenCalled();
+    resolve(isListed);
+    expect(await pending).toMatchObject(outcome);
+    expect(backing.sign).toHaveBeenCalledTimes(isListed ? 0 : 1);
+  });
+
+  it("hands on a listed site's request whose lookup failed", async () => {
+    const runtime = createPasskeyRuntime(
+      source({ candidates: vi.fn(async () => Promise.reject(new Error("vault"))) }),
+      { extensionId, browserSite: async () => true },
+    );
+    expect(await runtime.handle(get(), sender())).toEqual({
+      kind: "delegate",
+      reason: "browser-site",
+    });
+  });
+
+  it("adds the site after handing the request on when the person chooses always", async () => {
+    const backing = several();
+    const report = vi.fn();
+    const addBrowserSite = vi.fn(async () => {});
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      report,
+      chooser: { choose: vi.fn(async (): Promise<PasskeyChoice> => ({ kind: "browser-site" })) },
+      browserSite: async () => false,
+      addBrowserSite,
+    });
+    expect(await runtime.handle(get(), sender())).toEqual({
+      kind: "delegate",
+      reason: "chooser-browser-site",
+    });
+    expect(backing.sign).not.toHaveBeenCalled();
+    // A settings save cancels pending requests, so it waits until the reply is on its way.
+    expect(addBrowserSite).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(addBrowserSite).toHaveBeenCalledWith(origin));
+    expect(addBrowserSite).toHaveBeenCalledOnce();
+    await vi.waitFor(() =>
+      expect(report).toHaveBeenCalledWith(
+        expect.objectContaining({ chooser: "browser-site", reason: "chooser-browser-site" }),
+      ),
+    );
+  });
+
+  it("adds nothing when the person hands on just once", async () => {
+    const addBrowserSite = vi.fn(async () => {});
+    const runtime = createPasskeyRuntime(several(), {
+      extensionId,
+      chooser: { choose: vi.fn(async (): Promise<PasskeyChoice> => ({ kind: "browser" })) },
+      addBrowserSite,
+    });
+    expect(await runtime.handle(get(), sender())).toEqual({
+      kind: "delegate",
+      reason: "chooser-browser",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(addBrowserSite).not.toHaveBeenCalled();
+  });
+
+  it("follows the list as it is when each request comes in", async () => {
+    let listed = true;
+    const runtime = createPasskeyRuntime(source(), {
+      extensionId,
+      browserSite: async () => listed,
+    });
+    expect(await runtime.handle(get(), sender())).toEqual({
+      kind: "delegate",
+      reason: "browser-site",
+    });
+    // Removed on the settings page: the next request is answered again.
+    listed = false;
+    expect(await runtime.handle(get(), sender())).toMatchObject({ kind: "assertion" });
   });
 });
