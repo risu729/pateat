@@ -1,5 +1,5 @@
 import type { DevicePairRequest } from "@pateat/contracts";
-import { sql } from "drizzle-orm";
+import { and, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import type { Context } from "hono";
 import { createDeviceToken, hashDeviceToken, type ApiEnv } from "../auth";
@@ -84,7 +84,13 @@ export async function createPairedDevice(
         revokedAt: sql`NULL`.as("revoked_at"),
       })
       .from(ownerIdentities)
-      .where(identityIs(identity)),
+      .where(
+        // A profile deleted since the check above takes no device (ADR 0075).
+        and(
+          identityIs(identity),
+          sql`EXISTS (SELECT 1 FROM ${profiles} WHERE ${profiles.ownerId} = ${ownerIdentities.ownerId} AND ${profiles.id} = ${profileId === undefined ? sql`${ownerIdentities.ownerId}` : profileId} AND ${profiles.deletedAt} IS NULL)`,
+        ),
+      ),
   );
   const results = await orm.batch([
     createOwner,
@@ -93,6 +99,16 @@ export async function createPairedDevice(
     ...createProfile,
     device,
   ]);
-  if (results.at(-1)?.meta.changes !== 1) throw new Error("Paired device was not recorded");
+  if (results.at(-1)?.meta.changes !== 1) {
+    if (existing && requestedProfile !== undefined && newProfile === undefined)
+      return c.json(
+        {
+          error: "profile_not_found" as const,
+          profiles: await listProfiles(c.env.DB, existing),
+        },
+        404,
+      );
+    throw new Error("Paired device was not recorded");
+  }
   return c.json({ version: 1 as const, deviceId, credential }, 201);
 }

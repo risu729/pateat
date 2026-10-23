@@ -1140,3 +1140,53 @@ describe("profile switch with refreshed account names", () => {
     expect(h.base()).toMatchObject({ profileId: OTHER_PROFILE });
   });
 });
+
+describe("moves to a profile no device has written yet", () => {
+  it("keeps this device's entries when the move lands during an upload", async () => {
+    const agreed = settingsOf({ excludedSites: [site("agreed.example")] });
+    const local = settingsOf({
+      excludedSites: [site("agreed.example"), site("local-edit.example")],
+    });
+    const h = setup({ local, service: state(4, agreed), base: baseOf(4, agreed) });
+    // The owner moves the device before its upload lands.
+    h.transport.saveSettings.mockImplementationOnce(async () => {
+      const moved = { ...state(5, settingsOf()), profileId: OTHER_PROFILE, newProfile: true };
+      h.setService(moved);
+      return { kind: "conflict", current: structuredClone(moved) };
+    });
+    expect(await h.sync.run(CONNECTION, never)).toBe("synced");
+    expect(h.service().settings?.excludedSites).toEqual(local.excludedSites);
+    expect(h.local()?.settings.excludedSites).toEqual(local.excludedSites);
+  });
+
+  it("does not bring back a binding removed while this device was away", async () => {
+    const agreed = settingsOf({
+      bindings: [binding("https://kept.example"), binding("https://removed.example")],
+    });
+    const h = setup({
+      local: agreed,
+      // Another device removed one binding, then this device moved to a new profile.
+      service: {
+        ...state(6, settingsOf({ bindings: [binding("https://kept.example")] })),
+        profileId: OTHER_PROFILE,
+        newProfile: true,
+      },
+      base: baseOf(4, agreed),
+    });
+    expect(await h.sync.run(CONNECTION, never)).toBe("synced");
+    expect(h.local()?.settings.bindings).toEqual([binding("https://kept.example")]);
+    expect(h.service().settings?.bindings).toEqual([binding("https://kept.example")]);
+  });
+});
+
+it("changes nothing when the merge base cannot be read", async () => {
+  const local = settingsOf({ excludedSites: [site("local-only.example")] });
+  const h = setup({
+    local,
+    service: state(3, settingsOf({ excludedSites: [site("intranet.example")] })),
+  });
+  h.storage.read.mockRejectedValueOnce(new Error("synthetic storage failure"));
+  expect(await h.sync.run(CONNECTION, never)).toBe("storage-unavailable");
+  expect(h.transport.saveSettings).not.toHaveBeenCalled();
+  expect(h.local()?.settings.excludedSites).toEqual(local.excludedSites);
+});

@@ -6,6 +6,7 @@ import {
   type SyncSettingsWrite,
 } from "@pateat/contracts";
 import * as v from "valibot";
+import { hasProfile } from "./profile-store";
 
 /** Profile parts are explicit so shared bindings cannot accidentally become policy. */
 export const profileDocument = (document: LocalSettings) => ({
@@ -72,7 +73,11 @@ export async function writeSettings(
   profileId: string,
   write: SyncSettingsWrite,
   writer: string | null,
-): Promise<{ ok: true; state: SyncSettingsState } | { ok: false; current: SyncSettingsState }> {
+): Promise<
+  | { ok: true; state: SyncSettingsState }
+  /** `current` is missing when the profile was deleted meanwhile. */
+  | { ok: false; current: SyncSettingsState | undefined }
+> {
   // Both statements use the exact same compare-and-swap predicate. The profile write
   // runs first; changes() gates the revision write so losing writers update neither.
   const results = await db.batch([
@@ -112,9 +117,12 @@ export async function writeSettings(
           .bind(ownerId, writer)
           .first<{ profile_id: string }>()
       : null;
+    const target = currentProfile?.profile_id ?? profileId;
     return {
       ok: false,
-      current: await readSettings(db, ownerId, currentProfile?.profile_id ?? profileId),
+      current: (await hasProfile(db, ownerId, target))
+        ? await readSettings(db, ownerId, target)
+        : undefined,
     };
   }
   return {

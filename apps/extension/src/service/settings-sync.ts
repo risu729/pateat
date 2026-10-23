@@ -255,12 +255,15 @@ export function createSettingsSync(options: {
   const now = options.now ?? Date.now;
   const hold = options.hold ?? memoryHold();
 
-  async function loadBase(connection: ServiceConnection): Promise<SettingsBase | undefined> {
+  /** `unreadable` when storage failed: without the base, local edits look like nothing. */
+  async function loadBase(
+    connection: ServiceConnection,
+  ): Promise<SettingsBase | "unreadable" | undefined> {
     let stored: unknown;
     try {
       stored = await storage.read();
     } catch {
-      return undefined;
+      return "unreadable";
     }
     const parsed = v.safeParse(baseSchema, stored);
     return parsed.success &&
@@ -284,6 +287,8 @@ export function createSettingsSync(options: {
     // A wait that started for an earlier login does not shorten the wait for a later one.
     if (!(await options.deferred?.())) await release();
     const stored = await loadBase(connection);
+    // A missing base would let an existing profile replace this device's entries.
+    if (stored === "unreadable") return "storage-unavailable";
     const fetched = await transport.settings(origin, credential);
     timed?.(fetched.timing);
     if (fetched.kind === "rejected") return "rejected";
@@ -345,12 +350,12 @@ export function createSettingsSync(options: {
       }
       const localSynced = syncedSettings(local.settings);
       const serviceSynced = serviceCopy(service);
-      const mergedEntries = switchingProfile
-        ? {
-            ...serviceSynced,
-            bindings: mergeSyncedSettings(bindingBase, localSynced, serviceSynced).bindings,
-          }
-        : mergeSyncedSettings(base, localSynced, serviceSynced);
+      const mergedEntries = {
+        ...(switchingProfile
+          ? serviceSynced
+          : mergeSyncedSettings(base, localSynced, serviceSynced)),
+        bindings: mergeSyncedSettings(bindingBase, localSynced, serviceSynced).bindings,
+      };
       // Named after the merge, so the names are uploaded and written like any change.
       if (unnamed(mergedEntries)) catalog ??= options.catalog?.().catch(() => undefined);
       // oxlint-disable-next-line no-await-in-loop -- read once, on the first attempt that needs it
@@ -374,14 +379,19 @@ export function createSettingsSync(options: {
         if (saved.kind === "rejected") return "rejected";
         if (saved.kind === "failed") return saved.error;
         if (saved.kind === "conflict") {
-          switchingProfile ||=
-            service.profileId !== saved.current.profileId && adopts(saved.current);
+          if (service.profileId !== saved.current.profileId) {
+            // The device moved meanwhile: the old profile's base says nothing about the
+            // new one, whose entries are adopted or, if it has none yet, filled locally.
+            switchingProfile ||= adopts(saved.current);
+            base = { service: emptySynced, local: emptySynced };
+          }
           service = saved.current;
           continue;
         }
         service = saved.state;
         // The service holds the merge; local settings still hold `localSynced`.
         base = { service: merged, local: localSynced };
+        bindingBase = base;
         // oxlint-disable-next-line no-await-in-loop -- recorded before the local write
         if (!switchingProfile) await record(base);
       }

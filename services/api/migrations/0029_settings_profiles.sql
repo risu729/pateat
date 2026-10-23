@@ -14,8 +14,14 @@ CREATE TABLE `profiles` (
 -- own settings into Default again.
 INSERT INTO `profiles` (`owner_id`, `id`, `name`) SELECT `id`, `id`, 'Default' FROM `owners`;--> statement-breakpoint
 DELETE FROM `settings`;--> statement-breakpoint
-PRAGMA foreign_keys=OFF;--> statement-breakpoint
-CREATE TABLE `__new_devices` (
+-- D1 runs a migration in a transaction, where foreign_keys=OFF has no effect, and
+-- recipe revisions name devices. So the check waits for the commit, and devices is
+-- rebuilt under its own name rather than renamed: an insert into the table recipe
+-- revisions refer to settles the check that dropping the old one raised.
+PRAGMA defer_foreign_keys=ON;--> statement-breakpoint
+CREATE TABLE `__old_devices` AS SELECT * FROM `devices`;--> statement-breakpoint
+DROP TABLE `devices`;--> statement-breakpoint
+CREATE TABLE `devices` (
 	`id` text PRIMARY KEY NOT NULL,
 	`owner_id` text NOT NULL,
 	`profile_id` text NOT NULL,
@@ -28,9 +34,7 @@ CREATE TABLE `__new_devices` (
 	FOREIGN KEY (`owner_id`,`profile_id`) REFERENCES `profiles`(`owner_id`,`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
-INSERT INTO `__new_devices`("id", "owner_id", "profile_id", "token_hash", "label", "created_at", "last_used_at", "revoked_at") SELECT "id", "owner_id", "owner_id", "token_hash", "label", "created_at", "last_used_at", "revoked_at" FROM `devices`;--> statement-breakpoint
-DROP TABLE `devices`;--> statement-breakpoint
-ALTER TABLE `__new_devices` RENAME TO `devices`;--> statement-breakpoint
-PRAGMA foreign_keys=ON;--> statement-breakpoint
+INSERT INTO `devices`("id", "owner_id", "profile_id", "token_hash", "label", "created_at", "last_used_at", "revoked_at") SELECT "id", "owner_id", "owner_id", "token_hash", "label", "created_at", "last_used_at", "revoked_at" FROM `__old_devices`;--> statement-breakpoint
+DROP TABLE `__old_devices`;--> statement-breakpoint
 CREATE UNIQUE INDEX `devices_token_hash_unique` ON `devices` (`token_hash`);--> statement-breakpoint
 CREATE INDEX `devices_owner_idx` ON `devices` (`owner_id`);
