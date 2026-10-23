@@ -85,6 +85,10 @@ form, else calls `requestSubmit()` on it
   case above: the button counts as one the model saw.
 - A form that a person can only submit through a script button outside the form, or
   that has no `<form>`, still gets no recipe.
+- A form whose button shown after typing is not a submit button (`type="button"`, a
+  `<div>` with a click handler) and whose page ignores the submit event is not
+  submitted: the attempt ends as one whose click did nothing, and nothing else is
+  pressed.
 - `requestSubmit()` goes beyond what Enter does in one case: a form with no submit
   button and several text inputs, which HTML does not submit on Enter. Bitwarden submits
   it.
@@ -102,5 +106,12 @@ form, else calls `requestSubmit()` on it
 - **Bitwarden's keyword search for a login or "next" button**: language word lists are a
   site-specific style of rule (ADR 0033) and the model already judges the buttons it
   sees.
+- **Typing a placeholder value while generating, so the model sees the button the page
+  then shows**: would also cover a button that appears but is not a submit button.
+  Refused by the owner on 2026-10-23 at 11:25 UTC for all generation: a page that
+  changes when a username is typed makes it troublesome
+  (「仮の値を入れるのは一旦しない方向で。やらないと対応できないことが出てきたら再考する」,
+  「ユーザー名入力によってページが変わったりすると面倒なため」). Reconsidered only when
+  a site cannot be handled without it.
 - **Typing a real Enter key**: a content script cannot send a trusted key press;
   `click()` on the default button is what the browser's implicit submission does.
