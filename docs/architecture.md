@@ -116,7 +116,8 @@ For it, the crypto Worker checks a typed master password offline against the ope
 session's account: the SDK unwraps the user key from the accepted record's encrypted
 master-password unlock data (`decrypt_user_key_with_master_password`), and the result
 must equal the session's user key. The answer is only `matches: true` or `false`;
-nothing derived from the password is kept (implemented, not used yet).
+Pateat's code keeps nothing derived from the password, though copies in the SDK's
+native memory are not wiped (implemented, not used yet).
 
 Expose authentication, unlock, sync, eligible references, field resolution, OTP
 generation and signing capabilities. Reserve create/update capabilities for

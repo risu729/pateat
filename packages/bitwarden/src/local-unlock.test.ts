@@ -208,6 +208,18 @@ describe("offline master password check with the actual official SDK", () => {
         masterPasswordUnlock: { ...unlock, kdf: { pBKDF2: { iterations: 2_000_001 } } },
       }),
     ).toEqual({ ok: false, error: { code: "resource-limit" } });
+    // The SDK refuses these settings for any password, so the answer is no "wrong password".
+    for (const kdf of [
+      { pBKDF2: { iterations: 1 } },
+      { argon2id: { iterations: 1, memory: 64, parallelism: 4 } },
+      { argon2id: { iterations: 3, memory: 8, parallelism: 4 } },
+    ])
+      expect(
+        opened.data.verifyMasterPassword({
+          password: v1Password,
+          masterPasswordUnlock: { ...unlock, kdf },
+        }),
+      ).toEqual({ ok: false, error: { code: "invalid-crypto-input" } });
     expect(
       opened.data.verifyMasterPassword({
         password: v1Password,

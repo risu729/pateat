@@ -40,8 +40,8 @@ export interface LocalCryptoSession {
   }>;
   /**
    * Whether a master password unwraps this session's user key from the account's stored
-   * master-password unlock data, offline, as Bitwarden's re-prompt checks it. Nothing derived
-   * from the password is kept.
+   * master-password unlock data, offline, as Bitwarden's re-prompt checks it. This code keeps
+   * nothing derived from the password; copies the SDK's native heap may hold are not wiped.
    */
   verifyMasterPassword(input: unknown): BitwardenResult<{ matches: boolean }>;
   decryptCipher(input: unknown): Promise<BitwardenResult<LocalCipherView>>;
@@ -796,6 +796,13 @@ export async function createLocalCryptoSession(
           if (!checked) return failure("invalid-crypto-input");
           const unlock = checked.masterPasswordUnlock;
           if (!withinResourceBudget(unlock.kdf)) return failure("resource-limit");
+          // Below the SDK's own minimums it throws for any password; that is not a wrong one.
+          if (
+            "pBKDF2" in unlock.kdf
+              ? unlock.kdf.pBKDF2.iterations < 5000
+              : unlock.kdf.argon2id.iterations < 2 || unlock.kdf.argon2id.memory < 16
+          )
+            return failure("invalid-crypto-input");
           if (!authenticatedCiphertext(unlock.masterKeyWrappedUserKey))
             return failure("unsupported-crypto");
           const storedKey = memory.values.get("user_key");
@@ -813,7 +820,8 @@ export async function createLocalCryptoSession(
                 unlock.kdf,
               );
             } catch {
-              // The wrapped key passed admission, so a failed unwrap is a wrong password.
+              // The wrapped key and KDF passed admission, so the unwrap's authentication
+              // failing is what remains: a wrong password.
               return { ok: true as const, data: { matches: false } };
             }
             return { ok: true as const, data: { matches: sameBytes(expected, unwrapped) } };
