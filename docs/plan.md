@@ -61,6 +61,11 @@ changes and security changes they bring still need the owner's approval one by o
 [ADR 0053](adr/0053-passkey-only-generation.md) through
 [#805](https://github.com/risu729/pateat/pull/805); the other four are still open.
 
+Accessibility work has lower priority from 2026-10-23 (owner, 12:57 UTC,
+「一旦アクセシビリティの優先度は下げる」): accessibility work not yet started waits
+behind the rest of its phase, while accessibility pull requests that already exist
+continue as before (12:58 UTC).
+
 ### Phase 1: usable
 
 Done when each kind of login page below works on the real site named for it, in the
