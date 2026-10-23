@@ -1,6 +1,7 @@
 import { toJsonSchema } from "@valibot/to-json-schema";
 import { describe, expect, it } from "vitest";
 import {
+  completionBesideInstructions,
   completionInstructions,
   completionStopInstructions,
   createCompletionJudge,
@@ -49,6 +50,7 @@ describe("instructions sent to the model", () => {
       accountListGenerationInstructions,
       completionInstructions,
       completionStopInstructions,
+      completionBesideInstructions,
       JSON.stringify(toJsonSchema(generatedPlanSchema)),
       JSON.stringify(toJsonSchema(judgedPageSchema)),
     ])

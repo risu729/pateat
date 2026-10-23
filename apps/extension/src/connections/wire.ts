@@ -22,12 +22,7 @@ export const setupBeginSchema = v.variant("kind", [
     password,
     enabled: v.boolean(),
   }),
-  v.strictObject({
-    kind: v.literal("existing"),
-    connectionId: id,
-    password,
-    autoUnlock: v.picklist(["enable", "preserve"]),
-  }),
+  v.strictObject({ kind: v.literal("existing"), connectionId: id, password }),
 ]);
 export const setupContinuationSchema = v.pipe(
   v.strictObject({
@@ -66,8 +61,14 @@ export const setupRequestSchema = v.variant("type", [
       "connection.disable",
       "connection.forget",
       "connection.delete",
+      "connection.lock",
     ]),
     connectionId: id,
+  }),
+  v.strictObject({
+    requestId: v.pipe(v.string(), v.uuid()),
+    type: v.literal("connection.unlock"),
+    input: v.strictObject({ connectionId: id, password }),
   }),
   v.strictObject({
     requestId: v.pipe(v.string(), v.uuid()),
@@ -132,6 +133,8 @@ const replySchema = v.union([
   }),
   v.strictObject({ ok: v.literal(true), kind: v.literal("cancelled") }),
   v.strictObject({ ok: v.literal(true), kind: v.literal("disabled"), connectionId: id }),
+  v.strictObject({ ok: v.literal(true), kind: v.literal("locked"), connectionId: id }),
+  v.strictObject({ ok: v.literal(true), kind: v.literal("unlocked"), connectionId: id }),
   v.strictObject({ ok: v.literal(true), kind: v.literal("forgotten"), connectionId: id }),
   v.strictObject({ ok: v.literal(true), kind: v.literal("deleted"), connectionId: id }),
   v.strictObject({
@@ -145,7 +148,14 @@ const replySchema = v.union([
           email,
           environment,
           autoUnlock: v.picklist(["enabled", "disabled", "unknown"]),
-          state: v.picklist(["configured", "ready", "disabled", "review-required", "unavailable"]),
+          state: v.picklist([
+            "configured",
+            "ready",
+            "locked",
+            "disabled",
+            "review-required",
+            "unavailable",
+          ]),
           providerSession: v.picklist([
             "none",
             "active",

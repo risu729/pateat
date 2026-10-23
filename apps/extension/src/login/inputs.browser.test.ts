@@ -27,6 +27,16 @@ describe("secret input rule on Chromium inputs", () => {
     ["password", '<input autocomplete="off one-time-code">', false],
     ["hidden", '<input autocomplete="off current-password">', true],
     ["hidden", '<input autocomplete="off one-time-code">', false],
+    // A personal detail and a card's security code (ADR 0061).
+    ["detail", "<input>", true],
+    ["detail", '<input type="number">', true],
+    ["detail", '<input type="password">', false],
+    ["card-code", '<input maxlength="4">', true],
+    ["card-code", '<input type="tel" maxlength="3">', true],
+    ["card-code", '<input type="password">', true],
+    ["card-code", "<input>", false],
+    ["card-code", '<input type="tel" maxlength="5">', false],
+    ["card-code", '<input type="number" maxlength="4">', false],
   ] as const)("%s into %s is %s", (secret, html, expected) => {
     expect(acceptsSecret(field(html), secret)).toBe(expected);
   });

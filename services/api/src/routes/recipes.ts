@@ -3,6 +3,7 @@ import {
   generationRequestSchema,
   loginOutcomeReportSchema,
   loginRecordSchema,
+  parseRecipeBranch,
   recipeCompletionRequestSchema,
   recipeUseReportSchema,
   recipePageSampleRequestSchema,
@@ -19,7 +20,13 @@ import type { ApiEnv } from "../auth";
 import { loginOutcomes, loginTimings, recipeHeads, recipeRevisions } from "../db/schema";
 import { apiError } from "../http";
 import { purgeExpiredLog } from "../claude/calls";
-import { revokeUnusedRecipes, selectHeads, toChange, writeRecipe } from "../recipe-store";
+import {
+  markLayoutUsed,
+  revokeUnusedRecipes,
+  selectHeads,
+  toChange,
+  writeRecipe,
+} from "../recipe-store";
 import { generateEntry, generateRecipe, judgeCompletion, samplePage } from "../recipes/generate";
 import { jsonBody, requireJsonBody, validate } from "../validation";
 
@@ -145,7 +152,7 @@ export const recipeRoutes = new Hono<ApiEnv>()
         .values({
           ownerId,
           recipeId,
-          branch: branch ?? "",
+          branch,
           revision,
           outcome,
           cause: cause ?? null,
@@ -220,7 +227,7 @@ export const recipeRoutes = new Hono<ApiEnv>()
           id: newId(),
           ownerId,
           recipeId,
-          branch: record.branch ?? "",
+          branch: record.branch,
           revision: record.revision,
           origin: kept.origin,
           outcome: record.outcome,
@@ -233,7 +240,8 @@ export const recipeRoutes = new Hono<ApiEnv>()
           pageMs: record.pageMs,
           createdAt: now,
         }),
-        // A login on an older revision counts as use of the recipe too.
+        // A login on an older revision counts as use of the recipe too, and of the layout it
+        // ran while the recipe still has it (ADR 0060).
         db
           .update(recipeHeads)
           .set({ lastUsedAt: now })
@@ -244,6 +252,7 @@ export const recipeRoutes = new Hono<ApiEnv>()
               eq(recipeHeads.state, "active"),
             ),
           ),
+        markLayoutUsed(db, ownerId, recipeId, parseRecipeBranch(record.branch)!.layout, now),
       ]);
       try {
         await purgeExpiredLog(db, now);
@@ -273,9 +282,11 @@ export const recipeRoutes = new Hono<ApiEnv>()
       const { ownerId } = c.get("scope");
       const { recipeId } = c.req.valid("param");
       const report = c.req.valid("json");
-      const used = await drizzle(c.env.DB)
+      const db = drizzle(c.env.DB);
+      const now = Date.now();
+      const used = await db
         .update(recipeHeads)
-        .set({ lastUsedAt: Date.now() })
+        .set({ lastUsedAt: now })
         .where(
           and(
             eq(recipeHeads.ownerId, ownerId),
@@ -285,7 +296,10 @@ export const recipeRoutes = new Hono<ApiEnv>()
           ),
         )
         .returning({ recipeId: recipeHeads.recipeId });
-      return used.length ? c.body(null, 204) : apiError(c, 404, { error: "not_found" });
+      if (!used.length) return apiError(c, 404, { error: "not_found" });
+      // The layout the login started on (ADR 0060), while the recipe still has it.
+      await markLayoutUsed(db, ownerId, recipeId, report.layout, now);
+      return c.body(null, 204);
     },
   )
   // A repeat login's signed-in page, logged for evaluation without a model call (ADR 0029).
@@ -315,7 +329,11 @@ export const recipeRoutes = new Hono<ApiEnv>()
     if (write.state === "active" && write.recipe.id !== recipeId)
       return apiError(c, 400, { error: "bad_request" });
 
-    const result = await writeRecipe(c.env.DB, scope.ownerId, recipeId, write, scope.deviceId);
+    // A unit the device's document changed or added is the device's (ADR 0060); one it
+    // left as it was keeps the call that made it.
+    const result = await writeRecipe(c.env.DB, scope.ownerId, recipeId, write, scope.deviceId, {
+      sources: { origin: "device" },
+    });
     if (!result.ok)
       return result.limited
         ? apiError(c, 409, { error: "recipe_limit" })

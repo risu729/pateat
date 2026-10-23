@@ -1,11 +1,14 @@
 import {
   passwordVariants,
   recipeSlots,
+  storedLayoutRecipe,
+  storedLayouts,
   type DetailField,
+  type LoginChooserRecipe,
   type LoginMarkerTarget,
   type LoginRecipe,
+  type ManageLayoutSource,
   type ManageRecipe,
-  type StoredLoginRecipe,
 } from "@pateat/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
@@ -95,22 +98,11 @@ function describeStep(step: Step): ReactNode {
   }
 }
 
-/** What a recipe does, as label and value pairs, and its steps when it has any. */
-function recipeFacts(recipe: StoredLoginRecipe): {
+/** What one layout of a recipe does, as label and value pairs, and its steps. */
+function recipeFacts(recipe: LoginRecipe | LoginChooserRecipe): {
   facts: [string, ReactNode][];
   variants: ReturnType<typeof passwordVariants>;
 } {
-  // A recipe with only a sign-in entry (ADR 0031), which devices do not press yet.
-  if ("entry" in recipe)
-    return {
-      facts: [
-        [
-          "Sign-in entry",
-          `Click ${describeTarget(recipe.entry.target)} on ${recipe.entry.path} to open the site's login page. Devices do not click it yet.`,
-        ],
-      ],
-      variants: [],
-    };
   // A recipe that starts on a list of accounts (ADR 0028), which devices do not start yet.
   if ("chooser" in recipe) {
     const { chooser } = recipe;
@@ -134,7 +126,7 @@ function recipeFacts(recipe: StoredLoginRecipe): {
     facts: [
       [
         "Page kind",
-        // ADR 0035: only a sign-in recipe runs.
+        // ADR 0035: only a sign-in layout runs (ADR 0060).
         recipe.pageKind === "sign-in"
           ? "Sign-in"
           : recipe.pageKind === "confirm"
@@ -183,14 +175,19 @@ function recipeFacts(recipe: StoredLoginRecipe): {
   };
 }
 
-function RecipeDetails({ entry }: { entry: ActiveRecipe }) {
-  const { recipe, revision } = entry.change;
-  const { facts, variants } = recipeFacts(recipe);
+const languageNames = { ja: "Japanese", en: "English" } as const;
+
+/** Who made a layout's first page and when (ADR 0060), as the service recorded it. */
+function firstPageSource(source: ManageLayoutSource | null | undefined): string {
+  if (!source) return "Not recorded";
+  const at = formatTime(source.createdAt);
+  return source.model ? `${source.model}, ${at}` : `A device, ${at}`;
+}
+
+/** One layout's steps, each identifier set under its own heading when it has several. */
+function LayoutSteps({ variants }: { variants: ReturnType<typeof passwordVariants> }) {
   return (
     <>
-      <KeyValues
-        entries={[["Revision", `${revision}, updated ${formatTime(entry.updatedAt)}`], ...facts]}
-      />
       {variants.map((variant, variantIndex) => (
         // Variants have no identity of their own; the executor tries them in this order.
         // oxlint-disable-next-line no-array-index-key
@@ -214,6 +211,84 @@ function RecipeDetails({ entry }: { entry: ActiveRecipe }) {
           </ol>
         </section>
       ))}
+    </>
+  );
+}
+
+/**
+ * A recipe's revision and each of its layouts (ADR 0060): its language, when it was
+ * created and last used, what it does and its steps, with `remove` for its control.
+ */
+function RecipeDetails({
+  entry,
+  remove,
+}: {
+  entry: ActiveRecipe;
+  remove: (target: RevokeTarget) => ReactNode;
+}) {
+  const { recipe, revision } = entry.change;
+  const revisionFact: [string, ReactNode] = [
+    "Revision",
+    `${revision}, updated ${formatTime(entry.updatedAt)}`,
+  ];
+  const lastUses = new Map(entry.layouts.map((layout) => [layout.key, layout.lastUsedAt]));
+  const firstPages = new Map(entry.layouts.map((layout) => [layout.key, layout.firstPage]));
+  const layouts = storedLayouts(recipe);
+  return (
+    <>
+      {"entry" in recipe ? (
+        // A recipe with only a sign-in entry (ADR 0031), which devices do not press yet.
+        <KeyValues
+          entries={[
+            revisionFact,
+            [
+              "Sign-in entry",
+              `Click ${describeTarget(recipe.entry.target)} on ${recipe.entry.path} to open the site's login page. Devices do not click it yet.`,
+            ],
+          ]}
+        />
+      ) : (
+        <KeyValues entries={[revisionFact, ["Layouts", `${layouts.length}`]]} />
+      )}
+      {layouts.map((layout, index) => {
+        const projected = storedLayoutRecipe(recipe, layout.key);
+        if (!projected) return null;
+        const { facts, variants } = recipeFacts(projected);
+        const lastUsed = lastUses.get(layout.key);
+        const firstPage = firstPages.get(layout.key);
+        return (
+          <section
+            key={layout.key}
+            aria-labelledby={`layout-${recipe.id}-${layout.key}`}
+            className="space-y-3 rounded-lg border border-border p-3"
+          >
+            <div className="flex flex-wrap items-center gap-3">
+              <h4
+                id={`layout-${recipe.id}-${layout.key}`}
+                className="min-w-0 flex-1 text-sm font-semibold"
+              >
+                Layout {index + 1}
+              </h4>
+              {remove({ recipeId: recipe.id, revision, layout: layout.key })}
+            </div>
+            <KeyValues
+              entries={[
+                ["Language", layout.language ? languageNames[layout.language] : "Not known"],
+                ["Created", formatTime(layout.createdAt)],
+                ["Last used", lastUsed ? formatTime(lastUsed) : "Not used yet"],
+                // A chooser's first page is its list of accounts.
+                [
+                  "chooser" in recipe ? "Account list made by" : "First page made by",
+                  firstPageSource(firstPage),
+                ],
+                ["Steps", `${variants.reduce((sum, variant) => sum + variant.steps.length, 0)}`],
+                ...facts,
+              ]}
+            />
+            <LayoutSteps variants={variants} />
+          </section>
+        );
+      })}
       <details>
         <summary className="flex min-h-9 cursor-pointer items-center text-sm font-semibold text-accent-ink">
           JSON<span className="sr-only"> of {recipe.id}</span>
@@ -226,7 +301,13 @@ function RecipeDetails({ entry }: { entry: ActiveRecipe }) {
   );
 }
 
-type RevokeTarget = { recipeId: string; revision: number };
+/** A recipe, or one layout of it (ADR 0060), at the revision the owner saw. */
+type RevokeTarget = { recipeId: string; revision: number; layout?: string };
+/** The element ID part that tells a recipe's control from its layouts' controls. */
+const controlId = ({ recipeId, layout }: RevokeTarget) =>
+  layout === undefined ? recipeId : `${recipeId}-layout-${layout}`;
+const describeTargetName = ({ recipeId, layout }: RevokeTarget) =>
+  layout === undefined ? recipeId : `layout ${layout} of ${recipeId}`;
 
 /**
  * Revocation of the recipes one list shows. Revocation cannot be undone here, so it
@@ -246,14 +327,28 @@ function useRecipeRevoke(
   // A write's target waits for the refresh it starts, which may remove the recipe.
   const focusTarget = useRef<{ id: string; afterRefresh: boolean } | null>(null);
   const revoke = useMutation({
-    mutationFn: (entry: RevokeTarget) => client.revokeRecipe(entry.recipeId, entry.revision),
+    mutationFn: (entry: RevokeTarget) =>
+      entry.layout === undefined
+        ? client.revokeRecipe(entry.recipeId, entry.revision)
+        : client.revokeLayout(entry.recipeId, entry.layout, entry.revision),
     onMutate: () => announce(""),
-    onSuccess: (_result, entry) => {
-      announce(`${entry.recipeId} revoked`);
-      focusTarget.current = { id: ids.heading, afterRefresh: true };
+    onSuccess: (result, entry) => {
+      announce(
+        entry.layout === undefined || result.change.state === "revoked"
+          ? `${entry.recipeId} revoked`
+          : `Layout ${entry.layout} of ${entry.recipeId} removed`,
+      );
+      // A removed layout's recipe stays, so its own Revoke control takes focus.
+      focusTarget.current = {
+        id:
+          entry.layout === undefined || result.change.state === "revoked"
+            ? ids.heading
+            : `revoke-${entry.recipeId}`,
+        afterRefresh: true,
+      };
     },
     onError: (_error, entry) => {
-      focusTarget.current = { id: `revoke-${entry.recipeId}`, afterRefresh: true };
+      focusTarget.current = { id: `revoke-${controlId(entry)}`, afterRefresh: true };
     },
     onSettled: () => {
       setConfirming(null);
@@ -274,15 +369,21 @@ function useRecipeRevoke(
     focusTarget.current = null;
   });
 
-  /** The Revoke button of one recipe, or its confirmation while the owner is asked. */
-  function control({ recipeId, revision }: RevokeTarget) {
-    return confirming?.recipeId === recipeId ? (
+  /**
+   * The Revoke button of one recipe, or the Remove button of one of its layouts (ADR
+   * 0060), or its confirmation while the owner is asked.
+   */
+  function control(target: RevokeTarget) {
+    const id = controlId(target);
+    const layout = target.layout !== undefined;
+    return confirming && controlId(confirming) === id ? (
       <div className="flex flex-wrap items-center gap-2">
         <span>
-          Revoke {recipeId}, revision {confirming.revision}?
+          {layout ? "Remove" : "Revoke"} {describeTargetName(confirming)}, revision{" "}
+          {confirming.revision}?
         </span>
         <Button
-          id={`confirm-${recipeId}`}
+          id={`confirm-${id}`}
           variant="danger"
           disabled={revoke.isPending}
           onClick={() => revoke.mutate(confirming)}
@@ -294,7 +395,7 @@ function useRecipeRevoke(
           disabled={revoke.isPending}
           onClick={() => {
             setConfirming(null);
-            focusTarget.current = { id: `revoke-${recipeId}`, afterRefresh: false };
+            focusTarget.current = { id: `revoke-${id}`, afterRefresh: false };
           }}
         >
           Cancel
@@ -302,16 +403,20 @@ function useRecipeRevoke(
       </div>
     ) : (
       <Button
-        variant="danger"
-        aria-label={`Revoke recipe ${recipeId}`}
-        id={`revoke-${recipeId}`}
+        variant={layout ? "outline" : "danger"}
+        aria-label={layout ? `Remove ${describeTargetName(target)}` : `Revoke recipe ${id}`}
+        id={`revoke-${id}`}
         disabled={revoke.isPending}
         onClick={() => {
-          setConfirming({ recipeId, revision });
-          focusTarget.current = { id: `confirm-${recipeId}`, afterRefresh: false };
+          setConfirming({
+            recipeId: target.recipeId,
+            revision: target.revision,
+            ...(layout ? { layout: target.layout } : {}),
+          });
+          focusTarget.current = { id: `confirm-${id}`, afterRefresh: false };
         }}
       >
-        Revoke
+        {layout ? "Remove layout" : "Revoke"}
       </Button>
     );
   }
@@ -373,7 +478,7 @@ export function SiteRecipes({
                 </h3>
                 {control(entry.change)}
               </div>
-              <RecipeDetails entry={entry} />
+              <RecipeDetails entry={entry} remove={control} />
             </li>
           ))}
         </ul>

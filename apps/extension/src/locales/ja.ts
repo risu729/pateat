@@ -131,6 +131,8 @@ export const ja = {
     "入力欄に適さない値があったため、入力しませんでした",
   "the page marked a filled input as invalid, so nothing was pressed":
     "入力した値がページで無効とされたため、ボタンを押しませんでした",
+  "the page's software keyboard did not show a key Pateat pressed, so nothing more was pressed":
+    "ソフトウェアキーボードで押したキーが入力欄に表示されなかったため、それ以上押しませんでした",
   "the page shows a different account from the one chosen":
     "選択したアカウントとは別のアカウントがページに表示されています",
   "the page showed another account, so the login switched accounts":
@@ -187,6 +189,7 @@ export const ja = {
   "the site's sign-in link": "サイトのログインリンク",
   "the site's list of accounts": "サイトのアカウント一覧",
   "the rest of the site's sign-in": "サイトのログインの続き",
+  "the site's changed sign-in page": "サイトの変更されたログインページ",
   "the site's sign-in page": "サイトのログインページ",
   "This site has a recipe for this page.": "このサイトには、このページに対応するレシピがあります。",
   "This site has a recipe, but none starts on this page.":
@@ -218,6 +221,8 @@ export const ja = {
   "The login did not succeed: {{why}}.": "ログインに成功しませんでした：{{why}}。",
   "The result of the login is not known: {{why}}.": "ログインの結果が分かりません：{{why}}。",
   "This recipe is not made again automatically.": "このレシピは自動では作り直されません。",
+  "Pateat pressed keys on the page's software keyboard before it stopped. Reload the page before you enter the value.":
+    "Pateat は中断する前にソフトウェアキーボードのキーを押しました。値を入力する前にページを再読み込みしてください。",
   "This page": "このページ",
   "Open the detailed log": "詳細ログを開く",
   matchingAccounts_one: "{{count}} 件のアカウントがこのページに一致します。",
@@ -348,4 +353,9 @@ export const ja = {
   "This page shows another account, so nothing was filled.":
     "このページには別のアカウントが表示されているため、何も入力しませんでした。",
   "ID {{id}}": "ID {{id}}",
+  vaultsLocked_one:
+    "{{count}} 個の保管庫がロック中のため、そのログインとパスキーは待機しています。",
+  vaultsLocked_other:
+    "{{count}} 個の保管庫がロック中のため、それらのログインとパスキーは待機しています。",
+  "Unlock in settings": "設定でロック解除",
 } satisfies Record<keyof typeof en, string>;

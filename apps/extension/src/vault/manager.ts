@@ -18,6 +18,7 @@ import {
   type VaultResult,
 } from "./record";
 import type { DurableVaultStore } from "./storage";
+import { memorySessionKeyStore, type SessionKey, type SessionKeyStore } from "./session-key";
 import { newId } from "@pateat/contracts/ids";
 
 export type VaultCryptoHost = Pick<
@@ -56,6 +57,12 @@ export type LocalVaultSummary = {
   coverage?: "received-envelope";
 };
 export type VaultCheckpoint = "before-write" | "after-write";
+/**
+ * Where an unlocked vault's key is kept (ADR 0075): `durable` in the vault record, so the
+ * vault unlocks by itself after a browser restart (ADR 0006), or `session` in this browser
+ * session's memory only, while a vault timeout other than "Never" is set.
+ */
+export type KeyRetention = "durable" | "session";
 const itemIdSchema = v.pipe(v.string(), v.uuid());
 /** Crypto host failures after which the session may no longer exist. */
 function sessionMayHaveEnded(code: string): boolean {
@@ -69,11 +76,18 @@ export function createLocalVaultManager(options: {
   nowMs?: () => number;
   /** Synthetic probe only; no secrets or generic commands are exposed by checkpoints. */
   checkpoint?: (stage: VaultCheckpoint) => Promise<void>;
+  /** Read at each write of a key; absent keeps the key on disk. */
+  retention?: () => Promise<KeyRetention>;
+  /** The key of a vault unlocked in this browser session; absent keeps it in this object. */
+  sessionKey?: SessionKeyStore;
 }) {
   const normalized = normalizeBitwardenProfile(options.profile);
   const profile = normalized.ok ? normalized.data : undefined;
   const random = options.randomId ?? newId;
   const now = options.nowMs ?? Date.now;
+  const sessionKey = options.sessionKey ?? memorySessionKeyStore();
+  const retentionOf = async (): Promise<KeyRetention> =>
+    (await options.retention?.()) === "session" ? "session" : "durable";
   const generation = random();
   let epoch = 0;
   let disposed = false;
@@ -109,6 +123,14 @@ export function createLocalVaultManager(options: {
         }
       : {}),
   });
+  /** The key that unlocks this record now: the stored one, or this session's for a locked
+   * record of the same revision. */
+  async function keyFor(entry: VaultEntry | null): Promise<string | undefined> {
+    if (entry?.state === "active") return entry.userKey;
+    if (entry?.state !== "locked") return undefined;
+    const key = await sessionKey.read().catch(() => undefined);
+    return key?.revision === entry.revision ? key.userKey : undefined;
+  }
   function current(captured: number, signal?: AbortSignal) {
     return !disposed && epoch === captured && !signal?.aborted;
   }
@@ -180,7 +202,7 @@ export function createLocalVaultManager(options: {
       if (writing !== undefined && read.data?.revision === writing)
         return vaultFailure("stale-vault-handle");
       if (
-        read.data?.state !== "active" ||
+        (read.data?.state !== "active" && read.data?.state !== "locked") ||
         read.data.revision !== owner.summary.revision ||
         read.data.accepted.recordId !== owner.handle.recordId ||
         read.data.accepted.snapshotId !== owner.handle.snapshotId ||
@@ -357,8 +379,10 @@ export function createLocalVaultManager(options: {
           return previous;
         }
         if (!current(captured, op.signal)) return vaultFailure("cancelled");
-        if (capturedInput.autoUnlock === "preserve" && previous.data?.state !== "active")
-          return vaultFailure("auto-unlock-disabled");
+        if (capturedInput.autoUnlock === "preserve" && !(await keyFor(previous.data)))
+          return vaultFailure(
+            previous.data?.state === "locked" ? "vault-locked" : "auto-unlock-disabled",
+          );
         const prepared = continuity(admitted.data, previous.data);
         if (!prepared.ok) return prepared;
         const snapshotId = random();
@@ -383,14 +407,18 @@ export function createLocalVaultManager(options: {
             minimumSecurityVersion: candidate.metadata.securityVersion,
           },
         };
-        const entry: VaultEntry = {
-          schemaVersion: 1,
-          revision: random(),
-          profile,
-          state: "active",
-          accepted,
-          userKey: material.data.userKey,
-        };
+        const retention = await retentionOf();
+        const entry: VaultEntry =
+          retention === "durable"
+            ? {
+                schemaVersion: 1,
+                revision: random(),
+                profile,
+                state: "active",
+                accepted,
+                userKey: material.data.userKey,
+              }
+            : { schemaVersion: 1, revision: random(), profile, state: "locked", accepted };
         const ready = admitVaultEntry(entry, profile);
         if (!ready.ok) return ready;
         // Only item UUIDs can be compared; one other ID must not stop the rest.
@@ -417,8 +445,15 @@ export function createLocalVaultManager(options: {
           return vaultFailure("crypto-failed");
         }
         const sameFields = comparison.items;
+        // This session's key for the record still stored, put back if the write fails.
+        const priorKey =
+          retention === "session" ? await sessionKey.read().catch(() => undefined) : undefined;
         await options.checkpoint?.("before-write");
         if (!current(captured, op.signal)) return vaultFailure("cancelled");
+        // The key goes to memory before the record that needs it, so a write that lands is
+        // never locked by a missing key; a key for a revision that never lands unlocks nothing.
+        if (retention === "session")
+          await sessionKey.write({ revision: ready.data.revision, userKey: material.data.userKey });
         writeAttempted = true;
         writing = ready.data.revision;
         const write = await options.store.compareAndSwap(
@@ -435,7 +470,14 @@ export function createLocalVaultManager(options: {
             if (!read.ok || !sameVaultEntry(read.data, previous.data)) {
               uncertain = true;
               await fence();
-            }
+            } else if (
+              priorKey &&
+              priorKey.revision === previous.data?.revision &&
+              !disposed &&
+              epoch === captured
+            )
+              // The old record stays, so the vault this session unlocked stays unlocked.
+              await sessionKey.write(priorKey).catch(() => undefined);
           }
           return write;
         }
@@ -460,6 +502,8 @@ export function createLocalVaultManager(options: {
           uncertain = true;
           return vaultFailure("storage-uncertain");
         }
+        // A key kept on disk again leaves none in memory.
+        if (retention === "durable") await sessionKey.clear().catch(() => undefined);
         uncertain = false;
         skipComparison = false;
         const handle = handleFor(ready.data);
@@ -513,12 +557,15 @@ export function createLocalVaultManager(options: {
         if (!stored.ok) return stored;
         if (!current(captured, op.signal)) return vaultFailure("cancelled");
         if (!stored.data) return vaultFailure("cache-missing");
-        if (stored.data.state !== "active") return vaultFailure("auto-unlock-disabled");
+        if (stored.data.state === "disabled") return vaultFailure("auto-unlock-disabled");
         const entry = stored.data;
+        const userKey = await keyFor(entry);
+        if (!userKey) return vaultFailure("vault-locked");
+        if (!current(captured, op.signal)) return vaultFailure("cancelled");
         const opened = await verifiedOpen(
           entry.accepted.prepared,
           entry.accepted.snapshotId,
-          { kind: "decrypted-key", userKey: entry.userKey },
+          { kind: "decrypted-key", userKey },
           captured,
           op.signal,
         );
@@ -557,6 +604,7 @@ export function createLocalVaultManager(options: {
       disabling = true;
       try {
         await fence();
+        await sessionKey.clear();
         for (let attempt = 0; attempt < 3; attempt += 1) {
           // Bounded CAS retry only for destructive disable, never stale candidate acceptance.
           // eslint-disable-next-line no-await-in-loop
@@ -595,6 +643,262 @@ export function createLocalVaultManager(options: {
         disabling = false;
       }
     },
+    /**
+     * Unlocks a locked vault offline with its master password (ADR 0075): the stored
+     * encrypted context is opened with a key derived from its own KDF settings, and the
+     * user key goes where `retention` says. No server is asked and the password is kept
+     * nowhere. A wrong password fails as the crypto host's open does.
+     */
+    async unlock(
+      password: string,
+      signal?: AbortSignal,
+    ): Promise<VaultResult<{ handle: LocalVaultHandle; summary: LocalVaultSummary }>> {
+      if (!profile) return vaultFailure("invalid-profile");
+      if (disposed || disabling) return vaultFailure("crypto-locked");
+      if (busy) return vaultFailure("resource-limit");
+      if (typeof password !== "string" || !password) return vaultFailure("invalid-request");
+      busy = true;
+      const retirement = fence();
+      const captured = epoch;
+      const op = operation(signal);
+      let candidate: OpenedHostSession | undefined;
+      let written: SessionKey | undefined;
+      try {
+        await retirement;
+        if (!current(captured, op.signal) || disabling) return vaultFailure("cancelled");
+        const stored = await options.store.read();
+        if (!stored.ok) return stored;
+        if (!current(captured, op.signal)) return vaultFailure("cancelled");
+        if (!stored.data) return vaultFailure("cache-missing");
+        if (stored.data.state === "disabled") return vaultFailure("auto-unlock-disabled");
+        const entry = stored.data;
+        // Read before the key exists, so nothing awaits between the last check and its write.
+        const retention = await retentionOf();
+        const opened = await verifiedOpen(
+          entry.accepted.prepared,
+          entry.accepted.snapshotId,
+          { kind: "password", password },
+          captured,
+          op.signal,
+        );
+        if (!opened.ok) return opened;
+        candidate = opened.data;
+        const material = await options.host.exportUnlockMaterial(candidate.session, op.signal);
+        if (!material.ok) return material;
+        if (!current(captured, op.signal)) return vaultFailure("cancelled");
+        if (JSON.stringify(material.data.metadata) !== JSON.stringify(candidate.metadata))
+          return vaultFailure("crypto-failed");
+        const next: VaultEntry =
+          retention === "durable"
+            ? entry.state === "active"
+              ? entry
+              : {
+                  schemaVersion: 1,
+                  revision: random(),
+                  profile,
+                  state: "active",
+                  accepted: entry.accepted,
+                  userKey: material.data.userKey,
+                }
+            : entry.state === "locked"
+              ? entry
+              : {
+                  schemaVersion: 1,
+                  revision: random(),
+                  profile,
+                  state: "locked",
+                  accepted: entry.accepted,
+                };
+        if (!current(captured, op.signal)) return vaultFailure("cancelled");
+        if (retention === "session") {
+          written = { revision: next.revision, userKey: material.data.userKey };
+          await sessionKey.write(written);
+        }
+        if (!current(captured, op.signal)) return vaultFailure("cancelled");
+        if (next !== entry) {
+          writing = next.revision;
+          const write = await options.store.compareAndSwap(entry.revision, next, op.signal);
+          if (!write.ok) {
+            if (write.error.code === "storage-uncertain") {
+              uncertain = true;
+              await fence();
+            }
+            return write;
+          }
+        }
+        const readback = await options.store.read();
+        if (!readback.ok || !sameVaultEntry(readback.data, next) || !current(captured, op.signal)) {
+          uncertain = true;
+          await fence();
+          return vaultFailure("storage-uncertain");
+        }
+        if (retention === "durable") await sessionKey.clear().catch(() => undefined);
+        await lockLive();
+        if (!current(captured, op.signal)) return vaultFailure("cancelled");
+        const handle = handleFor(next);
+        live = { handle, opened: candidate, summary: summary(next) };
+        if (staged === candidate) staged = undefined;
+        candidate = undefined;
+        uncertain = false;
+        written = undefined;
+        return { ok: true, data: { handle: structuredClone(handle), summary: summary(next) } };
+      } catch {
+        return vaultFailure("storage-failed");
+      } finally {
+        writing = undefined;
+        // A lock, log out or removal ran meanwhile: the key this unlock wrote must not
+        // outlive it.
+        if (written && epoch !== captured) {
+          const left = await sessionKey.read().catch(() => undefined);
+          if (left?.revision === written.revision && left.userKey === written.userKey)
+            await sessionKey.clear().catch(() => undefined);
+        }
+        const remaining = candidate ?? staged;
+        staged = undefined;
+        if (remaining) await retire(remaining);
+        op.cleanup();
+        busy = false;
+      }
+    },
+    /**
+     * Locks the vault and keeps its sign-in (ADR 0075): the open session ends, this
+     * session's key is dropped and a key on disk is removed from the record, which keeps
+     * the encrypted context for an offline unlock. Answers the record's summary after the
+     * lock, or null when there is no record.
+     */
+    async lockVault(): Promise<VaultResult<LocalVaultSummary | null>> {
+      if (!profile) return vaultFailure("invalid-profile");
+      if (disposed) return vaultFailure("crypto-locked");
+      if (disabling) return vaultFailure("resource-limit");
+      disabling = true;
+      try {
+        await fence();
+        // Memory first: once this resolves, no unlock of this browser session is left.
+        await sessionKey.clear();
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          // eslint-disable-next-line no-await-in-loop
+          const stored = await options.store.read();
+          // A record that fails admission never unlocks again, so with the session key
+          // gone nothing of it is open.
+          if (!stored.ok && stored.error.code === "invalid-cache-record")
+            return { ok: true, data: null };
+          if (!stored.ok) return stored;
+          if (stored.data?.state !== "active")
+            return { ok: true, data: stored.data ? summary(stored.data) : null };
+          const next: VaultEntry = {
+            schemaVersion: 1,
+            revision: random(),
+            profile,
+            state: "locked",
+            accepted: stored.data.accepted,
+          };
+          // eslint-disable-next-line no-await-in-loop
+          const write = await options.store.compareAndSwap(stored.data.revision, next);
+          if (!write.ok) {
+            if (write.error.code === "storage-conflict") continue;
+            uncertain = write.error.code === "storage-uncertain";
+            return write;
+          }
+          // eslint-disable-next-line no-await-in-loop
+          const readback = await options.store.read();
+          if (!readback.ok || !sameVaultEntry(readback.data, next)) {
+            uncertain = true;
+            return vaultFailure("storage-uncertain");
+          }
+          uncertain = false;
+          return { ok: true, data: summary(next) };
+        }
+        return vaultFailure("storage-conflict");
+      } catch {
+        uncertain = true;
+        return vaultFailure("storage-uncertain");
+      } finally {
+        disabling = false;
+      }
+    },
+    /**
+     * Moves an unlocked vault's key to where `retention` now says, after the vault timeout
+     * changed: from the record to this session's memory, or back. The open session keeps
+     * serving the same snapshot. A locked vault stays locked.
+     */
+    async keepKey(retention: KeyRetention): Promise<VaultResult<true>> {
+      if (!profile) return vaultFailure("invalid-profile");
+      if (disposed || disabling) return vaultFailure("crypto-locked");
+      if (busy) return vaultFailure("resource-limit");
+      busy = true;
+      const captured = epoch;
+      let written: SessionKey | undefined;
+      try {
+        const stored = await options.store.read();
+        // A record that fails admission holds no key anyone can use.
+        if (!stored.ok && stored.error.code === "invalid-cache-record")
+          return { ok: true, data: true };
+        if (!stored.ok) return stored;
+        const entry = stored.data;
+        let next: VaultEntry;
+        if (retention === "session" && entry?.state === "active") {
+          next = {
+            schemaVersion: 1,
+            revision: random(),
+            profile,
+            state: "locked",
+            accepted: entry.accepted,
+          };
+          // A lock that started meanwhile already cleared memory; nothing may refill it.
+          if (epoch !== captured) return vaultFailure("cancelled");
+          written = { revision: next.revision, userKey: entry.userKey };
+          await sessionKey.write(written);
+        } else if (retention === "durable" && entry?.state === "locked") {
+          const userKey = await keyFor(entry);
+          if (!userKey) return { ok: true, data: true };
+          next = {
+            schemaVersion: 1,
+            revision: random(),
+            profile,
+            state: "active",
+            accepted: entry.accepted,
+            userKey,
+          };
+        } else return { ok: true, data: true };
+        if (epoch !== captured) return vaultFailure("cancelled");
+        writing = next.revision;
+        const write = await options.store.compareAndSwap(entry.revision, next);
+        if (!write.ok) {
+          if (write.error.code === "storage-uncertain") {
+            uncertain = true;
+            await fence();
+          }
+          return write;
+        }
+        const readback = await options.store.read();
+        if (!readback.ok || !sameVaultEntry(readback.data, next)) {
+          uncertain = true;
+          await fence();
+          return vaultFailure("storage-uncertain");
+        }
+        // Same snapshot and record ID: only the revision the open session checks moves.
+        if (live && live.summary.revision === entry.revision)
+          live = { ...live, summary: summary(next) };
+        if (retention === "durable") await sessionKey.clear().catch(() => undefined);
+        return { ok: true, data: true };
+      } catch {
+        uncertain = true;
+        await fence();
+        return vaultFailure("storage-uncertain");
+      } finally {
+        writing = undefined;
+        // A lock, log out or removal ran meanwhile: the key this move wrote must not
+        // outlive it.
+        if (written && epoch !== captured) {
+          const left = await sessionKey.read().catch(() => undefined);
+          if (left?.revision === written.revision && left.userKey === written.userKey)
+            await sessionKey.clear().catch(() => undefined);
+        }
+        busy = false;
+      }
+    },
+    /** The key that unlocks this record now, for a sync that opens the next snapshot. */
+    keyFor,
     async lock() {
       await fence();
     },
@@ -607,6 +911,7 @@ export function createLocalVaultManager(options: {
       disabling = true;
       try {
         await fence();
+        await sessionKey.clear();
         const removed = await options.store.remove();
         uncertain = !removed.ok && removed.error.code === "storage-uncertain";
         return removed;

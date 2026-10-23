@@ -46,6 +46,13 @@ export function settable(element: Element | undefined): boolean {
   return writable(element) || choosable(element);
 }
 /**
+ * A shown enabled input of a kind Pateat fills, read-only or not: a field entered on the
+ * page's software keyboard (ADR 0067), which pages keep read-only.
+ */
+export function keyable(element: Element | undefined): element is HTMLInputElement {
+  return textInput(element) && visible(element) && !element.disabled;
+}
+/**
  * A shown enabled button, or a shown script button that is not `aria-disabled`, neither
  * `inert` nor inside an `inert` element, which takes no click until the page lifts it, as
  * a submit control kept inert until its fields are filled (#853); with

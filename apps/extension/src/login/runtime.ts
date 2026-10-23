@@ -9,7 +9,7 @@ import {
   continuesRecipe,
   createAttemptMetadata,
   defaultLoginBinding,
-  effectfulStep,
+  fillOnlyStops,
   extendsRecipe,
   fillLoginBinding,
   findLoginBinding,
@@ -31,11 +31,19 @@ import {
   loginObservationSchema,
   isEntryObservation,
   nextLoginOperation,
+  keypadStep,
   loginStepEffect,
   parseAttemptMetadata,
   passkeyAnswersRequest,
   passwordStopOrMiss,
   passwordVariants,
+  languageDecides,
+  layoutFirstSteps,
+  layoutShown,
+  rankLayouts,
+  layoutStartTargets,
+  MAX_ATTEMPT_SUBMISSIONS,
+  recipeBranch,
   recipeHasRoute,
   recipeStartSteps,
   laterStartSteps,
@@ -57,6 +65,7 @@ import {
   sameLoginDocument,
   sameLoginTarget,
   saveLoginChoice,
+  showsBesideForm,
   siteDefaultConnection,
   templateLoginBinding,
   TOTP_HANDLER_SLOT,
@@ -94,9 +103,9 @@ import {
   isLoginRouteRecipe,
   chooserClickBranch,
   chooserRoute,
-  type ChooserBranch,
   type ChooserClick,
   type ListClick,
+  type LayoutCandidate,
   type PageKind,
   type LoginChooserRecipe,
   type LoginRecipe,
@@ -129,6 +138,7 @@ import { domainKey } from "@pateat/bitwarden";
 import {
   authorizeSchema,
   destinationCheckSchema,
+  keypadPressSchema,
   type DestinationAnswer,
   entryCheckResultSchema,
   entryHostsResultSchema,
@@ -158,6 +168,7 @@ import {
   type ExecutionDetail,
   type InPlaceNext,
   type LoginReadiness,
+  type StartMiss,
   type TargetRequirement,
   type TargetState,
   type LoginSecretKind,
@@ -187,6 +198,7 @@ import {
   type StatusResponse,
 } from "./choice-wire";
 import { customFieldOffers, type CustomFieldOffer } from "./generation-slots";
+import { classifyStartMiss, type RecipeRepairs } from "./repair";
 import { emailUsername, namesUsername, type EntryMiss, type OtherMiss } from "../page/account-list";
 import { observedPath } from "../observation/path";
 import { senderDocumentOrigin, senderPageUrl } from "../messaging/sender";
@@ -340,6 +352,11 @@ type SignInReading = {
    * through and the tab asks again (ADR 0021 D).
    */
   formAgain?: true;
+  /**
+   * The page shows a password input (S2) and no CAPTCHA (S4): after an `advance` whose next
+   * step never showed, the page a repair continues (ADR 0041 section 4).
+   */
+  asksPassword?: true;
 };
 /**
  * The sign-in form with its password input shown again in the first new document after
@@ -789,6 +806,11 @@ type Execution = {
    */
   inPlace?: { operationId: string; before: TargetState[] };
   /**
+   * Likewise each other layout's next step on the advance's path, by the layout's key (ADR
+   * 0060): only elements not usable then confirm a switch to that layout on that path.
+   */
+  siblingsInPlace?: { operationId: string; siblings: { layout: string; before: TargetState[] }[] };
+  /**
    * Since when the page after the final `advance` step `operationId` has shown a sign-in
    * input on `path`, so the recipe may be continued there (ADR 0018). Kept in memory only.
    */
@@ -957,6 +979,14 @@ const watchOver = (metadata: LoginAttemptMetadata, now: number) =>
  * list's own buttons, when it shows the list of accounts, and as its steps the first step
  * of its `other` branch when that starts on the list's path.
  */
+/**
+ * One layout a new login may run (ADR 0060), in the order it is tried, with the later
+ * steps that show of it when the login starts at one (ADR 0049).
+ */
+type LayoutChoice = {
+  recipe: LoginRecipe;
+  later?: { variants: Map<number, number[]>; button: boolean } | undefined;
+};
 export type LoginRecipeStart = {
   path: string;
   steps: LoginStep[];
@@ -969,21 +999,45 @@ export type LoginRecipeStart = {
  * ADR 0013); neither carries values.
  */
 export interface LoginRecipes {
-  /** The recipe for a document, or an attempt's own recipe by ID after navigation. */
-  recipe(origin: string, path: string, recipeId?: string): Promise<LoginRecipe | undefined>;
+  /**
+   * The recipe for a document, or an attempt's own recipe by ID after navigation: one
+   * layout of it (ADR 0060), the one named or else the newest.
+   */
+  recipe(
+    origin: string,
+    path: string,
+    recipeId?: string,
+    layout?: string,
+  ): Promise<LoginRecipe | undefined>;
+  /**
+   * Every layout of the recipe that starts on the path, for a new login to choose from
+   * (ADR 0060); none when no single recipe starts there.
+   */
+  layouts?(origin: string, path: string): Promise<LayoutCandidate<LoginRecipe>[]>;
+  /**
+   * Every layout of a recipe by ID, a chooser's branches for a chooser recipe: a sign-in
+   * check reads all their signed-in markers (ADR 0060).
+   */
+  layoutsOf?(origin: string, recipeId: string): Promise<LoginRecipe[]>;
   /** Where every recipe for the origin starts; a document watches for its first steps. */
   starts(origin: string): Promise<LoginRecipeStart[]>;
-  /** The origin's login recipes with a later step on the path a login may start at (ADR 0049). */
+  /**
+   * Each layout of the origin's login recipes with a later step on the path a login may
+   * start at (ADR 0049, ADR 0060).
+   */
   later?(origin: string, path: string): Promise<LoginRecipe[]>;
   /**
    * The chooser recipe (ADR 0028) whose list shows on the path, or a chooser login's own
-   * recipe by ID after navigation.
+   * recipe by ID after navigation: one layout of it, the one named or else the newest.
    */
   chooser?(
     origin: string,
     path: string,
     recipeId?: string,
+    layout?: string,
   ): Promise<LoginChooserRecipe | undefined>;
+  /** Every layout of the chooser whose list shows on the path (ADR 0060). */
+  choosers?(origin: string, path: string): Promise<LayoutCandidate<LoginChooserRecipe>[]>;
   /** The origin's entry recipes (ADR 0031): a start path and the link pressed there. */
   entries(origin: string): Promise<LoginEntryRecipe[]>;
   /**
@@ -1022,20 +1076,15 @@ export type PageSampleOutcome =
   | { outcome: "failed"; reason: string };
 
 /**
- * What came of revoking a recipe the chosen item cannot run, so its page is generated again
- * (ADR 0058 A): `revoked`, or `conflict` when the service's head had moved on, each after
- * the recipe cache pulled recipes once (a failed pull is not reported, so the cache may still
- * hold the recipe); `not-due` with why when the page may not be generated now (`not-connected`,
- * `sending`, `sent`) or none is due (this device revoked the recipe in the last 30 days);
- * `not-sent` when that could not be recorded first (`storage-unavailable`); `failed` with the
- * transport's code or `device-rejected`.
+ * Whether a repair of a recipe the chosen item cannot run may be sent (ADR 0058 A, amended
+ * by ADR 0041): `claimed`, with `release` to drop the claim for a request that never reached
+ * the model; `not-due` when no service is paired (`not-connected`) or this device sent one
+ * for the recipe and route in the last 3 days; `not-sent` when the claim could not be recorded first
+ * (`storage-unavailable`).
  */
-export type RecipeReplaceOutcome = {
-  outcome: "revoked" | "conflict" | "not-due" | "not-sent" | "failed";
-  reason?: string;
-  /** How long the request took, when one was sent (ADR 0019). */
-  timing?: ServiceTiming;
-};
+export type RecipeRepairClaim =
+  | { outcome: "claimed"; release(): Promise<void> }
+  | { outcome: "not-due" | "not-sent"; reason?: string };
 
 /**
  * What came of one page offered for generation: the model's recipe, with the fields its
@@ -1153,13 +1202,14 @@ const asksAccount = (observation: LoginObservation) => {
 export interface LoginGeneration {
   /**
    * `true` when a page may be sent, else why not; with `base` and `branch`, as the first
-   * page of that chooser branch (ADR 0028).
+   * page of that chooser branch (ADR 0028). A branch is the name `recipeBranch` gives a
+   * layout and chooser branch (ADR 0060).
    */
   available(
     origin: string,
     path: string,
     base?: RecipeGenerationRequest["base"],
-    branch?: ChooserBranch,
+    branch?: string,
   ): Promise<true | GenerationHold>;
   /**
    * Sends one page: a recipe's first page, or with `base` the page after the final
@@ -1193,8 +1243,11 @@ export interface LoginGeneration {
     route: LoginRoute,
     observation: LoginObservation,
     sent?: () => void,
-    /** For a chooser login (ADR 0028): the branch whose route is judged. */
-    branch?: ChooserBranch,
+    /**
+     * The layout the login ran (ADR 0060), and for a chooser login (ADR 0028) the branch
+     * whose route is judged, as `recipeBranch` names them; none for a recipe without layouts.
+     */
+    branch?: string,
     /**
      * The description left out a disabled field that may not be a sign-in field: the
      * service keeps the model's abstention as `partial`, so a page of the path described
@@ -1207,17 +1260,24 @@ export interface LoginGeneration {
      * 0036, owner 2026-10-13 05:39 UTC).
      */
     stop?: true,
+    /**
+     * The page still shows the route's sign-in form beside another form that may ask for a
+     * detail (`showsBesideForm`): the service keeps only a `detail` handler from it (ADR
+     * 0061).
+     */
+    beside?: true,
   ): Promise<{
     /**
      * `retry` for a temporary refusal before any model call, which gives the page back:
      * no paired service, a rejected device, an unreachable or busy service, the service's
      * own request limit, or a request that failed before the model. `unclear` covers
-     * every other answer, including permanent refusals and failed model calls.
+     * every other answer, including permanent refusals and failed model calls. `optional`
+     * is a page after the sign-in that the person may put off (ADR 0065).
      */
-    verdict: "signed-in" | "rejected" | "challenge" | "unclear" | "retry";
+    verdict: "signed-in" | "rejected" | "challenge" | "optional" | "unclear" | "retry";
     /** For `retry` and `unclear`: the refusal or failure code, for the local log. */
     reason?: string;
-    /** A chooser login's is the whole chooser (ADR 0028). */
+    /** A chooser login's is the whole chooser (ADR 0028); either is the judged layout. */
     recipe?: LoginRecipe | LoginChooserRecipe;
     /** How long the request took, when one was sent (ADR 0019). */
     timing?: ServiceTiming;
@@ -1232,23 +1292,21 @@ export interface LoginGeneration {
    * sampled.
    */
   samplePage?(
-    sample: { recipeId: string; revision: number; route: LoginRoute; branch?: ChooserBranch },
+    sample: { recipeId: string; revision: number; route: LoginRoute; branch?: string },
     describe: () => Promise<{ observation: LoginObservation } | { unsent: string }>,
     sending?: () => Promise<string | undefined>,
   ): Promise<PageSampleOutcome>;
   /**
-   * Revokes a generated recipe revision the chosen item cannot run, whose start page is
-   * `origin` and `path`, so the page is generated again in the same visit (ADR 0058 A): only
-   * when that page may be sent for generation now, and at most once per recipe ID in 30 days
-   * for this service and device, recorded before the request leaves. Absent, no recipe is
-   * revoked.
+   * Claims a repair of a generated recipe the chosen item cannot run (ADR 0058 A, amended by
+   * ADR 0041), at most once per recipe ID and missing `route` in 3 days for this service
+   * and device, recorded before the request leaves. Absent, no such repair is sent.
    */
-  replace?(recipe: {
-    recipeId: string;
-    revision: number;
-    origin: string;
-    path: string;
-  }): Promise<RecipeReplaceOutcome>;
+  claimRepair?(recipeId: string, route: LoginRoute): Promise<RecipeRepairClaim>;
+  /**
+   * Pulls the service's recipes into the cache, so a repair is never asked for a recipe
+   * another device has already changed (ADR 0041).
+   */
+  pullRecipes?(): Promise<void>;
 }
 
 /**
@@ -1394,16 +1452,66 @@ function codeStep(
     : undefined;
 }
 /**
- * Whether a TOTP code's fill (see `codeStep`) went in, or may have, and its click has not
- * run (ADR 0027): a page that moved on meanwhile submitted the code by itself.
+ * Where the plan step at `index` stands in an entry the page may submit by itself: a TOTP
+ * code's (`codeStep`, ADR 0027), or a route step's fill on a software keyboard followed on
+ * the same path by its submit click, as a PIN pad that submits at its last digit
+ * (ADR 0067).
  */
-const codeAwaitsClick = (recipe: LoginRecipe, metadata: LoginAttemptMetadata) =>
+function selfSubmitStep(
+  recipe: LoginRecipe,
+  metadata: LoginAttemptMetadata,
+  index: number,
+): "fill" | "click" | undefined {
+  const code = codeStep(recipe, metadata, index);
+  if (code) return code;
+  const plan = attemptPlan(recipe, metadata);
+  type Entry = { step: LoginStep; handler?: number } | undefined;
+  const keyed = (fill: Entry, click: Entry) =>
+    fill?.handler === undefined &&
+    click?.handler === undefined &&
+    fill !== undefined &&
+    keypadStep(fill.step) &&
+    click?.step.kind === "click" &&
+    click.step.purpose === "submit" &&
+    click.step.path === fill.step.path;
+  if (keyed(plan?.[index], plan?.[index + 1])) return "fill";
+  if (keyed(plan?.[index - 1], plan?.[index])) return "click";
+  return undefined;
+}
+/**
+ * Whether a TOTP code's fill (see `codeStep`) went in, or may have, and its click has not
+ * run (ADR 0027): a page that moved on meanwhile submitted the code by itself. A fill on a
+ * software keyboard counts only after the page told of its first key press (`press`, ADR
+ * 0067), while the fill is still running or once it went in and before its click is
+ * prepared: a document that replaced the page before any press, as after the person's own
+ * link click or a reload, submitted nothing, and neither did one after a stopped fill.
+ */
+const codeAwaitsClick = (
+  recipe: LoginRecipe,
+  metadata: LoginAttemptMetadata,
+  press: KeypadPress | undefined,
+) =>
   metadata.operationId === undefined
-    ? codeStep(recipe, metadata, metadata.stepIndex) === "click"
+    ? codeStep(recipe, metadata, metadata.stepIndex) === "click" ||
+      (press?.filled === true &&
+        press.stepIndex === metadata.stepIndex - 1 &&
+        selfSubmitStep(recipe, metadata, metadata.stepIndex) === "click")
     : metadata.operationKind === "fill" &&
       metadata.operationEffect === "prepare" &&
       metadata.mutationIntent === true &&
-      codeStep(recipe, metadata, metadata.stepIndex) === "fill";
+      (codeStep(recipe, metadata, metadata.stepIndex) === "fill" ||
+        (press?.filled !== true &&
+          press?.operationId === metadata.operationId &&
+          selfSubmitStep(recipe, metadata, metadata.stepIndex) === "fill"));
+/**
+ * A keypad fill whose page told of its first key press (ADR 0067): its operation and plan
+ * step, and whether it went in.
+ */
+interface KeypadPress {
+  operationId: string;
+  stepIndex: number;
+  filled?: true;
+}
 /** The event for a code the page submitted by itself, marking a route step's code. */
 const autoSubmitted = (recipe: LoginRecipe, metadata: LoginAttemptMetadata) => ({
   type: "AUTO_SUBMITTED" as const,
@@ -1420,6 +1528,24 @@ const effectful = (metadata: LoginAttemptMetadata) =>
 const stepTargets = (step: LoginStep) =>
   step.kind === "fill" ? step.fields.map((field) => field.target) : [step.target];
 /**
+ * The name of the layout a login runs (ADR 0060) and, for a chooser login (ADR 0028), the
+ * branch its click led to, as the service's records and requests name them; `undefined` for
+ * a recipe without layouts, as the probe build's.
+ */
+function branchOf(metadata: LoginAttemptMetadata): string | undefined {
+  return metadata.layout === undefined
+    ? undefined
+    : recipeBranch(
+        metadata.layout,
+        metadata.chooser ? chooserClickBranch(metadata.chooser.click) : undefined,
+      );
+}
+/** `branchOf` as an optional `branch` member. */
+function branchField(metadata: LoginAttemptMetadata): { branch?: string } {
+  const branch = branchOf(metadata);
+  return branch ? { branch } : {};
+}
+/**
  * The recipe's signed-in markers as elements to observe (ADR 0029): each marker, which may
  * be a link located by its text (ADR 0018), then the elements it needs missing. `proves`
  * reads their states from `offset`: whether one marker shows once, visible, while each
@@ -1427,6 +1553,9 @@ const stepTargets = (step: LoginStep) =>
  * on `pageOrigin` count: the recipe's own origin by default, or another origin that a
  * login's tab moved to (ADR 0022).
  */
+/** Whether two recipes hold the same signed-in markers, so reading one reads the other. */
+const sameMarkers = (left: LoginRecipe, right: LoginRecipe) =>
+  JSON.stringify(left.completion ?? []) === JSON.stringify(right.completion ?? []);
 function markerProof(recipe: LoginRecipe, pageOrigin = recipe.origin) {
   const markers = (recipe.completion ?? []).filter(
     (marker) => (marker.origin ?? recipe.origin) === pageOrigin,
@@ -1589,8 +1718,11 @@ export type LoginReport = (
       recipeId: string;
       /** The recipe revision the login runs. */
       recipeRevision: number;
-      /** For a chooser login (ADR 0028): the branch whose route it runs. */
-      branch?: ChooserBranch;
+      /**
+       * The layout the login runs (ADR 0060), and for a chooser login (ADR 0028) the branch
+       * whose route it runs, as `recipeBranch` names them.
+       */
+      branch?: string;
       /** The route and password variant the login took when it started (ADR 0027). */
       route: LoginRoute;
       variant?: number;
@@ -1616,8 +1748,18 @@ export type LoginReport = (
       watched?: true;
       /** A new document of the tab resumed the attempt without changing its state or outcome. */
       repeat?: true;
+      /**
+       * Nothing was submitted yet, and the login is still in the document it began in, so
+       * the page is the one it started on or the same document after a fill (ADR 0066).
+       */
+      unsubmitted?: true;
       /** Why the login just changed route (ADR 0034). */
       routeChange?: RouteChange;
+      /**
+       * The layout the login ran until it just switched to `branch`'s, where the layouts of
+       * its recipe part (ADR 0060).
+       */
+      layoutFrom?: string;
       /** The login stops before the password its item lacks (ADR 0036). */
       stop?: "password";
       /** For a login that just ended, signed in or blocked: how long it took (ADR 0019). */
@@ -1673,6 +1815,10 @@ export type LoginReport = (
       recipeId: string;
       /** The recipe revision the login runs. */
       recipeRevision: number;
+      /** The layout of the recipe the login runs (ADR 0060); absent for one without layouts. */
+      layout?: string;
+      /** How many layouts of the recipe it chose among, when more than one (ADR 0060). */
+      layouts?: number;
       route: LoginRoute;
       variant?: number;
       /** How the account was chosen; absent in the probe build. */
@@ -1795,6 +1941,8 @@ export type LoginReport = (
       /** The state the login was left in, and the step it stopped at. */
       state: LoginAttemptMetadata["state"];
       stepIndex: number;
+      /** As for `attempt`: nothing was submitted yet, in the document the login began in. */
+      unsubmitted?: true;
       name: string;
       /** Logged only when it is one of Pateat's own error codes. */
       message?: string;
@@ -1829,9 +1977,10 @@ export type LoginReport = (
       /**
        * `accounts` for a page that lists accounts (ADR 0028), `entry` for a page sent as a
        * site's sign-in entry (ADR 0031), `other` for a form shown on a chooser's path sent
-       * as its `other` branch's first page (ADR 0028).
+       * as its `other` branch's first page (ADR 0028), `repair` for a stale recipe's start
+       * page sent to add a layout, with the recipe and the revision it repairs (ADR 0041).
        */
-      page?: "accounts" | "entry" | "other";
+      page?: "accounts" | "entry" | "other" | "repair";
       /** A returned route recipe's page kind (ADR 0035). */
       pageKind?: PageKind;
       /** The `signedIn` hint the request carried (ADR 0035). */
@@ -1868,15 +2017,23 @@ export type LoginReport = (
        * `sent` when the page goes out; the service's verdict when it answers; `not-sent`,
        * with the reason, when the page is not sent or could not be described for it.
        */
-      verdict: "sent" | "not-sent" | "signed-in" | "rejected" | "challenge" | "unclear" | "retry";
+      verdict:
+        | "sent"
+        | "not-sent"
+        | "signed-in"
+        | "rejected"
+        | "challenge"
+        | "optional"
+        | "unclear"
+        | "retry";
       reason?: string;
       /** For a returned revision: whether this login took it over. */
       takenOver?: boolean;
       /** A page of a watched login, judged from the watch's own pages (ADR 0027). */
       watched?: true;
       /**
-       * The judge could not decide a page with no sign and no evidence, so the login
-       * completed on it (ADR 0029).
+       * The judge could not decide a page with no sign and no evidence, or found it an
+       * optional page after the sign-in, so the login completed on it (ADR 0029, ADR 0065).
        */
       completed?: true;
       /**
@@ -1900,6 +2057,11 @@ export type LoginReport = (
        * button beside the password field (ADR 0036, owner 2026-10-13 05:39 UTC).
        */
       stop?: "password";
+      /**
+       * The page still shows the route's sign-in form beside another form, judged for a
+       * `detail` handler only (ADR 0061).
+       */
+      beside?: true;
       /** How long the request took, once it was answered or failed (ADR 0019). */
       timing?: ServiceTiming;
     }
@@ -1956,20 +2118,36 @@ export type LoginReport = (
     }
   | {
       /**
-       * A new login's recipe the chosen item cannot run, revoked so its page is generated
-       * again (ADR 0058 A): `route` is the route the item would take that the recipe lacks,
-       * `detail` the plan's refusal, and the outcome {@link RecipeReplaceOutcome}'s.
+       * A generated recipe's start page showed a sign-in input for the step wait without a
+       * ready first step (ADR 0041): `due` when the page is sent for repair, or
+       * why not (`skipped`, with the `StartMissVerdict`, the `RepairNote` or why the page
+       * cannot be sent as `reason`).
        */
-      type: "revoke";
+      type: "repair";
+      tabId: number;
+      origin: string;
+      recipeId: string;
+      recipeRevision: number;
+      outcome: "due" | "skipped";
+      reason?: string;
+    }
+  | {
+      /**
+       * A new login's recipe the chosen item cannot run, whose start page is sent for repair
+       * (ADR 0058 A, amended by ADR 0041): `route` is the route the item would take that the
+       * recipe lacks, `detail` the plan's refusal, and the outcome the claim's
+       * ({@link RecipeRepairClaim}).
+       */
+      type: "unfit";
       tabId: number;
       origin: string;
       recipeId: string;
       recipeRevision: number;
       route: LoginRoute;
-      outcome: RecipeReplaceOutcome["outcome"];
+      /** `newer` when a newer revision was pulled, which the page tries first. */
+      outcome: RecipeRepairClaim["outcome"] | "newer";
       reason?: string;
       detail?: string;
-      timing?: ServiceTiming;
     }
   | {
       type: "handler";
@@ -2118,6 +2296,11 @@ export function createLoginRuntime(
     /** Recipe generation for pages without a recipe; needs `uris` for the vault match. */
     generation?: LoginGeneration;
     /**
+     * Which generated recipes' start pages were sent for repair through `generation`
+     * (ADR 0041); without it no recipe is repaired.
+     */
+    repairs?: RecipeRepairs;
+    /**
      * The account item's passkey facts, read once when a login starts (ADR 0027). Without
      * it the item counts as holding no passkey, so a `passkey` handler is never run.
      */
@@ -2165,7 +2348,7 @@ export function createLoginRuntime(
     announced?: (tabId: number, url: string) => void;
   },
 ) {
-  const { fields, sites, recipes = noLoginRecipes, uris, generation } = options;
+  const { fields, sites, recipes = noLoginRecipes, uris, generation, repairs } = options;
   const badge =
     options.badge ?? createLoginBadge({ setBadge: setActionBadge, storage: memoryBadgeStorage() });
   /** Spins the tab's badge from a model request's `sent` until `stop`, once the request returns. */
@@ -2206,6 +2389,7 @@ export function createLoginRuntime(
       stop?: StopCause;
       reason?: string;
       routeChange?: RouteChange;
+      layoutFrom?: string;
       /** When the login ended, if earlier than now, such as when its watch ran out. */
       endedAt?: number;
     } = {},
@@ -2225,7 +2409,7 @@ export function createLoginRuntime(
       origin: metadata.document.origin,
       recipeId: metadata.recipeId,
       recipeRevision: metadata.recipeRevision,
-      ...(metadata.chooser ? { branch: chooserClickBranch(metadata.chooser.click) } : {}),
+      ...branchField(metadata),
       route: metadata.route,
       ...(metadata.variant === undefined ? {} : { variant: metadata.variant }),
       state: metadata.state,
@@ -2237,6 +2421,7 @@ export function createLoginRuntime(
       ...(metadata.outcome ? { outcome: metadata.outcome } : {}),
       ...(metadata.unconfirmed ? { unconfirmed: true as const } : {}),
       ...(metadata.watch ? { watched: true as const } : {}),
+      ...(unsubmitted(metadata) ? { unsubmitted: true as const } : {}),
       ...(metadata.fillOnly ? { reason: "fill-only" } : {}),
       ...(metadata.stopAt === undefined ? {} : { stop: "password" as const }),
       ...(policy && metadata.outcome === "policy-changed" ? policy : {}),
@@ -2254,6 +2439,20 @@ export function createLoginRuntime(
   const stepWaitMs = () => (probeMode ? probeStepWaitMs : undefined) ?? LOGIN_STEP_WAIT_MS;
   const documents = new Map<string, LiveDocument>();
   const attempts = new Map<number, Execution>();
+  /**
+   * The keypad fill of each attempt whose page told of its first key press, by attempt ID
+   * (ADR 0067), until the fill stops or the next operation answers. Kept in memory only:
+   * after a worker restart a replaced page is not taken as the keypad's own submission.
+   */
+  const keypadPresses = new Map<string, KeypadPress>();
+  /**
+   * By attempt ID, the document each new login of this worker began in; a resumed or
+   * recovered one has none, so it never counts as unsubmitted (ADR 0066).
+   */
+  const begunIn = new Map<string, string>();
+  /** Nothing was submitted yet, and the login is still in the document it began in. */
+  const unsubmitted = (metadata: LoginAttemptMetadata) =>
+    metadata.submissions === 0 && begunIn.get(metadata.id) === metadata.document.documentId;
   // ADR 0029's sign-in state reads these, kept in memory only and never stored.
   /**
    * By tab: when the attempt last delivered an effect step, the document it ran in, whether
@@ -3247,10 +3446,13 @@ export function createLoginRuntime(
     const settled = run.metadata.settled === true && previous.settled !== true ? true : undefined;
     // An ended login no longer waits for a continuation it asked for (ADR 0018).
     if (terminal(run.metadata) || idle(run.metadata)) continuations.delete(run.metadata.id);
+    // The layout it ran before, when the login just switched layouts (ADR 0060).
+    const layoutFrom = run.metadata.layout !== previous.layout ? previous.layout : undefined;
     if (
       run.metadata.state !== previous.state ||
       settled ||
-      (routeChange && run.metadata.route !== previous.route)
+      (routeChange && run.metadata.route !== previous.route) ||
+      layoutFrom !== undefined
     )
       // The log still names the step that was withdrawn.
       reportAttempt(
@@ -3268,6 +3470,7 @@ export function createLoginRuntime(
           ...(stop ? { stop } : {}),
           ...(reason ? { reason } : {}),
           ...(routeChange && run.metadata.route !== previous.route ? { routeChange } : {}),
+          ...(layoutFrom === undefined ? {} : { layoutFrom }),
         },
       );
     if (
@@ -4591,6 +4794,15 @@ export function createLoginRuntime(
         return undefined;
       }
     }
+    // Where the recipe's layouts part, the page may show another layout's next step instead
+    // of the login's own: the login goes on with that layout (ADR 0060).
+    const ownShows =
+      next !== undefined &&
+      observed.path === next.path &&
+      nextTargets.length > 0 &&
+      observed.targets.slice(offset).every((state) => state === "unique");
+    if (!ownShows && (await switchLayout(run))) return undefined;
+    if (!current(run)) return undefined;
     let continued: Awaited<ReturnType<typeof continueOn>> = "none";
     // After a passkey answer at the stop, the sign-in form still showing means the site has
     // not signed in: it may still be checking the assertion for a while, then the login
@@ -4769,6 +4981,17 @@ export function createLoginRuntime(
     // that still showed the sign-in form (S1) without a failure that acted says so in the
     // log, as `sign-in-shown`.
     const result = unproven(run, "unknown");
+    // A password page on the next step's path after an advance whose next step never showed
+    // there is sent for repair (ADR 0041 section 4).
+    const stale =
+      result === "unknown" &&
+      state?.decision === "continuing" &&
+      state.asksPassword &&
+      run.metadata.operationEffect === "advance" &&
+      next !== undefined &&
+      observed.path === next.path
+        ? nextIndex
+        : undefined;
     await change(
       run,
       { type: "OBSERVED", result, document: run.live.document },
@@ -4777,6 +5000,7 @@ export function createLoginRuntime(
         ? "sign-in-shown"
         : undefined,
     );
+    if (stale !== undefined) void repairLaterStep(run, stale).catch(() => undefined);
     // The sign-in form shown again in the first new page after the password submission,
     // with nothing else on it, means the login did not go through: the tab asks at once.
     if (state?.formAgain && state.confirmed && state.decision === "unknown") await askAgain(run);
@@ -4949,6 +5173,7 @@ export function createLoginRuntime(
       confirmed,
       ...(reading.signs.reshown ? { reshown: true as const } : {}),
       ...(formAgain(reading.signs) ? { formAgain: true as const } : {}),
+      ...(reading.signs.s2 && !reading.signs.s4 ? { asksPassword: true as const } : {}),
     };
   }
   /**
@@ -4992,11 +5217,37 @@ export function createLoginRuntime(
    * finished loading. The username goes to the page's content script for its comparison
    * only.
    */
+  /**
+   * Whether a signed-in marker of another layout of the login's recipe shows (ADR 0060),
+   * read as the login's own markers are; `undefined` when the page could not be read.
+   */
+  async function otherLayoutsMarked(run: Execution): Promise<boolean | undefined> {
+    const { recipe } = run;
+    const layouts = await Promise.resolve(recipes.layoutsOf?.(recipe.origin, recipe.id)).catch(
+      () => undefined,
+    );
+    /* eslint-disable no-await-in-loop */
+    for (const other of layouts ?? []) {
+      if (other.layout === recipe.layout && sameMarkers(other, recipe)) continue;
+      const proof = markerProof(other);
+      if (!proof.targets.length) continue;
+      const marked = await observe(run, proof.targets, proof.shown, {
+        links: proof.links,
+        hidden: proof.hidden,
+      });
+      if (!marked) return undefined;
+      if (proof.proves(marked.targets)) return true;
+    }
+    /* eslint-enable no-await-in-loop */
+    return false;
+  }
   async function readSignInState(run: Execution): Promise<
     | {
         signs: SignInSigns;
         decision: SignInDecision;
         loaded: boolean;
+        /** The path the reading was taken on. */
+        path: string;
         /** Why S1 is not read as the form shown again, or F2 not on it, for the log. */
         misses: { reshownMiss?: ReshownMiss; alertMiss?: AlertMiss };
       }
@@ -5027,6 +5278,10 @@ export function createLoginRuntime(
           })
         : undefined;
     if (proof.targets.length > 0 && !marked) return undefined;
+    // The signed-in markers the recipe's other layouts learned count as well (ADR 0060): a
+    // page of one layout's site may sign in to a page another layout learned.
+    const otherMarked = await otherLayoutsMarked(run);
+    if (otherMarked === undefined) return undefined;
     const authorized = await allowed(run);
     if (!authorized) return undefined;
     let username: string | undefined;
@@ -5102,7 +5357,7 @@ export function createLoginRuntime(
       // A failure counts only next to the sign-in fields.
       f1: s1 && page.invalid,
       f2: s1 && page.alert,
-      e1: marked !== undefined && proof.proves(marked.targets),
+      e1: (marked !== undefined && proof.proves(marked.targets)) || otherMarked,
       e2: page.username === true,
       // The document's path now, which follows a route change of a single-page site.
       e3:
@@ -5122,7 +5377,13 @@ export function createLoginRuntime(
         : reshown && !signs.f2 && page.alertMiss !== undefined
           ? { alertMiss: page.alertMiss }
           : {};
-    return { signs, decision: decideSignInState(signs), loaded: parsed.output.loaded, misses };
+    return {
+      signs,
+      decision: decideSignInState(signs),
+      loaded: parsed.output.loaded,
+      path: observed.path,
+      misses,
+    };
   }
   type DetailHandler = Extract<LoginHandler, { kind: "detail" }>;
   /** The login item a run's links belong to, or none while its vault account is unknown. */
@@ -5455,17 +5716,20 @@ export function createLoginRuntime(
   async function settleDetails(run: Execution, confirmed: boolean): Promise<void> {
     const { tabId } = run.live.document;
     await sessionLoaded;
+    // The offer ends with its login, also when the person typed the value themselves and
+    // the page stays in the same document.
+    const offered = detailOffers.get(tabId)?.attemptId === run.metadata.id;
+    if (offered) detailOffers.delete(tabId);
     const kept = pendingDetails.get(tabId)?.filter((entry) => entry.attemptId === run.metadata.id);
-    if (!kept?.length) return;
+    if (!kept?.length) {
+      if (offered) await quietly(saveSession);
+      return;
+    }
     const rest = pendingDetails.get(tabId)!.filter((entry) => entry.attemptId !== run.metadata.id);
     if (rest.length) pendingDetails.set(tabId, rest);
     else pendingDetails.delete(tabId);
-    if (detailOffers.get(tabId)?.attemptId === run.metadata.id) detailOffers.delete(tabId);
     await quietly(saveSession);
     if (!confirmed) return;
-    // A link the owner chose again replaces one refused before.
-    for (const { link } of kept)
-      refusedDetails.delete(refusalKey(link, link.detail, link.source.field));
     const written = await writeDetailLinks(run, (links) => [
       ...links.filter(
         (link) =>
@@ -5475,6 +5739,15 @@ export function createLoginRuntime(
       ),
       ...kept.map((entry) => entry.link),
     ]);
+    // A link the owner chose again replaces one refused before, once it is written: until
+    // then the settings may still hold the refused one. The session keeps the refusals, so
+    // a restarted worker does not bring a lifted one back.
+    if (written === "saved" || written === "unchanged") {
+      const lifted = kept.filter(({ link }) =>
+        refusedDetails.delete(refusalKey(link, link.detail, link.source.field)),
+      );
+      if (lifted.length) await quietly(saveSession);
+    }
     for (const entry of kept)
       reportDetail(
         run.live.document,
@@ -6060,7 +6333,7 @@ export function createLoginRuntime(
     );
     if (!observed || observed.path !== path) return false;
     let offset = 0;
-    const shown = observable
+    let shown = observable
       .filter((entry) => {
         const states = observed.targets.slice(offset, offset + entry.targets.length);
         offset += entry.targets.length;
@@ -6072,6 +6345,28 @@ export function createLoginRuntime(
       })
       .sort((left, right) => handlerOrder[left.handler.kind] - handlerOrder[right.handler.kind]);
     if (!shown.length) return false;
+    // A `detail` handler learned beside the sign-in form on a route path (ADR 0061) is not
+    // entered for the first time while that form shows a failure beside its fields: the
+    // password was wrong, and the login ends rejected rather than with the handler.
+    if (
+      shown.some(
+        (entry) =>
+          entry.handler.kind === "detail" &&
+          !run.metadata.handlers.some((entered) => entered.index === entry.index),
+      ) &&
+      routeSignInPaths(run.recipe, run.metadata.route).includes(path)
+    ) {
+      const reading = await readSignInState(run);
+      if (!current(run)) return true;
+      if (reading?.decision === "rejected") {
+        shown = shown.filter(
+          (entry) =>
+            entry.handler.kind !== "detail" ||
+            run.metadata.handlers.some((entered) => entered.index === entry.index),
+        );
+        if (!shown.length) return false;
+      }
+    }
     const reportHandler = (
       entry: (typeof entries)[number],
       outcome: Extract<LoginReport, { type: "handler" }>["outcome"],
@@ -6314,11 +6609,14 @@ export function createLoginRuntime(
     run: Execution,
     path: string,
   ): Promise<
-    { observation: LoginObservation; disabledLeftOut: boolean } | { unsent: string } | undefined
+    | { observation: LoginObservation; disabledLeftOut: boolean; inputLeftOut: boolean }
+    | { unsent: string }
+    | undefined
   > {
     let observation: LoginObservation | undefined;
     let unsent = "unreachable";
     let disabledLeftOut = false;
+    let inputLeftOut = false;
     try {
       const extracted = v.safeParse(
         extractResultSchema,
@@ -6342,6 +6640,7 @@ export function createLoginRuntime(
       else {
         observation = parsed.output;
         disabledLeftOut = extracted.output.ok && extracted.output.disabledLeftOut === true;
+        inputLeftOut = extracted.output.ok && extracted.output.inputLeftOut === true;
       }
     } catch {
       // The page could not be asked: `unreachable`.
@@ -6354,7 +6653,7 @@ export function createLoginRuntime(
     const hidden = hideUsernames(observation, usernames, run.live);
     if (!current(run)) return undefined;
     if ("reason" in hidden) return { unsent: hidden.reason };
-    return { observation: hidden.observation, disabledLeftOut };
+    return { observation: hidden.observation, disabledLeftOut, inputLeftOut };
   }
   /**
    * Sends the page a login ended on, once its recipe's signed-in marker completed it with no
@@ -6389,7 +6688,7 @@ export function createLoginRuntime(
       before.continuation !== undefined
     )
       return;
-    const branch = metadata.chooser ? chooserClickBranch(metadata.chooser.click) : undefined;
+    const branch = branchOf(metadata);
     const reportSample = (
       outcome: Extract<LoginReport, { type: "sample" }>["outcome"],
       reason?: string,
@@ -6454,6 +6753,27 @@ export function createLoginRuntime(
       )
       .catch(() => undefined);
   }
+  /**
+   * Whether this attempt has sent the account's credential (ADR 0065): its latest effect
+   * step submitted, after a route step that typed the password or a second factor's
+   * handler (a handler missing from the recipe does not count). The page after an
+   * identifier's Next, or after a `password` handler's button, is no page after the
+   * sign-in. The `passkey` route never completes on an optional page (ADR 0027), so its
+   * own step does not count.
+   */
+  function credentialSent(run: Execution): boolean {
+    const { metadata, recipe } = run;
+    if (metadata.operationEffect !== "submit") return false;
+    const ran = metadata.operationId === undefined ? metadata.stepIndex : metadata.stepIndex + 1;
+    return (attemptPlan(recipe, metadata) ?? [])
+      .slice(0, ran)
+      .some((entry) =>
+        entry.handler === undefined
+          ? entry.step.kind === "fill" &&
+            entry.step.fields.some((field) => field.slot === "password")
+          : ![undefined, "password"].includes(recipe.handlers?.[entry.handler]?.kind),
+      );
+  }
   async function learn(run: Execution, reading?: SignInReading): Promise<boolean> {
     const { recipe, metadata } = run;
     const { operationId } = metadata;
@@ -6493,13 +6813,29 @@ export function createLoginRuntime(
     }
     // A route's sign-in field shows on another path too (S1): such a page is never complete
     // (ADR 0029), and the description may leave the field out when no locator names it.
+    const fieldShown =
+      paths.includes(remaining.path) &&
+      remaining.targets
+        .slice(0, fills.length)
+        .some((state) => state !== "missing" && state !== "unusable");
+    // One on a route path of a password login without a chooser or a stop, read in the tab's
+    // top document on the recipe's own origin, may stand beside another form that asks for
+    // a detail, which is judged on its own (ADR 0061); a failure shown beside the sign-in
+    // form never is, nor a page whose sign-in state was not read.
+    const besideCandidate =
+      fieldShown &&
+      reading !== undefined &&
+      reading.decision !== "rejected" &&
+      metadata.route === "password" &&
+      !metadata.chooser &&
+      metadata.stopAt === undefined &&
+      metadata.pageOrigin === undefined &&
+      run.live.document.frameId === 0 &&
+      run.live.topUrl === undefined &&
+      run.live.document.origin === recipe.origin;
     if (
-      reading?.decision === "unknown" ||
-      reading?.decision === "rejected" ||
-      (paths.includes(remaining.path) &&
-        remaining.targets
-          .slice(0, fills.length)
-          .some((state) => state !== "missing" && state !== "unusable"))
+      !besideCandidate &&
+      (reading?.decision === "unknown" || reading?.decision === "rejected" || fieldShown)
     )
       return notSent("sign-in-shown");
     // A marker shows, but the completion check did not prove the sign-in: more than one
@@ -6513,8 +6849,18 @@ export function createLoginRuntime(
     const described = await describeForJudge(run, remaining.path);
     if (!described) return true;
     // A page that cannot be described completely is not sent and does not count.
-    if ("unsent" in described) return notSent(described.unsent);
-    const { observation, disabledLeftOut } = described;
+    if ("unsent" in described) return notSent(besideCandidate ? "sign-in-shown" : described.unsent);
+    const { observation, disabledLeftOut, inputLeftOut } = described;
+    // The sign-in form beside another form with a text-like input and its own button, on a
+    // path without a `detail` handler, as the service checks (ADR 0061); otherwise the page
+    // is still the sign-in page.
+    const beside =
+      besideCandidate &&
+      showsBesideForm(observation, routeFillTargets(recipe, "password")) &&
+      !(recipe.handlers ?? []).some(
+        (handler) => handler.kind === "detail" && handler.path === observation.path,
+      );
+    if (besideCandidate && !beside) return notSent("sign-in-shown");
     const left = pagesLeft(run.metadata, operationId);
     await change(run, { type: "JUDGING", operationId });
     if (!current(run)) return true;
@@ -6542,16 +6888,20 @@ export function createLoginRuntime(
         ...detail,
         ...(watchedPage ? { watched: true as const } : {}),
         ...(disabledLeftOut ? { disabledLeftOut: true as const } : {}),
+        ...(beside ? { beside: true as const } : {}),
         ...timed,
       });
-    // A chooser login's branch, and whether the description left a disabled field out
-    // (ADR 0029); each is passed only when there is one.
-    const branch = metadata.chooser ? chooserClickBranch(metadata.chooser.click) : undefined;
-    const judgedTail: [(ChooserBranch | undefined)?, true?] = disabledLeftOut
-      ? [branch, true]
-      : branch
-        ? [branch]
-        : [];
+    // The login's layout and chooser branch (ADR 0060), whether the description left a
+    // disabled field out (ADR 0029), and whether the page is beside the sign-in form (ADR
+    // 0061); each is passed only when there is one.
+    const branch = branchOf(metadata);
+    const judgedTail: [(string | undefined)?, (true | undefined)?, undefined?, true?] = beside
+      ? [branch, disabledLeftOut ? true : undefined, undefined, true]
+      : disabledLeftOut
+        ? [branch, true]
+        : branch
+          ? [branch]
+          : [];
     const spin = spinning(run.live.document.tabId);
     const asked = Date.now();
     const {
@@ -6585,7 +6935,12 @@ export function createLoginRuntime(
     if (verdict === "retry") await change(run, { type: "UNJUDGED", operationId });
     // A page with no sign and no evidence completes when the judge cannot decide, unless
     // the login is watched (ADR 0027); one with a sign of another sign-in step goes to the
-    // person, as does a page judged `challenge` before (ADR 0029).
+    // person, as does a page judged `challenge` before (ADR 0029). An optional page after
+    // the sign-in completes as signed in, watched or not, and is left as it is (ADR 0065),
+    // but only on the `password` route once this attempt sent the credential, without a
+    // stop before a missing password and with no radio button, select or text area left
+    // out of its description; on the same path once read again.
+    const sent = credentialSent(run);
     const candidate = undecidedCandidate({
       verdict,
       reason,
@@ -6593,6 +6948,8 @@ export function createLoginRuntime(
       watched: run.metadata.watch !== undefined,
       route: run.metadata.route,
       stopAt: run.metadata.stopAt,
+      sent,
+      inputLeftOut,
     });
     let again: Awaited<ReturnType<typeof readSignInState>>;
     // The judge's answer can take a while: the page completes only if, once the answer is
@@ -6608,6 +6965,9 @@ export function createLoginRuntime(
       ...candidate,
       again,
       disabledLeftOut,
+      // Only an optional page must still be on its path: an undecided one keeps ADR 0029's
+      // rule, as on a single-page app that routes on while it is judged.
+      ...(verdict === "optional" ? { path: remaining.path } : {}),
     });
     // Reported before the takeover's own entries, once whether it is taken over is known.
     let reported = false;
@@ -6637,6 +6997,7 @@ export function createLoginRuntime(
       stopHeld: candidate.stopHeld,
       route: run.metadata.route,
       stopAt: run.metadata.stopAt,
+      sent,
     });
     // The page after the final advance before a stop just past the plan's last step, not
     // found signed in or rejected and with no handler taken over, takes the login to its
@@ -6695,9 +7056,178 @@ export function createLoginRuntime(
   /** The newest cached revision of a login's own recipe, as the route it runs. */
   async function cachedRoute(run: Execution, path: string): Promise<LoginRecipe | undefined> {
     const { origin: pageOrigin } = run.live.document;
-    if (!run.metadata.chooser) return recipes.recipe(pageOrigin, path, run.recipe.id);
-    return routeOf(run, await recipes.chooser?.(pageOrigin, path, run.recipe.id));
+    // The layout the login started on (ADR 0060).
+    const { layout } = run.metadata;
+    if (!run.metadata.chooser) return recipes.recipe(pageOrigin, path, run.recipe.id, layout);
+    return routeOf(run, await recipes.chooser?.(pageOrigin, path, run.recipe.id, layout));
   }
+  /**
+   * The other layouts of a login's recipe it may run from plan step `at` on (ADR 0060),
+   * newest first: each whose steps before `at` are the login's own, with a different step
+   * at `at`. Only a `password` login on its recipe's own steps (variant 0) has any, with no
+   * handler entered, no stop, no chooser and not only filling, past its first step: the
+   * layouts were told apart there already.
+   */
+  async function siblingsAt(run: Execution, at: number): Promise<LoginRecipe[]> {
+    const { metadata, recipe } = run;
+    if (
+      !recipes.layoutsOf ||
+      metadata.layout === undefined ||
+      metadata.route !== "password" ||
+      metadata.variant !== 0 ||
+      metadata.handlers.length > 0 ||
+      metadata.chooser !== undefined ||
+      metadata.stopAt !== undefined ||
+      metadata.fillOnly === true ||
+      at < 1
+    )
+      return [];
+    const plan = attemptPlan(recipe, metadata);
+    if (!plan || plan.length !== metadata.stepCount) return [];
+    const layouts = await Promise.resolve(recipes.layoutsOf(recipe.origin, recipe.id)).catch(
+      () => [],
+    );
+    const stepsOf = (entries: { step: LoginStep }[]) =>
+      JSON.stringify(entries.map((entry) => entry.step));
+    const before = stepsOf(plan.slice(0, at));
+    const own = plan[at] && stepsOf([plan[at]]);
+    return layouts
+      .filter((other) => {
+        if (
+          other.id !== recipe.id ||
+          other.layout === undefined ||
+          other.layout === metadata.layout ||
+          other.revision < metadata.recipeRevision ||
+          !runsLogin(other)
+        )
+          return false;
+        const steps = attemptPlan(other, metadata);
+        return (
+          steps !== undefined &&
+          steps.length > at &&
+          stepsOf(steps.slice(0, at)) === before &&
+          stepsOf([steps[at]!]) !== own
+        );
+      })
+      .sort((left, right) => Number(right.layout) - Number(left.layout));
+  }
+  /**
+   * Switches the login to another layout of its recipe at the step where they part (ADR
+   * 0060), when the page shows that layout's step there and not the login's own: after an
+   * effect step that may have advanced, the step after it, confirmed as the login's own next
+   * step would be (on its path, or on the advance's path by elements the advance made
+   * ready); with nothing in flight, the step at hand, ready to run. The account's plan must
+   * pass on that layout. Returns whether the login switched; the newest layout that fits
+   * wins.
+   */
+  // The layouts are tried in order, each against the page as it is now.
+  /* eslint-disable no-await-in-loop */
+  async function switchLayout(run: Execution): Promise<boolean> {
+    const { metadata } = run;
+    const inFlight = metadata.operationId !== undefined;
+    if (
+      inFlight &&
+      !(
+        (metadata.operationKind === "click" || metadata.operationEffect === "advance") &&
+        metadata.mutationIntent === true &&
+        metadata.submissions > 0
+      )
+    )
+      return false;
+    if (!inFlight && metadata.retryRequired === true) return false;
+    // A click left to the person is theirs to press first.
+    if (inFlight && run.heldClick === metadata.stepIndex) return false;
+    const at = inFlight ? metadata.stepIndex + 1 : metadata.stepIndex;
+    // Past the login's own last step only an advance goes on (`LAYOUT`'s guard).
+    if (at >= metadata.stepCount && metadata.operationEffect !== "advance") return false;
+    const siblings = await siblingsAt(run, at);
+    if (!current(run)) return false;
+    const done = inFlight
+      ? attemptPlan(run.recipe, metadata)?.[metadata.stepIndex]?.step
+      : undefined;
+    for (const sibling of siblings) {
+      const step = attemptPlan(sibling, metadata)![at]!.step;
+      let shows: boolean;
+      if (!inFlight) {
+        // As the step would wait for its elements before it runs; a step that needs none
+        // shows nothing of the layout.
+        const readiness = loginReadiness(step);
+        if (!readiness.targets.length) continue;
+        const waited = await waitFor(run, readiness, 1);
+        if (!current(run) || waited === "gone") return false;
+        shows = waited === "ready";
+      } else {
+        // An advance on the step's own path is confirmed only by elements it made ready, as
+        // the login's own next step is (ADR 0013).
+        const inPlace =
+          done?.path === step.path ? inPlaceNext(sibling, metadata, metadata.stepIndex) : undefined;
+        const measured =
+          run.siblingsInPlace && run.siblingsInPlace.operationId === metadata.operationId
+            ? run.siblingsInPlace.siblings.find((entry) => entry.layout === sibling.layout)
+            : undefined;
+        if (
+          done?.path === step.path &&
+          !(
+            inPlace &&
+            measured?.before.length === inPlace.targets.length &&
+            measured.before.every((state) => state === "missing" || state === "unusable")
+          )
+        )
+          continue;
+        const targets = inPlace ? inPlace.targets : stepTargets(step);
+        if (!targets.length) continue;
+        const observed = await observe(
+          run,
+          targets,
+          targets.map(() => inPlace?.require ?? "present"),
+        );
+        if (!observed) return false;
+        shows =
+          observed.path === step.path && observed.targets.every((state) => state === "unique");
+      }
+      if (!shows) continue;
+      // The account's binding and fields must fit the layout's route, as at a login's start.
+      const snapshot = await settings.handle({ version: 1, type: "settings.get" });
+      if (!current(run)) return false;
+      if (!snapshot.ok || snapshot.snapshot.revision !== run.metadata.policyRevision) return false;
+      const plan = await planFor(snapshot, run.live, sibling, {
+        route: { route: "password", variant: 0 },
+      });
+      if (!current(run) || run.metadata !== metadata) return false;
+      if (
+        !plan.ok ||
+        plan.account.connectionId !== metadata.account.connectionId ||
+        plan.account.itemId !== metadata.account.itemId
+      )
+        continue;
+      const event: LoginAttemptEvent = {
+        type: "LAYOUT",
+        layout: sibling.layout!,
+        recipeRevision: sibling.revision,
+        steps: attemptPlan(sibling, metadata)!.length,
+        // What the login holds beyond its recipe's budget, as the submissions a passkey
+        // answer spent before it fell back to the password (ADR 0034), stays with it.
+        maxSubmissions: Math.min(
+          MAX_ATTEMPT_SUBMISSIONS,
+          sibling.maxSubmissions + Math.max(0, metadata.maxSubmissions - run.recipe.maxSubmissions),
+        ),
+        document: run.live.document,
+      };
+      if (transitionLoginAttempt(metadata, event).layout !== sibling.layout) continue;
+      // The recipe is replaced before the record that names its layout is written.
+      run.recipe = sibling;
+      // The account's choice is saved for the layout the login signs in on.
+      if (plan.choice) run.choice = plan.choice;
+      else delete run.choice;
+      delete run.inPlace;
+      delete run.siblingsInPlace;
+      delete run.qualified;
+      await change(run, event);
+      return true;
+    }
+    return false;
+  }
+  /* eslint-enable no-await-in-loop */
   /**
    * Whether the attempt's in-flight step is the final `advance` step of a recipe that can be
    * continued on the page it leads to (ADR 0018): a `password` route login on the recipe's
@@ -6995,8 +7525,9 @@ export function createLoginRuntime(
             ...custom,
           ],
           base: { recipeId: recipe.id, revision: recipe.revision },
-          // A chooser login's page is its branch's next page (ADR 0028).
-          ...(metadata.chooser ? { branch: chooserClickBranch(metadata.chooser.click) } : {}),
+          // The page continues the login's layout (ADR 0060); a chooser login's is its
+          // branch's next page (ADR 0028).
+          ...branchField(metadata),
         },
         spin.sent(() =>
           report(page, {
@@ -7334,8 +7865,8 @@ export function createLoginRuntime(
       return;
     }
     // Only a page with no sign of a sign-in going on is judged; an undecided answer never
-    // completes a watched login.
-    if (state?.decision === "judge") await learn(run);
+    // completes a watched login, an optional page after the sign-in does (ADR 0065).
+    if (state?.decision === "judge") await learn(run, state);
   }
   async function drive(run: Execution): Promise<void> {
     if (run.running) return;
@@ -7372,6 +7903,7 @@ export function createLoginRuntime(
             route: run.metadata.route,
             state: run.metadata.state,
             stepIndex: run.metadata.stepIndex,
+            ...(unsubmitted(run.metadata) ? { unsubmitted: true as const } : {}),
             name: error instanceof Error ? error.name : typeof error,
             ...(error instanceof Error ? { message: error.message } : {}),
             ...(error instanceof Error && error.stack ? { stack: error.stack } : {}),
@@ -7427,17 +7959,19 @@ export function createLoginRuntime(
       // A fill or click waits for its elements before any intent, vault read or value
       // delivery; a slow render is not a failure until the owner-approved limit passes.
       const upcoming = attemptPlan(run.recipe, run.metadata)?.[run.metadata.stepIndex]?.step;
-      // A fill-only login stops before anything that may advance or submit (ADR 0021 D).
-      if (run.metadata.fillOnly && (!upcoming || effectfulStep(upcoming))) {
+      // A fill-only login stops before anything that may advance or submit, and before a
+      // fill on a software keyboard, whose presses the page may act on (ADR 0021 D, 0067).
+      if (run.metadata.fillOnly && (!upcoming || fillOnlyStops(upcoming))) {
         await endFillOnly(run);
         return;
       }
       if (upcoming?.kind === "fill" || upcoming?.kind === "click") {
         // A code input may submit by itself once the code is in, as one that submits on
-        // its last digit does; its click then has nothing left to do (ADR 0027).
+        // its last digit does, and so may a software keyboard; its click then has nothing
+        // left to do (ADR 0027, ADR 0067).
         const afterCode =
           upcoming.kind === "click" &&
-          codeStep(run.recipe, run.metadata, run.metadata.stepIndex) === "click";
+          selfSubmitStep(run.recipe, run.metadata, run.metadata.stepIndex) === "click";
         if (afterCode && (await submittedByPage(run, upcoming))) {
           if (!current(run) || run.metadata.state !== "ready") return;
           if (await codeSubmitted(run)) continue;
@@ -7467,6 +8001,9 @@ export function createLoginRuntime(
           )
             continue;
           if (!current(run) || run.metadata.state !== "ready") return;
+          // Another layout's step may show where the layouts part (ADR 0060).
+          if (await switchLayout(run)) continue;
+          if (!current(run) || run.metadata.state !== "ready") return;
           await change(
             run,
             { type: "FAILED", reason: "structural-mismatch" },
@@ -7493,7 +8030,19 @@ export function createLoginRuntime(
       // An advance whose next step is on its path is confirmed by that step's elements
       // only if they were not usable just before it (ADR 0013).
       const inPlace = inPlaceNext(run.recipe, run.metadata, operation.stepIndex);
+      // So is a switch to another layout whose next step is on its path (ADR 0060).
+      const siblingsNext =
+        loginStepEffect(operation.step) === "advance"
+          ? (await siblingsAt(run, operation.stepIndex + 1))
+              .flatMap((sibling) => {
+                const next = inPlaceNext(sibling, run.metadata, operation.stepIndex);
+                return next ? [{ layout: sibling.layout!, next }] : [];
+              })
+              .slice(0, 2)
+          : [];
+      if (!current(run) || run.metadata.state !== "ready") return;
       delete run.inPlace;
+      delete run.siblingsInPlace;
       // Known before its intent is recorded, so a stop in between takes the intent back.
       run.operation = operation;
       run.delivered = false;
@@ -7799,6 +8348,7 @@ export function createLoginRuntime(
           // An advance whose next step is on its path has the document measure that step
           // just before its effect, in the same task (ADR 0013).
           ...(inPlace ? { next: inPlace } : {}),
+          ...(siblingsNext.length ? { siblings: siblingsNext.map(({ next }) => next) } : {}),
         });
       } finally {
         for (const entry of values) entry.value = "";
@@ -7818,6 +8368,15 @@ export function createLoginRuntime(
         result.success &&
         result.output.operationId === operation.operationId &&
         result.output.documentId === run.live.document.documentId;
+      // A keypad fill's key press counts toward the page's own submission while the fill
+      // runs, and once it went in until its click is prepared; an answered stop ends it, as
+      // does the next operation's answer (ADR 0067). A fill left unanswered, as by a page
+      // that went away during it, keeps it for the page that follows.
+      const press = keypadPresses.get(run.metadata.id);
+      if (press?.operationId === operation.operationId && matchedResult && result.output.ok)
+        press.filled = true;
+      else if (press && (press.operationId !== operation.operationId || matchedResult))
+        keypadPresses.delete(run.metadata.id);
       // A click left to the person under a CAPTCHA is then observed as Pateat's own click.
       const leftToPerson =
         matchedResult &&
@@ -7832,6 +8391,13 @@ export function createLoginRuntime(
         result.output.before?.length === inPlace.targets.length
       )
         run.inPlace = { operationId: operation.operationId, before: result.output.before };
+      if (matchedResult && (result.output.ok || leftToPerson)) {
+        const siblings = siblingsNext.flatMap(({ layout, next }, index) => {
+          const before = result.output.siblingsBefore?.[index];
+          return before?.length === next.targets.length ? [{ layout, before }] : [];
+        });
+        if (siblings.length) run.siblingsInPlace = { operationId: operation.operationId, siblings };
+      }
       if (
         matchedResult &&
         !result.output.ok &&
@@ -7895,30 +8461,42 @@ export function createLoginRuntime(
           run.recipe.handlers?.[own]?.kind === "detail" &&
           operation.step.fields.filter((field) => isDetailSlot(field.slot)).length > 1;
         if (unfit) reportDetail(run.live.document, run.recipe, own, "detail-unfit");
-        await change(run, {
-          type: "VALUE_REJECTED",
-          operationId: operation.operationId,
-          document: run.live.document,
-          stage:
-            result.output.reason === "value-mismatch"
-              ? "before-fill"
-              : codeRefused
-                ? "code-refused"
-                : "after-fill",
-          ...(unfit ? { challenge: true as const } : {}),
-        });
+        // The page's detail goes to the log and the popup, as `keypad-pressed` after a key
+        // press on its keypad (ADR 0067).
+        await change(
+          run,
+          {
+            type: "VALUE_REJECTED",
+            operationId: operation.operationId,
+            document: run.live.document,
+            stage:
+              result.output.reason === "value-mismatch"
+                ? "before-fill"
+                : codeRefused
+                  ? "code-refused"
+                  : "after-fill",
+            ...(unfit ? { challenge: true as const } : {}),
+          },
+          undefined,
+          result.output.detail,
+        );
         return;
       }
       // The code page showed that it submits the code by itself, or replaced its form
       // once the code was in. A code typed as its own submission is settled as one below.
+      // A software keyboard's page moved or took its field away once a key was pressed,
+      // as a PIN pad that submits at its last digit (ADR 0067); a keypad step's other
+      // failures, as a missing key, are no submission.
       if (
         matchedResult &&
         !result.output.ok &&
-        (result.output.reason === "submitted" || result.output.reason === "structural-mismatch") &&
         result.output.mutation === "possible" &&
         operation.step.kind === "fill" &&
         operation.step.effect === "prepare" &&
-        codeStep(run.recipe, run.metadata, operation.stepIndex) === "fill" &&
+        (result.output.reason === "submitted"
+          ? selfSubmitStep(run.recipe, run.metadata, operation.stepIndex) === "fill"
+          : result.output.reason === "structural-mismatch" &&
+            codeStep(run.recipe, run.metadata, operation.stepIndex) === "fill") &&
         (await codeSubmitted(run))
       )
         continue;
@@ -8084,7 +8662,7 @@ export function createLoginRuntime(
         live.document.origin,
         live.path,
         { recipeId: chooser.id, revision: chooser.revision },
-        "other",
+        chooser.layout === undefined ? undefined : recipeBranch(chooser.layout, "other"),
       )
       .catch(() => undefined);
   }
@@ -8392,12 +8970,105 @@ export function createLoginRuntime(
       return true;
     }
   }
+  /** Whether the document shows a signed-in marker of any layout of the recipe (ADR 0060). */
+  async function showsAnyMarker(live: LiveDocument, recipe: LoginRecipe): Promise<boolean> {
+    const layouts = await Promise.resolve(recipes.layoutsOf?.(recipe.origin, recipe.id)).catch(
+      () => undefined,
+    );
+    const all = [recipe, ...(layouts ?? []).filter((other) => other.layout !== recipe.layout)];
+    for (const layout of all) if (await showsMarker(live, layout)) return true;
+    return false;
+  }
+  /**
+   * Which of `targets` the document shows now, each as one visible element: `true` shown,
+   * `false` not, `undefined` not asked. The wire takes at most 24, and a page that cannot be
+   * asked answers none.
+   */
+  async function shownTargets(
+    live: LiveDocument,
+    targets: readonly LoginTarget[],
+  ): Promise<(target: LoginTarget) => boolean | undefined> {
+    const asked = targets.slice(0, 24);
+    let states: readonly string[] = [];
+    if (asked.length)
+      try {
+        const parsed = v.safeParse(
+          observationSchema,
+          await send(live, {
+            type: "login.observe",
+            path: live.path,
+            targets: asked,
+            require: asked.map(() => "shown" as const),
+          }),
+        );
+        if (parsed.success) states = parsed.output.targets;
+      } catch {
+        // Nothing is known of a page that could not be asked.
+      }
+    return (target) => {
+      const at = asked.findIndex((other) => sameLoginTarget(other, target));
+      return at === -1 || states[at] === undefined ? undefined : states[at] === "unique";
+    };
+  }
+  /**
+   * The page's language as its observation names it (ADR 0060), the same reading that gave
+   * a layout its language when it was generated; `undefined` when the page cannot be
+   * described. Read only when it decides between layouts.
+   */
+  async function observedLanguage(
+    live: LiveDocument,
+    page: "login" | "accounts",
+  ): Promise<LoginObservation["language"] | undefined> {
+    try {
+      const extracted = v.safeParse(
+        extractResultSchema,
+        await send(live, { type: "login.extract", page }),
+      );
+      if (!extracted.success || !extracted.output.ok) return undefined;
+      const described = v.safeParse(
+        v.object({ language: v.picklist(["ja", "en", "mixed"]) }),
+        extracted.output.observation,
+      );
+      return described.success ? described.output.language : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  /**
+   * Layouts of one recipe best first for a new login (ADR 0060): those one of whose first
+   * steps (`firstStepsOf`) the document shows whole, then with the fewest of their start
+   * page elements (`targetsOf`) missing, then the most shown; then the page's language, read
+   * only when the best ones differ in it, and the newest (`rankLayouts`). The others drop
+   * out.
+   */
+  async function rankedLayouts<Recipe>(
+    live: LiveDocument,
+    candidates: readonly LayoutCandidate<Recipe>[],
+    targetsOf: (recipe: Recipe) => readonly LoginTarget[],
+    firstStepsOf: (recipe: Recipe) => readonly (readonly LoginTarget[])[],
+    page: "login" | "accounts",
+  ): Promise<LayoutCandidate<Recipe>[]> {
+    const all = candidates.flatMap((candidate) => targetsOf(candidate.recipe));
+    const shows = await shownTargets(
+      live,
+      all.filter(
+        (target, index) => all.findIndex((other) => sameLoginTarget(other, target)) === index,
+      ),
+    );
+    const shown = candidates.map((candidate) =>
+      layoutShown(firstStepsOf(candidate.recipe), targetsOf(candidate.recipe), shows),
+    );
+    const ranked = rankLayouts(candidates, shown);
+    return languageDecides(ranked)
+      ? rankLayouts(candidates, shown, await observedLanguage(live, page))
+      : ranked;
+  }
   /**
    * The `signedIn` hint of a page sent as a recipe's first page (ADR 0035): whether a
-   * signed-in marker learned on its origin by any of the origin's recipes shows, as ADR
-   * 0029's E1 reads it, or one of `usernames`, the matching items', shows in the page's
-   * header or navigation (E2). Markers past the wire's bound are left out. Only the flag
-   * leaves the device; a page that cannot be read shows neither.
+   * signed-in marker learned on its origin by any layout of the origin's recipes shows (ADR
+   * 0060), as ADR 0029's E1 reads it, or one of `usernames`, the matching items', shows in
+   * the page's header or navigation (E2). Markers past the wire's bound are left out. Only
+   * the flag leaves the device; a page that cannot be read shows neither.
    */
   async function signedInHint(live: LiveDocument, usernames: readonly string[]): Promise<boolean> {
     return (
@@ -8762,7 +9433,7 @@ export function createLoginRuntime(
   function skipGeneration(
     live: LiveDocument,
     reason: string,
-    page?: "entry" | "other",
+    page?: "entry" | "other" | "repair",
     /** A code that tells more, such as why a vault could not tell (ADR 0019). */
     detail?: string,
   ): void {
@@ -8786,59 +9457,78 @@ export function createLoginRuntime(
     );
   }
   /**
-   * Revokes a new login's recipe the chosen item cannot run (ADR 0058 A) and, once the
-   * recipe cache no longer starts that revision on the page, asks the document to announce
-   * again, so the page is offered for generation as one where no recipe starts (ADR 0016).
-   * A recipe not revoked, or still cached, refuses the page with the plan's own reason.
+   * Sends the start page of a new login's recipe the chosen item cannot run for repair (ADR
+   * 0058 A, amended by ADR 0041), at most once per recipe and missing route in 3 days on
+   * this device. The
+   * service's recipes are pulled first: a newer revision, as after another device's repair,
+   * is tried before any model call, and the page announces again for it. A repair that adds
+   * the route the item needs answers a recipe, and the page announces again and starts it;
+   * anything else refuses the page with the plan's own reason.
    */
-  async function replaceUnfit(
+  async function repairUnfit(
     live: LiveDocument,
     recipe: LoginRecipe,
     refusal: { reason: string; detail?: string; route: LoginRoute },
   ): Promise<void> {
     const key = frameKey(live.document);
-    const { origin: pageOrigin, tabId } = live.document;
-    const result = await Promise.resolve()
-      .then(() =>
-        generation!.replace!({
-          recipeId: recipe.id,
-          revision: recipe.revision,
-          origin: pageOrigin,
-          path: recipe.steps[0]!.path,
-        }),
-      )
-      .catch((): RecipeReplaceOutcome => ({ outcome: "failed", reason: "error" }));
-    report(live.document, {
-      type: "revoke",
-      tabId,
-      origin: pageOrigin,
-      recipeId: recipe.id,
-      recipeRevision: recipe.revision,
-      route: refusal.route,
-      outcome: result.outcome,
-      ...(result.reason ? { reason: result.reason } : {}),
-      detail: refusal.detail ?? refusal.reason,
-      ...(result.timing ? { timing: result.timing } : {}),
-    });
-    if (documents.get(key) !== live) return;
-    if (result.outcome === "revoked" || result.outcome === "conflict") {
-      const cached = await recipes.recipe(pageOrigin, live.path).catch(() => recipe);
+    if (generation?.pullRecipes) {
+      await generation.pullRecipes().catch(() => undefined);
       if (documents.get(key) !== live) return;
-      // The cache dropped the revision, or holds a newer one: the page announces again.
-      if (!cached || cached.id !== recipe.id || cached.revision > recipe.revision) {
-        try {
-          await browser.tabs.sendMessage(
-            tabId,
+      const latest = await Promise.resolve(
+        recipes.recipe(live.document.origin, live.path, recipe.id),
+      ).catch(() => undefined);
+      if (documents.get(key) !== live) return;
+      if (latest && latest.revision > recipe.revision) {
+        report(live.document, {
+          type: "unfit",
+          tabId: live.document.tabId,
+          origin: live.document.origin,
+          recipeId: recipe.id,
+          recipeRevision: recipe.revision,
+          route: refusal.route,
+          outcome: "newer",
+          detail: refusal.detail ?? refusal.reason,
+        });
+        await browser.tabs
+          .sendMessage(
+            live.document.tabId,
             { version: 1, type: "login.reconnect" },
-            { frameId: 0, documentId: live.document.documentId },
-          );
-        } catch {
-          // The page starts nothing until it announces again (ADR 0019).
-          if (documents.get(key) === live) note(live.document, live.url, "reconnect-failed");
-        }
+            { frameId: live.document.frameId, documentId: live.document.documentId },
+          )
+          .catch(() => undefined);
         return;
       }
     }
+    const claim = await Promise.resolve()
+      .then(() => generation!.claimRepair!(recipe.id, refusal.route))
+      .catch((): RecipeRepairClaim => ({ outcome: "not-sent", reason: "error" }));
+    report(live.document, {
+      type: "unfit",
+      tabId: live.document.tabId,
+      origin: live.document.origin,
+      recipeId: recipe.id,
+      recipeRevision: recipe.revision,
+      route: refusal.route,
+      outcome: claim.outcome,
+      ...("reason" in claim && claim.reason ? { reason: claim.reason } : {}),
+      detail: refusal.detail ?? refusal.reason,
+    });
+    let answer: GenerationOutcome | EntryGenerationOutcome | undefined;
+    if (claim.outcome === "claimed") {
+      answer = documents.get(key) === live ? await sendRepair(live, recipe) : undefined;
+      // Only a request that reached the model keeps its claim. A recipe more than one
+      // revision on was answered without a call, as the cache was behind: it is tried as it
+      // is, and repaired in turn if it still lacks the route.
+      if (
+        !answer ||
+        answer.outcome === "skipped" ||
+        ("retry" in answer && answer.retry) ||
+        (answer.outcome === "recipe" && answer.recipe.revision > recipe.revision + 1)
+      )
+        await claim.release().catch(() => undefined);
+    }
+    // A recipe answered has asked the page to announce again (`generateFor`).
+    if (documents.get(key) !== live || answer?.outcome === "recipe") return;
     note(live.document, live.url, refusal.reason, refusal.detail);
     live.state = "denied";
     live.reason = refusal.reason;
@@ -8860,9 +9550,26 @@ export function createLoginRuntime(
      */
     otherless?: LoginChooserRecipe,
     passkeyOnly = false,
+    /**
+     * For a stale recipe's page (ADR 0041): the revision it repairs, for a later
+     * step's page the layout and the step that did not show, and what to call with the
+     * answer once one came.
+     */
+    repair?: {
+      recipeId: string;
+      revision: number;
+      later?: { layout: string; step: number };
+      done(outcome: GenerationOutcome): void;
+    },
   ): Promise<void> {
     if (!generation) return;
+    // A chooser's `other` branch is named by its layout (ADR 0060); only the probe build's
+    // choosers have none, and their pages are never offered.
+    if (otherless && otherless.layout === undefined) return;
     const base = otherless && { recipeId: otherless.id, revision: otherless.revision };
+    const otherBranch = otherless?.layout && recipeBranch(otherless.layout, "other");
+    // The page kind a skipped page is logged with.
+    const skipPage = otherless ? ("other" as const) : repair && ("repair" as const);
     const key = frameKey(live.document);
     let sent = false;
     try {
@@ -8948,7 +9655,7 @@ export function createLoginRuntime(
           }
         }
         if (unsent === "cancelled" || read >= EXTRACT_READS) {
-          skipGeneration(live, unsent, otherless && "other", detail);
+          skipGeneration(live, unsent, skipPage, detail);
           return;
         }
         // eslint-disable-next-line no-await-in-loop
@@ -8959,7 +9666,13 @@ export function createLoginRuntime(
         ? ({ page: "accounts" } as const)
         : base
           ? ({ page: "other", recipeId: base.recipeId, baseRevision: base.revision } as const)
-          : {};
+          : repair
+            ? ({
+                page: "repair",
+                recipeId: repair.recipeId,
+                baseRevision: repair.revision,
+              } as const)
+            : {};
       // The `other` branch's first page asks for the account. A form without such a field,
       // as the password form after the person's own click on a listed profile, belongs to
       // the account branch and is never stored as `other` (ADR 0028).
@@ -8970,13 +9683,17 @@ export function createLoginRuntime(
       const usernames = await readUsernames(live.document.origin, usernameReads(scope));
       const shape = usernames && usernameShape(scope, usernames);
       // A recipe's first page carries whether it shows the person signed in, read before
-      // the usernames are dropped; a list and a chooser's branch carry none (ADR 0035).
-      const signedIn = list || base || !usernames ? undefined : await signedInHint(live, usernames);
+      // the usernames are dropped; a list, a chooser's branch and a later step's repair carry
+      // none (ADR 0035).
+      const signedIn =
+        list || base || repair?.later || !usernames
+          ? undefined
+          : await signedInHint(live, usernames);
       // The account's own usernames never reach the service.
       const hidden = hideUsernames(observation, usernames, live);
       if (documents.get(key) !== live) return;
       if ("reason" in hidden) {
-        skipGeneration(live, hidden.reason, otherless && "other");
+        skipGeneration(live, hidden.reason, skipPage);
         return;
       }
       // A passkey-only page fills nothing, and a list of accounts is sent without slots or
@@ -9003,7 +9720,16 @@ export function createLoginRuntime(
                   ),
                   ...custom,
                 ],
-            ...(base ? { base, branch: "other" as const } : {}),
+            ...(base && otherBranch ? { base, branch: otherBranch } : {}),
+            ...(repair
+              ? {
+                  repair: {
+                    recipeId: repair.recipeId,
+                    revision: repair.revision,
+                    ...repair.later,
+                  },
+                }
+              : {}),
           },
           spin.sent(() =>
             report(live.document, {
@@ -9029,6 +9755,7 @@ export function createLoginRuntime(
         ...page,
         ...(signedIn === undefined ? {} : { signedIn }),
       });
+      repair?.done(result);
       if (result.outcome !== "recipe") return;
       // Every tab's page still tracked on this origin and path that holds no login announces
       // again and starts the recipe: this document, and one refused for want of a recipe
@@ -9070,9 +9797,228 @@ export function createLoginRuntime(
       // (ADR 0019).
       if (!sent && documents.get(key) === live)
         if (error instanceof DocumentGone)
-          skipGeneration(live, "unreachable", otherless && "other", error.reason);
-        else skipGeneration(live, "exception", otherless && "other");
+          skipGeneration(live, "unreachable", skipPage, error.reason);
+        else skipGeneration(live, "exception", skipPage);
     }
+  }
+  /**
+   * Sends a generated recipe's start page to be repaired once it showed a sign-in input for
+   * the step wait without a ready first step and the miss counts as stale (ADR 0041,
+   * proposed): only the tab's own page on the recipe's start path, with a vault item that
+   * matches it as for a first page, once per document and recipe revision. The service adds
+   * a layout for the page beside the recipe's others, and the page announces again and
+   * starts it, as after a first page.
+   */
+  async function repairStale(
+    live: LiveDocument,
+    recipe: LoginRecipe,
+    miss: StartMiss | undefined,
+    /** The page lists accounts by email instead of asking for a sign-in (ADR 0041 section 6). */
+    accounts?: true,
+  ): Promise<void> {
+    if (!repairs || !generation || live.document.frameId !== 0 || live.topUrl) return;
+    if (!recipe.id.startsWith("gen-")) return;
+    const key = frameKey(live.document);
+    // Every layout's first steps on the path (ADR 0060): a page that shows one layout's
+    // elements, only not usable yet, is no stale page.
+    const layouts = await Promise.resolve(recipes.layouts?.(live.document.origin, live.path)).catch(
+      () => undefined,
+    );
+    if (documents.get(key) !== live) return;
+    const firstSteps = (layouts?.length ? layouts.map((entry) => entry.recipe) : [recipe])
+      .flatMap((layout) => recipeStartSteps(layout))
+      .filter((step) => step.path === live.path);
+    if (!firstSteps.length) return;
+    const log = repairLog(live, recipe);
+    const verdict = classifyStartMiss(firstSteps, miss);
+    if (verdict !== "stale") {
+      log("skipped", verdict);
+      return;
+    }
+    // A page that shows the account is signed in is no stale start page, though it may hold
+    // an email input, as a profile form: the tab's next page after a submitted password
+    // form, or one where a signed-in marker one of the recipe's layouts learned shows.
+    if (afterSignIn.get(live.document.tabId) === live.document.documentId) {
+      log("skipped", "after-sign-in");
+      return;
+    }
+    if (await showsAnyMarker(live, recipe)) {
+      if (documents.get(key) === live) log("skipped", "signed-in");
+      return;
+    }
+    if (documents.get(key) !== live) return;
+    await sendRepair(live, recipe, accounts ? { kind: "list" } : {});
+  }
+  /**
+   * Sends the page where a generated recipe's later step did not show for repair (ADR 0041
+   * section 4, proposed): a top-frame `password` login of the layout's own steps, with no
+   * other variant or handler, whose `advance` reached the step's path, where the step's
+   * elements never showed.
+   */
+  async function repairLaterStep(run: Execution, step: number): Promise<void> {
+    const { live, recipe, metadata } = run;
+    const before = recipe.steps[step - 1];
+    if (
+      !repairs ||
+      !generation ||
+      live.document.frameId !== 0 ||
+      live.topUrl ||
+      !recipe.id.startsWith("gen-") ||
+      recipe.layout === undefined ||
+      run.chooser ||
+      metadata.route !== "password" ||
+      (metadata.variant ?? 0) !== 0 ||
+      metadata.handlers.length ||
+      recipe.alternatives ||
+      recipe.passkeyOnly ||
+      !before ||
+      !recipe.steps[step] ||
+      loginStepEffect(before) !== "advance" ||
+      documents.get(frameKey(live.document)) !== live
+    )
+      return;
+    await sendRepair(live, recipe, { later: { layout: recipe.layout, step } });
+  }
+  /**
+   * Sends a generated chooser's list for repair (ADR 0041 section 6, owner 2026-10-23 13:03
+   * UTC) when the list of accounts shows but a button the chooser names does not: only the
+   * tab's own page, once per document and chooser revision, as a start page's.
+   */
+  async function repairChooser(live: LiveDocument, chooser: LoginChooserRecipe): Promise<void> {
+    if (!repairs || !generation || live.document.frameId !== 0 || live.topUrl) return;
+    if (!chooser.id.startsWith("gen-") || documents.get(frameKey(live.document)) !== live) return;
+    await sendRepair(live, chooser, { kind: "list", during: true });
+  }
+  /**
+   * Sends a generated entry recipe's page for repair (ADR 0041 section 6) when its link no
+   * longer shows on a page the site sent the visitor to before signing in (`namesReturnPath`,
+   * which the press checked first): as a form or a list of accounts when the page shows one
+   * now, otherwise as an entry page. A load answered outside 2xx is not sent.
+   */
+  async function repairEntry(
+    live: LiveDocument,
+    recipe: LoginEntryRecipe,
+    inspected: { shows?: "sign-in" | "accounts" | undefined; status?: number | undefined },
+  ): Promise<void> {
+    if (!repairs || !generation || live.document.frameId !== 0 || live.topUrl) return;
+    if (!recipe.id.startsWith("gen-") || documents.get(frameKey(live.document)) !== live) return;
+    const { shows, status } = inspected;
+    if (status !== undefined && (status < 200 || status > 299)) {
+      repairLog(live, recipe)("skipped", "status");
+      return;
+    }
+    await sendRepair(live, recipe, {
+      kind: shows === "sign-in" ? "form" : shows === "accounts" ? "list" : "entry",
+    });
+  }
+  /** Logs whether a page of the recipe was sent for repair (`recipe.repair`, ADR 0041). */
+  function repairLog(live: LiveDocument, recipe: { id: string; revision: number }) {
+    return (outcome: "due" | "skipped", reason?: string) =>
+      report(live.document, {
+        type: "repair",
+        tabId: live.document.tabId,
+        origin: live.document.origin,
+        recipeId: recipe.id,
+        recipeRevision: recipe.revision,
+        outcome,
+        ...(reason ? { reason } : {}),
+      });
+  }
+  /**
+   * Sends a stale page of a generated recipe for repair (ADR 0041), once per
+   * document, unless the service already answered a repair of the recipe today: the start
+   * page, or with `later` the page where a layout's later step did not show. Resolves to the
+   * service's answer, or `undefined` when nothing was sent.
+   */
+  async function sendRepair(
+    live: LiveDocument,
+    recipe: { id: string; revision: number },
+    page: {
+      later?: { layout: string; step: number };
+      /**
+       * What the page is now (ADR 0041 section 6): a form (the default), a list of accounts
+       * by email (ADR 0028) or a page with neither, sent as a sign-in entry (ADR 0031).
+       */
+      kind?: "form" | "list" | "entry";
+      /** Sent from a login that keeps running, as on a chooser's list: its status stays. */
+      during?: boolean;
+    } = {},
+  ): Promise<GenerationOutcome | EntryGenerationOutcome | undefined> {
+    if (!repairs) return undefined;
+    const { later, kind = "form", during = false } = page;
+    const key = frameKey(live.document);
+    const log = repairLog(live, recipe);
+    const claim = await repairs.due({
+      recipeId: recipe.id,
+      revision: recipe.revision,
+      documentId: live.document.documentId,
+    });
+    if (documents.get(key) !== live) return undefined;
+    if (claim !== "due") {
+      log("skipped", claim);
+      return undefined;
+    }
+    // An entry page offers no slots, so only the matching items are read for it, for the
+    // usernames it hides.
+    let missed: GenerationMiss = "vault-unavailable";
+    const scope =
+      kind === "entry"
+        ? undefined
+        : await generationSlotsFor(live, (reason) => {
+            missed = reason;
+          }).catch(() => undefined);
+    const matched = kind === "entry" ? await vaultMatches(live).catch(() => undefined) : scope;
+    if (documents.get(key) !== live) return undefined;
+    if (!matched) {
+      log("skipped", missed);
+      return undefined;
+    }
+    // A start page whose form showed late may have started the recipe's login meanwhile: no
+    // stale page.
+    const running = tabAttempt(live.document.tabId);
+    if (!later && !during && running?.recipeId === recipe.id && !terminal(running)) {
+      log("skipped", "running");
+      return undefined;
+    }
+    log("due");
+    // A later step's page keeps the stopped login's status, and a running login its own.
+    if (!later && !during) {
+      live.state = "generating";
+      delete live.reason;
+      await publish(live);
+    }
+    let answer: GenerationOutcome | EntryGenerationOutcome | undefined;
+    const repair = {
+      recipeId: recipe.id,
+      revision: recipe.revision,
+      ...(later ? { later } : {}),
+      // An answer without a new revision holds the recipe until the next UTC day: the
+      // service spent this device's repair of the day on it, or refused for that limit. That
+      // includes the current recipe answered back, as when the answer equals a layout the
+      // page still misses. Another request in flight (`busy`), a page not sent, or one left
+      // free to send again does not.
+      done: (outcome: GenerationOutcome | EntryGenerationOutcome) => {
+        const held =
+          outcome.outcome === "unavailable"
+            ? outcome.reason !== "busy"
+            : outcome.outcome === "recipe"
+              ? outcome.recipe.revision <= recipe.revision
+              : outcome.outcome !== "skipped" && !("retry" in outcome && outcome.retry);
+        if (held) void repairs.hold(recipe.id);
+        answer = outcome;
+      },
+    };
+    if (kind === "entry") await generateEntryFor(live, matched, repair);
+    else
+      await generateFor(
+        live,
+        scope!,
+        kind === "list" ? { names: [] } : undefined,
+        undefined,
+        false,
+        repair,
+      );
+    return answer;
   }
   /**
    * After a refusal because no vault item matches, a vault check may bring the item from
@@ -9252,8 +10198,16 @@ export function createLoginRuntime(
   };
   type Announced = { path: string } | undefined;
   type Unoffered = { path: string; why: (typeof unofferedReasons)[number] } | undefined;
-  /** A `shown` report, with `amount` on a page Pateat does not fill (ADR 0035). */
-  type Shown = { path: string; amount?: boolean | undefined };
+  /**
+   * A `shown` report: a sign-in input shown without a ready first step, with what the first
+   * steps missed (ADR 0041), or `amount` on a page Pateat does not fill (ADR 0035).
+   */
+  type Shown = {
+    path: string;
+    amount?: boolean | undefined;
+    miss?: StartMiss | undefined;
+    accounts?: true | undefined;
+  };
   async function ready(
     sender: Sender,
     token: string,
@@ -10131,16 +11085,67 @@ export function createLoginRuntime(
         ? previous
           ? probeRecipe(origin, `/${previous.recipeId.replace(/^demo-/, "")}`)
           : probeRecipe(origin, live.path)
-        : await recipes.recipe(document.origin, live.path, previous?.recipeId);
+        : await recipes.recipe(document.origin, live.path, previous?.recipeId, previous?.layout);
     if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+    // A new login on a recipe with several layouts (ADR 0060) takes the one whose start
+    // page elements show most, then one of the page's language, then the newest; the
+    // others follow in that order, and the first whose plan passes for the account runs.
+    // A resumed login keeps its own layout.
+    let layoutChoices: LayoutChoice[] = [];
+    let layoutCount = 1;
+    if (
+      recipe &&
+      !previous &&
+      start?.path === live.path &&
+      !(probeMode && document.origin === origin) &&
+      recipes.layouts
+    ) {
+      const candidates = await recipes.layouts(document.origin, live.path).catch(() => []);
+      if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+      if (candidates.length > 1) {
+        layoutCount = candidates.length;
+        const ranked = await rankedLayouts(
+          live,
+          candidates,
+          layoutStartTargets,
+          layoutFirstSteps,
+          "login",
+        );
+        if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+        layoutChoices = ranked.map(({ recipe: layout }) => ({ recipe: layout }));
+        recipe = layoutChoices[0]?.recipe ?? recipe;
+      }
+    }
     // A chooser recipe (ADR 0028): a new login on its list runs the route of its account
     // entry until it decides what to click, and a resumed one the route of its click.
     let chooser: LoginChooserRecipe | undefined;
     if (!recipe && !(probeMode && document.origin === origin) && (!previous || previous.chooser)) {
       chooser = await Promise.resolve(
-        recipes.chooser?.(document.origin, live.path, previous?.recipeId),
+        recipes.chooser?.(document.origin, live.path, previous?.recipeId, previous?.layout),
       ).catch(() => undefined);
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+      // A new login on a chooser with several layouts takes the one whose list buttons
+      // show most, then one of the page's language, then the newest (ADR 0060). Which
+      // account the list holds is decided only once the layout is, so the account's plan
+      // does not choose here.
+      if (chooser && !previous && start?.path === live.path && recipes.choosers) {
+        const candidates = await recipes.choosers(document.origin, live.path).catch(() => []);
+        if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+        if (candidates.length > 1) {
+          layoutCount = candidates.length;
+          // The list's buttons are its first step: a layout whose buttons all show fits.
+          const buttons = (candidate: LoginChooserRecipe) => listReadiness(candidate).targets;
+          const ranked = await rankedLayouts(
+            live,
+            candidates,
+            buttons,
+            (candidate) => [buttons(candidate)],
+            "accounts",
+          );
+          if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+          chooser = ranked[0]?.recipe ?? chooser;
+        }
+      }
       if (chooser) recipe = chooserRoute(chooser, previous?.chooser?.click ?? "entry");
     }
     // The chooser's path shows its `other` branch's form instead of the list, as after the
@@ -10177,18 +11182,23 @@ export function createLoginRuntime(
         // shows it at each stage: only a `password` variant's first step goes first, and the
         // button is offered to the account as on the first page (ADR 0027).
         let firstShows = false;
+        // Any layout the start page ranked best counts (ADR 0060), not only the first.
+        const layoutsHere = [
+          ...(recipe ? [recipe] : []),
+          ...layoutChoices.slice(1).map((choice) => choice.recipe),
+        ];
         /* eslint-disable no-await-in-loop */
-        for (const variant of recipe ? passwordVariants(recipe) : []) {
+        for (const variant of layoutsHere.flatMap((layout) => passwordVariants(layout))) {
           firstShows = await showsNow(live, loginReadiness(variant.steps[0]!));
           if (firstShows) break;
         }
         const showing: { recipe: LoginRecipe; variants: Map<number, number[]> }[] = [];
         if (!firstShows)
           for (const candidate of candidates) {
-            // A page that shows one of the recipe's signed-in markers is signed in, as a
-            // single-page app asking for the password again before a sensitive action: no
-            // login starts there.
-            if (await showsMarker(live, candidate)) continue;
+            // A page that shows one of the recipe's signed-in markers, those of any of its
+            // layouts (ADR 0060), is signed in, as a single-page app asking for the password
+            // again before a sensitive action: no login starts there.
+            if (await showsAnyMarker(live, candidate)) continue;
             const variants = new Map<number, number[]>();
             for (const { variant, index, step } of laterStartSteps(candidate)) {
               if (step.path !== live.path) continue;
@@ -10205,9 +11215,51 @@ export function createLoginRuntime(
           button.passkey.path === live.path &&
           (await showsNow(live, loginReadiness(routeSteps(button, { route: "passkey" })[0]!)));
         // Two recipes whose later steps show start neither, as two first steps do (ADR 0013).
-        if (showing.length === 1) {
-          recipe = showing[0]!.recipe;
-          later = { variants: showing[0]!.variants, button: await buttonShows(recipe) };
+        // Layouts of one recipe are told apart as at its start page (ADR 0060): by how many
+        // of their later steps show, the page's language and age, then the account's plan.
+        const shownRecipes = new Set(showing.map((entry) => entry.recipe.id));
+        if (shownRecipes.size === 1) {
+          let ranked = showing;
+          if (showing.length > 1) {
+            // Each layout's language and creation time, from the recipe's layouts.
+            const group = await Promise.resolve(
+              recipes.layouts?.(document.origin, showing[0]!.recipe.steps[0]!.path),
+            ).catch(() => undefined);
+            const metaOf = (entry: LoginRecipe) =>
+              group?.find((candidate) => candidate.recipe.layout === entry.layout);
+            const laterCandidates = showing.map((entry) => {
+              const meta = metaOf(entry.recipe);
+              return {
+                recipe: entry,
+                ...(meta?.language ? { language: meta.language } : {}),
+                createdAt: meta?.createdAt ?? 0,
+              };
+            });
+            // Each shows a later step whole, so only how many show tells them apart.
+            const laterShown = showing.map((entry) => ({
+              starts: true,
+              missing: 0,
+              shown: [...entry.variants.values()].reduce((sum, steps) => sum + steps.length, 0),
+            }));
+            let order = rankLayouts(laterCandidates, laterShown);
+            if (languageDecides(order))
+              order = rankLayouts(
+                laterCandidates,
+                laterShown,
+                await observedLanguage(live, "login"),
+              );
+            ranked = order.map(({ recipe: entry }) => entry);
+          }
+          layoutCount = Math.max(layoutCount, showing.length);
+          const choices: LayoutChoice[] = await Promise.all(
+            ranked.map(async (entry) => ({
+              recipe: entry.recipe,
+              later: { variants: entry.variants, button: await buttonShows(entry.recipe) },
+            })),
+          );
+          layoutChoices = choices.length > 1 ? choices : [];
+          recipe = choices[0]!.recipe;
+          later = choices[0]!.later;
         } else if (showing.length > 1) recipe = undefined;
         else if (!firstShows && !(await buttonShows(recipe)))
           // No step that may start a login shows, as when the one that announced the page
@@ -10501,6 +11553,16 @@ export function createLoginRuntime(
       }
       // Only an origin with a recipe: elsewhere every sign-in page would be logged.
       if (starts.length) notStarted(recipe ? "first-step-missing" : "no-recipe-on-path");
+      // A generated recipe's own start page that misses its first steps may be stale
+      // (ADR 0041).
+      if (
+        recipe &&
+        !chooser &&
+        !later &&
+        !(probeMode && live.document.origin === origin) &&
+        shown?.path === live.path
+      )
+        void repairStale(live, recipe, shown.miss, shown.accounts).catch(() => undefined);
       live.state = "watching";
       delete live.reason;
       await publish(live);
@@ -10593,21 +11655,43 @@ export function createLoginRuntime(
     // (ADR 0034), as one picked in the popup after a logout and one on a chooser's list do,
     // instead of clicking there; a login that only fills after a logout keeps its form.
     const pageRequest = !previous && document.frameId === 0 && parkedFor(document) !== undefined;
-    let plan = await planFor(snapshot, live, recipe, {
-      asking,
-      fill,
-      ...(previous ? { route: attemptRouteChoice(previous) } : {}),
-      ...(pageRequest ? { pageRequest } : {}),
-      ...(later && !later.button ? { later: true } : {}),
-    });
-    if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
-    if (plan.ok && "fillOnly" in plan && plan.route.route !== "password") {
-      plan = await planFor(snapshot, live, recipe, {
+    const planOf = async (
+      route: LoginRecipe,
+      from: typeof later,
+    ): Promise<Awaited<ReturnType<typeof planFor>> | undefined> => {
+      let planned = await planFor(snapshot, live, route, {
         asking,
-        ...(later && !later.button ? { later: true } : {}),
+        fill,
+        ...(previous ? { route: attemptRouteChoice(previous) } : {}),
+        ...(pageRequest ? { pageRequest } : {}),
+        ...(from && !from.button ? { later: true } : {}),
       });
-      if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+      if (documents.get(key) !== live) return undefined;
+      if (planned.ok && "fillOnly" in planned && planned.route.route !== "password") {
+        planned = await planFor(snapshot, live, route, {
+          asking,
+          ...(from && !from.button ? { later: true } : {}),
+        });
+        if (documents.get(key) !== live) return undefined;
+      }
+      return planned;
+    };
+    let plan = await planOf(recipe, later);
+    if (!plan) return { ok: false, reason: "stale-document" };
+    // Another layout of the recipe, next in order, runs when the account's plan passes on
+    // it and not on the first (ADR 0060); when none passes, the first one's refusal stands.
+    /* eslint-disable no-await-in-loop */
+    for (const choice of layoutChoices.slice(1)) {
+      if (plan.ok) break;
+      const next = await planOf(choice.recipe, choice.later);
+      if (!next) return { ok: false, reason: "stale-document" };
+      if (next.ok) {
+        plan = next;
+        recipe = choice.recipe;
+        later = choice.later;
+      }
     }
+    /* eslint-enable no-await-in-loop */
     // A passkey-only item on a list whose account branch cannot take the stop (ADR 0036,
     // owner 2026-10-13 06:32 UTC: the account's row, else "another account") still reads
     // the list first, planned on the click alone: it goes on only through `other`, and is
@@ -10633,11 +11717,12 @@ export function createLoginRuntime(
       }
     }
     // A generated recipe the chosen item cannot run, where it holds what a route the recipe
-    // lacks needs, is revoked and its page generated again in this visit (ADR 0058 A): only
-    // for a new login of the tab's own page that starts at the recipe's first step, neither
-    // asked after a logout nor after an account switch, nor on a chooser's list, and while no
-    // login of the recipe runs or is watched in any tab. Until the answer the page waits as
-    // for a generation; a recipe not revoked is refused as it would have been.
+    // lacks needs, has its start page sent for repair in this visit (ADR 0058 A, amended by
+    // ADR 0041): only for a new login of the tab's own page that starts at the recipe's first
+    // step, neither asked after a logout nor after an account switch, nor on a chooser's
+    // list, and while no login of the recipe runs or is watched in any tab. Until the answer
+    // the page waits as for a generation; a page the repair did not answer with a recipe is
+    // refused as it would have been.
     const unfit =
       !plan.ok && "unfit" in plan && (plan.unfit === "passkey" || plan.unfit === "password")
         ? plan.unfit
@@ -10656,13 +11741,14 @@ export function createLoginRuntime(
       !live.topUrl &&
       !(probeMode && document.origin === origin) &&
       isGeneratedRecipeId(recipe.id) &&
-      generation?.replace &&
+      generation?.claimRepair &&
+      repairs &&
       !recipeInUse(recipe.id)
     ) {
       live.state = "generating";
       delete live.reason;
       await publish(live);
-      void replaceUnfit(live, recipe, {
+      void repairUnfit(live, recipe, {
         reason: plan.reason,
         ...("detail" in plan && typeof plan.detail === "string" ? { detail: plan.detail } : {}),
         route: unfit,
@@ -10726,6 +11812,11 @@ export function createLoginRuntime(
       else {
         click = "none";
         listMiss = chosen;
+        // A button the chooser names that the list no longer shows, as on a list redesigned
+        // or in another language, sends the list for repair while this login goes on
+        // (ADR 0041 section 6).
+        if (chosen.other === "missing" || chosen.continue === "missing")
+          void repairChooser(live, chooser).catch(() => undefined);
       }
       // The account's row or its button leads to the branch that cannot take the stop.
       if (deferred && (click === "entry" || click === "continue"))
@@ -10791,7 +11882,11 @@ export function createLoginRuntime(
       // The page left the document a TOTP code was filled into before its click,
       // as a code input that submits on its last digit does: the page submitted the code
       // itself, and it is never filled again (ADR 0027).
-      if (previous.document.documentId !== document.documentId && codeAwaitsClick(recipe, resumed))
+      // So did a software keyboard's page once a key was pressed (ADR 0067).
+      if (
+        previous.document.documentId !== document.documentId &&
+        codeAwaitsClick(recipe, resumed, keypadPresses.get(resumed.id))
+      )
         resumed = transitionLoginAttempt(resumed, autoSubmitted(recipe, resumed));
       metadata = transitionLoginAttempt(resumed, {
         type: "NAVIGATED",
@@ -10870,6 +11965,12 @@ export function createLoginRuntime(
         }),
         { type: "RESOLVE" },
       );
+      begunIn.delete(metadata.id);
+      begunIn.set(metadata.id, document.documentId);
+      for (const old of begunIn.keys()) {
+        if (begunIn.size <= 256) break;
+        begunIn.delete(old);
+      }
       // No listed account fits, and the list has no button for another one (ADR 0028).
       if (click === "none") metadata = transitionLoginAttempt(metadata, { type: "NOT_LISTED" });
     }
@@ -10897,6 +11998,12 @@ export function createLoginRuntime(
       before.inPlace.operationId === metadata.operationId
     )
       run.inPlace = before.inPlace;
+    if (
+      before?.siblingsInPlace &&
+      before.metadata.id === metadata.id &&
+      before.siblingsInPlace.operationId === metadata.operationId
+    )
+      run.siblingsInPlace = before.siblingsInPlace;
     attempts.set(document.tabId, run);
     reviewRequests();
     if (!previous)
@@ -10906,6 +12013,8 @@ export function createLoginRuntime(
         origin: document.origin,
         recipeId: metadata.recipeId,
         recipeRevision: metadata.recipeRevision,
+        ...(metadata.layout === undefined ? {} : { layout: metadata.layout }),
+        ...(layoutCount > 1 ? { layouts: layoutCount } : {}),
         route: metadata.route,
         ...(metadata.variant === undefined ? {} : { variant: metadata.variant }),
         ...("chosen" in plan && plan.chosen
@@ -11354,7 +12463,12 @@ export function createLoginRuntime(
    * (owner 2026-10-23 11:48 UTC). A returned entry recipe is in the recipe cache by then;
    * the document announces again and its entry is pressed.
    */
-  async function generateEntryFor(live: LiveDocument, matched: VaultMatch): Promise<void> {
+  async function generateEntryFor(
+    live: LiveDocument,
+    matched: VaultMatch,
+    /** For an entry recipe whose link no longer shows (ADR 0041): as for `generateFor`. */
+    repair?: { recipeId: string; revision: number; done(outcome: EntryGenerationOutcome): void },
+  ): Promise<void> {
     if (!generation) return;
     const key = frameKey(live.document);
     let sent = false;
@@ -11414,7 +12528,11 @@ export function createLoginRuntime(
       const asked = Date.now();
       const result = await generation
         .generateEntry(
-          { version: 1, observation },
+          {
+            version: 1,
+            observation,
+            ...(repair ? { repair: { recipeId: repair.recipeId, revision: repair.revision } } : {}),
+          },
           spin.sent(() =>
             report(live.document, {
               type: "generation",
@@ -11436,6 +12554,7 @@ export function createLoginRuntime(
         ...outcomeFields(result),
         page: "entry",
       });
+      repair?.done(result);
       if (result.outcome !== "recipe" || documents.get(key) !== live) return;
       await browser.tabs.sendMessage(
         live.document.tabId,
@@ -11554,6 +12673,8 @@ export function createLoginRuntime(
       if (!shown()) return;
       if (!inspected.success) return refuseEntry(live, recipe, "no-answer");
       const { state, refusal, href, url } = inspected.output;
+      if (state === "missing")
+        void repairEntry(live, recipe, inspected.output).catch(() => undefined);
       if (state !== "unique") return refuseEntry(live, recipe, `target-${state}`);
       if (refusal) return refuseEntry(live, recipe, refusal);
       if (!href) return refuseEntry(live, recipe, "not-link");
@@ -11778,6 +12899,28 @@ export function createLoginRuntime(
         return { ok: false, reason: "not-authorized" };
       const reason = await destinationRefusal(found.run, destination);
       return reason ? { ok: false, reason } : { ok: true };
+    }
+    // Keys are pressed only while the keypad fill is the attempt's own and authorized, and
+    // from then on a replaced page may be its own submission (ADR 0067).
+    const keypadPress = v.safeParse(keypadPressSchema, message);
+    if (keypadPress.success) {
+      const found = await operationRun(keypadPress.output, sender);
+      if (
+        !found ||
+        !keypadStep(found.operation.step) ||
+        !validateLoginOperation(
+          found.operation,
+          found.run.metadata,
+          found.document,
+          found.run.metadata.policyRevision,
+        )
+      )
+        return false;
+      keypadPresses.set(found.run.metadata.id, {
+        operationId: found.operation.operationId,
+        stepIndex: found.operation.stepIndex,
+      });
+      return true;
     }
     const authorization = v.safeParse(authorizeSchema, message);
     if (!authorization.success) return undefined;
@@ -12218,8 +13361,8 @@ export function createLoginRuntime(
     const { origin: loginOrigin } = record.account;
     const click = record.chooser?.click;
     const found = click
-      ? await recipes.chooser?.(loginOrigin, "/", record.recipeId)
-      : await recipes.recipe(loginOrigin, "/", record.recipeId);
+      ? await recipes.chooser?.(loginOrigin, "/", record.recipeId, record.layout)
+      : await recipes.recipe(loginOrigin, "/", record.recipeId, record.layout);
     const route =
       found && (click && !isLoginRouteRecipe(found) ? chooserRoute(found, click) : found);
     return route && isLoginRouteRecipe(route) && route.revision === record.recipeRevision
@@ -12230,12 +13373,14 @@ export function createLoginRuntime(
    * For a `password` login whose tab moved to `live`, a quiet page of another origin
    * (`passwordMoveFits`) that does not show the account's username (ADR 0022): whether a
    * signed-in marker learned on that origin shows, or else the judge of ADR 0029, asked
-   * once, answers `signed-in` for the page or found it signed in before. A judge that
-   * cannot decide, a page that cannot be described or sent, and any other verdict end the
-   * login `left-origin` (a watched one where it stopped), each logged. Once the answer is
-   * back, the page must still be
-   * loaded and quiet, with no passkey request since `since`, the step the move follows.
-   * `username` is the login's own, hidden from the page as for any judged page.
+   * once, answers `signed-in` for the page or found it signed in before, or answers
+   * `optional` (ADR 0065) for a page described without leaving a disabled field out, once
+   * the attempt submitted the password or a TOTP code and without a stop (ADR 0036). A
+   * judge that cannot decide, a page that cannot be described or sent, and any other
+   * verdict end the login `left-origin` (a watched one where it stopped), each logged.
+   * Once the answer is back, the page must still be loaded and show no password field,
+   * code input or CAPTCHA, with no passkey request since `since`, the step the move
+   * follows. `username` is the login's own, hidden from the page as for any judged page.
    */
   async function judgeMove(
     record: LoginAttemptMetadata,
@@ -12246,6 +13391,7 @@ export function createLoginRuntime(
     const { document } = live;
     const recipe = await attemptRecipe(record);
     let disabledLeftOut = false;
+    let inputLeftOut = false;
     // The answer's timing, once it came (ADR 0019).
     let timed: { timing?: ServiceTiming } = {};
     const reportJudge = (
@@ -12330,6 +13476,7 @@ export function createLoginRuntime(
       else {
         observation = parsed.output;
         disabledLeftOut = extracted.output.ok && extracted.output.disabledLeftOut === true;
+        inputLeftOut = extracted.output.ok && extracted.output.inputLeftOut === true;
       }
     } catch {
       // The page could not be asked: `unreachable`.
@@ -12366,16 +13513,42 @@ export function createLoginRuntime(
         hidden.observation,
         spin.sent(() => reportJudge("sent")),
         // A description that left out a disabled field says so (ADR 0029); only `signed-in`
-        // completes a moved login anyway.
-        record.chooser ? chooserClickBranch(record.chooser.click) : undefined,
+        // completes a moved login then.
+        branchOf(record),
         ...(disabledLeftOut ? [true as const] : []),
       )
       .finally(spin.stop);
     spend(record.id, Date.now() - asked, timing);
     if (timing) timed = { timing };
     reportJudge(verdict, reason);
-    if (verdict !== "signed-in" && !(verdict === "unclear" && reason === "judged-signed-in"))
+    // `optional` (ADR 0065) completes it only on a full description with no radio button,
+    // select or text area left out, once the attempt submitted the item's password or a
+    // TOTP code (a move within the site may follow an identifier's Next), and not for a
+    // login stopped before its missing password, which only `signed-in` proves (ADR 0036).
+    const fill = passwordFills.get(document.tabId);
+    const effect = effects.get(document.tabId);
+    const sent =
+      (fill?.attemptId === record.id && fill.submitted) ||
+      (effect?.attemptId === record.id && effect.code !== undefined);
+    const optional = verdict === "optional";
+    if (
+      verdict !== "signed-in" &&
+      !(verdict === "unclear" && reason === "judged-signed-in") &&
+      !(optional && !disabledLeftOut && !inputLeftOut && record.stopAt === undefined && sent)
+    )
       return false;
+    // An optional page must still be on the path it was judged on.
+    if (optional) {
+      let at: unknown;
+      try {
+        at = await send(live, { type: "login.observe", path: live.path, targets: [] });
+      } catch {
+        return false;
+      }
+      const shown = v.safeParse(observationSchema, at);
+      if (stale() || !shown.success || observedPath(shown.output.path) !== observation.path)
+        return false;
+    }
     // The answer can take a while: the page must still be loaded and show no sign-in step.
     let again: unknown;
     try {
@@ -13260,7 +14433,7 @@ export function createLoginRuntime(
         "password",
         observation,
         spin.sent(() => reportJudge("sent")),
-        undefined,
+        branchOf(run.metadata),
         disabledLeftOut ? true : undefined,
         true,
       )

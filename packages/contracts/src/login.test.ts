@@ -57,6 +57,30 @@ import {
   type LoginRecipe,
   type LoginTarget,
   type StoredLoginRecipe,
+  findChooserLayout,
+  findLayoutRecipe,
+  isLoginRecipeDocument,
+  layoutRecipe,
+  loginChooserDocumentSchema,
+  loginRecipeDocumentSchema,
+  MAX_RECIPE_DOCUMENT_BYTES,
+  MAX_RECIPE_LAYOUTS,
+  newestLayout,
+  newLayoutKey,
+  parseRecipeBranch,
+  recipeBranch,
+  recipeLayouts,
+  routeBodyOf,
+  storedBranchRoute,
+  storedLayouts,
+  toChooserLayout,
+  toLoginLayout,
+  withChooserLayout,
+  withLoginLayout,
+  withoutLayout,
+  chooserLayouts,
+  storedLayoutRecipe,
+  type LoginRecipeDocument,
 } from "./login";
 import {
   createDefaultSettings,
@@ -99,6 +123,18 @@ function recipe(): LoginRecipe {
   };
 }
 
+/** The recipe stored as a document with one layout (ADR 0060). */
+function document(): LoginRecipeDocument {
+  const { version, id, revision, origin } = recipe();
+  return {
+    version,
+    id,
+    revision,
+    origin,
+    layouts: [toLoginLayout(recipe(), { key: "1000", language: "en", createdAt: 1000 })],
+  };
+}
+
 function binding(): LoginAccountBinding {
   return {
     origin: "https://bank.example",
@@ -129,6 +165,56 @@ describe("declarative login boundaries", () => {
   it("accepts separate multi-page field mappings without containing values", () => {
     expect(parseLoginRecipe(recipe())).toEqual(recipe());
     expect(parseLoginAccountBinding(binding())).toEqual(binding());
+  });
+  it("names a keypad only by an id, test ID, class or position, on a preparing fill (ADR 0067)", () => {
+    const withKeypad = (keypad: unknown, extra: object = {}) => {
+      const value = recipe();
+      value.steps[2] = {
+        kind: "fill",
+        effect: "prepare",
+        path: "/password",
+        fields: [{ slot: "password", target: { by: "id", value: "password" }, keypad }],
+        ...extra,
+      } as LoginRecipe["steps"][number];
+      return () => parseLoginRecipe(value);
+    };
+    expect(withKeypad({ by: "id", value: "soft-keys" })().steps[2]).toMatchObject({
+      fields: [{ keypad: { by: "id", value: "soft-keys" } }],
+    });
+    for (const keypad of [
+      { by: "test-id", value: "pad" },
+      { by: "class", value: "soft-keyboard" },
+      { by: "class", value: "_keys-2" },
+      { by: "position", value: "1:0" },
+      { by: "position", value: "3:1.0.12" },
+      { by: "position", value: "20:99" },
+    ])
+      expect(withKeypad(keypad), JSON.stringify(keypad)).not.toThrow();
+    for (const keypad of [
+      { by: "name", value: "pad" },
+      { by: "text", value: "1" },
+      { by: "label", value: "Keys" },
+      { by: "id", value: "two words" },
+      // A class is one token, never a selector.
+      { by: "class", value: "keys pad" },
+      { by: "class", value: ".keys" },
+      { by: "class", value: "2col" },
+      { by: "class", value: "" },
+      // A position goes up at least one and at most 20 parents, then down at most 12
+      // children, each by an index below 100 written without leading zeros.
+      { by: "position", value: "0:1" },
+      { by: "position", value: "21:1" },
+      { by: "position", value: "1:" },
+      { by: "position", value: "1:01" },
+      { by: "position", value: "1:100" },
+      { by: "position", value: `1:${Array.from({ length: 13 }, () => "0").join(".")}` },
+      { by: "position", value: "div > .keys" },
+    ])
+      expect(withKeypad(keypad), JSON.stringify(keypad)).toThrow();
+    // An effectful fill's one event never goes through a keypad.
+    expect(
+      withKeypad({ by: "id", value: "soft-keys" }, { effect: "submit", event: "input" }),
+    ).toThrow();
   });
   it("bounds the elements a completion requires to be absent", () => {
     const base = recipe();
@@ -2753,13 +2839,15 @@ describe("entry recipes (ADR 0031)", () => {
     const stored = v.parse(storedLoginRecipeSchema, entry());
     expect(stored).toEqual(entry());
     expect(v.is(loginEntryRecipeSchema, entry())).toBe(true);
-    expect(isLoginRouteRecipe(stored)).toBe(false);
+    expect(isLoginRecipeDocument(stored)).toBe(false);
     expect(storedRecipeStartPath(stored)).toBe("/en/");
-    const route = v.parse(storedLoginRecipeSchema, recipe());
-    expect(isLoginRouteRecipe(route)).toBe(true);
+    const route = v.parse(storedLoginRecipeSchema, document());
+    expect(isLoginRecipeDocument(route)).toBe(true);
     expect(storedRecipeStartPath(route)).toBe("/identity");
     // A login runs only a recipe with a route.
     expect(v.is(loginRecipeSchema, entry())).toBe(false);
+    expect(isLoginRouteRecipe(v.parse(loginEntryRecipeSchema, entry()))).toBe(false);
+    expect(isLoginRouteRecipe(recipe())).toBe(true);
   });
 
   it("accepts an id, name, test-id or text locator as the entry's target", () => {
@@ -2784,12 +2872,14 @@ describe("entry recipes (ADR 0031)", () => {
       ).toBe(false);
   });
 
-  it("treats only a recipe with steps as one with a login route", () => {
-    // A later kind without steps never passes as a route.
-    const { steps: _steps, ...rest } = recipe();
+  it("treats only a recipe with layouts as a stored login route recipe", () => {
+    // A later kind without layouts never passes as one.
+    const { layouts: _layouts, ...rest } = document();
     const other = { ...rest, later: {} } as unknown as StoredLoginRecipe;
-    expect(isLoginRouteRecipe(other)).toBe(false);
+    expect(isLoginRecipeDocument(other)).toBe(false);
     expect(() => storedRecipeStartPath(other)).toThrow("Unknown stored recipe kind");
+    // The recipe a login runs is never stored as it is.
+    expect(v.is(storedLoginRecipeSchema, recipe())).toBe(false);
   });
 
   it("never holds an entry beside a login route member", () => {
@@ -2805,9 +2895,10 @@ describe("entry recipes (ADR 0031)", () => {
       { passkey: { path: "/en/", target: { by: "text", value: "Passkey" } } },
       { handlers: [{ kind: "passkey", path: "/2fa", target: { by: "id", value: "key" } }] },
       { alternatives: [{ slots, steps }] },
+      { layouts: document().layouts },
     ])
       expect(v.is(storedLoginRecipeSchema, { ...entry(), ...extra })).toBe(false);
-    expect(v.is(storedLoginRecipeSchema, { ...recipe(), entry: entry().entry })).toBe(false);
+    expect(v.is(storedLoginRecipeSchema, { ...document(), entry: entry().entry })).toBe(false);
   });
 
   it("refuses a recipe with neither an entry nor a route, and an incomplete entry", () => {
@@ -2840,67 +2931,98 @@ describe("chooser recipes (ADR 0028)", () => {
     },
   });
 
+  /** The chooser stored with one layout of the same buttons and branches (ADR 0060). */
+  const storedChooser = (extra: Record<string, unknown> = {}) => {
+    const { path, ...layout } = chooser(extra).chooser as Record<string, unknown>;
+    return {
+      ...chooser(),
+      chooser: { path, layouts: [{ key: "1000", createdAt: 1000, ...layout }] },
+    };
+  };
+  const body = () => routeBodyOf(recipe());
+
   it("stores a chooser without branches, told apart from a login route recipe", () => {
-    const stored = v.parse(storedLoginRecipeSchema, chooser());
-    expect(stored).toEqual(chooser());
+    const parsed = v.parse(storedLoginRecipeSchema, storedChooser());
+    expect(parsed).toEqual(storedChooser());
+    expect(v.is(loginChooserDocumentSchema, storedChooser())).toBe(true);
+    expect(isLoginRecipeDocument(parsed)).toBe(false);
+    expect(storedRecipeStartPath(parsed)).toBe("/login");
     expect(v.is(loginChooserRecipeSchema, chooser())).toBe(true);
-    expect(isLoginRouteRecipe(stored)).toBe(false);
-    expect(storedRecipeStartPath(stored)).toBe("/login");
+    expect(isLoginRouteRecipe(v.parse(loginChooserRecipeSchema, chooser()))).toBe(false);
     expect(v.is(loginRecipeSchema, chooser())).toBe(false);
-    expect(v.is(storedLoginRecipeSchema, { ...chooser(), chooser: { path: "/login" } })).toBe(true);
+    // The chooser a login runs is never stored as it is.
+    expect(v.is(storedLoginRecipeSchema, chooser())).toBe(false);
+    expect(
+      v.is(storedLoginRecipeSchema, {
+        ...chooser(),
+        chooser: { path: "/login", layouts: [{ key: "1000", createdAt: 1000 }] },
+      }),
+    ).toBe(true);
   });
 
-  it("holds each branch as a route recipe under the chooser's ID, revision and origin", () => {
+  it("holds each branch as a route under the chooser's ID, revision and origin", () => {
+    expect(
+      v.is(storedLoginRecipeSchema, storedChooser({ afterAccount: body(), afterOther: body() })),
+    ).toBe(true);
+    // A stored branch is the route alone; the document carries its ID and revision.
+    expect(v.is(storedLoginRecipeSchema, storedChooser({ afterAccount: recipe() }))).toBe(false);
+    expect(v.is(storedLoginRecipeSchema, storedChooser({ afterAccount: { steps: [] } }))).toBe(
+      false,
+    );
+    // The projection's branches have the chooser's ID, revision, origin and layout.
     const branch = recipe();
     expect(
-      v.is(storedLoginRecipeSchema, chooser({ afterAccount: branch, afterOther: branch })),
+      v.is(loginChooserRecipeSchema, chooser({ afterAccount: branch, afterOther: branch })),
     ).toBe(true);
     for (const changed of [
       { id: "other-01" },
       { revision: branch.revision + 1 },
       { origin: "https://other.example.test" },
+      { layout: "1000" },
     ])
       expect(
-        v.is(storedLoginRecipeSchema, chooser({ afterAccount: { ...branch, ...changed } })),
+        v.is(loginChooserRecipeSchema, chooser({ afterAccount: { ...branch, ...changed } })),
       ).toBe(false);
-    expect(v.is(storedLoginRecipeSchema, chooser({ afterAccount: { steps: [] } }))).toBe(false);
   });
 
   it("names its buttons by a non-input locator, never the same one twice", () => {
     const shown = { by: "text", value: "Log back in" };
-    expect(v.is(storedLoginRecipeSchema, chooser({ continue: shown }))).toBe(true);
-    expect(v.is(storedLoginRecipeSchema, chooser({ continue: chooser().chooser.other }))).toBe(
-      false,
-    );
+    expect(v.is(storedLoginRecipeSchema, storedChooser({ continue: shown }))).toBe(true);
     expect(
-      v.is(storedLoginRecipeSchema, chooser({ other: { by: "autocomplete", value: "username" } })),
+      v.is(storedLoginRecipeSchema, storedChooser({ continue: chooser().chooser.other })),
+    ).toBe(false);
+    expect(
+      v.is(
+        storedLoginRecipeSchema,
+        storedChooser({ other: { by: "autocomplete", value: "username" } }),
+      ),
     ).toBe(false);
     // The other-account branch needs its button.
-    const { other: _other, ...withoutOther } = chooser().chooser;
-    expect(
-      v.is(storedLoginRecipeSchema, {
-        ...chooser(),
-        chooser: { ...withoutOther, afterOther: recipe() },
-      }),
-    ).toBe(false);
+    const withoutOther = storedChooser({ afterOther: body() });
+    delete (withoutOther.chooser.layouts[0] as Record<string, unknown>)["other"];
+    expect(v.is(storedLoginRecipeSchema, withoutOther)).toBe(false);
   });
 
   it("never holds a chooser beside a login route member or an entry", () => {
     const { slots, steps } = recipe();
-    expect(v.is(storedLoginRecipeSchema, { ...chooser(), slots, steps })).toBe(false);
+    expect(v.is(storedLoginRecipeSchema, { ...storedChooser(), slots, steps })).toBe(false);
+    expect(v.is(storedLoginRecipeSchema, { ...storedChooser(), layouts: document().layouts })).toBe(
+      false,
+    );
     expect(
       v.is(storedLoginRecipeSchema, {
-        ...chooser(),
+        ...storedChooser(),
         entry: { path: "/", target: { by: "text", value: "Login" } },
       }),
     ).toBe(false);
-    expect(v.is(storedLoginRecipeSchema, { ...recipe(), chooser: chooser().chooser })).toBe(false);
+    expect(v.is(storedLoginRecipeSchema, { ...document(), chooser: storedChooser().chooser })).toBe(
+      false,
+    );
   });
 
   it("reads and replaces a branch, moving the other one to the new revision", () => {
     const stored = v.parse(loginChooserRecipeSchema, chooser());
     expect(chooserBranch(stored, "account")).toBeUndefined();
-    expect(storedRecipeSlots(stored)).toEqual([]);
     const account = { ...recipe(), revision: recipe().revision + 1 };
     const first = withChooserBranch(stored, "account", account);
     expect(first).toEqual({
@@ -2919,9 +3041,14 @@ describe("chooser recipes (ADR 0028)", () => {
     expect(chooserBranch(both, "account")).toEqual({ ...account, revision: other.revision });
     expect(chooserBranch(both, "other")?.revision).toBe(other.revision);
     expect(v.is(loginChooserRecipeSchema, both)).toBe(true);
-    // A chooser's slots are its branches' together; a route recipe's are its own.
-    expect(storedRecipeSlots(both)).toEqual(["branch", "account", "password", "pin"]);
-    expect(storedRecipeSlots(recipe())).toEqual(recipeSlots(recipe()));
+    // A stored chooser's slots are its branches' together; a recipe's are its layouts'.
+    const kept = v.parse(loginChooserDocumentSchema, {
+      ...chooser(),
+      revision: both.revision,
+      chooser: { path: "/login", layouts: [toChooserLayout(both, { key: "1", createdAt: 1 })] },
+    });
+    expect(storedRecipeSlots(kept)).toEqual(["branch", "account", "password", "pin"]);
+    expect(storedRecipeSlots(v.parse(loginChooserDocumentSchema, storedChooser()))).toEqual([]);
   });
 
   it("runs a click on the list, then the steps of the branch it leads to", () => {
@@ -3052,7 +3179,22 @@ describe("chooser recipes (ADR 0028)", () => {
       expect
         .soft(v.is(loginChooserRecipeSchema, held), `${click} after ${invalid.steps.length} steps`)
         .toBe(false);
-      expect.soft(v.is(storedLoginRecipeSchema, held)).toBe(false);
+      // The stored chooser holds the same branch in its layout (ADR 0060).
+      const stored = {
+        ...chooser(),
+        chooser: { path: "/login", layouts: [toChooserLayout(held, { key: "1", createdAt: 1 })] },
+      };
+      expect.soft(v.is(loginChooserDocumentSchema, stored)).toBe(false);
+      expect.soft(v.is(storedLoginRecipeSchema, stored)).toBe(false);
+      // A second layout that runs does not make the stored chooser hold the first.
+      const valid = {
+        ...stored,
+        chooser: {
+          path: "/login",
+          layouts: [toChooserLayout(base, { key: "2", createdAt: 2 }), ...stored.chooser.layouts],
+        },
+      };
+      expect.soft(v.is(storedLoginRecipeSchema, valid)).toBe(false);
     }
     // One effect or step fewer runs with the click.
     for (const member of ["account", "other"] as const)
@@ -3060,7 +3202,367 @@ describe("chooser recipes (ADR 0028)", () => {
         const held = withChooserBranch(base, member, valid);
         expect(v.is(loginChooserRecipeSchema, held)).toBe(true);
         expect(chooserRoute(held, member === "account" ? "entry" : "other")).toBeDefined();
+        expect(
+          v.is(storedLoginRecipeSchema, {
+            ...chooser(),
+            chooser: {
+              path: "/login",
+              layouts: [toChooserLayout(held, { key: "1", createdAt: 1 })],
+            },
+          }),
+        ).toBe(true);
       }
+  });
+});
+
+describe("recipe layouts (ADR 0060)", () => {
+  const second = (change: Partial<LoginRecipe> = {}) =>
+    toLoginLayout(
+      {
+        ...recipe(),
+        steps: [
+          ...recipe().steps.slice(0, 2),
+          {
+            kind: "fill",
+            effect: "prepare",
+            path: "/secret",
+            fields: [{ slot: "password", target: { by: "name", value: "secret" } }],
+          },
+          {
+            kind: "click",
+            path: "/secret",
+            target: { by: "text", value: "Log in" },
+            purpose: "submit",
+          },
+        ],
+        completion: [{ target: { by: "id", value: "dashboard" } }],
+        ...change,
+      },
+      { key: "2000", createdAt: 2000 },
+    );
+
+  it("stores up to three layouts with distinct keys, all on the recipe's start path", () => {
+    const one = document();
+    expect(v.is(loginRecipeDocumentSchema, one)).toBe(true);
+    const two = { ...one, layouts: [...one.layouts, second()] };
+    expect(v.is(storedLoginRecipeSchema, two)).toBe(true);
+    const three = {
+      ...one,
+      layouts: [...two.layouts, { ...second(), key: "3000", createdAt: 3000 }],
+    };
+    expect(three.layouts).toHaveLength(MAX_RECIPE_LAYOUTS);
+    expect(v.is(storedLoginRecipeSchema, three)).toBe(true);
+    const four = {
+      ...one,
+      layouts: [...three.layouts, { ...second(), key: "4000", createdAt: 4000 }],
+    };
+    expect(v.is(storedLoginRecipeSchema, four)).toBe(false);
+    expect(v.is(storedLoginRecipeSchema, { ...one, layouts: [] })).toBe(false);
+    // Keys are unique.
+    expect(
+      v.is(storedLoginRecipeSchema, {
+        ...one,
+        layouts: [...one.layouts, { ...second(), key: "1000" }],
+      }),
+    ).toBe(false);
+    // Every layout starts on the recipe's start path.
+    const elsewhere = toLoginLayout(
+      {
+        ...recipe(),
+        steps: recipe().steps.map((step) => ({ ...step, path: `/other${step.path}` })),
+      },
+      { key: "2000", createdAt: 2000 },
+    );
+    expect(v.is(storedLoginRecipeSchema, { ...one, layouts: [...one.layouts, elsewhere] })).toBe(
+      false,
+    );
+    // A key is a decimal creation time; a language is ja or en.
+    for (const layout of [
+      { ...second(), key: "a1" },
+      { ...second(), key: "" },
+      { ...second(), language: "fr" },
+      { ...second(), createdAt: -1 },
+    ])
+      expect(v.is(storedLoginRecipeSchema, { ...one, layouts: [one.layouts[0], layout] })).toBe(
+        false,
+      );
+  });
+
+  it("keeps one page kind, and slots one binding holds, over every layout", () => {
+    const one = document();
+    // All layouts share the start page, so they share its kind (ADR 0035).
+    expect(
+      v.is(storedLoginRecipeSchema, {
+        ...one,
+        layouts: [...one.layouts, second({ pageKind: "confirm" })],
+      }),
+    ).toBe(false);
+    expect(
+      v.is(storedLoginRecipeSchema, {
+        ...one,
+        layouts: [{ ...one.layouts[0]!, pageKind: "confirm" }, second({ pageKind: "confirm" })],
+      }),
+    ).toBe(true);
+    // A binding is kept per recipe and holds at most 20 slots, so the layouts' slots
+    // together fit one.
+    const filling = (names: string[], key: string) =>
+      toLoginLayout(
+        {
+          ...recipe(),
+          slots: names,
+          steps: [
+            {
+              kind: "fill",
+              effect: "prepare",
+              path: "/identity",
+              fields: names.map((name) => ({ slot: name, target: { by: "id", value: name } })),
+            },
+            {
+              kind: "click",
+              path: "/identity",
+              target: { by: "id", value: "next" },
+              purpose: "submit",
+            },
+          ],
+          completion: undefined,
+          rejection: undefined,
+          maxSubmissions: 1,
+        },
+        { key, createdAt: Number(key) },
+      );
+    const names = (prefix: string, count: number) =>
+      Array.from({ length: count }, (_, index) => `${prefix}${index + 1}`);
+    const fits = (left: number, right: number) =>
+      v.is(storedLoginRecipeSchema, {
+        ...one,
+        layouts: [filling(names("a", left), "1000"), filling(names("b", right), "2000")],
+      });
+    expect(fits(10, 10)).toBe(true);
+    expect(fits(10, 11)).toBe(false);
+    // A slot both layouts fill counts once.
+    expect(
+      v.is(storedLoginRecipeSchema, {
+        ...one,
+        layouts: [filling(names("a", 20), "1000"), filling(names("a", 20), "2000")],
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps a document small enough for a device to write back", () => {
+    // A start path and text targets at their longest, on every step of every variant.
+    const start = `/${"a".repeat(299)}`;
+    const text = (value: string) => ({ by: "text" as const, value: value.padEnd(120, "x") });
+    const variant = (name: string) => ({
+      slots: [name],
+      steps: [
+        {
+          kind: "fill" as const,
+          effect: "prepare" as const,
+          path: start,
+          fields: [{ slot: name, target: { by: "id" as const, value: name } }],
+        },
+        ...Array.from({ length: 30 }, (_, index) => ({
+          kind: "assert" as const,
+          path: start,
+          target: text(`${name}-${index}`),
+          present: true,
+        })),
+        {
+          kind: "click" as const,
+          path: start,
+          target: text(`${name}-go`),
+          purpose: "submit" as const,
+        },
+      ],
+    });
+    const layout = (key: string) => {
+      const [first, ...alternatives] = ["a", "b", "c", "d"].map((name) => variant(`${key}${name}`));
+      return toLoginLayout(
+        {
+          ...recipe(),
+          ...first!,
+          alternatives,
+          completion: undefined,
+          rejection: undefined,
+          maxSubmissions: 1,
+        },
+        { key, createdAt: Number(key) },
+      );
+    };
+    const sized = (keys: string[]) => ({ ...document(), layouts: keys.map(layout) });
+    expect(v.is(storedLoginRecipeSchema, sized(["1000"]))).toBe(true);
+    const large = sized(["1000", "2000", "3000"]);
+    expect(new TextEncoder().encode(JSON.stringify(large)).byteLength).toBeGreaterThan(
+      MAX_RECIPE_DOCUMENT_BYTES,
+    );
+    expect(
+      v.safeParse(storedLoginRecipeSchema, large).issues?.map((issue) => issue.message),
+    ).toContain("Recipe document too large");
+  });
+
+  it("checks each layout's route by the rules of a recipe a login runs", () => {
+    const one = document();
+    const layout = one.layouts[0]!;
+    // A route that fills an undeclared slot is refused, as it is for the recipe a login runs.
+    const broken = { ...layout, slots: ["branch", "account"] };
+    expect(v.is(loginRecipeSchema, { ...recipe(), slots: broken.slots })).toBe(false);
+    expect(v.is(storedLoginRecipeSchema, { ...one, layouts: [broken] })).toBe(false);
+    // A layout's marker never names the recipe's own origin.
+    const own = {
+      ...layout,
+      completion: [{ origin: one.origin, target: { by: "id", value: "authenticated" } }],
+    };
+    expect(v.is(storedLoginRecipeSchema, { ...one, layouts: [own] })).toBe(false);
+    expect(v.is(loginRecipeSchema, { ...recipe(), completion: own.completion })).toBe(false);
+  });
+
+  it("runs one layout as a recipe under the document's ID, revision and origin", () => {
+    const two = v.parse(loginRecipeDocumentSchema, {
+      ...document(),
+      revision: 4,
+      layouts: [...document().layouts, second()],
+    });
+    const [first, other] = recipeLayouts(two);
+    expect(first).toEqual({ ...recipe(), revision: 4, layout: "1000" });
+    expect(v.is(loginRecipeSchema, first)).toBe(true);
+    // Only the layout's own markers come with it.
+    expect(other?.completion).toEqual([{ target: { by: "id", value: "dashboard" } }]);
+    expect(other?.layout).toBe("2000");
+    expect(findLayoutRecipe(two, "2000")).toEqual(other);
+    expect(findLayoutRecipe(two, "3000")).toBeUndefined();
+    expect(storedLayoutRecipe(two)).toEqual(other);
+    expect(storedLayoutRecipe(two, "1000")).toEqual(first);
+    expect(layoutRecipe(two, two.layouts[0]!)).toEqual(first);
+    expect(routeBodyOf(first!)).not.toHaveProperty("layout");
+    expect(storedLayouts(two)).toEqual([
+      { key: "1000", language: "en", createdAt: 1000 },
+      { key: "2000", createdAt: 2000 },
+    ]);
+    expect(newestLayout(two.layouts)?.key).toBe("2000");
+    expect(newestLayout([])).toBeUndefined();
+    expect(storedRecipeSlots(two)).toEqual(["branch", "account", "password"]);
+  });
+
+  it("writes a layout back in place, or after the others when it is new", () => {
+    const one = document();
+    const changed = { ...recipe(), layout: "1000", maxSubmissions: 3 };
+    const replaced = withLoginLayout(
+      one,
+      toLoginLayout(changed, { key: "1000", language: "en", createdAt: 1000 }),
+    );
+    expect(replaced.layouts).toHaveLength(1);
+    expect(findLayoutRecipe(replaced, "1000")).toEqual(changed);
+    const added = withLoginLayout(one, second());
+    expect(added.layouts.map((layout) => layout.key)).toEqual(["1000", "2000"]);
+    expect(v.is(loginRecipeDocumentSchema, added)).toBe(true);
+    // The schema refuses a fourth layout: replacing one is repair's to decide.
+    let full = added;
+    for (const key of ["3000", "4000"])
+      full = withLoginLayout(full, { ...second(), key, createdAt: Number(key) });
+    expect(v.is(loginRecipeDocumentSchema, full)).toBe(false);
+    // A layout of another page kind replaces every layout: the start page is now that kind.
+    const confirm = second({ pageKind: "confirm" });
+    expect(withLoginLayout(added, confirm)).toEqual({ ...added, layouts: [confirm] });
+  });
+
+  it("removes a layout as the next revision, never the last one", () => {
+    const two = { ...document(), layouts: [...document().layouts, second()] };
+    expect(withoutLayout(two, "1000")).toEqual({ ...two, revision: 2, layouts: [second()] });
+    expect(withoutLayout(two, "3000")).toBeUndefined();
+    expect(withoutLayout(document(), "1000")).toBeUndefined();
+    const entry = {
+      version: 1 as const,
+      id: "entry-01",
+      revision: 1,
+      origin: "https://bank.example",
+      entry: { path: "/", target: { by: "text" as const, value: "Login" } },
+    };
+    expect(withoutLayout(entry, "1000")).toBeUndefined();
+    expect(storedLayouts(entry)).toEqual([]);
+  });
+
+  it("keys a new layout by its creation time, moved on while another holds it", () => {
+    expect(newLayoutKey(1760000000000, [])).toBe("1760000000000");
+    expect(newLayoutKey(1000.7, ["1000", "1001"])).toBe("1002");
+    expect(newLayoutKey(-5, [])).toBe("0");
+  });
+
+  it("names a layout's route, and a chooser layout's branch, by one branch name", () => {
+    expect(recipeBranch("1000")).toBe("1000");
+    expect(recipeBranch("1000", "account")).toBe("1000:account");
+    expect(parseRecipeBranch("1000")).toEqual({ layout: "1000" });
+    expect(parseRecipeBranch("1000:other")).toEqual({ layout: "1000", branch: "other" });
+    for (const value of ["", "account", "1000:", "1000:both", "x1000"])
+      expect(parseRecipeBranch(value)).toBeUndefined();
+    const two = { ...document(), layouts: [...document().layouts, second()] };
+    expect(storedBranchRoute(two, "2000")?.route?.layout).toBe("2000");
+    expect(storedBranchRoute(two, "3000")).toBeUndefined();
+    expect(storedBranchRoute(two, "1000:account")).toBeUndefined();
+  });
+
+  it("runs one chooser layout with its branches under its key", () => {
+    const base = {
+      version: 1 as const,
+      id: recipe().id,
+      revision: 3,
+      origin: recipe().origin,
+    };
+    const stored = v.parse(loginChooserDocumentSchema, {
+      ...base,
+      chooser: {
+        path: "/login",
+        layouts: [
+          { key: "1000", createdAt: 1000, other: { by: "text", value: "Another" } },
+          {
+            key: "2000",
+            language: "ja",
+            createdAt: 2000,
+            other: { by: "text", value: "別のアカウント" },
+            afterAccount: routeBodyOf(recipe()),
+          },
+        ],
+      },
+    });
+    const [first, other] = chooserLayouts(stored);
+    expect(first).toEqual({
+      ...base,
+      layout: "1000",
+      chooser: { path: "/login", other: { by: "text", value: "Another" } },
+    });
+    expect(other?.chooser.afterAccount).toEqual({ ...recipe(), revision: 3, layout: "2000" });
+    expect(v.is(loginChooserRecipeSchema, other)).toBe(true);
+    expect(findChooserLayout(stored, "2000")).toEqual(other);
+    expect(storedLayoutRecipe(stored)).toEqual(other);
+    expect(storedLayoutRecipe(stored, "1000")).toEqual(first);
+    expect(storedLayoutRecipe(stored, "3000")).toBeUndefined();
+    expect(chooserRoute(other!, "entry")?.layout).toBe("2000");
+    expect(storedBranchRoute(stored, "2000:account")?.route).toEqual(other?.chooser.afterAccount);
+    expect(storedBranchRoute(stored, "1000:other")).toEqual({ route: undefined, chooser: first });
+    expect(storedBranchRoute(stored, "2000")).toBeUndefined();
+    // A branch written back lands in its layout only.
+    const next = withChooserBranch(first!, "other", { ...recipe(), revision: 4, layout: "1000" });
+    const written = withChooserLayout(
+      { ...stored, revision: 4 },
+      toChooserLayout(next, { key: "1000", createdAt: 1000 }),
+    );
+    expect(v.is(loginChooserDocumentSchema, written)).toBe(true);
+    expect(findChooserLayout(written, "1000")?.chooser.afterOther).toEqual({
+      ...recipe(),
+      revision: 4,
+      layout: "1000",
+    });
+    expect(findChooserLayout(written, "2000")?.chooser.afterAccount?.revision).toBe(4);
+    expect(withoutLayout(written, "1000")).toMatchObject({
+      revision: 5,
+      chooser: { layouts: [{ key: "2000" }] },
+    });
+  });
+
+  it("never extends or continues a recipe from another layout", () => {
+    const first = { ...recipe(), layout: "1000" };
+    expect(extendsRecipe(first, { ...first, revision: 2 })).toBe(true);
+    expect(extendsRecipe(first, { ...first, revision: 2, layout: "2000" })).toBe(false);
+    expect(continuesRecipe(first, { ...first, revision: 2, layout: "2000" })).toBe(false);
   });
 });
 

@@ -1,10 +1,9 @@
 import {
-  chooserBranchSchema,
   loginOutcomeCauseSchema,
   loginOutcomeReportSchema,
   loginOutcomeSchema,
+  recipeBranchSchema,
   syncRecipeIdSchema,
-  type ChooserBranch,
   type LoginOutcomeCause,
   type LoginOutcomeReport,
 } from "@pateat/contracts";
@@ -37,7 +36,8 @@ export const OUTCOME_RETRY_MS = 60 * 1000;
 export type LoginOutcomeSent = {
   recipeId: string;
   revision: number;
-  branch?: ChooserBranch;
+  /** The layout the login ran (ADR 0060), and for a chooser login its branch. */
+  branch?: string;
   /** `kept`, `refused`, `rejected`, or `failed:<code>`. */
   result: string;
 };
@@ -54,7 +54,8 @@ const outcomesSchema = v.strictObject({
         service: v.pipe(v.string(), v.maxLength(2048)),
         deviceId: v.pipe(v.string(), v.maxLength(200)),
         recipeId: syncRecipeIdSchema,
-        branch: v.optional(chooserBranchSchema),
+        /** The layout the login ran (ADR 0060), and for a chooser login its branch. */
+        branch: v.optional(recipeBranchSchema),
         revision: v.pipe(v.number(), v.integer(), v.minValue(1)),
         at: v.pipe(v.number(), v.integer(), v.minValue(0)),
         pending: v.optional(loginOutcomeReportSchema),
@@ -122,12 +123,7 @@ export function loginOutcomeOf(
 }
 
 const sameRevision =
-  (
-    connection: ServiceConnection,
-    recipeId: string,
-    branch: ChooserBranch | undefined,
-    revision: number,
-  ) =>
+  (connection: ServiceConnection, recipeId: string, branch: string | undefined, revision: number) =>
   (entry: Entry) =>
     entry.service === connection.origin &&
     entry.deviceId === connection.deviceId &&
