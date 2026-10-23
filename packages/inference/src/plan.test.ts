@@ -96,7 +96,7 @@ describe("a button beside a form without one of its own", () => {
     );
   });
 
-  it("refuses it for a form with a button of its own, or beside a field outside every form", () => {
+  it("refuses it for any other form, field or button", () => {
     for (const extra of [
       input("own", { role: "button", group: "f1" }),
       input("q", { group: undefined }),
@@ -105,6 +105,33 @@ describe("a button beside a form without one of its own", () => {
         validatePagePlan(page(extra), loginSlots, { fields: both, action: submit }),
         extra.id,
       ).toEqual({ ok: false, reason: "mixed-groups" });
+    // Nor for a form beside another password form, beside another button outside every
+    // form, or as a passkey or sign-up button.
+    for (const extra of [
+      input("other", { role: "password", group: "f2" }),
+      input("passkey", { role: "button", label: "パスキーでログイン" }),
+    ])
+      expect(
+        validatePagePlan(page(extra), loginSlots, { fields: both, action: submit }),
+        extra.id,
+      ).toEqual({ ok: false, reason: "mixed-groups" });
+    for (const label of ["Sign in with a passkey", "Create a passkey"]) {
+      const named = page();
+      named.candidates[3] = input("go", { role: "button", label });
+      expect(validatePagePlan(named, loginSlots, { fields: both, action: submit }), label).toEqual({
+        ok: false,
+        reason: "mixed-groups",
+      });
+    }
+    // A form without a password field never takes it, as an identifier form beside it.
+    const identifier = page();
+    identifier.candidates.splice(2, 1);
+    expect(
+      validatePagePlan(identifier, loginSlots, {
+        fields: [{ slot: "username", candidate: "member" }],
+        action: submit,
+      }),
+    ).toEqual({ ok: false, reason: "mixed-groups" });
     // Fields of two forms never share it.
     const two = page(input("other", { role: "password", group: "f2" }));
     expect(

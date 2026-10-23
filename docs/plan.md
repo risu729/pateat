@@ -2846,15 +2846,16 @@ every label. Pages whose email step only sends a sign-in link or code, with no p
 fits them; Slack and Vercel were removed from the first pass for that reason. Sakura
 Internet's login page is left out too: its login button sits outside the form of its
 fields, so the correct plan fails the plan check (`mixed-groups`), a case for that check
-rather than for the corpus. Since 2026-10-23 the check accepts a button outside every
-form for the fields of one form that shows no button of its own, when no field outside
-every form is on the page (`besideForm`, agent change, local tests only; recorded in
-[Bitwarden differences](bitwarden-differences.md#submit-button-outside-the-form)); on
-the live page in cloud Chromium (main `b803056`) generation then planned 会員ID,
-パスワード and ログイン, and the check accepted it. The Japanese set now has 108 cases
-(15 abstain, 11 passkey buttons, 27 `advance`) and the English set 45 (5 abstain, 3
-passkey buttons, 13 `advance`); the heuristic scores 0.73 (18 false submits) and 0.64
-(7).
+rather than for the corpus at the time. Since 2026-10-23 the check accepts a button
+outside every form for the fields of the page's only password form when that form lists
+no button of its own, no field outside every form is on the page, and the button is the
+only one outside every form and names no passkey (`besideForm`, agent change, local
+tests only; recorded in [Bitwarden
+differences](bitwarden-differences.md#submit-button-outside-the-form)); on the live page
+in cloud Chromium (main `b803056`) generation then planned 会員ID, パスワード and
+ログイン, and the check accepted it. The Japanese set now has 108 cases (15 abstain, 11
+passkey buttons, 27 `advance`) and the English set 45 (5 abstain, 3 passkey buttons, 13
+`advance`); the heuristic scores 0.73 (18 false submits) and 0.64 (7).
 
 The same import measured the extractor on real markup (2026-10-11, main `9cf8356`). Of
 the 241 pages with an annotated login form, 6 gave no observation and 109 an incomplete

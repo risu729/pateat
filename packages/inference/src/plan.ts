@@ -171,23 +171,30 @@ export const isActionRole = (role: ObservedCandidate["role"]) =>
 
 /**
  * The form a button outside every form presses for: the one form the plan's fields share,
- * when that form shows no button of its own and no field outside every form is on the
- * page, so the button can only be one the extractor kept beside a password form
- * (`besideDepth`). Sakura Internet's login button follows its form so (2026-10-23).
- * Undefined for any other action, which presses for its own group.
+ * when that form holds the page's only password field and shows no button of its own, no
+ * field outside every form is on the page, and the action is the only button outside
+ * every form and names no passkey. Such a button can only be the one the extractor kept
+ * beside that password form (`besideDepth`), as Sakura Internet's login button follows
+ * its form (2026-10-23). Undefined for any other action, which presses for its own group.
  */
 export function besideForm(
   page: Pick<LoginObservation, "candidates">,
   fields: readonly ObservedCandidate[],
   action: ObservedCandidate,
 ): string | undefined {
-  if (action.group !== undefined) return undefined;
+  if (action.group !== undefined || namesPasskey(action) || registersPasskey(action))
+    return undefined;
   const groups = new Set(fields.map((field) => field.group));
   const [group] = groups;
   if (groups.size !== 1 || group === undefined) return undefined;
+  const passwords = page.candidates.filter((candidate) => candidate.role === "password");
+  if (passwords.length === 0 || passwords.some((password) => password.group !== group))
+    return undefined;
   return page.candidates.some(
     (candidate) =>
-      (candidate.group === group && isActionRole(candidate.role)) ||
+      (isActionRole(candidate.role) &&
+        (candidate.group === group ||
+          (candidate.group === undefined && candidate.id !== action.id))) ||
       (candidate.group === undefined && (fillRoles as readonly string[]).includes(candidate.role)),
   )
     ? undefined
