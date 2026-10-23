@@ -1,0 +1,201 @@
+import {
+  getItemEligibility,
+  resolveDetailSourceField,
+  type BirthDateFormat,
+  type DetailLink,
+  type LocalSettings,
+  type LoginDetail,
+  type VaultCatalog,
+  type VaultConnectionMetadata,
+  type VaultItemMetadata,
+} from "@pateat/contracts";
+
+// Personal details asked during a login (ADR 0061): which vault fields may give each
+// detail, the owner's links to them, and the value a page wants made from a field's
+// value. Values are made here, in the service worker, right after the vault read, so a
+// whole phone or card number never reaches the page.
+
+/** The login item a link belongs to: its site and its vault account and item. */
+export type DetailOwner = Pick<DetailLink, "origin" | "provider" | "userId" | "itemId">;
+
+/** The built-in fields each detail may be read from; custom fields are checked by kind. */
+const builtinSources: Readonly<Record<LoginDetail, readonly string[]>> = {
+  "birth-date": [],
+  "phone-last-4": ["identity.phone"],
+  "card-last-4": ["card.number"],
+  "card-code": ["card.code"],
+};
+/** Custom field names that read as a birth date, compared without case. */
+const birthWords = ["birth", "dob", "生年月日", "誕生日"];
+
+/** Whether `field` of an item may give `detail`: a built-in source, or a Text or Hidden custom field. */
+export function givesDetail(
+  detail: LoginDetail,
+  field: VaultItemMetadata["fields"][number],
+): boolean {
+  if (builtinSources[detail].includes(field.id)) return true;
+  if (detail === "card-last-4" || detail === "card-code") return false;
+  return field.id.startsWith("custom.") && (field.kind === "text" || field.kind === "hidden");
+}
+
+/** The ASCII digits of a value, after NFKC so full-width digits count. */
+const digitsOf = (value: string) => value.normalize("NFKC").replace(/[^0-9]/gu, "");
+
+/** A stored birth date's year, month and day, or undefined when the text is no date. */
+export function readBirthDate(
+  value: string,
+): { year: number; month: number; day: number } | undefined {
+  const text = value.normalize("NFKC").trim();
+  const match =
+    /^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/u.exec(text) ??
+    /^(\d{4})年\s*(\d{1,2})月\s*(\d{1,2})日$/u.exec(text) ??
+    /^(\d{4})(\d{2})(\d{2})$/u.exec(text);
+  if (!match) return undefined;
+  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+    ? { year, month, day }
+    : undefined;
+}
+
+/**
+ * The value a page's input wants for `detail`, made from the linked field's value: the
+ * date in `format`, the last four digits, or a card code of 3 or 4 digits as it is.
+ * Undefined when the value is no date or has too few digits.
+ */
+export function detailValue(
+  detail: LoginDetail,
+  format: BirthDateFormat | undefined,
+  value: string,
+): string | undefined {
+  if (detail === "birth-date") {
+    const date = readBirthDate(value);
+    if (!date || !format) return undefined;
+    const year = String(date.year);
+    const month = String(date.month).padStart(2, "0");
+    const day = String(date.day).padStart(2, "0");
+    return {
+      yyyymmdd: `${year}${month}${day}`,
+      yyyymm: `${year}${month}`,
+      "yyyy-mm-dd": `${year}-${month}-${day}`,
+      "yyyy/mm/dd": `${year}/${month}/${day}`,
+      mmdd: `${month}${day}`,
+    }[format];
+  }
+  const digits = digitsOf(value);
+  if (detail === "card-code") return /^\d{3,4}$/u.test(digits) ? digits : undefined;
+  return digits.length >= 4 ? digits.slice(-4) : undefined;
+}
+
+/** The owner's saved link for the login item's `detail`, if any. */
+export function savedDetailLink(
+  settings: Pick<LocalSettings, "detailLinks">,
+  owner: DetailOwner,
+  detail: LoginDetail,
+): DetailLink | undefined {
+  return settings.detailLinks?.find(
+    (link) =>
+      link.origin === owner.origin &&
+      link.provider === owner.provider &&
+      link.userId === owner.userId &&
+      link.itemId === owner.itemId &&
+      link.detail === detail,
+  );
+}
+
+/**
+ * The live field a link reads, when the device may read it (ADR 0061): its item is in the
+ * login item's connection, active, not quarantined, selected and not excluded, and its
+ * field resolves, is allowed and may give the detail. Undefined otherwise.
+ */
+export function linkedField(
+  settings: LocalSettings,
+  catalog: VaultCatalog,
+  connection: VaultConnectionMetadata,
+  link: Pick<DetailLink, "detail" | "source">,
+): { itemId: string; fieldId: string } | undefined {
+  const item = connection.items.find((entry) => entry.id === link.source.itemId);
+  if (!item || item.inactive || connection.quarantinedItemIds?.includes(item.id)) return undefined;
+  const eligibility = getItemEligibility(settings, catalog, connection.id, item.id);
+  if (!eligibility.eligible) return undefined;
+  const fieldId = resolveDetailSourceField(link.source.field, item.fields);
+  const field = item.fields.find((entry) => entry.id === fieldId);
+  if (!field || !eligibility.fieldIds.includes(field.id) || !givesDetail(link.detail, field))
+    return undefined;
+  return { itemId: item.id, fieldId: field.id };
+}
+
+/** One vault field that could give a detail, as the popup offers it. */
+export type DetailCandidate = {
+  connectionId: string;
+  itemId: string;
+  fieldId: string;
+  itemLabel: string;
+  fieldLabel: string;
+};
+
+/**
+ * The fields of the login item's connection that could give `detail` (ADR 0061), at most
+ * 20, under the rules of `linkedField`: identity phone numbers, card numbers and codes,
+ * and for a birth date or phone number Text or Hidden custom fields, a birth date's only
+ * when its name reads as one. An item whose name shares a run of three or more ASCII
+ * letters or digits with the page's host name, or appears whole in its title, comes
+ * first; otherwise the catalog's order is kept.
+ */
+export function detailCandidates(
+  settings: LocalSettings,
+  catalog: VaultCatalog,
+  connection: VaultConnectionMetadata,
+  detail: LoginDetail,
+  page: { host: string; title?: string | undefined },
+): DetailCandidate[] {
+  const found: (DetailCandidate & { near: boolean })[] = [];
+  for (const item of connection.items) {
+    if (item.inactive || connection.quarantinedItemIds?.includes(item.id)) continue;
+    const eligibility = getItemEligibility(settings, catalog, connection.id, item.id);
+    if (!eligibility.eligible) continue;
+    for (const field of item.fields) {
+      if (!eligibility.fieldIds.includes(field.id) || !givesDetail(detail, field)) continue;
+      // A custom field gives a birth date only when its name says so, and a phone number
+      // only when it is no identity's own phone field.
+      if (field.id.startsWith("custom.")) {
+        const name = field.name?.toLowerCase() ?? "";
+        if (detail === "birth-date" && !birthWords.some((word) => name.includes(word))) continue;
+        if (detail === "phone-last-4" && !/phone|tel|電話/u.test(name)) continue;
+      }
+      found.push({
+        connectionId: connection.id,
+        itemId: item.id,
+        fieldId: field.id,
+        itemLabel: item.label,
+        fieldLabel: field.label,
+        near: nearPage(item.label, page),
+      });
+    }
+  }
+  return found
+    .map((entry, index) => ({ entry, index }))
+    .sort(
+      (left, right) =>
+        Number(right.entry.near) - Number(left.entry.near) || left.index - right.index,
+    )
+    .slice(0, 20)
+    .map(({ entry: { near: _near, ...candidate } }) => candidate);
+}
+
+/** Whether an item's name points at the page: an ASCII word of 3 or more in its host, or the whole name in its title. */
+function nearPage(name: string, page: { host: string; title?: string | undefined }): boolean {
+  const host = page.host.toLowerCase();
+  const words =
+    name
+      .normalize("NFKC")
+      .toLowerCase()
+      .match(/[a-z0-9]{3,}/gu) ?? [];
+  if (words.some((word) => host.includes(word))) return true;
+  const title = page.title?.normalize("NFKC");
+  return (
+    title !== undefined && name.trim().length > 0 && title.includes(name.normalize("NFKC").trim())
+  );
+}

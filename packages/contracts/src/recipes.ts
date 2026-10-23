@@ -2,6 +2,7 @@ import * as v from "valibot";
 import { isLoginRouteRecipe, type LoginRecipe, type StoredLoginRecipe } from "./login";
 import {
   savedLoginBindingSchema,
+  type DetailLink,
   type LocalSettings,
   type SavedLoginBinding,
   type VaultFieldReference,
@@ -113,6 +114,21 @@ function resolveField(
   // keeps the count and is not detected; ADR 0013 records this limitation.
   if (named.length !== reference.count) return { reason: "field-count-changed" };
   return { fieldId: named[reference.position - 1]! };
+}
+
+/**
+ * The current field ID of a linked detail's source field on one live item (ADR 0061): an
+ * identity's or card's built-in field as it is, or a custom field as a binding reference
+ * resolves. Undefined when the item lacks it, or several fields share its name.
+ */
+export function resolveDetailSourceField(
+  field: DetailLink["source"]["field"],
+  fields: readonly LocalItemField[],
+): string | undefined {
+  if (typeof field === "string")
+    return fields.some((entry) => entry.id === field) ? field : undefined;
+  const resolved = resolveField(field, fields);
+  return "fieldId" in resolved ? resolved.fieldId : undefined;
 }
 
 /**

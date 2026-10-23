@@ -136,11 +136,18 @@ export const attemptMetadataSchema = v.pipe(
      */
     chooser: v.optional(v.strictObject({ click: chooserClickSchema })),
     /**
-     * Handlers this login entered, in order: `index` in the recipe's handlers, and `start`,
-     * where its steps begin in the attempt's plan (`attemptPlan`).
+     * Handlers this login entered, in order: `index` in the recipe's handlers, `start`,
+     * where its steps begin in the attempt's plan (`attemptPlan`), and for a `detail`
+     * handler the input it fills (`field`, ADR 0061).
      */
     handlers: v.pipe(
-      v.array(v.strictObject({ index: integer(15), start: integer(MAX_ATTEMPT_STEPS) })),
+      v.array(
+        v.strictObject({
+          index: integer(15),
+          start: integer(MAX_ATTEMPT_STEPS),
+          field: v.optional(integer(2)),
+        }),
+      ),
       v.maxLength(MAX_ENTERED_HANDLERS),
       v.check(
         (entries) => new Set(entries.map((entry) => entry.index)).size === entries.length,
@@ -464,6 +471,8 @@ export const loginAttemptEventSchema = v.variant("type", [
   v.strictObject({
     type: v.literal("HANDLER"),
     handler: integer(15),
+    /** A `detail` handler's input that the login fills (ADR 0061). */
+    field: v.optional(integer(2)),
     steps: v.pipe(integer(4), v.minValue(1)),
     effects: v.pipe(integer(4), v.minValue(1)),
     document: loginDocumentSchema,
@@ -776,7 +785,14 @@ function record(
       // flight, they go in at the stop step itself (ADR 0036).
       const start = context.operationId === undefined ? context.stepIndex : context.stepIndex + 1;
       return {
-        handlers: [...context.handlers, { index: event.handler, start }],
+        handlers: [
+          ...context.handlers,
+          {
+            index: event.handler,
+            start,
+            ...(event.field === undefined ? {} : { field: event.field }),
+          },
+        ],
         // The handler's steps go in before the stop, which moves along with the plan.
         ...(context.route === "password" && context.stopAt !== undefined
           ? { stopAt: context.stopAt + event.steps }
@@ -1661,7 +1677,7 @@ export function attemptPlan(
     plan.splice(
       entry.start,
       0,
-      ...handlerSteps(handler).map((step) => ({ step, handler: entry.index })),
+      ...handlerSteps(handler, entry.field).map((step) => ({ step, handler: entry.index })),
     );
   }
   return plan;

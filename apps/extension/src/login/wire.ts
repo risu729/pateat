@@ -417,6 +417,11 @@ export const commandSchema = v.variant("type", [
      */
     code: v.optional(v.strictObject({ submit: loginTargetSchema })),
     /**
+     * With a `detail` handler's fill (ADR 0061): the input's choosing radio button is
+     * checked first, in the same task as the fill (`chooseFor`).
+     */
+    choose: v.optional(v.literal(true)),
+    /**
      * With a `password` handler's click (ADR 0048): the button is pressed only while it,
      * read in the same task as the press, names the password as the way to confirm the
      * sign-in as `password-choice` takes it (`namesPasswordChoice`, or with an accessible
@@ -440,6 +445,20 @@ export const commandSchema = v.variant("type", [
     timeoutMs: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(LOGIN_STEP_WAIT_MS)),
   }),
   v.strictObject({ version: v.literal(1), type: v.literal("login.cancel"), token: id }),
+  /**
+   * The popup's **Fill** of a personal detail (ADR 0061): types `value` into the one
+   * writable input `target` names on `path`, after checking its choosing radio button, and
+   * presses nothing. Outside any login: no operation, no submission.
+   */
+  v.strictObject({
+    version: v.literal(1),
+    type: v.literal("login.detail.fill"),
+    token: id,
+    path,
+    target: loginFieldTargetSchema,
+    value: v.pipe(v.string(), v.minLength(1), v.maxLength(16)),
+    secret: v.optional(v.picklist(loginSecretKinds)),
+  }),
   /**
    * Asks what a chooser's login would click on the list this document shows (ADR 0028),
    * without clicking anything.

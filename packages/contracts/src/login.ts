@@ -1,8 +1,12 @@
 import * as v from "valibot";
 import {
+  birthDateFormatSchema,
+  loginDetailSchema,
   parseSiteUrl,
   recipeSlotIdSchema,
   resolveSiteAccount,
+  type BirthDateFormat,
+  type LoginDetail,
   type SettingsSnapshot,
   type VaultCatalog,
   type VaultItemMetadata,
@@ -213,34 +217,6 @@ const stepTargetCount = (step: v.InferOutput<typeof loginStepSchema>) =>
  */
 export const loginRouteSchema = v.picklist(["password", "passkey"]);
 /**
- * A branch on the page that appears after an effect step (ADR 0027), entered when its
- * path matches and all its elements show, and run only for an item with the handler's
- * fact. Its steps follow from its kind. `passkey` clicks a button such as "Use security
- * key"; `totp` fills the item's TOTP code into `field` and clicks `target`, its submit
- * button; `password` clicks a button such as "Password" on a page that asks how to
- * confirm the sign-in, which goes on to typing the password (ADR 0048).
- */
-/**
- * The personal details a `detail` handler's input may ask for (ADR 0061), each read from
- * a vault item the owner linked to the login and made into the value the page wants:
- * a birth date in the input's `format`, the last four digits of a phone number or of a
- * card number, or a card's security code.
- */
-export const loginDetailSchema = v.picklist([
-  "birth-date",
-  "phone-last-4",
-  "card-last-4",
-  "card-code",
-]);
-/** How a `birth-date` input wants the date written (ADR 0061). */
-export const birthDateFormatSchema = v.picklist([
-  "yyyymmdd",
-  "yyyymm",
-  "yyyy-mm-dd",
-  "yyyy/mm/dd",
-  "mmdd",
-]);
-/**
  * The details Pateat never fills, though it learns the page that asks for them (ADR 0061):
  * none while card codes are filled; the owner's open choice may add `card-code`.
  */
@@ -264,6 +240,16 @@ const detailFieldSchema = v.pipe(
     "A birth date input has a format, and no other input does",
   ),
 );
+/**
+ * A branch on the page that appears after an effect step (ADR 0027), entered when its
+ * path matches and all its elements show, and run only for an item with the handler's
+ * fact. Its steps follow from its kind. `passkey` clicks a button such as "Use security
+ * key"; `totp` fills the item's TOTP code into `field` and clicks `target`, its submit
+ * button; `password` clicks a button such as "Password" on a page that asks how to
+ * confirm the sign-in, which goes on to typing the password (ADR 0048); `detail` fills
+ * one of its inputs with a personal detail of a linked item and clicks `target` (ADR
+ * 0061).
+ */
 export const loginHandlerSchema = v.variant("kind", [
   v.strictObject({ kind: v.literal("passkey"), path, target: loginTargetSchema }),
   v.strictObject({ kind: v.literal("password"), path, target: loginTargetSchema }),
@@ -1076,8 +1062,6 @@ export function storedRecipeSlots(recipe: StoredLoginRecipe): string[] {
 }
 export type LoginRoute = v.InferOutput<typeof loginRouteSchema>;
 export type LoginHandler = v.InferOutput<typeof loginHandlerSchema>;
-export type LoginDetail = v.InferOutput<typeof loginDetailSchema>;
-export type BirthDateFormat = v.InferOutput<typeof birthDateFormatSchema>;
 
 /**
  * One way through a route, as the executor records it when a login starts (ADR 0027).

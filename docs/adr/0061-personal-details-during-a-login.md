@@ -210,16 +210,21 @@ The popup shows nothing more when there is no candidate; the person types the va
 
 A link whose fill the site refuses (the login ends `rejected`, or the handler's page
 shows again after its fill) is removed from the owner's settings, so the next login asks
-again instead of submitting the same value on a site that may lock the account.
+again instead of submitting the same value on a site that may lock the account. Like
+saving an account choice, the write waits for no other tab's login in progress: while
+one is, the link is kept and the log says so (`detail-kept`).
 
 ### Logs
 
 `login.handler` gains the `detail` kind and the outcomes `detail-manual` (never used
 since card codes are filled; kept for a detail that a later owner decision stops
 filling), `detail-unlinked`, `detail-unreadable` (the linked value is not a date or has
-too few digits) and `detail-unavailable` (the linked item or field is missing or may not
-be used). The judge's log keeps `details` with each ID that is not a candidate replaced
-by `?`. Never a value or an item name.
+too few digits) and `detail-unavailable` (the vault could not give the linked value at
+the fill); a login that meets either stops as a changed policy (`field-unavailable`).
+About links it gains `detail-saved` (a link filled from the popup was saved after the
+login was confirmed), `detail-forgotten` (a refused value's link was removed) and
+`detail-kept` (it could not be written now). The judge's log keeps `details` with each
+ID that is not a candidate replaced by `?`. Never a value or an item name.
 
 ## Assumed (not confirmed)
 
