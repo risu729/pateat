@@ -45,6 +45,7 @@ jobs:
               - '!docs/**'
               - '!AGENTS.md'
               - '!README.md'
+              - '!README.ja.md'
   verify:
     name: Verify
     runs-on: ubuntu-26.04
@@ -59,13 +60,17 @@ jobs:
       - &mise
         uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
         with:
-          version: 2026.10.17
+          version: 2026.10.18
           install_args: --locked
       - &install
         name: Install frozen dependencies
         run: mise deps --force aube_workspace
-      - name: Install isolated browser runtime
-        run: mise run browser:install --with-deps
+      - &browser
+        name: Install isolated browser runtime
+        # No --with-deps: the runner image already has every library Chromium links (a missing
+        # one stops the launch with the file named). apt only added fonts, xvfb and updates, all
+        # unused by headless tests: 25 MB a slow Azure mirror took 8-9.5 minutes for (2026-10-22).
+        run: mise run browser:install
       - name: Run the complete local verification graph
         env:
           # Use the read-only job token for upstream action-pin verification.
@@ -114,8 +119,7 @@ jobs:
       - *checkout
       - *mise
       - *install
-      - name: Install isolated browser runtime
-        run: mise run browser:install --with-deps
+      - *browser
       - name: Run the packaged-extension browser tests
         env:
           PATEAT_E2E_SHARD: ${{ matrix.shard }}/${{ matrix.total }}

@@ -1,6 +1,10 @@
+import type { TFunction } from "i18next";
 // Layout pieces of the settings page, after the Pateat design system's components.
 import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
+
+/** A stored status can be rendered in the current language without changing its operation. */
+export type LocalizedMessage = (translate: TFunction) => string;
 
 /** A labelled field: the label text above its control. */
 export const fieldClass = "m-0 flex flex-col gap-1.5 text-sm font-semibold";

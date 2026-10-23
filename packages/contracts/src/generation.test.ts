@@ -29,6 +29,7 @@ const recipe = {
   id: "gen-1",
   revision: 2,
   origin: "https://shop.example.test",
+  pageKind: "sign-in",
   slots: ["email"],
   steps: [
     {
@@ -43,7 +44,9 @@ const recipe = {
 
 describe("recipe generation contracts", () => {
   it("accepts a page with slots and an optional base revision", () => {
-    expect(v.is(recipeGenerationRequestSchema, { version: 1, observation, slots })).toBe(true);
+    expect(
+      v.is(recipeGenerationRequestSchema, { version: 1, observation, slots, signedIn: false }),
+    ).toBe(true);
     const base = { recipeId: "gen-1", revision: 1 };
     expect(v.is(recipeGenerationRequestSchema, { version: 1, observation, slots, base })).toBe(
       true,
@@ -60,12 +63,59 @@ describe("recipe generation contracts", () => {
     ).toBe(true);
     for (const invalid of [
       { version: 1, observation, slots, base: { recipeId: "gen-1", revision: 0 } },
-      { version: 1, observation, slots: [] },
+      { version: 1, observation, slots: [], signedIn: false },
+      // A first page carries the signedIn hint (ADR 0035), and only a first page does.
+      { version: 1, observation, slots },
+      { version: 1, observation, slots, base, signedIn: false },
+      {
+        version: 1,
+        observation: { ...observation, accounts: ["[email]"] },
+        slots: [],
+        signedIn: true,
+      },
       { version: 1, observation, slots, item: "vault-item" },
       { version: 1, observation, slots, branch: "account" },
       { version: 1, observation, slots, base, branch: "entry" },
     ])
       expect(v.is(recipeGenerationRequestSchema, invalid)).toBe(false);
+  });
+
+  it("takes a list of accounts (ADR 0028) only without slots (owner 2026-10-23 11:48 UTC)", () => {
+    const list = { ...observation, accounts: ["[email]", "[account]"] };
+    expect(v.is(recipeGenerationRequestSchema, { version: 1, observation: list, slots: [] })).toBe(
+      true,
+    );
+    expect(v.is(generationRequestSchema, { version: 1, observation: list, slots: [] })).toBe(true);
+    const shaped = [
+      { ...slots[0], valueShape: { length: 12, classes: ["ascii-letter"], email: false } },
+    ];
+    const named = [
+      { id: "custom-1", kind: "identifier", description: "vault field", fieldName: "Branch" },
+    ];
+    for (const offered of [slots, shaped, named]) {
+      // Each is a valid offer on a form, but never on a list.
+      expect(
+        v.is(generationRequestSchema, { version: 1, observation, slots: offered, signedIn: false }),
+      ).toBe(true);
+      expect(v.is(generationRequestSchema, { version: 1, observation: list, slots: offered })).toBe(
+        false,
+      );
+    }
+    expect(
+      v
+        .safeParse(recipeGenerationRequestSchema, { version: 1, observation: list, slots })
+        .issues?.map((issue) => issue.message),
+    ).toEqual(["A list of accounts has no slots"]);
+    // A list is never an entry request or a passkey-only page.
+    expect(v.is(generationRequestSchema, { version: 1, observation: list })).toBe(false);
+    expect(
+      v.is(generationRequestSchema, {
+        version: 1,
+        observation: list,
+        slots: [],
+        passkeyOnly: true,
+      }),
+    ).toBe(false);
   });
 
   it("answers a chooser recipe for an account list or one of its branches (ADR 0028)", () => {
@@ -222,7 +272,9 @@ describe("entry requests and answers (ADR 0031)", () => {
     expect(v.is(generationRequestSchema, request)).toBe(true);
     // A request without slots is never a page request, and a page request still needs one.
     expect(v.is(recipeGenerationRequestSchema, request)).toBe(false);
-    expect(v.is(generationRequestSchema, { version: 1, observation, slots })).toBe(true);
+    expect(v.is(generationRequestSchema, { version: 1, observation, slots, signedIn: true })).toBe(
+      true,
+    );
     expect(v.is(entryGenerationRequestSchema, { version: 1, observation, slots })).toBe(false);
     const withField = {
       ...topPage,

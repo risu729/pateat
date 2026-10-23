@@ -100,12 +100,43 @@ Pateat's rule is in [Background execution](architecture.md#background-execution)
   unparsable values are refused. Injected markup on an admitted page, such as a dangling
   `<form action="https://attacker.example/">` or a `<base href>`, would otherwise
   receive the username and password.
+- A form that shows no button (ADR 0064) is submitted by Enter in its last field: Pateat
+  clicks the form's default button, its first submit button in tree order among the
+  form's controls, or calls `requestSubmit()` when it has none. The official auto-submit
+  (only under the automatic app login policy) instead clicks the first submit button in
+  the form's subtree whose words match its login button names, then a plain button so
+  named, then calls `requestSubmit()`, walks up from the last field when there is no
+  form, and never checks `disabled`
+  ([auto-submit-login.ts](https://github.com/bitwarden/clients/blob/abccf1e342dccba06a3cc635cd4c706defa64a32/apps/browser/src/autofill/content/auto-submit-login.ts#L111-L240)).
+  Pateat reads no button words (ADR 0033; the generation role judges the buttons it
+  saw), needs a `<form>`, and presses no default button that is disabled, associated
+  with the form only through `form=`, or already shown when the fill began, which the
+  generation role saw and did not name; the destination is checked as for a click.
 - A `javascript:` form action is allowed for fill and click (owner's decision,
   2026-10-18 04:19 UTC), as the official clients fill such a form like any other (their
   action handling above has no case for it). Chrome refuses to run the `javascript:` URL
   itself when the content script's click submits the form (the isolated world's
   `script-src 'self'`), so only forms whose own handlers sign in work;
   `action="javascript:doLogin()"` does not.
+
+## Submit button outside the form
+
+Official code is pinned at
+[`abccf1e`](https://github.com/bitwarden/clients/tree/abccf1e342dccba06a3cc635cd4c706defa64a32).
+Pateat's rule is `besideForm` in `packages/inference/src/plan.ts`
+([plan](plan.md#ai-evaluation-harness-progress)).
+
+- For filled fields inside a form, the official auto-submit looks for a login button
+  only inside that form and otherwise calls the form's `requestSubmit()`
+  ([auto-submit-login.ts](https://github.com/bitwarden/clients/blob/abccf1e342dccba06a3cc635cd4c706defa64a32/apps/browser/src/autofill/content/auto-submit-login.ts#L133-L142)).
+  Pateat's generated recipe may click a button outside the form (owner's choice,
+  2026-10-23 11:47 UTC). It does so only when every filled field is in that
+  one form, that form holds the page's only password field and has no button the page's
+  description lists (a script or icon button without a locator is not listed), no field
+  outside every form is on the page, and the button is the only one outside every form
+  and names no passkey, so it is the one the extractor keeps beside that form. Sakura
+  Internet's login button is a script `type="button"` just after its form: submitting
+  the form would post nothing the page handles.
 
 ## Frames
 
@@ -117,6 +148,19 @@ Pateat's rule is in [Background execution](architecture.md#background-execution)
   the item matches both the frame's URL and the tab's URL
   ([ADR 0017](adr/0017-login-forms-in-frames.md)): no person is there to answer a
   prompt during an automatic login.
+
+## Toolbar badge
+
+- The official extension counts the ciphers that match the tab's full URL and shows
+  `9+` above 9
+  ([autofill-badge-updater.service.ts](https://github.com/bitwarden/clients/blob/8246ae9c9a484a0a69f8b27203034555fb872523/apps/browser/src/autofill/services/autofill-badge-updater.service.ts#L52-L66)).
+  Pateat counts the items that match the tab's origin (`origin/`), so a StartsWith or
+  Exact rule for a deeper path is not counted, adds items holding a passkey for the
+  origin's RP IDs, and shows `99+` above 99; items Pateat may not use show their count
+  in light gray instead of being counted with the rest
+  ([ADR 0021](adr/0021-account-choice-outside-settings.md#site-count-badge), owner's
+  decision 2026-10-13 at 14:42 UTC). On an `http:` page only items saved with an
+  `http://` URI count, as for logins (see URI matching above).
 
 ## Passkeys
 
@@ -159,7 +203,29 @@ Pateat's rule is in [Background execution](architecture.md#background-execution)
   ([two-factor-auth-email.component.ts](https://github.com/bitwarden/clients/blob/86f41566aebe5a024796df8abfb3d4d89ec509c1/libs/auth/src/angular/two-factor-auth/child-components/two-factor-auth-email/two-factor-auth-email.component.ts#L121-L167)).
   Pateat shows that the server is limiting code emails, that it cannot send them, that
   it refused, or that the request failed.
-- A rejected code ends Pateat's sign-in, as it did before email codes were sent, so the
-  next attempt starts a new sign-in and sends a new code; the official page shows
-  "invalid verification code" and keeps the sign-in for another try
-  ([two-factor-auth.component.ts](https://github.com/bitwarden/clients/blob/86f41566aebe5a024796df8abfb3d4d89ec509c1/libs/auth/src/angular/two-factor-auth/two-factor-auth.component.ts#L338-L353)).
+
+## Two-step sign-in timeout
+
+Pateat's side is the settings page's Bitwarden panel
+([Architecture](architecture.md#unsupported-bitwarden-sign-in-cases)). Official code is
+pinned at
+[`86f4156`](https://github.com/bitwarden/clients/tree/86f41566aebe5a024796df8abfb3d4d89ec509c1).
+
+- Both end a sign-in that waits for a two-step or new-device code after 5 minutes,
+  counted once; a refused code keeps the same end in both. The official clients start
+  the 5 minutes when the password grant answers with a challenge
+  ([login-strategy.service.ts](https://github.com/bitwarden/clients/blob/86f41566aebe5a024796df8abfb3d4d89ec509c1/libs/auth/src/common/services/login-strategies/login-strategy.service.ts#L194-L200));
+  Pateat starts them at the press of Connect or Sign in and sync, before the prelogin,
+  the password derivation and the grant, so its wait is shorter by those seconds.
+- The official two-step page shows no end time
+  ([two-factor-auth.component.ts](https://github.com/bitwarden/clients/blob/86f41566aebe5a024796df8abfb3d4d89ec509c1/libs/auth/src/angular/two-factor-auth/two-factor-auth.component.ts#L270-L285));
+  Pateat's code screen says "Enter the code by 8:26 PM", because a person who leaves to
+  fetch an email code otherwise cannot tell that the sign-in will end.
+- When the time is up, the official extension opens a separate "Authentication timeout"
+  page that says "The authentication session timed out. Please restart the login
+  process." with a Log in button
+  ([authentication-timeout.component.ts](https://github.com/bitwarden/clients/blob/86f41566aebe5a024796df8abfb3d4d89ec509c1/libs/angular/src/auth/components/authentication-timeout.component.ts#L18-L25),
+  [messages.json](https://github.com/bitwarden/clients/blob/86f41566aebe5a024796df8abfb3d4d89ec509c1/apps/browser/src/_locales/en/messages.json#L1901-L1906)).
+  Pateat keeps the sign-in form, where the master password goes, and says next to it
+  when the sign-in timed out, or that it ended early because Pateat's background
+  stopped, since its waiting sign-in lives in a service worker Chrome can stop.

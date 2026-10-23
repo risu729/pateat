@@ -5,10 +5,11 @@ import {
   type ServiceResponse,
   type ServiceState,
 } from "@pateat/contracts";
+import { useTranslation } from "react-i18next";
+import { formatLocale, i18n } from "../i18n";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import * as v from "valibot";
 import { CircleCheck, CircleX, Clock, Link, Lock, TriangleAlert } from "lucide-react";
-import { localSyncTime } from "../time";
 import { Button } from "./button";
 import type { ServiceClient } from "./service-client";
 import {
@@ -26,7 +27,9 @@ import {
 /** How often the page checks whether the first sync after pairing finished. */
 export const SYNC_POLL_MS = 10_000;
 
-function errorMessage(error: ServiceErrorCode, origin = "the service"): string {
+type ServiceMessage = string | { key: string; values?: Record<string, string | number> };
+
+function errorMessage(error: ServiceErrorCode, origin?: string): ServiceMessage {
   switch (error) {
     case "storage-unavailable":
       return "Pateat could not read or save its service connection on this device.";
@@ -41,13 +44,18 @@ function errorMessage(error: ServiceErrorCode, origin = "the service"): string {
     case "unexpected-response":
       return "The service gave an unexpected answer. Check the address, then try again.";
     case "sign-in-needed":
-      return `Sign in to ${origin} first: open the sign-in page, then come back here. If the service refuses your account, ask its operator.`;
+      return {
+        key: "Sign in to {{origin}} first: open the sign-in page, then come back here. If the service refuses your account, ask its operator.",
+        values: origin ? { origin } : {},
+      };
     case "sign-in-rejected":
       return "The service did not accept your sign-in.";
     case "extension-not-allowed":
       return "This service does not accept this build of Pateat. Its operator must add this extension's ID to PAIRING_EXTENSION_IDS.";
     case "pairing-unavailable":
       return "Pairing is not configured on this service.";
+    case "access-keys-unavailable":
+      return "The service could not check your sign-in. Try again later.";
     case "wrong-state":
       return "The connection changed elsewhere. This page now shows its current state.";
     case "invalid-request":
@@ -65,8 +73,23 @@ export function ServiceConnection({
   client: ServiceClient;
   pollMs?: number;
 }) {
+  const { t } = useTranslation(undefined, { i18n });
+  const text = (value: ServiceMessage) =>
+    typeof value === "string"
+      ? t(value)
+      : t(value.key, { origin: t("the service"), ...value.values });
+  const syncTime = (value: number) => {
+    try {
+      return Temporal.Instant.fromEpochMilliseconds(value).toLocaleString(formatLocale(), {
+        dateStyle: "medium",
+        timeStyle: "short",
+      });
+    } catch {
+      return t("at an unknown time");
+    }
+  };
   const [state, setState] = useState<ServiceState | undefined>();
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState<ServiceMessage>("");
   const [busy, setBusy] = useState(false);
   const [address, setAddress] = useState("");
   const [label, setLabel] = useState("Chrome");
@@ -80,7 +103,7 @@ export function ServiceConnection({
   // A one-shot retry for when the user comes back from the sign-in tab.
   const retryOnReturn = useRef<{ origin: string; label: string } | undefined>(undefined);
 
-  function receive(response: ServiceResponse, success?: string) {
+  function receive(response: ServiceResponse, success?: ServiceMessage) {
     if (!mounted.current) return;
     // Any response carrying a state proves the stored record is readable.
     if (response.ok || response.state) setCorrupt(false);
@@ -136,9 +159,10 @@ export function ServiceConnection({
     if (signInTab) {
       await openSignIn(origin, name);
       if (mounted.current)
-        setMessage(
-          `Sign in to ${origin} in the new tab, then come back here. If the service refuses your account, ask its operator.`,
-        );
+        setMessage({
+          key: "Sign in to {{origin}} in the new tab, then come back here. If the service refuses your account, ask its operator.",
+          values: { origin },
+        });
     } else setMessage(errorMessage("sign-in-needed", origin));
   }
 
@@ -200,14 +224,14 @@ export function ServiceConnection({
   }, [client, awaitingSync, pollMs]);
 
   return (
-    <Panel id="sync" headingId="sync-service-heading" title="Sync service">
+    <Panel id="sync" headingId="sync-service-heading" title={t("Sync service")}>
       <output
         id="sync-service-status"
         className="settings-status block text-sm leading-5"
         aria-live="polite"
         aria-atomic="true"
       >
-        {message}
+        {message ? text(message) : ""}
       </output>
       {corrupt && (
         <div>
@@ -220,7 +244,7 @@ export function ServiceConnection({
               void act(async () => receive(await client.forget(), "Saved connection forgotten."))
             }
           >
-            Forget saved connection
+            {t("Forget saved connection")}
           </Button>
         </div>
       )}
@@ -257,7 +281,7 @@ export function ServiceConnection({
         >
           <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2">
             <label className={fieldClass}>
-              Service address
+              {t("Service address")}
               <input
                 id="sync-service-address"
                 className={controlClass}
@@ -273,7 +297,7 @@ export function ServiceConnection({
               />
             </label>
             <label className={fieldClass}>
-              Device name
+              {t("Device name")}
               <input
                 id="sync-service-label"
                 className={controlClass}
@@ -287,7 +311,7 @@ export function ServiceConnection({
           </div>
           {addressError && (
             <p id="sync-service-error" className="validation-error m-0" role="alert">
-              {addressError}
+              {addressError ? t(addressError) : ""}
             </p>
           )}
           <StatusLines
@@ -296,13 +320,15 @@ export function ServiceConnection({
               {
                 tone: "idle",
                 icon: Lock,
-                text: "Syncs recipes, site exclusions, saved accounts and account bindings. Never sends vault values, passwords or keys.",
+                text: t(
+                  "Syncs recipes, site exclusions, saved accounts and account bindings. Never sends vault values, passwords or keys.",
+                ),
               },
             ]}
           />
           <div className="flex flex-wrap gap-2">
             <Button id="sync-service-pair" type="submit" disabled={busy}>
-              Pair this device
+              {t("Pair this device")}
             </Button>
             {attempt && (
               <Button
@@ -321,7 +347,7 @@ export function ServiceConnection({
                   })
                 }
               >
-                Try again
+                {t("Try again")}
               </Button>
             )}
             {attempt?.error === "sign-in-needed" && (
@@ -332,7 +358,7 @@ export function ServiceConnection({
                 disabled={busy}
                 onClick={() => void act(() => openSignIn(attempt.origin, attempt.label))}
               >
-                Open sign-in page
+                {t("Open sign-in page")}
               </Button>
             )}
           </div>
@@ -346,9 +372,9 @@ export function ServiceConnection({
               <>
                 <RowTitle>
                   <span>{new URL(state.origin).host}</span>
-                  <Badge>Paired</Badge>
+                  <Badge>{t("Paired")}</Badge>
                 </RowTitle>
-                <RowSub>Named {state.label} on the service</RowSub>
+                <RowSub>{t("Named {{label}} on the service", { label: state.label })}</RowSub>
                 <StatusLines
                   id="sync-service-recipes"
                   lines={[
@@ -356,24 +382,30 @@ export function ServiceConnection({
                       ? {
                           tone: "err",
                           icon: CircleX,
-                          text: "The service no longer accepts this device. Login keeps using the recipes synced before; disconnect and pair again to sync.",
+                          text: t(
+                            "The service no longer accepts this device. Login keeps using the recipes synced before; disconnect and pair again to sync.",
+                          ),
                         }
                       : state.cacheFull
                         ? {
                             tone: "warn",
                             icon: TriangleAlert,
-                            text: "Your recipes or settings no longer fit, so newer changes are not applied. Login keeps using what was synced before.",
+                            text: t(
+                              "Your recipes or settings no longer fit, so newer changes are not applied. Login keeps using what was synced before.",
+                            ),
                           }
                         : state.syncedAt === undefined
                           ? {
                               tone: "idle",
                               icon: Clock,
-                              text: "Recipes and settings have not finished syncing yet",
+                              text: t("Recipes and settings have not finished syncing yet"),
                             }
                           : {
                               tone: "ok",
                               icon: CircleCheck,
-                              text: `Recipes and settings synced ${localSyncTime(state.syncedAt)}`,
+                              text: t("Recipes and settings synced {{time}}", {
+                                time: syncTime(state.syncedAt),
+                              }),
                             },
                   ]}
                 />
@@ -391,13 +423,16 @@ export function ServiceConnection({
                     receive(
                       response,
                       response.ok && response.revoked === false
-                        ? `Disconnected on this device, but the service could not confirm it. Revoke this device from ${state.origin}/manage in a browser that can open it.`
+                        ? {
+                            key: "Disconnected on this device, but the service could not confirm it. Revoke this device from {{url}} in a browser that can open it.",
+                            values: { url: `${state.origin}/manage` },
+                          }
                         : "Disconnected. The service no longer accepts this device.",
                     );
                   })
                 }
               >
-                Disconnect this device
+                {t("Disconnect this device")}
               </Button>
             }
           />

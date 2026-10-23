@@ -32,7 +32,7 @@ const draft = {
   action: { candidate: "passkey", purpose: "submit" as const },
   passkeyButton: "passkey",
 };
-const request = { version: 1, observation, slots: [], passkeyOnly: true };
+const request = { version: 1, observation, slots: [], passkeyOnly: true, signedIn: false };
 
 describe("passkey-only generation boundaries", () => {
   it("requires an explicit request marker and forbids base recipes, branches and fill slots", () => {
@@ -55,6 +55,7 @@ describe("passkey-only generation boundaries", () => {
       steps: [{ kind: "click", path: "/login", target, purpose: "submit" }],
     });
     const assembled = appendPageSteps(undefined, {
+      pageKind: "sign-in",
       id: "synthetic-passkey",
       origin: observation.origin,
       steps: validated.plan.steps,
@@ -116,7 +117,11 @@ describe("passkey-only generation boundaries", () => {
 
   it("accepts a synthetic model plan only in the explicit passkey-only generation path", async () => {
     const model = textModel(async () =>
-      textResult(JSON.stringify({ result: { decision: "plan", ...draft } })),
+      textResult(
+        JSON.stringify({
+          result: { decision: "plan", pageKind: "sign-in", irreversible: "no", ...draft },
+        }),
+      ),
     );
     const generate = createRecipeGenerator({
       model,
@@ -132,7 +137,11 @@ describe("passkey-only generation boundaries", () => {
 
   it("sends its own instructions and leaves the generation role's unchanged", async () => {
     const model = textModel(async () =>
-      textResult(JSON.stringify({ result: { decision: "plan", ...draft } })),
+      textResult(
+        JSON.stringify({
+          result: { decision: "plan", pageKind: "sign-in", irreversible: "no", ...draft },
+        }),
+      ),
     );
     await createRecipeGenerator({
       model,

@@ -1,6 +1,6 @@
 import { test, expect, type Page, type Worker } from "@playwright/test";
 import type { LoginAttemptMetadata, SettingsResponse } from "../../packages/contracts/src/index";
-import { withStoppedLoginWorker, withLoginExtension } from "./login-fixture";
+import { logs, withStoppedLoginWorker, withLoginExtension } from "./login-fixture";
 import { startLoginFixture } from "./login-server";
 import { sendToBackground as send } from "./background-message";
 
@@ -21,6 +21,8 @@ async function configure(
   selectAccount = true,
   passkey?: "discoverable" | "second-factor",
   totp = false,
+  /** The probe's step wait in place of the 10-second one, for a test that runs past it. */
+  stepWaitMs?: number,
 ) {
   await options.goto(`chrome-extension://${extensionId}/options.html`);
   await expect(options.locator("#settings-status")).toContainText("Saved settings loaded");
@@ -31,6 +33,7 @@ async function configure(
       origin,
       ...(passkey ? { passkey } : {}),
       ...(totp ? { totp: true } : {}),
+      ...(stepWaitMs === undefined ? {} : { stepWaitMs }),
     }),
   ).toMatchObject({ ok: true });
   const response = (await send(options, { version: 1, type: "settings.get" })) as SettingsResponse;
@@ -55,26 +58,28 @@ async function inactiveTab(worker: Worker, url: string) {
   }, url);
 }
 
-/** The fields of the local log's `login.state` entries, read from the worker's IndexedDB. */
-async function stateLogs(worker: Worker): Promise<Record<string, unknown>[]> {
-  return worker.evaluate(
-    () =>
-      new Promise<Record<string, unknown>[]>((resolve, reject) => {
-        const open = indexedDB.open("pateat.diagnostics.v1");
-        open.onerror = () => reject(open.error);
-        open.onsuccess = () => {
-          const all = open.result.transaction("entries").objectStore("entries").getAll();
-          all.onerror = () => reject(all.error);
-          all.onsuccess = () =>
-            resolve(
-              (all.result as { event: string; fields: Record<string, unknown> }[])
-                .filter((entry) => entry.event === "login.state")
-                .map((entry) => entry.fields),
-            );
-        };
-      }),
-  );
+/** The fields of the local log's `login.state` entries. */
+const stateLogs = (worker: Worker) => logs(worker, "login.state");
+
+/** How many observations of its documents' pages the logins got back, from the probe's status. */
+async function observations(options: Page): Promise<number> {
+  const status = (await send(options, { version: 1, type: "login.probe.status" })) as {
+    documents: { observations?: number }[];
+  };
+  return status.documents.reduce((sum, entry) => sum + (entry.observations ?? 0), 0);
 }
+
+/** Waits until the logins checked their pages `count` more times. */
+async function checkedAgain(options: Page, count: number) {
+  const before = await observations(options);
+  await expect.poll(() => observations(options)).toBeGreaterThanOrEqual(before + count);
+}
+
+/**
+ * A step wait for the probe, in place of the 10-second one, for tests that run past it: long
+ * enough for the pages of those tests to show their next view within it.
+ */
+const SHORT_STEP_WAIT_MS = 2000;
 
 async function clicks(page: Page) {
   return page.evaluate(() => Number(sessionStorage.getItem("submitClicks") || 0));
@@ -144,8 +149,11 @@ async function expectInputOutcome(
     await expect
       .poll(async () => await send(options, { version: 1, type: "login.probe.status" }))
       .toMatchObject({ attempts: [], asks: ["rejected"] });
-    // Cover several announcements: the released page never logs in again.
-    await options.waitForTimeout(1500);
+    // The released page announced again and was refused as logged out: it never logs in
+    // again.
+    await expect
+      .poll(async () => await send(options, { version: 1, type: "login.probe.status" }))
+      .toMatchObject({ documents: [{ state: "denied", reason: "logged-out" }] });
     expect(await send(options, { version: 1, type: "login.probe.status" })).toMatchObject({
       attempts: [],
       asks: ["rejected"],
@@ -896,15 +904,15 @@ test("never presses a learned button whose text does not name the password (ADR 
   try {
     await withLoginExtension(async (context, _worker, id) => {
       const options = await context.newPage();
-      await configure(options, id, fixture.origin);
+      await configure(options, id, fixture.origin, true, undefined, false, SHORT_STEP_WAIT_MS);
       const page = await context.newPage();
       await page.goto(`${fixture.origin}/method-choice?forgot`);
       await expect(page.locator("#choice")).toBeVisible({ timeout: 15_000 });
-      // Past the advance's ten-second wait, nothing more is pressed.
-      await page.waitForTimeout(12_000);
-      expect(await send(options, { version: 1, type: "login.probe.status" })).toMatchObject({
-        attempts: [{ stepIndex: 1, handlers: [] }],
-      });
+      // Past the advance's wait, whose end settles its result as unknown, nothing more is
+      // pressed.
+      await expect
+        .poll(async () => await send(options, { version: 1, type: "login.probe.status" }))
+        .toMatchObject({ attempts: [{ stepIndex: 1, handlers: [], outcome: "unknown-submit" }] });
       expect(await choiceEvidence(page)).toMatchObject({
         identityClicks: 1,
         chooseClicks: 0,
@@ -923,17 +931,19 @@ test("an identifier-first page that shows the password form from the start never
   try {
     await withLoginExtension(async (context, worker, id) => {
       const options = await context.newPage();
-      await configure(options, id, fixture.origin);
+      await configure(options, id, fixture.origin, true, undefined, false, SHORT_STEP_WAIT_MS);
       const page = await context.newPage();
       await page.goto(`${fixture.origin}/identifier-first?shown`);
-      // Nothing confirms the advance, so after ten seconds its result is unknown.
+      // Nothing confirms the advance, so after its wait its result is unknown.
       await expect
         .poll(async () => await send(options, { version: 1, type: "login.probe.status" }), {
           timeout: 20_000,
         })
         .toMatchObject({ attempts: [{ outcome: "unknown-submit", stepIndex: 1 }] });
-      // Cover several more checks before the negative assertions.
-      await page.waitForTimeout(1000);
+      // The settled result, logged last, ends the advance's checks of the page.
+      await expect
+        .poll(async () => await logs(worker, "login.attempt"))
+        .toContainEqual(expect.objectContaining({ outcome: "unknown-submit", settled: true }));
       expect(
         await page.evaluate(() => ({
           identityClicks: Number(sessionStorage.getItem("identityClicks") || 0),
@@ -962,13 +972,13 @@ test("an identifier-first page that shows the password form from the start never
 test("never shows or fills the password form after an unknown-account error on an identifier-first form (ADR 0013)", async () => {
   const fixture = await startLoginFixture();
   try {
-    await withLoginExtension(async (context, _worker, id) => {
+    await withLoginExtension(async (context, worker, id) => {
       const options = await context.newPage();
-      await configure(options, id, fixture.origin);
+      await configure(options, id, fixture.origin, true, undefined, false, SHORT_STEP_WAIT_MS);
       const page = await context.newPage();
       await page.goto(`${fixture.origin}/identifier-first?unknown=1`);
       await expect(page.locator("#account-error")).toBeVisible({ timeout: 15_000 });
-      // The advance is never confirmed; it ends as unknown after its 10-second wait.
+      // The advance is never confirmed; it ends as unknown after its wait.
       await expect
         .poll(async () => await send(options, { version: 1, type: "login.probe.status" }), {
           timeout: 20_000,
@@ -984,8 +994,11 @@ test("never shows or fills the password form after an unknown-account error on a
             },
           ],
         });
-      // Past the result wait, nothing is clicked or filled again.
-      await page.waitForTimeout(2000);
+      // Past the result wait, whose settled result is logged last, nothing is clicked or
+      // filled again.
+      await expect
+        .poll(async () => await logs(worker, "login.attempt"))
+        .toContainEqual(expect.objectContaining({ outcome: "unknown-submit", settled: true }));
       expect(
         await page.evaluate(() => ({
           identityClicks: Number(sessionStorage.getItem("identityClicks") || 0),
@@ -1198,7 +1211,8 @@ for (const [mode, query, verifyClicks, autoSubmits] of [
           JSON.stringify(await send(options, { version: 1, type: "login.probe.status" }));
         const page = await context.newPage();
         await page.goto(`${fixture.origin}/totp?${query}`);
-        await expect(page.locator("#authenticated")).toBeVisible();
+        // The password fill waits for the page to settle before its account check.
+        await expect(page.locator("#authenticated")).toBeVisible({ timeout: 10_000 });
         await expect.poll(status).toContain('"authenticated"');
         // One input event per digit; the page joins the six inputs into the code.
         expect(await codeEvidence(page)).toEqual({
@@ -1292,17 +1306,28 @@ for (const [result, query] of [
     try {
       await withLoginExtension(async (context, _worker, id) => {
         const options = await context.newPage();
-        await configure(options, id, fixture.origin, true, undefined, true);
+        const wrong = query.endsWith("wrong");
+        await configure(
+          options,
+          id,
+          fixture.origin,
+          true,
+          undefined,
+          true,
+          wrong ? SHORT_STEP_WAIT_MS : undefined,
+        );
         const status = async () =>
           JSON.stringify(await send(options, { version: 1, type: "login.probe.status" }));
         const page = await context.newPage();
         await page.goto(`${fixture.origin}/totp?${query}`);
-        if (query.endsWith("wrong")) {
+        if (wrong) {
           // The page enables Verify again for another code. The login holds the page for
-          // the person and never clicks it, past the click step's own 10-second wait.
+          // the person and never clicks it, past the click step's own wait: it checks the
+          // held page at most twice a round, half a second apart, so these checks span
+          // more rounds than that wait has.
           await expect(page.locator("#verify")).toBeEnabled();
           await expect.poll(status).toContain('"state":"reconciling"');
-          await page.waitForTimeout(11_000);
+          await checkedAgain(options, 2 * Math.ceil(SHORT_STEP_WAIT_MS / 500) + 4);
           expect(await status()).toContain('"state":"reconciling"');
         } else {
           await expect(page.locator("#authenticated")).toBeVisible();
@@ -1392,6 +1417,15 @@ test("a page showing another account is not filled, and its account switch is cl
       expect(await clicks(other)).toBe(0);
       await other.close();
       await expect.poll(status).not.toContain("wrong-account");
+      // An account shown only after the fields, once the page has loaded it, stops it too.
+      const late = await context.newPage();
+      await late.goto(`${fixture.origin}/single?shown-late=****9999`);
+      await expect.poll(status).toContain("wrong-account");
+      await expect(late.locator("#account")).toHaveText("Signed in as ****9999");
+      await expect(late.locator("#password")).toHaveValue("");
+      expect(await clicks(late)).toBe(0);
+      await late.close();
+      await expect.poll(status).not.toContain("wrong-account");
       const same = await context.newPage();
       await same.goto(`${fixture.origin}/single?shown=****1234`);
       await expect(same.locator("#authenticated")).toBeVisible();
@@ -1436,13 +1470,13 @@ test("a page showing another account is not filled, and its account switch is cl
 });
 
 test("clicks a submit button or image button named by its text, and refuses a duplicate", async () => {
-  // The duplicate's click step waits ten seconds, then twice more on its retries.
+  // The duplicate's click step waits out its step wait, then twice more on its retries.
   test.setTimeout(90_000);
   const fixture = await startLoginFixture();
   try {
     await withLoginExtension(async (context, _worker, id) => {
       const options = await context.newPage();
-      await configure(options, id, fixture.origin);
+      await configure(options, id, fixture.origin, true, undefined, false, SHORT_STEP_WAIT_MS);
       const status = async () =>
         JSON.stringify(await send(options, { version: 1, type: "login.probe.status" }));
       const authenticates = async (variant: string) => {
@@ -1456,12 +1490,60 @@ test("clicks a submit button or image button named by its text, and refuses a du
       await authenticates("image");
       const duplicate = await context.newPage();
       await duplicate.goto(`${fixture.origin}/text-submit?button=duplicate`);
-      // An ambiguous click target is waited on like a missing one, for up to 10 s, and the
-      // step is tried twice more before the attempt stops.
+      // An ambiguous click target is waited on like a missing one, for the whole step wait,
+      // and the step is tried twice more before the attempt stops.
       await expect.poll(status, { timeout: 45_000 }).toContain("retry-limit");
       // The fill step ran, so the attempt stopped at the ambiguous click.
       await expect(duplicate.locator("#password")).not.toHaveValue("");
       expect(await clicks(duplicate)).toBe(0);
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("submits a form without a button by Enter in its last field, never through a button it showed (ADR 0064)", async () => {
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, _worker, id) => {
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin);
+      const count = (page: Page, key: string) =>
+        page.evaluate((name) => Number(sessionStorage.getItem(name) || 0), key);
+      // Without a submit button the form is submitted with `requestSubmit()`; with one that
+      // appeared as the password went in, that button is clicked, as Enter does.
+      /* eslint-disable no-await-in-loop */
+      for (const [query, buttonClicks] of [
+        ["", 0],
+        ["?late", 1],
+      ] as const) {
+        const page = await context.newPage();
+        await page.goto(`${fixture.origin}/enter-submit${query}`);
+        await expect(page.locator("#authenticated")).toBeVisible();
+        expect(await clicks(page)).toBe(1);
+        expect(await count(page, "buttonClicks")).toBe(buttonClicks);
+        await page.close();
+      }
+      // A "Sign up" submit button or image input shown before the fill is never pressed,
+      // nor the form sent: the step fails as a click that finds no target does.
+      for (const query of ["?shown", "?image"]) {
+        const shown = await context.newPage();
+        await shown.goto(`${fixture.origin}/enter-submit${query}`);
+        await expect
+          .poll(async () => await send(options, { version: 1, type: "login.probe.status" }))
+          .toMatchObject({
+            attempts: [{ recipeId: "demo-enter-submit", outcome: "structural-mismatch" }],
+          });
+        await expect(shown.locator("#password")).not.toHaveValue("");
+        expect(await clicks(shown)).toBe(0);
+        expect(await count(shown, "signUpClicks")).toBe(0);
+        await shown.close();
+        // Closing the tab releases its record before the next page starts.
+        await expect
+          .poll(async () => await send(options, { version: 1, type: "login.probe.status" }))
+          .toMatchObject({ attempts: [] });
+      }
+      /* eslint-enable no-await-in-loop */
     });
   } finally {
     await fixture.close();
@@ -1491,8 +1573,12 @@ test("waits for delayed same-page success and rejection without resubmitting", a
           .toContain(
             outcome === "credential-rejected" ? '"asks":["rejected"]' : `"outcome":"${outcome}"`,
           );
-        // A released rejection must not log in again in its page.
-        if (outcome === "credential-rejected") await page.waitForTimeout(1000);
+        // A released rejection must not log in again in its page: its announcement after
+        // the release was refused as logged out.
+        if (outcome === "credential-rejected")
+          await expect
+            .poll(async () => await send(options, { version: 1, type: "login.probe.status" }))
+            .toMatchObject({ documents: [{ state: "denied", reason: "logged-out" }] });
         expect(await clicks(page)).toBe(1);
         await page.close();
         // Closing the tab ends its record and its ask, so the next page logs in afresh.
@@ -1576,6 +1662,15 @@ test("a password fills only a password input and one step stays inside one form"
       ).toBe(0);
       await moved.close();
       await expect.poll(status).not.toContain("cancelled");
+      // Two of the step's locators name one input: nothing is filled or submitted, since
+      // the second value would replace the first.
+      const shared = await context.newPage();
+      await shared.goto(`${fixture.origin}/shared-input`);
+      await expect.poll(status).toContain("retry-limit");
+      await expect(shared.locator("#account")).toHaveValue("");
+      expect(await clicks(shared)).toBe(0);
+      await shared.close();
+      await expect.poll(status).not.toContain("retry-limit");
       const declared = await context.newPage();
       await declared.goto(`${fixture.origin}/single?password-input=text-current-password`);
       await expect(declared.locator("#authenticated")).toBeVisible();
@@ -1706,8 +1801,11 @@ test("credential rejection and unknown outcome each stop after one submission", 
           JSON.stringify(await send(options, { version: 1, type: "login.probe.status" })),
         )
         .toContain('"asks":["rejected"]');
-      // A released rejection must not log in again in its page.
-      await rejected.waitForTimeout(1000);
+      // A released rejection must not log in again in its page: its announcement after the
+      // release was refused as logged out.
+      await expect
+        .poll(async () => await send(options, { version: 1, type: "login.probe.status" }))
+        .toMatchObject({ documents: [{ state: "denied", reason: "logged-out" }] });
       expect(await clicks(rejected)).toBe(1);
       await rejected.close();
       // Closing the tab ends its ask, so the next page logs in afresh.
@@ -1947,14 +2045,14 @@ test("a later page that renders its form late continues the multi-page login", a
   }
 });
 
-test("a step whose element never appears stops after two retries of ten seconds without a click", async () => {
-  // The first wait and each of its two retries waits ten seconds for the button.
+test("a step whose element never appears stops after two retries of its step wait without a click", async () => {
+  // The first wait and each of its two retries waits the whole step wait for the button.
   test.setTimeout(60_000);
   const fixture = await startLoginFixture();
   try {
     await withLoginExtension(async (context, _worker, id) => {
       const options = await context.newPage();
-      await configure(options, id, fixture.origin);
+      await configure(options, id, fixture.origin, true, undefined, false, SHORT_STEP_WAIT_MS);
       const page = await context.newPage();
       const started = Date.now();
       await page.goto(`${fixture.origin}/slow-button?never`);
@@ -1965,7 +2063,7 @@ test("a step whose element never appears stops after two retries of ten seconds 
         .toMatchObject({
           attempts: [{ state: "blocked", outcome: "retry-limit", retries: 2, submissions: 0 }],
         });
-      expect(Date.now() - started).toBeGreaterThanOrEqual(29_500);
+      expect(Date.now() - started).toBeGreaterThanOrEqual(3 * SHORT_STEP_WAIT_MS - 500);
       expect(await clicks(page)).toBe(0);
     });
   } finally {
@@ -2095,7 +2193,7 @@ test("a page that shows a CAPTCHA gets the password but leaves the login button 
         .toMatchObject([{ state: "awaiting-result", submissions: 1 }]);
       await expect(page.locator("#password")).not.toHaveValue("");
       // Cover several reconciliation checks before the negative assertions.
-      await page.waitForTimeout(3000);
+      await checkedAgain(options, 6);
       expect(await clicks(page)).toBe(0);
       await expect(page.locator("#authenticated")).toHaveCount(0);
       expect((await status()).attempts).toMatchObject([{ state: "awaiting-result" }]);
