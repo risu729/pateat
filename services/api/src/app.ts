@@ -21,6 +21,7 @@ import { manageApiRoutes } from "./routes/manage-api";
 import { manageClaudeRoutes } from "./routes/manage-claude";
 import { oidcRoutes } from "./routes/oidc";
 import { createPairedDevice, pairLimit } from "./routes/pair";
+import { profileEditorRoutes } from "./routes/profile-editor";
 import { recipeRoutes } from "./routes/recipes";
 import { settingsRoutes } from "./routes/settings";
 import { jsonBody, requireJsonBody } from "./validation";
@@ -67,7 +68,10 @@ export const app = new Hono<ApiEnv>()
   .route("/manage/api/claude", manageClaudeRoutes)
   .all("/manage/api/dashboard", methodNotAllowed("GET"))
   .all("/manage/api/devices", methodNotAllowed("GET"))
-  .all("/manage/api/settings", methodNotAllowed("GET, PUT"))
+  .all("/manage/api/profiles", methodNotAllowed("GET, POST"))
+  .all("/manage/api/profiles/:profileId", methodNotAllowed("PATCH, DELETE"))
+  .all("/manage/api/profiles/:profileId/settings", methodNotAllowed("GET, PUT"))
+  .all("/manage/api/devices/:deviceId/profile", methodNotAllowed("POST"))
   .all("/manage/api/devices/:deviceId/revoke", methodNotAllowed("POST"))
   .all("/manage/api/recipes", methodNotAllowed("GET"))
   .all("/manage/api/recipes/:recipeId/revoke", methodNotAllowed("POST"))
@@ -86,6 +90,8 @@ export const app = new Hono<ApiEnv>()
   .all("/manage/request-log", methodNotAllowed("GET"))
   .get("/manage/claude", requireAccess, appPage)
   .all("/manage/claude", methodNotAllowed("GET"))
+  .get("/manage/profiles", requireAccess, appPage)
+  .all("/manage/profiles", methodNotAllowed("GET"))
   .get("/manage/problems", requireAccess, appPage)
   .all("/manage/problems", methodNotAllowed("GET"))
   .get("/manage/sites", requireAccess, appPage)
@@ -93,6 +99,28 @@ export const app = new Hono<ApiEnv>()
   // One site's page, for the origin `<scheme>://<host>`; the app checks the host.
   .get("/manage/sites/:scheme{https?}/:host", requireAccess, appPage)
   .all("/manage/sites/:scheme{https?}/:host", methodNotAllowed("GET"))
+  // Editing any profile from the extension's settings page (ADR 0076). Only the host-wide
+  // Access application's audience is accepted, which requires WARP, never the pairing
+  // one (ADR 0030), and only from an extension the pairing allowlist names. A device
+  // credential grants no access here.
+  .use(
+    "/extension/profiles/*",
+    requireAccessApi,
+    requirePairingOrigin,
+    limitIdentity,
+    bodyLimit({
+      maxSize: MAX_BODY_BYTES,
+      onError: (c) => apiError(c, 413, { error: "payload_too_large" }),
+    }),
+  )
+  .route("/extension/profiles", profileEditorRoutes)
+  .all("/extension/profiles", methodNotAllowed("GET"))
+  .all("/extension/profiles/:profileId/settings", methodNotAllowed("GET, PUT"))
+  // The tab the profile editor opens to sign in: Access signs the browser in on the way.
+  .get("/extension/signed-in", requireAccess, (c) =>
+    message(c, 200, "Signed in", "Close this tab and go back to Pateat's settings page."),
+  )
+  .all("/extension/signed-in", methodNotAllowed("GET"))
   // Direct pairing from an allowed extension with the owner's login session (ADR 0020).
   // Access and the Origin check run before the per-identity limit and any body read.
   // No CORS headers: extension contexts with host access skip CORS; pages cannot read it.

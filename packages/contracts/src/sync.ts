@@ -6,6 +6,7 @@ import {
   recipeLayoutKeySchema,
   storedLoginRecipeSchema,
 } from "./login";
+import { profileIdSchema } from "./pairing";
 import { localSettingsSchema } from "./settings";
 
 // Contracts for the optional private settings/recipe service. Synced documents are
@@ -40,8 +41,14 @@ export function isGeneratedRecipeId(recipeId: string): boolean {
 export const syncSettingsStateSchema = v.pipe(
   v.strictObject({
     version: v.literal(1),
+    profileId: profileIdSchema,
     revision,
     settings: v.nullable(localSettingsSchema),
+    /**
+     * Set while no device has written this profile's own settings yet, as for a profile
+     * created during pairing: the first device then keeps its own entries (ADR 0076).
+     */
+    newProfile: v.optional(v.literal(true)),
   }),
   v.check(
     (state) => (state.revision === 0) === (state.settings === null),
@@ -60,11 +67,18 @@ export const MAX_RECIPE_CACHE_BYTES = 2 * 1024 * 1024;
 export const settingsDocumentBytes = (settings: unknown) =>
   new TextEncoder().encode(JSON.stringify(settings)).byteLength;
 
-export const syncSettingsWriteSchema = v.strictObject({
-  version: v.literal(1),
-  expectedRevision: revision,
-  settings: localSettingsSchema,
-});
+export const syncSettingsWriteSchema = v.pipe(
+  v.strictObject({
+    version: v.literal(1),
+    expectedRevision: revision,
+    settings: localSettingsSchema,
+  }),
+  v.check((write) => write.settings.connections.length === 0, "Connections stay on devices"),
+  v.check(
+    (write) => settingsDocumentBytes(write.settings) <= MAX_SETTINGS_DOCUMENT_BYTES,
+    "The settings document is too large",
+  ),
+);
 
 /**
  * The stored recipe carries the sync identity, so a cached copy cannot drift from it. It is

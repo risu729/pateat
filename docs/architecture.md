@@ -630,11 +630,18 @@ settled as unknown (`settled`), and the last login and model request the badge k
 from the log reports, with the badge's lifetime: a top page of another origin or the
 tab's closing drops them, and `chrome.storage.session` keeps them across a worker
 restart. Item selection, field exclusions and custom-field review stay on the
-extension's settings page once synced ([ADR 0023](adr/0023-synced-vault-policy.md)). The
-service keeps one settings document per owner; [ADR 0024](adr/0024-settings-profiles.md)
-assigns its parts either to a settings profile that each device will choose later or to
-the owner. Chrome use access to these pages is not assumed. Keep settings and execution
-operations independent of their UI.
+extension's settings page once synced ([ADR 0023](adr/0023-synced-vault-policy.md)).
+The service keeps excluded sites and site defaults per settings profile and bindings per
+owner, under one owner revision ([ADR 0024](adr/0024-settings-profiles.md),
+[ADR 0076](adr/0076-settings-profiles-delivered.md)). Each device uses one profile,
+chosen when it pairs or on the management page's Devices page; `/manage/profiles`
+renames, copies and deletes profiles, and the Sites pages edit one profile at a time.
+The extension's settings page can edit another profile with its own vault catalog
+through `/extension/profiles`, behind the host-wide Access application, which requires
+WARP; that does not move its device. When a device's profile changes, the extension
+replaces its exclusions and saved accounts with the new profile's and drops its merge
+base for them, while bindings keep merging. Chrome use access to these pages is not
+assumed. Keep settings and execution operations independent of their UI.
 
 Each connection supports all items except exclusions or selected
 folders/collections/items only. Use existing Bitwarden metadata; independent
@@ -3444,9 +3451,19 @@ steady-state API calls carry no cookie.
   that retry and both buttons, and a request answered after an edit opens no tab (owner,
   2026-10-23 12:59 UTC). A refused sign-in, an unlisted extension
   ID, a service without pairing settings and a service that could not fetch Access's
-  signing keys each have their own message. Before sending, the form checks both fields
+  signing keys each have their own message. Before sending, the form checks every field
   at once: each invalid one is marked (`aria-invalid`) with its own error under the
   fields, and the first invalid one takes focus.
+- Profile choice. An owner's later pairing must name a settings profile: without one the
+  Worker answers 409 `profile_required` with the owner's profiles, and the settings page
+  asks which one the device uses or offers a new one named after the device
+  ([ADR 0076](adr/0076-settings-profiles-delivered.md)). A new profile takes the
+  device's exclusions and saved accounts at its first sync. When an existing profile
+  would replace ones the device holds, the page shows their counts first, with
+  **Pair and replace**, **Create a new profile instead** and **Back**. A chosen profile
+  deleted meanwhile (`profile_not_found`) or a taken name (`profile_name_taken`) is
+  answered with the profiles again. A missing choice or new-profile name is marked like
+  the other fields, and editing the address or device name closes the warning.
 - Lifetime and recovery. A credential expires once it has gone unused for 90 days, and
   each authenticated use renews it; there is no absolute lifetime and no rotation (owner
   decision, 2026-10-11). The service records a device's last use at most once a day

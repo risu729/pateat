@@ -47,12 +47,27 @@ function mockClient(initial: SyncSettingsState, recipes: ManageRecipes["recipes"
   let state = initial;
   return {
     dashboard: vi.fn<ManageClient["dashboard"]>(),
+    profileId: "00000000-0000-4000-8000-000000000001",
+    selectProfile: vi.fn<ManageClient["selectProfile"]>(),
+    profiles: vi.fn<ManageClient["profiles"]>(async () => ({
+      version: 1,
+      profiles: [{ id: "00000000-0000-4000-8000-000000000001", name: "Default" }],
+    })),
+    copyProfile: vi.fn<ManageClient["copyProfile"]>(),
+    renameProfile: vi.fn<ManageClient["renameProfile"]>(),
+    deleteProfile: vi.fn<ManageClient["deleteProfile"]>(),
+    assignProfile: vi.fn<ManageClient["assignProfile"]>(),
     devices: vi.fn<ManageClient["devices"]>(async () => ({ version: 1, devices: [] })),
     revokeDevice: vi.fn<ManageClient["revokeDevice"]>(),
     settings: vi.fn<ManageClient["settings"]>(async () => structuredClone(state)),
     saveSettings: vi.fn<ManageClient["saveSettings"]>(async (expectedRevision, settings) => {
       if (expectedRevision !== state.revision) throw new ManageApiError("settings_conflict");
-      state = { version: 1, revision: state.revision + 1, settings: structuredClone(settings) };
+      state = {
+        version: 1,
+        profileId: "00000000-0000-4000-8000-000000000001",
+        revision: state.revision + 1,
+        settings: structuredClone(settings),
+      };
       return structuredClone(state);
     }),
     recipes: vi.fn<ManageClient["recipes"]>(async () => ({ version: 1, recipes, unreadable: [] })),
@@ -86,7 +101,12 @@ afterEach(async () => {
 });
 
 test("excludes a site on a service that has no settings yet, then allows it", async () => {
-  const client = mockClient({ version: 1, revision: 0, settings: null });
+  const client = mockClient({
+    version: 1,
+    profileId: "00000000-0000-4000-8000-000000000001",
+    revision: 0,
+    settings: null,
+  });
   await mount(client, "/manage/sites");
   await expect
     .element(page.getByRole("link", { name: "Sites" }))
@@ -109,6 +129,7 @@ test("excludes a site on a service that has no settings yet, then allows it", as
   expect(client.saveSettings).toHaveBeenLastCalledWith(
     0,
     settingsOf({ excludedSites: [{ hostname: "intranet.example", includeSubdomains: true }] }),
+    "00000000-0000-4000-8000-000000000001",
   );
   await expect.element(page.getByLabelText("Hostname")).toHaveValue("");
   await expect.element(page.getByRole("status")).toHaveTextContent("intranet.example excluded");
@@ -124,14 +145,23 @@ test("excludes a site on a service that has no settings yet, then allows it", as
 
   await page.getByRole("button", { name: "Allow intranet.example and subdomains" }).click();
   await expect.element(page.getByText("No sites yet")).toBeVisible();
-  expect(client.saveSettings).toHaveBeenLastCalledWith(1, settingsOf());
+  expect(client.saveSettings).toHaveBeenLastCalledWith(
+    1,
+    settingsOf(),
+    "00000000-0000-4000-8000-000000000001",
+  );
   await expect
     .element(page.getByRole("status"))
     .toHaveTextContent("intranet.example and subdomains allowed");
 });
 
 test("asks for a paired device before settings can be edited", async () => {
-  const client = mockClient({ version: 1, revision: 0, settings: null });
+  const client = mockClient({
+    version: 1,
+    profileId: "00000000-0000-4000-8000-000000000001",
+    revision: 0,
+    settings: null,
+  });
   client.settings.mockRejectedValue(new ManageApiError("not_paired"));
   client.recipes.mockRejectedValue(new ManageApiError("not_paired"));
   await mount(client, "/manage/sites");
@@ -152,7 +182,12 @@ test("refuses an edit that would make the document larger than devices sync", as
     hostname: `${long}.x${index}.example`,
     includeSubdomains: false,
   }));
-  const client = mockClient({ version: 1, revision: 1, settings: settingsOf({ excludedSites }) });
+  const client = mockClient({
+    version: 1,
+    profileId: "00000000-0000-4000-8000-000000000001",
+    revision: 1,
+    settings: settingsOf({ excludedSites }),
+  });
   await mount(client, "/manage/sites");
   await page.getByLabelText("Hostname").fill("one-more.example");
   await page.getByRole("button", { name: "Exclude site" }).click();
@@ -180,6 +215,7 @@ test("lists each site with its recipes, default account and bindings", async () 
   const client = mockClient(
     {
       version: 1,
+      profileId: "00000000-0000-4000-8000-000000000001",
       revision: 4,
       settings: settingsOf({
         excludedSites: [{ hostname: "shop.example", includeSubdomains: false }],
@@ -213,6 +249,7 @@ test("lists each site with its recipes, default account and bindings", async () 
 test("removes a site's default account on its page, keeping the rest", async () => {
   const client = mockClient({
     version: 1,
+    profileId: "00000000-0000-4000-8000-000000000001",
     revision: 4,
     settings: settingsOf({
       siteDefaults: [
@@ -249,6 +286,7 @@ test("removes a site's default account on its page, keeping the rest", async () 
 test("a write that lost to another writer shows the current settings and changes nothing", async () => {
   const client = mockClient({
     version: 1,
+    profileId: "00000000-0000-4000-8000-000000000001",
     revision: 1,
     settings: settingsOf({
       excludedSites: [{ hostname: "old.example", includeSubdomains: false }],
@@ -259,6 +297,7 @@ test("a write that lost to another writer shows the current settings and changes
   // A device sync writes while the page is open.
   client.replace({
     version: 1,
+    profileId: "00000000-0000-4000-8000-000000000001",
     revision: 2,
     settings: settingsOf({
       excludedSites: [{ hostname: "new.example", includeSubdomains: false }],
@@ -277,7 +316,12 @@ test("refuses an edit that would exceed a list limit before writing", async () =
     hostname: `site-${index}.example`,
     includeSubdomains: false,
   }));
-  const client = mockClient({ version: 1, revision: 1, settings: settingsOf({ excludedSites }) });
+  const client = mockClient({
+    version: 1,
+    profileId: "00000000-0000-4000-8000-000000000001",
+    revision: 1,
+    settings: settingsOf({ excludedSites }),
+  });
   await mount(client, "/manage/sites");
   await page.getByLabelText("Hostname").fill("one-more.example");
   await page.getByRole("button", { name: "Exclude site" }).click();
@@ -295,6 +339,7 @@ test("lists a site's account bindings with their fields and removes one", async 
   const elsewhere = { ...binding, origin: "https://card.example", itemName: "Card" };
   const client = mockClient({
     version: 1,
+    profileId: "00000000-0000-4000-8000-000000000001",
     revision: 2,
     settings: settingsOf({ bindings: [binding, other, elsewhere] }),
   });
@@ -327,6 +372,7 @@ test("lists a site's account bindings with their fields and removes one", async 
   expect(client.saveSettings).toHaveBeenLastCalledWith(
     2,
     settingsOf({ bindings: [other, elsewhere] }),
+    "00000000-0000-4000-8000-000000000001",
   );
   await expect
     .element(page.getByRole("status"))
@@ -334,14 +380,27 @@ test("lists a site's account bindings with their fields and removes one", async 
 });
 
 test("says when a site has no binding or default account", async () => {
-  await mount(mockClient({ version: 1, revision: 0, settings: null }), BANK_PAGE);
+  await mount(
+    mockClient({
+      version: 1,
+      profileId: "00000000-0000-4000-8000-000000000001",
+      revision: 0,
+      settings: null,
+    }),
+    BANK_PAGE,
+  );
   await expect.element(page.getByText("No account bindings")).toBeVisible();
   await expect.element(page.getByText("No default account")).toBeVisible();
   await expect.element(page.getByText("No recipes", { exact: true })).toBeVisible();
 });
 
 test("turns Pateat off and on for the site's exact hostname", async () => {
-  const client = mockClient({ version: 1, revision: 0, settings: null });
+  const client = mockClient({
+    version: 1,
+    profileId: "00000000-0000-4000-8000-000000000001",
+    revision: 0,
+    settings: null,
+  });
   await mount(client, BANK_PAGE);
   const toggle = page.getByRole("switch", { name: "Pateat on this site" });
   await expect.element(toggle).toBeChecked();
@@ -350,18 +409,24 @@ test("turns Pateat off and on for the site's exact hostname", async () => {
   expect(client.saveSettings).toHaveBeenLastCalledWith(
     0,
     settingsOf({ excludedSites: [{ hostname: "bank.example", includeSubdomains: false }] }),
+    "00000000-0000-4000-8000-000000000001",
   );
   await expect.element(page.getByRole("status")).toHaveTextContent("bank.example excluded");
 
   await toggle.click();
   await expect.element(toggle).toBeChecked();
-  expect(client.saveSettings).toHaveBeenLastCalledWith(1, settingsOf());
+  expect(client.saveSettings).toHaveBeenLastCalledWith(
+    1,
+    settingsOf(),
+    "00000000-0000-4000-8000-000000000001",
+  );
   await expect.element(page.getByRole("status")).toHaveTextContent("bank.example allowed");
 });
 
 test("leaves a rule that also covers other sites to the Sites list", async () => {
   const client = mockClient({
     version: 1,
+    profileId: "00000000-0000-4000-8000-000000000001",
     revision: 1,
     settings: settingsOf({
       excludedSites: [{ hostname: "example", includeSubdomains: true }],
@@ -389,14 +454,27 @@ test("has no page for a path that names no exact HTTP(S) origin", async () => {
     "/manage/unknown",
   ]) {
     // oxlint-disable-next-line no-await-in-loop -- one page at a time
-    await mount(mockClient({ version: 1, revision: 0, settings: null }), path);
+    await mount(
+      mockClient({
+        version: 1,
+        profileId: "00000000-0000-4000-8000-000000000001",
+        revision: 0,
+        settings: null,
+      }),
+      path,
+    );
     // oxlint-disable-next-line no-await-in-loop -- one page at a time
     await expect.element(page.getByText("No such page.")).toBeVisible();
     // oxlint-disable-next-line no-await-in-loop -- one page at a time
     await cleanup();
   }
   await mount(
-    mockClient({ version: 1, revision: 0, settings: null }),
+    mockClient({
+      version: 1,
+      profileId: "00000000-0000-4000-8000-000000000001",
+      revision: 0,
+      settings: null,
+    }),
     "/manage/sites/http/localhost:8080",
   );
   await expect
@@ -410,6 +488,7 @@ test("has no page for a path that names no exact HTTP(S) origin", async () => {
 test("matches and writes a trailing-dot origin's hostname without the dot", async () => {
   const client = mockClient({
     version: 1,
+    profileId: "00000000-0000-4000-8000-000000000001",
     revision: 0,
     settings: settingsOf({
       siteDefaults: [{ ...bankDefault, origin: "https://bank.example." }],

@@ -29,7 +29,7 @@ and `generation.ts`.
 | `GET`/`HEAD /health` | Build revision probe; other methods return 405 |
 | `GET /.well-known/openid-configuration` | OIDC discovery for Claude Workload Identity Federation |
 | `GET /.well-known/jwks.json` | Public halves of the issuer's ES256 keys |
-| `GET /v1/settings` | Current synced settings; revision 0 with `settings: null` before the first write |
+| `GET /v1/settings` | Device-selected profile policy plus shared bindings and `profileId`; revision 0 with `settings: null` before the first write |
 | `PUT /v1/settings` | Replace settings when `expectedRevision` matches; otherwise 409 with the current state |
 | `GET /v1/recipes?after=&limit=` | Latest state of recipes changed after the cursor, at most 100 per page |
 | `PUT /v1/recipes/:recipeId` | Publish an active revision or a tombstone when `expectedRevision` matches |
@@ -42,15 +42,23 @@ and `generation.ts`.
 | `GET /v1/device` | The calling device's paired time, the owner's live recipe count and settings revision, and whether recipe generation would run now, for the diagnostics page |
 | `DELETE /v1/device` | Revoke the calling device's own credential |
 | `POST /v1/device/problems` | Keep the calling device's `warn` and `error` local log lines, and `info` lines that say why Pateat did nothing, as it lets them leave (ADR 0066), each line checked on its own; 204, or 429 past the owner's 2,000 lines in 24 hours |
-| `POST /pair` | Create a device for the signed-in owner from an allowed extension; 201 with the credential, once |
+| `POST /pair` | Create a device for the signed-in owner from an allowed extension; 201 with the credential, once. An owner's later device names `profileId` or a `newProfile` name; otherwise 409 `profile_required` with the profiles |
+| `GET /extension/profiles` | The owner's profiles, for the extension's profile editor; host-wide Access (WARP) and an allowlisted extension `Origin` |
+| `GET`, `PUT /extension/profiles/:profileId/settings` | Read or replace another profile like `/manage/api/profiles/:profileId/settings`, with the same guards |
+| `GET /extension/signed-in` | The page the profile editor opens when it needs a sign-in on the host-wide application |
 | `GET /pair/signed-in` | The page the extension opens when pairing needs a sign-in; it asks the user to go back to Pateat's settings |
-| `GET /manage/dashboard`, `/manage`, `/manage/sites`, `/manage/sites/:scheme/:host`, `/manage/claude`, `/manage/problems`, `/manage/request-log` | Owner web UI (React app): the dashboard of login and request speed, counts, spend and failures; devices; the sites list with excluded sites, unreadable and revoked recipes; one origin's default account, recipes and bindings; Claude credentials, the connection test and each role's models; the newest problem lines devices sent; the request log with Delete all |
+| `GET /manage/dashboard`, `/manage`, `/manage/sites`, `/manage/sites/:scheme/:host`, `/manage/profiles`, `/manage/claude`, `/manage/problems`, `/manage/request-log` | Owner web UI (React app): the dashboard of login and request speed, counts, spend and failures; devices; settings profiles; the sites list with excluded sites, unreadable and revoked recipes; one origin's default account, recipes and bindings; Claude credentials, the connection test and each role's models; the newest problem lines devices sent; the request log with Delete all |
 | `GET /manage/assets/*` | The web UI's built script, styles and notices |
 | `GET /manage/api/dashboard?range=24h\|7d\|30d` | The dashboard's aggregates over the range ending now (default `7d`; another value is 400 `bad_request`), computed in the Worker from only the owner's rows: login time (total less the person's) of the signed-in login records, apart for those that waited on the service, with the median of each part (network, the rest of the service, waiting for the site, the rest, and the person apart) and per site and extension build; model, token, pre-model and server times per role, site and build (of requests that called the model; a request answered without a call counts only as a request and, unless its outcome is `recipe`, a failure; a signed-in page sample, outcome `sampled`, is left out), the median login and model time per UTC day (null on a day without one), the 10 slowest requests, counts, every login's result with how many signed in (in total and per day), the first-login result codes apart, tokens, this UTC day's and month's spend with the limits, active recipes, recipes generated, and failures by code with their latest 20; every set of durations has `n`, and below 20 its values instead of a p90 |
 | `GET /manage/api/devices` | The owner's devices with their last use, newest first |
 | `POST /manage/api/devices/:deviceId/revoke` | Revoke one of the owner's devices; 204 |
-| `GET /manage/api/settings` | The settings `/v1/settings` serves; revision 0 before the first write; 404 `not_paired` without a paired device |
-| `PUT /manage/api/settings` | Replace them like `PUT /v1/settings`; `connections` must be empty and the document at most 120 KiB |
+| `GET /manage/api/profiles` | The Access owner's profiles |
+| `POST /manage/api/profiles` | Copy an existing owned profile, with `name` and `copyFrom`; 409 `profile_name_taken` |
+| `PATCH /manage/api/profiles/:profileId` | Rename a profile; 409 `profile_name_taken` when another has the name, ignoring case |
+| `DELETE /manage/api/profiles/:profileId` | Delete a profile; 204, or 409 `profile_in_use` with the labels of the devices using it, or 409 `last_profile` |
+| `POST /manage/api/devices/:deviceId/profile` | Assign an owned profile to an owned active device; advances the settings revision |
+| `GET /manage/api/profiles/:profileId/settings` | Selected owned profile with shared bindings and owner revision; 404 for a foreign profile |
+| `PUT /manage/api/profiles/:profileId/settings` | Replace them like `PUT /v1/settings`; `connections` must be empty and the document at most 120 KiB |
 | `GET /manage/api/recipes` | Every recipe head with its document and each layout's last use and first page's source (`firstPage`: origin, model, time; ADR 0060), most recently changed first; active heads whose document no longer validates are listed apart in `unreadable` |
 | `POST /manage/api/recipes/:recipeId/revoke` | Revoke one recipe if `expectedRevision` is its head; otherwise 409 with the current head |
 | `POST /manage/api/recipes/:recipeId/layouts/:layout/revoke` | Remove one layout as the next revision if `expectedRevision` is the head, revoking the recipe when it was the last; 404 for a layout the head lacks, otherwise 409 with the current head |
