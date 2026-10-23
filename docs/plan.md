@@ -1091,8 +1091,9 @@ Once the fixes have settled:
   Anthropic API key and call the model itself, also while paired, where the service only
   checks, stores and shares the results. The paired part is implemented, and so are the
   recipes a device keeps on unpairing, which logins use without the service and which
-  are uploaded once after pairing again. Generation on an unpaired device, then export
-  and import, follow in that order.
+  are uploaded once after pairing again, and generation on an unpaired device with its
+  own key, which runs the service's routes against the device's own store. Export and
+  import follow.
 - The finite-choice role with Clef, which the owner chose to implement here. On
   2026-10-11 the owner asked for a larger corpus of real pages before planning it. After
   Clef has been tried, compare it with Jev on the same pages (owner, 2026-10-13 15:11
@@ -2138,19 +2139,24 @@ two recipes starting on one page find no recipe. Unit tests use synthetic pages 
 in-memory storage; sync against the deployed service has no recorded check yet.
 
 The fifth slice syncs the device-independent settings in the same run, after recipes:
-site exclusions, site defaults that name a provider account and item, and account
-bindings. Vault connections stay on the device; the service document always has an
-empty `connections` list. Since 2026-10-15 the same run also syncs `accountPolicies`,
-`itemPolicies` (merged per provider account and item) and `customFieldReviews`, keyed by
-provider, server and user ID ([ADR 0023](adr/0023-synced-vault-policy.md)); the dummy
-provider's entries stay local, and no vault item is used before a device's first
-settings sync. The background reads
-`GET /v1/settings` and merges three copies per entry (exclusions by hostname, defaults
-by origin, bindings by recipe, origin and account): the last agreed base, stored under
+site exclusions, site defaults that name a provider account and item, account bindings,
+and the links to the vault fields that hold a login's personal details (ADR 0061). Vault
+connections stay on the device; the service document always has an empty `connections`
+list. Since 2026-10-15 the same run also syncs `accountPolicies`, `itemPolicies` (merged
+per provider account and item) and `customFieldReviews`, keyed by provider, server and
+user ID ([ADR 0023](adr/0023-synced-vault-policy.md)); the dummy provider's entries stay
+local, and no vault item is used before a device's first settings sync. The background
+reads `GET /v1/settings` and merges three copies per entry (exclusions by hostname,
+defaults by origin, bindings by recipe, origin and account, detail links by login item,
+site and detail, and an answer's link also by its field): the last agreed base, stored
+under
 `pateat.sync-settings.v1`, the local settings and the service's. A side that changed an
 entry since that base wins, and the service wins when both changed it; removing an entry
-counts as a change. The base keeps the service's copy and the local copy it accounts
-for. Both are the same after a complete sync; after an upload whose local write has not
+counts as a change. When a local link stores a question that the service's copy already
+gives another field of the same login item, the service's link stands and the local one
+falls back to the service's copy of it, or is left out without one. The base keeps the
+service's copy and the local copy it accounts for. Both are the same after a complete
+sync; after an upload whose local write has not
 happened yet, the local copy is still the one the merge started from, so a merged entry
 the device has not written yet is not read as a local removal, and a local edit made
 meanwhile still wins. The base is used only when the service revision is newer than the
@@ -3542,9 +3548,10 @@ support for every site or vault format. Keep observed limitations explicit.
   ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). Pricing (ADR 0014's $4
   and $20 per million tokens) and the spending limits are settled: the owner confirmed
   $200 of monthly Claude API credit, ADR 0014 sets the monthly limit to $100, and the
-  service also stops at $5 a day. Calls run one at a time per owner, and each is charged
-  its maximum cost before it starts and corrected afterwards
-  (`services/api/src/claude/calls.ts`), so a limit is passed by at most one call.
+  service also stops at $5 a day. Up to five requests per owner make calls at a time
+  ([ADR 0018](adr/0018-recipe-generation-route.md#five-calls-at-a-time)), and each call
+  is charged from its usage once it returns (`services/api/src/claude/calls.ts`), so a
+  limit is passed by at most the calls running when it is crossed.
 - Benchmark generation/repair and finite-choice roles separately on the same
   Japanese/English synthetic login corpus. Measure the ADR 0014 Claude configuration for
   generation; for decisions, the owner chose Clef for

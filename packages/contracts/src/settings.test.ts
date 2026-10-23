@@ -524,6 +524,8 @@ describe("personal-detail links (ADR 0061)", () => {
       // The same detail of another login item, or of the same item on another site.
       { ...link, itemId: "secondary" },
       { ...link, origin: "https://shop.example" },
+      // The same user ID on another server is another account.
+      { ...link, server: "cloud-eu" },
       {
         ...link,
         userId: "demo-family-account",
