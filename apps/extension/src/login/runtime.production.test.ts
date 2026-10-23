@@ -28470,6 +28470,7 @@ describe("account switching from the popup (ADR 0063)", () => {
           until: async () => (pausedNow ? Date.now() + 60 * 60_000 : undefined),
           pause: async () => Date.now() + 60 * 60_000,
           resume: async () => false,
+          clearIncognito: async () => undefined,
         },
       });
       stop(h);
