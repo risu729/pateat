@@ -467,7 +467,7 @@ export async function startLoginFixture(
         });`,
         ),
       );
-    } else if (path === "/totp") {
+    } else if (path === "/totp" || path === "/totp-typed") {
       // Only the known flags go on, never the query as written.
       const flags = new URLSearchParams();
       for (const flag of ["wrong", "auto", "slow", "split"])
@@ -483,9 +483,18 @@ export async function startLoginFixture(
         ui === "flicker" ||
         ui === "partial" ||
         ui === "mutate" ||
-        ui === "seven"
+        ui === "seven" ||
+        ui === "drop"
       )
         flags.set("ui", ui);
+      // `/totp-typed` goes on to a code page without Verify that submits the code on its
+      // sixth digit, in six one-digit inputs as Slack's two-factor page does (#916), or in
+      // one input with `?single`; `ui=drop` keeps the digit 3 out of the input.
+      if (path === "/totp-typed") {
+        const typed = ["auto", "nobutton"];
+        if (!fixtureUrl.searchParams.has("single")) typed.push("split");
+        for (const flag of typed) flags.set(flag, "");
+      }
       const next = flags.size === 0 ? "/totp-code" : `/totp-code?${flags.toString()}`;
       // A password page followed by an authenticator app code page (ADR 0027). The query
       // goes on to the code page: `?split` asks for it in six one-digit inputs, the first of
@@ -523,10 +532,11 @@ export async function startLoginFixture(
       const spa = fixtureUrl.searchParams.get("spa");
       const ui = fixtureUrl.searchParams.get("ui");
       const split = fixtureUrl.searchParams.has("split");
+      const nobutton = fixtureUrl.searchParams.has("nobutton");
       const again = fixtureUrl.searchParams.has("wrong") ? "/totp-code?wrong" : "/totp-code";
       response.end(
         html(
-          `<h1>Two-factor authentication</h1><p>Enter the code from your authenticator app.</p><form id="code-form">${split ? `<fieldset><legend>Authentication code</legend><input id="code" inputmode="numeric" maxlength="1" aria-label="Digit 1">${(ui === "seven" ? [2, 3, 4, 5, 6, 7] : [2, 3, 4, 5, 6]).map((digit) => `<input id="code-${digit}" inputmode="numeric" maxlength="1" aria-label="Digit ${digit}">`).join("")}</fieldset>` : '<label>Authentication code<input id="code" autocomplete="one-time-code" inputmode="numeric" maxlength="6"></label>'}<button id="verify" type="button"${ui === "disabled" || ui === "disauto" || ui === "flicker" ? " disabled" : ""}>Verify</button><p role="status" id="code-status"></p>${ui === "counter" ? '<p id="code-counter" aria-live="polite"></p>' : ""}</form>`,
+          `<h1>Two-factor authentication</h1><p>Enter the code from your authenticator app.</p><form id="code-form">${split ? `<fieldset><legend>Authentication code</legend><input id="code" inputmode="numeric" maxlength="1" aria-label="Digit 1">${(ui === "seven" ? [2, 3, 4, 5, 6, 7] : [2, 3, 4, 5, 6]).map((digit) => `<input id="code-${digit}" inputmode="numeric" maxlength="1" aria-label="Digit ${digit}">`).join("")}</fieldset>` : '<label>Authentication code<input id="code" autocomplete="one-time-code" inputmode="numeric" maxlength="6"></label>'}${nobutton ? "" : `<button id="verify" type="button"${ui === "disabled" || ui === "disauto" || ui === "flicker" ? " disabled" : ""}>Verify</button>`}<p role="status" id="code-status"></p>${ui === "counter" ? '<p id="code-counter" aria-live="polite"></p>' : ""}</form>`,
           `const digits = [...document.querySelectorAll('#code-form input')];
           const codeValue = () => digits.map((digit) => digit.value).join('');
           function count(name) {
@@ -543,7 +553,7 @@ export async function startLoginFixture(
                     spa === "replace"
                       ? `document.getElementById('code-form').innerHTML = '<input id="code" autocomplete="one-time-code" inputmode="numeric" maxlength="6" disabled><button id="verify" type="button" disabled>Verify</button><p>Verifying…</p>';`
                       : `document.getElementById('code-status').textContent = 'Verifying…';
-                        document.getElementById('verify').disabled = true;${spa === "clear" ? " for (const digit of digits) digit.value = '';" : ""}`
+                        document.getElementById('verify')?.setAttribute('disabled', '');${spa === "clear" ? " for (const digit of digits) digit.value = '';" : ""}`
                   }
                 setTimeout(() => {
                   history.pushState({}, '', '/authenticated');
@@ -588,7 +598,8 @@ export async function startLoginFixture(
                 : ""
             }
           });
-          wire(document.getElementById('verify'));`,
+          ${ui === "drop" ? "digits[0].addEventListener('keydown', (event) => { if (event.key === '3') event.preventDefault(); });" : ""}
+          ${nobutton ? "" : "wire(document.getElementById('verify'));"}`,
         ),
       );
     } else if (path === "/password") {
@@ -925,6 +936,15 @@ export async function startLoginFixture(
           `document.body.insertAdjacentHTML('afterbegin', sessionStorage.getItem('passwordMatched') === 'true' && sessionStorage.getItem('identityMatched') !== 'false'
           ? ${JSON.stringify(`<h2 id="signed-in">Your synthetic account</h2>${marker}`)}
           : '<h2 id="rejected">Credentials rejected</h2>');`,
+        ),
+      );
+    } else if (path === "/confirm-transfer") {
+      // A transfer confirmed with the account's password in a form that shows its amount,
+      // the page a recipe generated as `confirm` starts on (ADR 0035). Its form goes to the
+      // account result page.
+      response.end(
+        html(
+          '<h1>Synthetic transfer confirmation</h1><form id="transfer" action="/authenticated"><p>Total ¥1,200</p><label>Password<input id="confirm-password" type="password"></label><button id="confirm">Confirm</button></form>',
         ),
       );
     } else if (path === "/ambiguous") {

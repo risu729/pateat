@@ -388,6 +388,10 @@ export function createDiagnosticsLog(options: {
             recipe: report.recipeId,
             recipeRevision: report.recipeRevision,
             pageKind: report.pageKind,
+            amount: report.amount,
+            e1: report.e1,
+            e2: report.e2,
+            previousUrl: report.previousUrl,
             frame: report.frame,
           },
           {
@@ -441,6 +445,20 @@ export function createDiagnosticsLog(options: {
             recipeRevision: report.recipeRevision,
             rejected: report.rejected,
             clicked: report.clicked,
+            url: report.url,
+          },
+          { source },
+        );
+      else if (report.type === "confirm-left")
+        void logger.log(
+          "login.confirm-left",
+          {
+            origin: report.origin,
+            recipe: report.recipeId,
+            recipeRevision: report.recipeRevision,
+            pageKind: report.pageKind,
+            personSubmitted: report.personSubmitted,
+            nextE1: report.nextE1,
             url: report.url,
           },
           { source },

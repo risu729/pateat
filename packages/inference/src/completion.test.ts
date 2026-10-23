@@ -530,7 +530,7 @@ describe("TOTP code on a challenge page (ADR 0027)", () => {
   it("tells the model to say where the code comes from", () => {
     // A bare challenge on a code page left no handler and no reason (Resend, 2026-10-12).
     expect(completionInstructions).toMatch(
-      /A challenge that asks for a code always fills code: its field, submit and source\./u,
+      /A challenge that asks for a code always fills code: its field, source and submit, which is left out only when no button on the page submits the code/u,
     );
     // A page that says neither answers unknown, which keeps the code (owner, 2026-10-13).
     expect(completionInstructions).toMatch(
@@ -719,6 +719,53 @@ describe("code answers checked locally, probed independently (ADR 0027)", () => 
       expect(
         await judged([...loose, submit({ group: undefined })], answer({ field: "d3" })),
       ).toMatchObject({ value: { totp: first } });
+    });
+
+    // Slack's two-factor page (#916): six one-digit inputs and no button; the page submits
+    // the code once its last digit is in.
+    describe("a page that shows no button for the code (ADR 0027 amendment of 2026-10-23)", () => {
+      const noSubmit = (code: Record<string, unknown> = {}) => {
+        const { submit: _, ...rest } = answer(code).code;
+        return { decision: "challenge", code: rest };
+      };
+
+      it("keeps the code's first input without a button outside any form", async () => {
+        const loose = boxes(6, { group: undefined });
+        // Exactly: the handler has no button.
+        expect(await judged(loose, noSubmit({ field: "d3" }))).toEqual(
+          expect.objectContaining({
+            status: "ok",
+            value: { decision: "challenge", totp: { field: { by: "id", value: "otp-1" } } },
+          }),
+        );
+      });
+
+      it("keeps one code input of a form that shows no button", async () => {
+        expect(await judged([field()], noSubmit())).toMatchObject({
+          value: { totp: { field: { by: "id", value: "otp" } } },
+        });
+      });
+
+      it("drops a code without a button in a form that shows one", async () => {
+        const outcome = await judged([...boxes(6), submit()], noSubmit({ field: "d1" }));
+        expect(hasTotp(outcome)).toBe(false);
+        expect(outcome).toMatchObject({ value: { totpDropped: "submit-unnamed" } });
+        // A button outside the form does not keep the form's code from submitting itself.
+        expect(
+          await judged([...boxes(6), submit({ group: undefined })], noSubmit({ field: "d1" })),
+        ).toMatchObject({ value: { totp: { field: { by: "id", value: "otp-1" } } } });
+      });
+
+      it("still drops a code sent to the person", async () => {
+        const outcome = await judged(boxes(6, { group: undefined }), noSubmit({ source: "sms" }));
+        expect(hasTotp(outcome)).toBe(false);
+      });
+
+      it("tells the model when to leave submit out", () => {
+        expect(completionInstructions).toContain(
+          "left out only when no button on the page submits",
+        );
+      });
     });
 
     it("drops a split code whose button is in another form", async () => {

@@ -267,7 +267,27 @@ export const LOG_EVENTS = {
       recipe: "recipe",
       recipeRevision: "count",
       pageKind: "code",
+      // Also for `confirm-unsupported`, for the evaluation of page kinds: whether an amount
+      // shows in the form, ADR 0029's E1 and E2, and the tab's previous page (ADR 0035).
+      amount: "flag",
+      e1: "flag",
+      e2: "flag",
+      previousUrl: "url",
       frame: "flag",
+      url: "url",
+    },
+  },
+  // The tab left a page logged `confirm-unsupported`: whether the person submitted its
+  // form, and for a page without E1 or E2 whether the next page shows E1 (ADR 0035).
+  "login.confirm-left": {
+    level: "info",
+    fields: {
+      origin: "origin",
+      recipe: "recipe",
+      recipeRevision: "count",
+      pageKind: "code",
+      personSubmitted: "flag",
+      nextE1: "flag",
       url: "url",
     },
   },
@@ -1174,7 +1194,14 @@ export type RecentLog = {
   updated?: { time: number; from: string };
   /** Passkey requests left to the browser in the last 24 hours, by reason. */
   passkeyDelegations: { reason: string; count: number }[];
+  /**
+   * Pages that looked like a verification but were not sent for generation in the last 24
+   * hours, by reason: a secret answer of `type="text"` or a frame (ADR 0035).
+   */
+  unsentVerifications: { reason: string; count: number }[];
 };
+/** The `recipe.generate` skip reasons of a page that looks like a verification (ADR 0035). */
+const UNSENT_VERIFICATION_REASONS: ReadonlySet<string> = new Set(["text-answer", "frame"]);
 
 export function recentLog(entries: readonly LogEntry[], now: number): RecentLog {
   const since = now - RECENT_WINDOW_MS;
@@ -1202,25 +1229,31 @@ export function recentLog(entries: readonly LogEntry[], now: number): RecentLog 
   const update = newest.find((entry) => entry.event === "runtime.updated");
   const from = update?.fields["previousBuild"];
   const delegations = new Map<string, number>();
+  const unsent = new Map<string, number>();
   for (const entry of entries) {
     const reason = entry.fields["reason"];
-    if (
-      entry.event === "passkey.request" &&
-      entry.time >= since &&
-      entry.fields["outcome"] === "delegate" &&
-      typeof reason === "string" &&
-      v.is(KIND_SCHEMAS.code, reason)
-    )
+    if (entry.time < since || typeof reason !== "string" || !v.is(KIND_SCHEMAS.code, reason))
+      continue;
+    if (entry.event === "passkey.request" && entry.fields["outcome"] === "delegate")
       delegations.set(reason, (delegations.get(reason) ?? 0) + 1);
+    if (
+      entry.event === "recipe.generate" &&
+      entry.fields["outcome"] === "skipped" &&
+      UNSENT_VERIFICATION_REASONS.has(reason)
+    )
+      unsent.set(reason, (unsent.get(reason) ?? 0) + 1);
   }
+  const byCount = (counts: Map<string, number>) =>
+    [...counts]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .slice(0, RECENT_DELEGATION_REASONS)
+      .map(([reason, count]) => ({ reason, count }));
   return {
     problems,
     ...(update && typeof from === "string" && v.is(KIND_SCHEMAS.revision, from)
       ? { updated: { time: update.time, from } }
       : {}),
-    passkeyDelegations: [...delegations]
-      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-      .slice(0, RECENT_DELEGATION_REASONS)
-      .map(([reason, count]) => ({ reason, count })),
+    passkeyDelegations: byCount(delegations),
+    unsentVerifications: byCount(unsent),
   };
 }

@@ -117,6 +117,8 @@ export function createClaudeGenerationModel(
   options: ClaudeCredential & {
     /** Another model: the benchmark's, or one of the owner's choices in the service. */
     choice?: ClaudeModelChoice;
+    /** Runs before each request is sent, never for one a role refuses before sending. */
+    beforeRequest?: () => Promise<void>;
     /** Test seam only. */
     fetch?: typeof globalThis.fetch;
   },
@@ -134,20 +136,37 @@ export function createClaudeGenerationModel(
     ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
   });
   const choice = options.choice ?? claudeGeneration;
-  return wrapLanguageModel({
-    model: provider(choice.modelId),
-    middleware: defaultSettingsMiddleware({
-      settings: {
-        providerOptions: {
-          anthropic: {
-            effort: choice.effort,
-            ...("speed" in choice && choice.speed === "fast" ? { speed: "fast" } : {}),
-            // Opus 5.5 rejects the forced tool call of the JSON-tool mode.
-            structuredOutputMode: "outputFormat",
-          },
+  const { beforeRequest } = options;
+  const settings = defaultSettingsMiddleware({
+    settings: {
+      providerOptions: {
+        anthropic: {
+          effort: choice.effort,
+          ...("speed" in choice && choice.speed === "fast" ? { speed: "fast" } : {}),
+          // Opus 5.5 rejects the forced tool call of the JSON-tool mode.
+          structuredOutputMode: "outputFormat",
         },
       },
-    }),
+    },
+  });
+  return wrapLanguageModel({
+    model: provider(choice.modelId),
+    middleware:
+      beforeRequest === undefined
+        ? settings
+        : [
+            settings,
+            {
+              wrapGenerate: async ({ doGenerate }) => {
+                await beforeRequest();
+                return doGenerate();
+              },
+              wrapStream: async ({ doStream }) => {
+                await beforeRequest();
+                return doStream();
+              },
+            },
+          ],
   });
 }
 

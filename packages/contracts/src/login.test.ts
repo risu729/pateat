@@ -46,6 +46,7 @@ import {
   parseLoginOperation,
   parseLoginRecipe,
   resolveLoginPlan,
+  type ChooserClick,
   type LoginAccountBinding,
   type LoginRecipe,
   type LoginTarget,
@@ -962,6 +963,26 @@ describe("second-factor page handlers (ADR 0027)", () => {
             expiresAt: 15_000,
           }).step,
         ).toEqual(step);
+    });
+
+    it("types the code as its submission when the page shows no button (#916)", () => {
+      const { target: _, ...buttonless } = code();
+      const parsed = parseLoginRecipe(withHandlers([buttonless])).handlers![0]!;
+      expect(parsed).toEqual({
+        kind: "totp",
+        path: "/two-factor",
+        field: { by: "id", value: "otp" },
+      });
+      expect(handlerTargets(parsed)).toEqual([{ by: "id", value: "otp" }]);
+      expect(handlerSteps(parsed)).toEqual([
+        {
+          kind: "fill",
+          path: "/two-factor",
+          fields: [{ slot: "totp", target: { by: "id", value: "otp" } }],
+          effect: "submit",
+          event: "input",
+        },
+      ]);
     });
   });
 
@@ -2705,6 +2726,82 @@ describe("chooser recipes (ADR 0028)", () => {
       revision: 2,
     });
     expect(chooserRoute(elsewhere, "other-shown")).toBeUndefined();
+  });
+
+  it("never holds a branch whose route with the click on the list is no recipe", () => {
+    const base = v.parse(
+      loginChooserRecipeSchema,
+      chooser({ continue: { by: "text", value: "Log back in" } }),
+    );
+    const clickStep = (index: number, purpose: "advance" | "submit" = "advance") => ({
+      kind: "click" as const,
+      path: `/page-${index}`,
+      target: { by: "id" as const, value: `next-${index}` },
+      purpose,
+    });
+    const password = (index: number) => ({
+      kind: "fill" as const,
+      effect: "prepare" as const,
+      path: `/page-${index}`,
+      fields: [{ slot: "password", target: { by: "id" as const, value: "password" } }],
+    });
+    const branch = (steps: LoginRecipe["steps"], maxSubmissions: number, extra = {}) => ({
+      ...recipe(),
+      slots: ["password"],
+      steps,
+      maxSubmissions,
+      ...extra,
+    });
+    // As many effects as a recipe may have: the click on the list adds one more.
+    const effects = (count: number) =>
+      branch(
+        [
+          password(0),
+          ...Array.from({ length: count }, (_, index) =>
+            clickStep(index, index === count - 1 ? "submit" : "advance"),
+          ),
+        ],
+        count,
+      );
+    // As many steps as a recipe may have: the click on the list adds one more.
+    const steps = (count: number) =>
+      branch(
+        [
+          ...Array.from({ length: count - 1 }, (_, index) => password(index)),
+          clickStep(count - 1, "submit"),
+        ],
+        1,
+      );
+    // A marker on the button the login clicks on the list would prove the sign-in there.
+    const marked = (target: LoginTarget) =>
+      branch([password(0), clickStep(0, "submit")], 1, {
+        completion: [{ target }],
+      });
+    const cases: [ChooserClick, ReturnType<typeof branch>][] = [
+      ["entry", effects(8)],
+      ["other", effects(8)],
+      ["entry", steps(32)],
+      ["other", steps(32)],
+      ["entry", marked(CHOOSER_ENTRY_TARGET)],
+      ["continue", marked(base.chooser.continue!)],
+      ["other", marked(base.chooser.other!)],
+    ];
+    for (const [click, invalid] of cases) {
+      expect(v.is(loginRecipeSchema, invalid)).toBe(true);
+      const held = withChooserBranch(base, chooserClickBranch(click), invalid);
+      expect(chooserRoute(held, click)).toBeUndefined();
+      expect
+        .soft(v.is(loginChooserRecipeSchema, held), `${click} after ${invalid.steps.length} steps`)
+        .toBe(false);
+      expect.soft(v.is(storedLoginRecipeSchema, held)).toBe(false);
+    }
+    // One effect or step fewer runs with the click.
+    for (const member of ["account", "other"] as const)
+      for (const valid of [effects(7), steps(31), marked({ by: "id", value: "signed-in" })]) {
+        const held = withChooserBranch(base, member, valid);
+        expect(v.is(loginChooserRecipeSchema, held)).toBe(true);
+        expect(chooserRoute(held, member === "account" ? "entry" : "other")).toBeDefined();
+      }
   });
 });
 
