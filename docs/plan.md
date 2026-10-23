@@ -2419,15 +2419,16 @@ errors, p50/p95 latency and usage. Fake-provider tests cover malformed output,
 nonexistent targets, malformed probabilities, refusal, truncation, timeout, rate limits,
 oversized and incomplete inputs and the absence of fallback.
 
-[ADR 0014](adr/0014-claude-generation-provider.md) selects `claude-opus-5-5` at effort
-`low` through `@ai-sdk/anthropic` for the generation/repair role; the finite-choice role
-has no provider yet. `createClaudeGenerationModel` in
-`packages/inference/src/providers/claude.ts` builds that model, and
+[ADR 0014](adr/0014-claude-generation-provider.md) selects `claude-sonnet-5-5` for the
+generation/repair role and `claude-opus-5-5` for the sign-in judge, both at effort `low`
+through `@ai-sdk/anthropic` (Opus 5.5 did both until 2026-10-23); the finite-choice role
+has no provider yet. `createClaudeModel` in `packages/inference/src/providers/claude.ts`
+builds each role's model from `claudeRoles`, and
 `mise run //packages/inference:bench --paid` runs the generation role over the corpus
-with the local value check. It stops before a case that could take the estimated
-spend past `--max-cost-usd` (default 2) and still prints the cases already run, the
-estimated cost and the model IDs the API reported serving. In cloud sessions the key is
-provided as the environment variable `PATEAT_ANTHROPIC_API_KEY`, because the name
+with the local value check. It stops before a case that could take the estimated spend
+past `--max-cost-usd` (default 2) and still prints the cases already run, the estimated
+cost and the model IDs the API reported serving. In cloud sessions the key is provided
+as the environment variable `PATEAT_ANTHROPIC_API_KEY`, because the name
 `ANTHROPIC_API_KEY` is withheld from sessions; run:
 
 ```sh

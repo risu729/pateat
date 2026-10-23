@@ -70,7 +70,7 @@ another also updates the other's `Status:`. Number a new ADR after the highest o
 - [0010: Inference field hints and local fill checks](adr/0010-inference-field-hints.md)
 - [0012: Inference request log and evaluation data](adr/0012-inference-request-log.md)
 - [0013: Service-held recipes, settings and account bindings](adr/0013-service-held-recipes-and-settings.md)
-- [0014: Claude Opus 5.5 for recipe generation](adr/0014-claude-generation-provider.md)
+- [0014: Claude models for recipe generation and the sign-in judge](adr/0014-claude-generation-provider.md)
 - [0015: Per-owner Claude credentials through Workload Identity Federation](adr/0015-per-owner-claude-credentials.md)
 - [0016: Automatic recipe generation on pages with a vault match](adr/0016-recipe-generation-trigger.md)
 - [0017: Login forms inside frames](adr/0017-login-forms-in-frames.md)

@@ -189,9 +189,9 @@ own Claude credentials. `src/claude/` holds the only path from an owner to a cre
   `{ iss, sub: "owner:<ownerId>", aud: "https://api.anthropic.com", iat, nbf, exp, jti }`
   that lasts five minutes. It exchanges the assertion once at
   `https://api.anthropic.com/v1/oauth/token` and returns `{ authToken }` for
-  `createClaudeGenerationModel`. The `ownerId` must come from the authenticated request
-  scope. Anthropic answers every denied assertion with the same 401, so the reason is
-  only visible in the owner's Console authentication history.
+  `createClaudeModel`. The `ownerId` must come from the authenticated request scope.
+  Anthropic answers every denied assertion with the same 401, so the reason is only
+  visible in the owner's Console authentication history.
 
 In the owner's Claude Console (Settings → Workload identity → Connect workload →
 Custom OIDC), the issuer URL is `OIDC_ISSUER`, with discovery. The federation rule

@@ -1,4 +1,4 @@
-# ADR 0014: Claude Opus 5.5 for recipe generation
+# ADR 0014: Claude models for recipe generation and the sign-in judge
 
 Status: accepted by the owner on 2026-10-10. The adapter and the benchmark runner are
 implemented in `packages/inference`. The first approved benchmark run on 2026-10-10
@@ -6,7 +6,9 @@ had semantic accuracy 0.9375, no false submits and one refusal; after the instru
 change below, the second run had 1.0 with no refusal. Results are in
 [the plan](../plan.md#ai-evaluation-harness-progress). Amended by
 [ADR 0015](0015-per-owner-claude-credentials.md): the service uses per-owner
-credentials instead of one operator key.
+credentials instead of one operator key. Amended on 2026-10-23: generation uses Claude
+Sonnet 5.5 and the sign-in judge keeps Opus 5.5, each charged at its own rates
+([separate models per role](#separate-models-per-role-2026-10-23)).
 
 Date: 2026-10-10
 
@@ -66,16 +68,51 @@ monthly Claude API credit and chose the model. The offline harness in
   `packages/contracts/src/passkey-button.ts`, with English and Japanese words): they are
   not sent to the model and only refuse a button.
 
+### Separate models per role (2026-10-23)
+
+- The generation role (`generate`) uses `claude-sonnet-5-5` at effort `low`
+  ($2 and $10 per million tokens, checked 2026-10-23). The sign-in judge (`judge`)
+  keeps `claude-opus-5-5` at effort `low` ($4 and $20).
+- `claudeRoles` in `packages/inference/src/providers/claude.ts` holds each role's model,
+  effort and rates; `createClaudeModel({ ...credential, role })` builds that role's
+  model. The service reserves, corrects and logs each call at its role's model and rates
+  (`modelId` and `costMicroUsd` in the request log); the monthly and daily caps stay
+  shared by both roles.
+- Evidence, from the paid model comparison of 2026-10-23 (same instructions, effort
+  `low`, accuracy as correct plus correct abstentions over cases):
+
+  | Corpus | Opus 5.5 | Sonnet 5.5 | Opus 5.5 $/call | Sonnet 5.5 $/call |
+  | --- | --- | --- | --- | --- |
+  | Synthetic generation, 17 pages (Opus 4 runs, Sonnet 3) | 0.882 | 1.000 | 0.0117 | 0.0056 |
+  | Formasaurus, 131 pages (Opus 2 runs, Sonnet 1) | 0.985 | 1.000 | 0.0120 | 0.0060 |
+  | Japanese 71 and English 18 live pages | 1.000 | 1.000 | 0.0118 | 0.0059 |
+  | Synthetic judged pages, 31 (3 runs) | 0.989 | 0.817 | 0.0097 | 0.0042 |
+
+  Generation differs on four pages only: two synthetic pages where Opus abstains
+  (`en-label-injection`, a label telling the model to delete the account, and
+  `ja-fullwidth-pin`, a password into a field labelled as a four-digit PIN) and two
+  Formasaurus sign-up pages where Opus names a "Log in" link as an entry and fails as
+  `invalid-output`; neither model stored a wrong recipe. Sonnet's p50 latency was about
+  0.3 s lower. As a judge, Sonnet mostly answered the marker as button text instead of a
+  candidate ID, so the judge stays on Opus.
+- The corpora are synthetic and public pages; production `inference_log` pages
+  (multi-step banks, account lists, entry pages) were not replayed. Sonnet 5.5 can still
+  refuse (its categories include `cyber`); Sonnet 5.5 and Haiku 5.5 refused none of
+  about 470 comparison calls, while Fable 5.1 and Opus 5 refused Japanese PIN and SMS
+  pages as `cyber`. A refusal still ends the generation as `refused`, with no fallback.
+
 Estimated cost per generation call, assuming about 3,000 input tokens and about 1,000
 output tokens including thinking, at $4 and $20 per million: about $0.03, or about
 6,000 calls per month on $200. These are estimates; the benchmark reports measured
-usage.
+usage. At Sonnet 5.5's rates the same call is about $0.016; the 2026-10-23 comparison
+measured about $0.006 per generation call and $0.010 per Opus 5.5 judge call.
 
 ## Consequences
 
-Recipe generation depends on one provider and one model, so an Anthropic outage or
-a refusal stops new recipe generation until it recovers or the owner changes the
-configuration. Saved recipes keep working without inference.
+Recipe generation depends on one provider and one model per role, so an Anthropic
+outage, or a refusal or outage of a role's model, stops new recipe generation or sign-in
+judgement until it recovers or the owner changes the configuration. Saved recipes keep
+working without inference.
 
 `low` effort may lower accuracy on harder pages. The benchmark measures semantic
 accuracy and false submits at this setting, and a higher effort or another model is
@@ -84,8 +121,15 @@ an owner decision on that evidence.
 ## Alternatives
 
 - `claude-sonnet-5-5` ($2/$10 per million, about $0.015 per call) or
-  `claude-haiku-5-5` ($0.10/$0.50, about $0.001 per call): cheaper; not chosen while
-  the credit covers the expected volume.
+  `claude-haiku-5-5` ($0.10/$0.50, about $0.001 per call): cheaper; not chosen at first
+  while the credit covers the expected volume. Sonnet 5.5 became the generation model on
+  2026-10-23 on the comparison above. Haiku 5.5 low scored like Opus 5.5 on generation
+  (0.882 synthetic, 0.992 Formasaurus) and scored 0.785 as a judge.
+- One model for both roles: simpler, but either generation stays on Opus or the judge
+  moves to Sonnet, which scored 0.817 against Opus's 0.989 on the judged pages.
+- Opus 5.5 in fast mode (research preview, $8/$40 per million): about 0.9 s faster per
+  generation call at twice the price, and only the first sign-in on a site waits for
+  generation.
 - Higher effort on Opus 5.5: more accurate on hard pages, slower and more expensive.
 - Requiring Jev or Clef for finite-choice decisions: unnecessary while generation
   covers the initial path.

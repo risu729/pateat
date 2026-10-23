@@ -45,7 +45,8 @@ const TOKEN_URL = "https://api.anthropic.com/v1/oauth/token";
 const MESSAGES_URL = "https://api.anthropic.com/v1/messages";
 const ORIGIN = "https://shop.example.test";
 const DAY_MS = 24 * 60 * 60 * 1000;
-const RESERVED = 64 * 1024 * 4 + 8_192 * 20;
+// The reservation of a generation call at Sonnet 5.5's rates ($2 and $10 per million).
+const RESERVED = 64 * 1024 * 2 + 8_192 * 10;
 
 const slots: SemanticSlot[] = [
   { id: "email", kind: "identifier", description: "account email address" },
@@ -397,7 +398,7 @@ describe("recipe generation", () => {
     ).toEqual([1, 2, 3].map((revision) => ({ revision, created_by_device_id: device.deviceId })));
 
     const log = await rows(
-      "SELECT role, origin, path, outcome, input_tokens, output_tokens, cost_micro_usd, request, result FROM inference_log WHERE owner_id = ? ORDER BY created_at",
+      "SELECT role, model_id, origin, path, outcome, input_tokens, output_tokens, cost_micro_usd, request, result FROM inference_log WHERE owner_id = ? ORDER BY created_at",
       device.ownerId,
     );
     // The request answered with the stored recipe is logged too, at no cost.
@@ -408,8 +409,16 @@ describe("recipe generation", () => {
       ["judge", "/home", "ok"],
     ]);
     expect(log[1]).toMatchObject({ input_tokens: null, output_tokens: null, cost_micro_usd: 0 });
+    // Each role is charged and logged at its own model (ADR 0014).
     expect(log[0]).toMatchObject({
+      model_id: "claude-sonnet-5-5",
       origin: ORIGIN,
+      input_tokens: 3_000,
+      output_tokens: 900,
+      cost_micro_usd: 3_000 * 2 + 900 * 10,
+    });
+    expect(log[3]).toMatchObject({
+      model_id: "claude-opus-5-5",
       input_tokens: 3_000,
       output_tokens: 900,
       cost_micro_usd: 3_000 * 4 + 900 * 20,
@@ -424,8 +433,8 @@ describe("recipe generation", () => {
       device.ownerId,
     );
     expect(spend).toEqual([
-      { period: month(), calls: 3, cost_micro_usd: 90_000 },
-      { period: day(), calls: 3, cost_micro_usd: 90_000 },
+      { period: month(), calls: 3, cost_micro_usd: 60_000 },
+      { period: day(), calls: 3, cost_micro_usd: 60_000 },
     ]);
     expect(await rows("SELECT * FROM inference_locks WHERE owner_id = ?", device.ownerId)).toEqual(
       [],
@@ -729,7 +738,7 @@ describe("recipe generation", () => {
           device.ownerId,
         ),
       ).toEqual([
-        { outcome: "ok", input_tokens: 3_000, output_tokens: 900, cost_micro_usd: 30_000 },
+        { outcome: "ok", input_tokens: 3_000, output_tokens: 900, cost_micro_usd: 15_000 },
       ]);
       expect(
         await rows(
@@ -737,8 +746,8 @@ describe("recipe generation", () => {
           device.ownerId,
         ),
       ).toEqual([
-        { period: month(), calls: 1, cost_micro_usd: 30_000 },
-        { period: day(), calls: 1, cost_micro_usd: 30_000 },
+        { period: month(), calls: 1, cost_micro_usd: 15_000 },
+        { period: day(), calls: 1, cost_micro_usd: 15_000 },
       ]);
       expect(
         await rows("SELECT lock_id FROM inference_locks WHERE owner_id = ?", device.ownerId),

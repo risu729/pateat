@@ -44,9 +44,10 @@ export {
   type HandlerRejection,
 } from "./assemble";
 export {
-  claudeGeneration,
   claudeRefusalCategory,
-  createClaudeGenerationModel,
+  claudeRoles,
+  createClaudeModel,
   estimateClaudeCostUsd,
   type ClaudeCredential,
+  type ClaudeRole,
 } from "./providers/claude";

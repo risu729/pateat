@@ -5,8 +5,8 @@ import {
   type RecipeGenerationResult,
 } from "@pateat/contracts";
 import {
-  claudeGeneration,
-  createClaudeGenerationModel,
+  claudeRoles,
+  createClaudeModel,
   estimateClaudeCostUsd,
   outputRejection,
   unknownUsage,
@@ -54,18 +54,18 @@ export const CLAUDE_CALL_LIMITS = {
 };
 
 /**
- * Charged before each call and corrected afterwards, so a request that never finishes
- * still counts. Usage the provider does not report keeps this upper bound: a request
- * holds at most `maxInputBytes` tokens.
+ * Charged before each call at its role's rates and corrected afterwards, so a request
+ * that never finishes still counts. Usage the provider does not report keeps this upper
+ * bound: a request holds at most `maxInputBytes` tokens.
  */
-const RESERVED_MICRO_USD =
-  ROLE_LIMITS.maxInputBytes * claudeGeneration.rates.input +
-  MAX_OUTPUT_TOKENS * claudeGeneration.rates.output;
+const reservedMicroUsd = (role: ClaudeCall<unknown>["role"]) =>
+  ROLE_LIMITS.maxInputBytes * claudeRoles[role].rates.input +
+  MAX_OUTPUT_TOKENS * claudeRoles[role].rates.output;
 
 type Db = DrizzleD1Database<Record<string, never>>;
 const DAY_MS = 24 * 60 * 60 * 1000;
 type CallEnv = { DB: D1Database; OIDC_ISSUER?: string; OIDC_SIGNING_KEYS?: string };
-type ClaudeModel = ReturnType<typeof createClaudeGenerationModel>;
+type ClaudeModel = ReturnType<typeof createClaudeModel>;
 type RecipePage = (typeof inferenceLogRecipePages)[number];
 
 export type ClaudeCall<T> = {
@@ -498,16 +498,17 @@ async function runCall<T>(
 
     const now = Date.now();
     const [month, day] = periods(now);
+    const reserved = reservedMicroUsd(call.role);
     await db.batch([
-      addSpend(db, ownerId, month, 1, RESERVED_MICRO_USD),
-      addSpend(db, ownerId, day, 1, RESERVED_MICRO_USD),
+      addSpend(db, ownerId, month, 1, reserved),
+      addSpend(db, ownerId, day, 1, reserved),
       ...(call.reserved?.(db, now) ?? []),
     ]);
 
     let outcome: InferenceOutcome<T>;
     const modelStart = Date.now();
     try {
-      outcome = await call.invoke(createClaudeGenerationModel(credential.credential));
+      outcome = await call.invoke(createClaudeModel({ ...credential.credential, role: call.role }));
     } catch {
       // The roles return their errors; this only guards the reservation's correction.
       outcome = { status: "failed", error: "provider-error", calls: 1, usage: unknownUsage };
@@ -518,18 +519,18 @@ async function runCall<T>(
       tokenMs,
       modelMs: Date.now() - modelStart,
     };
-    const estimate = estimateClaudeCostUsd(outcome.usage);
+    const estimate = estimateClaudeCostUsd(outcome.usage, call.role);
     const micro =
       outcome.calls === 0
         ? 0
         : estimate === undefined
-          ? RESERVED_MICRO_USD * outcome.calls
+          ? reserved * outcome.calls
           : Math.ceil(estimate * 1_000_000);
     const finished = Date.now();
     const corrections = [
       // The reservation's own periods, even when the call ended on the next UTC day.
-      addSpend(db, ownerId, month, outcome.calls - 1, micro - RESERVED_MICRO_USD),
-      addSpend(db, ownerId, day, outcome.calls - 1, micro - RESERVED_MICRO_USD),
+      addSpend(db, ownerId, month, outcome.calls - 1, micro - reserved),
+      addSpend(db, ownerId, day, outcome.calls - 1, micro - reserved),
     ] as const;
     // A request the role refused locally was never sent: its route logs it (ADR 0012).
     if (outcome.calls === 0) {
@@ -553,7 +554,7 @@ async function runCall<T>(
         ownerId,
         role: call.role,
         provider: "anthropic",
-        modelId: claudeGeneration.modelId,
+        modelId: claudeRoles[call.role].modelId,
         promptVersion: call.promptVersion,
         origin: call.origin,
         path: call.path,

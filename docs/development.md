@@ -960,7 +960,7 @@ role uses `experimental_decide` from the approved AI SDK (no added dependency or
 provider); its contract may change in patch releases, so the
 `ai` version stays exact and its tests guard answer validation. A Clef or Jev adapter
 implements that `doDecide` contract or replaces it with a direct typed adapter if the
-contract loses provider semantics. `createClaudeGenerationModel` passes the key
+contract loses provider semantics. `createClaudeModel` passes the key
 explicitly and pins the API host, so `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL` in
 the environment are never read by the adapter. `@ai-sdk/anthropic` stays exact and
 version-matched to `ai`.

@@ -2,9 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { evaluationCorpus } from "../corpus/cases";
 import { createRecipeGenerator } from "../generation";
 import {
-  claudeGeneration,
   claudeRefusalCategory,
-  createClaudeGenerationModel,
+  claudeRoles,
+  createClaudeModel,
   estimateClaudeCostUsd,
 } from "./claude";
 
@@ -27,7 +27,7 @@ function fakeClaude(reply: { text: string; stopReason?: string; stopDetails?: un
       id: "msg_synthetic",
       type: "message",
       role: "assistant",
-      model: claudeGeneration.modelId,
+      model: claudeRoles.generate.modelId,
       content: [
         { type: "thinking", thinking: "", signature: "synthetic" },
         { type: "text", text: reply.text },
@@ -63,7 +63,7 @@ describe("Claude generation adapter", () => {
     vi.stubEnv("ANTHROPIC_API_KEY", "sk-ant-from-environment");
     const { sent, fetch } = fakeClaude({ text: groundTruth() });
     const generate = createRecipeGenerator({
-      model: createClaudeGenerationModel({ apiKey: syntheticKey, fetch }),
+      model: createClaudeModel({ apiKey: syntheticKey, role: "generate", fetch }),
       limits,
       maxOutputTokens: 4_096,
     });
@@ -77,7 +77,7 @@ describe("Claude generation adapter", () => {
     expect(request!.url).toBe("https://api.anthropic.com/v1/messages");
     expect(request!.headers.get("x-api-key")).toBe(syntheticKey);
     expect(request!.body).toMatchObject({
-      model: "claude-opus-5-5",
+      model: "claude-sonnet-5-5",
       max_tokens: 4_096,
       output_config: { effort: "low", format: { type: "json_schema" } },
     });
@@ -85,11 +85,30 @@ describe("Claude generation adapter", () => {
       expect(request!.body).not.toHaveProperty(absent);
   });
 
+  it("sends each role's own model at effort low", async () => {
+    const sentBy = async (role: "generate" | "judge") => {
+      const { sent, fetch } = fakeClaude({ text: groundTruth() });
+      const generate = createRecipeGenerator({
+        model: createClaudeModel({ apiKey: syntheticKey, role, fetch }),
+        limits,
+        maxOutputTokens: 4_096,
+      });
+      await generate({ observation: page.observation, slots: page.slots });
+      return sent[0]!.body;
+    };
+    const [generation, judgement] = await Promise.all([sentBy("generate"), sentBy("judge")]);
+    expect(generation).toMatchObject({
+      model: "claude-sonnet-5-5",
+      output_config: { effort: "low" },
+    });
+    expect(judgement).toMatchObject({ model: "claude-opus-5-5", output_config: { effort: "low" } });
+  });
+
   it("returns a refusal as refused with its category code and no other attempt", async () => {
     const generateWith = (stopDetails: unknown) => {
       const claude = fakeClaude({ text: "", stopReason: "refusal", stopDetails });
       const generate = createRecipeGenerator({
-        model: createClaudeGenerationModel({ apiKey: syntheticKey, fetch: claude.fetch }),
+        model: createClaudeModel({ apiKey: syntheticKey, role: "generate", fetch: claude.fetch }),
         limits,
         maxOutputTokens: 4_096,
         refusalCategory: claudeRefusalCategory,
@@ -127,7 +146,7 @@ describe("Claude generation adapter", () => {
   it("tells the model whose credentials these are and that values stay local", async () => {
     const { sent, fetch } = fakeClaude({ text: groundTruth() });
     const generate = createRecipeGenerator({
-      model: createClaudeGenerationModel({ apiKey: syntheticKey, fetch }),
+      model: createClaudeModel({ apiKey: syntheticKey, role: "generate", fetch }),
       limits,
       maxOutputTokens: 4_096,
     });
@@ -144,7 +163,7 @@ describe("Claude generation adapter", () => {
     vi.stubEnv("ANTHROPIC_API_KEY", "sk-ant-from-environment");
     const { sent, fetch } = fakeClaude({ text: groundTruth() });
     const generate = createRecipeGenerator({
-      model: createClaudeGenerationModel({ authToken: "sk-ant-oat01-synthetic", fetch }),
+      model: createClaudeModel({ authToken: "sk-ant-oat01-synthetic", role: "generate", fetch }),
       limits,
       maxOutputTokens: 4_096,
     });
@@ -159,18 +178,23 @@ describe("Claude generation adapter", () => {
 
   it("requires exactly one non-empty credential", () => {
     vi.stubEnv("ANTHROPIC_API_KEY", "sk-ant-from-environment");
-    expect(() => createClaudeGenerationModel({ apiKey: " " })).toThrow();
-    expect(() => createClaudeGenerationModel({ authToken: " " })).toThrow();
+    expect(() => createClaudeModel({ apiKey: " ", role: "generate" })).toThrow();
+    expect(() => createClaudeModel({ authToken: " ", role: "judge" })).toThrow();
     expect(() =>
-      createClaudeGenerationModel({
+      createClaudeModel({
         authToken: "sk-ant-oat01-synthetic",
         apiKey: syntheticKey,
-      } as unknown as { authToken: string }),
+        role: "generate",
+      } as unknown as { authToken: string; role: "generate" }),
     ).toThrow(TypeError);
   });
 
-  it("estimates cost only from fully reported usage", () => {
-    expect(estimateClaudeCostUsd({ inputTokens: 3_000, outputTokens: 1_000 })).toBeCloseTo(0.032);
-    expect(estimateClaudeCostUsd({ inputTokens: 3_000, outputTokens: null })).toBeUndefined();
+  it("estimates cost at the role's rates only from fully reported usage", () => {
+    const usage = { inputTokens: 3_000, outputTokens: 1_000 };
+    expect(estimateClaudeCostUsd(usage, "generate")).toBeCloseTo(0.016);
+    expect(estimateClaudeCostUsd(usage, "judge")).toBeCloseTo(0.032);
+    expect(
+      estimateClaudeCostUsd({ inputTokens: 3_000, outputTokens: null }, "judge"),
+    ).toBeUndefined();
   });
 });

@@ -4,9 +4,9 @@ import { evaluateRole, type EvaluationReport } from "./evaluate";
 import { asPagePlan, createRecipeGenerator } from "./generation";
 import { heuristicPlan } from "./heuristic";
 import {
-  claudeGeneration,
   claudeRefusalCategory,
-  createClaudeGenerationModel,
+  claudeRoles,
+  createClaudeModel,
   estimateClaudeCostUsd,
 } from "./providers/claude";
 
@@ -15,16 +15,16 @@ const limits = { timeoutMs: 60_000, maxInputBytes: 64 * 1024, maxRetries: 0 };
 const maxOutputTokens = 8_192;
 // Charged for each call whose usage was not reported, so the cap still holds. Treats
 // every input byte as a token, which overstates real token counts.
+const generation = claudeRoles.generate;
 const worstCaseCallUsd =
-  (limits.maxInputBytes * claudeGeneration.rates.input +
-    maxOutputTokens * claudeGeneration.rates.output) /
+  (limits.maxInputBytes * generation.rates.input + maxOutputTokens * generation.rates.output) /
   1_000_000;
 const maxCallsPerCase = limits.maxRetries + 1;
 
 export type ClaudeBenchmarkReport = {
-  model: typeof claudeGeneration.modelId;
-  effort: typeof claudeGeneration.effort;
-  rates: typeof claudeGeneration.rates;
+  model: typeof generation.modelId;
+  effort: typeof generation.effort;
+  rates: typeof generation.rates;
   /** Model IDs the API reported serving, to show that no other model answered. */
   servedModels: string[];
   /** Estimated from reported usage; calls without usage count at the worst case. */
@@ -48,8 +48,9 @@ export async function runClaudeBenchmark(options: {
     throw new RangeError("Set a cost cap between 0 and 10 USD");
   const servedModels = new Set<string>();
   const model = wrapLanguageModel({
-    model: createClaudeGenerationModel({
+    model: createClaudeModel({
       apiKey: options.apiKey,
+      role: "generate",
       ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
     }),
     middleware: {
@@ -74,14 +75,14 @@ export async function runClaudeBenchmark(options: {
     shouldRun: () => spent + maxCallsPerCase * worstCaseCallUsd <= options.maxCostUsd,
     run: async (testCase) => {
       const outcome = await generate({ observation: testCase.observation, slots: testCase.slots });
-      spent += estimateClaudeCostUsd(outcome.usage) ?? outcome.calls * worstCaseCallUsd;
+      spent += estimateClaudeCostUsd(outcome.usage, "generate") ?? outcome.calls * worstCaseCallUsd;
       return asPagePlan(outcome);
     },
   });
   return {
-    model: claudeGeneration.modelId,
-    effort: claudeGeneration.effort,
-    rates: claudeGeneration.rates,
+    model: generation.modelId,
+    effort: generation.effort,
+    rates: generation.rates,
     servedModels: [...servedModels],
     estimatedCostUsd: spent,
     report,

@@ -3,13 +3,24 @@ import { defaultSettingsMiddleware, wrapLanguageModel } from "ai";
 import * as v from "valibot";
 import type { InferenceUsage } from "../outcome";
 
-/** The owner-selected generation configuration (ADR 0014). */
-export const claudeGeneration = {
-  modelId: "claude-opus-5-5",
-  effort: "low",
-  /** USD per million tokens, as published on the date checked; output includes thinking. */
-  rates: { input: 4, output: 20, checked: "2026-10-10" },
-} as const;
+/** USD per million tokens, as published on the date checked; output includes thinking. */
+export type ClaudeRates = { input: number; output: number; checked: string };
+
+/** The owner-selected model, effort and rates of each role (ADR 0014). */
+export const claudeRoles = {
+  generate: {
+    modelId: "claude-sonnet-5-5",
+    effort: "low",
+    rates: { input: 2, output: 10, checked: "2026-10-23" },
+  },
+  judge: {
+    modelId: "claude-opus-5-5",
+    effort: "low",
+    rates: { input: 4, output: 20, checked: "2026-10-10" },
+  },
+} as const satisfies Record<string, { modelId: string; effort: string; rates: ClaudeRates }>;
+
+export type ClaudeRole = keyof typeof claudeRoles;
 
 // Pinned so ANTHROPIC_BASE_URL in the environment can never redirect the key elsewhere.
 const anthropicBaseUrl = "https://api.anthropic.com/v1";
@@ -23,12 +34,14 @@ const credentialValue = v.pipe(v.string(), v.trim(), v.nonEmpty());
 export type ClaudeCredential = { apiKey: string } | { authToken: string };
 
 /**
- * Builds the Claude model for `createRecipeGenerator`. The credential is passed
- * explicitly and never read from the environment. Server-side `fallbacks` stay unset: a
- * failure of this model is returned as an error, never retried on another model.
+ * Builds the Claude model of one role, for `createRecipeGenerator` (`generate`) or
+ * `createCompletionJudge` (`judge`). The credential is passed explicitly and never read
+ * from the environment. Server-side `fallbacks` stay unset: a failure of this model is
+ * returned as an error, never retried on another model.
  */
-export function createClaudeGenerationModel(
+export function createClaudeModel(
   options: ClaudeCredential & {
+    role: ClaudeRole;
     /** Test seam only. */
     fetch?: typeof globalThis.fetch;
   },
@@ -45,13 +58,14 @@ export function createClaudeGenerationModel(
     baseURL: anthropicBaseUrl,
     ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
   });
+  const { modelId, effort } = claudeRoles[options.role];
   return wrapLanguageModel({
-    model: provider(claudeGeneration.modelId),
+    model: provider(modelId),
     middleware: defaultSettingsMiddleware({
       settings: {
         providerOptions: {
           anthropic: {
-            effort: claudeGeneration.effort,
+            effort,
             // Opus 5.5 rejects the forced tool call of the JSON-tool mode.
             structuredOutputMode: "outputFormat",
           },
@@ -69,9 +83,12 @@ export function claudeRefusalCategory(providerMetadata: unknown): string | undef
   return typeof category === "string" ? category : undefined;
 }
 
-/** Estimated cost from reported usage at the checked rates; undefined when usage is unknown. */
-export function estimateClaudeCostUsd(usage: InferenceUsage): number | undefined {
+/**
+ * Estimated cost from reported usage at the role's checked rates; undefined when usage is
+ * unknown.
+ */
+export function estimateClaudeCostUsd(usage: InferenceUsage, role: ClaudeRole): number | undefined {
   if (usage.inputTokens === null || usage.outputTokens === null) return undefined;
-  const { input, output } = claudeGeneration.rates;
+  const { input, output } = claudeRoles[role].rates;
   return (usage.inputTokens * input + usage.outputTokens * output) / 1_000_000;
 }
