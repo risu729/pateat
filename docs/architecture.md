@@ -2113,7 +2113,9 @@ that shows such an input cannot become the completion. A script button is a cont
 scripts make clickable: a script link, or another element with `role="button"`, but
 never a form control or anything inside an `<a href>`. A script link is an `<a>` without
 `href` that has an `onclick` attribute or `role="button"`, such as
-`<a id="login" onclick="document.loginForm.submit()">`, or an `<a href>` that runs a
+`<a id="login" onclick="document.loginForm.submit()">`, or shows a pointer cursor (CSS
+`cursor: pointer`), such as IIJmio's `<a class="pink_btn">ログイン</a>`, whose script
+listener leaves no attribute (2026-10-23, agent change), or an `<a href>` that runs a
 script instead of following the link: a `javascript:` URL (or a `data:` or `vbscript:`
 one, which Chrome never follows from a page), such as
 `<a href="javascript:;" onclick="login()">ログイン</a>`, or an empty or fragment-only

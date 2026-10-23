@@ -178,6 +178,14 @@ describe("isScriptButton", () => {
     ]);
   });
 
+  it("accepts a link without href that shows a pointer cursor, as IIJmio's login", () => {
+    document.body.innerHTML = `<style>.btn { cursor: pointer }</style>
+      <a id="a" class="btn">ログイン</a><a id="b">ログイン</a><a id="c" href="#" class="btn">Top</a>
+      <a id="d" href="/help" class="btn">Help</a>`;
+    const script = (id: string) => isScriptButton(document.getElementById(id)!);
+    expect(["a", "b", "c", "d"].map(script)).toEqual([true, false, false, false]);
+  });
+
   it("accepts links that run a script instead of following the link", () => {
     document.body.innerHTML = `<a id="a" href="#" onclick="return false">Log in</a>
       <a id="b" href="javascript:;">Log in</a><a id="c" href=" JavaScript:void(0)">Go</a>
