@@ -1,11 +1,12 @@
 import * as v from "valibot";
 import {
-  birthDateFormatSchema,
+  detailFormatFits,
+  detailFormatSchema,
   loginDetailSchema,
   parseSiteUrl,
   recipeSlotIdSchema,
   resolveSiteAccount,
-  type BirthDateFormat,
+  type DetailFormat,
   type LoginDetail,
   type SettingsSnapshot,
   type VaultCatalog,
@@ -289,27 +290,44 @@ const stepTargetCount = (step: v.InferOutput<typeof loginStepSchema>) =>
 export const loginRouteSchema = v.picklist(["password", "passkey"]);
 /**
  * The details Pateat never fills, though it learns the page that asks for them (ADR 0061):
- * none while card codes are filled; the owner's open choice may add `card-code`.
+ * none, since the owner decided that every linked value is filled, a whole card number
+ * and a PIN included (2026-10-23 11:41 UTC). Kept for a detail a later decision stops
+ * filling.
  */
 export const manualDetails: readonly LoginDetail[] = [];
-/** The characters a detail's value has once made, which an input's `maxlength` must hold. */
+/**
+ * The fewest characters a detail's value has once made, which an input's `maxlength` must
+ * hold: a dated value's format, 12 digits of a card number, and 4 of a PIN.
+ */
 export function detailLength(entry: {
   detail: LoginDetail;
-  format?: BirthDateFormat | undefined;
+  format?: DetailFormat | undefined;
 }): number {
-  if (entry.detail === "secret-answer" || entry.detail === "member-id") return 1;
-  if (entry.detail !== "birth-date") return entry.detail === "card-code" ? 3 : 4;
-  return entry.format === undefined ? 8 : entry.format.length;
+  switch (entry.detail) {
+    case "secret-answer":
+    case "member-id":
+      return 1;
+    case "card-code":
+      return 3;
+    case "card-number":
+      return 12;
+    case "birth-date":
+      return entry.format?.length ?? 8;
+    case "card-expiry":
+      return entry.format?.length ?? 4;
+    default:
+      return 4;
+  }
 }
 const detailFieldSchema = v.pipe(
   v.strictObject({
     detail: loginDetailSchema,
-    format: v.optional(birthDateFormatSchema),
+    format: v.optional(detailFormatSchema),
     target: loginFieldTargetSchema,
   }),
   v.check(
-    (entry) => (entry.detail === "birth-date") === (entry.format !== undefined),
-    "A birth date input has a format, and no other input does",
+    (entry) => detailFormatFits(entry.detail, entry.format),
+    "A birth date or card expiry input has a format of its own, and no other input has one",
   ),
 );
 /**

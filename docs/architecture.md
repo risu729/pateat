@@ -1194,89 +1194,89 @@ added to the saved binding
 ([ADR 0027](adr/0027-per-account-login-routes.md#amendment-2026-10-19-saved-bindings-that-lack-a-slot)).
 When none fits, a recipe with one variant refuses the page with that variant's reason,
 and a recipe with several refuses it `no-route`, with the first variant's reason as the
-logged refusal's detail. A `no-route`
-of a variant names the fact it missed as the detail instead: `password-empty` (the item
-holds no password), `password-not-allowed` (it holds one the account may not fill),
-`no-totp` (a bound TOTP field without a secret) or `passkey-unresolved` (the facts chose
-the passkey route, which did not resolve). An item whose password is missing or empty
-(`password-empty`, never `password-not-allowed`) but that holds a usable passkey,
-discoverable or not, still takes the `password` route of a recipe without alternatives,
-in the tab's own page, when an `advance` step comes before the route's first step that
-fills the password and no step before that one fills a value the item lacks
-([ADR 0036](adr/0036-passkey-after-the-identifier.md)). On a chooser's list (ADR 0028;
-owner, 2026-10-13 06:32 UTC) that route is the click's: the click, chosen as for any
-item, is the `advance`, and the stop lies at the branch's first step that fills the
-password, just past a branch that fills none and ends with an `advance`, or just past
-the click while the branch is not generated yet. The account branch's route is checked
-before the list is read, and the `other` branch's again when the list leads there. When
-the account branch cannot take the stop, the list is read on the click alone, so an
-account it does not show still goes on through `other`; a stored branch the list leads
-to that cannot take the stop is refused `no-route`, with nothing pressed. The same holds
-for a route that fills no password at all and ends with an `advance`, as an
-identifier-first recipe whose page after the identifier is not generated yet, when none
-of its steps fills a value the item lacks and no slot of its binding reads a password
-from another field (the `password` slot, a field Linked to the password, or a hidden
-custom field): its stop lies just past its last step. Such an attempt gets one
-submission more than the recipe's budget, kept for the passkey answer at the stop: no
-step, handler or page's own submission may spend it, and a switch to the `passkey` route
-gives it back. When such an item does not go on, the `password-empty` detail names why
-after a colon: `password-empty:no-passkey` (no usable passkey for an RP ID the origin
-may use), `:alternatives`, `:no-password-step` (the route fills no password and does not
-end with an `advance`), `:no-advance` (no `advance` step before the one that fills the
-password), `:fills-lacking`, `:password-field` (a slot reads a password from another
-field) or `:frame`, also for a variant whose binding reads nothing from the empty
-password. The attempt records that step as its stop (`stopAt`, its index in the plan, or
-the plan's step count for a stop past its last step, moved along when a handler is
-entered before it), and the attempt contract never prepares it or a later step, so
-neither a worker restart nor a vault sync that adds a password meanwhile types one; a
-handler shown after the stop is not entered, and at the stop only a `passkey` handler is
-(below). The binding keeps naming the empty password, so the item signs in with its
-password once it has one. The steps before the stop run as on any `password` login. The
-login reaches the stop once the stop step's elements show. For a stop past the last
-step, the page after that step's `advance` takes the login there at once when it asks
-for a passkey after the step, waiting or answered by the passkey bridge. Otherwise that
-page is continued as any login's ([ADR 0018](adr/0018-recipe-generation-route.md); the
-owner's decision of 2026-10-13 04:42 UTC), offering the `password` slot though the
-item's password is empty: a continuation the login takes over moves the stop to its
-first step that fills a password (or past its steps again), and its kept submission into
-the continued budget; one the stop cannot be moved into is not taken over, and the
-login's `challenge` at its stop then names why (`password-empty:fills-lacking` and the
-like). A page that does not qualify for continuation is judged once the step's 10-second
-wait runs out, and a `passkey` handler the judge learns is entered before the stop and
-pressed. When the continuation fails or abstains, or the judge leaves the page undecided
-or a challenge with no handler, the login goes on to the stop; an advance the record
-cannot go on from ends `challenge` unjudged. At the stop the login fills nothing: it
-waits up to 3 seconds for its document's `conditional` passkey request, counting one
-already waiting, and answers it with its item, or counts an answer the passkey bridge
-gave a request of the tab's page since the login's last effect step. The answer is a
-submission (`STOP_ANSWERED`), and the page is then observed as after a click: while the
-stop step's fields still show it is not judged or settled, for up to 15 seconds after
-the answer, and a page on the stop step's path, or for a stop past the last step on the
-path the answer was given on in the same document, is held as the `passkey` route's page
-is after its answer ([ADR 0034](adr/0034-answer-page-passkey-requests.md)). Without a
-request in those 3 seconds, a `passkey` handler of the recipe shown on the page is
-entered before the stop step, which moves along, and its button pressed (owner,
-2026-10-13 05:39 UTC); the request that follows is answered with the item, and the click
-is held while its button shows, as any handler's. Without one, a page that still shows
-the stop step's password field on its path, where the recipe has no `passkey` handler,
-is sent once per attempt to be judged as a stop's page (`stop: true`, recorded as
-`stopJudged` before the request, so a restart does not send it again), within the
-judge's limits on the service, which keeps only a `passkey` handler from it; the login
-takes that revision over and enters the handler in the same way. On a chooser's branch a
-learned `passkey` handler is entered and pressed the same way, but the page is not sent
-to be judged (`not-sent` with `chooser`), since the service judges no stop's page of a
-chooser. A login on the `password` route without a stop never enters a `passkey` handler
-on a path where its plan still has a route step to run that fills the password, nor
-while a fill field of the route shows on that path, so such a button never pre-empts a
-password that is typed, even while a form swaps its fields in place; a route step still
-to run there that fills only another slot, such as a code after the password, does not
-keep the handler out. The service judges such a page only when its password field
-matches the route's fill locator exactly, and answers `not-judgeable` otherwise (a known
-gap, ADR 0036). Without a request or a button, after an answer the item could not give,
-or with the form still showing after those 15 seconds, the login ends `challenge` and is
-watched. A login that switched to the `passkey` route before its first submission never
-falls back to a variant with a stop; it ends `challenge`. A running or resumed login
-checks only its recorded variant and never reads the facts again
+logged refusal's detail. A `no-route` of a variant names the fact it missed as the
+detail instead: `password-empty` (the item holds no password), `password-not-allowed`
+(it holds one the account may not fill), `no-totp` (a bound TOTP field without a secret)
+or `passkey-unresolved` (the facts chose the passkey route, which did not resolve). An
+item whose password is missing or empty (`password-empty`, never `password-not-allowed`)
+but that holds a usable passkey, discoverable or not, still takes the `password` route
+of a recipe without alternatives, in the tab's own page, when an `advance` step comes
+before the route's first step that fills the password and no step before that one fills
+a value the item lacks ([ADR 0036](adr/0036-passkey-after-the-identifier.md)). On a
+chooser's list (ADR 0028; owner, 2026-10-13 06:32 UTC) that route is the click's: the
+click, chosen as for any item, is the `advance`, and the stop lies at the branch's first
+step that fills the password, just past a branch that fills none and ends with an
+`advance`, or just past the click while the branch is not generated yet. The account
+branch's route is checked before the list is read, and the `other` branch's again when
+the list leads there. When the account branch cannot take the stop, the list is read on
+the click alone, so an account it does not show still goes on through `other`; a stored
+branch the list leads to that cannot take the stop is refused `no-route`, with nothing
+pressed. The same holds for a route that fills no password at all and ends with an
+`advance`, as an identifier-first recipe whose page after the identifier is not
+generated yet, when none of its steps fills a value the item lacks and no slot of its
+binding reads a password from another field (the `password` slot, a field Linked to the
+password, or a hidden custom field): its stop lies just past its last step. Such an
+attempt gets one submission more than the recipe's budget, kept for the passkey answer
+at the stop: no step, handler or page's own submission may spend it, and a switch to the
+`passkey` route gives it back. When such an item does not go on, the `password-empty`
+detail names why after a colon: `password-empty:no-passkey` (no usable passkey for an RP
+ID the origin may use), `:alternatives`, `:no-password-step` (the route fills no
+password and does not end with an `advance`), `:no-advance` (no `advance` step before
+the one that fills the password), `:fills-lacking`, `:password-field` (a slot reads a
+password from another field) or `:frame`, also for a variant whose binding reads nothing
+from the empty password. The attempt records that step as its stop (`stopAt`, its index
+in the plan, or the plan's step count for a stop past its last step, moved along when a
+handler is entered before it), and the attempt contract never prepares it or a later
+step, so neither a worker restart nor a vault sync that adds a password meanwhile types
+one; a handler shown after the stop is not entered, and at the stop only a `passkey`
+handler is (below). The binding keeps naming the empty password, so the item signs in
+with its password once it has one. The steps before the stop run as on any `password`
+login. The login reaches the stop once the stop step's elements show. For a stop past
+the last step, the page after that step's `advance` takes the login there at once when
+it asks for a passkey after the step, waiting or answered by the passkey bridge.
+Otherwise that page is continued as any login's
+([ADR 0018](adr/0018-recipe-generation-route.md); the owner's decision of 2026-10-13
+04:42 UTC), offering the `password` slot though the item's password is empty: a
+continuation the login takes over moves the stop to its first step that fills a password
+(or past its steps again), and its kept submission into the continued budget; one the
+stop cannot be moved into is not taken over, and the login's `challenge` at its stop
+then names why (`password-empty:fills-lacking` and the like). A page that does not
+qualify for continuation is judged once the step's 10-second wait runs out, and a
+`passkey` handler the judge learns is entered before the stop and pressed. When the
+continuation fails or abstains, or the judge leaves the page undecided or a challenge
+with no handler, the login goes on to the stop; an advance the record cannot go on from
+ends `challenge` unjudged. At the stop the login fills nothing: it waits up to 3 seconds
+for its document's `conditional` passkey request, counting one already waiting, and
+answers it with its item, or counts an answer the passkey bridge gave a request of the
+tab's page since the login's last effect step. The answer is a submission
+(`STOP_ANSWERED`), and the page is then observed as after a click: while the stop step's
+fields still show it is not judged or settled, for up to 15 seconds after the answer,
+and a page on the stop step's path, or for a stop past the last step on the path the
+answer was given on in the same document, is held as the `passkey` route's page is after
+its answer ([ADR 0034](adr/0034-answer-page-passkey-requests.md)). Without a request in
+those 3 seconds, a `passkey` handler of the recipe shown on the page is entered before
+the stop step, which moves along, and its button pressed (owner, 2026-10-13 05:39 UTC);
+the request that follows is answered with the item, and the click is held while its
+button shows, as any handler's. Without one, a page that still shows the stop step's
+password field on its path, where the recipe has no `passkey` handler, is sent once per
+attempt to be judged as a stop's page (`stop: true`, recorded as `stopJudged` before the
+request, so a restart does not send it again), within the judge's limits on the service,
+which keeps only a `passkey` handler from it; the login takes that revision over and
+enters the handler in the same way. On a chooser's branch a learned `passkey` handler is
+entered and pressed the same way, but the page is not sent to be judged (`not-sent` with
+`chooser`), since the service judges no stop's page of a chooser. A login on the
+`password` route without a stop never enters a `passkey` handler on a path where its
+plan still has a route step to run that fills the password, nor while a fill field of
+the route shows on that path, so such a button never pre-empts a password that is typed,
+even while a form swaps its fields in place; a route step still to run there that fills
+only another slot, such as a code after the password, does not keep the handler out. The
+service judges such a page only when its password field matches the route's fill locator
+exactly, and answers `not-judgeable` otherwise (a known gap, ADR 0036). Without a
+request or a button, after an answer the item could not give, or with the form still
+showing after those 15 seconds, the login ends `challenge` and is watched. A login that
+switched to the `passkey` route before its first submission never falls back to a
+variant with a stop; it ends `challenge`. A running or resumed login checks only its
+recorded variant and never reads the facts again
 ([ADR 0027](adr/0027-per-account-login-routes.md#implementation-choices)). After each
 effect step the executor checks the signed-in markers, the rejection and the plan's next
 step, then the recipe's handlers on the page's path. A click or an `advance` fill
@@ -1293,20 +1293,19 @@ continue), none of them was ready that way or matched several elements when the 
 script measured them in the same task as the click or the fill's first input, just
 before it, and none is one of the advance's own elements
 ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). So a password input an
-email form keeps off-screen for the browser to fill (inferred on Microsoft Entra's
-email view on 2026-10-17) neither keeps the advance from being confirmed once the
-password form shows nor confirms it while the email form still shows (2026-10-17, agent
-fix). This holds in the same
-document, after a `history.pushState` that keeps the path, and in a new document the
-form posts back to that path once the advance's answer arrived. So a page that still
-shows only the account form, or showed the password form from the start, never
-continues, and Next is never clicked again; it settles as any advance its next step
-never confirmed, after 10 seconds. The measurement is kept in the worker's memory only,
-so after a worker restart such an advance settles that way too. As on another path, the
-next step comes before the recipe's handlers: a page that shows the password form beside
-a handler's elements on that path gets the password, not the handler. "Shown" is the
-content script's visibility check, which ignores occlusion, opacity, off-screen
-position, `aria-hidden` and `inert`; content the browser skips with
+email form keeps off-screen for the browser to fill (inferred on Microsoft Entra's email
+view on 2026-10-17) neither keeps the advance from being confirmed once the password
+form shows nor confirms it while the email form still shows (2026-10-17, agent fix).
+This holds in the same document, after a `history.pushState` that keeps the path, and in
+a new document the form posts back to that path once the advance's answer arrived. So a
+page that still shows only the account form, or showed the password form from the start,
+never continues, and Next is never clicked again; it settles as any advance its next
+step never confirmed, after 10 seconds. The measurement is kept in the worker's memory
+only, so after a worker restart such an advance settles that way too. As on another
+path, the next step comes before the recipe's handlers: a page that shows the password
+form beside a handler's elements on that path gets the password, not the handler.
+"Shown" is the content script's visibility check, which ignores occlusion, opacity,
+off-screen position, `aria-hidden` and `inert`; content the browser skips with
 `content-visibility: hidden` (inside a closed `<details>`, under `hidden="until-found"`
 or the property itself) counts as hidden, as the description reads it, wherever the
 content script requires a shown element (also the sign-in signs, completion markers and
@@ -1387,11 +1386,14 @@ owner's settings link the login item, per site and detail, to the identity or ca
 item's field that holds the value (`detailLinks`). A login fills the first input with
 a usable link that is writable, checking the radio button that chooses it first, and
 clicks the button; the value is made in the service worker from the vault read (the
-date in the input's format, the last four digits, or a card code as it is). A
-`detail` handler with no usable link ends the attempt `challenge` with
-`detail-unlinked`, and the popup then proposes the vault fields that could give each
-detail; its **Fill** fills the input without pressing the button and keeps the link for
-the tab, saved only once the watched login ends `authenticated`. A link whose value
+date or card expiry date in the input's format, the last four digits, a card code, a
+whole card number or a PIN, read only from the login item or a card item, as its
+digits; every linked value is filled, a whole card number and a PIN included, by the
+owner's decision of 2026-10-23 11:41 UTC). A `detail` handler with no usable link ends
+the attempt `challenge` with `detail-unlinked`, and the popup then proposes the vault
+fields that could give each detail; its **Fill** fills the input, unless the page shows
+another account than the login item's, without pressing the button and keeps the link
+for the tab, saved only once the watched login ends `authenticated`. A link whose value
 the site refused, as when the login is rejected or the handler's page shows again, is
 removed. A `detail` handler on a route path is not entered for the first time while
 its sign-in state reads `rejected` (S1 with F1 or F2): the login goes on to read the
@@ -1999,7 +2001,7 @@ be told apart
 | `service.problems` | debug for `kept`, else info, never warn | the lines (`lines`) and result of one [problem lines](#problem-lines-on-the-service) request (ADR 0066): `kept`, `refused`, `rejected` or `failed:<code>` |
 | `settings.changed` | info | `synced` (a settings sync wrote local settings) or `saved` (the settings page); the settings revision when the entry is written. Running logins and passkey requests stop; a watched login stops only if the new settings no longer allow its account |
 | `login.attempt` | debug when a new page resumes the attempt without changing its state or outcome; otherwise info for `authenticated` and `retryable`, for a route change and for the end of a fill-only login after a logout, warn for other `blocked`, for `watching` and when the result settles as unknown (`unknown-submit`, marked `settled`), so a login that did not finish counts as a warning, info for `document-gone` with a reason other than `no-receiver` and for `captcha-shown`, else debug | origin, recipe ID and revision (`recipeRevision`), route and `password` variant, state, step, step count, the current step's kind (`fill`, `click`, `wait`, `assert`) and effect (`prepare`, `advance`, `submit`), the entered handler the step belongs to, outcome (`challenge-abandoned` or `watch-abandoned` when a watched login's first step showed again before it signed in, [ADR 0027](adr/0027-per-account-login-routes.md#watching-after-a-challenge)); for `policy-changed`, its cause and a refused plan's reason; else `fill-only` as the reason for a login that only fills the form after a logout (ADR 0021 D); `routeChange` when the login changed route ([ADR 0034](adr/0034-answer-page-passkey-requests.md)): `page-request` (to the `passkey` route, because the page asked for a passkey), or back to the `password` route as `request-missing`, `answer-failed`, `sign-in-rejected` or `sign-in-shown`; `layout` and `layoutFrom` when the login switched to another layout of its recipe where the layouts part ([ADR 0060](adr/0060-recipe-layouts.md#running-one-layout)), logged at info; `stop` (`password`) on every entry of a login that stops before its item's missing password, also one whose stop lies just past its route's last step, and `password-empty` as the reason when it ends `challenge` at that stop, or `password-empty:<why>` (such as `password-empty:fills-lacking`) when a continuation of a stop past the plan's last step could not take the stop over ([ADR 0036](adr/0036-passkey-after-the-identifier.md)); the item's lack of a password shows as the `no-route` detail does, never a value. A result that settles as unknown (`unknown-submit`) on a page that still shows a sign-in element of the route, with no failure that acted (S1, [ADR 0029](adr/0029-local-sign-in-state.md)), names `sign-in-shown` as its `cause`. A login that failed or was cancelled names its `cause` when one is known (a plain wait timeout or a cancel without a reason has none): the step's elements did not show in time (`elements-timeout`), a code page neither submitted the code nor took the click (`code-not-submitted`), no operation could be built (`no-operation`), the login's item could not answer the page's passkey request (`answer-failed`), the operation no longer validated (`operation-invalid`), a field had no vault binding (`slot-unbound`), the page did not answer or its answer failed its check (`no-answer`), a code page said it submitted the code itself but no check confirmed it (`page-submitted`), the page showed a CAPTCHA, so the click was left to the person and the attempt waits in `awaiting-result` (`captcha-shown`), the document stopped answering, as when a submit replaced it, so the attempt waits in `reconciling` for the next document to resume it (`document-gone`, with what the browser said as the reason: `no-receiver` when no listener was left or the page went into the back/forward cache, logged at debug as a submit's usual navigation, else `port-closed` when the listener did not answer or `send-failed`, logged at info as they may hide a fault), or the page's own reason: the worker did not authorize the step (`not-authorized`), the document was cancelled (`document-cancelled`), the operation was used (`operation-used`) or expired (`operation-expired`), the page moved to another path (`page-changed`, also with a `timeout` outcome when the wait ended on another path), a field changed under the fill (`field-changed`), the step threw (`threw`), the form was replaced (`form-replaced`), the target is missing or not writable, or a `password` handler's button no longer names the password at the press ([ADR 0048](adr/0048-password-method-button.md)) (`target-missing`), the form changed before a click (`form-changed`), an `assert` did not hold (`assert-failed`), the step was sent values it does not fill (`unexpected-values`), two of its fields name the same input (`fields-shared`), its fields are in different forms (`fields-split`), an input refused its secret (`secret-refused`), the page's inputs have no value setter (`unsupported-input`), a code field's submission watch could not start (`code-watch-failed`), the form or the clicked button would send the form off the document's origin to a destination the background did not allow (`form-off-origin`), or the background could not decide that now (`form-destination-unchecked`, [ADR 0051](adr/0051-form-destinations-by-item-uri-match.md)); `unconfirmed` for an undecided completion without a confirmed sign-in (ADR 0029), `unsubmitted` while nothing was submitted yet and the login is in the document this worker began it in (ADR 0066); on the entry where a login ends signed in or blocked (a watched login when its watch ends), how long it took: `totalMs`, `serviceMs`, `networkMs`, `personMs`, `pageMs` and `otherMs` ([timing](#request-and-login-timing)) |
-| `login.handler` | info | origin, recipe ID and revision (`recipeRevision`), handler index, kind (`passkey`, `password`, `totp` or `detail`), step count; `entered`, `shown-again` (left to the person after this login ran it), `missing-fact` (the item lacks what the handler needs, including a `totp` handler's code field: the built-in TOTP field, or the flagged Text or Hidden custom field a saved binding or the default names for `totp`), `code-used` (a `totp` handler in a login that already types a TOTP code), `no-room` (the attempt's step or submission budget is spent), `detail-unlinked` (a `detail` handler, for which no usable vault field is linked yet), `detail-manual` (a `detail` handler whose inputs ask only for details Pateat never fills; none today), `detail-unreadable` (the linked value is no date or has too few digits), `detail-unavailable` (the vault could not give the linked value), `detail-saved` (a link filled from the popup was saved after the login was confirmed), `detail-not-saved` (it could not be written and was dropped), `detail-forgotten` (a refused value's link was removed) or `detail-kept` (that link could not be written now, as while another tab's login runs; ADR 0061) |
+| `login.handler` | info | origin, recipe ID and revision (`recipeRevision`), handler index, kind (`passkey`, `password`, `totp` or `detail`), step count; `entered`, `shown-again` (left to the person after this login ran it), `missing-fact` (the item lacks what the handler needs, including a `totp` handler's code field: the built-in TOTP field, or the flagged Text or Hidden custom field a saved binding or the default names for `totp`), `code-used` (a `totp` handler in a login that already types a TOTP code), `no-room` (the attempt's step or submission budget is spent), `detail-unlinked` (a `detail` handler, for which no usable vault field is linked yet), `detail-manual` (a `detail` handler whose inputs ask only for details Pateat never fills; none today), `detail-unreadable` (the linked value is no date or expiry month and year, or has too few or too many digits), `detail-unavailable` (the vault could not give the linked value), `detail-saved` (a link filled from the popup was saved after the login was confirmed), `detail-not-saved` (it could not be written and was dropped), `detail-forgotten` (a refused value's link was removed) or `detail-kept` (that link could not be written now, as while another tab's login runs; ADR 0061) |
 | `login.entry` | info for `pressed` and for the first `refused` of each reason on a document, debug for `refused` with `no-return-target` or `in-progress` and for a reason the document already logged, warn for `blocked` ([ADR 0019](adr/0019-local-diagnostics-and-logs.md#amendment-what-the-log-records)'s levels) | a site's sign-in entry ([ADR 0031](adr/0031-sign-in-entry-pages.md)): origin, recipe ID and revision (`recipeRevision`) and outcome. `pressed` when the document answered that it clicked the link. `refused` with the check before the press that failed: `frame`, `storage-unavailable`, `blocked` (the revision is blocked on this device), `tab-unavailable` (the tab could not be read), `page-changed`, `recipe-changed`, `no-return-target` (the URL names no other path of the site), `no-site`, `site-record` (the tab ran a login of the site), `site-held` (another tab's login holds it), `logged-out` (a tab keeps a logout of it), `logout-clicked` (a control that logs out was clicked on the site in this tab, ADR 0021 D), `press-limit` (the tab pressed an entry in the last 10 minutes), `settings-unavailable`, `site-excluded`, `destination-excluded`, `no-vault-match`, `in-progress` (another document of the tab is being pressed), `no-answer`, `target-missing`, `target-ambiguous`, the element's refusal (`not-link`, `script-link`, `hidden`, `no-text`, `new-window`, `download`), the `href`'s (`link-not-https`, `link-off-site`, `link-query-off-site`, `link-same-page`), `target-changed`, `cancelled`, `unconfirmed` (the document never answered the press, which still counts against the tab's limit) or `exception`. `blocked` with why the page after the press blocked the revision: `left-site`, `no-sign-in` or `sign-up`, and the detail `storage-unavailable` when the block holds in this worker only |
 | `login.state` | debug for a later page of an attempt that already settled as unknown, else info | origin, recipe ID and revision (`recipeRevision`), route; the page signs of [ADR 0029](adr/0029-local-sign-in-state.md) that show, as flags: a sign-in element of the route (`s1`), a password input not for a new password and not in a form with two or more shown password inputs (`s2`), a code input (`s3`), a CAPTCHA widget (`s4`), a passkey request of the top document after the step, outside conditional mediation (`s5`), a new invalid mark on the step's sign-in inputs (`f1`) or new alert text, read as the fill check reads it (`f2`), next to the sign-in fields in the submitted document, or, with `reshown`, any invalid mark on the route's sign-in inputs or any text of an alert next to the form in the first new top document after a password submission, within 30 seconds of it, that shows the sign-in form again, a signed-in marker on any path (`e1`), the username in the header or navigation (`e2`), the return target the sign-in page's URL named (`e3`); and what the ADR would do (`rejected`, `unknown`, `continuing`, `signed-in`, `judge`); `settled` for a later page of an attempt that already settled as unknown; `reshown` when S1 holds in the first new top document after the attempt's password submission, announced within 30 seconds of it, where `rejected` needs no CAPTCHA (`s4`) and also ends a watched login. When S1 holds without `reshown`, `reshownMiss` says why: no effect step of the attempt is known (`no-effect`, as after a worker restart), the last one asked for a passkey (`passkey-step`) or did not submit (`not-submit`, as an `advance`), the page is the document the step ran in (`same-document`), no other top document came within 30 seconds of the step (`late`), or the page is a later document than the first one that did (`later-document`). With `reshown` and no F2, `alertMiss` says why no alert next to the form counted: none outside the sign-in inputs shows text (`no-alert`), none of the route's sign-in elements is a single shown writable input (`no-input`), or the first rule failed by the region closest to counting: its nearest common container with the form is the body or the root (`body`), or holds page chrome (`chrome`), another form that asks for input (`other-form`) or the main area (`main`). Both are codes only, never page text. When an `advance` whose next step is on its own path ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)) settles without being confirmed, four more codes say why, each listing up to four of that step's targets in order, joined by `.`: their states as the content script measured them just before the advance (`advanceBefore`: `missing`, `unique`, `ambiguous`, `unusable`, or `unmeasured` without that measurement, as after a worker restart), their states with the same requirement when it settled (`advanceAfter`), the check that decided each of those (`advanceWhy`, which explains `advanceAfter` only: `ok`, `missing`, `matches-2` to `matches-9` for several elements, 9 or more; for the input or button test, an element the content script's visibility check does not see, under a `hidden` attribute (`hidden-attr`) or not rendered otherwise (`not-rendered`), or one it sees that is disabled, read-only or no such control (`not-writable`, `not-clickable`); or else the first reason the page's description does not see the element: an `inert`, `aria-hidden` or `hidden` attribute (`hidden-attr`), not rendered otherwise (`not-rendered`), moved before the page's start (`off-start`), transparent and neither fading in nor shown by its own label (`transparent`) or under 2 pixels (`tiny`)), and whether the page was on the step's path (`advancePath`: `same` or `other`). They are read in a top document only, once, just before the sign-in state is first read, not at its last recheck (2026-10-19, agent change after UNSW's stall after Next). Logged for a page after an effect step that no check explained, before the judge is asked. On the `password` route a `signed-in` page is read again a second later, and a second apart while it loads (at most ten times), and the last reading is the one logged; the other decisions but `unknown` are read again the same way, and so is an `unknown` reading of the sign-in form shown again with its password input and no other sign, before the tab asks again (ADR 0021 D). A confirmed `signed-in` completes the login without the judge and a confirmed `rejected` ends it `credential-rejected`; the rest go to the judge as described above (ADR 0029). E1 reads the recipe's signed-in markers as the completion check does: a marker counts on any path, but not while one of its `absent` elements is there, even hidden. A login in a frame is not read |
 | `login.move` | info | a login's tab moved to a page of another origin that did not complete it ([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)), logged unless the judge decided the move (`recipe.judge` with `moved`): that page's origin, recipe ID and revision (`recipeRevision`), route, and why. The login then ends without resubmitting (`login.attempt` on its own origin) unless `kept` below, and the new page may start its own login; nothing of the ended login runs on that page. The reasons: no step or second factor fits the move (`no-factor`, as a move to another site right after the password step, or any move more than 30 seconds after the login's last step or second factor, such as another site the person opens in the tab of a login settled as unknown or watched; that page is not read), the account has no username to look for (`no-username`), the page could not be read (`unreadable`), shows a password field, code input or CAPTCHA (`sign-in-shown`) or asked for a passkey since the step (`passkey-request`), or never read quiet twice (`not-quiet`); `frame` when a frame of the new page announced first and ended the login. `page-gone` with `kept` when the page went away before its quiet readings answered, as a redirect through another page does: the login is not ended there, and the tab's next page is checked instead, which must still come within the same 30 seconds; a page that goes away while it is judged still ends the login. `passkey-request` with `kept` when the page is of another origin of the site and asked for a passkey at most 30 seconds after the step: the login waits for the tab's next page, which a passkey answered there with the login's own item lets complete it |
