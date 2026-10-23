@@ -212,11 +212,6 @@ export const attemptMetadataSchema = v.pipe(
      */
     changedAt: v.optional(v.pipe(v.number(), v.integer(), v.minValue(0))),
     /**
-     * After a logout (ADR 0021 D): the attempt fills the page's leading fields and stops
-     * before the first step with an effect, so it never clicks or submits.
-     */
-    fillOnly: v.optional(v.literal(true)),
-    /**
      * For an item without a password (ADR 0036): where in the attempt's plan the step that
      * fills the password is, recorded when the login starts (`passwordStopOrMiss`), or the
      * plan's step count for a route that fills none and ends with an `advance`, so the stop
@@ -570,7 +565,6 @@ const atStop = (context: LoginAttemptMetadata) =>
   context.stepIndex === context.stopAt &&
   context.operationId === undefined &&
   context.retryRequired !== true &&
-  context.fillOnly !== true &&
   context.submissions > 0;
 /**
  * Whether a move to another origin may complete the login (ADR 0022): its current
@@ -1103,7 +1097,6 @@ function createLoginAttemptMachine() {
         context.operationId === undefined &&
         context.submissions === 0 &&
         context.handlers.length === 0 &&
-        context.fillOnly !== true &&
         // A login with a stop never goes back to the password it lacks (ADR 0036).
         !(event.route === "password" && context.stopAt !== undefined),
       // After the passkey answer, once, to the variant the login recorded.
@@ -1353,7 +1346,6 @@ export function createAttemptMetadata(input: {
   /** The origin of the tab's page, for a frame's login. */
   pageOrigin?: string;
   accountSwitched?: boolean;
-  fillOnly?: boolean;
   /** For a chooser recipe's login (ADR 0028): what it clicks on the list, or `other-shown`. */
   chooser?: ChooserClick;
   /** For an item without a password: where its `password` route stops (ADR 0036). */
@@ -1405,7 +1397,6 @@ export function createAttemptMetadata(input: {
     maxRetries: 2,
     usedOperationIds: [],
     ...(input.accountSwitched ? { accountSwitched: true } : {}),
-    ...(input.fillOnly ? { fillOnly: true } : {}),
     ...(input.chooser ? { chooser: { click: input.chooser } } : {}),
     ...(input.stopAt === undefined ? {} : { stopAt: input.stopAt }),
     ...(input.startAt === undefined ? {} : { startStep: input.startAt }),
@@ -1694,9 +1685,7 @@ export function nextLoginOperation(
     // The step that fills the password of an item without one, and every later step, never
     // runs (ADR 0036).
     !beforeStop(metadata, metadata.stepIndex) ||
-    (effectfulStep(step) &&
-      // A fill-only attempt never takes a step with an effect (ADR 0021 D).
-      (metadata.fillOnly === true || metadata.submissions >= stepBudget(metadata)))
+    (effectfulStep(step) && metadata.submissions >= stepBudget(metadata))
   )
     return undefined;
   return v.parse(loginOperationSchema, {
@@ -1729,7 +1718,6 @@ export function validateLoginOperation(
       : metadata.state === "executing";
   return (
     readyToExecute &&
-    !(metadata.fillOnly === true && effectfulStep(operation.step)) &&
     beforeStop(metadata, operation.stepIndex) &&
     (!(operation.step.kind === "fill" || operation.step.kind === "click") ||
       metadata.mutationIntent === true) &&

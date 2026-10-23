@@ -257,12 +257,17 @@ describe("badgeResult for refusals", () => {
     },
   );
 
-  it.each(["no-recipe", "logged-in", "account-ambiguous", "origin-busy", "tab-busy", "logged-out"])(
-    "shows nothing for a %s refusal",
-    (reason) => {
-      expect(badgeResult(refusal(reason, { detail: "x" }), 1000)).toBeUndefined();
-    },
-  );
+  it.each([
+    "no-recipe",
+    "logged-in",
+    "account-ambiguous",
+    "account-asked",
+    "relogin-limit",
+    "origin-busy",
+    "tab-busy",
+  ])("shows nothing for a %s refusal", (reason) => {
+    expect(badgeResult(refusal(reason, { detail: "x" }), 1000)).toBeUndefined();
+  });
 });
 
 describe("setActionBadge", () => {
@@ -790,25 +795,6 @@ describe("login badge", () => {
     });
   });
 
-  it("keeps that a login only filled the form after a logout", async () => {
-    const h = harness();
-    h.badge.observe(attempt({ outcome: "cancelled", reason: "fill-only" }));
-    await h.flush();
-    expect(h.setValue).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        statuses: [
-          [tabId, { origin, login: { state: "blocked", outcome: "cancelled", fillOnly: true } }],
-        ],
-      }),
-    );
-    // A later login of the tab that is not fill-only drops it.
-    h.badge.observe(attempt({ state: "ready" }));
-    await h.flush();
-    expect(h.setValue).toHaveBeenLastCalledWith(
-      expect.objectContaining({ statuses: [[tabId, { origin, login: { state: "ready" } }]] }),
-    );
-  });
-
   it("restores unexpired results and clears the spins a stopped worker left", async () => {
     const now = Date.now();
     const h = harness({
@@ -1333,39 +1319,6 @@ describe("page status", () => {
     // A repeat on another tab records nothing there either.
     h.badge.observe(refusal("no-route", { repeat: true, tabId: 8 }));
     expect(h.badge.status(8)).toBeUndefined();
-  });
-
-  it("records a logout of the tab, and whether the site rejected the login", async () => {
-    const h = harness();
-    const logout = (rejected?: true): LoginReport => ({
-      type: "logout",
-      tabId,
-      origin,
-      recipeId: "recipe",
-      recipeRevision: 1,
-      ...(rejected ? { rejected } : {}),
-    });
-    h.badge.observe(report({ outcome: "recipe" }));
-    h.badge.observe(attempt({ state: "authenticated" }));
-    h.badge.observe(logout());
-    expect(h.badge.status(tabId)).toEqual({
-      origin,
-      login: { state: "logged-out" },
-      generation: { outcome: "recipe" },
-    });
-    h.badge.observe(logout(true));
-    expect(h.badge.status(tabId)?.login).toEqual({ state: "logged-out", outcome: "rejected" });
-    await h.flush();
-    expect(await h.storage.getValue()).toMatchObject({
-      statuses: [[tabId, { login: { state: "logged-out", outcome: "rejected" } }]],
-    });
-    // The same logout again saves nothing; a new login replaces it.
-    h.setValue.mockClear();
-    h.badge.observe(logout(true));
-    await h.flush();
-    expect(h.setValue).not.toHaveBeenCalled();
-    h.badge.observe(start());
-    expect(h.badge.status(tabId)?.login).toEqual({ state: "started" });
   });
 
   it("tells whether a model request for the tab is in flight, as its spin shows", async () => {

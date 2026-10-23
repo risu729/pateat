@@ -517,7 +517,7 @@ export function SiteApp({
           ) ?? { ...entry, uri: true, passkey: false },
       ),
     };
-    // After a logout the saved default is listed first (ADR 0021 D).
+    // While the tab asks, the saved default is listed first (ADR 0021 D).
     const pickOptions = siteAccountOptions(catalog, matches, false, saved.snapshot.settings).sort(
       (a, b) => Number(b.value === currentValue) - Number(a.value === currentValue),
     );
@@ -526,12 +526,10 @@ export function SiteApp({
     // itself (ADR 0021).
     const shownPick = pickOptions.some((entry) => entry.value === picked)
       ? picked
-      : offered?.logout === "rejected" || offered?.rejectedElsewhere
+      : offered?.ask === "rejected" || offered?.rejectedElsewhere
         ? ""
         : (pickOptions[0]?.value ?? "");
-    const showChoice = Boolean(
-      offered && labelled && pickOptions.length > (offered.logout ? 0 : 1),
-    );
+    const showChoice = Boolean(offered && labelled && pickOptions.length > (offered.ask ? 0 : 1));
     // A pick in a private window is used for this login only unless the user says otherwise.
     const asDefault = makeDefault ?? !tab.data?.incognito;
     // A saved default missing from a list is shown with its saved labels.
@@ -637,7 +635,7 @@ export function SiteApp({
             <div className="popup-section-head">
               <h2 id="popup-choice-heading">Choose an account</h2>
               <p id="popup-choice-reason" className="popup-muted popup-reason">
-                {choiceReason(offered.logout, pickOptions.length)}
+                {choiceReason(offered.ask, pickOptions.length)}
               </p>
             </div>
             {offered.held && (

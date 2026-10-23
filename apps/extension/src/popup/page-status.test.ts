@@ -288,30 +288,6 @@ describe("pageStatusLines", () => {
     ]);
   });
 
-  it("reads a login that only fills the form after a logout as ended by design, not stopped", () => {
-    expect(lines({ login: { state: "blocked", outcome: "cancelled", fillOnly: true } })[1]).toEqual(
-      [
-        "login",
-        "idle",
-        "After a logout, Pateat only fills the sign-in form and presses nothing; sign in when you are ready.",
-      ],
-    );
-    // One that stopped for another reason says so as any login does.
-    expect(
-      lines({
-        login: {
-          state: "blocked",
-          outcome: "cancelled",
-          cause: "document-cancelled",
-          fillOnly: true,
-        },
-      })[1]?.[2],
-    ).toBe("The login stopped: the login was cancelled.");
-    expect(
-      lines({ login: { state: "blocked", outcome: "wrong-account", fillOnly: true } })[1]?.[2],
-    ).toBe("The login did not succeed: the page shows another account than the chosen one.");
-  });
-
   it("says why the page's sign-in did not start a login", () => {
     expect(lines({ recipe: "page", page: { notStarted: "logged-in" } })[1]).toEqual([
       "login",
@@ -321,8 +297,15 @@ describe("pageStatusLines", () => {
     expect(
       lines({ recipe: "page", page: { state: "denied", reason: "origin-busy" } })[1]?.[2],
     ).toBe("No login started: another tab's login to this site is running or did not succeed.");
-    expect(lines({ recipe: "page", page: { state: "denied", reason: "logged-out" } })[1]?.[2]).toBe(
-      "No login started: you logged out of this site; choose an account to log in again.",
+    // The tab asks for an account (ADR 0021 D), or the site was logged in again too often
+    // (ADR 0062).
+    expect(
+      lines({ recipe: "page", page: { state: "denied", reason: "account-asked" } })[1]?.[2],
+    ).toBe("No login started: Pateat waits for you to choose an account.");
+    expect(
+      lines({ recipe: "page", page: { state: "denied", reason: "relogin-limit" } })[1]?.[2],
+    ).toBe(
+      "No login started: Pateat logged in to this site twice in the last 10 minutes; choose an account to log in again.",
     );
     // A page without a recipe is ordinary browsing.
     expect(lines({ page: { state: "denied", reason: "recipe-not-found" } })).toEqual([
@@ -346,18 +329,6 @@ describe("pageStatusLines", () => {
     ).toBe("No login started: the sign-in form shows, but the recipe's first step was not found.");
     expect(lines({ recipe: "page", page: { state: "watching", reason: "tab-busy" } })).toEqual([
       ["recipe", "idle", "This site has a recipe for this page."],
-    ]);
-  });
-
-  it("follows a logout of the tab", () => {
-    expect(lines({ recipe: "page", login: { state: "logged-out" } })[1]).toEqual([
-      "login",
-      "idle",
-      "Logged out of this site in this tab.",
-    ]);
-    expect(lines({ recipe: "page", login: { state: "logged-out", outcome: "rejected" } })).toEqual([
-      ["recipe", "idle", "This site has a recipe for this page."],
-      ["login", "idle", "The site did not accept the last login; choose an account to try again."],
     ]);
   });
 

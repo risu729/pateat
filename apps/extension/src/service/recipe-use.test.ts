@@ -45,9 +45,8 @@ describe("recipeUseOf", () => {
       recipeId: "gen-0123",
       report: { version: 1, revision: 3 },
     });
-    // A fill-only login, one at a later step and one on a chooser's list count as well.
+    // A login at a later step and one on a chooser's list count as well.
     for (const report of [
-      started({ fillOnly: true }),
       started({ startStep: 1 }),
       started({ click: "none", listMiss: { username: "email", entries: 2 } as never }),
     ])
@@ -74,7 +73,7 @@ describe("recipeUseOf", () => {
         reason: "signed-in",
       } as LoginReport,
       { type: "refused", tabId: 7, origin: "https://bank.example", reason: "no-recipe" },
-      { type: "logout" } as LoginReport,
+      { type: "ask-ended" } as LoginReport,
       // No service recipe revision.
       started({ recipeRevision: 0 }),
       started({ recipeRevision: -1 }),
@@ -266,7 +265,7 @@ describe("createRecipeUse", () => {
   it("sends nothing for reports without a use, without a paired service or with a rejected device", async () => {
     const quiet = setup();
     quiet.use.observe(started({ recipeRevision: 0 }));
-    quiet.use.observe({ type: "logout" } as LoginReport);
+    quiet.use.observe({ type: "ask-ended" } as LoginReport);
     const unpaired = setup({ connection: async () => undefined });
     unpaired.use.observe(started());
     const rejected = setup({ connection: async () => ({ ...CONNECTION, rejected: true }) });

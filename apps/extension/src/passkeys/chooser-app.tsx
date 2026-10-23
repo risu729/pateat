@@ -1,4 +1,4 @@
-import { ChevronRight, Info, KeyRound, Star } from "lucide-react";
+import { ChevronRight, KeyRound, Star } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 import * as v from "valibot";
 import { Logo } from "../logo";
@@ -60,8 +60,7 @@ export function ChooserApp({ client }: { client: ChooserClient }) {
       }
       setView(response.view);
       // Replacing an existing default is opt-in: it also changes the password login account.
-      // So is saving a passkey chosen after a sign-in in this tab, which may be a one-off switch.
-      setMakeDefault(!response.view.replacesDefault && !response.view.again);
+      setMakeDefault(!response.view.replacesDefault);
     };
     void load();
   }, [client]);
@@ -108,14 +107,6 @@ export function ChooserApp({ client }: { client: ChooserClient }) {
   return (
     <main className={MAIN}>
       <Header>Sign in to {host}</Header>
-      {view.again && (
-        <p className="m-0 flex items-center gap-1.5 text-[13px]/5 text-ink-muted">
-          <Info aria-hidden size={14} strokeWidth={2} className="shrink-0" />
-          {view.loggedOut
-            ? "You logged out of this site in this tab"
-            : "Pateat signed in here from this tab before"}
-        </p>
-      )}
       {/* Above the list, so it is seen before a choice is made. */}
       <p className="m-0 flex items-start gap-2.5" hidden={!canSave}>
         <input

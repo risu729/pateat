@@ -102,7 +102,6 @@ describe("loginRecordOf", () => {
       ended({ recipeRevision: 0 }),
       ended({ recipeId: "not a recipe" }),
       // Runs only part of the revision.
-      ended({ reason: "fill-only" }),
       ended({ stop: "password" }),
       // Settings, the vault or the account changed under the login, or a cancel without cause.
       ended({ state: "blocked", outcome: "policy-changed" }),
