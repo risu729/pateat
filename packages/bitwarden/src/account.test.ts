@@ -571,7 +571,6 @@ describe("account and provider binding admission", () => {
     { exp: accountNow - 1 },
     { exp: "future" },
     { exp: 1.5 },
-    { nbf: accountNow + 301 },
     { nbf: "future" },
     { nbf: 1.5 },
     { nbf: -1 },
@@ -585,21 +584,21 @@ describe("account and provider binding admission", () => {
     expect(mapRaw(raw).ok).toBe(false);
   });
 
-  // Bitwarden (Duende) and Vaultwarden set nbf to the server's issue second, so a browser clock
-  // slightly behind the server must still accept a fresh token; 300 s is the skew Duende allows
-  // by default when it validates a token.
-  it.each([1, 60, 300])("accepts a token whose nbf is %i s ahead of the local clock", (ahead) => {
-    const raw = rawV1Account();
-    raw.token.access_token = syntheticJwt({ nbf: accountNow + ahead, iat: accountNow + ahead });
-    expect(mapRaw(raw).ok).toBe(true);
-  });
+  // Bitwarden (Duende) and Vaultwarden set nbf to the server's issue second. Like the official
+  // clients' TokenService, only exp decides expiry, so any clock behind the server still works.
+  it.each([1, 300, 3600, 365 * 24 * 3600])(
+    "accepts a token whose nbf is %i s ahead of the local clock",
+    (ahead) => {
+      const raw = rawV1Account();
+      raw.token.access_token = syntheticJwt({ nbf: accountNow + ahead, iat: accountNow + ahead });
+      expect(mapRaw(raw).ok).toBe(true);
+    },
+  );
 
   it.each([
-    { nbf: accountNow + 301 },
-    { nbf: accountNow + 3600 },
     { exp: accountNow },
     { exp: accountNow - 1 },
-    { exp: accountNow, nbf: accountNow + 300 },
+    { exp: accountNow, nbf: accountNow - 60 },
   ])("reports a token outside its validity window as expired %j", (claims) => {
     const raw = rawV1Account();
     raw.token.access_token = syntheticJwt(claims);

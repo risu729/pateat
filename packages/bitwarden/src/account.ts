@@ -441,8 +441,6 @@ function accountFromProfile(profile: RecordValue): ResponseAccountState {
   if (modern == null && privateKey.startsWith("7.")) reject();
   return state;
 }
-/** The skew Duende IdentityServer and Microsoft.IdentityModel allow by default when validating. */
-const NBF_CLOCK_SKEW_SECONDS = 300;
 function tokenClaims(token: unknown, now: number): RecordValue {
   const value = requiredText(token, 16384);
   const parts = value.split(".");
@@ -463,10 +461,8 @@ function tokenClaims(token: unknown, now: number): RecordValue {
     )
       reject();
   }
-  // The server sets nbf to its own issue second, so a local clock slightly behind it must still
-  // accept a fresh token.
-  if (typeof claims["nbf"] === "number" && claims["nbf"] > now + NBF_CLOCK_SKEW_SECONDS)
-    reject("authentication-expired");
+  // Like the official clients' TokenService, only exp decides expiry; nbf is the server's issue
+  // second and a local clock behind the server must still accept a fresh token.
   if (claims["iss"] != null) requiredText(claims["iss"], 2048);
   if (claims["aud"] != null) {
     const values = typeof claims["aud"] === "string" ? [claims["aud"]] : list(claims["aud"], 100);
