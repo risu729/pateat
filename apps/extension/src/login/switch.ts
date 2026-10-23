@@ -287,6 +287,8 @@ export async function runLogout<Page extends LogoutPage>(
   recipe = (await service.recipes(origin).catch(() => [])).find(
     (stored) => stored.origin === origin && stored.logout.path === start.path,
   );
+  // Each round reads the page the previous click left, so the rounds run in order.
+  /* eslint-disable no-await-in-loop */
   for (;;) {
     let next = recipe?.logout.targets[clicks];
     // A recipe that ran to its end on a confirmation, or on a logout it knew before this
@@ -341,5 +343,5 @@ export async function runLogout<Page extends LogoutPage>(
     if (after.signIn) return done();
     page = after.page;
     if (clicks >= MAX_LOGOUT_ROUNDS && last === "menu") return failed("still-signed-in");
-  }
+  } /* eslint-enable no-await-in-loop */
 }

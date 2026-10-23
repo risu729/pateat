@@ -2985,7 +2985,7 @@ export function createLoginRuntime(
           settle: (live) => settleSwitch(tabId, site, live),
         },
         {
-          recipes: (origin) => logout.recipes(origin),
+          recipes: (recipeOrigin) => logout.recipes(recipeOrigin),
           generate: async (logoutRequest) => {
             const spin = spinning(tabId);
             spin.sent(() => undefined)();
@@ -3582,14 +3582,14 @@ export function createLoginRuntime(
       live.incognito,
     );
     if (switching) {
-      const current = picked.get(live.document.tabId);
+      const held = picked.get(live.document.tabId);
       const pick =
-        current?.attemptId === undefined &&
-        current?.documentId === live.document.documentId &&
-        current.origin === live.document.origin &&
-        current.connectionId === switching.connectionId &&
-        current.itemId === switching.itemId
-          ? current
+        held?.attemptId === undefined &&
+        held?.documentId === live.document.documentId &&
+        held.origin === live.document.origin &&
+        held.connectionId === switching.connectionId &&
+        held.itemId === switching.itemId
+          ? held
           : {
               tabId: live.document.tabId,
               origin: live.document.origin,
@@ -3599,7 +3599,7 @@ export function createLoginRuntime(
               makeDefault: switching.makeDefault,
               waitedMs: 0,
             };
-      if (pick !== current) {
+      if (pick !== held) {
         picked.set(live.document.tabId, pick);
         void quietly(saveSession);
       }
@@ -10086,13 +10086,13 @@ export function createLoginRuntime(
   }
   /**
    * The site's account pick for this browser session (ADR 0063), for a passkey request of
-   * `origin` while the saved defaults of its site are still those it was kept with.
+   * `pageOrigin` while the saved defaults of its site are still those it was kept with.
    */
   async function sessionPick(
-    origin: string,
+    pageOrigin: string,
     incognito: boolean,
   ): Promise<{ connectionId: string; itemId: string } | undefined> {
-    const site = siteOf(origin);
+    const site = siteOf(pageOrigin);
     if (site === undefined) return undefined;
     const snapshot = await settings
       .handle({ version: 1, type: "settings.get" })

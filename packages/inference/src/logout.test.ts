@@ -32,8 +32,8 @@ const homePage: LoginObservation = {
     control("c4", "button", { by: "text", value: "[email]" }),
   ],
 };
-const answer = (control: string, purpose = "logout") =>
-  JSON.stringify({ result: { decision: "logout", control, purpose } });
+const answer = (candidate: string, purpose = "logout") =>
+  JSON.stringify({ result: { decision: "logout", control: candidate, purpose } });
 
 function generator(text: string) {
   const model = textModel(async () => textResult(text));
