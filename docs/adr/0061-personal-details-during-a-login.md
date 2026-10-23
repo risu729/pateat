@@ -3,8 +3,8 @@
 Status: proposed by Claude on 2026-10-23 and not confirmed by the owner. The owner asked
 on 2026-10-23 (05:28 UTC) for this work to go ahead on best guesses, left to the owner
 to decide afterwards; each guess is listed under [Assumed](#assumed-not-confirmed), and
-the owner's own decisions under [Decided by the owner](#decided-by-the-owner). The design
-was reviewed against the code by another AI before it was built. Implements the
+the owner's own decisions under [Decided by the owner](#decided-by-the-owner). The
+design was reviewed against the code by another AI before it was built. Implements the
 [phase 2](../plan.md#phase-2-use-it-and-fix-what-comes-up) item on personal details
 asked for during a login, in parts (see [Delivery](#delivery)). Amends
 [ADR 0027](0027-per-account-login-routes.md) (a fourth handler kind and what the judge
@@ -20,8 +20,9 @@ Date: 2026-10-23
 Some sites ask for a fact about the person during a login, after the ID and password:
 
 - MUFG Card NEWS+PLUS (`https://www2.cr.mufg.jp/newsplus/`, live DOM read on 2026-10-21
-  for [#832](https://github.com/risu729/pateat/issues/832)): pressing ログイン copies the
-  ID and password into hidden inputs of a second form in a lightbox, 追加確認項目の入力:
+  for [#832](https://github.com/risu729/pateat/issues/832)): pressing ログイン copies
+  the ID and password into hidden inputs of a second form in a lightbox,
+  追加確認項目の入力:
 
   ```html
   <form id="loginFormNaviPU" action="/newsplus/loginaction.html" method="POST">
@@ -97,12 +98,12 @@ the page's content script.
 }
 ```
 
-- `fields` lists one to three inputs, each with the value it asks for. A page that offers
-  a choice, as MUFG's radio buttons do, lists each input.
+- `fields` lists one to three inputs, each with the value it asks for. A page that
+  offers a choice, as MUFG's radio buttons do, lists each input.
 - It is entered as other handlers are: its path matches and its button shows. A login
   fills the first input whose detail it has a value for (below), and only that one; that
-  input must be writable, the others need not show. The chosen input is recorded with the
-  entered handler, so the attempt's plan is the same after a service worker restart.
+  input must be writable, the others need not show. The chosen input is recorded with
+  the entered handler, so the attempt's plan is the same after a service worker restart.
 - Its steps are a fill of that input and a click on `target`. A login that only fills
   ([ADR 0035](0035-page-kinds-per-site.md)) fills it and does not press the button.
 - It runs at most once per login, so a value the site refuses is never retried in that
@@ -123,8 +124,8 @@ the same `name` in the input's form, comes before the input in document order, a
 other radio and no text-like input lies between them. Filling a detail input checks its
 choosing radio first, when it has one and it is not checked, in the same task as the
 fill, with a `click` so the page's handlers run. This is a property of the fill, not a
-recipe step, and it is not a submission. A page whose radios all come before their inputs
-has no choosing radio, and its input is filled only if it is writable as it is.
+recipe step, and it is not a submission. A page whose radios all come before their
+inputs has no choosing radio, and its input is filled only if it is writable as it is.
 
 ### What the judge names
 
@@ -188,9 +189,10 @@ When a `detail` handler shows and no link has a value for any of its inputs:
 2. Pateat lists candidates locally from the catalog, in the login item's vault account
    and under the rules above: identity items for `phone-last-4`; Text or Hidden custom
    fields whose name reads as a birth date (contains `birth`, `dob`, `生年月日` or
-   `誕生日`, in any case) for `birth-date`; card items for `card-last-4` and `card-code`.
-   An item whose name holds a run of three or more ASCII letters or digits found in the
-   page's host name, or which appears whole in the page's title, comes first.
+   `誕生日`, in any case) for `birth-date`; card items for `card-last-4` and
+   `card-code`. An item whose name holds a run of three or more ASCII letters or digits
+   found in the page's host name, or which appears whole in the page's title, comes
+   first.
 3. The popup's "This page" section shows what the page asks for and the candidates, the
    first one selected, for example "This page asks for your birth year and month." and
    "本人 › 生年月日", with **Fill**.
@@ -226,8 +228,8 @@ by `?`. Never a value or an item name.
    person.
 2. Card security codes are filled after the one confirmation, as ADR 0035 and the plan
    record. The owner's open card on which values may be filled on a page after the
-   submission was answered by assumption elsewhere as "no card code"; if the owner chooses
-   that, `card-code` joins `manualDetails` and is learned but never filled.
+   submission was answered by assumption elsewhere as "no card code"; if the owner
+   chooses that, `card-code` joins `manualDetails` and is learned but never filled.
 3. One confirmation per link, not per login: the owner's "records the choice once the
    owner confirms it".
 4. A link is per site and login item, so two accounts on one site are linked separately.
@@ -248,5 +250,5 @@ by `?`. Never a value or an item name.
 - An input disabled until its radio is chosen is not entered while disabled.
 - No icon or badge says that the popup has a proposal; the login's ending as
   `challenge` is what shows ([ADR 0038](0038-login-status-badge.md)).
-- Whether MUFG keeps the sidebar sign-in form shown behind the lightbox, and the order of
-  its radios and inputs, needs a check in the owner's Chrome.
+- Whether MUFG keeps the sidebar sign-in form shown behind the lightbox, and the order
+  of its radios and inputs, needs a check in the owner's Chrome.
