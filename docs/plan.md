@@ -491,12 +491,17 @@ than in this repository.
   is used when every matching item holds a passkey (the recipe is shared), and
   otherwise the entry or the list is handled as before (owner, 2026-10-19 22:44 UTC).
 - The owner uses Pateat on many sites and reports bugs; Claude may also fix problems it
-  finds on its own. Reading the extension's error logs without a report needs a way for
-  them to leave the device, which [ADR 0019](adr/0019-local-diagnostics-and-logs.md)
-  keeps local; that is a design to bring to the owner first. The one exception so far is
-  the value-free result code of each recipe revision's first login, which reaches the
-  service's `login_outcomes` table (owner, 2026-10-18 06:08 UTC,
-  [ADR 0019](adr/0019-local-diagnostics-and-logs.md#amendment-2026-10-18-first-login-results-for-evaluation)).
+  finds on its own. The local log's `warn` and `error` lines, and its `info` lines that
+  say why Pateat did nothing on a page, go to the service's `problem_log` automatically
+  (owner, 2026-10-23 12:28 and 13:00 UTC), kept a year, shown on `/manage/problems` and
+  read by Claude through read-only D1 without a report
+  ([ADR 0066](adr/0066-problem-lines-sent-to-the-service.md)); implemented with local
+  tests only, not deployed. The rest of the log stays local
+  ([ADR 0019](adr/0019-local-diagnostics-and-logs.md)). The service also has each recipe
+  revision's first login result in `login_outcomes` (owner, 2026-10-18 06:08 UTC,
+  [ADR 0019](adr/0019-local-diagnostics-and-logs.md#amendment-2026-10-18-first-login-results-for-evaluation))
+  and every ended login's result and times in `login_timings`
+  ([ADR 0055](adr/0055-login-records-sent-to-the-service.md)).
 - Moved from phase 1 (owner, 2026-10-12 20:35 UTC): the daily-use sites not tested
   yet, about 50 in the project's list. They are no longer tested in batches; the
   owner uses them, and Claude fixes what fails, from the owner's reports, the local log
@@ -1009,6 +1014,12 @@ Once the fixes have settled:
   going from the service to a device (owner, 2026-10-18 08:38 UTC:
   「リリース前の考慮事項として記録はしておいて。一旦ユーザー私だけなので大丈夫」;
   [ADR 0055](adr/0055-login-records-sent-to-the-service.md)).
+- Before Pateat has other users, add a setting that turns off what a device sends on its
+  own: the login records of
+  [ADR 0055](adr/0055-login-records-sent-to-the-service.md) and the problem log lines
+  of [ADR 0066](adr/0066-problem-lines-sent-to-the-service.md). Neither has
+  one while the owner is the only user (owner, 2026-10-23 12:28 UTC: the off switch
+  waits for this list, as the revisit of ADR 0055 above does).
 - Next, before the rest of the work below that makes Pateat public: Japanese alongside
   English for Pateat itself (owner, 2026-10-12 13:59 UTC): the README, the docs and the
   extension's UI text. The service's pages, such as `/manage`, come later. The owner

@@ -28,6 +28,7 @@ import {
   loginOutcomes,
   loginTimings,
   owners,
+  problemLog,
   type inferenceLogRecipePages,
 } from "../db/schema";
 import { resolveClaudeCredential } from "./credentials";
@@ -221,9 +222,10 @@ export async function limitReached(db: Db, ownerId: string, now: number) {
 }
 
 /**
- * Deletes request log rows, login result codes and login records past the one-year
- * retention. Routine releases do not apply cron triggers, so this runs whenever a call, a
- * login result or a login record is logged and on every recipe sync read.
+ * Deletes request log rows, login result codes, login records and devices' problem lines
+ * (ADR 0066) past the one-year retention. Routine
+ * releases do not apply cron triggers, so this runs whenever a call, a login result, a
+ * login record or problem lines are logged and on every recipe sync read.
  */
 export async function purgeExpiredLog(db: Db, now: number) {
   const before = now - CLAUDE_CALL_LIMITS.logRetentionMs;
@@ -231,6 +233,7 @@ export async function purgeExpiredLog(db: Db, now: number) {
     db.delete(inferenceLog).where(lt(inferenceLog.createdAt, before)),
     db.delete(loginOutcomes).where(lt(loginOutcomes.createdAt, before)),
     db.delete(loginTimings).where(lt(loginTimings.createdAt, before)),
+    db.delete(problemLog).where(lt(problemLog.createdAt, before)),
   ]);
 }
 

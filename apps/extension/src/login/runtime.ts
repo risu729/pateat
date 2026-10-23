@@ -1524,6 +1524,11 @@ export type LoginReport = (
       watched?: true;
       /** A new document of the tab resumed the attempt without changing its state or outcome. */
       repeat?: true;
+      /**
+       * Nothing was submitted yet, and the login is still in the document it began in, so
+       * the page is the one it started on or the same document after a fill (ADR 0066).
+       */
+      unsubmitted?: true;
       /** Why the login just changed route (ADR 0034). */
       routeChange?: RouteChange;
       /** The login stops before the password its item lacks (ADR 0036). */
@@ -1703,6 +1708,8 @@ export type LoginReport = (
       /** The state the login was left in, and the step it stopped at. */
       state: LoginAttemptMetadata["state"];
       stepIndex: number;
+      /** As for `attempt`: nothing was submitted yet, in the document the login began in. */
+      unsubmitted?: true;
       name: string;
       /** Logged only when it is one of Pateat's own error codes. */
       message?: string;
@@ -2122,6 +2129,7 @@ export function createLoginRuntime(
       ...(metadata.outcome ? { outcome: metadata.outcome } : {}),
       ...(metadata.unconfirmed ? { unconfirmed: true as const } : {}),
       ...(metadata.watch ? { watched: true as const } : {}),
+      ...(unsubmitted(metadata) ? { unsubmitted: true as const } : {}),
       ...(metadata.fillOnly ? { reason: "fill-only" } : {}),
       ...(metadata.stopAt === undefined ? {} : { stop: "password" as const }),
       ...(policy && metadata.outcome === "policy-changed" ? policy : {}),
@@ -2139,6 +2147,14 @@ export function createLoginRuntime(
   const stepWaitMs = () => (probeMode ? probeStepWaitMs : undefined) ?? LOGIN_STEP_WAIT_MS;
   const documents = new Map<string, LiveDocument>();
   const attempts = new Map<number, Execution>();
+  /**
+   * By attempt ID, the document each new login of this worker began in; a resumed or
+   * recovered one has none, so it never counts as unsubmitted (ADR 0066).
+   */
+  const begunIn = new Map<string, string>();
+  /** Nothing was submitted yet, and the login is still in the document it began in. */
+  const unsubmitted = (metadata: LoginAttemptMetadata) =>
+    metadata.submissions === 0 && begunIn.get(metadata.id) === metadata.document.documentId;
   // ADR 0029's sign-in state reads these, kept in memory only and never stored.
   /**
    * By tab: when the attempt last delivered an effect step, the document it ran in, whether
@@ -6342,6 +6358,7 @@ export function createLoginRuntime(
             route: run.metadata.route,
             state: run.metadata.state,
             stepIndex: run.metadata.stepIndex,
+            ...(unsubmitted(run.metadata) ? { unsubmitted: true as const } : {}),
             name: error instanceof Error ? error.name : typeof error,
             ...(error instanceof Error ? { message: error.message } : {}),
             ...(error instanceof Error && error.stack ? { stack: error.stack } : {}),
@@ -9764,6 +9781,12 @@ export function createLoginRuntime(
         }),
         { type: "RESOLVE" },
       );
+      begunIn.delete(metadata.id);
+      begunIn.set(metadata.id, document.documentId);
+      for (const old of begunIn.keys()) {
+        if (begunIn.size <= 256) break;
+        begunIn.delete(old);
+      }
       // No listed account fits, and the list has no button for another one (ADR 0028).
       if (click === "none") metadata = transitionLoginAttempt(metadata, { type: "NOT_LISTED" });
     }
