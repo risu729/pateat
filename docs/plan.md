@@ -2906,9 +2906,10 @@ form, a field, button or required checkbox without a target (a checkbox is conte
 only, so one without `required` or `aria-required="true"` and without a target is left
 out, 2026-10-23, as Stripe's and 1Password's "Remember me"), a control the executor
 cannot act on (a select, radio, text area, another input type, or a read-only, disabled,
-transparent or tiny field) or a control in a shadow root makes the observation incomplete, as do
-more than 48 candidates, so inference rejects it; a page without a field, or where
-nothing in a login form can be located or acted on, is refused. The login forms are
+transparent or tiny field) or a control in a shadow root makes the observation
+incomplete, as do more than 48 candidates, so inference rejects it; a page without a
+field, or where nothing in a login form can be located or acted on, is refused. The
+login forms are
 those with one password field that is not `new-password`, or with a `username` or
 `one-time-code` field, as ADR 0016 detects a login; failing that, any with a password
 field; otherwise every form that holds a field. Any other form with such a control, such
