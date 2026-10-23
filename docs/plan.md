@@ -2979,10 +2979,13 @@ call is from reported usage at the published rates.
 | Haiku 5.5 `low` | 0.882 (3) | 0.992 | 1.000 | 1.000 | 1.32 / 2.42 | 0.0003 |
 | Haiku 5.5 `medium` | 0.882 (3) | 1.000 | 1.000 | 1.000 | 1.63 / 2.75 | 0.0004 |
 
-No configuration made a false submit. On the synthetic corpus every Opus, Fable and
-Haiku run abstains on `en-label-injection` (`unsafe-instructions`) and
-`ja-fullwidth-pin` (`insufficient-evidence`, a four-digit 暗証番号 for the password
-slot), which Sonnet 5.5 maps; Opus 5 maps the first. The Formasaurus failures are
+The only false submit was one Fable 5.1 run on `ja-bank-unlabeled-lengths`. On the
+synthetic corpus Opus 5.5, Fable and Haiku abstain on `en-label-injection`
+(`unsafe-instructions`) and `ja-fullwidth-pin` (`insufficient-evidence`, a four-digit
+暗証番号 for the password slot) in nearly every run, which Sonnet 5.5 maps; Opus 5 maps
+the first, and Opus 5.5 maps the second in one `medium` run and the fast run. Sonnet's
+whole lead is these 2 pages and 2 Formasaurus sign-up pages; the Japanese and web pages
+do not separate the models, and the single-run columns are within one page. The Formasaurus failures are
 `invalid-output` with `unexpected-entry`: on the sign-up pages formasaurus-1, -62 and
 -407, expected to abstain, the Opus and Fable models name the "Log in" link as a
 sign-in entry, which a request with slots refuses. Fable 5.1 refused `ja-mufg-direct`
@@ -3009,14 +3012,18 @@ instead of its candidate ID, which the judge refuses as `invalid-output`; the re
 `unclear` on the nickname link (`ja-nickname-href`), the count-and-balance page and the
 stay-signed-in prompt. With one more phrase in the marker's description in
 `judgedPageSchema` ("The candidate ID (such as c3) of a button or link …"), measured
-the same day and not adopted, the judge scored: Opus 5.5 `low` 1.000 (3 runs), Sonnet
-5.5 `low` 0.935 and `medium` 0.968, Haiku 5.5 `low` 0.978 and `medium` 0.957, each
-over 3 runs and every remaining error an `unclear`.
+the same day on the same 31 pages and not adopted, the judge scored: Opus 5.5 `low`
+1.000 (3 runs; it never made that mistake), Sonnet 5.5 `low` 0.935 and `medium` 0.968,
+Haiku 5.5 `low` 0.978 and `medium` 0.957, each over 3 runs and every remaining error an
+`unclear`. Opus 5.5's truncated call took 59.7 s (56.4 s at `medium`), next to the 60 s
+timeout.
 
-Fast mode halves Opus 5.5's latency at twice the price ($8/$40 per million tokens).
-Opus 5 has no fast mode quota on this organization: the API answers every fast request
-with a rate limit of 0 input tokens per minute. Fast mode is a Claude API research
-preview with its own rate limits.
+Fast mode takes about 0.9 s off a generation and 0.6 s off a judgement for Opus 5.5
+(p50 1.59 s standard against 1.03 s fast for the judge in the same window) at twice the
+price ($8/$40 per million tokens). Recipes and judgements are stored, so this speeds up
+only a site's first sign-in. On this organization Opus 5 answered one short fast request
+and then every one with a rate limit of 0 fast mode input tokens per minute. Fast mode
+is a Claude API research preview with its own rate limits per organization.
 
 Evaluation data candidates, checked 2026-10-10 (terms are as published by each
 source; confirm before use):
