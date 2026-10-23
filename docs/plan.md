@@ -2397,7 +2397,11 @@ after the final submission, with the login paths, and returns `signed-in` with a
 or link marker, `rejected` or `challenge`, or abstains when unclear. An unknown marker,
 one that is not a button or link, or a page that still has a password input not marked
 `new-password` or a field marked `username`, `current-password` or `one-time-code` fails
-as `invalid-output`. `addCompletion` stores the marker as the recipe's `completion` in
+as `invalid-output`. The response format describes the marker as a candidate ID (such as
+`c3`) since 2026-10-23: on 31 synthetic judged pages, Sonnet 5.5 and Haiku 5.5 mostly
+answered a button's text (`"Log out"`) instead, which fails here, and with the ID named
+Haiku 5.5 low went from 0.785 to 0.978 (Opus 5.5 never made that error).
+`addCompletion` stores the marker as the recipe's `completion` in
 the next revision. It refuses a marker that is not on the judged page, a page on another
 origin, a marker one of the recipe's own steps uses on that path, and a page that still
 shows an element a step uses on that path or a field any step fills. A failed sign-in
