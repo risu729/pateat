@@ -4,9 +4,9 @@ Status: proposed. Built on assumed decisions under the owner's instruction of 20
 05:28 UTC to set the phases aside, build on best guesses as unmerged PRs and judge them
 later. On 2026-10-23 about 11:15 UTC the owner chose to go on with it, to give a
 component's control the form that holds the component, to read another extension's
-shadow roots as Bitwarden does, and at 11:53 UTC to add a locator that names the hosts
-a field sits inside; when that locator is used (only when no other names the field, as
-assumed below) is not decided yet. Implemented in the
+shadow roots as Bitwarden does, at 11:53 UTC to add a locator that names the hosts a
+field sits inside, and at 12:14 UTC to use it only when no other locator names the
+field; the rest is assumed. Implemented in the
 extension (local and cloud Chromium tests only; not yet checked on the real sites or in
 the owner's Chrome). Amends the observation contract in [the plan](../plan.md) and, for
 the passkey page,
@@ -51,7 +51,7 @@ What the owner has not decided (see Status) is assumed.
   element when exactly one element of the whole page, shadow trees included, carries it,
   as before; Reddit's fields are `{ "by": "name", "value": "password" }`. Only an
   element of a shadow tree that no such locator names gets one `within` its hosts
-  (owner, 2026-10-23 11:53 UTC; used only then by assumption): an `id`, `name`,
+  (owner, 2026-10-23 11:53 and 12:14 UTC): an `id`, `name`,
   `data-testid`, `autocomplete` or visible-name locator with `within`, one to three
   hosts outermost first, each named by its `id`, `name` or `data-testid`, as
   `{ "by": "id", "value": "input", "within": [{ "by": "id", "value": "login-pw" }] }`
