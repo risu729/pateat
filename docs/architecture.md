@@ -604,8 +604,8 @@ when a parent-domain rule or one with subdomains covers the site, the switch is 
 and the popup links each such rule to the settings page. While the allowed sites are on
 ([ADR 0077](adr/0077-allowed-sites.md)), the switch is on only for an allowed site:
 turning it on allows the exact hostname, and turning it off removes that rule, or
-excludes the hostname when a broader rule allows it. While the tab's page waits for
-an account choice, the choice is the popup's only list (the owner asked for one list on
+excludes the hostname when a broader rule allows it. While the tab's page waits for an
+account choice, the choice is the popup's only list (the owner asked for one list on
 2026-10-13 at 03:54 UTC): its cards mark the saved default, its "Make it the default"
 checkbox makes the picked account the default once that login succeeds (a pick of
 another account that starts no login says it was not made the default), and a saved
@@ -650,7 +650,8 @@ restart. Item selection, field exclusions and custom-field review are synced and
 the extension's settings page ([ADR 0023](adr/0023-synced-vault-policy.md)); the popup
 does not report items waiting for review or repair bindings yet. The service keeps
 excluded sites, allowed sites, site defaults and the synced vault policy per settings
-profile and bindings per owner, under one owner revision ([ADR 0024](adr/0024-settings-profiles.md),
+profile and bindings per owner, under one owner revision
+([ADR 0024](adr/0024-settings-profiles.md),
 [ADR 0076](adr/0076-settings-profiles-delivered.md)). Each device uses one profile,
 chosen when it pairs or on the management page's Devices page; `/manage/profiles`
 renames, copies and deletes profiles, and the Sites pages edit one profile at a time.

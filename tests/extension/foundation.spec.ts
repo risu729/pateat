@@ -284,7 +284,9 @@ test("probe options support keyboard policy validation and pass accessibility ch
     await expect(page.locator("#site-list")).toContainText("keyboard.example");
     await expect(page.locator("#site-origin")).toHaveValue("");
     await expect(page.locator("#site-origin")).toBeFocused();
-    await page.getByRole("button", { name: "Allow keyboard.example", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Remove exclusion for keyboard.example", exact: true })
+      .click();
     await expect(page.locator("#site-origin")).toBeFocused();
 
     await page

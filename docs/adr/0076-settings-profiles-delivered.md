@@ -56,8 +56,9 @@ extension's merge.
 - Choosing an existing profile replaces the device's exclusions, allowed sites
   ([ADR 0077](0077-allowed-sites.md)), sites that ask for the master password and saved
   accounts with the profile's (owner, Q4: 「サービスのほうを使う」). When the device
-  holds any, or has the allowed sites on, the page first shows a warning with their counts
-  and three buttons: **Pair and replace**, **Create a new profile instead** and **Back** (owner, Q4: 「警告画面はいる」).
+  holds any, or has the allowed sites on, the page first shows a warning with their
+  counts and three buttons: **Pair and replace**, **Create a new profile instead** and
+  **Back** (owner, Q4: 「警告画面はいる」).
 - Bindings belong to the owner, so they keep merging both ways when a device adopts a
   profile (implementation).
 
