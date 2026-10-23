@@ -50,9 +50,11 @@ recipe revisions, 122,880 settings-document bytes (120 KiB), 131,072 API body by
 The first three shapes reach the service's 1,000-active-recipe cap first. The
 deliberately wide-marker shape reaches the 1.5 MiB owner byte cap at 710 recipes, and
 those 710 make a 1,572,777-byte cache, inside the 2 MiB device cap; without the owner
-byte cap, the device cap would be passed at 947 recipes, before 1,000. So the owner caps
-keep every shape inside the device cap, with about 512 KiB to spare for the cache
-envelope. Counts above 1,000 are hypothetical serialization capacity, not a service
+byte cap, the device cap would be passed at 947 recipes, before 1,000. So in a
+consistent snapshot the owner caps keep every shape inside the device cap, with about
+512 KiB to spare (the cache envelope is already counted). A cache filled across sync
+pages can briefly hold an old and a new head at once and use part of that margin.
+Counts above 1,000 are hypothetical serialization capacity, not a service
 entitlement. Japanese text takes more UTF-8 bytes than its JavaScript string length; the
 byte calculation includes those bytes, JSON delimiters, commas, the wrapper and the
 cursor's digit count.
