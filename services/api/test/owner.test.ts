@@ -5,7 +5,7 @@ import {
   manageRequestLogDeletedSchema,
   manageRequestLogSchema,
   type DevicePairResult,
-  type LoginRecipe,
+  type LoginRecipeDocument,
 } from "@pateat/contracts";
 import { env } from "cloudflare:workers";
 import * as v from "valibot";
@@ -555,27 +555,42 @@ describe("owner web UI settings", () => {
 });
 
 describe("owner web UI recipes", () => {
-  function recipe(id: string, revision: number, origin = "https://bank.example"): LoginRecipe {
+  /** A recipe with a layout (ADR 0060) for each key, created when `created` says. */
+  function recipe(
+    id: string,
+    revision: number,
+    origin = "https://bank.example",
+    layouts: { key: string; createdAt: number }[] = [{ key: "1000", createdAt: 1000 }],
+  ): LoginRecipeDocument {
     return {
       version: 1,
       id,
       revision,
       origin,
-      slots: ["username", "password"],
-      steps: [
-        {
-          kind: "fill",
-          effect: "prepare",
-          path: "/login",
-          fields: [
-            { slot: "username", target: { by: "id", value: "username" } },
-            { slot: "password", target: { by: "id", value: "password" } },
-          ],
-        },
-        { kind: "click", path: "/login", target: { by: "id", value: "submit" }, purpose: "submit" },
-      ],
-      completion: [{ target: { by: "id", value: "welcome" } }],
-      maxSubmissions: 1,
+      layouts: layouts.map(({ key, createdAt }) => ({
+        key,
+        createdAt,
+        slots: ["username", "password"],
+        steps: [
+          {
+            kind: "fill",
+            effect: "prepare",
+            path: "/login",
+            fields: [
+              { slot: "username", target: { by: "id", value: "username" } },
+              { slot: "password", target: { by: "id", value: `password-${key}` } },
+            ],
+          },
+          {
+            kind: "click",
+            path: "/login",
+            target: { by: "id", value: "submit" },
+            purpose: "submit",
+          },
+        ],
+        completion: [{ target: { by: "id", value: "welcome" } }],
+        maxSubmissions: 1,
+      })),
     };
   }
   const publish = (credential: string, id: string, expectedRevision: number) =>
@@ -599,6 +614,13 @@ describe("owner web UI recipes", () => {
       method: "POST",
       access: by.token,
       headers: { "Content-Type": "application/json", ...(origin ? { Origin: origin } : {}) },
+      body: JSON.stringify({ version: 1, expectedRevision }),
+    });
+  const revokeLayout = (by: Owner, id: string, layout: string, expectedRevision: number) =>
+    request(`/manage/api/recipes/${id}/layouts/${layout}/revoke`, {
+      method: "POST",
+      access: by.token,
+      headers: { "Content-Type": "application/json", Origin: ORIGIN },
       body: JSON.stringify({ version: 1, expectedRevision }),
     });
   const list = async (by: Owner) =>
@@ -767,6 +789,143 @@ describe("owner web UI recipes", () => {
     expect(await (await deviceApi(device.credential, "/v1/recipes?after=2")).json()).toMatchObject({
       changes: [{ recipeId: "bank-signin", revision: 2, state: "revoked" }],
     });
+  });
+
+  it("lists each layout's last use and removes one layout at a time (ADR 0060)", async () => {
+    const by = await owner();
+    const device = await pairDevice(by);
+    const created = Date.now();
+    const two = recipe("bank-signin", 1, "https://bank.example", [
+      { key: "1000", createdAt: created },
+      { key: "2000", createdAt: created },
+    ]);
+    const written = await deviceApi(device.credential, "/v1/recipes/bank-signin", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ version: 1, expectedRevision: 0, state: "active", recipe: two }),
+    });
+    expect(written.status).toBe(200);
+    const before = Date.now();
+    const used = await deviceApi(device.credential, "/v1/recipes/bank-signin/use", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ version: 1, revision: 1, layout: "2000" }),
+    });
+    expect(used.status).toBe(204);
+    // A layout the recipe does not have is no use of one.
+    await deviceApi(device.credential, "/v1/recipes/bank-signin/use", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ version: 1, revision: 1, layout: "3000" }),
+    });
+    const [listed] = (await list(by)).recipes;
+    expect(listed!.layouts).toEqual([
+      { key: "1000", lastUsedAt: null },
+      { key: "2000", lastUsedAt: expect.any(Number) },
+    ]);
+    expect(listed!.layouts[1]!.lastUsedAt).toBeGreaterThanOrEqual(before);
+    const ownerId = await ownerIdFor(by.subject);
+    const lastUsed = async () =>
+      (
+        await env.DB.prepare(
+          "SELECT last_used_at FROM recipe_heads WHERE owner_id = ? AND recipe_id = 'bank-signin'",
+        )
+          .bind(ownerId)
+          .first<{ last_used_at: number }>()
+      )?.last_used_at;
+    const usedAt = await lastUsed();
+    // An unknown or malformed layout, or a stale revision, changes nothing.
+    const refused = await Promise.all([
+      revokeLayout(by, "bank-signin", "3000", 1),
+      revokeLayout(by, "bank-signin", "latest", 1),
+      revokeLayout(by, "missing-signin", "1000", 1),
+    ]);
+    expect(refused.map((response) => response.status)).toEqual([404, 404, 404]);
+    const stale = await revokeLayout(by, "bank-signin", "1000", 2);
+    expect(stale.status).toBe(409);
+    expect(await stale.json()).toMatchObject({
+      error: "recipe_conflict",
+      current: { revision: 1 },
+    });
+    // The next revision keeps the other layout, and removing one is no use of the recipe.
+    const removed = await revokeLayout(by, "bank-signin", "1000", 1);
+    expect(removed.status).toBe(200);
+    expect(await removed.json()).toEqual({
+      version: 1,
+      change: {
+        recipeId: "bank-signin",
+        revision: 2,
+        state: "active",
+        recipe: { ...two, revision: 2, layouts: [two.layouts[1]] },
+      },
+    });
+    expect(await lastUsed()).toBe(usedAt);
+    expect((await list(by)).recipes[0]!.layouts).toEqual([
+      { key: "2000", lastUsedAt: expect.any(Number) },
+    ]);
+    // Removing the last layout revokes the recipe, and its layouts' uses go with it.
+    const last = await revokeLayout(by, "bank-signin", "2000", 2);
+    expect(await last.json()).toEqual({
+      version: 1,
+      change: { recipeId: "bank-signin", revision: 3, state: "revoked" },
+    });
+    expect(
+      await env.DB.prepare("SELECT COUNT(*) AS n FROM recipe_layout_uses WHERE owner_id = ?")
+        .bind(ownerId)
+        .first("n"),
+    ).toBe(0);
+  });
+
+  it("removes a layout unused for 90 days while another is used (ADR 0060)", async () => {
+    const by = await owner();
+    const device = await pairDevice(by);
+    const now = Date.now();
+    const old = now - 91 * 24 * 60 * 60 * 1000;
+    const layouts = [
+      { key: "1000", createdAt: old },
+      { key: "2000", createdAt: old },
+      { key: "3000", createdAt: now },
+    ];
+    const stored = recipe("bank-signin", 1, "https://bank.example", layouts);
+    const written = await deviceApi(device.credential, "/v1/recipes/bank-signin", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ version: 1, expectedRevision: 0, state: "active", recipe: stored }),
+    });
+    expect(written.status).toBe(200);
+    // The second old layout ran a login this week.
+    const record = await deviceApi(device.credential, "/v1/recipes/bank-signin/logins", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        version: 1,
+        revision: 1,
+        branch: "2000",
+        outcome: "authenticated",
+        extensionBuild: "development",
+        totalMs: 4000,
+        serviceMs: 0,
+        networkMs: 0,
+        personMs: 0,
+        pageMs: 0,
+      }),
+    });
+    expect(record.status).toBe(204);
+    const { recipes } = await list(by);
+    expect(recipes.map((entry) => entry.change)).toEqual([
+      {
+        recipeId: "bank-signin",
+        revision: 2,
+        state: "active",
+        recipe: { ...stored, revision: 2, layouts: stored.layouts.slice(1) },
+      },
+    ]);
+    const rows = await env.DB.prepare(
+      "SELECT revision, created_by_device_id FROM recipe_revisions WHERE owner_id = ? AND revision = 2",
+    )
+      .bind(await ownerIdFor(by.subject))
+      .all();
+    expect(rows.results).toEqual([{ revision: 2, created_by_device_id: null }]);
   });
 
   it("refuses other methods on the recipes API", async () => {

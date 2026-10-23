@@ -118,7 +118,11 @@ test("shows a recipe's steps, targets and JSON, then revokes it", async () => {
     recipes: [
       active("bank-signin", 2),
       active("shop-signin"),
-      { change: { recipeId: "old-signin", revision: 3, state: "revoked" }, updatedAt: UPDATED },
+      {
+        change: { recipeId: "old-signin", revision: 3, state: "revoked" },
+        updatedAt: UPDATED,
+        layouts: [],
+      },
     ],
   });
   await mount(client);
@@ -225,7 +229,7 @@ test("lists each identifier set of a recipe with several (ADR 0027)", async () =
   // A custom-field slot named from the page's text, which may hold brackets.
   const member = "会員番号 (ログインID)";
   const varied = recipe("bank-signin", 1);
-  varied.alternatives = [
+  varied.layouts[0]!.alternatives = [
     {
       slots: [member, "password"],
       steps: [
@@ -253,6 +257,7 @@ test("lists each identifier set of a recipe with several (ADR 0027)", async () =
       {
         change: { recipeId: "bank-signin", revision: 1, state: "active", recipe: varied },
         updatedAt: UPDATED,
+        layouts: [{ key: LAYOUT, lastUsedAt: null }],
       },
     ],
   });
@@ -273,13 +278,17 @@ test("lists each identifier set of a recipe with several (ADR 0027)", async () =
 
 test("shows a recipe's passkey sign-in route (ADR 0027)", async () => {
   const withPasskey = recipe("bank-signin", 1);
-  withPasskey.passkey = { path: "/login", target: { by: "id", value: "passkey-login" } };
+  withPasskey.layouts[0]!.passkey = {
+    path: "/login",
+    target: { by: "id", value: "passkey-login" },
+  };
   const client = mockClient({
     version: 1,
     recipes: [
       {
         change: { recipeId: "bank-signin", revision: 1, state: "active", recipe: withPasskey },
         updatedAt: UPDATED,
+        layouts: [{ key: LAYOUT, lastUsedAt: null }],
       },
       active("card-signin"),
     ],
@@ -295,16 +304,22 @@ test("shows a recipe's passkey sign-in route (ADR 0027)", async () => {
 
 test("shows a passkey-only recipe and its one click (ADR 0053)", async () => {
   const button = { by: "id", value: "passkey-login" } as const;
-  const only: LoginRecipe = {
+  const only: LoginRecipeDocument = {
     version: 1,
     id: "bank-passkey",
     revision: 1,
     origin: "https://bank.example",
-    slots: [],
-    passkeyOnly: true,
-    passkey: { path: "/login", target: button },
-    steps: [{ kind: "click", path: "/login", target: button, purpose: "submit" }],
-    maxSubmissions: 1,
+    layouts: [
+      {
+        key: LAYOUT,
+        createdAt: Number(LAYOUT),
+        slots: [],
+        passkeyOnly: true,
+        passkey: { path: "/login", target: button },
+        steps: [{ kind: "click", path: "/login", target: button, purpose: "submit" }],
+        maxSubmissions: 1,
+      },
+    ],
   };
   const client = mockClient({
     version: 1,
@@ -312,6 +327,7 @@ test("shows a passkey-only recipe and its one click (ADR 0053)", async () => {
       {
         change: { recipeId: "bank-passkey", revision: 1, state: "active", recipe: only },
         updatedAt: UPDATED,
+        layouts: [{ key: LAYOUT, lastUsedAt: null }],
       },
     ],
   });
@@ -344,6 +360,7 @@ test("shows an entry recipe's sign-in entry, which devices do not click yet (ADR
           },
         },
         updatedAt: UPDATED,
+        layouts: [],
       },
     ],
   });
@@ -377,12 +394,19 @@ test("shows a chooser recipe's buttons and branches, which devices do not use ye
             origin: "https://bank.example",
             chooser: {
               path: "/login",
-              other: { by: "text", value: "Use another account" },
-              continue: { by: "text", value: "Log back in" },
+              layouts: [
+                {
+                  key: LAYOUT,
+                  createdAt: Number(LAYOUT),
+                  other: { by: "text", value: "Use another account" },
+                  continue: { by: "text", value: "Log back in" },
+                },
+              ],
             },
           },
         },
         updatedAt: UPDATED,
+        layouts: [{ key: LAYOUT, lastUsedAt: null }],
       },
     ],
   });
@@ -477,7 +501,7 @@ test("keeps the last list and says so when it cannot be refreshed after a revoca
 
 test("says when a generated recipe has no signed-in marker yet", async () => {
   const entry = active("new-signin");
-  delete entry.change.recipe.completion;
+  delete entry.change.recipe.layouts[0]!.completion;
   await mount(mockClient({ version: 1, recipes: [entry] }));
   await expect
     .element(recipeItem("new-signin"))
@@ -534,4 +558,70 @@ test("asks for a reload when the recipes cannot be read", async () => {
     .element(page.getByRole("alert"))
     .toHaveTextContent("Your sign-in may have expired. Reload the page to sign in again.");
   await expect.element(page.getByText("No revoked recipes")).not.toBeInTheDocument();
+});
+
+test("lists each layout of a recipe and removes one after a confirmation (ADR 0060)", async () => {
+  const newer = String(UPDATED);
+  const two = recipe("bank-signin", 3);
+  two.layouts = [
+    { ...two.layouts[0]!, language: "ja" },
+    {
+      ...two.layouts[0]!,
+      key: newer,
+      language: "en",
+      createdAt: UPDATED,
+      steps: [two.layouts[0]!.steps[1]!],
+      slots: [],
+    },
+  ];
+  const client = mockClient({
+    version: 1,
+    recipes: [
+      {
+        change: { recipeId: "bank-signin", revision: 3, state: "active", recipe: two },
+        updatedAt: UPDATED,
+        layouts: [
+          { key: LAYOUT, lastUsedAt: UPDATED },
+          { key: newer, lastUsedAt: null },
+        ],
+      },
+    ],
+  });
+  client.revokeLayout.mockImplementation(async (recipeId, _layout, expectedRevision) => ({
+    version: 1,
+    change: {
+      recipeId,
+      revision: expectedRevision + 1,
+      state: "active",
+      recipe: { ...two, revision: expectedRevision + 1, layouts: [two.layouts[1]!] },
+    },
+  }));
+  await mount(client);
+  const details = recipeItem("bank-signin");
+  for (const text of [
+    "Layouts2",
+    "Layout 1",
+    "LanguageJapanese",
+    "Created2026-10-10 08:15 UTC",
+    "Last used2026-10-11 08:15 UTC",
+    "Steps2",
+    "Layout 2",
+    "LanguageEnglish",
+    "Last usedNot used yet",
+    "Steps1",
+  ])
+    // oxlint-disable-next-line no-await-in-loop -- one element, checked in order
+    await expect.element(details).toMatchTextContent(text);
+  // Removing a layout asks once more, for the revision the owner saw.
+  const remove = page.getByRole("button", { name: `Remove layout ${LAYOUT} of bank-signin` });
+  await remove.click();
+  await expect
+    .element(page.getByText(`Remove layout ${LAYOUT} of bank-signin, revision 3?`))
+    .toBeVisible();
+  await page.getByRole("button", { name: "Confirm" }).click();
+  await expect.poll(() => client.revokeLayout).toHaveBeenCalledWith("bank-signin", LAYOUT, 3);
+  expect(client.revokeRecipe).not.toHaveBeenCalled();
+  await expect
+    .element(page.getByRole("status"))
+    .toHaveTextContent(`Layout ${LAYOUT} of bank-signin removed`);
 });

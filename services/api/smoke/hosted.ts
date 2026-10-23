@@ -25,6 +25,7 @@ export const SMOKE_OWNER_PREFIX = "smoke-";
  * A Worker test fails when a table with an `owner_id` column is missing here.
  */
 export const OWNER_TABLES = [
+  "recipe_layout_uses",
   "recipe_revisions",
   "recipe_heads",
   "settings",
@@ -89,21 +90,32 @@ function recipeDocument(id: string, revision: number) {
     id,
     revision,
     origin: "https://smoke.pateat.invalid",
-    slots: ["username", "password"],
-    steps: [
+    layouts: [
       {
-        kind: "fill",
-        effect: "prepare",
-        path: "/login",
-        fields: [
-          { slot: "username", target: { by: "id", value: "username" } },
-          { slot: "password", target: { by: "id", value: "password" } },
+        key: "1000",
+        createdAt: 1000,
+        slots: ["username", "password"],
+        steps: [
+          {
+            kind: "fill",
+            effect: "prepare",
+            path: "/login",
+            fields: [
+              { slot: "username", target: { by: "id", value: "username" } },
+              { slot: "password", target: { by: "id", value: "password" } },
+            ],
+          },
+          {
+            kind: "click",
+            path: "/login",
+            target: { by: "id", value: "submit" },
+            purpose: "submit",
+          },
         ],
+        completion: [{ target: { by: "id", value: "welcome" } }],
+        maxSubmissions: 1,
       },
-      { kind: "click", path: "/login", target: { by: "id", value: "submit" }, purpose: "submit" },
     ],
-    completion: [{ target: { by: "id", value: "welcome" } }],
-    maxSubmissions: 1,
   };
 }
 

@@ -57,6 +57,7 @@ function mockClient(initial: SyncSettingsState, recipes: ManageRecipes["recipes"
     }),
     recipes: vi.fn<ManageClient["recipes"]>(async () => ({ version: 1, recipes, unreadable: [] })),
     revokeRecipe: vi.fn<ManageClient["revokeRecipe"]>(),
+    revokeLayout: vi.fn<ManageClient["revokeLayout"]>(),
     requestLog: vi.fn<ManageClient["requestLog"]>(),
     deleteRequestLog: vi.fn<ManageClient["deleteRequestLog"]>(),
     replace(next: SyncSettingsState) {
@@ -168,6 +169,7 @@ test("lists each site with its recipes, default account and bindings", async () 
       },
     },
     updatedAt: Date.UTC(2026, 9, 11),
+    layouts: [],
   };
   const client = mockClient(
     {
