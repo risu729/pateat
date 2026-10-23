@@ -459,12 +459,15 @@ than in this repository.
   so its retention rule needs no work. The first login result of each revision reaches
   the service as codes
   ([ADR 0035](adr/0035-page-kinds-per-site.md#amendment-2026-10-18-login-results-on-the-service)).
-- The toolbar badge counts the matching items on every HTTP(S) site (on an `http:` page
-  only items saved with an `http://` URI;
+- Done: the toolbar badge counts the matching items on every HTTP(S) site (on an `http:`
+  page only items saved with an `http://` URI;
   [ADR 0050](adr/0050-http-pages-for-http-items.md)): teal with the usable count, light
   gray when every match is excluded, amber while a login waits for a choice (owner,
   2026-10-13 14:42 UTC;
-  [ADR 0021](adr/0021-account-choice-outside-settings.md#site-count-badge)).
+  [ADR 0021](adr/0021-account-choice-outside-settings.md#site-count-badge)). Covered by
+  unit tests and a synthetic Playwright test. Next: see it once in installed Chrome on a
+  site with a saved item, including that Chrome draws the gray and teal colours and
+  keeps the count across a same-origin navigation.
 - Generation for passkey-only start pages, moved from phase 4 (owner, 2026-10-19;
   [ADR 0053](adr/0053-passkey-only-generation.md)): implemented. A page that shows only
   a button to sign in with a passkey is sent once the no-input page wait of

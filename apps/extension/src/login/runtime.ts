@@ -1910,6 +1910,11 @@ export function createLoginRuntime(
        */
       checkAfterMiss?(): Promise<boolean>;
     };
+    /**
+     * Told once the runtime has handled a tab's top-frame announcement, which may count
+     * the site's items for the toolbar badge (ADR 0021).
+     */
+    announced?: (tabId: number, url: string) => void;
   },
 ) {
   const { fields, sites, recipes = noLoginRecipes, uris, generation } = options;
@@ -2323,6 +2328,8 @@ export function createLoginRuntime(
   const afterSignIn = new Map<number, string>();
   /** The latest announcement of each frame while it is admitted, by the same key. */
   const admitting = new Map<string, Promise<unknown>>();
+  /** The site count's crypto job in flight (ADR 0021), which an admission waits for. */
+  let counting: Promise<unknown> | undefined;
   const probeDocument = (url: URL) =>
     probeMode && url.origin === origin && url.protocol === "http:" && url.hostname === "127.0.0.1";
   // The synthetic fixture embeds its frames in a page on another loopback port to test refusal.
@@ -7605,6 +7612,8 @@ export function createLoginRuntime(
     const admission = (async () => {
       const leave = await options.vault?.enter(start !== undefined);
       try {
+        // A site count's job already sent delays the page; the count stops before its next.
+        await counting?.catch(() => undefined);
         return await admitFresh(
           sender,
           token,
@@ -9938,7 +9947,7 @@ export function createLoginRuntime(
     const hello = v.safeParse(helloSchema, message);
     if (hello.success) {
       options.vault?.refreshIfStale();
-      return ready(
+      const answer = ready(
         sender,
         hello.output.token,
         hello.output.start,
@@ -9948,6 +9957,13 @@ export function createLoginRuntime(
         hello.output.entry,
         hello.output.unoffered,
       );
+      const tabId = sender.tab?.id;
+      const { announced } = options;
+      if (announced && sender.frameId === 0 && tabId !== undefined && sender.url) {
+        const { url } = sender;
+        void answer.finally(() => announced(tabId, url)).catch(() => undefined);
+      }
+      return answer;
     }
     const destinationCheck = v.safeParse(destinationCheckSchema, message);
     if (destinationCheck.success) {
@@ -11490,9 +11506,28 @@ export function createLoginRuntime(
     )
       run.choice = plan.choice;
   }
+  /**
+   * The site count's way to the vault (ADR 0021): the same vault-replacement hold an
+   * admission takes, and each crypto job run only while no login runs and no page is being
+   * admitted, checked again before each job.
+   */
+  const siteCount = {
+    hold: async (): Promise<() => void> => (await options.vault?.enter(false)) ?? (() => undefined),
+    async step<T>(job: () => Promise<T>): Promise<{ value: T } | undefined> {
+      if (admitting.size > 0 || (await active()) || admitting.size > 0) return undefined;
+      const run = job();
+      counting = run;
+      try {
+        return { value: await run };
+      } finally {
+        if (counting === run) counting = undefined;
+      }
+    },
+  };
   return {
     handle,
     settingsChanged,
+    siteCount,
     /** A site default was saved outside the settings page, as by the passkey chooser. */
     siteDefaultSaved: () => void choiceDefaults(),
     active,
