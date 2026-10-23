@@ -1,7 +1,12 @@
 import * as v from "valibot";
 import type { LoginMarkerTarget, LoginTarget } from "@pateat/contracts";
 import { browser } from "wxt/browser";
-import { accountText, showsOtherAccount, shownAccounts } from "../page/accounts";
+import {
+  accountText,
+  comparableAccounts,
+  showsOtherAccount,
+  shownAccounts,
+} from "../page/accounts";
 import { isButton } from "../page/text";
 import { pressElement } from "../page/script-url-click";
 import { autocompleteTokens, findTargets } from "../page/targets";
@@ -195,9 +200,9 @@ const fillSettleMs = 500;
 const offerQuietMs = 1000;
 const offerWaitMs = 5000;
 /**
- * A fill compared with the account the page shows waits until the document has loaded and
- * its DOM has had no change for `accountQuietMs`, or `accountWaitMs` while it keeps
- * changing: Duolingo's sign-in shows its remembered account's address after the password
+ * A fill compared with the account the page shows, while the page shows no identifier
+ * to compare with, waits until the document has loaded and its DOM has had no change for
+ * `accountQuietMs`, or `accountWaitMs` while it keeps changing: Duolingo's sign-in shows its remembered account's address after the password
  * field (2026-10-23), and a check before it would pass. It ends `accountReserveMs` before
  * the operation expires, so a page that keeps changing is still compared and filled.
  */
@@ -1007,17 +1012,31 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         return { ok: true, mutation: "possible" } as const;
       };
       if (step.kind === "fill") {
-        // A fill compared with the shown account waits for the page to settle, so an
-        // account it shows after its fields is compared too (`accountQuietMs`).
+        // A fill compared with the shown account waits for the page to settle while the
+        // page shows nothing to compare with, so an account it shows after its fields is
+        // compared too (`accountQuietMs`).
+        const masked = command.values.some(
+          (entry) => entry.secret === "password" || entry.secret === "hidden",
+        );
         if (command.account) {
-          await settled(
-            document,
-            accountQuietMs,
-            Math.min(Date.now() + accountWaitMs, operation.expiresAt - accountReserveMs),
+          const first = step.fields[0] ? matches(step.fields[0].target) : [];
+          const form =
+            first.length === 1 && first[0] instanceof HTMLInputElement ? first[0].form : null;
+          const comparable = comparableAccounts(
+            shownAccounts(accountText(document, form)),
+            command.account.username,
+            { masked },
           );
-          if (cancelled) return fail("cancelled", "document-cancelled");
-          if (Date.now() >= operation.expiresAt) return fail("cancelled", "operation-expired");
-          if (step.path !== pagePath()) return fail("cancelled", "page-changed");
+          if (comparable?.length === 0) {
+            await settled(
+              document,
+              accountQuietMs,
+              Math.min(Date.now() + accountWaitMs, operation.expiresAt - accountReserveMs),
+            );
+            if (cancelled) return fail("cancelled", "document-cancelled");
+            if (Date.now() >= operation.expiresAt) return fail("cancelled", "operation-expired");
+            if (step.path !== pagePath()) return fail("cancelled", "page-changed");
+          }
         }
         // Resolve every target first so a partial/ambiguous mapping never causes partial fill.
         const inputs = step.fields.map((field) => {
@@ -1062,11 +1081,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           const other = showsOtherAccount(
             shownAccounts(accountText(document, form)),
             command.account.username,
-            {
-              masked: command.values.some(
-                (entry) => entry.secret === "password" || entry.secret === "hidden",
-              ),
-            },
+            { masked },
           );
           command.account.username = "";
           if (other) {

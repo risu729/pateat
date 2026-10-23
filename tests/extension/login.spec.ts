@@ -1211,7 +1211,8 @@ for (const [mode, query, verifyClicks, autoSubmits] of [
           JSON.stringify(await send(options, { version: 1, type: "login.probe.status" }));
         const page = await context.newPage();
         await page.goto(`${fixture.origin}/totp?${query}`);
-        await expect(page.locator("#authenticated")).toBeVisible();
+        // The password fill waits for the page to settle before its account check.
+        await expect(page.locator("#authenticated")).toBeVisible({ timeout: 10_000 });
         await expect.poll(status).toContain('"authenticated"');
         // One input event per digit; the page joins the six inputs into the code.
         expect(await codeEvidence(page)).toEqual({
