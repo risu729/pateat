@@ -899,7 +899,7 @@ request. Each fill step writes only inputs inside one form (or only inputs outsi
 form). A plan's click is in the same form, except a button outside every form for the
 fields of the page's only password form when that form lists no button of its own and
 the button is the only one outside every form (`besideForm` in
-`packages/inference/src/plan.ts`, agent change 2026-10-23). Where the values go is
+`packages/inference/src/plan.ts`, owner's choice 2026-10-23). Where the values go is
 checked in the page, as the browser would submit the form:
 before a fill step writes into a form, the form's `action` attribute, and before a click
 on a submit button or image input, that control's `formaction` attribute or else its

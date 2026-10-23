@@ -2849,8 +2849,8 @@ fields, so the correct plan fails the plan check (`mixed-groups`), a case for th
 rather than for the corpus at the time. Since 2026-10-23 the check accepts a button
 outside every form for the fields of the page's only password form when that form lists
 no button of its own, no field outside every form is on the page, and the button is the
-only one outside every form and names no passkey (`besideForm`, agent change, local
-tests only; recorded in [Bitwarden
+only one outside every form and names no passkey (`besideForm`, owner's choice 11:47
+UTC, local tests only; recorded in [Bitwarden
 differences](bitwarden-differences.md#submit-button-outside-the-form)); on the live page
 in cloud Chromium (main `b803056`) generation then planned 会員ID, パスワード and
 ログイン, and the check accepted it. The Japanese set now has 108 cases (15 abstain, 11
