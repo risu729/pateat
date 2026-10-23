@@ -24,6 +24,7 @@ import {
   KeyRound,
   LoaderCircle,
   Lock,
+  LockKeyhole,
   LogIn,
   MessageCircleQuestionMark,
   Settings2,
@@ -98,22 +99,49 @@ function hostnameOf(origin: string): string {
  * domain, or one that includes subdomains, also covers other sites, so only the settings
  * page changes it.
  */
-export function siteSwitch(settings: LocalSettings, hostname: string) {
-  const rules = settings.excludedSites.filter(
+/** Which rules of a site list cover a hostname, and how the popup changes its own. */
+function siteRules(rules: ExcludedSite[], hostname: string) {
+  const covering = rules.filter(
     (site) =>
       hostname === site.hostname ||
       (site.includeSubdomains && hostname.endsWith(`.${site.hostname}`)),
   );
   const own = (site: ExcludedSite) => site.hostname === hostname && !site.includeSubdomains;
   return {
-    on: rules.length === 0,
-    editable: rules.every(own),
+    listed: covering.length > 0,
+    editable: covering.every(own),
     /** The covering rules the popup cannot change; each includes subdomains. */
-    shared: rules.filter((site) => !own(site)),
+    shared: covering.filter((site) => !own(site)),
+    /** The list with or without the hostname's own rule. */
+    with: (list: ExcludedSite[], listed: boolean) =>
+      listed
+        ? [...list.filter((site) => !own(site)), { hostname, includeSubdomains: false }]
+        : list.filter((site) => !own(site)),
+  };
+}
+
+export function siteSwitch(settings: LocalSettings, hostname: string) {
+  const rules = siteRules(settings.excludedSites, hostname);
+  return {
+    on: !rules.listed,
+    editable: rules.editable,
+    shared: rules.shared,
     /** Turns Pateat on or off for the hostname in a copy of the settings. */
     set(value: LocalSettings, on: boolean) {
-      if (on) value.excludedSites = value.excludedSites.filter((site) => !own(site));
-      else value.excludedSites.push({ hostname, includeSubdomains: false });
+      value.excludedSites = rules.with(value.excludedSites, !on);
+    },
+  };
+}
+
+/** Whether the site asks for the master password before a re-prompt item is used. */
+export function repromptSwitch(settings: LocalSettings, hostname: string) {
+  const rules = siteRules(settings.repromptSites, hostname);
+  return {
+    on: rules.listed,
+    editable: rules.editable,
+    shared: rules.shared,
+    set(value: LocalSettings, on: boolean) {
+      value.repromptSites = rules.with(value.repromptSites, on);
     },
   };
 }
@@ -154,6 +182,66 @@ function SiteSwitch({
         }}
       />
     </label>
+  );
+}
+
+/**
+ * The site's switch for Bitwarden's master password re-prompt: on, a vault item with it
+ * waits for the master password in Pateat's window before it fills or signs.
+ */
+function RepromptSwitch({
+  site,
+  pending,
+  busy,
+  onChange,
+  onOpenSettings,
+}: {
+  site: ReturnType<typeof repromptSwitch>;
+  pending: boolean | undefined;
+  busy: boolean;
+  onChange: (on: boolean) => void;
+  onOpenSettings: (event: { preventDefault(): void }) => void;
+}) {
+  const { t } = useTranslation(undefined, { i18n });
+  const checked = pending ?? site.on;
+  return (
+    <div className="popup-section">
+      <label className="popup-switch">
+        <span>{t("Ask for the master password")}</span>
+        <input
+          id="popup-reprompt-switch"
+          type="checkbox"
+          role="switch"
+          checked={checked}
+          aria-checked={checked}
+          disabled={!site.editable}
+          aria-disabled={busy || undefined}
+          aria-describedby="popup-reprompt-note"
+          onChange={(event) => {
+            if (!busy) onChange(event.target.checked);
+          }}
+        />
+      </label>
+      <p id="popup-reprompt-note" className="popup-muted">
+        {site.editable
+          ? t("For vault items with Bitwarden's master password re-prompt.")
+          : t("Set by a rule for {{hostname}} and its subdomains.", {
+              hostname: site.shared[0]?.hostname ?? "",
+            })}
+      </p>
+      {!site.editable && (
+        <a
+          href="options.html"
+          className="popup-link"
+          aria-label={t("Change in settings for {{hostname}}", {
+            hostname: site.shared[0]?.hostname ?? "",
+          })}
+          onClick={onOpenSettings}
+        >
+          {t("Change in settings")}
+        </a>
+      )}
+    </div>
   );
 }
 
@@ -519,6 +607,7 @@ export function SiteApp({
   const [makeDefault, setMakeDefault] = useState<boolean>();
   // The switch shows its new position while that change is saved.
   const [switching, setSwitching] = useState<boolean>();
+  const [reprompting, setReprompting] = useState<boolean>();
   const say = (text: NoticeText, tone: Tone) => setNotice({ text, tone });
   // Buttons that start a change are only marked disabled while it runs, since Chrome moves
   // focus away from a focused control that becomes disabled. A control the result
@@ -627,6 +716,7 @@ export function SiteApp({
   async function change(update: (value: LocalSettings) => void, done: NoticeText) {
     if (!saved || busy) {
       setSwitching(undefined);
+      setReprompting(undefined);
       return;
     }
     const next = structuredClone(saved.snapshot.settings);
@@ -672,6 +762,7 @@ export function SiteApp({
     } finally {
       setBusy(false);
       setSwitching(undefined);
+      setReprompting(undefined);
     }
   }
 
@@ -795,6 +886,40 @@ export function SiteApp({
     }
   }
 
+  async function askAgain() {
+    if (tabId === undefined || busy) return;
+    setBusy(true);
+    say((translate) => translate("Opening the master password window…"), "progress");
+    try {
+      // Answered once the window is done; the popup closes on its own as the window opens.
+      const response = await choices.reprompt(tabId);
+      if (response.ok) {
+        // The window asks from here; the popup would stay over it.
+        host.close();
+        return;
+      }
+      say(
+        (translate) =>
+          response.reason === "unavailable"
+            ? translate(
+                "The master password window could not open. It opens only for the active tab outside incognito, one window at a time.",
+              )
+            : response.reason === "closed"
+              ? translate("The master password window was closed before the vault item was used.")
+              : translate("This page no longer waits for the master password. Reload it."),
+        "error",
+      );
+    } catch {
+      say(
+        (translate) =>
+          translate("The master password window could not open. Reopen this popup and try again."),
+        "error",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const openSettings = (event?: { preventDefault(): void }) => {
     event?.preventDefault();
     host.openSettings();
@@ -824,6 +949,7 @@ export function SiteApp({
   else {
     const hostname = hostnameOf(origin);
     const site = siteSwitch(saved.snapshot.settings, hostname);
+    const reprompt = repromptSwitch(saved.snapshot.settings, hostname);
     switchControl = (
       <SiteSwitch
         site={site}
@@ -1024,6 +1150,20 @@ export function SiteApp({
             {detailSection}
           </PageStatusSection>
         )}
+        {status?.page?.state === "denied" &&
+          status.page.reason === "master-password-reprompt" &&
+          !status.login && (
+            <Button
+              id="popup-reprompt"
+              type="button"
+              className="w-full gap-2"
+              disabled={busy}
+              onClick={() => void askAgain()}
+            >
+              <LockKeyhole size={16} strokeWidth={2} aria-hidden="true" />
+              {t("Enter the master password")}
+            </Button>
+          )}
         {choice.isPending && choice.isEnabled && (
           <p id="popup-choice-checking" className="popup-muted">
             {t("Checking whether this page waits for an account choice…")}
@@ -1220,6 +1360,26 @@ export function SiteApp({
               {t("Pateat does not log in or answer passkey requests on this site.")}
             </p>
           </div>
+        )}
+        {site.on && (
+          <RepromptSwitch
+            site={reprompt}
+            pending={reprompting}
+            busy={busy}
+            onOpenSettings={openSettings}
+            onChange={(on) => {
+              setReprompting(on);
+              void change(
+                (value) => reprompt.set(value, on),
+                (translate) =>
+                  on
+                    ? translate("{{hostname}} now asks for the master password.", { hostname })
+                    : translate("{{hostname}} no longer asks for the master password.", {
+                        hostname,
+                      }),
+              );
+            }}
+          />
         )}
       </>
     );

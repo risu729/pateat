@@ -143,8 +143,13 @@ export const settingsEn = {
   "No excluded sites or default accounts": "No excluded sites or default accounts",
   Origin: "Origin",
   "Also list items that do not match": "Also list items that do not match",
-  "Exclude subdomains too": "Exclude subdomains too",
   "Save default": "Save default",
+  "Stop asking for the master password on {{name}}":
+    "Stop asking for the master password on {{name}}",
+  "Stop asking": "Stop asking",
+  "Include subdomains": "Include subdomains",
+  "On a site that asks for the master password, a vault item with Bitwarden's master password re-prompt is used only after you enter it in Pateat's window. Elsewhere it is used like any other item.":
+    "On a site that asks for the master password, a vault item with Bitwarden's master password re-prompt is used only after you enter it in Pateat's window. Elsewhere it is used like any other item.",
   "Exclude site": "Exclude site",
   "Excluding a site covers every scheme and port.":
     "Excluding a site covers every scheme and port.",

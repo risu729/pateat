@@ -455,6 +455,7 @@ describe("owner web UI settings", () => {
   const settings = {
     connections: [],
     excludedSites: [{ hostname: "intranet.example", includeSubdomains: true }],
+    repromptSites: [],
     siteDefaults: [],
     bindings: [],
   };
@@ -1353,7 +1354,13 @@ describe("owner web UI request log", () => {
       body: JSON.stringify({
         version: 1,
         expectedRevision: 0,
-        settings: { connections: [], excludedSites: [], siteDefaults: [], bindings: [] },
+        settings: {
+          connections: [],
+          excludedSites: [],
+          repromptSites: [],
+          siteDefaults: [],
+          bindings: [],
+        },
       }),
     });
     expect(settings.status).toBe(200);

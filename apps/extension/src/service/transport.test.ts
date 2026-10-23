@@ -502,7 +502,13 @@ describe("recipe changes", () => {
 });
 
 describe("settings", () => {
-  const document = { connections: [], excludedSites: [], siteDefaults: [], bindings: [] };
+  const document = {
+    connections: [],
+    excludedSites: [],
+    repromptSites: [],
+    siteDefaults: [],
+    bindings: [],
+  };
   const state = {
     version: 1,
     profileId: "00000000-0000-4000-8000-000000000001",
@@ -600,7 +606,13 @@ function edgeRateLimitPage() {
 }
 
 describe("rate limits on device-credential routes", () => {
-  const document = { connections: [], excludedSites: [], siteDefaults: [], bindings: [] };
+  const document = {
+    connections: [],
+    excludedSites: [],
+    repromptSites: [],
+    siteDefaults: [],
+    bindings: [],
+  };
   const write = { version: 1, expectedRevision: 3, settings: document } as const;
   const routes: [string, (transport: ServiceTransport) => Promise<object>][] = [
     ["recipe changes", (transport) => transport.recipeChanges(ORIGIN, CREDENTIAL, 3)],

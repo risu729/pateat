@@ -176,6 +176,18 @@ Pateat's rule is `besideForm` in `packages/inference/src/plan.ts`
   ([ADR 0052](adr/0052-immediate-ui-stored-passkeys.md); owner's decision, 2026-10-19
   at 22:42 UTC).
 
+## Master password re-prompt
+
+The official clients ask for the master password before they fill, show or copy the
+secrets of an item marked with re-prompt, and never fill such an item on page load
+([Master Password Re-prompt](https://bitwarden.com/help/master-password-re-prompt/),
+checked 2026-10-14). Pateat asks only on the sites listed in its settings, in its own
+chooser window before a login starts or a passkey signs; elsewhere it uses such an item
+like any other, and it never asks per field
+([vault adapter](architecture.md#vault-adapter); owner's decision, 2026-10-23 at 12:46
+UTC). Logging in without a person is what Pateat is for, and re-prompt protects the
+interface rather than the vault data.
+
 ## Decrypted items in memory
 
 - While a vault is unlocked, the official clients keep every decrypted item in memory

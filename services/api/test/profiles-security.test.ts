@@ -96,6 +96,7 @@ describe("settings profile isolation", () => {
       ...createDefaultSettings(),
       connections: [],
       excludedSites: [{ hostname: "default-only.example", includeSubdomains: false }],
+      repromptSites: [{ hostname: "default-bank.example", includeSubdomains: true }],
     };
     expect((await save(device.credential, settings.revision, shared)).status).toBe(200);
     const created = await pair(by, undefined, { label: "Agent", newProfile: "Agent browser" });
@@ -109,12 +110,13 @@ describe("settings profile isolation", () => {
     expect(state).toMatchObject({
       revision: 1,
       newProfile: true,
-      settings: { excludedSites: [], siteDefaults: [], bindings: [] },
+      settings: { excludedSites: [], repromptSites: [], siteDefaults: [], bindings: [] },
     });
     expect(state.profileId).not.toBe(settings.profileId);
     const filled = await save(agent.credential, state.revision, {
       ...shared,
       excludedSites: [{ hostname: "agent-only.example", includeSubdomains: false }],
+      repromptSites: [{ hostname: "agent-bank.example", includeSubdomains: false }],
     });
     expect(filled.status).toBe(200);
     const after = v.parse(
@@ -124,6 +126,17 @@ describe("settings profile isolation", () => {
     expect(after.newProfile).toBeUndefined();
     expect(after.settings?.excludedSites).toEqual([
       { hostname: "agent-only.example", includeSubdomains: false },
+    ]);
+    expect(after.settings?.repromptSites).toEqual([
+      { hostname: "agent-bank.example", includeSubdomains: false },
+    ]);
+    // The Default profile keeps its own sites that ask for the master password.
+    const original = v.parse(
+      syncSettingsStateSchema,
+      await (await deviceApi(device.credential)).json(),
+    );
+    expect(original.settings?.repromptSites).toEqual([
+      { hostname: "default-bank.example", includeSubdomains: true },
     ]);
     // Names are unique per owner, ignoring case.
     const taken = await pair(by, undefined, { newProfile: "agent BROWSER" });

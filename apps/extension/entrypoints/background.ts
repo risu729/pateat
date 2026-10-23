@@ -18,6 +18,7 @@ import { createSiteAccountsHandler } from "../src/vault/site-accounts";
 import { actionIconState, createActionIcon } from "../src/connections/action-icon";
 import { createConnectionRuntime } from "../src/connections/runtime";
 import { createConnectionProbeTransport } from "../src/connections/probe";
+import { createLoginReprompt, createVaultPasswordCheck } from "../src/login/reprompt";
 import { CHOOSER_PAGE, createPasskeyChooser } from "../src/passkeys/chooser";
 import { createPasskeyCreateHandler } from "../src/passkeys/create";
 import { createProbePasskeySource } from "../src/passkeys/probe";
@@ -410,6 +411,16 @@ export default defineBackground(() => {
     },
     signedIn: (tabId, origin) => noteSignIn(tabId, origin),
     badge: loginBadge,
+    // Bitwarden's re-prompt on a site that honours it: the chooser window asks first.
+    askMasterPassword: createLoginReprompt({
+      chooser: () => passkeyChooser,
+      check: createVaultPasswordCheck(connections),
+      async tab(tabId) {
+        const tab = await browser.tabs.get(tabId);
+        const window = await browser.windows.get(tab.windowId);
+        return { active: tab.active, focused: window.focused, incognito: tab.incognito };
+      },
+    }),
     // A late answer to the tab's previous page does not take the tab over from its new one.
     announced: (tabId, url) =>
       void browser.tabs

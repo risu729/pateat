@@ -147,8 +147,13 @@ export const settingsJa = {
   "No excluded sites or default accounts": "除外サイトも既定のアカウントもありません",
   Origin: "オリジン",
   "Also list items that do not match": "一致しないアイテムも表示する",
-  "Exclude subdomains too": "サブドメインも除外する",
   "Save default": "既定のアカウントを保存",
+  "Stop asking for the master password on {{name}}":
+    "{{name}} でマスターパスワードを求めるのをやめる",
+  "Stop asking": "求めない",
+  "Include subdomains": "サブドメインを含める",
+  "On a site that asks for the master password, a vault item with Bitwarden's master password re-prompt is used only after you enter it in Pateat's window. Elsewhere it is used like any other item.":
+    "マスターパスワードを求めるサイトでは、Bitwarden で「マスターパスワードの再入力」が有効なアイテムは、Pateat のウィンドウでマスターパスワードを入力してから使われます。ほかのサイトではほかのアイテムと同じように使われます。",
   "Exclude site": "サイトを除外",
   "Excluding a site covers every scheme and port.":
     "サイトの除外は、すべてのスキームとポートに適用されます。",

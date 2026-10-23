@@ -16,7 +16,14 @@ const USER = "00000000-0000-4000-8000-000000000001";
 const BANK_PAGE = "/manage/sites/https/bank.example";
 
 function settingsOf(parts: Partial<LocalSettings> = {}): LocalSettings {
-  return { connections: [], excludedSites: [], siteDefaults: [], bindings: [], ...parts };
+  return {
+    connections: [],
+    excludedSites: [],
+    repromptSites: [],
+    siteDefaults: [],
+    bindings: [],
+    ...parts,
+  };
 }
 
 const binding = {

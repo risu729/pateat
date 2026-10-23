@@ -29,6 +29,10 @@ export const ja = {
   "Unnamed item": "名前のないアイテム",
   Default: "既定",
   "Use the browser or another extension": "ブラウザーまたは別の拡張機能を使う",
+  "Bitwarden asks for your master password before this item is used.":
+    "このアイテムは、使う前にマスターパスワードの入力が必要です (Bitwarden の再入力の設定)。",
+  "Other passkeys": "ほかのパスキー",
+  "Asks for the master password": "マスターパスワードが必要",
   "Pateat on this site": "このサイトで Pateat を使う",
   "{{item}}, ID {{id}}": "{{item}}、ID {{id}}",
   "Saving…": "保存中…",
@@ -38,6 +42,27 @@ export const ja = {
     "変更を保存できませんでした。このポップアップを開き直して、もう一度お試しください。",
   "The change may not have been saved. Reopen this popup to see the saved settings.":
     "変更が保存されていない可能性があります。保存された設定を確認するには、このポップアップを開き直してください。",
+  "this vault item asks for the master password first; enter it in the window Pateat opens":
+    "このアイテムは使う前にマスターパスワードの入力が必要です。Pateat が開くウィンドウで入力してください",
+  "Enter the master password": "マスターパスワードを入力",
+  "Opening the master password window…": "マスターパスワードのウィンドウを開いています…",
+  "The master password window could not open. It opens only for the active tab outside incognito, one window at a time.":
+    "マスターパスワードのウィンドウを開けませんでした。シークレットウィンドウ以外の表示中のタブでのみ、一度に 1 つ開きます。",
+  "The master password window was closed before the vault item was used.":
+    "アイテムを使う前にマスターパスワードのウィンドウが閉じられました。",
+  "This page no longer waits for the master password. Reload it.":
+    "このページはマスターパスワードの入力を待っていません。再読み込みしてください。",
+  "The master password window could not open. Reopen this popup and try again.":
+    "マスターパスワードのウィンドウを開けませんでした。このポップアップを開き直して、もう一度お試しください。",
+  "Ask for the master password": "マスターパスワードを求める",
+  "For vault items with Bitwarden's master password re-prompt.":
+    "Bitwarden で「マスターパスワードの再入力」が有効なアイテムに適用されます。",
+  "Set by a rule for {{hostname}} and its subdomains.":
+    "{{hostname}} とそのサブドメインのルールで設定されています。",
+  "{{hostname}} now asks for the master password.":
+    "{{hostname}} ではマスターパスワードを求めるようになりました。",
+  "{{hostname}} no longer asks for the master password.":
+    "{{hostname}} ではマスターパスワードを求めなくなりました。",
   "Starting the login…": "ログインを開始しています…",
   "Logging in with {{name}}. It becomes the default once the login succeeds.":
     "{{name}} でログインしています。ログインに成功すると、既定のアカウントになります。",

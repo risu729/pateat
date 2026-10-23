@@ -548,7 +548,7 @@ test("asks which profile to use before pairing an owner's further device", async
   await expect
     .element(page.getByRole("group", { name: "Settings profile", exact: true }))
     .toHaveAccessibleDescription(
-      "A profile holds site exclusions and saved accounts. Devices that share one share them; account bindings are shared by every profile. Choose a profile for this device.",
+      "A profile holds site exclusions, sites that ask for the master password and saved accounts. Devices that share one share them; account bindings are shared by every profile. Choose a profile for this device.",
     );
   await expect
     .element(page.getByRole("radio", { name: "Local browser", exact: true }))

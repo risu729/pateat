@@ -11,6 +11,7 @@ import { hasProfile } from "./profile-store";
 /** Profile parts are explicit so shared bindings cannot accidentally become policy. */
 export const profileDocument = (document: LocalSettings) => ({
   excludedSites: document.excludedSites,
+  repromptSites: document.repromptSites,
   siteDefaults: document.siteDefaults,
 });
 
@@ -32,7 +33,9 @@ export async function readSettings(
     .first<{ revision: number | null; shared: string | null; document: string | null }>();
   if (!row) throw new Error("profile-not-found");
   const shared = row.shared ? JSON.parse(row.shared) : { bindings: [] };
-  const profile = row.document ? JSON.parse(row.document) : { excludedSites: [], siteDefaults: [] };
+  const profile = row.document
+    ? JSON.parse(row.document)
+    : { excludedSites: [], repromptSites: [], siteDefaults: [] };
   return v.parse(syncSettingsStateSchema, {
     version: 1,
     profileId,

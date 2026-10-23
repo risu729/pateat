@@ -13,9 +13,11 @@ Date: 2026-10-23
 [ADR 0024](0024-settings-profiles.md) split the settings document into profile parts and
 owner parts and described profiles as later work. This change builds them for the parts
 that exist today: `excludedSites` and `siteDefaults` are per profile, and `bindings`
-stay the owner's. ADR 0023's lists and ADR 0035's page permissions are not built yet;
-when they land, they add their fields to the profile document (`profileDocument` in
-`services/api/src/settings-store.ts`) and to the extension's merge.
+stay the owner's. `repromptSites` (the sites that ask for the master password, ADR 0021)
+joined the profile parts on 2026-10-23. ADR 0023's lists and ADR 0035's page permissions
+are not built yet; when they land, they add their fields to the profile document
+(`profileDocument` in `services/api/src/settings-store.ts`) and to the extension's
+merge.
 
 ## Decision
 

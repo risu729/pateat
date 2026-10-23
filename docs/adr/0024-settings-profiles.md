@@ -30,6 +30,7 @@ are assigned now so that profiles can be added without moving data again:
 | Data                                                       | Belongs to        |
 | ---------------------------------------------------------- | ----------------- |
 | `excludedSites`                                            | profile           |
+| `repromptSites` (2026-10-23)                               | profile           |
 | `siteDefaults`                                             | profile           |
 | `accountPolicies`, including `enabled` (ADR 0023)          | profile           |
 | `itemPolicies` (ADR 0023)                                  | profile           |

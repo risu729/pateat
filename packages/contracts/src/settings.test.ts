@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import * as v from "valibot";
 import {
+  asksForMasterPassword,
   createDefaultSettings,
   detailLinkSchema,
   detailSourceFieldSchema,
   DUMMY_VAULT_CATALOG,
   getItemEligibility,
   isSiteExcluded,
+  itemAsksForMasterPassword,
   normalizeHostname,
   parseLocalSettings,
   parseSettingsResponse,
@@ -51,6 +53,42 @@ describe("host policy and URL validation", () => {
     expect(isSiteExcluded(settings, "https://a.auth.bank.example")).toBe(true);
     expect(isSiteExcluded(settings, "https://notbank.example")).toBe(false);
     expect(isSiteExcluded(settings, "https://bank.example.evil.test")).toBe(false);
+  });
+
+  it("asks for the master password only for a re-prompt item on a listed site", () => {
+    const settings = createDefaultSettings();
+    expect(settings.repromptSites).toEqual([]);
+    settings.repromptSites.push({ hostname: "bank.example", includeSubdomains: false });
+    expect(asksForMasterPassword(settings, "https://bank.example/login")).toBe(true);
+    expect(asksForMasterPassword(settings, "http://bank.example:8080")).toBe(true);
+    expect(asksForMasterPassword(settings, "https://auth.bank.example")).toBe(false);
+    expect(asksForMasterPassword(settings, "https://bank.example.evil.test")).toBe(false);
+    settings.repromptSites[0]!.includeSubdomains = true;
+    expect(asksForMasterPassword(settings, "https://a.auth.bank.example")).toBe(true);
+    // A doubt never skips the question.
+    expect(asksForMasterPassword(settings, "https:///bank.example")).toBe(true);
+    const url = "https://bank.example/login";
+    expect(itemAsksForMasterPassword(settings, { reprompt: true }, url)).toBe(true);
+    expect(itemAsksForMasterPassword(settings, {}, url)).toBe(false);
+    expect(itemAsksForMasterPassword(settings, undefined, url)).toBe(false);
+    expect(itemAsksForMasterPassword(settings, { reprompt: true }, "https://other.example")).toBe(
+      false,
+    );
+  });
+
+  it("reads settings saved before the master password sites existed as listing none", () => {
+    const { repromptSites, ...saved } = createDefaultSettings();
+    expect(repromptSites).toEqual([]);
+    expect(parseLocalSettings(saved).repromptSites).toEqual([]);
+    expect(() =>
+      parseLocalSettings({
+        ...saved,
+        repromptSites: [
+          { hostname: "bank.example", includeSubdomains: false },
+          { hostname: "bank.example", includeSubdomains: true },
+        ],
+      }),
+    ).toThrow();
   });
 
   it("fails closed on invalid and non-web destinations", () => {

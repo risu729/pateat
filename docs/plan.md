@@ -1103,11 +1103,10 @@ Once the fixes have settled:
   today (owner, 2026-10-13 21:57 UTC). Passkey user presence and user verification:
   Pateat sets UP and UV on every assertion it claims without a gesture or a check
   ([ADR 0007](adr/0007-existing-passkey-assertions.md#presence-and-verification)); a
-  setting over the existing `PasskeyPolicy`, which ADR 0007 plans per site. Bitwarden's
-  master password re-prompt: Pateat fills items marked with it and signs with their
-  passkeys without asking for the master password
-  ([vault adapter](architecture.md#vault-adapter)); a setting to honour it. Until then
-  both stay as they are, and the README says so.
+  setting over the existing `PasskeyPolicy`, which ADR 0007 plans per site. Until then
+  it stays as it is, and the README says so. Bitwarden's master password re-prompt is
+  honoured on the sites the owner lists (owner, 2026-10-23 12:46 UTC;
+  [vault adapter](architecture.md#vault-adapter); implemented).
 - Anyone can use Pateat. The service is not opened to other people. Continuous delivery
   publishes each extension release on GitHub Releases and meets the
   [Corresponding Source](sdk-source.md) requirements. The owner has a Chrome Web Store

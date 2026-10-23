@@ -65,7 +65,12 @@ export function ProfileEditor({
     setState(remote);
     setCatalog(metadata.catalog);
     setDraft({
-      ...(remote.settings ?? { excludedSites: [], siteDefaults: [], bindings: [] }),
+      ...(remote.settings ?? {
+        excludedSites: [],
+        repromptSites: [],
+        siteDefaults: [],
+        bindings: [],
+      }),
       connections: metadata.snapshot.settings.connections,
     });
   }
@@ -76,7 +81,7 @@ export function ProfileEditor({
       </h3>
       <p className="m-0 text-sm text-ink-muted">
         {t(
-          "Change another profile's site exclusions and saved accounts from here. Account names come from this browser's vaults. Saving does not change which profile this device uses, and account bindings stay shared by every profile.",
+          "Change another profile's site exclusions, sites that ask for the master password and saved accounts from here. Account names come from this browser's vaults. Saving does not change which profile this device uses, and account bindings stay shared by every profile.",
         )}
       </p>
       <div className="flex flex-wrap gap-2">
