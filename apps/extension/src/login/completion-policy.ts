@@ -22,9 +22,10 @@ const UNDECIDED_COMPLETES = new Set([
 
 /**
  * Whether an undecided page can complete, pending a fresh reading after the judge. An
- * optional page after the sign-in (ADR 0065) completes, watched or not, only once this
- * attempt sent the account's credential (`sent`), without a stop before a missing password,
- * and while the page shows no sign and no evidence.
+ * optional page after the sign-in (ADR 0065) completes, watched or not, only on the
+ * `password` route once this attempt sent the account's credential (`sent`), without a
+ * stop before a missing password, with no radio button, select or text area left out of
+ * its description (`inputLeftOut`), and while the page shows no sign and no evidence.
  */
 export function undecidedCandidate({
   verdict,
@@ -34,6 +35,7 @@ export function undecidedCandidate({
   route,
   stopAt,
   sent = false,
+  inputLeftOut = false,
 }: {
   verdict: JudgeVerdict;
   reason?: string | undefined;
@@ -42,6 +44,7 @@ export function undecidedCandidate({
   route: LoginRoute;
   stopAt?: number | undefined;
   sent?: boolean;
+  inputLeftOut?: boolean;
 }): { completes: boolean; stopHeld: boolean } {
   const optional = verdict === "optional";
   const undecided = verdict === "unclear";
@@ -50,7 +53,11 @@ export function undecidedCandidate({
   // count (ADR 0065).
   const stopHeld = (undecided || optional) && stopAt !== undefined && reason !== "judged-signed-in";
   const quiet = reading?.confirmed === true && reading.decision === "judge";
-  if (optional) return { completes: quiet && sent && !stopHeld, stopHeld };
+  if (optional)
+    return {
+      completes: quiet && sent && route !== "passkey" && !inputLeftOut && !stopHeld,
+      stopHeld,
+    };
   const completes =
     undecided &&
     quiet &&
@@ -76,7 +83,10 @@ export function settleCompletion({
   stopHeld: boolean;
   again?: { decision: SignInDecision; loaded: boolean; path?: string } | undefined;
   disabledLeftOut?: boolean;
-  /** The judged page's path, which the fresh reading must still be on. */
+  /**
+   * An optional page's path (ADR 0065), which the fresh reading must still be on; left out
+   * for an undecided page, which ADR 0029 lets route on while it is judged.
+   */
   path?: string;
 }): { completes: boolean; notCompleted: "disabled-left-out" | "password-empty" | undefined } {
   if (completes)

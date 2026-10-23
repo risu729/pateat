@@ -121,6 +121,28 @@ describe("an optional page after the sign-in (ADR 0065)", () => {
       expect(outcome(change)).toEqual({ result: "authenticated", confirmed: true });
   });
 
+  it("never completes on the passkey route, even after a handler sent a second factor", () => {
+    expect(undecidedCandidate({ ...optional, route: "passkey" }).completes).toBe(false);
+    expect(outcome({ route: "passkey" })).toEqual({ result: "challenge", confirmed: false });
+  });
+
+  it("fails closed when a radio button, select or text area was left out", () => {
+    expect(undecidedCandidate({ ...optional, inputLeftOut: true }).completes).toBe(false);
+    expect(outcome({ inputLeftOut: true })).toEqual({ result: "challenge", confirmed: false });
+  });
+
+  it("checks the path only when asked, as for an optional page", () => {
+    const undecided = undecidedCandidate(candidate);
+    expect(undecided.completes).toBe(true);
+    // An undecided page may route on while it is judged (ADR 0029).
+    expect(
+      settleCompletion({
+        ...undecided,
+        again: { decision: "judge", loaded: true, path: "/home" },
+      }).completes,
+    ).toBe(true);
+  });
+
   it("is not known to be signed in before the credential was sent", () => {
     expect(undecidedCandidate({ ...optional, sent: false }).completes).toBe(false);
     expect(outcome({ sent: false })).toEqual({ result: "unknown", confirmed: false });

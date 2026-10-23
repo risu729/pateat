@@ -52,18 +52,23 @@ Before this ADR (read from the code on 2026-10-23):
    any input the person could type into other than a search box (a `text` input whose
    input mode is `search`, or whose label or placeholder says search, with no
    `autocomplete` other than `off`): a page that only offers something has buttons and
-   links, and a field on it may be a step of the sign-in. The extension completes on it
-   only when all of these hold, and otherwise ends the login `challenge`, except as the
-   first says:
+   links, and a field on it may be a step of the sign-in. The description has no role
+   for a radio button, a select or a text area, so the extension says when it left out
+   a shown one outside a search form or landmark (`inputLeftOut`), as in "send the code
+   to (•) SMS ( ) Email [Send]". The extension completes on it only when all of these
+   hold, and otherwise ends the login `challenge`, except as the first says:
    - this attempt already sent the account's credential: its latest effect step
-     submitted after a route step that typed the password or a second factor's handler.
+     submitted after a route step that typed the password or a second factor's handler
+     (a handler missing from the recipe does not count).
      The page after an identifier's Next, or after a handler's button that goes on to
      the password ([ADR 0048](0048-password-method-button.md)), is judged too but is no
      page after the sign-in: there an `optional` answer is not known to be signed in and
      settles as an undecided page does without completing (`unknown-submit`);
    - the page confirmed no sign and no evidence before the request (S1 to S5, E1 to E3:
      the `judge` reading), the loaded document still shows none after the answer, on the
-     same path, and the description left out no disabled field;
+     same path, and the description left out no disabled field and no radio button,
+     select or text area. The same-path check is for `optional` only: an undecided page
+     keeps ADR 0029's rule, as on a single-page app that routes on while it is judged;
    - the login is not stopped before its item's missing password
      ([ADR 0036](0036-passkey-after-the-identifier.md)): such a login goes on to its
      stop as after an undecided answer, since only `signed-in` proves the stop's page.
@@ -72,14 +77,16 @@ Before this ADR (read from the code on 2026-10-23):
    `password` route, in a watched login too
    ([ADR 0027](0027-per-account-login-routes.md): a later page of the origin that the
    judge finds `optional` completes it), since the judge found the person signed in. The
-   `passkey` route never completes on a judged page that its own checks do not prove
-   (ADR 0027), and `optional` does not change that. A login whose tab moved to another
-   origin of the site (ADR 0022) completes on it as on `signed-in` when the description
-   left out no disabled field, the attempt already submitted the item's password or a
-   TOTP code (a move within the site may follow an identifier's Next) and it has no
-   stop, after the move's own re-check: the page is still loaded, shows no password
-   field, code input or CAPTCHA, and asked for no passkey since the step the move
-   follows. Nothing is pressed and the page is left to the person.
+   `passkey` route never completes on `optional`, even after a learned handler sent a
+   second factor, as it never completes on a judged page its own checks do not prove
+   (ADR 0027). A login whose tab moved to another origin of the site (ADR 0022)
+   completes on it as on `signed-in` when the description left out no disabled field
+   and no radio button, select or text area, the attempt already submitted the item's
+   password or a TOTP code (a move within the site may follow an identifier's Next) and
+   it has no stop, after the move's own re-check: the page is still on the path it was
+   judged on and loaded, shows no password field, code input or CAPTCHA, and asked for
+   no passkey since the step the move follows. Nothing is pressed and the page is left
+   to the person.
 4. **Nothing is learned, and nothing is reused.** The service keeps `optional` as the
    path's latest verdict and learns no marker and no handler from the page. Not
    confirmed by the owner, chosen as the safe and simple reading: a marker comes only
@@ -102,11 +109,15 @@ Before this ADR (read from the code on 2026-10-23):
 - A model error that answers `optional` for a real challenge with no input (an approval
   on a phone, an emailed link, a button that sends a code) completes the login while the
   person still has a step to take. The page is left on screen either way; the badge says
-  signed in. The judge benchmark of 2026-10-23 found no such answer on its challenge
-  pages, including such pages with no field.
+  signed in. The paid judge benchmark of 2026-10-23 on the final prompt (44 cases,
+  effort low, about $0.72) found no such answer: 43 of 44 correct, no false signed-in
+  and no `optional` on any challenge page, including four challenge pages with no field
+  (a "Send code" button, a number to match on a phone, a recovery address to confirm,
+  a choice of passkey or password before the sign-in). The one miss was a timeout on
+  `en-method-chooser`, as in earlier runs.
 - A model error the other way (`challenge` for an optional page) keeps today's yellow
   "!" and watched login, as does an optional page with a field, such as a phone number
-  to add.
+  to add, or with a radio button, select or text area, such as a language picker.
 
 ## Alternatives
 

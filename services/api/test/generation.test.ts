@@ -3435,7 +3435,7 @@ describe("page judgement (ADR 0027)", () => {
       expect(await verdicts()).toEqual([{ verdict: "challenge" }]);
     });
 
-    it("keeps an optional answer on a description that left out a disabled field as partial", async () => {
+    it("stores an optional answer as partial when a disabled field was left out", async () => {
       const device = await owner();
       const change = await twoPageRecipe(device);
       replies.push(judgeReply({ decision: "optional" }));

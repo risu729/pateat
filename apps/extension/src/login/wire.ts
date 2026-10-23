@@ -700,6 +700,11 @@ export const extractResultSchema = v.variant("ok", [
      * field: only `signed-in` completes the page (ADR 0029).
      */
     disabledLeftOut: v.optional(v.literal(true)),
+    /**
+     * It left out a shown radio button, select or text area outside a search form: an
+     * `optional` answer does not complete the page (ADR 0065).
+     */
+    inputLeftOut: v.optional(v.literal(true)),
   }),
   v.strictObject({
     ok: v.literal(false),

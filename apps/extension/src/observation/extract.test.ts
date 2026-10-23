@@ -3437,6 +3437,32 @@ describe("extractSignedInObservation", () => {
     expect(gap()).toEqual([true, undefined]);
   });
 
+  it("says when a signed-in page leaves out a radio button, select or text area (ADR 0065)", () => {
+    for (const control of [
+      `<label><input type="radio" name="via" value="sms"> Text message</label>`,
+      `<select id="via"><option>Text message</option><option>Email</option></select>`,
+      `<textarea id="answer"></textarea>`,
+    ]) {
+      page(`<button id="logout">Sign out</button><form>${control}<button>Send</button></form>`);
+      const result = extractSignedInObservation();
+      expect(result, control).toMatchObject({
+        ok: true,
+        observation: { complete: true },
+        inputLeftOut: true,
+      });
+    }
+    // One in a search form or landmark, or a hidden one, says nothing.
+    for (const markup of [
+      `<form role="search"><select id="in"><option>All</option></select></form>`,
+      `<search><select id="in"><option>All</option></select></search>`,
+      `<form><input type="search" id="q"><select id="in"><option>All</option></select></form>`,
+      `<select id="in" hidden><option>All</option></select>`,
+    ]) {
+      page(`<button id="logout">Sign out</button>${markup}`);
+      expect(extractSignedInObservation(), markup).not.toHaveProperty("inputLeftOut");
+    }
+  });
+
   it("reports a still-visible sign-in field so the service can refuse the page", () => {
     page(`<form><input id="pw" type="password"><button id="go">Sign in</button></form>`);
     expect(summary(signedIn())).toEqual([

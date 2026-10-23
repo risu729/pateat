@@ -5317,11 +5317,14 @@ export function createLoginRuntime(
     run: Execution,
     path: string,
   ): Promise<
-    { observation: LoginObservation; disabledLeftOut: boolean } | { unsent: string } | undefined
+    | { observation: LoginObservation; disabledLeftOut: boolean; inputLeftOut: boolean }
+    | { unsent: string }
+    | undefined
   > {
     let observation: LoginObservation | undefined;
     let unsent = "unreachable";
     let disabledLeftOut = false;
+    let inputLeftOut = false;
     try {
       const extracted = v.safeParse(
         extractResultSchema,
@@ -5345,6 +5348,7 @@ export function createLoginRuntime(
       else {
         observation = parsed.output;
         disabledLeftOut = extracted.output.ok && extracted.output.disabledLeftOut === true;
+        inputLeftOut = extracted.output.ok && extracted.output.inputLeftOut === true;
       }
     } catch {
       // The page could not be asked: `unreachable`.
@@ -5357,7 +5361,7 @@ export function createLoginRuntime(
     const hidden = hideUsernames(observation, usernames, run.live);
     if (!current(run)) return undefined;
     if ("reason" in hidden) return { unsent: hidden.reason };
-    return { observation: hidden.observation, disabledLeftOut };
+    return { observation: hidden.observation, disabledLeftOut, inputLeftOut };
   }
   /**
    * Sends the page a login ended on, once its recipe's signed-in marker completed it with no
@@ -5460,9 +5464,10 @@ export function createLoginRuntime(
   /**
    * Whether this attempt has sent the account's credential (ADR 0065): its latest effect
    * step submitted, after a route step that typed the password or a second factor's
-   * handler. The page after an identifier's Next, or after a `password` handler's button,
-   * is no page after the sign-in. The `passkey` route never completes on a judged page
-   * (ADR 0027), so its own step does not count.
+   * handler (a handler missing from the recipe does not count). The page after an
+   * identifier's Next, or after a `password` handler's button, is no page after the
+   * sign-in. The `passkey` route never completes on an optional page (ADR 0027), so its
+   * own step does not count.
    */
   function credentialSent(run: Execution): boolean {
     const { metadata, recipe } = run;
@@ -5474,7 +5479,7 @@ export function createLoginRuntime(
         entry.handler === undefined
           ? entry.step.kind === "fill" &&
             entry.step.fields.some((field) => field.slot === "password")
-          : recipe.handlers?.[entry.handler]?.kind !== "password",
+          : ![undefined, "password"].includes(recipe.handlers?.[entry.handler]?.kind),
       );
   }
   async function learn(run: Execution, reading?: SignInReading): Promise<boolean> {
@@ -5537,7 +5542,7 @@ export function createLoginRuntime(
     if (!described) return true;
     // A page that cannot be described completely is not sent and does not count.
     if ("unsent" in described) return notSent(described.unsent);
-    const { observation, disabledLeftOut } = described;
+    const { observation, disabledLeftOut, inputLeftOut } = described;
     const left = pagesLeft(run.metadata, operationId);
     await change(run, { type: "JUDGING", operationId });
     if (!current(run)) return true;
@@ -5609,7 +5614,10 @@ export function createLoginRuntime(
     // A page with no sign and no evidence completes when the judge cannot decide, unless
     // the login is watched (ADR 0027); one with a sign of another sign-in step goes to the
     // person, as does a page judged `challenge` before (ADR 0029). An optional page after
-    // the sign-in completes as signed in, watched or not, and is left as it is (ADR 0065).
+    // the sign-in completes as signed in, watched or not, and is left as it is (ADR 0065),
+    // but only on the `password` route once this attempt sent the credential, without a
+    // stop before a missing password and with no radio button, select or text area left
+    // out of its description; on the same path once read again.
     const sent = credentialSent(run);
     const candidate = undecidedCandidate({
       verdict,
@@ -5619,6 +5627,7 @@ export function createLoginRuntime(
       route: run.metadata.route,
       stopAt: run.metadata.stopAt,
       sent,
+      inputLeftOut,
     });
     let again: Awaited<ReturnType<typeof readSignInState>>;
     // The judge's answer can take a while: the page completes only if, once the answer is
@@ -5634,7 +5643,9 @@ export function createLoginRuntime(
       ...candidate,
       again,
       disabledLeftOut,
-      path: remaining.path,
+      // Only an optional page must still be on its path: an undecided one keeps ADR 0029's
+      // rule, as on a single-page app that routes on while it is judged.
+      ...(verdict === "optional" ? { path: remaining.path } : {}),
     });
     // Reported before the takeover's own entries, once whether it is taken over is known.
     let reported = false;
@@ -11199,6 +11210,7 @@ export function createLoginRuntime(
     const { document } = live;
     const recipe = await attemptRecipe(record);
     let disabledLeftOut = false;
+    let inputLeftOut = false;
     // The answer's timing, once it came (ADR 0019).
     let timed: { timing?: ServiceTiming } = {};
     const reportJudge = (
@@ -11283,6 +11295,7 @@ export function createLoginRuntime(
       else {
         observation = parsed.output;
         disabledLeftOut = extracted.output.ok && extracted.output.disabledLeftOut === true;
+        inputLeftOut = extracted.output.ok && extracted.output.inputLeftOut === true;
       }
     } catch {
       // The page could not be asked: `unreachable`.
@@ -11327,21 +11340,34 @@ export function createLoginRuntime(
     spend(record.id, Date.now() - asked, timing);
     if (timing) timed = { timing };
     reportJudge(verdict, reason);
-    // `optional` (ADR 0065) completes it only on a full description, once the attempt
-    // submitted the item's password or a TOTP code (a move within the site may follow an
-    // identifier's Next), and not for a login stopped before its missing password, which
-    // only `signed-in` proves (ADR 0036).
+    // `optional` (ADR 0065) completes it only on a full description with no radio button,
+    // select or text area left out, once the attempt submitted the item's password or a
+    // TOTP code (a move within the site may follow an identifier's Next), and not for a
+    // login stopped before its missing password, which only `signed-in` proves (ADR 0036).
     const fill = passwordFills.get(document.tabId);
     const effect = effects.get(document.tabId);
     const sent =
       (fill?.attemptId === record.id && fill.submitted) ||
       (effect?.attemptId === record.id && effect.code !== undefined);
+    const optional = verdict === "optional";
     if (
       verdict !== "signed-in" &&
       !(verdict === "unclear" && reason === "judged-signed-in") &&
-      !(verdict === "optional" && !disabledLeftOut && record.stopAt === undefined && sent)
+      !(optional && !disabledLeftOut && !inputLeftOut && record.stopAt === undefined && sent)
     )
       return false;
+    // An optional page must still be on the path it was judged on.
+    if (optional) {
+      let at: unknown;
+      try {
+        at = await send(live, { type: "login.observe", path: live.path, targets: [] });
+      } catch {
+        return false;
+      }
+      const shown = v.safeParse(observationSchema, at);
+      if (stale() || !shown.success || observedPath(shown.output.path) !== observation.path)
+        return false;
+    }
     // The answer can take a while: the page must still be loaded and show no sign-in step.
     let again: unknown;
     try {

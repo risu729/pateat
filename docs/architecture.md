@@ -1459,11 +1459,13 @@ signed in, confirmed, watched or not, and presses nothing: the page stays as it 
 does so only once the attempt submitted the item's password or a second factor's
 handler, when the page confirmed no sign and no evidence before the request and the
 loaded document still shows none after the answer on the same path, the description
-left out no disabled field and the login has no stop before a missing password;
+left out no disabled field and no shown radio button, select or text area outside a
+search form (`inputLeftOut`), and the login has no stop before a missing password;
 otherwise it ends `challenge`, or before the credential settles as an undecided page
 without completing. The `passkey` route ends it `challenge` as any page its checks do
-not prove. A moved login (ADR 0022) completes on it after the move's own re-check, once
-the attempt submitted the password or a TOTP code and without a stop. The judge's own
+not prove, even after a learned handler. A moved login (ADR 0022) completes on it after
+the move's own re-check, on the path it was judged on, once the attempt submitted the
+password or a TOTP code, without a stop and with nothing left out. The judge's own
 answer fails closed too: `optional` on a page with any input other than a search box
 counts as `challenge`. The service learns nothing from it, no marker and no handler,
 since the page's elements may never show on the usual signed-in page, and does not

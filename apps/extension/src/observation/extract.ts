@@ -106,6 +106,12 @@ export type ObservationResult =
        * 2026-10-12, ADR 0029). Never sent to the service.
        */
       readonly disabledLeftOut?: true;
+      /**
+       * A signed-in page's description leaves out a shown radio button, select or text
+       * area outside a search form: the page may ask for a choice or an answer, so an
+       * `optional` answer does not complete it (ADR 0065). Never sent to the service.
+       */
+      readonly inputLeftOut?: true;
     }
   | { readonly ok: false; readonly reason: ObservationRefusal };
 
@@ -1166,6 +1172,22 @@ function describe(element: Element): Found | undefined {
   return undefined;
 }
 
+/**
+ * Whether `element` is a radio button, select or text area outside a search form or
+ * landmark: an input the person may answer that the description has no role for.
+ */
+function leftOutInput(element: HTMLElement): boolean {
+  if (
+    !(element instanceof HTMLInputElement && element.type === "radio") &&
+    !(element instanceof HTMLSelectElement) &&
+    !(element instanceof HTMLTextAreaElement)
+  )
+    return false;
+  if (element.closest("search, [role~='search' i]")) return false;
+  const form = element.closest("form");
+  return !form?.querySelector("input[type='search' i], [role~='searchbox' i]");
+}
+
 /** Every element the page shows that `describe` accepts, in document order. */
 const describeAll = (document: Document) =>
   [...document.querySelectorAll(observed)].map(describe).filter((entry) => entry !== undefined);
@@ -1998,7 +2020,10 @@ function mayBeSignIn(input: HTMLInputElement): boolean {
  * box with no ID, a password change form's field or a hotel search's read-only date
  * picker, is left out (owner, 2026-10-12, ADR 0029). A disabled one is left out too, but
  * the result says so (`disabledLeftOut`): it may be a code field waiting for a timer or a
- * sent code, so such a page completes only when the judge answers `signed-in`. Buttons
+ * sent code, so such a page completes only when the judge answers `signed-in`. A shown
+ * radio button, select or text area outside a search form is left out as well, and the
+ * result says so (`inputLeftOut`): an `optional` answer does not complete such a page
+ * (ADR 0065). Buttons
  * and links are only possible markers; those past the limit or without a locator are
  * left out, and an ID another load may change (`changingId`) locates no element but a
  * field that may be a sign-in field. A link is located by its text too, as for an
@@ -2032,6 +2057,7 @@ function describeSignedIn(document: Document): ObservationResult {
     ? "shadow-field"
     : undefined;
   let disabledLeftOut = false;
+  let inputLeftOut = false;
   const fieldEntries: { form: HTMLFormElement | null; draft: Draft }[] = [];
   const markers: { form: HTMLFormElement | null; draft: Draft }[] = [];
   for (const entry of found) {
@@ -2040,6 +2066,7 @@ function describeSignedIn(document: Document): ObservationResult {
       // may not be a sign-in field is left out, but only `signed-in` completes the page.
       if (entry.field && mayBeSignIn(entry.field)) gap ??= "unfillable-field";
       else if (entry.field?.disabled) disabledLeftOut = true;
+      else if (!entry.field && leftOutInput(entry.element)) inputLeftOut = true;
     } else if (fillTypes[entry.draft.role]) fieldEntries.push(entry);
     else if (entry.draft.role !== "checkbox") markers.push(entry);
   }
@@ -2139,5 +2166,6 @@ function describeSignedIn(document: Document): ObservationResult {
     ...result,
     ...(gap ? { gap } : {}),
     ...(disabledLeftOut ? { disabledLeftOut: true as const } : {}),
+    ...(inputLeftOut ? { inputLeftOut: true as const } : {}),
   };
 }
