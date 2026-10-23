@@ -562,6 +562,7 @@ describe("owner web UI recipes", () => {
       id,
       revision,
       origin,
+      pageKind: "sign-in",
       slots: ["username", "password"],
       steps: [
         {

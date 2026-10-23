@@ -1,17 +1,23 @@
 import {
   INFERENCE_LOG_RETENTION_MS,
   PAGE_SAMPLE_INTERVAL_MS,
+  pageKindSchema,
   type GenerationUnavailableReason,
   type RecipeGenerationResult,
 } from "@pateat/contracts";
 import {
   claudeGeneration,
+  claudeRefusalFallback,
   createClaudeGenerationModel,
   estimateClaudeCostUsd,
+  irreversibleSchema,
   outputRejection,
   unknownUsage,
+  type ClaudeCredential,
+  type ClaudeModelChoice,
   type InferenceOutcome,
 } from "@pateat/inference";
+import * as v from "valibot";
 import { and, count, eq, gt, gte, inArray, isNull, lt, lte, ne, notExists, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
@@ -31,9 +37,13 @@ import { newId } from "@pateat/contracts/ids";
 // per owner, the monthly and daily spend stops, and the ADR 0012 request
 // log with its one-year retention, which also keeps requests answered without a call.
 
-/** Request bounds shared by both roles; the same as the approved benchmark run. */
-export const ROLE_LIMITS = { timeoutMs: 60_000, maxInputBytes: 64 * 1024, maxRetries: 0 };
-export const MAX_OUTPUT_TOKENS = 8_192;
+/**
+ * Request bounds shared by both roles; the same as the benchmark. Every Opus 5.5 call in
+ * the 2026-10-23 comparison that succeeded took under 7 s and wrote under 300 tokens
+ * (owner decision, 2026-10-23 11:03 UTC).
+ */
+export const ROLE_LIMITS = { timeoutMs: 10_000, maxInputBytes: 64 * 1024, maxRetries: 0 };
+export const MAX_OUTPUT_TOKENS = 1_024;
 
 export const CLAUDE_CALL_LIMITS = {
   /** $100 a month (ADR 0014), estimated from returned usage. */
@@ -54,13 +64,12 @@ export const CLAUDE_CALL_LIMITS = {
 };
 
 /**
- * Charged before each call and corrected afterwards, so a request that never finishes
- * still counts. Usage the provider does not report keeps this upper bound: a request
- * holds at most `maxInputBytes` tokens.
+ * Charged before each call at its model's rates and corrected afterwards, so a request
+ * that never finishes still counts. Usage the provider does not report keeps this upper
+ * bound: a request holds at most `maxInputBytes` tokens.
  */
-const RESERVED_MICRO_USD =
-  ROLE_LIMITS.maxInputBytes * claudeGeneration.rates.input +
-  MAX_OUTPUT_TOKENS * claudeGeneration.rates.output;
+const reservedMicroUsd = ({ rates }: ClaudeModelChoice) =>
+  ROLE_LIMITS.maxInputBytes * rates.input + MAX_OUTPUT_TOKENS * rates.output;
 
 type Db = DrizzleD1Database<Record<string, never>>;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -312,6 +321,7 @@ export async function logUnsent(
       branch,
       baseRevision,
       recipePage: page ?? null,
+      ...pageKindColumns(unsent.request, null),
       build: PATEAT_BUILD_REVISION,
       observationHash: await observationHash(unsent.request.observation),
       inputTokens: null,
@@ -395,6 +405,9 @@ export async function logPageSample(
           baseRevision: sql`${baseRevision}`.as("base_revision"),
           revision: sql`NULL`.as("revision"),
           recipePage: sql`NULL`.as("recipe_page"),
+          signedIn: sql`NULL`.as("signed_in"),
+          pageKind: sql`NULL`.as("page_kind"),
+          irreversible: sql`NULL`.as("irreversible"),
           build: sql`${PATEAT_BUILD_REVISION}`.as("build"),
           observationHash: sql`${hash}`.as("observation_hash"),
           inputTokens: sql`NULL`.as("input_tokens"),
@@ -444,6 +457,25 @@ const credentialUnavailable = {
   issuer_unavailable: "issuer-unavailable",
   failed: "token-exchange-failed",
 } as const;
+
+/**
+ * The request log's ADR 0035 columns of a generation request: the `signedIn` hint the
+ * request carried, and the page kind and `irreversible` answer of the model's plan, read
+ * from its logged answer, so a plan the local checks refused keeps them too.
+ */
+function pageKindColumns(request: UnsentRequest["request"], answer: unknown) {
+  const plan = v.safeParse(answeredPlanSchema, answer);
+  return {
+    signedIn: typeof request["signedIn"] === "boolean" ? request["signedIn"] : null,
+    pageKind: plan.success ? plan.output.pageKind : null,
+    irreversible: plan.success ? plan.output.irreversible : null,
+  };
+}
+const answeredPlanSchema = v.object({
+  decision: v.literal("plan"),
+  pageKind: pageKindSchema,
+  irreversible: irreversibleSchema,
+});
 
 /**
  * What the request log keeps of a call's result: the structured result for `ok`, the
@@ -496,93 +528,132 @@ async function runCall<T>(
     if (credential.status !== "ready")
       return { status: "unavailable", reason: credentialUnavailable[credential.status], tokenMs };
 
-    const now = Date.now();
-    const [month, day] = periods(now);
-    await db.batch([
-      addSpend(db, ownerId, month, 1, RESERVED_MICRO_USD),
-      addSpend(db, ownerId, day, 1, RESERVED_MICRO_USD),
-      ...(call.reserved?.(db, now) ?? []),
-    ]);
-
-    let outcome: InferenceOutcome<T>;
-    const modelStart = Date.now();
-    try {
-      outcome = await call.invoke(createClaudeGenerationModel(credential.credential));
-    } catch {
-      // The roles return their errors; this only guards the reservation's correction.
-      outcome = { status: "failed", error: "provider-error", calls: 1, usage: unknownUsage };
-    }
-    // Date.now() advances across I/O on Workers, which is all these spans wait on.
-    const timings = {
-      preModelMs: modelStart - startedAt,
-      tokenMs,
-      modelMs: Date.now() - modelStart,
-    };
-    const estimate = estimateClaudeCostUsd(outcome.usage);
-    const micro =
-      outcome.calls === 0
-        ? 0
-        : estimate === undefined
-          ? RESERVED_MICRO_USD * outcome.calls
-          : Math.ceil(estimate * 1_000_000);
-    const finished = Date.now();
-    const corrections = [
-      // The reservation's own periods, even when the call ended on the next UTC day.
-      addSpend(db, ownerId, month, outcome.calls - 1, micro - RESERVED_MICRO_USD),
-      addSpend(db, ownerId, day, outcome.calls - 1, micro - RESERVED_MICRO_USD),
-    ] as const;
-    // A request the role refused locally was never sent: its route logs it (ADR 0012).
-    if (outcome.calls === 0) {
-      await db.batch(corrections);
-      return { status: "called", outcome, timings };
-    }
-    // Codes only, for the Worker's own logs; the request log row holds the rest.
-    const rejection = outcome.status === "failed" ? outputRejection(outcome) : undefined;
-    if (rejection)
-      console.info("Model output refused", {
-        role: call.role,
-        promptVersion: call.promptVersion,
-        rejection,
+    const send = (choice: ClaudeModelChoice, reserved: BatchItem<"sqlite">[], ms: number) =>
+      sendCall(db, ownerId, call, { choice, credential: credential.credential }, reserved, {
+        startedAt,
+        tokenMs: ms,
       });
-    const logId = newId();
-    const { recipeId, branch, baseRevision, page } = call.recipe;
-    await db.batch([
-      ...corrections,
-      db.insert(inferenceLog).values({
-        id: logId,
-        ownerId,
-        role: call.role,
-        provider: "anthropic",
-        modelId: claudeGeneration.modelId,
-        promptVersion: call.promptVersion,
-        origin: call.origin,
-        path: call.path,
-        request: call.request,
-        result: loggedResult(call, outcome),
-        answer: outcome.answer ?? null,
-        outcome: outcome.status === "failed" ? outcome.error : outcome.status,
-        recipeId,
-        branch,
-        baseRevision,
-        recipePage: page ?? null,
-        build: PATEAT_BUILD_REVISION,
-        observationHash: await observationHash(call.request.observation),
-        inputTokens: outcome.usage.inputTokens,
-        outputTokens: outcome.usage.outputTokens,
-        costMicroUsd: micro,
-        ...timings,
-        createdAt: finished,
-      }),
-    ]);
-    try {
-      await purgeExpiredLog(db, finished);
-    } catch {
-      console.error("Inference log purge failed");
-    }
-    return { status: "called", outcome, logId, timings };
+    const first = await send(claudeGeneration, call.reserved?.(db, Date.now()) ?? [], tokenMs);
+    // A refusal is asked once more of `claudeRefusalFallback`, within the spend stops; its
+    // own refusal ends the request (owner decision, 2026-10-23 11:04 UTC).
+    if (
+      first.outcome.status !== "failed" ||
+      first.outcome.error !== "refused" ||
+      (await limitReached(db, ownerId, Date.now()))
+    )
+      return { status: "called", ...first };
+    // The second row's time before the model includes the first call; it ran no exchange.
+    const second = await send(claudeRefusalFallback, [], 0);
+    return {
+      status: "called",
+      ...second,
+      timings: { ...first.timings, modelMs: first.timings.modelMs + second.timings.modelMs },
+    };
   } finally {
     await db
       .delete(inferenceLocks)
       .where(and(eq(inferenceLocks.ownerId, ownerId), eq(inferenceLocks.lockId, lockId)));
   }
+}
+
+/**
+ * Sends one model call for `runCall`, under its lock: reserves the call's upper bound at
+ * its model's rates with `reserved`, corrects it from reported usage, and logs the call.
+ * A request the role refused locally was never sent, so it gets no log row here: its route
+ * logs it (ADR 0012).
+ */
+async function sendCall<T>(
+  db: Db,
+  ownerId: string,
+  call: ClaudeCall<T>,
+  model: { choice: ClaudeModelChoice; credential: ClaudeCredential },
+  reserved: BatchItem<"sqlite">[],
+  time: { startedAt: number; tokenMs: number },
+): Promise<{ outcome: InferenceOutcome<T>; logId?: string; timings: ClaudeCallTimings }> {
+  const { choice } = model;
+  const reservation = reservedMicroUsd(choice);
+  const now = Date.now();
+  const [month, day] = periods(now);
+  await db.batch([
+    addSpend(db, ownerId, month, 1, reservation),
+    addSpend(db, ownerId, day, 1, reservation),
+    ...reserved,
+  ]);
+
+  let outcome: InferenceOutcome<T>;
+  const modelStart = Date.now();
+  try {
+    outcome = await call.invoke(createClaudeGenerationModel({ ...model.credential, choice }));
+  } catch {
+    // The roles return their errors; this only guards the reservation's correction.
+    outcome = { status: "failed", error: "provider-error", calls: 1, usage: unknownUsage };
+  }
+  // Date.now() advances across I/O on Workers, which is all these spans wait on.
+  const timings = {
+    preModelMs: modelStart - time.startedAt,
+    tokenMs: time.tokenMs,
+    modelMs: Date.now() - modelStart,
+  };
+  const estimate = estimateClaudeCostUsd(outcome.usage, choice.rates);
+  const micro =
+    outcome.calls === 0
+      ? 0
+      : estimate === undefined
+        ? reservation * outcome.calls
+        : Math.ceil(estimate * 1_000_000);
+  const finished = Date.now();
+  const corrections = [
+    // The reservation's own periods, even when the call ended on the next UTC day.
+    addSpend(db, ownerId, month, outcome.calls - 1, micro - reservation),
+    addSpend(db, ownerId, day, outcome.calls - 1, micro - reservation),
+  ] as const;
+  if (outcome.calls === 0) {
+    await db.batch(corrections);
+    return { outcome, timings };
+  }
+  // Codes only, for the Worker's own logs; the request log row holds the rest.
+  const rejection = outcome.status === "failed" ? outputRejection(outcome) : undefined;
+  if (rejection)
+    console.info("Model output refused", {
+      role: call.role,
+      promptVersion: call.promptVersion,
+      rejection,
+    });
+  const logId = newId();
+  const { recipeId, branch, baseRevision, page } = call.recipe;
+  await db.batch([
+    ...corrections,
+    db.insert(inferenceLog).values({
+      id: logId,
+      ownerId,
+      role: call.role,
+      provider: "anthropic",
+      modelId: choice.modelId,
+      promptVersion: call.promptVersion,
+      origin: call.origin,
+      path: call.path,
+      request: call.request,
+      result: loggedResult(call, outcome),
+      answer: outcome.answer ?? null,
+      outcome: outcome.status === "failed" ? outcome.error : outcome.status,
+      recipeId,
+      branch,
+      baseRevision,
+      recipePage: page ?? null,
+      ...pageKindColumns(call.request, outcome.answer),
+      build: PATEAT_BUILD_REVISION,
+      observationHash: await observationHash(call.request.observation),
+      inputTokens: outcome.usage.inputTokens,
+      outputTokens: outcome.usage.outputTokens,
+      costMicroUsd: micro,
+      ...timings,
+      createdAt: finished,
+    }),
+  ]);
+  try {
+    await purgeExpiredLog(db, finished);
+  } catch {
+    console.error("Inference log purge failed");
+  }
+  return { outcome, logId, timings };
 }

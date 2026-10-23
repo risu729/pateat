@@ -756,6 +756,7 @@ describe("revokeRecipe (ADR 0058 A)", () => {
       id: recipeId,
       revision: 4,
       origin: "https://shop.example",
+      pageKind: "sign-in",
       slots: ["password"],
       steps: [
         {

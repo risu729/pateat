@@ -291,12 +291,26 @@ const passkeyStep = (passkey: {
   target: passkey.target,
   purpose: "submit",
 });
+/**
+ * The kind of page a route recipe starts on (ADR 0035), as generation answered it from the
+ * page's structure: `sign-in` for a login and the pages that continue it, `confirm` for a
+ * verification asked while signed in, before an action, and `unclear` when the model could
+ * not tell, which is handled as `confirm`.
+ */
+export const pageKindSchema = v.picklist(["sign-in", "confirm", "unclear"]);
+export type PageKind = v.InferOutput<typeof pageKindSchema>;
 export const loginRecipeSchema = v.pipe(
   v.strictObject({
     version: v.literal(1),
     id: identifier,
     revision,
     origin: loginOriginSchema,
+    /**
+     * The start page's kind (ADR 0035). Generation stores it on every recipe it makes; a
+     * continuation keeps the first page's, and a chooser branch is `sign-in`. Only a
+     * `sign-in` recipe starts a login, counts as a logout or is filled after one.
+     */
+    pageKind: pageKindSchema,
     /** The slots of the password route's first variant (variant 0). */
     slots: v.pipe(
       v.array(recipeSlotIdSchema),
@@ -859,6 +873,13 @@ export type StoredLoginRecipe = v.InferOutput<typeof storedLoginRecipeSchema>;
 export const isLoginRouteRecipe = (recipe: StoredLoginRecipe): recipe is LoginRecipe =>
   "steps" in recipe;
 /**
+ * Whether a route recipe may start a login (ADR 0035): only one generated as `sign-in`. A
+ * `confirm` or `unclear` recipe is never run, never taken as a logout and never filled
+ * after one.
+ */
+export const runsLogin = (recipe: Pick<LoginRecipe, "pageKind">): boolean =>
+  recipe.pageKind === "sign-in";
+/**
  * The path a stored recipe starts on: its entry's (ADR 0031), its chooser's (ADR 0028)
  * or its first step's. The service keeps one generated recipe per origin and start path
  * either way. Each kind of stored recipe is named, so a new kind has to say where it
@@ -958,6 +979,8 @@ export function chooserRoute(
       id: recipe.id,
       revision: recipe.revision,
       origin: recipe.origin,
+      // A list of accounts is always a sign-in page (ADR 0035).
+      pageKind: "sign-in",
     });
     return parsed.success ? parsed.output : undefined;
   }
@@ -977,6 +1000,7 @@ export function chooserRoute(
     id: recipe.id,
     revision: recipe.revision,
     origin: recipe.origin,
+    pageKind: "sign-in",
     slots: [...new Set(["username", ...(branch?.slots ?? [])])],
     steps: [
       { kind: "click", path: recipe.chooser.path, target, purpose: "advance" },
@@ -1362,10 +1386,10 @@ export function refillsLoginSlot(
  * 0018): a newer revision of the same recipe whose steps are `previous`'s steps followed by
  * at least one more, none of which fills a slot `previous`'s steps already fill.
  * `previous` has no completion and no alternatives and ends in an advance; `next` has no
- * alternatives. The `passkey` route and the rejection are unchanged, the handlers extend
- * the old ones in order, the account switch is unchanged or newly added, and signed-in
- * markers may be new. A running login at its final advance takes over only such a revision, so
- * the steps it ran keep their meaning.
+ * alternatives. The page kind (ADR 0035), the `passkey` route and the rejection are
+ * unchanged, the handlers extend the old ones in order, the account switch is unchanged or
+ * newly added, and signed-in markers may be new. A running login at its final advance takes
+ * over only such a revision, so the steps it ran keep their meaning.
  */
 export function continuesRecipe(previous: LoginRecipe, next: LoginRecipe): boolean {
   const last = previous.steps.at(-1);
@@ -1389,6 +1413,7 @@ export function continuesRecipe(previous: LoginRecipe, next: LoginRecipe): boole
     !refillsLoginSlot(previous.steps, next.steps.slice(previous.steps.length)) &&
     previous.slots.every((slot) => next.slots.includes(slot)) &&
     next.maxSubmissions >= previous.maxSubmissions &&
+    previous.pageKind === next.pageKind &&
     previous.passkeyOnly === next.passkeyOnly &&
     same(previous.passkey ?? null, next.passkey ?? null) &&
     same(previous.rejection ?? null, next.rejection ?? null) &&
