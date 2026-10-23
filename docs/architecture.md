@@ -41,6 +41,17 @@ This targets locally installed Chrome. Running in a hosted browser depends on
 that environment allowing installation and storage; it is not an initial
 compatibility claim or an alternative cloud-browser implementation.
 
+Logins and fills never read what the person types or chooses on a page in order to keep
+it (owner, 2026-10-23). No such value is stored, logged, synced, sent to the service or
+the AI, and recipes are never built from the person's own clicks or input
+([ADR 0028](adr/0028-account-chooser-login-pages.md)). Pateat reads a field's value only
+to check whether it is empty or holds what Pateat typed, and keeps neither. A record
+that the person acted, such as the submission signal (`login.document.submitted`,
+ADR 0028) or a logout click ([ADR 0021](adr/0021-account-choice-outside-settings.md)),
+holds no value they entered. Saving a credential to the vault, as the Bitwarden
+extension offers, is the separate later writeback capability below, not part of logins
+and fills.
+
 ## Components and trust boundaries
 
 | Component               | Responsibilities                                                                           | May hold secrets?                                               |
