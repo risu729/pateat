@@ -1251,7 +1251,9 @@ handler, then a `passkey` handler, then a `totp` handler, then a `detail` handle
 a page that asks for a personal detail, such as a birth date or the last four digits of
 a phone number, with each input's detail and the button that submits them. No login
 links the vault items that hold those values yet, so a `detail` handler shown ends the
-attempt `challenge` with `detail-unlinked`. A `password` handler shown
+attempt `challenge` with `detail-unlinked`. One on a route path is not entered for the
+first time while its sign-in state reads `rejected` (S1 with F1 or F2): the login
+goes on to read the page and ends `credential-rejected`. A `password` handler shown
 but passed over, as when its button shows again after its press, ends the attempt
 `challenge` instead of letting a handler beside it be entered, so a `password` login
 never presses a passkey button there. Otherwise one is passed over when it already
@@ -1297,13 +1299,15 @@ documents of the tab too, while the attempt has not ended. The page of a login's
 before its item's missing password is the exception: sent as a stop's page, it must show
 the route's password field, and the service keeps only a `passkey` handler from it
 ([ADR 0036](adr/0036-passkey-after-the-identifier.md), owner 2026-10-13 05:39 UTC). So
-is a `password` login's page without a chooser that still shows a route fill field on a
-route path, with no failure beside it (S1 with F1 or F2), when its description also
-shows, in a form other than every shown route fill field's, a text, tel or number input
-that is no route fill field and a button of that form (`showsBesideForm`), and its path
-has no `detail` handler: sent with `beside: true`, it is judged under its own prompt
-version and instructions, and the service keeps only a `detail` handler from it (other
-handlers logged with `beside`) and any other answer as `unclear`
+is a `password` login's page without a chooser or a stop, in the tab's top document
+on the recipe's own origin, that still shows a route fill field on a route path, with
+its sign-in state read and no failure beside it (S1 with F1 or F2), when its
+description also shows, in a form other than every shown route fill field's, a text,
+tel or number input that is no route fill field and a button of that form
+(`showsBesideForm`), and its path has no `detail` handler: sent with `beside: true`,
+it is judged under its own prompt version and instructions, and the service keeps only
+a `detail` handler from it (other handlers logged with `beside`) and any other answer,
+or a `challenge` that adds no `detail` handler, as `unclear`
 ([ADR 0061](adr/0061-personal-details-during-a-login.md)). Any other such page is
 described, then not sent (`sign-in-shown`). At
 most 2 pages count per effect step: the attempt counts a page once its complete

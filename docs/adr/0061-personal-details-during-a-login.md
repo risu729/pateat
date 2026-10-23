@@ -148,11 +148,17 @@ the checks above are dropped and logged by reason, as `totpDropped` is.
 After an effect step, a page that still shows a route fill field on a route path is not
 judged today. It is judged when it also shows, in another form than every route fill
 field, a text, tel or number input that is no route fill field, with a button in that
-form. The request says so (`beside: true`). Like a stop's page
+form. Only a `password` login without a chooser or a stop sends it, from the tab's top
+document on the recipe's own origin, once its sign-in state is read and shows no failure
+beside the sign-in fields. The request says so (`beside: true`). Like a stop's page
 ([ADR 0036](0036-passkey-after-the-identifier.md)), it is judged under its own prompt
 version and instructions, and the service keeps only a `detail` handler from it: its
-other answers are kept as `unclear`. It is judged once per recipe revision, origin and
-path, as every page is.
+other answers, and a `challenge` that adds no `detail` handler, are kept and answered as
+`unclear`. It is judged once per recipe revision, origin and path, as every page is.
+
+A `detail` handler on a route path is not entered for the first time while the sign-in
+form there shows a failure beside its fields: the password was wrong, and the login ends
+`credential-rejected`.
 
 ### The link to the value
 
