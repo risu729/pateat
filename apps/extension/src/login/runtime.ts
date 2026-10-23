@@ -58,6 +58,7 @@ import {
   siteDefaultConnection,
   templateLoginBinding,
   TOTP_HANDLER_SLOT,
+  totpFieldReference,
   transitionLoginAttempt,
   withdrawAccountSwitch,
   validateLoginOperation,
@@ -1123,7 +1124,8 @@ export interface LoginGeneration {
 
 /**
  * Slot meanings sent for generation, each read from the vault item's built-in field of
- * the same name by `defaultLoginBinding`.
+ * the same name by `defaultLoginBinding`; `totp` reads a custom field holding a TOTP key
+ * instead when the built-in one holds none (`totpFieldReference`, owner 2026-10-23).
  */
 const generationSlots: { slot: SemanticSlot; fieldId: string }[] = [
   { slot: builtInLoginSlots.username, fieldId: "login.username" },
@@ -1156,10 +1158,13 @@ function offersGenerationField(
 }
 /**
  * The field a `totp` handler makes its code from for the login's item (ADR 0027): the
- * Text or Hidden custom field that the item's saved binding for the recipe names for
- * `totp`, else its built-in TOTP field, or the synthetic probe item's `totp` field. The
- * code is always generated from the field's seed; its raw value is never typed. Undefined
- * when the item has no such field, or when the binding names any other field for `totp`.
+ * field the item's saved binding for the recipe names for `totp`, else the one
+ * `totpFieldReference` picks (the built-in TOTP field when it holds a key, else the one
+ * custom field flagged as holding a key, owner 2026-10-23), or the synthetic probe item's
+ * `totp` field. A custom field counts only when it is a Text or Hidden field the catalog
+ * flags as holding a TOTP key (`totpSeed`). The code is always generated from the field's
+ * key; its raw value is never typed. Undefined when the item has no such field, or when
+ * the binding names any other field for `totp`.
  */
 function codeFieldOf(
   connection: VaultConnectionMetadata,
@@ -1177,12 +1182,20 @@ function codeFieldOf(
     userId: connection.userId,
     itemId,
   });
-  const named = saved?.slots.find((entry) => entry.slot === TOTP_HANDLER_SLOT);
-  if (saved && named && named.field !== "totp") {
-    const resolved = resolveBindingFields(saved, [TOTP_HANDLER_SLOT], item.fields);
+  const reference =
+    saved?.slots.find((entry) => entry.slot === TOTP_HANDLER_SLOT)?.field ??
+    totpFieldReference(item.fields);
+  if (reference !== "totp") {
+    const resolved = resolveBindingFields(
+      { slots: [{ slot: TOTP_HANDLER_SLOT, field: reference }] },
+      [TOTP_HANDLER_SLOT],
+      item.fields,
+    );
     const fieldId = resolved.ok ? resolved.slots[0]!.fieldId : undefined;
     const field = item.fields.find((entry) => entry.id === fieldId);
-    return field?.id.startsWith("custom.") && (field.kind === "text" || field.kind === "hidden")
+    return field?.id.startsWith("custom.") &&
+      (field.kind === "text" || field.kind === "hidden") &&
+      field.totpSeed === true
       ? field.id
       : undefined;
   }
@@ -3540,7 +3553,13 @@ export function createLoginRuntime(
     if (!connection?.userId || !item) return { ok: false, reason: "vault-unavailable" };
     const owner = { provider: connection.provider, userId: connection.userId, itemId: item.id };
     const named = { ...owner, itemName: item.label, accountName: connection.label };
-    const fieldNames = item.fields.map((field) => ({ id: field.id, name: field.name }));
+    // Names, and the flags that pick the `totp` slot's field (`totpFieldReference`).
+    const fieldNames = item.fields.map(({ id, name, empty, totpSeed }) => ({
+      id,
+      name,
+      ...(empty ? { empty } : {}),
+      ...(totpSeed ? { totpSeed } : {}),
+    }));
     // Sibling bindings were proven by an authenticated login, so they go first.
     const templates = async () => {
       const found: LoginBindingTemplate[] = settingsValue.bindings
@@ -3551,7 +3570,7 @@ export function createLoginRuntime(
       return found;
     };
     const saved = findLoginBinding(settingsValue.bindings, recipe, owner);
-    let binding = saved ?? defaultLoginBinding(slots, recipe, named);
+    let binding = saved ?? defaultLoginBinding(slots, recipe, named, fieldNames);
     let widened = false;
     if (saved && fillGaps && bindingGaps(saved, slots).length > 0) {
       const filled = fillLoginBinding(saved, slots, await templates(), fieldNames);
@@ -3844,8 +3863,9 @@ export function createLoginRuntime(
         origin: live.document.origin,
       });
       // The `totp` fact describes the field a `totp` handler makes its code from: a custom
-      // field the saved binding names counts when the account may read it, and the built-in
-      // TOTP then does not. A binding naming a field no code is made from leaves none.
+      // field the saved binding names, or the one flagged as holding a key when the built-in
+      // TOTP holds none, counts when the account may read it, and the built-in TOTP then
+      // does not. A binding naming a field no code is made from leaves none.
       const code = codeFieldOf(
         resolved.connection,
         resolved.account.itemId,

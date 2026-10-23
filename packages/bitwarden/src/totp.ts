@@ -49,6 +49,63 @@ function decodeBase32(text: string): Uint8Array {
   return Uint8Array.from(bytes);
 }
 
+/** Base32 characters with optional `=` padding, in either case. */
+const base32Key = /^[a-z2-7]+=*$/iu;
+/** The fewest Base32 characters a bare key must have: 80 bits, RFC 4226's minimum. */
+const minimumBareKeyLength = 16;
+
+/**
+ * Whether a bare key looks like a Base32 TOTP secret: Base32 letters and digits 2-7, the
+ * letters all upper or all lower case, at least one letter; either unbroken or in groups
+ * of four separated by single spaces (the last group may be shorter); up to six `=` of
+ * padding at the end; and at least 16 Base32 characters.
+ */
+function isBareBase32Key(key: string): boolean {
+  const body = key.replace(/=+$/u, "");
+  if (key.length - body.length > 6) return false;
+  const groups = body.split(" ");
+  if (
+    groups.some((group) => !/^[a-z2-7]+$/iu.test(group)) ||
+    (groups.length > 1 &&
+      (groups.slice(0, -1).some((group) => group.length !== 4) || groups.at(-1)!.length > 4))
+  )
+    return false;
+  const characters = groups.join("");
+  return (
+    characters.length >= minimumBareKeyLength &&
+    /[a-z]/iu.test(characters) &&
+    (characters === characters.toUpperCase() || characters === characters.toLowerCase())
+  );
+}
+
+/**
+ * Whether a stored value is shaped like a TOTP key, so a custom field holding it is used
+ * only for codes (ADR 0027, owner 2026-10-23). `generateLocalTotp` reads almost any string
+ * as the official SDK does, so this check is stricter. After surrounding whitespace is
+ * trimmed, the value must be at most 8192 characters and one of:
+ *
+ * - an `otpauth://totp/` or `otpauth://hotp/` URI (any case) that parses as a URL and whose
+ *   last `secret` parameter holds at least one Base32 character and only Base32
+ *   characters, spaces and trailing `=`;
+ * - `steam://` (any case) followed by Base32 characters and optional trailing `=`;
+ * - a bare Base32 key as `isBareBase32Key` describes it.
+ *
+ * So words with other letters or punctuation, sentences, PINs, digits alone and short
+ * codes are not keys; a single word of 16 or more letters a-z in one case would be.
+ */
+export function isTotpSeed(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  const key = value.trim();
+  if (!key.length || key.length > 8192) return false;
+  const lower = key.toLowerCase();
+  if (lower.startsWith("otpauth://totp/") || lower.startsWith("otpauth://hotp/")) {
+    const secret = URL.parse(key)?.searchParams.getAll("secret").at(-1);
+    return secret !== undefined && base32Key.test(secret.replaceAll(" ", ""));
+  }
+  if (lower.startsWith("steam://")) return base32Key.test(key.slice(8));
+  return isBareBase32Key(key);
+}
+
 /**
  * Generates the code the official Bitwarden SDK generates for the same stored key
  * (`Totp::from_str` and `decode_b32` in sdk-internal `crates/bitwarden-vault/src/totp.rs`).

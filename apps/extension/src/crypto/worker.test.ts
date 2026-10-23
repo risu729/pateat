@@ -562,10 +562,24 @@ describe("crypto Worker TOTP code grant", () => {
       data: { kind: "otp", value: "287082", period: 30, validUntilMs: 60_000 },
     });
     expect(JSON.stringify(coded)).not.toContain(rfcTotpSecrets.SHA1);
-    // Without the grant, the same field is plain text: the grant alone made the code.
-    expect(await command({ kind: "resolve", session, ref, allowedFieldIds: [fieldId] })).toEqual({
-      ok: true,
-      data: { kind: "text", value: rfcTotpSecrets.SHA1 },
+    // Without the grant, a field shaped like a TOTP key is never returned as text.
+    const plain = await command({ kind: "resolve", session, ref, allowedFieldIds: [fieldId] });
+    expect(plain).toEqual({ ok: false, error: { code: "unsupported-field" } });
+    expect(JSON.stringify(plain)).not.toContain(rfcTotpSecrets.SHA1);
+  });
+
+  it("flags the field in the value-free catalog (owner, 2026-10-23)", async () => {
+    expect(await command({ kind: "verify-received-ciphers", session })).toMatchObject({ ok: true });
+    const catalog = await command({ kind: "catalog", session });
+    expect(JSON.stringify(catalog)).not.toContain(rfcTotpSecrets.SHA1);
+    const items = (catalog as { data: { items: { id: string; fields: object[] }[] } }).data.items;
+    expect(items.find((item) => item.id === itemId(1))?.fields).toContainEqual({
+      id: `custom.${snapshotId}.0`,
+      label: "seed",
+      name: "seed",
+      kind: "hidden",
+      totpSeed: true,
     });
+    expect(JSON.stringify(items.find((item) => item.id === itemId(2)))).not.toContain("totpSeed");
   });
 });

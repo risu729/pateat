@@ -213,6 +213,7 @@ async function execute(command: HostCommand) {
             kind: field.kind,
             ...(field.linkedFieldId ? { linkedFieldId: field.linkedFieldId } : {}),
             ...(field.empty ? { empty: true as const } : {}),
+            ...(field.totpSeed ? { totpSeed: true as const } : {}),
           })),
         });
       } finally {

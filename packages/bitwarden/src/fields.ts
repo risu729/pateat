@@ -1,7 +1,7 @@
 import * as v from "valibot";
 
 import { failure, type BitwardenResult } from "./errors";
-import { generateLocalTotp, type LocalOtpValue } from "./totp";
+import { generateLocalTotp, isTotpSeed, type LocalOtpValue } from "./totp";
 
 export interface LocalFieldReference {
   readonly connectionId: string;
@@ -24,6 +24,12 @@ export interface LocalFieldMetadata {
   readonly linkedFieldId?: string;
   /** Set on the login username, password or TOTP field when the item holds no value for it. */
   readonly empty?: true;
+  /**
+   * Set on a Text or Hidden custom field whose value is shaped like a TOTP key
+   * (`isTotpSeed`): it is resolved only as a code, never as text (ADR 0027, owner
+   * 2026-10-23). A flag only; the value never leaves.
+   */
+  readonly totpSeed?: true;
 }
 
 export type LocalFieldValue =
@@ -36,7 +42,7 @@ export interface LocalFieldGrant {
   readonly nowMs?: () => number;
   /**
    * Resolve the field as a TOTP code: the login TOTP, or a Text or Hidden custom field
-   * holding a seed in a format the login TOTP accepts. The raw value is never returned.
+   * whose value `isTotpSeed` accepts. The raw value is never returned.
    */
   readonly code?: true;
 }
@@ -189,7 +195,7 @@ export function createLocalFieldSnapshot(input: unknown): BitwardenResult<LocalF
       fieldId: string,
       label: string,
       kind: LocalFieldMetadata["kind"],
-      custom?: { name: string | null; linkedFieldId: string | undefined },
+      custom?: { name: string | null; linkedFieldId: string | undefined; totpSeed?: boolean },
       empty = false,
     ) => {
       metadata.push(
@@ -200,6 +206,7 @@ export function createLocalFieldSnapshot(input: unknown): BitwardenResult<LocalF
           kind,
           ...(custom?.linkedFieldId ? { linkedFieldId: custom.linkedFieldId } : {}),
           ...(empty ? { empty: true as const } : {}),
+          ...(custom?.totpSeed ? { totpSeed: true as const } : {}),
         }),
       );
     };
@@ -228,6 +235,7 @@ export function createLocalFieldSnapshot(input: unknown): BitwardenResult<LocalF
         // Built-ins are listed first; a link to a field this item lacks names no source.
         linkedFieldId:
           source && metadata.some((entry) => entry.ref.fieldId === source) ? source : undefined,
+        totpSeed: (kind === "text" || kind === "hidden") && isTotpSeed(field.value),
       });
     });
     let catalog: readonly LocalFieldMetadata[] = Object.freeze(metadata);
@@ -308,8 +316,10 @@ export function createLocalFieldSnapshot(input: unknown): BitwardenResult<LocalF
               if (!field) return failure("field-missing");
               if (field.type !== 0 && field.type !== 1) return failure("unsupported-field");
               if (!field.value) return failure("field-missing");
+              // A value not shaped like a key, which the generator would still read, is refused.
+              if (!isTotpSeed(field.value)) return failure("invalid-totp");
               const generated = generateLocalTotp(
-                field.value,
+                field.value.trim(),
                 grant.nowMs ? { nowMs: grant.nowMs } : {},
               );
               // Sampling the clock may dispose the snapshot; withhold the code then.
@@ -333,8 +343,11 @@ export function createLocalFieldSnapshot(input: unknown): BitwardenResult<LocalF
                   source === "identity.fullName" ? [source, ...fullNameDependencies] : [source];
                 if (dependencies.some((id) => !allowed.has(id))) return failure("field-denied");
                 value = sourceValue(source);
-              } else if (field.type === 0 || field.type === 1) value = field.value;
-              else return failure("unsupported-field");
+              } else if (field.type === 0 || field.type === 1) {
+                // A field shaped like a TOTP key gives only codes, never its text.
+                if (isTotpSeed(field.value)) return failure("unsupported-field");
+                value = field.value;
+              } else return failure("unsupported-field");
             } else {
               if (!builtins.has(fieldId)) return failure("unsupported-field");
               if (

@@ -258,3 +258,22 @@ pinned at
   Pateat keeps the sign-in form, where the master password goes, and says next to it
   when the sign-in timed out, or that it ended early because Pateat's background
   stopped, since its waiting sign-in lives in a service worker Chrome can stop.
+
+## TOTP keys in custom fields
+
+Pateat's side is `isTotpSeed` in `packages/bitwarden/src/totp.ts` and
+`totpFieldReference` in `packages/contracts/src/recipes.ts`
+([ADR 0027](adr/0027-per-account-login-routes.md#amendment-2026-10-23-a-totp-code-from-a-custom-field),
+owner 2026-10-23). Official code is pinned at
+[`8246ae9`](https://github.com/bitwarden/clients/tree/8246ae9c9a484a0a69f8b27203034555fb872523).
+
+- The official extension fills a custom field by its name with the field's value as it
+  is, whatever that value holds
+  ([autofill.service.ts](https://github.com/bitwarden/clients/blob/8246ae9c9a484a0a69f8b27203034555fb872523/apps/browser/src/autofill/services/autofill.service.ts#L844-L893)),
+  and makes TOTP codes only from the login's TOTP key
+  ([autofill.service.ts](https://github.com/bitwarden/clients/blob/8246ae9c9a484a0a69f8b27203034555fb872523/apps/browser/src/autofill/services/autofill.service.ts#L1153)).
+  Pateat never fills a Text or Hidden custom field shaped like a TOTP key as text and
+  never offers it to recipe generation: it makes codes from it for the `totp` slot, and
+  takes it as the item's TOTP field when the login's own TOTP holds no key. A key typed
+  into a page as it is would give the second factor away, and a person who keeps a key
+  in a custom field, as Bitwarden lets them, means it for codes.

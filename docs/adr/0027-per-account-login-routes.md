@@ -4,10 +4,10 @@ Status: accepted by the owner on 2026-10-11 (13:47 UTC). Deliveries 1 (custom-fi
 names and Text shapes in generation) and 2 (handlers with the `passkey` handler) are
 implemented, and so are delivery 3: part A (`password` route variants and start
 detection over them) and part B (the start page's `passkey` route), and delivery 4 (the
-`totp` handler), whose deferred part, a binding that names a custom field for its code,
-is implemented by the 2026-10-17 amendment (proposed by Claude, not confirmed by the
-owner)
-([A TOTP code from a custom field](#amendment-a-totp-code-from-a-custom-field));
+`totp` handler), whose deferred part, a code made from a custom field, is implemented
+by the amendment of 2026-10-23 (owner, 2026-10-23: a Text or Hidden field shaped like a
+TOTP key is flagged and becomes the `totp` field, never a raw slot)
+([A TOTP code from a custom field](#amendment-2026-10-23-a-totp-code-from-a-custom-field));
 delivery 5 (the `sso` route) is not implemented. Amends
 [ADR 0007](0007-existing-passkey-assertions.md) and
 [ADR 0021](0021-account-choice-outside-settings.md) (which item answers a passkey
@@ -1231,54 +1231,89 @@ Windows Hello" is still refused. The list is shared, so this widens the generate
 [ADR 0053](0053-passkey-only-generation.md) alike; the judge's `passkey` handler check
 still uses only the registration words.
 
-## Amendment: a TOTP code from a custom field
+## Amendment 2026-10-23: a TOTP code from a custom field
 
-Date: 2026-10-17. Proposed by Claude and not yet confirmed by the owner; implemented. It
-delivers the part of delivery 4 that "Which TOTP field" in
-[Implementation choices](#implementation-choices) deferred until Pateat can make a code
-from a custom field, which the owner moved to phase 4 on 2026-10-12 (14:26 UTC). The
-accepted text above is unchanged; where it says such a binding ends `challenge`, this
-section applies instead.
+Claude proposed this on 2026-10-17 in
+[PR #653](https://github.com/risu729/pateat/pull/653) and asked the owner four questions
+there. The owner decided on 2026-10-23 (option A of the open-PR triage). Q1 (Text and
+Hidden fields) and Q2 (every `totp` slot asks for a code) are accepted as implemented.
+Q3 (how the field is chosen) and Q4 (a key offered to generation as a raw slot) are
+answered together: the crypto Worker flags a Text or Hidden custom field whose value is
+shaped like a TOTP key in the value-free catalog, and generation and the default binding
+map such a field to `totp` and never offer it as a raw slot. This delivers the part of
+delivery 4 that "Which TOTP field" in [Implementation choices](#implementation-choices)
+deferred until Pateat can make a code from a custom field, which the owner moved to
+phase 4 on 2026-10-12 (14:26 UTC). The accepted text above is unchanged; where it says
+such a binding ends `challenge`, this section applies instead.
 
-- **The code from a custom field.** A `totp` handler whose item's saved binding names a
-  custom field for `totp` reads that field and makes the code from it in the crypto
-  Worker, with the generator the built-in TOTP field uses: a base32 secret, an
-  `otpauth://totp/` URI with a secret and optionally an issuer, algorithm, digits and
-  period, or a `steam://` secret. The field's raw value never leaves the Worker for a
-  code: a value the generator does not accept is refused (`invalid-totp` or
-  `unsupported-totp`), as an empty field is, and the login then stops as a policy change
-  (`field-unavailable`) without typing anything into the page. A value made only of the
-  letters and digits of base32, such as a plain word, is read as a base32 secret, so a
-  field that holds no seed but looks like one gives a wrong code, typed once.
-- **Which custom fields.** Only a Text or Hidden custom field may hold a seed (Claude's
-  default, not confirmed by the owner). A binding that names a Boolean or Linked custom
-  field, or the item's username or password, for `totp` still ends `challenge`
-  (`missing-fact`) without reading it, and so does a reference that resolves to no field
-  or to several; the item's built-in TOTP field is never read instead.
-- **The `totp` fact.** For such a binding the fact recorded when the login starts says
-  whether the account allows that field (not excluded); the built-in TOTP field does not
-  count then, nor does it for a binding whose `totp` reference is refused as above. A
-  custom field has no value-free empty flag in the catalog, so an empty one or one
-  without a seed is found only when the code is read, and stops the login as above; on
-  a start page that asks for the code with the password, the password is then not
-  submitted, but a code page after the password is reached first.
-- **Every `totp` fill asks for a code.** A fill of the `totp` slot always asks the
-  Worker for a code and fills it under the TOTP fill rule, a route step's as well as a
-  handler's, so a binding that names a custom field for a start page's code field types
-  a code made from it, never the field's value. A route step whose `totp` slot is bound
-  to a field that cannot hold a seed (a Boolean or Linked custom field, the username or
-  the password) stops as a policy change (`field-unavailable`) instead of typing that
-  value. A fill of any other slot is unchanged.
+- **Key shape** (`isTotpSeed` in `packages/bitwarden/src/totp.ts`). Since
+  [#939](https://github.com/risu729/pateat/pull/939), `generateLocalTotp` reads a key as
+  the official SDK does and makes a code from almost any string, so "the generator takes
+  it" cannot tell a key from a word. The test is stricter. After surrounding whitespace
+  is trimmed, a value of at most 8,192 characters is a key when it is one of:
+  - an `otpauth://totp/` or `otpauth://hotp/` URI, in any case, that parses as a URL and
+    whose last `secret` parameter holds at least one Base32 character and nothing but
+    Base32 characters, spaces and trailing `=`;
+  - `steam://`, in any case, followed by Base32 characters and optional trailing `=`;
+  - a bare key: Base32 letters and the digits 2 to 7, the letters all upper case or all
+    lower case, with at least one letter; unbroken, or in groups of four separated by
+    single spaces, the last group perhaps shorter; up to six `=` of padding at the end;
+    and at least 16 Base32 characters (80 bits).
+
+  So words with other letters or punctuation, sentences and passphrases, PINs, digits
+  alone and short codes are not keys. A single word of 16 or more letters a to z in one
+  case is taken as a key. The exact rule is the agent's, not confirmed by the owner.
+- **The catalog flag.** When the Worker lists an item's fields, a Text or Hidden custom
+  field whose value has the key shape gets `totpSeed: true` in the field metadata and
+  the settings catalog. It is a flag only: neither the value nor its format is carried.
+- **Never as text.** The Worker refuses to return such a field's value as text
+  (`unsupported-field`), so a slot other than `totp` bound to it, through a template or
+  a binding saved earlier, stops the login as a policy change (`field-unavailable`) and
+  types nothing. Generation never offers it as a custom-field slot
+  (`customFieldOffers`).
+- **The default `totp` field** (`totpFieldReference` in `packages/contracts`). Wherever
+  no saved entry names a field for `totp` (the automatic binding, a binding built from
+  templates and the gaps of a saved binding), the `totp` slot reads the built-in TOTP
+  field when it holds a key. Otherwise it reads the item's one named flagged custom
+  field, by its reference. With no flagged field, or with several, it reads the built-in
+  field as before. Generation still offers only the built-in `totp` slot, so a code
+  field generated for any matching item is filled from the flagged field of an item that
+  keeps its key there. After `authenticated`, the saved or widened binding records the
+  reference like any other.
+- **The code from a custom field.** The `totp` handler, and any fill of the `totp` slot
+  bound to a custom field, makes the code from that field in the crypto Worker. The
+  generator gets the trimmed value; the field's raw value never leaves the Worker. A
+  value without the key shape is refused (`invalid-totp`) and an empty field is
+  refused (`field-missing`). The login then stops as a policy change
+  (`field-unavailable`) without typing anything into the page.
+- **Which custom fields** (Q1, owner 2026-10-23). Only a flagged Text or Hidden custom
+  field holds a key. A `totp` binding that names a Boolean or Linked custom field, an
+  unflagged Text or Hidden field, or the item's username or password still ends
+  `challenge` (`missing-fact`) without reading it. So does a reference that resolves to
+  no field or to several. The item's built-in TOTP field is never read instead.
+- **The `totp` fact.** When the `totp` field is a custom field, from the saved binding
+  or by default, the fact recorded when the login starts says whether the account allows
+  that field (not excluded). The built-in TOTP field does not count then, nor does it
+  for a binding whose `totp` reference is refused as above.
+- **Every `totp` fill asks for a code** (Q2, owner 2026-10-23). A fill of the `totp`
+  slot always asks the Worker for a code and fills it under the TOTP fill rule. That
+  holds for a route step's fill as well as a handler's, so a binding that names a custom
+  field for a start page's code field types a code made from it, never the field's
+  value. A route step whose `totp` slot is bound to a field that cannot hold a key (a
+  Boolean or Linked custom field, the username or the password) stops as a policy change
+  (`field-unavailable`) instead of typing that value. A fill of any other slot is
+  unchanged, apart from the refusal above.
 - "One code per login", "Code fill rule" and the rest of "Which TOTP field" still hold:
   the field is added to the plan for that login only, and a field excluded or removed
   after the handler was entered stops the login as a policy change.
-- Nothing in Pateat writes such a binding today: generation and the default binding map
-  `totp` only to the built-in field (`totp` is a reserved slot ID), the settings page
-  has no binding editor, and the service's web UI only lists and removes bindings. The
-  handler reads a custom field only for a binding written some other way, until a later
-  change offers a way to choose the field.
-- The raw-value guarantee covers the `totp` slot only. A seed kept in a Text or Hidden
-  custom field can still be offered to generation as an ordinary custom-field slot
-  ("Custom fields in generation"), which would type it as it is; that is unchanged here.
-- Not verified against a real Bitwarden vault or a real site: the change is covered by
-  synthetic tests only.
+
+Consequences: the catalog now carries one bit derived from a custom field's value. A
+field whose value changes into or out of the key shape changes how it fills after the
+next sync. An ordinary Text value that happens to have the key shape, such as one long
+word, is no longer filled as text, and an item's only such field becomes its TOTP field.
+This differs from the official clients, which fill custom fields by name as they are and
+make codes only from the login TOTP
+([differences](../bitwarden-differences.md#totp-keys-in-custom-fields)). Not verified
+against a real Bitwarden vault or a real site: the change is covered by synthetic tests
+only, and a login in the owner's Chrome with an item that keeps its key in a custom
+field is still to be done.

@@ -395,6 +395,8 @@ type CustomField = {
   name: string | null;
   kind: "text" | "hidden" | "linked";
   linkedFieldId?: string;
+  /** The catalog's flag for a field shaped like a TOTP key (ADR 0027, owner 2026-10-23). */
+  totpSeed?: true;
 };
 
 function harness(
@@ -14064,7 +14066,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
           const report = vi.fn<(report: LoginReport) => void>();
           const h = harness(
             { bindings: namedFor() },
-            { passkeys: noPasskey, report, custom: [{ name: "Seed", kind }] },
+            { passkeys: noPasskey, report, custom: [{ name: "Seed", kind, totpSeed: true }] },
           );
           // The item's built-in TOTP is not what the code is made from.
           withTotp(h);
@@ -14152,7 +14154,11 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
               },
             ],
           },
-          { passkeys: noPasskey, report, custom: [{ name: "Seed", kind: "hidden" }] },
+          {
+            passkeys: noPasskey,
+            report,
+            custom: [{ name: "Seed", kind: "hidden", totpSeed: true }],
+          },
         );
         withTotp(h);
         customCode(h);
@@ -14186,7 +14192,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         onClick({ login: toCode, verify: toHome });
         const h = harness(
           { bindings: namedFor() },
-          { passkeys: noPasskey, custom: [{ name: "Seed", kind: "hidden" }] },
+          { passkeys: noPasskey, custom: [{ name: "Seed", kind: "hidden", totpSeed: true }] },
         );
         customCode(h);
         h.recipes.recipe.mockResolvedValue(routeCoded);
@@ -14206,7 +14212,11 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         const report = vi.fn<(report: LoginReport) => void>();
         const h = harness(
           { bindings: namedFor() },
-          { passkeys: noPasskey, report, custom: [{ name: "Seed", kind: "hidden" }] },
+          {
+            passkeys: noPasskey,
+            report,
+            custom: [{ name: "Seed", kind: "hidden", totpSeed: true }],
+          },
         );
         withTotp(h);
         // As an invalid seed: the source answers the code request with nothing.
@@ -14227,6 +14237,153 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
           outcome: "policy-changed",
           cause: "field-unavailable",
         });
+      }, 10_000);
+
+      it("is not entered when the named Text field is not shaped like a TOTP key", async () => {
+        onClick({ login: toCode, verify: toHome });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(
+          { bindings: namedFor() },
+          { passkeys: noPasskey, report, custom: [{ name: "Seed", kind: "text" }] },
+        );
+        withTotp(h);
+        customCode(h);
+        h.recipes.recipe.mockResolvedValue(coded);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() =>
+          expect(status()).toMatchObject([{ state: "watching", outcome: "challenge" }]),
+        );
+        expect(status()![0]).toMatchObject({ facts: { totp: false } });
+        expect(codeFills()).toEqual([]);
+        expect(reads(h)).toEqual([{ fieldId: "login.password" }]);
+        expect(handlerReports(report)).toEqual([[0, "totp", "missing-fact", 2]]);
+      });
+    });
+
+    describe("with a custom field holding a TOTP key and no saved entry for the code (owner, 2026-10-23)", () => {
+      const seedId = `custom.${snapshotId}.1`;
+      // `Branch` is an ordinary Text field; `Seed` is flagged as holding a TOTP key.
+      const seeded = [
+        { name: "Branch", kind: "text" as const },
+        { name: "Seed", kind: "hidden" as const, totpSeed: true as const },
+      ];
+      const customCode = (h: ReturnType<typeof harness>) =>
+        h.fields.mockImplementation(async ({ fieldId, code }) =>
+          code
+            ? fieldId === seedId
+              ? "654321"
+              : fieldId === "login.totp-code"
+                ? "012345"
+                : undefined
+            : "synthetic-secret",
+        );
+      const reads = (h: ReturnType<typeof harness>) =>
+        h.fields.mock.calls.map(([request]) => ({
+          fieldId: request.fieldId,
+          ...(request.code ? { code: request.code } : {}),
+        }));
+
+      it("makes the handler's code from that field when the built-in TOTP holds no key", async () => {
+        onClick({ login: toCode, verify: toHome });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness({}, { passkeys: noPasskey, report, custom: seeded });
+        withTotp(h, true);
+        customCode(h);
+        h.recipes.recipe.mockResolvedValue(coded);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+          timeout: 6_000,
+        });
+        expect(status()![0]).toMatchObject({ facts: { totp: true } });
+        expect(codeFills().map((entry) => entry.values)).toEqual([
+          [{ slot: "totp", value: "654321", secret: "otp" }],
+        ]);
+        expect(reads(h)).toEqual([{ fieldId: "login.password" }, { fieldId: seedId, code: true }]);
+        expect(handlerReports(report)).toEqual([[0, "totp", "entered", 2]]);
+      }, 10_000);
+
+      it("keeps the built-in TOTP when it holds a key", async () => {
+        onClick({ login: toCode, verify: toHome });
+        const h = harness({}, { passkeys: noPasskey, custom: seeded });
+        withTotp(h);
+        customCode(h);
+        h.recipes.recipe.mockResolvedValue(coded);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+          timeout: 6_000,
+        });
+        expect(codeFills().map((entry) => entry.values)).toEqual([
+          [{ slot: "totp", value: "012345", secret: "otp" }],
+        ]);
+        expect(reads(h).map((read) => read.fieldId)).not.toContain(seedId);
+      }, 10_000);
+
+      it("is not entered when the account excludes that field", async () => {
+        onClick({ login: toCode, verify: toHome });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(
+          {
+            connections: [
+              {
+                connectionId,
+                enabled: true,
+                selection: { mode: "all", groupIds: [], itemIds: [] },
+                excludedItemIds: [],
+                excludedFields: [{ itemId, fieldId: seedId }],
+              },
+            ],
+          },
+          { passkeys: noPasskey, report, custom: seeded },
+        );
+        withTotp(h, true);
+        customCode(h);
+        h.recipes.recipe.mockResolvedValue(coded);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() =>
+          expect(status()).toMatchObject([{ state: "watching", outcome: "challenge" }]),
+        );
+        expect(status()![0]).toMatchObject({ facts: { totp: false } });
+        expect(codeFills()).toEqual([]);
+        expect(reads(h)).toEqual([{ fieldId: "login.password" }]);
+        expect(handlerReports(report)).toEqual([[0, "totp", "missing-fact", 2]]);
+      });
+
+      it("fills a route step's totp slot with a code from that field and saves it", async () => {
+        const routeCoded = parseLoginRecipe({
+          ...unlearned,
+          completion: home,
+          slots: [...unlearned.slots, "totp"],
+          steps: [
+            ...unlearned.steps,
+            {
+              kind: "fill",
+              path: "/two-factor",
+              fields: [{ slot: "totp", target: target("app-code") }],
+            },
+            { kind: "click", path: "/two-factor", target: target("verify"), purpose: "submit" },
+          ],
+          maxSubmissions: 2,
+        });
+        onClick({ login: toCode, verify: toHome });
+        const h = harness({}, { passkeys: noPasskey, custom: seeded });
+        withTotp(h, true);
+        customCode(h);
+        h.recipes.recipe.mockResolvedValue(routeCoded);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+          timeout: 6_000,
+        });
+        expect(codeFills().map((entry) => entry.values)).toEqual([
+          [{ slot: "totp", value: "654321", secret: "otp" }],
+        ]);
+        expect(reads(h)).toEqual([{ fieldId: "login.password" }, { fieldId: seedId, code: true }]);
+        // The widened binding names the field by its vault name.
+        expect(h.settings.settings.bindings).toEqual([
+          {
+            ...savedBinding,
+            slots: [...savedBinding.slots, { slot: "totp", field: { custom: "Seed" } }],
+          },
+        ]);
       }, 10_000);
     });
 
@@ -17364,8 +17521,12 @@ describe("the start page's passkey route (ADR 0027)", () => {
 
     it("types a code made from a custom field a saved binding names on this route", async () => {
       onClick({ [button.value]: toCode, verify: toHome });
-      // The item's default custom field `Branch` is a Text field.
-      const { h, report } = start(withCode, {}, { bindings: namedFor({ custom: "Branch" }) });
+      // The item's custom field `Branch` is a Text field holding a TOTP key.
+      const { h, report } = start(
+        withCode,
+        { custom: [{ name: "Branch", kind: "text", totpSeed: true }] },
+        { bindings: namedFor({ custom: "Branch" }) },
+      );
       withTotp(h);
       h.fields.mockImplementation(async ({ fieldId, code }) =>
         code && fieldId === branchId ? "654321" : undefined,

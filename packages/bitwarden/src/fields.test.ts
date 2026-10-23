@@ -648,8 +648,30 @@ describe("TOTP codes from custom fields (code grant)", () => {
     expectNoSeed(result);
   });
 
+  it("generates a TOTP code from an otpauth://hotp/ URI, as the official SDK does", () => {
+    const active = snapshot(codeItem());
+    const id = customFieldId(5);
+    const result = active.resolve(fieldRef(id), codeGrant(59_000, id));
+    expect(result).toEqual(generateLocalTotp(hotp, { nowMs: at(59_000) }));
+    expect(result).toMatchObject({ ok: true, data: { kind: "otp", value: "287082" } });
+    expectNoSeed(result);
+  });
+
+  it("generates the code from the trimmed value of a field with whitespace around the key", () => {
+    const padded = `  ${uri}\n`;
+    const active = snapshot({
+      ...codeItem(),
+      fields: [{ name: "padded", value: padded, type: 1, linkedId: null }],
+    });
+    const id = customFieldId(0);
+    expect(active.list().find((field) => field.ref.fieldId === id)?.totpSeed).toBe(true);
+    const result = active.resolve(fieldRef(id), codeGrant(59_000, id));
+    expect(result).toEqual(generateLocalTotp(uri, { nowMs: at(59_000) }));
+    expectNoSeed(result);
+  });
+
   it.each([
-    [5, "unsupported-totp"],
+    // The generator would read this value; the key shape check refuses it first.
     [6, "invalid-totp"],
     [7, "field-missing"],
     [8, "field-missing"],
@@ -710,10 +732,38 @@ describe("TOTP codes from custom fields (code grant)", () => {
     expectNoSeed(result);
   });
 
-  it("still returns a custom field's text without a code grant", () => {
+  it.each([0, 1, 2, 3, 4, 5])(
+    "never returns custom field %d's key as text without a code grant",
+    (ordinal) => {
+      const active = snapshot(codeItem());
+      const id = customFieldId(ordinal);
+      const result = active.resolve(fieldRef(id), allow(id));
+      expect(result).toEqual({ ok: false, error: { code: "unsupported-field" } });
+      expectNoSeed(result);
+    },
+  );
+
+  it("still returns the text of a custom field not shaped like a key", () => {
     const active = snapshot(codeItem());
-    expect(active.resolve(fieldRef(customFieldId(0)), allow(customFieldId(0)))).toEqual(text(sha1));
-    expect(active.resolve(fieldRef(customFieldId(1)), allow(customFieldId(1)))).toEqual(text(sha1));
+    const id = customFieldId(6);
+    expect(active.resolve(fieldRef(id), allow(id))).toEqual(text("not a base32 seed!"));
+  });
+
+  it("flags only Text and Hidden custom fields shaped like a TOTP key, and no value", () => {
+    const active = snapshot(codeItem());
+    const flagged = active
+      .list()
+      .filter((field) => field.totpSeed)
+      .map((field) => field.ref.fieldId);
+    expect(flagged).toEqual([0, 1, 2, 3, 4, 5].map((ordinal) => customFieldId(ordinal)));
+    expectNoSeed(active.list());
+    // The built-in TOTP field and the Linked field holding a key are never flagged.
+    expect(
+      active.list().find((field) => field.ref.fieldId === "login.totp-code")?.totpSeed,
+    ).toBeUndefined();
+    expect(
+      active.list().find((field) => field.ref.fieldId === customFieldId(10))?.totpSeed,
+    ).toBeUndefined();
   });
 
   it("generates the same built-in code with and without a code grant", () => {
