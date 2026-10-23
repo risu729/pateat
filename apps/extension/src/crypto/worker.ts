@@ -212,6 +212,8 @@ async function execute(command: HostCommand) {
               ...checked.data.collectionIds.map(String),
             ]),
           ],
+          // Bitwarden's master password re-prompt; a site's settings decide whether it is asked.
+          ...(checked.data.reprompt === 1 ? { reprompt: true as const } : {}),
           fields: snapshot.data.list().map((field) => ({
             id: field.ref.fieldId,
             label: vaultDisplayLabel(field.label, field.ref.fieldId),

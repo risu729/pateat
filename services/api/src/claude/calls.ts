@@ -1,8 +1,13 @@
 import {
+  DEVICE_MODEL_URL,
+  deviceModelHeaderNames,
+  deviceModelRequestHash,
   INFERENCE_LOG_RETENTION_MS,
   PAGE_SAMPLE_INTERVAL_MS,
   pageKindSchema,
   parseRecipeBranch,
+  type DeviceModel,
+  type DeviceModelCall,
   type GenerationUnavailableReason,
   type RecipeGenerationResult,
 } from "@pateat/contracts";
@@ -118,6 +123,12 @@ export type ClaudeCall<T> = {
   invoke: (model: ClaudeModel) => Promise<InferenceOutcome<T>>;
   /** The structured result to log for an `ok` outcome. */
   logValue: (value: T) => unknown;
+  /**
+   * The device makes the model calls with its own key (ADR 0040): the owner's credential
+   * and the spend stops take no part, and each call is one of `responses`, in order, or
+   * the call the device makes next.
+   */
+  device?: DeviceModel | undefined;
 };
 
 /** What the request log keeps of a request answered without a model call (ADR 0012). */
@@ -159,7 +170,12 @@ export type ClaudeCallResult<T> =
       timings: ClaudeCallTimings;
       /** The model that gave `outcome`: the last one asked. */
       served: ServedModel;
-    };
+    }
+  /**
+   * The device makes the next model call (ADR 0040): the route answers with it, and has
+   * written and logged nothing for it.
+   */
+  | { status: "device-call"; call: DeviceModelCall["call"] };
 
 /** The model a call asked, as the request log keeps it, for the route that made the call. */
 export type ServedModel = {
@@ -432,6 +448,7 @@ export async function logPageSample(
           ownerId: owners.id,
           role: sql`${sample.role}`.as("role"),
           provider: sql`NULL`.as("provider"),
+          source: sql`'service'`.as("source"),
           modelId: sql`NULL`.as("model_id"),
           effort: sql`NULL`.as("effort"),
           speed: sql`NULL`.as("speed"),
@@ -614,6 +631,57 @@ const servedModel = (choice: RoleChoice): ServedModel => ({
   speed: choice.speed,
 });
 
+/** Whose key a request's calls use: the owner's credential, or the device's (ADR 0040). */
+type CallerKey =
+  | { credential: ClaudeCredential }
+  /** `index` is the call's place among the request's calls, so its response's. */
+  | { device: DeviceModel; index: number };
+
+/**
+ * The fetch of a call the device makes (ADR 0040). With the device's response for this
+ * call, it answers with that response once the request's `beforeSend` writes ran, as a
+ * sent call would; without one, or when this run built another body than the one the
+ * device sent, it keeps the call in `next` for the device to make and fails the role's
+ * request, which is then neither charged nor logged.
+ */
+function deviceRelay(
+  caller: { device: DeviceModel; index: number },
+  /** Absent for a dry run, which writes nothing. */
+  reservation: Reservation | undefined,
+) {
+  const relay: {
+    fetch: typeof globalThis.fetch;
+    next?: DeviceModelCall["call"];
+    timedOut?: true;
+  } = {
+    fetch: async (input, init) => {
+      const outbound = new Request(input, init);
+      // The provider adapter pins the URL; anything else is never handed to the device.
+      if (outbound.url !== DEVICE_MODEL_URL || outbound.method !== "POST")
+        throw new TypeError("Unexpected model request");
+      const body = await outbound.text();
+      const response = caller.device.responses[caller.index];
+      if (!response || response.request !== (await deviceModelRequestHash(body))) {
+        const headers: Partial<Record<(typeof deviceModelHeaderNames)[number], string>> = {};
+        for (const name of deviceModelHeaderNames) {
+          const value = outbound.headers.get(name);
+          if (value !== null) headers[name] = value;
+        }
+        relay.next = { index: caller.index, headers, body };
+        throw new Error("Model call left to the device");
+      }
+      await reservation?.run();
+      if (response.kind === "timeout") relay.timedOut = true;
+      if (response.kind !== "response") throw new Error("No model response on the device");
+      return new Response(response.body, {
+        status: response.status,
+        headers: { "content-type": "application/json" },
+      });
+    },
+  };
+  return relay;
+}
+
 async function runCall<T>(
   env: CallEnv,
   ownerId: string,
@@ -625,18 +693,28 @@ async function runCall<T>(
   const lockId = await acquireLock(db, ownerId, start);
   if (!lockId) return { status: "unavailable", reason: "busy" };
   try {
-    const blocked = (await call.gate?.(db, start)) ?? (await limitReached(db, ownerId, start));
+    const { device } = call;
+    // The spend stops count the owner's credential only; a device's key pays its own calls.
+    const blocked =
+      (await call.gate?.(db, start)) ??
+      (device ? undefined : await limitReached(db, ownerId, start));
     if (blocked) return { status: "unavailable", reason: blocked };
 
-    const tokenStart = Date.now();
-    const credential = await resolveClaudeCredential(env, ownerId);
-    const tokenMs = Date.now() - tokenStart;
-    if (credential.status !== "ready")
-      return { status: "unavailable", reason: credentialUnavailable[credential.status], tokenMs };
+    let caller: CallerKey;
+    let tokenMs = 0;
+    if (device) caller = { device, index: 0 };
+    else {
+      const tokenStart = Date.now();
+      const credential = await resolveClaudeCredential(env, ownerId);
+      tokenMs = Date.now() - tokenStart;
+      if (credential.status !== "ready")
+        return { status: "unavailable", reason: credentialUnavailable[credential.status], tokenMs };
+      caller = { credential: credential.credential };
+    }
 
     const [{ config }, fastFailing] = await Promise.all([
       readModelConfig(env.DB, ownerId),
-      fastFailingModels(env.DB, ownerId, Date.now()),
+      fastFailingModels(env.DB, ownerId, Date.now(), device ? "device" : "service"),
     ]);
     const choices = roleChoices(config, call.role, fastFailing);
     const reservation = reserveOnce(async () => {
@@ -647,40 +725,55 @@ async function runCall<T>(
     // The role's choices in order (owner decision, 2026-10-23 11:31 UTC): a refusal asks
     // the next choice; fast mode that failed asks the same model at the standard speed; any
     // other failure ends the request. Each call first checks the spend stops. The calls
-    // depend on each other's outcome, so they run in turn.
-    let last: Called<T> | undefined;
-    for (const attempt of choices.flatMap(attempts)) {
-      if (last !== undefined) {
-        const { outcome, served } = last;
-        if (outcome.status !== "failed") break;
-        const sameModel = attempt.modelId === served.model;
-        // A refusal skips the same model at the standard speed and asks the next choice.
-        if (outcome.error === "refused" && sameModel) continue;
-        const retry =
-          outcome.error === "refused" ||
-          (served.speed === "fast" && sameModel && FAST_RETRY.has(outcome.error));
+    // depend on each other's outcome, so they run in turn. A `dry` run writes and logs
+    // nothing: it only finds whether the device still has a call to make (ADR 0040).
+    const run = async (
+      dry: boolean,
+    ): Promise<Called<T> | Extract<ClaudeCallResult<T>, { status: "device-call" }>> => {
+      let last: Called<T> | undefined;
+      let key = caller;
+      for (const attempt of choices.flatMap(attempts)) {
+        if (last !== undefined) {
+          const { outcome, served } = last;
+          if (outcome.status !== "failed") break;
+          const sameModel = attempt.modelId === served.model;
+          // A refusal skips the same model at the standard speed and asks the next choice.
+          if (outcome.error === "refused" && sameModel) continue;
+          const retry =
+            outcome.error === "refused" ||
+            (served.speed === "fast" && sameModel && FAST_RETRY.has(outcome.error));
+          // oxlint-disable-next-line no-await-in-loop
+          if (!retry || (!device && (await limitReached(db, ownerId, Date.now())))) break;
+        }
+        // Later calls' time before the model includes the calls before; they run no exchange.
         // oxlint-disable-next-line no-await-in-loop
-        if (!retry || (await limitReached(db, ownerId, Date.now()))) break;
+        const sent = await sendCall(
+          db,
+          ownerId,
+          call,
+          { choice: attempt, caller: key, reservation, dry },
+          { startedAt, tokenMs: last === undefined ? tokenMs : 0 },
+        );
+        if ("deviceCall" in sent) return { status: "device-call", call: sent.deviceCall };
+        if ("device" in key) key = { ...key, index: key.index + 1 };
+        last = {
+          status: "called",
+          ...sent,
+          timings: last
+            ? { ...last.timings, modelMs: last.timings.modelMs + sent.timings.modelMs }
+            : sent.timings,
+          served: servedModel(attempt),
+        };
       }
-      // Later calls' time before the model includes the calls before; they run no exchange.
-      // oxlint-disable-next-line no-await-in-loop
-      const sent = await sendCall(
-        db,
-        ownerId,
-        call,
-        { choice: attempt, credential: credential.credential, reservation },
-        { startedAt, tokenMs: last === undefined ? tokenMs : 0 },
-      );
-      last = {
-        status: "called",
-        ...sent,
-        timings: last
-          ? { ...last.timings, modelMs: last.timings.modelMs + sent.timings.modelMs }
-          : sent.timings,
-        served: servedModel(attempt),
-      };
+      return last!;
+    };
+    // The device's responses take effect only once it has made every call the request needs,
+    // so a request it answers in several runs reserves its attempt and logs its calls once.
+    if (device) {
+      const probe = await run(true);
+      if (probe.status === "device-call") return probe;
     }
-    return last!;
+    return await run(false);
   } finally {
     await db
       .delete(inferenceLocks)
@@ -700,27 +793,39 @@ async function sendCall<T>(
   db: Db,
   ownerId: string,
   call: ClaudeCall<T>,
-  model: { choice: RoleChoice; credential: ClaudeCredential; reservation: Reservation },
+  model: { choice: RoleChoice; caller: CallerKey; reservation: Reservation; dry?: boolean },
   time: { startedAt: number; tokenMs: number },
-): Promise<{ outcome: InferenceOutcome<T>; logId?: string; timings: ClaudeCallTimings }> {
-  const { choice, reservation } = model;
+): Promise<
+  | { outcome: InferenceOutcome<T>; logId?: string; timings: ClaudeCallTimings }
+  | { deviceCall: DeviceModelCall["call"] }
+> {
+  const { choice, caller, reservation, dry } = model;
   // The periods the call started in, even when it ends on the next UTC day.
   const [month, day] = periods(Date.now());
 
   let outcome: InferenceOutcome<T>;
   const modelStart = Date.now();
+  const relay = "device" in caller ? deviceRelay(caller, dry ? undefined : reservation) : undefined;
   try {
     outcome = await call.invoke(
-      createClaudeGenerationModel({
-        ...model.credential,
-        choice,
-        beforeRequest: reservation.run,
-      }),
+      "device" in caller
+        ? // No key is sent: the relay hands the request to the device instead.
+          createClaudeGenerationModel({ apiKey: "device", choice, fetch: relay!.fetch })
+        : createClaudeGenerationModel({
+            ...caller.credential,
+            choice,
+            beforeRequest: reservation.run,
+          }),
     );
   } catch {
     // The roles return their errors; this only guards the spend and the log row.
     outcome = { status: "failed", error: "provider-error", calls: 1, usage: unknownUsage };
   }
+  // A call the device has not made yet: nothing was written, charged or logged for it.
+  if (relay?.next) return { deviceCall: relay.next };
+  // The device's own time limit ran out, which the role cannot tell from a failed request.
+  if (relay?.timedOut && outcome.status === "failed") outcome = { ...outcome, error: "timeout" };
+  if (dry) return { outcome, timings: { preModelMs: 0, tokenMs: 0, modelMs: 0 } };
   // A failed write stopped the request before it was sent, so it fails as before a call.
   await reservation.settled();
   if (reservation.error !== undefined) throw reservation.error;
@@ -735,6 +840,7 @@ async function sendCall<T>(
   };
   const estimate = estimateClaudeCostUsd(outcome.usage, choice.rates);
   if (outcome.calls === 0) return { outcome, timings };
+  const source = relay ? "device" : "service";
   const micro =
     estimate === undefined
       ? worstCaseMicroUsd(choice) * outcome.calls
@@ -751,13 +857,12 @@ async function sendCall<T>(
   const logId = newId();
   const { recipeId, branch, baseRevision, page } = call.recipe;
   await db.batch([
-    addSpend(db, ownerId, month, outcome.calls, micro),
-    addSpend(db, ownerId, day, outcome.calls, micro),
     db.insert(inferenceLog).values({
       id: logId,
       ownerId,
       role: call.role,
       provider: "anthropic",
+      source,
       modelId: choice.modelId,
       effort: choice.effort,
       speed: choice.speed,
@@ -780,8 +885,17 @@ async function sendCall<T>(
       outputTokens: outcome.usage.outputTokens,
       costMicroUsd: micro,
       ...timings,
+      // The device's token exchange and model call happen where the service cannot time them.
+      ...(relay ? { tokenMs: null, modelMs: null } : {}),
       createdAt: finished,
     }),
+    // The spend stops count the owner's credential only (ADR 0040).
+    ...(relay
+      ? []
+      : [
+          addSpend(db, ownerId, month, outcome.calls, micro),
+          addSpend(db, ownerId, day, outcome.calls, micro),
+        ]),
   ]);
   try {
     await purgeExpiredLog(db, finished);

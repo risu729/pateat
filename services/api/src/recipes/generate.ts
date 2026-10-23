@@ -21,6 +21,7 @@ import {
   withChooserLayout,
   withLoginLayout,
   type ChooserBranch,
+  type DeviceModelCall,
   type EntryGenerationRequest,
   type EntryGenerationResult,
   type GenerationUnavailableReason,
@@ -187,6 +188,9 @@ const failed = (error: Failure) => ({ version: 1, status: "failed", error }) as 
 // Nobody waits on a cancelled request, so it reads as the timeout that usually causes it.
 const failureOf = (error: InferenceErrorCode): Failure =>
   error === "cancelled" ? "timeout" : error;
+/** The model call a device with its own key makes next (ADR 0040). */
+const modelCall = (call: { call: DeviceModelCall["call"] }) =>
+  ({ version: 1, status: "model-call", call: call.call }) as const;
 const active = (change: SyncRecipeChange | null) =>
   change?.state === "active" ? change : undefined;
 /**
@@ -719,6 +723,7 @@ export async function generateRecipe(
 
   const call = await callClaude(env, scope.ownerId, trace, {
     ...logged,
+    device: request.deviceModel,
     // A repair's answer may merge into a layout or write nothing, so it names none.
     recipe: {
       ...logged.recipe,
@@ -775,6 +780,7 @@ export async function generateRecipe(
     },
   });
   if (call.status === "unavailable") return unsent(raced ?? unavailable(call.reason));
+  if (call.status === "device-call") return modelCall(call);
   const { logId, served } = call;
   /** The provenance of the units this call's write adds (ADR 0060). */
   const generated = (units: RecipeUnit[]): UnitSources => ({
@@ -1086,6 +1092,7 @@ export async function generateEntry(
   };
   const call = await callClaude(env, scope.ownerId, trace, {
     ...logged,
+    device: request.deviceModel,
     recipe: { ...logged.recipe, baseRevision },
     // A repair is limited to one a UTC day per recipe and device (ADR 0041).
     ...(repair
@@ -1102,6 +1109,7 @@ export async function generateEntry(
     logValue: ({ entry: candidate }) => ({ entry: candidate }),
   });
   if (call.status === "unavailable") return unsent(raced ?? unavailable(call.reason));
+  if (call.status === "device-call") return modelCall(call);
   const result = unsettled(call.outcome);
   // A request the role refused locally, as one too large, was never sent; the roles refuse
   // locally only with a failure.
@@ -1198,7 +1206,7 @@ export async function judgeCompletion(
 ): Promise<RecipeCompletionResult | undefined | null> {
   const head = await readHead(env.DB, scope.ownerId, recipeId);
   if (!head) return undefined;
-  const { observation, route, branch, partial } = request;
+  const { observation, route, branch, partial, slots } = request;
   // A page at a `password` login's stop before its item's missing password (ADR 0036, owner
   // 2026-10-13 05:39 UTC): judged though it shows the route's password field, for a
   // `passkey` handler only.
@@ -1235,6 +1243,8 @@ export async function judgeCompletion(
         recipeId,
         route,
         ...(loginPaths ? { loginPaths } : {}),
+        // The account's slots, logged as a generation request's are (owner 2026-10-23).
+        slots,
         observation,
         ...(stop ? { stop } : {}),
         ...(beside ? { beside } : {}),
@@ -1322,6 +1332,7 @@ export async function judgeCompletion(
   );
   const call = await callClaude(env, scope.ownerId, trace, {
     ...logged(loginPaths),
+    device: request.deviceModel,
     // Each revision, origin and path is judged once per judge prompt version, and a recipe
     // 20 times a UTC day (ADR 0027), counting a stop's pages and those beside the sign-in
     // form.
@@ -1415,12 +1426,14 @@ export async function judgeCompletion(
       createCompletionJudge({ model, ...roleConfig })({
         observation,
         loginPaths,
+        slots,
         ...(stop ? { stop } : {}),
         ...(beside ? { beside } : {}),
       }),
     logValue: (judgement) => judgement,
   });
   if (call.status === "unavailable") return unsent(unavailable(call.reason), loginPaths);
+  if (call.status === "device-call") return modelCall(call);
   const { outcome } = call;
   /**
    * The provenance of the handlers or marker this judgement adds to the judged layout and
@@ -1534,6 +1547,14 @@ export async function judgeCompletion(
       for (const reason of judgement.detailsDropped ?? [])
         handlers.push({ kind: "detail", kept: false, reason });
     if (handlers.length) console.info("Judged page handlers", { recipeId, handlers });
+    // The secret questions the judge paired with this account's slots (ADR 0061) answer
+    // this request only: the recipe, shared by every account, never holds a field's name.
+    // Only a `detail` handler kept for the page pairs anything; a stop keeps none.
+    const questions =
+      judgement.questions?.length &&
+      handlers.some((handler) => handler.kind === "detail" && handler.kept)
+        ? { questions: judgement.questions }
+        : {};
     const withHandlers = changed && stored(head.recipe, branch, changed);
     // A page beside the sign-in form is a challenge only with the `detail` handler it adds,
     // its only handler there; without one it is still the sign-in page, kept as undecided
@@ -1542,7 +1563,7 @@ export async function judgeCompletion(
       await keepVerdict(withHandlers ? "challenge" : "unclear");
       if (!withHandlers) return { version: 1, status: "unclear" };
     }
-    if (!withHandlers) return { version: 1, status: "challenge" };
+    if (!withHandlers) return { version: 1, status: "challenge", ...questions };
     // Handlers are only appended, so the ones after the judged route's are this call's.
     const before = recipe.handlers?.length ?? 0;
     const added = (changed?.handlers ?? []).slice(before).map((_, index) => before + index);
@@ -1562,7 +1583,7 @@ export async function judgeCompletion(
     if (!written.ok && written.limited)
       console.warn("Judged page handlers refused by the recipe limit", { recipeId });
     const change = written.ok ? answerable(written.change) : undefined;
-    return { version: 1, status: "challenge", ...(change ? { change } : {}) };
+    return { version: 1, status: "challenge", ...(change ? { change } : {}), ...questions };
   }
   // A later signed-in page adds its marker, up to four (ADR 0029). A recipe that has a
   // marker already is signed in whether or not this one can be added, as with four, a
@@ -1615,7 +1636,7 @@ export async function samplePage(
 ): Promise<"sampled" | "recent" | undefined | null> {
   const change = await readRevision(env.DB, scope.ownerId, recipeId, request.revision);
   if (!change || change.state !== "active") return undefined;
-  const { observation, route, branch } = request;
+  const { observation, route, branch, slots } = request;
   const recipe = routeOf(change.recipe, branch);
   if (
     !recipe ||
@@ -1646,6 +1667,8 @@ export async function samplePage(
         recipeId,
         route,
         loginPaths: judgedLoginPaths(change.recipe, recipe, route),
+        // The account's slots, as the judge request carries them (owner 2026-10-23).
+        slots,
         observation,
       },
       recipe: { recipeId, branch, baseRevision: change.revision },

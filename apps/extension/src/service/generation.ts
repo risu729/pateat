@@ -19,6 +19,7 @@ import {
   type RecipeCompletionResult,
   type RecipeGenerationRequest,
   type RecipeGenerationResult,
+  type SemanticSlot,
 } from "@pateat/contracts";
 import * as v from "valibot";
 import type {
@@ -279,6 +280,10 @@ function notRecipe(
       reason: answer.kind === "failed" ? answer.error : "device-rejected",
       ...freed,
     };
+  // Only a request with `deviceModel` is answered with a model call, which the device makes
+  // before the answer comes here (ADR 0040).
+  if (result.status === "model-call")
+    return { outcome: "failed", reason: "unexpected-response", retry: true };
   if (result.status === "abstained") return { outcome: "abstained", reason: result.reason };
   if (result.status === "failed")
     return result.rejection
@@ -799,6 +804,8 @@ export function createLoginGeneration(options: {
           route: sample.route,
           branch,
           observation: described.observation,
+          // The account's slots, as the judge request carries them (owner 2026-10-23).
+          slots: slotsForPage(described.observation, described.slots),
         },
       );
       if (answer.kind === "rejected") return { outcome: "failed", reason: "device-rejected" };
@@ -814,6 +821,7 @@ export function createLoginGeneration(options: {
       branch?: string,
       partial?: true,
       stop?: true,
+      slots: readonly SemanticSlot[] = [],
       beside?: true,
     ) {
       const connection = await connected();
@@ -831,6 +839,8 @@ export function createLoginGeneration(options: {
           route,
           branch,
           observation,
+          // As for generation, `totp` only on a page with a code field (ADR 0027).
+          slots: slotsForPage(observation, slots),
           ...(partial ? { partial } : {}),
           ...(stop ? { stop } : {}),
           ...(beside ? { beside } : {}),
@@ -842,13 +852,20 @@ export function createLoginGeneration(options: {
       // Later runs use the learned completion; this attempt settles without waiting.
       if (result?.status === "signed-in") void refresh().catch(() => undefined);
       // The login continues with the returned recipe; the cache catches up behind it (ADR 0027).
+      // The secret questions the judge paired with the account's slots go with it, for the
+      // owner to confirm (ADR 0061).
       if (result?.status === "challenge" && result.change) {
         void refresh().catch(() => undefined);
         // A chooser login's (ADR 0028) is the whole chooser; an entry recipe is never one.
         // Either is the judged layout (ADR 0060).
         const recipe = storedLayoutRecipe(result.change.recipe, layoutOf(branch));
         if (recipe && chooserBranchOf(branch) === "chooser" in recipe)
-          return { verdict: "challenge", recipe, ...timed };
+          return {
+            verdict: "challenge",
+            recipe,
+            ...(result.questions ? { questions: result.questions } : {}),
+            ...timed,
+          };
       }
       if (
         result?.status === "signed-in" ||

@@ -27,7 +27,8 @@ export default defineConfig({
         compatibilityDate,
         compatibilityFlags,
         // Local Miniflare storage only; tests never touch a provisioned database.
-        d1Databases: ["DB"],
+        // MIGRATION_DB starts empty, for applying migrations to rows written before them.
+        d1Databases: ["DB", "MIGRATION_DB"],
         // A stand-in for the built web UI, so tests do not depend on a client build.
         assets: {
           directory: fileURLToPath(new URL("./test/fixtures/assets", import.meta.url)),

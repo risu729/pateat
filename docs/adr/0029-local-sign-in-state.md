@@ -547,9 +547,12 @@ What leaves the device, and how often:
   an effect step), the page it ended on is described exactly as for the judge: the same
   extractor and redaction, `headerText`, the account's usernames hidden as `[account]`
   ([ADR 0016](0016-recipe-generation-trigger.md#username-shape)), complete descriptions
-  only. A page the judge would not get (`username-shown`, `username-unread`, an
-  incomplete description) is not sent. E2's username comparison itself still never
-  leaves the device.
+  only, with the account's slots as the judge request carries them (owner, 2026-10-23:
+  the same information goes to every model call unless there is a sound reason;
+  [ADR 0061](0061-personal-details-during-a-login.md#the-judge-gets-the-accounts-slots)).
+  The service logs them in the sample's request. A page the judge would not get
+  (`username-shown`, `username-unread`, an incomplete description) is not sent. E2's
+  username comparison itself still never leaves the device.
 - At most once in 30 days (`PAGE_SAMPLE_INTERVAL_MS`) per service, device, recipe and
   chooser branch, recorded on the device before the request; the service keeps at most
   one per owner, recipe and branch in 30 days and answers a later one 204 without a row.

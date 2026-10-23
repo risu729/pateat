@@ -66,6 +66,7 @@ const policy = (extra: Partial<LocalSettings> = {}): LocalSettings => ({
     },
   ],
   excludedSites: [],
+  repromptSites: [],
   siteDefaults: [],
   bindings: [],
   ...extra,

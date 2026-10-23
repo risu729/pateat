@@ -21,6 +21,8 @@ export const localVaultMetadataSchema = v.strictObject({
         /** The item is in the trash or archived: nothing fills from it (ADR 0061). */
         inactive: v.optional(v.literal(true)),
         groupIds: v.pipe(v.array(uuid), v.maxLength(1000)),
+        /** Bitwarden asks for the master password again before the item is used (`reprompt: 1`). */
+        reprompt: v.optional(v.literal(true)),
         fields: v.pipe(
           v.array(
             v.strictObject({

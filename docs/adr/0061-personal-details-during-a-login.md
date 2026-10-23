@@ -3,7 +3,7 @@
 Status: accepted by the owner on 2026-10-23 ([decided](#decided-by-the-owner) 6 to 11).
 Claude built it ahead of those decisions on best guesses, as the owner asked at 05:28
 UTC. The design was reviewed against the code by another AI before it was built.
-Deliveries 1 to 5 and 8 are implemented; the others are not ([Delivery](#delivery)).
+Deliveries 1 to 6 and 8 are implemented; the others are not ([Delivery](#delivery)).
 Implements the
 [phase 2](../plan.md#phase-2-use-it-and-fix-what-comes-up) item on personal details
 asked for during a login. Amends [ADR 0027](0027-per-account-login-routes.md) (a fourth
@@ -76,8 +76,9 @@ catalog ([feasibility note](../research/2026-10-12-card-security-code.md)).
    UTC, 「このままでよい」).
 7. Every model call gets the same account information unless a reason to differ is
    recorded (11:19 UTC:
-   「ページによって送る情報変えてるとか、妥当な理由が無ければ全部直して」). Delivery 6
-   gives the judge the account's slots, as generation has them.
+   「ページによって送る情報変えてるとか、妥当な理由が無ければ全部直して」). The judge
+   therefore gets the account's slots as generation does
+   ([below](#the-judge-gets-the-accounts-slots)).
 8. Every linked value is filled automatically, whole card numbers, expiry dates and PINs
    included (11:41:30 UTC, choosing the option 「全部」: 「2. a.
    全部いれていい基本。ただしログインしてるかの追跡はログアウト後の自動ログインやめる(別で検討中)でも残るはずなので、ログイン完了後の確認画面で自動入力までに止めるのはそのままでいいと思います、たぶん」).
@@ -266,24 +267,48 @@ Hidden-field rule like the birth date's.
   `hidden` or `note`. The popup proposes these fields but selects none, as their names
   say little.
 - `secret-answer`: people name the field after its question (a Hidden field named
-  「母親の旧姓は？」). The link names the field, as bindings do; no question text is
-  stored anywhere new. A site that asks one of several questions has one link per
-  question field, and the settings' duplicate check keys `secret-answer` links by field.
-- Which answer: the worker sends the names of the linked fields to the input's document
-  (`login.detail.question`); the document answers which one is shown. It reads the
-  rendered text of the input's nearest ancestor that holds no other fillable input,
-  stopping at the form, at most 4,000 characters; it compares both after NFKC, without
-  case, with curly apostrophes made straight, white space collapsed and a trailing `?`
-  or `:` removed. The longest name of at least 4 characters contained in that text is
-  the question; none, or two of that length, fills nothing and the login ends
-  `challenge` (`detail-unlinked`), so a generic label such as 「回答」 never picks an
-  answer. Page text never leaves the document.
-- The fill carries the field's name, and the content script checks again, in the same
-  task as the typing, that the input still asks it, so a question changed between the
-  read and the fill gets no answer.
-- The popup offers, for an answer input, only the login item's field named as the
-  page's question; a page whose question matches no field name offers none, so the
-  field must be named after the question.
+  「母親の旧姓は？」). The link names the field, as bindings do. A field named otherwise
+  is linked through the judge's pairing (below), and its link then also stores the
+  question (`question`, in the compared form below, 4 to 200 characters), synced like
+  field names. A site that asks one of several questions has
+  one link per question field; the settings' duplicate check keys `secret-answer` links
+  by field and, for links with a `question`, by question too.
+- Which answer: the worker sends, for each linked field, its stored `question` or,
+  without one, its name, to the input's document (`login.detail.question`); the
+  document answers which one is shown. A link with a `question` is never matched by its
+  field's name. The document reads the rendered text of the input's nearest ancestor
+  that holds no other fillable input, stopping at the form, at most 4,000 characters,
+  and compares after NFKC, without case, with curly apostrophes made straight, white
+  space collapsed and a trailing `?` or `:` removed. A name counts when that text
+  contains it. A stored question counts only as one whole question: equal to one text
+  block of the region (a block element's run of text, inline elements included), or to
+  such a block without a label of at most 40 characters before its first colon, as in
+  「秘密の質問：」 or "Security question:". A block ending in a colon is a label, and a
+  part of a block never counts, so a label or a fragment such as "your" is no question.
+  The longest one of at least 4 characters that counts picks its link; none, or two of
+  that length, fills nothing and the login ends `challenge` (`detail-unlinked`), so a
+  generic label such as 「回答」 never picks an answer. Page text never leaves the
+  document.
+- The fill carries the same name or question, and the content script checks again, in
+  the same task as the typing, that the input still asks it, so a question changed
+  between the read and the fill gets no answer. Nothing is fuzzy.
+- The popup offers, for an answer input, the login item's field named as the page's
+  question, or the field the judge paired with it.
+- AI pairing, Claude's design under decided 7: since the judge gets the slots, it may
+  pair a question with a field, and the owner confirms the pairing once in the popup,
+  as every link. The judge's `details` entry for `secret-answer` may
+  name a `slot` (an index into the sent slots) and `shown`, the whole question sentence
+  copied from the page without a label before it. The service hands them back as
+  `questions` (input, slot ID, question) only beside a kept `detail` handler; they never
+  enter the recipe, whose handler names only detail kinds and targets
+  ([ADR 0027](0027-per-account-login-routes.md)). The extension maps the slot to the
+  login item's custom field and keeps the pairing in the tab's detail offer, in session,
+  with `shown` trimmed for the popup only. The login ends `detail-unlinked`; the popup
+  reads "This page asks 「…」" with that text and proposes the field. Nothing is filled
+  until the owner presses **Fill**, which first checks that the page still shows the
+  question, in its compared form, as one whole question. Once the login is confirmed,
+  the link stores that compared form; later logins look for it in the same way with no
+  model.
 - Refusal: the handler's page shown again after an answer is a refusal of that answer
   only while the page asks the same question, or one the item has no field for. A page
   that now asks another of the item's questions keeps the first link, ends `challenge`,
@@ -291,7 +316,8 @@ Hidden-field rule like the birth date's.
   answer link it used, as for every detail.
 - The judge names `secret-answer` for an input that asks the answer to a question shown
   on the page, and `member-id` for a member, customer or contract number that is not
-  the account's sign-in ID. An answer input located by its label is refused
+  the account's sign-in ID; it compares the slots' names and shapes with the inputs'
+  labels to tell them apart. An answer input located by its label is refused
   (`label-locator`): the label may be the account's own question, which a shared recipe
   never holds.
 
@@ -310,6 +336,31 @@ Security notes:
   references, as binding references to custom fields already are. A field named after
   its question therefore puts the question's text on the service, though never the
   answer; decided 5 holds for values. The owner accepted this (decided 6).
+  A stored `question` is the same kind of text and is synced the same way.
+- The pairing is the model's guess. A wrong one fills nothing by itself: the owner sees
+  the question and the field and decides, once per link. A label in a block of its own
+  with no colon (「秘密の質問」 above the question) still reads as a whole question; the
+  popup shows it, so the owner can refuse it.
+
+### The judge gets the account's slots
+
+Owner, 2026-10-23 11:19 UTC (decided 7). The judge request carries `slots`, built with
+the same schema and builder as a generation request's
+([ADR 0010](0010-inference-field-hints.md),
+[ADR 0027](0027-per-account-login-routes.md#custom-fields-in-generation)): the login
+item's built-in fields it can fill, one slot per custom field it allows by `fieldName`
+and position, the username's shape and the Text fields' shapes. `totp` only when the
+page shows a code field (`slotsForPage`); Hidden fields are never shaped; never a value,
+an item name or a binding. The slots come from the login's own item only, not every item
+that matches the page. On the `passkey` route, which reads no vault value, they carry no
+shapes. The username's shape comes from the read that hides the username from the page,
+so it is read once, and the slots are built once the page counts as judged. The service
+sends them to the model with the page and logs them with the request as generation's
+are; the answer's log keeps each pairing's slot index and question. The page sample of
+[ADR 0029](0029-local-sign-in-state.md#amendment-signed-in-page-samples-2026-10-18)
+carries the same slots, so its logged request is the judge's. The prompt version
+changed, so stored judgements of the earlier prompt are purged as for any prompt
+change.
 
 ### A `detail` handler
 
@@ -491,7 +542,8 @@ gains `detail-saved` (a link filled from the popup was saved after the login was
 confirmed), `detail-not-saved` (it could not be written, as while another tab's login
 runs; it is dropped), `detail-forgotten` (a refused value's link was removed) and
 `detail-kept` (that removal could not be written now). The judge's log keeps `details`
-with each ID that is not a candidate replaced by `?`. Never a value or an item name.
+with each ID that is not a candidate replaced by `?`, and a pairing's slot index (`-1`
+for one not sent) and question. Never a value or an item name.
 
 ## Delivery
 
@@ -526,3 +578,6 @@ with each ID that is not a candidate replaced by `?`. Never a value or an item n
   Choosing a part and waiting for the next select's options is not done.
 - Whether MUFG keeps the sidebar sign-in form shown behind the lightbox, and the order
   of its radios and inputs, needs a check in the owner's Chrome.
+- A pairing arrives only with the login whose page the service judged: a page is judged
+  once per revision and path, so a second account, or a worker restart before the
+  offer is in session, gets none and needs a field named as the question.

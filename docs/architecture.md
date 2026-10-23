@@ -104,20 +104,30 @@ vault connections from the start. Scope item and field IDs by connection.
 Adapters are developer-written and bundled with extension releases; no remotely
 loaded executable plugins or speculative second provider implementation.
 
-Bitwarden's master password re-prompt is not honoured. The adapter reads a cipher's
-`reprompt` (`0` or `1`) but carries it no further: an item with `reprompt: 1` is filled
-and its passkeys sign without the master password prompt the official clients show.
+Bitwarden's master password re-prompt is honoured per site. The adapter carries a
+cipher's `reprompt: 1` into the vault catalog as the item's `reprompt`. By default such
+an item is used like any other: it is filled and its passkeys sign without asking.
 Bitwarden describes re-prompt as "an interface-only guardrail" and "not an encryption
 mechanism"
 ([Master Password Re-prompt](https://bitwarden.com/help/master-password-re-prompt/),
-checked 2026-10-14), so the vault data does not enforce it. A setting to honour it
-is planned for [phase 3](plan.md#phase-3-public-release) (owner, 2026-10-13 21:57 UTC).
-For it, the crypto Worker checks a typed master password offline against the open
-session's account: the SDK unwraps the user key from the accepted record's encrypted
-master-password unlock data (`decrypt_user_key_with_master_password`), and the result
-must equal the session's user key. The answer is only `matches: true` or `false`;
-Pateat's code keeps nothing derived from the password, though copies in the SDK's
-native memory are not wiped (implemented, not used yet).
+checked 2026-10-14), so the vault data does not enforce it. On a site listed in the
+settings' `repromptSites` (the settings page's Sites section, or the popup's "Ask for
+the master password" switch), a login with such an item starts only after its master
+password is entered in Pateat's chooser window
+([ADR 0021](adr/0021-account-choice-outside-settings.md)), and a passkey request that
+such an item answers signs only after the same (owner, 2026-10-23 12:46 UTC). There is
+no per-item or per-field setting, and passkey UP and UV are unchanged. The window opens
+only for the active tab of the focused window outside incognito; elsewhere the login
+does not start until the popup's "Enter the master password" opens the window, and a
+passkey request goes to the browser. A started login goes on across its pages, and
+answers the site's passkey request with its item, without asking again. Five wrong
+passwords end the request. The crypto Worker checks a typed master password offline
+against the open session's account: the SDK unwraps the user key from the accepted
+record's encrypted master-password unlock data
+(`decrypt_user_key_with_master_password`), and the result must equal the session's
+user key. The answer is only `matches: true` or `false`; Pateat's code keeps nothing
+derived from the password, though copies in the SDK's native memory are not wiped
+(implemented).
 
 Expose authentication, unlock, sync, eligible references, field resolution, OTP
 generation and signing capabilities. Reserve create/update capabilities for
@@ -630,11 +640,18 @@ settled as unknown (`settled`), and the last login and model request the badge k
 from the log reports, with the badge's lifetime: a top page of another origin or the
 tab's closing drops them, and `chrome.storage.session` keeps them across a worker
 restart. Item selection, field exclusions and custom-field review stay on the
-extension's settings page once synced ([ADR 0023](adr/0023-synced-vault-policy.md)). The
-service keeps one settings document per owner; [ADR 0024](adr/0024-settings-profiles.md)
-assigns its parts either to a settings profile that each device will choose later or to
-the owner. Chrome use access to these pages is not assumed. Keep settings and execution
-operations independent of their UI.
+extension's settings page once synced ([ADR 0023](adr/0023-synced-vault-policy.md)).
+The service keeps excluded sites and site defaults per settings profile and bindings per
+owner, under one owner revision ([ADR 0024](adr/0024-settings-profiles.md),
+[ADR 0076](adr/0076-settings-profiles-delivered.md)). Each device uses one profile,
+chosen when it pairs or on the management page's Devices page; `/manage/profiles`
+renames, copies and deletes profiles, and the Sites pages edit one profile at a time.
+The extension's settings page can edit another profile with its own vault catalog
+through `/extension/profiles`, behind the host-wide Access application, which requires
+WARP; that does not move its device. When a device's profile changes, the extension
+replaces its exclusions and saved accounts with the new profile's and drops its merge
+base for them, while bindings keep merging. Chrome use access to these pages is not
+assumed. Keep settings and execution operations independent of their UI.
 
 Each connection supports all items except exclusions or selected
 folders/collections/items only. Use existing Bitwarden metadata; independent
@@ -3212,7 +3229,11 @@ access, not guaranteed erasure of offline cached material.
 Claude credentials are per owner
 ([ADR 0015](adr/0015-per-owner-claude-credentials.md)): the Worker holds only its
 OIDC signing key, and D1 holds each owner's Workload Identity Federation
-identifiers.
+identifiers. A device may hold its own Anthropic API key
+([ADR 0040](adr/0040-running-without-the-service.md)): it then makes the model calls
+of the generation and judge routes itself, sending the request bodies the service
+hands it to Anthropic only, and the service checks and stores the result as before.
+The key never reaches the service.
 
 Version recipes immutably with a current pointer and revocation/tombstones. The owner
 revokes a recipe on `/manage`, and the service revokes one unused for 90 days
@@ -3444,9 +3465,19 @@ steady-state API calls carry no cookie.
   that retry and both buttons, and a request answered after an edit opens no tab (owner,
   2026-10-23 12:59 UTC). A refused sign-in, an unlisted extension
   ID, a service without pairing settings and a service that could not fetch Access's
-  signing keys each have their own message. Before sending, the form checks both fields
+  signing keys each have their own message. Before sending, the form checks every field
   at once: each invalid one is marked (`aria-invalid`) with its own error under the
   fields, and the first invalid one takes focus.
+- Profile choice. An owner's later pairing must name a settings profile: without one the
+  Worker answers 409 `profile_required` with the owner's profiles, and the settings page
+  asks which one the device uses or offers a new one named after the device
+  ([ADR 0076](adr/0076-settings-profiles-delivered.md)). A new profile takes the
+  device's exclusions and saved accounts at its first sync. When an existing profile
+  would replace ones the device holds, the page shows their counts first, with
+  **Pair and replace**, **Create a new profile instead** and **Back**. A chosen profile
+  deleted meanwhile (`profile_not_found`) or a taken name (`profile_name_taken`) is
+  answered with the profiles again. A missing choice or new-profile name is marked like
+  the other fields, and editing the address or device name closes the warning.
 - Lifetime and recovery. A credential expires once it has gone unused for 90 days, and
   each authenticated use renews it; there is no absolute lifetime and no rotation (owner
   decision, 2026-10-11). The service records a device's last use at most once a day

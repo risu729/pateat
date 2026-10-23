@@ -38,6 +38,26 @@ export const ownerIdentities = sqliteTable(
   ],
 );
 
+/** Settings profiles: policy documents scoped by owner and profile (ADR 0024). */
+export const profiles = sqliteTable(
+  "profiles",
+  {
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => owners.id),
+    id: text("id").notNull(),
+    name: text("name").notNull(),
+    /** The profile's own parts; null until a device or the owner first writes them. */
+    document: text("document", { mode: "json" }),
+    /**
+     * Set when the owner deleted the profile. The row stays, since revoked devices keep
+     * naming it; lists and writes skip it (ADR 0076).
+     */
+    deletedAt: integer("deleted_at"),
+  },
+  (table) => [primaryKey({ columns: [table.ownerId, table.id] })],
+);
+
 /** Only a SHA-256 digest of each high-entropy device credential is stored. */
 export const devices = sqliteTable(
   "devices",
@@ -46,6 +66,7 @@ export const devices = sqliteTable(
     ownerId: text("owner_id")
       .notNull()
       .references(() => owners.id),
+    profileId: text("profile_id").notNull(),
     tokenHash: text("token_hash").notNull(),
     label: text("label").notNull().default(""),
     createdAt: integer("created_at").notNull(),
@@ -58,6 +79,10 @@ export const devices = sqliteTable(
     revokedAt: integer("revoked_at"),
   },
   (table) => [
+    foreignKey({
+      columns: [table.ownerId, table.profileId],
+      foreignColumns: [profiles.ownerId, profiles.id],
+    }),
     uniqueIndex("devices_token_hash_unique").on(table.tokenHash),
     index("devices_owner_idx").on(table.ownerId),
   ],
@@ -288,6 +313,14 @@ export const inferenceLog = sqliteTable(
     role: text("role", { enum: ["generate", "judge"] }).notNull(),
     /** Null for a request answered without a model call. */
     provider: text("provider"),
+    /**
+     * Whose key made the call (ADR 0040): `service` for the owner's credential on the
+     * service, `device` for a paired device's own key, whose calls the spend stops and the
+     * fast-mode check never count. `service` also for a request answered without a call.
+     */
+    source: text("source", { enum: ["service", "device"] })
+      .notNull()
+      .default("service"),
     modelId: text("model_id"),
     /**
      * The effort and speed the call asked for (the owner's model configuration); null for

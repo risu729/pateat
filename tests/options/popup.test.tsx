@@ -78,6 +78,7 @@ function noChoice() {
     get: vi.fn<ChoiceClient["get"]>().mockResolvedValue({ ok: false, reason: "no-choice" }),
     pick: vi.fn<ChoiceClient["pick"]>().mockResolvedValue({ ok: true }),
     status: vi.fn<ChoiceClient["status"]>().mockResolvedValue({ ok: false, reason: "no-page" }),
+    reprompt: vi.fn<ChoiceClient["reprompt"]>(),
   };
 }
 
@@ -370,6 +371,82 @@ test("an exact rule that includes subdomains is changed only in settings", async
   await expect
     .element(page.getByRole("link", { name: "Change in settings for bank.example" }))
     .toBeVisible();
+});
+
+test("the master password switch asks on the site by its exact hostname, and stops", async () => {
+  const { client, current } = store();
+  await mount(client, "https://login.bank.example/");
+  const toggle = page.getByRole("switch", { name: "Ask for the master password" });
+  await expect.element(toggle).not.toBeChecked();
+  await expect
+    .element(toggle)
+    .toHaveAccessibleDescription("For vault items with Bitwarden's master password re-prompt.");
+  await userEvent.click(toggle);
+  await expect
+    .element(page.getByText("login.bank.example now asks for the master password."))
+    .toBeVisible();
+  await expect.element(toggle).toBeChecked();
+  expect(current().snapshot.settings.repromptSites).toEqual([
+    { hostname: "login.bank.example", includeSubdomains: false },
+  ]);
+  await userEvent.click(toggle);
+  await expect
+    .element(page.getByText("login.bank.example no longer asks for the master password."))
+    .toBeVisible();
+  expect(current().snapshot.settings.repromptSites).toEqual([]);
+  // An excluded site runs nothing, so it has no master password switch.
+  await userEvent.click(page.getByRole("switch", { name: "Pateat on this site" }));
+  await expect.element(toggle).not.toBeInTheDocument();
+});
+
+test("a master password rule for a parent site is changed only in settings", async () => {
+  const settings = createDefaultSettings();
+  settings.repromptSites.push({ hostname: "bank.example", includeSubdomains: true });
+  const { client } = store(saved(2, settings));
+  const host = await mount(client, "https://login.bank.example/");
+  const toggle = page.getByRole("switch", { name: "Ask for the master password" });
+  await expect.element(toggle).toBeChecked();
+  await expect.element(toggle).toBeDisabled();
+  await expect
+    .element(toggle)
+    .toHaveAccessibleDescription("Set by a rule for bank.example and its subdomains.");
+  await userEvent.click(page.getByRole("link", { name: "Change in settings for bank.example" }));
+  expect(host.openSettings).toHaveBeenCalledOnce();
+  expect(client.saveSettings).not.toHaveBeenCalled();
+});
+
+test("a page waiting for the master password offers to open its window again", async () => {
+  const { client } = store();
+  const choices = noChoice();
+  choices.status.mockResolvedValue({
+    ok: true,
+    origin: "https://login.bank.example",
+    recipe: "page",
+    page: { state: "denied", reason: "master-password-reprompt" },
+  });
+  choices.reprompt.mockResolvedValueOnce({ ok: false, reason: "unavailable" });
+  choices.reprompt.mockResolvedValueOnce({ ok: true });
+  const host = await mount(client, "https://login.bank.example/signin", choices);
+  await expect
+    .element(
+      page.getByText(
+        "No login started: this vault item asks for the master password first; enter it in the window Pateat opens.",
+      ),
+    )
+    .toBeVisible();
+  const button = page.getByRole("button", { name: "Enter the master password" });
+  await userEvent.click(button);
+  await expect
+    .element(
+      page.getByText(
+        "The master password window could not open. It opens only for the active tab outside incognito, one window at a time.",
+      ),
+    )
+    .toBeVisible();
+  expect(host.close).not.toHaveBeenCalled();
+  await userEvent.click(button);
+  await vi.waitFor(() => expect(host.close).toHaveBeenCalledOnce());
+  expect(choices.reprompt).toHaveBeenCalledWith(7);
 });
 
 test("a switch change that is not saved returns to the saved state", async () => {
@@ -1569,6 +1646,46 @@ test("a Fill that filled nothing says why", async () => {
     expect.objectContaining({ detail: "birth-date", itemId: "identity-1", fieldId: "birth" }),
   );
   expect(page.getByText("Filled.", { exact: false }).query()).toBeNull();
+});
+
+test("a secret question the AI paired with a field named otherwise is proposed for the owner to confirm", async () => {
+  const { client } = store();
+  const answerField = {
+    connectionId: "demo-personal",
+    itemId: "login-1",
+    fieldId: "custom.1",
+    itemLabel: "Bank",
+    fieldLabel: "お母さんの旧姓",
+  };
+  const details = withDetails({
+    offer: {
+      documentId: "detail-document",
+      details: [{ detail: "secret-answer", candidates: [answerField], question: "母親の旧姓は" }],
+    },
+  });
+  await mount(client, "https://bank.example/login", noChoice(), false, undefined, details);
+  const asks = page.getByRole("group", { name: "This page asks \u201C母親の旧姓は\u201D." });
+  await expect.element(asks).toBeVisible();
+  await expect.element(asks.getByRole("radio", { name: "Bank › お母さんの旧姓" })).toBeChecked();
+  const fill = page.getByRole("button", { name: "Fill" });
+  // The Fill button says what it confirms.
+  await expect
+    .element(fill)
+    .toHaveAccessibleDescription(
+      "This page asks \u201C母親の旧姓は\u201D. Pateat\u2019s AI thinks this field holds the answer. Fill only if it does; Pateat then fills it whenever this question shows.",
+    );
+  // Nothing is filled or saved before the owner presses Fill.
+  expect(details.fill).not.toHaveBeenCalled();
+  await userEvent.click(fill);
+  expect(details.fill).toHaveBeenCalledExactlyOnceWith({
+    tabId: 7,
+    documentId: "detail-document",
+    detail: "secret-answer",
+    connectionId: "demo-personal",
+    itemId: "login-1",
+    fieldId: "custom.1",
+  });
+  expect(client.saveSettings).not.toHaveBeenCalled();
 });
 
 test("an excluded site offers no fill, even one the worker still keeps", async () => {

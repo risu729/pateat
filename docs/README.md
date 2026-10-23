@@ -98,6 +98,7 @@ owner the reason when the amendment changes a recorded owner instruction.
 - [0037: Fields located by their visible name](adr/0037-fields-by-visible-name.md)
 - [0038: The toolbar badge and popup show what a login did](adr/0038-login-status-badge.md)
 - [0039: Token-like path segments are sent as `[id]` on every page](adr/0039-redacted-token-path-segments.md)
+- [0040: A device's own Anthropic API key, and running without the service](adr/0040-running-without-the-service.md)
 - [0041: A generated recipe is repaired by adding a layout (accepted)](adr/0041-repair-stale-recipes.md)
 - [0043: Extension language preference](adr/0043-extension-language-preference.md)
 - [0048: A learned button goes on to the password on a page that asks how to verify](adr/0048-password-method-button.md)
@@ -120,6 +121,7 @@ owner the reason when the amendment changes a recorded owner instruction.
 - [0071: Elements may be named by their `data-test` attribute](adr/0071-data-test-locators.md)
 - [0072: A field may be named by its `name` within the sign-in form](adr/0072-field-name-in-the-sign-in-form.md)
 - [0075: Lock, log out and the vault timeout](adr/0075-vault-lock-and-timeout.md)
+- [0076: Settings profiles, delivered](adr/0076-settings-profiles-delivered.md)
 
 This layout follows the useful separation in
 [Kogane ADR 0041](https://github.com/risu729/kogane/blob/main/docs/adr/0041-documentation-scope.md),

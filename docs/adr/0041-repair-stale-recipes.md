@@ -12,7 +12,8 @@ makes repair automatic, once a UTC day, within the $5 a day. The owner's answers
 section 5 is per missing route for 3 days (12:53 and 12:54 UTC), the stale steps are not
 sent to the model (12:54 UTC, option A) and chooser and sign-in entry recipes are
 repaired too (13:03 UTC, [section 6](#6-chooser-and-sign-in-entry-recipes)). The rest is
-Claude's design, marked where it applies. Implemented on a branch, local tests only.
+Claude's design, marked where it applies. Implemented on main through
+[#911](https://github.com/risu729/pateat/pull/911) (2026-10-23), local tests only.
 Replaces the overwriting repair first proposed in
 [#617](https://github.com/risu729/pateat/pull/617). Amends
 [ADR 0016](0016-recipe-generation-trigger.md) (generation runs only where no cached

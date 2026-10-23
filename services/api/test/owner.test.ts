@@ -50,18 +50,25 @@ function manageApi(
   return request(path, { method, access, headers: origin ? { Origin: origin } : {} });
 }
 
-function postPair(access: string | undefined, label = "Test laptop") {
+function postPair(access: string | undefined, label = "Test laptop", profileId?: string) {
   return request("/pair", {
     method: "POST",
     access,
     headers: { "Content-Type": "application/json", Origin: EXTENSION_ORIGIN },
-    body: JSON.stringify({ version: 1, label }),
+    body: JSON.stringify({ version: 1, label, ...(profileId ? { profileId } : {}) }),
   });
 }
 
-/** Pairs a device for `by` as the extension does (ADR 0020). */
+/**
+ * Pairs a device for `by` as the extension does (ADR 0020). An owner's later device takes
+ * the first profile the service offers (ADR 0076).
+ */
 async function pairDevice(by: Owner, label = "Test laptop"): Promise<DevicePairResult> {
-  const response = await postPair(by.token, label);
+  let response = await postPair(by.token, label);
+  if (response.status === 409) {
+    const { profiles } = (await response.json()) as { profiles: { id: string }[] };
+    response = await postPair(by.token, label, profiles[0]!.id);
+  }
   expect(response.status).toBe(201);
   return v.parse(devicePairResultSchema, await response.json());
 }
@@ -138,7 +145,7 @@ describe("Access verification", () => {
 
     const apiResponses = await Promise.all([
       manageApi("/manage/api/devices", viaPair.token, "GET"),
-      manageApi("/manage/api/settings", viaPair.token, "GET"),
+      manageApi(`/manage/api/profiles/${crypto.randomUUID()}/settings`, viaPair.token, "GET"),
       manageApi("/manage/api/recipes", viaPair.token, "GET"),
       manageApi("/manage/api/dashboard", viaPair.token, "GET"),
       manageApi(`/manage/api/devices/${device.deviceId}/revoke`, viaPair.token, "POST"),
@@ -197,6 +204,8 @@ describe("Access verification", () => {
         ["/manage/sites/https/bank.example", viaHost.token],
         ["/manage/assets/app.js", viaHost.token],
         ["/manage/claude", viaHost.token],
+        ["/manage/profiles", viaHost.token],
+        ["/extension/signed-in", viaHost.token],
         ["/pair/signed-in", viaPair.token],
       ];
       const { pageResponses, apiResponses, missing } = await duringOutage(mode, async () => ({
@@ -205,7 +214,7 @@ describe("Access verification", () => {
           postPair(viaPair.token),
           postPair(viaHost.token),
           manageApi("/manage/api/devices", viaHost.token, "GET"),
-          manageApi("/manage/api/settings", viaHost.token, "GET"),
+          manageApi("/manage/api/profiles", viaHost.token, "GET"),
           manageApi(`/manage/api/devices/${crypto.randomUUID()}/revoke`, viaHost.token, "POST"),
         ]),
         // A missing token is refused before any key is fetched.
@@ -446,11 +455,14 @@ describe("owner web UI settings", () => {
   const settings = {
     connections: [],
     excludedSites: [{ hostname: "intranet.example", includeSubdomains: true }],
+    repromptSites: [],
     siteDefaults: [],
     bindings: [],
   };
-  const putSettings = (by: Owner, body: unknown, origin: string | null = ORIGIN) =>
-    request("/manage/api/settings", {
+  const profileSettingsPath = async (by: Owner) =>
+    `/manage/api/profiles/${(await ownerIdFor(by.subject)) ?? "00000000-0000-4000-8000-000000000000"}/settings`;
+  const putSettings = async (by: Owner, body: unknown, origin: string | null = ORIGIN) =>
+    request(await profileSettingsPath(by), {
       method: "PUT",
       access: by.token,
       headers: { "Content-Type": "application/json", ...(origin ? { Origin: origin } : {}) },
@@ -460,7 +472,7 @@ describe("owner web UI settings", () => {
   it("tells an identity without a paired device to pair one, creating no owner", async () => {
     const by = await owner();
     const [read, write] = await Promise.all([
-      request("/manage/api/settings", { access: by.token }),
+      request(await profileSettingsPath(by), { access: by.token }),
       putSettings(by, { version: 1, expectedRevision: 0, settings }),
     ]);
     expect([read.status, write.status]).toEqual([404, 404]);
@@ -479,13 +491,23 @@ describe("owner web UI settings", () => {
     // The second owner's revision 1 does not exist; the first owner's is untouched.
     const other = { ...settings, excludedSites: [] };
     const [read, write] = await Promise.all([
-      request("/manage/api/settings", { access: second.token }),
+      request(await profileSettingsPath(second), { access: second.token }),
       putSettings(second, { version: 1, expectedRevision: 1, settings: other }),
     ]);
-    expect(await read.json()).toEqual({ version: 1, revision: 0, settings: null });
+    expect(await read.json()).toEqual({
+      version: 1,
+      profileId: expect.any(String),
+      revision: 0,
+      settings: null,
+    });
     expect(write.status).toBe(409);
-    const firstRead = await request("/manage/api/settings", { access: first.token });
-    expect(await firstRead.json()).toEqual({ version: 1, revision: 1, settings });
+    const firstRead = await request(await profileSettingsPath(first), { access: first.token });
+    expect(await firstRead.json()).toEqual({
+      version: 1,
+      profileId: expect.any(String),
+      revision: 1,
+      settings,
+    });
   });
 
   it("updates a device-written revision and makes a stale device write conflict", async () => {
@@ -512,7 +534,7 @@ describe("owner web UI settings", () => {
     expect(stale.status).toBe(409);
     expect(await stale.json()).toEqual({
       error: "settings_conflict",
-      current: { version: 1, revision: 2, settings: web },
+      current: { version: 1, profileId: expect.any(String), revision: 2, settings: web },
     });
   });
 
@@ -542,8 +564,13 @@ describe("owner web UI settings", () => {
     expect([tooLarge.status, overLimit.status]).toEqual([400, 413]);
     expect(await tooLarge.json()).toEqual({ error: "bad_request" });
     expect(await overLimit.json()).toEqual({ error: "payload_too_large" });
-    const read = await request("/manage/api/settings", { access: by.token });
-    expect(await read.json()).toEqual({ version: 1, revision: 0, settings: null });
+    const read = await request(await profileSettingsPath(by), { access: by.token });
+    expect(await read.json()).toEqual({
+      version: 1,
+      profileId: expect.any(String),
+      revision: 0,
+      settings: null,
+    });
   });
 
   it("writes the document devices sync, recorded as written by the web UI", async () => {
@@ -551,9 +578,15 @@ describe("owner web UI settings", () => {
     const device = await pairDevice(by);
     const write = await putSettings(by, { version: 1, expectedRevision: 0, settings });
     expect(write.status).toBe(200);
-    expect(await write.json()).toEqual({ version: 1, revision: 1, settings });
+    expect(await write.json()).toEqual({
+      version: 1,
+      profileId: expect.any(String),
+      revision: 1,
+      settings,
+    });
     expect(await (await deviceApi(device.credential)).json()).toEqual({
       version: 1,
+      profileId: expect.any(String),
       revision: 1,
       settings,
     });
@@ -570,8 +603,13 @@ describe("owner web UI settings", () => {
       body: JSON.stringify({ version: 1, expectedRevision: 1, settings: next }),
     });
     expect(deviceWrite.status).toBe(200);
-    const read = await request("/manage/api/settings", { access: by.token });
-    expect(await read.json()).toEqual({ version: 1, revision: 2, settings: next });
+    const read = await request(await profileSettingsPath(by), { access: by.token });
+    expect(await read.json()).toEqual({
+      version: 1,
+      profileId: expect.any(String),
+      revision: 2,
+      settings: next,
+    });
   });
 
   it("changes nothing on a stale revision and returns the current state", async () => {
@@ -586,7 +624,7 @@ describe("owner web UI settings", () => {
     expect(stale.status).toBe(409);
     expect(await stale.json()).toEqual({
       error: "settings_conflict",
-      current: { version: 1, revision: 1, settings },
+      current: { version: 1, profileId: expect.any(String), revision: 1, settings },
     });
   });
 
@@ -607,7 +645,7 @@ describe("owner web UI settings", () => {
         settings: { ...settings, connections: [connection] },
       }),
       putSettings(by, { version: 1, expectedRevision: 0, settings: { ...settings, extra: 1 } }),
-      request("/manage/api/settings", {
+      request(await profileSettingsPath(by), {
         method: "PUT",
         access: by.token,
         headers: { "Content-Type": "text/plain", Origin: ORIGIN },
@@ -616,8 +654,13 @@ describe("owner web UI settings", () => {
       putSettings(by, { version: 1, expectedRevision: 0, settings }, "https://attacker.example"),
     ]);
     expect(responses.map((response) => response.status)).toEqual([400, 400, 415, 403]);
-    const read = await request("/manage/api/settings", { access: by.token });
-    expect(await read.json()).toEqual({ version: 1, revision: 0, settings: null });
+    const read = await request(await profileSettingsPath(by), { access: by.token });
+    expect(await read.json()).toEqual({
+      version: 1,
+      profileId: expect.any(String),
+      revision: 0,
+      settings: null,
+    });
   });
 
   it("serves the sites list and each site's page", async () => {
@@ -1303,14 +1346,21 @@ describe("owner web UI request log", () => {
         "INSERT INTO page_judgements (owner_id, recipe_id, branch, revision, origin, path, prompt_version, judged_at, verdict) VALUES (?, 'gen-synthetic', '', 1, 'https://bank.example', '/home', 'v', ?, 'signed-in')",
       ).bind(mine, Date.now()),
     ]);
-    const settings = await request("/manage/api/settings", {
+    // The owner's first profile has the owner's ID.
+    const settings = await request(`/manage/api/profiles/${mine}/settings`, {
       method: "PUT",
       access: first.token,
       headers: { "Content-Type": "application/json", Origin: ORIGIN },
       body: JSON.stringify({
         version: 1,
         expectedRevision: 0,
-        settings: { connections: [], excludedSites: [], siteDefaults: [], bindings: [] },
+        settings: {
+          connections: [],
+          excludedSites: [],
+          repromptSites: [],
+          siteDefaults: [],
+          bindings: [],
+        },
       }),
     });
     expect(settings.status).toBe(200);
@@ -1488,5 +1538,16 @@ describe("device self-revocation", () => {
     );
     expect((await request("/v1/device", { method: "DELETE" })).status).toBe(401);
     expect((await deviceApi(staying.credential, "/v1/device", { method: "PUT" })).status).toBe(405);
+  });
+});
+
+describe("profiles page", () => {
+  it("serves its page", async () => {
+    const { token } = await owner();
+    const page = await request("/manage/profiles", { access: token });
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain("Pateat test app");
+    expect((await request("/manage/profiles")).status).toBe(401);
+    expect((await request("/manage/profiles", { access: token, method: "POST" })).status).toBe(405);
   });
 });

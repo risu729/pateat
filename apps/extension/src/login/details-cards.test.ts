@@ -91,6 +91,7 @@ const policy = (excludedFields: { itemId: string; fieldId: string }[] = []): Loc
     },
   ],
   excludedSites: [],
+  repromptSites: [],
   siteDefaults: [],
   bindings: [],
 });

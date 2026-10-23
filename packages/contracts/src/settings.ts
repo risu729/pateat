@@ -208,6 +208,45 @@ export const detailSourceFieldSchema = v.union([
   vaultFieldReferenceSchema.options[1],
 ]);
 /**
+ * A secret question or a field name as they are compared (ADR 0061): NFKC, without case,
+ * with curly apostrophes (U+2018, U+2019) made straight, white space collapsed, and a
+ * trailing `?`, `:` or their full-width forms removed (NFKC already folds those).
+ */
+export function questionText(raw: string): string {
+  return raw
+    .normalize("NFKC")
+    .toLowerCase()
+    .replaceAll(/[\u2018\u2019]/gu, "'")
+    .replaceAll(/\s+/gu, " ")
+    .trim()
+    .replace(/[?:]+$/u, "")
+    .trim();
+}
+/** The shortest question or field name that may stand for a secret question (ADR 0061). */
+export const QUESTION_MIN_LENGTH = 4;
+/** The longest one sent to a page or stored with a link (ADR 0061). */
+export const QUESTION_MAX_LENGTH = 200;
+/**
+ * A secret question as the judge copies it from the page (ADR 0061): untrusted page text,
+ * bounded as observed text is but up to the stored question's length.
+ */
+export const shownQuestionSchema = v.pipe(
+  v.string(),
+  v.minLength(1),
+  v.maxLength(QUESTION_MAX_LENGTH),
+  v.regex(/^[^\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+$/u),
+);
+/**
+ * A secret question as a link stores it (ADR 0061): already in its compared form
+ * (`questionText`), so a later login compares it with the page's whole questions.
+ */
+export const storedQuestionSchema = v.pipe(
+  v.string(),
+  v.minLength(QUESTION_MIN_LENGTH),
+  v.maxLength(QUESTION_MAX_LENGTH),
+  v.check((question) => questionText(question) === question, "Store a question normalized"),
+);
+/**
  * The vault item and field a login item's site reads a personal detail from (ADR 0061),
  * confirmed by the owner in the popup. References only: no item name, which for a card
  * often carries its last digits, and never a value.
@@ -220,6 +259,13 @@ export const detailLinkSchema = v.strictObject({
   itemId: identifier,
   detail: loginDetailSchema,
   source: v.strictObject({ itemId: identifier, field: detailSourceFieldSchema }),
+  /**
+   * Only for a secret question's answer: the question the page showed when the owner
+   * confirmed, in the popup, the AI's pairing of it with this field, whose name differs.
+   * A later login answers the question only where the page shows it, compared after
+   * normalization, as one whole question; the field's name then no longer counts.
+   */
+  question: v.optional(storedQuestionSchema),
 });
 
 /** The saved account for one origin, named by provider account and item (ADR 0013). */
@@ -254,6 +300,16 @@ export const connectionSettingsSchema = v.strictObject({
   ),
 });
 
+/** Site rules by hostname, optionally with its subdomains, as the settings page lists them. */
+const siteRulesSchema = v.pipe(
+  v.array(v.strictObject({ hostname: hostnameSchema, includeSubdomains: v.boolean() })),
+  v.maxLength(1000),
+  v.check(
+    (sites) => new Set(sites.map((site) => site.hostname)).size === sites.length,
+    "Duplicate sites",
+  ),
+);
+
 export const localSettingsSchema = v.pipe(
   v.strictObject({
     connections: v.pipe(
@@ -265,14 +321,14 @@ export const localSettingsSchema = v.pipe(
         "Duplicate connections",
       ),
     ),
-    excludedSites: v.pipe(
-      v.array(v.strictObject({ hostname: hostnameSchema, includeSubdomains: v.boolean() })),
-      v.maxLength(1000),
-      v.check(
-        (sites) => new Set(sites.map((site) => site.hostname)).size === sites.length,
-        "Duplicate sites",
-      ),
-    ),
+    excludedSites: siteRulesSchema,
+    /**
+     * Sites where Pateat honours Bitwarden's master password re-prompt: it asks for the
+     * master password before it fills or signs with an item that has it (owner, 2026-10-23
+     * 12:46 UTC). Elsewhere such items are used as any other. A document written before
+     * the list existed has no sites.
+     */
+    repromptSites: v.optional(siteRulesSchema, []),
     siteDefaults: v.pipe(
       v.array(siteDefaultSchema),
       v.maxLength(1000),
@@ -303,6 +359,28 @@ export const localSettingsSchema = v.pipe(
             ).size === links.length,
           "Duplicate detail links",
         ),
+        v.check(
+          (links) => links.every((link) => !link.question || link.detail === "secret-answer"),
+          "Only a secret question's answer stores its question",
+        ),
+        // A stored question belongs to one of the login item's answers, so a page that
+        // shows it never matches two of them.
+        v.check((links) => {
+          const questions = links.flatMap((link) =>
+            link.question === undefined
+              ? []
+              : [
+                  JSON.stringify([
+                    link.origin,
+                    link.provider,
+                    link.userId,
+                    link.itemId,
+                    link.question,
+                  ]),
+                ],
+          );
+          return new Set(questions).size === questions.length;
+        }, "Duplicate detail questions"),
       ),
     ),
     /** Synced account bindings (ADR 0013). */
@@ -417,6 +495,11 @@ export const vaultCatalogSchema = v.strictObject({
           /** In the trash or archived; no personal detail is read from it (ADR 0061). */
           inactive: v.optional(v.literal(true)),
           groupIds: identifiers,
+          /**
+           * Bitwarden asks for the master password again before the item is used. Pateat
+           * asks only on sites listed in `repromptSites` (owner, 2026-10-23 12:46 UTC).
+           */
+          reprompt: v.optional(v.literal(true)),
           fields: v.array(
             v.strictObject({
               id: identifier,
@@ -571,6 +654,7 @@ export function createDefaultSettings(catalog: VaultCatalog = DUMMY_VAULT_CATALO
       excludedFields: [],
     })),
     excludedSites: [],
+    repromptSites: [],
     siteDefaults: [],
     bindings: [],
   };
@@ -617,16 +701,41 @@ export function getItemEligibility(
   return { eligible: true, item, fieldIds };
 }
 
+function ruleMatches(rules: LocalSettings["excludedSites"], hostname: string): boolean {
+  return rules.some(
+    (site) =>
+      hostname === site.hostname ||
+      (site.includeSubdomains && hostname.endsWith(`.${site.hostname}`)),
+  );
+}
+
 export function isSiteExcluded(settings: LocalSettings, value: string): boolean {
   const url = parseSiteUrl(value);
   const hostname = url && normalizeHostname(url.hostname);
   // Invalid destinations are blocked, never treated as a permission grant.
   if (!hostname) return true;
-  return settings.excludedSites.some(
-    (site) =>
-      hostname === site.hostname ||
-      (site.includeSubdomains && hostname.endsWith(`.${site.hostname}`)),
-  );
+  return ruleMatches(settings.excludedSites, hostname);
+}
+
+/**
+ * Whether Pateat asks for the master password on this page's site before it fills or
+ * signs with an item that has Bitwarden's re-prompt. An invalid URL asks, so a doubt
+ * never skips the question.
+ */
+export function asksForMasterPassword(settings: LocalSettings, value: string): boolean {
+  const url = parseSiteUrl(value);
+  const hostname = url && normalizeHostname(url.hostname);
+  if (!hostname) return true;
+  return ruleMatches(settings.repromptSites, hostname);
+}
+
+/** Whether an item has to wait for the master password on this page's site. */
+export function itemAsksForMasterPassword(
+  settings: LocalSettings,
+  item: Pick<VaultItemMetadata, "reprompt"> | undefined,
+  value: string,
+): boolean {
+  return item?.reprompt === true && asksForMasterPassword(settings, value);
 }
 
 export type SiteAccountResolution =

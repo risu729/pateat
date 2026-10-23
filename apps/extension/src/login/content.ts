@@ -71,7 +71,7 @@ import { observedPath } from "../observation/path";
 import { sendMessage } from "../messaging/protocol";
 import { acceptsSecret, maskedSecret } from "./inputs";
 import { chooseFor } from "../page/choice-radio";
-import { askedQuestion } from "../page/question";
+import { askedQuestion, type AskedQuestion } from "../page/question";
 import {
   commandSchema,
   destinationAnswerSchema,
@@ -109,8 +109,12 @@ function submitButton(element: Element): element is HTMLButtonElement | HTMLInpu
 function followable(element: Element | undefined): element is HTMLAnchorElement {
   return element instanceof HTMLAnchorElement && element.hasAttribute("href") && visible(element);
 }
-/** Whether `input` still asks the secret question named `question`, when the fill has one (ADR 0061). */
-const stillAsks = (input: Control, question: string | undefined) =>
+/**
+ * Whether `input` still asks the secret question the fill names, when it names one (ADR
+ * 0061): its field's name, or the question the owner confirmed for that field as one whole
+ * question beside it. A split date's select asks none.
+ */
+const stillAsks = (input: Control, question: AskedQuestion | undefined) =>
   question === undefined ||
   (input instanceof HTMLInputElement && askedQuestion(input, [question]) === 0);
 /** An input a fill types into, or a select a split date's part sets (ADR 0061). */

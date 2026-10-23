@@ -220,14 +220,18 @@ beforeEach(() => {
 type Device = { ownerId: string; deviceId: string; token: string };
 
 async function owner({ claude = true } = {}): Promise<Device> {
-  const ownerId = `owner-${crypto.randomUUID()}`;
+  const ownerId = crypto.randomUUID();
   const deviceId = `device-${crypto.randomUUID()}`;
   const token = createDeviceToken();
   await env.DB.batch([
     env.DB.prepare("INSERT INTO owners (id, created_at) VALUES (?, ?)").bind(ownerId, Date.now()),
+    env.DB.prepare("INSERT INTO profiles (owner_id, id, name) VALUES (?, ?, 'Default')").bind(
+      ownerId,
+      ownerId,
+    ),
     env.DB.prepare(
-      "INSERT INTO devices (id, owner_id, token_hash, created_at, last_used_at) VALUES (?, ?, ?, ?, ?)",
-    ).bind(deviceId, ownerId, await hashDeviceToken(token), Date.now(), Date.now()),
+      "INSERT INTO devices (id, owner_id, profile_id, token_hash, created_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?)",
+    ).bind(deviceId, ownerId, ownerId, await hashDeviceToken(token), Date.now(), Date.now()),
   ]);
   if (claude)
     await saveWifCredential(env.DB, ownerId, {
@@ -344,6 +348,7 @@ async function complete(
 ) {
   const response = await post(device, `/v1/recipes/${recipeId}/completion`, {
     version: 1,
+    slots: [],
     revision,
     route: "password",
     observation: page,
@@ -2910,6 +2915,7 @@ describe("page judgement (ADR 0027)", () => {
     const calls = sent.length;
     const unknownRoute = await post(device, `/v1/recipes/${change.recipeId}/completion`, {
       version: 1,
+      slots: [],
       revision: 2,
       route: "sso",
       observation: homePage,
@@ -2918,6 +2924,7 @@ describe("page judgement (ADR 0027)", () => {
     // A known route the stored recipe does not have is a conflict, with no model call.
     const passkeyRoute = await post(device, `/v1/recipes/${change.recipeId}/completion`, {
       version: 1,
+      slots: [],
       revision: 2,
       route: "passkey",
       observation: homePage,
@@ -2931,6 +2938,7 @@ describe("page judgement (ADR 0027)", () => {
     replies.push(judgeReply({ decision: "rejected" }));
     const response = await post(device, `/v1/recipes/${change.recipeId}/completion`, {
       version: 1,
+      slots: [],
       revision: 2,
       route: "password",
       observation: homePage,
@@ -3252,6 +3260,7 @@ describe("page judgement (ADR 0027)", () => {
       const calls = sent.length;
       const response = await post(device, `/v1/recipes/${change.recipeId}/completion`, {
         version: 1,
+        slots: [],
         revision: 2,
         route: "passkey",
         observation: movedHome,
@@ -3309,6 +3318,7 @@ describe("page judgement (ADR 0027)", () => {
       ).toBe(400);
       const passkey = await post(device, `/v1/recipes/${change.recipeId}/completion`, {
         version: 1,
+        slots: [],
         revision: 3,
         route: "passkey",
         observation: portalHome,
@@ -3912,6 +3922,7 @@ describe("page judgement (ADR 0027)", () => {
       const calls = sent.length;
       const withValue = await post(device, `/v1/recipes/${change.recipeId}/completion`, {
         version: 1,
+        slots: [],
         revision: 3,
         route: "password",
         observation: observation("/login/other", [
@@ -3984,6 +3995,130 @@ describe("page judgement (ADR 0027)", () => {
         ],
       });
       info.mockRestore();
+    });
+
+    describe("with the account's slots (owner 2026-10-23)", () => {
+      // A synthetic secret question whose answer field the owner named otherwise.
+      const answer = { ...element("answer", "text", "母親の旧姓は？") };
+      const accountSlots = [
+        { id: "username", kind: "identifier", description: "account username" },
+        {
+          id: "custom-1",
+          kind: "hidden",
+          description:
+            "concealed value of the user's vault field named in fieldName, such as a PIN",
+          fieldName: "お母さんの旧姓",
+        },
+      ];
+      const asked = (recipeId: string, revision: number, extra: object = {}) =>
+        post(device!, `/v1/recipes/${recipeId}/completion`, {
+          version: 1,
+          revision,
+          route: "password",
+          observation: observation("/login/question", [answer, confirm]),
+          slots: accountSlots,
+          ...extra,
+        });
+      let device: Device | undefined;
+      const paired = {
+        decision: "challenge",
+        details: [{ field: "answer", value: "secret-answer", slot: 1, shown: "母親の旧姓は？" }],
+        detailSubmit: "confirm",
+      };
+
+      it("sends and logs them, and answers the pairing without storing a field name", async () => {
+        device = await owner();
+        const change = await twoPageRecipe(device);
+        const calls = sent.length;
+        replies.push(judgeReply(paired));
+        const response = await asked(change.recipeId, 2);
+        expect(response.status).toBe(200);
+        // The change's recipe as the judged layout's route (ADR 0060).
+        const body = projected((await response.json()) as RecipeCompletionResult);
+        expect(body).toMatchObject({
+          status: "challenge",
+          change: {
+            revision: 3,
+            recipe: {
+              handlers: [
+                {
+                  kind: "detail",
+                  path: "/login/question",
+                  fields: [{ detail: "secret-answer", target: { by: "id", value: "answer" } }],
+                  target: { by: "id", value: "confirm" },
+                },
+              ],
+            },
+          },
+          questions: [
+            { field: { by: "id", value: "answer" }, slot: "custom-1", shown: "母親の旧姓は？" },
+          ],
+        });
+        // The model got the slots, as a generation request carries them.
+        expect(sent).toHaveLength(calls + 1);
+        expect(JSON.stringify(sent.at(-1)!.body)).toContain(
+          JSON.stringify(JSON.stringify(accountSlots)).slice(1, -1),
+        );
+        // The shared recipe, its feed and its revisions never hold the field's name.
+        const stored = await rows(
+          "SELECT document FROM recipe_revisions WHERE owner_id = ? AND recipe_id = ?",
+          device.ownerId,
+          change.recipeId,
+        );
+        expect(JSON.stringify(stored)).not.toContain("お母さんの旧姓");
+        const feed = await exports.default.fetch("https://pateat.invalid/v1/recipes", {
+          headers: { Authorization: `Bearer ${device.token}` },
+        });
+        expect(JSON.stringify(await feed.json())).not.toContain("お母さんの旧姓");
+        // The request log keeps the slots like a generation request's.
+        const [logged] = await rows(
+          "SELECT request FROM inference_log WHERE owner_id = ? AND role = 'judge' ORDER BY created_at DESC",
+          device.ownerId,
+        );
+        expect(JSON.parse(String(logged!.request))).toMatchObject({ slots: accountSlots });
+      });
+
+      it("answers no pairing for a stop's page, which keeps no detail handler", async () => {
+        device = await owner();
+        const change = await twoPageRecipe(device);
+        replies.push(judgeReply(paired));
+        const response = await post(device, `/v1/recipes/${change.recipeId}/completion`, {
+          version: 1,
+          revision: 2,
+          route: "password",
+          stop: true,
+          observation: observation("/password", [
+            element("password", "password", "Password"),
+            answer,
+            confirm,
+          ]),
+          slots: accountSlots,
+        });
+        expect(response.status).toBe(200);
+        expect(await response.json()).toEqual({ version: 1, status: "challenge" });
+      });
+
+      it("answers no pairing when no detail handler is kept", async () => {
+        device = await owner();
+        const change = await twoPageRecipe(device);
+        // The path's handler is learned first without a pairing.
+        replies.push(
+          judgeReply({ ...paired, details: [{ field: "answer", value: "secret-answer" }] }),
+        );
+        const first = await asked(change.recipeId, 2);
+        expect(await first.json()).toMatchObject({ status: "challenge", change: { revision: 3 } });
+        // Judged again on the next revision, the judge keeps the input, but the path has its
+        // handler already, so no handler is kept and nothing is paired.
+        const info = vi.spyOn(console, "info").mockImplementation(() => {});
+        replies.push(judgeReply(paired));
+        const response = await asked(change.recipeId, 3);
+        expect(await response.json()).toEqual({ version: 1, status: "challenge" });
+        expect(info).toHaveBeenCalledWith("Judged page handlers", {
+          recipeId: change.recipeId,
+          handlers: [{ kind: "detail", kept: false, reason: "duplicate" }],
+        });
+        info.mockRestore();
+      });
     });
 
     it("keeps a detail beside a passkey handler in one revision", async () => {
@@ -4089,6 +4224,7 @@ describe("page judgement (ADR 0027)", () => {
     ) {
       const response = await post(device, `/v1/recipes/${recipeId}/completion`, {
         version: 1,
+        slots: [],
         revision,
         route: "password",
         observation: page,
@@ -4439,6 +4575,7 @@ describe("page judgement (ADR 0027)", () => {
         revision,
         route: "password",
         observation: page,
+        slots: [],
         beside: true,
         ...extra,
       });
@@ -4899,6 +5036,7 @@ describe("password route variants (ADR 0027)", () => {
     });
     const named = await post(device, `/v1/recipes/${result.change.recipeId}/completion`, {
       version: 1,
+      slots: [],
       revision: 1,
       route: "password",
       variant: 1,
@@ -5058,6 +5196,7 @@ describe("the passkey route (ADR 0027)", () => {
   async function judge(device: Device, recipeId: string, revision: number, page: LoginObservation) {
     const response = await post(device, `/v1/recipes/${recipeId}/completion`, {
       version: 1,
+      slots: [],
       revision,
       route: "passkey",
       observation: page,
@@ -5706,6 +5845,7 @@ describe("account lists and chooser branches (ADR 0028)", () => {
     const judge = (branch?: string) =>
       post(device, `/v1/recipes/${recipeId}/completion`, {
         version: 1,
+        slots: [],
         revision: 2,
         route: "password",
         ...(branch ? { branch } : {}),
@@ -5828,6 +5968,7 @@ describe("account lists and chooser branches (ADR 0028)", () => {
     const judge = (page: LoginObservation) =>
       post(device, `/v1/recipes/${recipeId}/completion`, {
         version: 1,
+        slots: [],
         revision: 2,
         route: "password",
         branch: "account",
@@ -6414,6 +6555,7 @@ describe("requests answered without a model call (ADR 0012)", () => {
       recipeId: change.recipeId,
       route: "password",
       loginPaths: ["/login", "/password"],
+      slots: [],
       observation: homePage,
     };
     expect(JSON.parse(String(called!.request))).toEqual(request);
@@ -6482,6 +6624,7 @@ describe("requests answered without a model call (ADR 0012)", () => {
       `/v1/recipes/${await generatedRecipeId(ORIGIN, "/login")}/completion`,
       {
         version: 1,
+        slots: [],
         revision: 1,
         route: "sso",
         observation: homePage,
@@ -6728,6 +6871,7 @@ describe("request timing", () => {
     slowModel();
     const response = await post(device, `/v1/recipes/${change.recipeId}/completion`, {
       version: 1,
+      slots: [],
       revision: 2,
       route: "password",
       observation: homePage,
@@ -6855,12 +6999,23 @@ describe("request timing", () => {
 });
 
 describe("signed-in page samples (ADR 0029, owner 2026-10-18 08:05 UTC)", () => {
+  // The account's slots, as the judge request carries them (owner 2026-10-23).
+  const sampleSlots: SemanticSlot[] = [
+    { id: "username", kind: "identifier", description: "account username" },
+    {
+      id: "custom-1",
+      kind: "hidden",
+      description: "concealed value of the user's vault field named in fieldName, such as a PIN",
+      fieldName: "Synthetic branch PIN",
+    },
+  ];
   const sample = (device: Device, recipeId: string, body: Record<string, unknown> = {}) =>
     post(device, `/v1/recipes/${recipeId}/page-sample`, {
       version: 1,
       revision: 2,
       route: "password",
       observation: homePage,
+      slots: sampleSlots,
       ...body,
     });
   const sampledRows = async (ownerId: string) =>
@@ -6910,6 +7065,7 @@ describe("signed-in page samples (ADR 0029, owner 2026-10-18 08:05 UTC)", () => 
           recipeId: change.recipeId,
           route: "password",
           loginPaths: ["/login", "/password"],
+          slots: sampleSlots,
           observation: homePage,
         },
         result: null,
@@ -6951,10 +7107,11 @@ describe("signed-in page samples (ADR 0029, owner 2026-10-18 08:05 UTC)", () => 
     const otherDevice = { ...device, deviceId: `device-${crypto.randomUUID()}` };
     otherDevice.token = createDeviceToken();
     await env.DB.prepare(
-      "INSERT INTO devices (id, owner_id, token_hash, created_at, last_used_at) VALUES (?, ?, ?, ?, ?)",
+      "INSERT INTO devices (id, owner_id, profile_id, token_hash, created_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?)",
     )
       .bind(
         otherDevice.deviceId,
+        device.ownerId,
         device.ownerId,
         await hashDeviceToken(otherDevice.token),
         Date.now(),
@@ -7094,6 +7251,21 @@ describe("signed-in page samples (ADR 0029, owner 2026-10-18 08:05 UTC)", () => 
     // None of them holds off the recipe's signed-in page.
     expect((await sample(device, change.recipeId)).status).toBe(201);
     expect((await sampledRows(device.ownerId)).map(({ path }) => path)).toEqual(["/home"]);
+  });
+
+  it("refuses a sample without the account's slots, or with a value in one", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    const before = await logCount(device.ownerId);
+    expect((await sample(device, change.recipeId, { slots: undefined })).status).toBe(400);
+    expect(
+      (
+        await sample(device, change.recipeId, {
+          slots: [{ ...sampleSlots[0], value: "synthetic-secret" }],
+        })
+      ).status,
+    ).toBe(400);
+    expect(await logCount(device.ownerId)).toBe(before);
   });
 
   it("answers other methods with 405", async () => {
@@ -7470,6 +7642,7 @@ describe("recipe layouts (ADR 0060)", () => {
         route: "password",
         branch,
         observation: homePage,
+        slots: [],
       }).then(async (response) => (await response.json()) as RecipeCompletionResult);
     replies.push(judgeReply({ decision: "signed-in", marker: "logout" }));
     expect(await judge("2000")).toMatchObject({ status: "signed-in", change: { revision: 2 } });
@@ -7641,9 +7814,16 @@ describe("recipe repair (ADR 0041)", () => {
     const otherId = `device-${crypto.randomUUID()}`;
     const otherToken = createDeviceToken();
     await env.DB.prepare(
-      "INSERT INTO devices (id, owner_id, token_hash, created_at, last_used_at) VALUES (?, ?, ?, ?, ?)",
+      "INSERT INTO devices (id, owner_id, profile_id, token_hash, created_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?)",
     )
-      .bind(otherId, device.ownerId, await hashDeviceToken(otherToken), Date.now(), Date.now())
+      .bind(
+        otherId,
+        device.ownerId,
+        device.ownerId,
+        await hashDeviceToken(otherToken),
+        Date.now(),
+        Date.now(),
+      )
       .run();
     const other = { ...device, deviceId: otherId, token: otherToken };
     const again = observation("/login", [
@@ -7808,9 +7988,16 @@ describe("recipe repair (ADR 0041)", () => {
       const otherId = `device-${crypto.randomUUID()}`;
       const otherToken = createDeviceToken();
       await env.DB.prepare(
-        "INSERT INTO devices (id, owner_id, token_hash, created_at, last_used_at) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO devices (id, owner_id, profile_id, token_hash, created_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?)",
       )
-        .bind(otherId, device.ownerId, await hashDeviceToken(otherToken), Date.now(), Date.now())
+        .bind(
+          otherId,
+          device.ownerId,
+          device.ownerId,
+          await hashDeviceToken(otherToken),
+          Date.now(),
+          Date.now(),
+        )
         .run();
       replies.push({ text: listAnswer("other") });
       expect(
@@ -8207,6 +8394,7 @@ describe("generation provenance (ADR 0060)", () => {
       route: "password",
       branch: "2000",
       observation: page,
+      slots: [],
       beside: true,
     });
     expect(await response.json()).toMatchObject({ status: "challenge", change: { revision: 2 } });
@@ -8281,6 +8469,7 @@ describe("generation provenance (ADR 0060)", () => {
       route: "password",
       branch: "account",
       observation: observation("/login/webauthn", [element("key", "button", "Use security key")]),
+      slots: [],
     });
     expect(await judged.json()).toMatchObject({ status: "challenge", change: { revision: 5 } });
     expect(await summary(device.ownerId, recipeId)).toEqual(

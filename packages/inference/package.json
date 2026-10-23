@@ -5,7 +5,8 @@
   "license": "GPL-3.0-only",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./claude-rates": "./src/providers/claude-rates.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "4.0.84",

@@ -147,8 +147,13 @@ export const settingsJa = {
   "No excluded sites or default accounts": "除外サイトも既定のアカウントもありません",
   Origin: "オリジン",
   "Also list items that do not match": "一致しないアイテムも表示する",
-  "Exclude subdomains too": "サブドメインも除外する",
   "Save default": "既定のアカウントを保存",
+  "Stop asking for the master password on {{name}}":
+    "{{name}} でマスターパスワードを求めるのをやめる",
+  "Stop asking": "求めない",
+  "Include subdomains": "サブドメインを含める",
+  "On a site that asks for the master password, a vault item with Bitwarden's master password re-prompt is used only after you enter it in Pateat's window. Elsewhere it is used like any other item.":
+    "マスターパスワードを求めるサイトでは、Bitwarden で「マスターパスワードの再入力」が有効なアイテムは、Pateat のウィンドウでマスターパスワードを入力してから使われます。ほかのサイトではほかのアイテムと同じように使われます。",
   "Exclude site": "サイトを除外",
   "Excluding a site covers every scheme and port.":
     "サイトの除外は、すべてのスキームとポートに適用されます。",
@@ -183,4 +188,29 @@ export const settingsJa = {
     "ロックでは同期用のログイン情報を残します。マスターパスワードで、サーバーに接続せずにロックを解除できます。",
   "Time counts from the last login filled, passkey signed, unlock or sign-in; this setting stays on this device.":
     "時間は、ログイン情報の入力、パスキーでの署名、ロック解除、ログインのうち最後のものから数えます。この設定はこのデバイスにだけ保存します。",
+  "AI key": "AI キー",
+  "Anthropic API key": "Anthropic API キー",
+  "Replace the Anthropic API key": "Anthropic API キーを置き換える",
+  "Save key": "キーを保存",
+  "Remove key": "キーを削除",
+  "Daily limit (USD)": "1 日の上限（米ドル）",
+  "Monthly limit (USD)": "1 か月の上限（米ドル）",
+  "Removing…": "削除中…",
+  "The key could not be saved. Try again.": "キーを保存できませんでした。もう一度お試しください。",
+  "The key was removed from this device.": "このデバイスからキーを削除しました。",
+  "The key could not be removed. Try again.":
+    "キーを削除できませんでした。もう一度お試しください。",
+  "Paste the whole API key from the Claude Console.":
+    "Claude Console の API キーを全部貼り付けてください。",
+  "Enter an amount in US dollars from 0 to {{max}}.":
+    "0 から {{max}} までの米ドルの金額を入力してください。",
+  "Key ending in {{ending}} saved. This device asks Claude with it, also while paired: the sync service then only keeps and shares the recipes and settings.":
+    "末尾が {{ending}} のキーを保存しています。同期サービスとペアリングしていても、このデバイスがこのキーで Claude に問い合わせます。そのとき同期サービスは、レシピと設定の保存と共有だけを行います。",
+  "The saved key could not be read.": "保存したキーを読み込めませんでした。",
+  "Without a key, the paired sync service asks Claude with its owner's credentials.":
+    "キーがないときは、ペアリングした同期サービスが、その所有者の認証情報で Claude に問い合わせます。",
+  "Spent with this key: {{today}} today and {{month}} this month (UTC), estimated from the usage Anthropic reports. Requests stop at either limit.":
+    "このキーでの利用額: 今日 {{today}}、今月 {{month}}（UTC）。Anthropic が返す使用量からの見積もりです。どちらかの上限に達すると問い合わせを止めます。",
+  "The key stays on this device and is sent to Anthropic only, never to the sync service. For now, recipes are made with it only while a sync service is paired.":
+    "キーはこのデバイスにだけ保存し、Anthropic にだけ送ります。同期サービスには送りません。今のところ、このキーでレシピを作るのは同期サービスとペアリングしているときだけです。",
 } satisfies Record<keyof typeof settingsEn, string>;

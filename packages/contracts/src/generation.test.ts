@@ -12,6 +12,7 @@ import {
   recipePageSampleRequestSchema,
   recipeGenerationResultSchema,
 } from "./generation";
+import { builtInLoginSlots, customFieldSlotDescriptions } from "./observation";
 
 // Synthetic pages and recipes only.
 
@@ -232,15 +233,26 @@ describe("recipe generation contracts", () => {
         customSlots,
       }),
     ).toBe(false);
-    const judged = { version: 1, revision: 2, route: "password", observation };
+    const judged = { version: 1, revision: 2, route: "password", observation, slots: [] };
     expect(v.is(recipeCompletionRequestSchema, { ...judged, branch: "1000:account" })).toBe(true);
     for (const branch of ["1000:list", "account"])
       expect(v.is(recipeCompletionRequestSchema, { ...judged, branch })).toBe(false);
   });
 
   it("takes a signed-in page sample (ADR 0029) with its route and only its own fields", () => {
-    const sampled = { version: 1, revision: 2, route: "password", branch: "1000", observation };
+    const sampled = {
+      version: 1,
+      revision: 2,
+      route: "password",
+      branch: "1000",
+      observation,
+      slots: [],
+    };
     expect(v.is(recipePageSampleRequestSchema, sampled)).toBe(true);
+    // The account's slots, as the judge request carries them (owner 2026-10-23).
+    expect(
+      v.is(recipePageSampleRequestSchema, { ...sampled, slots: [builtInLoginSlots.username] }),
+    ).toBe(true);
     expect(v.is(recipePageSampleRequestSchema, { ...sampled, branch: "1000:account" })).toBe(true);
     // The layout the login ran is required.
     const { branch: _branch, ...unnamed } = sampled;
@@ -252,7 +264,9 @@ describe("recipe generation contracts", () => {
       { ...sampled, stop: true },
       { ...sampled, beside: true },
       { ...sampled, revision: 0 },
-      { version: 1, revision: 2, branch: "1000", observation },
+      { version: 1, revision: 2, branch: "1000", observation, slots: [] },
+      { version: 1, revision: 2, route: "password", branch: "1000", observation },
+      { ...sampled, slots: [{ ...builtInLoginSlots.username, value: "x" }] },
     ])
       expect(v.is(recipePageSampleRequestSchema, invalid)).toBe(false);
   });
@@ -607,6 +621,7 @@ describe("page judgement contracts (ADR 0027)", () => {
         route: "password",
         branch: "1000",
         observation,
+        slots: [],
       }).route,
     ).toBe("password");
     expect(
@@ -616,6 +631,7 @@ describe("page judgement contracts (ADR 0027)", () => {
         route: "passkey",
         branch: "1000",
         observation,
+        slots: [],
       }).route,
     ).toBe("passkey");
     for (const named of ["sso", ""])
@@ -626,6 +642,7 @@ describe("page judgement contracts (ADR 0027)", () => {
           route: named,
           branch: "1000",
           observation,
+          slots: [],
         }),
       ).toBe(false);
     // So is the layout the login ran (ADR 0060).
@@ -640,14 +657,28 @@ describe("page judgement contracts (ADR 0027)", () => {
   });
 
   it("marks a description that left out a disabled field only as true (ADR 0029)", () => {
-    const request = { version: 1, revision: 2, route: "password", branch: "1000", observation };
+    const request = {
+      version: 1,
+      revision: 2,
+      route: "password",
+      branch: "1000",
+      observation,
+      slots: [],
+    };
     expect(v.is(recipeCompletionRequestSchema, { ...request, partial: true })).toBe(true);
     for (const partial of [false, "true"])
       expect(v.is(recipeCompletionRequestSchema, { ...request, partial })).toBe(false);
   });
 
   it("marks a page at a stop before a missing password only as true (ADR 0036)", () => {
-    const request = { version: 1, revision: 2, route: "password", branch: "1000", observation };
+    const request = {
+      version: 1,
+      revision: 2,
+      route: "password",
+      branch: "1000",
+      observation,
+      slots: [],
+    };
     expect(v.is(recipeCompletionRequestSchema, { ...request, stop: true })).toBe(true);
     for (const stop of [false, "true"])
       expect(v.is(recipeCompletionRequestSchema, { ...request, stop })).toBe(false);
@@ -661,7 +692,14 @@ describe("page judgement contracts (ADR 0027)", () => {
   });
 
   it("marks a page beside the sign-in form only as true, never with a stop (ADR 0061)", () => {
-    const request = { version: 1, revision: 2, route: "password", branch: "1000", observation };
+    const request = {
+      version: 1,
+      revision: 2,
+      route: "password",
+      branch: "1000",
+      observation,
+      slots: [],
+    };
     expect(v.is(recipeCompletionRequestSchema, { ...request, beside: true })).toBe(true);
     expect(v.is(recipeCompletionRequestSchema, { ...request, beside: true, partial: true })).toBe(
       true,
@@ -676,6 +714,60 @@ describe("page judgement contracts (ADR 0027)", () => {
       { ...request, stop: true, beside: true },
     ])
       expect(v.is(recipeCompletionRequestSchema, invalid)).toBe(false);
+  });
+
+  it("carries the account's slots as a generation request does (owner 2026-10-23)", () => {
+    const request = { version: 1, revision: 2, route: "password", branch: "1000", observation };
+    const accountSlots = [
+      builtInLoginSlots.username,
+      {
+        id: "custom-1",
+        kind: "hidden",
+        description: customFieldSlotDescriptions.hidden,
+        fieldName: "お母さんの旧姓",
+      },
+    ];
+    expect(v.is(recipeCompletionRequestSchema, { ...request, slots: accountSlots })).toBe(true);
+    // Required, as for generation; a Hidden field never carries a shape.
+    expect(v.is(recipeCompletionRequestSchema, request)).toBe(false);
+    expect(
+      v.is(recipeCompletionRequestSchema, {
+        ...request,
+        slots: [
+          { ...accountSlots[1], valueShape: { length: 6, classes: ["other"], email: false } },
+        ],
+      }),
+    ).toBe(false);
+    // Never a value or a binding.
+    expect(
+      v.is(recipeCompletionRequestSchema, {
+        ...request,
+        slots: [{ ...accountSlots[1], value: "x" }],
+      }),
+    ).toBe(false);
+  });
+
+  it("answers a challenge with secret questions paired for this account only", () => {
+    const questions = [
+      { field: { by: "name", value: "answer" }, slot: "custom-1", shown: "母親の旧姓は？" },
+    ];
+    expect(
+      v.is(recipeCompletionResultSchema, { version: 1, status: "challenge", change, questions }),
+    ).toBe(true);
+    for (const bad of [
+      [],
+      [{ ...questions[0], shown: "" }],
+      [{ ...questions[0], shown: "x".repeat(201) }],
+      [{ ...questions[0], field: { by: "text", value: "Answer" } }],
+      [{ ...questions[0], slot: "custom 1" }],
+      [{ ...questions[0], answer: "x" }],
+    ])
+      expect(
+        v.is(recipeCompletionResultSchema, { version: 1, status: "challenge", questions: bad }),
+      ).toBe(false);
+    expect(v.is(recipeCompletionResultSchema, { version: 1, status: "signed-in", questions })).toBe(
+      false,
+    );
   });
 
   it("answers signed-in and challenge with or without a change", () => {

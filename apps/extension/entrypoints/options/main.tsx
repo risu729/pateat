@@ -5,6 +5,7 @@ import { browser } from "wxt/browser";
 import { SettingsApp } from "../../src/options/settings-app";
 import { createMetadataQueryClient, createSettingsClient } from "../../src/options/client";
 import { createConnectionClient } from "../../src/options/connection-client";
+import { createDeviceModelClient } from "../../src/options/device-model";
 import { createServiceClient } from "../../src/options/service-client";
 import { createVaultTimeoutClient } from "../../src/options/vault-timeout";
 import { sendMessage } from "../../src/messaging/protocol";
@@ -31,6 +32,7 @@ createRoot(root).render(
       client={createSettingsClient((message) => sendMessage("settings", message))}
       connectionClient={connectionClient}
       vaultTimeoutClient={createVaultTimeoutClient()}
+      deviceModelClient={createDeviceModelClient()}
       serviceClient={createServiceClient({
         send: (message) => sendMessage("service", message),
         openTab: (url) => browser.tabs.create({ url }),

@@ -59,4 +59,54 @@ export const serviceJa = {
   "Disconnected. The service no longer accepts this device.":
     "接続を解除しました。このデバイスはサービスで無効になりました。",
   "Disconnect this device": "このデバイスの接続を解除",
+  "This account already has settings. Choose which profile this device uses, then pair.":
+    "このアカウントにはすでに設定があります。このデバイスで使うプロファイルを選んでから、ペアリングしてください。",
+  "That profile was deleted. Choose another one, then pair.":
+    "そのプロファイルは削除されています。別のプロファイルを選んでから、ペアリングしてください。",
+  "Another profile already has that name. Choose that profile or another name.":
+    "同じ名前のプロファイルがすでにあります。そのプロファイルを選ぶか、別の名前にしてください。",
+  "Choose a profile for this device.": "このデバイスで使うプロファイルを選んでください。",
+  "Use a profile name of up to 64 characters without control characters.":
+    "プロファイル名は制御文字を含まない 64 文字以内で入力してください。",
+  "Enter a name for the new profile.": "新しいプロファイルの名前を入力してください。",
+  "Settings profile": "設定プロファイル",
+  "A profile holds site exclusions, sites that ask for the master password and saved accounts. Devices that share one share them; account bindings are shared by every profile.":
+    "プロファイルには除外サイト、マスターパスワードを求めるサイト、保存したアカウントが入っています。同じプロファイルを使うデバイスどうしで共有されます。フィールドの対応付けはすべてのプロファイルで共通です。",
+  "New profile with this device's site settings":
+    "このデバイスのサイト設定で新しいプロファイルを作成",
+  "New profile name": "新しいプロファイルの名前",
+  "Replace this device's site settings with {{profile}}'s?":
+    "このデバイスのサイト設定を {{profile}} の設定に置き換えますか？",
+  "This device's site exclusions, sites that ask for the master password and saved accounts are removed and {{profile}}'s are used instead. Account bindings are kept.":
+    "このデバイスの除外サイト、マスターパスワードを求めるサイト、保存したアカウントは削除され、代わりに {{profile}} の設定を使います。フィールドの対応付けは残ります。",
+  "This device's site exclusions ({{exclusions}}) and saved accounts ({{defaults}}) are removed and {{profile}}'s are used instead. Account bindings are kept.":
+    "このデバイスの除外サイト（{{exclusions}} 件）と保存したアカウント（{{defaults}} 件）は削除され、代わりに {{profile}} の設定を使います。フィールドの対応付けは残ります。",
+  "To keep them, create a new profile from this device instead.":
+    "残したい場合は、代わりにこのデバイスの設定で新しいプロファイルを作成してください。",
+  "Pair and replace": "置き換えてペアリング",
+  "Create a new profile instead": "代わりに新しいプロファイルを作成",
+  Back: "戻る",
+  "Sign in to the service first: open the sign-in page, then load the profiles again. Editing profiles needs the same sign-in as the service's management page.":
+    "先にサービスにログインしてください。ログインページを開いてから、もう一度プロファイルを読み込んでください。プロファイルの編集には、サービスの管理ページと同じログインが必要です。",
+  "The service did not accept your sign-in. Editing profiles needs a browser that can open the service's management page.":
+    "サービスがログインを受け付けませんでした。プロファイルの編集には、サービスの管理ページを開けるブラウザーが必要です。",
+  "Settings changed elsewhere. Reload this profile before saving again.":
+    "別の場所で設定が変更されました。このプロファイルを再読み込みしてから、もう一度保存してください。",
+  "That profile was deleted. Load the profiles again.":
+    "そのプロファイルは削除されています。もう一度プロファイルを読み込んでください。",
+  "The service could not be reached. Try again later.":
+    "サービスに接続できませんでした。しばらくしてから、もう一度お試しください。",
+  "The service gave an unexpected answer. Try again later.":
+    "サービスから想定外の応答がありました。しばらくしてから、もう一度お試しください。",
+  "Profile access failed.": "プロファイルを読み書きできませんでした。",
+  "Edit a settings profile": "設定プロファイルの編集",
+  "Change another profile's site exclusions, sites that ask for the master password and saved accounts from here. Account names come from this browser's vaults. Saving does not change which profile this device uses, and account bindings stay shared by every profile.":
+    "ほかのプロファイルの除外サイト、マスターパスワードを求めるサイト、保存したアカウントを、ここで変更できます。アカウント名はこのブラウザーの保管庫から表示します。保存しても、このデバイスが使うプロファイルは変わりません。フィールドの対応付けはすべてのプロファイルで共通のままです。",
+  "Load profiles": "プロファイルを読み込む",
+  "Profile to edit": "編集するプロファイル",
+  "Choose a profile": "プロファイルを選択",
+  "Profile saved. Devices use it after their next settings sync.":
+    "プロファイルを保存しました。各デバイスには次回の設定の同期で反映されます。",
+  "Save profile": "プロファイルを保存",
+  "Reload profile": "プロファイルを再読み込み",
 } satisfies Record<keyof typeof serviceEn, string>;

@@ -27,6 +27,10 @@ export const en = {
   "Unnamed item": "Unnamed item",
   Default: "Default",
   "Use the browser or another extension": "Use the browser or another extension",
+  "Bitwarden asks for your master password before this item is used.":
+    "Bitwarden asks for your master password before this item is used.",
+  "Other passkeys": "Other passkeys",
+  "Asks for the master password": "Asks for the master password",
   "Pateat on this site": "Pateat on this site",
   "{{item}}, ID {{id}}": "{{item}}, ID {{id}}",
   "Saving…": "Saving…",
@@ -36,6 +40,27 @@ export const en = {
     "The change could not be saved. Reopen this popup and try again.",
   "The change may not have been saved. Reopen this popup to see the saved settings.":
     "The change may not have been saved. Reopen this popup to see the saved settings.",
+  "this vault item asks for the master password first; enter it in the window Pateat opens":
+    "this vault item asks for the master password first; enter it in the window Pateat opens",
+  "Enter the master password": "Enter the master password",
+  "Opening the master password window…": "Opening the master password window…",
+  "The master password window could not open. It opens only for the active tab outside incognito, one window at a time.":
+    "The master password window could not open. It opens only for the active tab outside incognito, one window at a time.",
+  "The master password window was closed before the vault item was used.":
+    "The master password window was closed before the vault item was used.",
+  "This page no longer waits for the master password. Reload it.":
+    "This page no longer waits for the master password. Reload it.",
+  "The master password window could not open. Reopen this popup and try again.":
+    "The master password window could not open. Reopen this popup and try again.",
+  "Ask for the master password": "Ask for the master password",
+  "For vault items with Bitwarden's master password re-prompt.":
+    "For vault items with Bitwarden's master password re-prompt.",
+  "Set by a rule for {{hostname}} and its subdomains.":
+    "Set by a rule for {{hostname}} and its subdomains.",
+  "{{hostname}} now asks for the master password.":
+    "{{hostname}} now asks for the master password.",
+  "{{hostname}} no longer asks for the master password.":
+    "{{hostname}} no longer asks for the master password.",
   "Starting the login…": "Starting the login…",
   "Logging in with {{name}}. It becomes the default once the login succeeds.":
     "Logging in with {{name}}. It becomes the default once the login succeeds.",
@@ -344,6 +369,9 @@ export const en = {
   "The page did not accept the value.": "The page did not accept the value.",
   "the answer to your secret question": "the answer to your secret question",
   "your member or customer number": "your member or customer number",
+  "This page asks \u201C{{question}}\u201D.": "This page asks \u201C{{question}}\u201D.",
+  "Pateat\u2019s AI thinks this field holds the answer. Fill only if it does; Pateat then fills it whenever this question shows.":
+    "Pateat\u2019s AI thinks this field holds the answer. Fill only if it does; Pateat then fills it whenever this question shows.",
   "your card number": "your card number",
   "your card's expiry date": "your card's expiry date",
   "your PIN": "your PIN",

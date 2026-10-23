@@ -16,6 +16,6 @@ Auto Login for Chrome（Chrome 向けの自動ログイン）。
 
 インストールとチェックの方法は[開発](docs/development.md)を参照してください。本番用の拡張機能は `apps/extension/.output/chrome-mv3/` にビルドされます。これとは別のプローブ用ビルドは、合成テスト専用です。互換性と、人の操作なしでのパスキー対応は、引き続き[受け入れ条件](docs/plan.md)を満たすかどうかによります。
 
-まだ守られていない保護が 2 つあります。Pateat はサイトからのパスキー要求に、ユーザーの存在確認（UP）とユーザー検証（UV）のフラグを立てて応答しますが、自身では存在の確認も検証も行いません（[ADR 0007](docs/adr/0007-existing-passkey-assertions.md#presence-and-verification)）。また、マスターパスワードの再要求が設定された Bitwarden のアイテムも、マスターパスワードを尋ねずに入力に使い、そのパスキーで署名します（[保管庫アダプター](docs/architecture.md#vault-adapter)）。どちらも、Pateat を公開する前に設定項目にする予定です（[計画](docs/plan.md#phase-3-public-release)）。
+まだ守られていない保護が 1 つあります。Pateat はサイトからのパスキー要求に、ユーザーの存在確認（UP）とユーザー検証（UV）のフラグを立てて応答しますが、自身では存在の確認も検証も行いません（[ADR 0007](docs/adr/0007-existing-passkey-assertions.md#presence-and-verification)）。Pateat を公開する前に設定項目にする予定です（[計画](docs/plan.md#phase-3-public-release)）。Bitwarden のマスターパスワードの再要求は、指定したサイトでのみ守ります。ほかのサイトでは、再要求が設定されたアイテムもマスターパスワードを尋ねずに入力に使い、そのパスキーで署名します（[保管庫アダプター](docs/architecture.md#vault-adapter)）。
 
 まず[ドキュメントの目次](docs/README.md)を読み、続いて[アーキテクチャ](docs/architecture.md)と[実装計画](docs/plan.md)を読んでください。リポジトリでの作業の決まりは [AGENTS.md](AGENTS.md) にあります。リンク先の文書は英語です。

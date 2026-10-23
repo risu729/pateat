@@ -1,4 +1,5 @@
 export * from "./extension-id";
+export * from "./device-model";
 export * from "./generation";
 export * from "./settings";
 export * from "./settings-store";

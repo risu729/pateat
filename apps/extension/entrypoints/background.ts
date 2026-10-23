@@ -18,6 +18,7 @@ import { createSiteAccountsHandler } from "../src/vault/site-accounts";
 import { actionIconState, createActionIcon } from "../src/connections/action-icon";
 import { createConnectionRuntime } from "../src/connections/runtime";
 import { createConnectionProbeTransport } from "../src/connections/probe";
+import { createLoginReprompt, createVaultPasswordCheck } from "../src/login/reprompt";
 import { CHOOSER_PAGE, createPasskeyChooser } from "../src/passkeys/chooser";
 import { createPasskeyCreateHandler } from "../src/passkeys/create";
 import { createProbePasskeySource } from "../src/passkeys/probe";
@@ -51,6 +52,11 @@ import {
   rememberVaultPasskey,
   type VaultPasskeyCandidate,
 } from "../src/passkeys/vault";
+import {
+  createDeviceModel,
+  DEVICE_MODEL_KEY,
+  DEVICE_MODEL_SPEND_KEY,
+} from "../src/service/device-model";
 import { createLoginGeneration } from "../src/service/generation";
 import { createLoginRecords } from "../src/service/login-records";
 import { createLoginOutcomes } from "../src/service/outcomes";
@@ -281,6 +287,11 @@ export default defineBackground(() => {
     transport: serviceTransport,
     report: diagnosticsLog.recipeUse,
   });
+  // ADR 0040: with this device's own key saved, the device makes the model calls itself.
+  const modelRequests = createDeviceModel({
+    storage: trustedRecord(DEVICE_MODEL_KEY),
+    spend: trustedRecord(DEVICE_MODEL_SPEND_KEY),
+  }).wrap(serviceTransport);
   const recipeCacheStorage = createBrowserRecipeCacheStorage();
   const recipeScheduleStorage = createBrowserRecipeScheduleStorage();
   const recipeSync = createRecipeSync({
@@ -364,9 +375,9 @@ export default defineBackground(() => {
     generation: createLoginGeneration({
       service,
       transport: {
-        generateRecipe: (...request) => keepAlive(serviceTransport.generateRecipe(...request)),
-        generateEntry: (...request) => keepAlive(serviceTransport.generateEntry(...request)),
-        judgeCompletion: (...request) => keepAlive(serviceTransport.judgeCompletion(...request)),
+        generateRecipe: (...request) => keepAlive(modelRequests.generateRecipe(...request)),
+        generateEntry: (...request) => keepAlive(modelRequests.generateEntry(...request)),
+        judgeCompletion: (...request) => keepAlive(modelRequests.judgeCompletion(...request)),
         samplePage: (...request) => keepAlive(serviceTransport.samplePage(...request)),
       },
       storage: createBrowserGenerationAttemptStorage(),
@@ -400,6 +411,16 @@ export default defineBackground(() => {
     },
     signedIn: (tabId, origin) => noteSignIn(tabId, origin),
     badge: loginBadge,
+    // Bitwarden's re-prompt on a site that honours it: the chooser window asks first.
+    askMasterPassword: createLoginReprompt({
+      chooser: () => passkeyChooser,
+      check: createVaultPasswordCheck(connections),
+      async tab(tabId) {
+        const tab = await browser.tabs.get(tabId);
+        const window = await browser.windows.get(tab.windowId);
+        return { active: tab.active, focused: window.focused, incognito: tab.incognito };
+      },
+    }),
     // A late answer to the tab's previous page does not take the tab over from its new one.
     announced: (tabId, url) =>
       void browser.tabs

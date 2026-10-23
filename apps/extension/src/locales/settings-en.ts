@@ -143,8 +143,13 @@ export const settingsEn = {
   "No excluded sites or default accounts": "No excluded sites or default accounts",
   Origin: "Origin",
   "Also list items that do not match": "Also list items that do not match",
-  "Exclude subdomains too": "Exclude subdomains too",
   "Save default": "Save default",
+  "Stop asking for the master password on {{name}}":
+    "Stop asking for the master password on {{name}}",
+  "Stop asking": "Stop asking",
+  "Include subdomains": "Include subdomains",
+  "On a site that asks for the master password, a vault item with Bitwarden's master password re-prompt is used only after you enter it in Pateat's window. Elsewhere it is used like any other item.":
+    "On a site that asks for the master password, a vault item with Bitwarden's master password re-prompt is used only after you enter it in Pateat's window. Elsewhere it is used like any other item.",
   "Exclude site": "Exclude site",
   "Excluding a site covers every scheme and port.":
     "Excluding a site covers every scheme and port.",
@@ -179,4 +184,28 @@ export const settingsEn = {
     "Lock keeps the sync sign-in; unlock with the master password, without the server.",
   "Time counts from the last login filled, passkey signed, unlock or sign-in; this setting stays on this device.":
     "Time counts from the last login filled, passkey signed, unlock or sign-in; this setting stays on this device.",
+  "AI key": "AI key",
+  "Anthropic API key": "Anthropic API key",
+  "Replace the Anthropic API key": "Replace the Anthropic API key",
+  "Save key": "Save key",
+  "Remove key": "Remove key",
+  "Daily limit (USD)": "Daily limit (USD)",
+  "Monthly limit (USD)": "Monthly limit (USD)",
+  "Removing…": "Removing…",
+  "The key could not be saved. Try again.": "The key could not be saved. Try again.",
+  "The key was removed from this device.": "The key was removed from this device.",
+  "The key could not be removed. Try again.": "The key could not be removed. Try again.",
+  "Paste the whole API key from the Claude Console.":
+    "Paste the whole API key from the Claude Console.",
+  "Enter an amount in US dollars from 0 to {{max}}.":
+    "Enter an amount in US dollars from 0 to {{max}}.",
+  "Key ending in {{ending}} saved. This device asks Claude with it, also while paired: the sync service then only keeps and shares the recipes and settings.":
+    "Key ending in {{ending}} saved. This device asks Claude with it, also while paired: the sync service then only keeps and shares the recipes and settings.",
+  "The saved key could not be read.": "The saved key could not be read.",
+  "Without a key, the paired sync service asks Claude with its owner's credentials.":
+    "Without a key, the paired sync service asks Claude with its owner's credentials.",
+  "Spent with this key: {{today}} today and {{month}} this month (UTC), estimated from the usage Anthropic reports. Requests stop at either limit.":
+    "Spent with this key: {{today}} today and {{month}} this month (UTC), estimated from the usage Anthropic reports. Requests stop at either limit.",
+  "The key stays on this device and is sent to Anthropic only, never to the sync service. For now, recipes are made with it only while a sync service is paired.":
+    "The key stays on this device and is sent to Anthropic only, never to the sync service. For now, recipes are made with it only while a sync service is paired.",
 } as const;

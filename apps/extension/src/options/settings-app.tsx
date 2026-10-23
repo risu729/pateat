@@ -10,7 +10,17 @@ import {
 } from "@pateat/contracts";
 import { useForm, useSelector } from "@tanstack/react-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bug, Globe, Info, Link, Shield, Timer, Vault, type LucideIcon } from "lucide-react";
+import {
+  Bug,
+  Globe,
+  Info,
+  KeyRound,
+  Link,
+  Shield,
+  Timer,
+  Vault,
+  type LucideIcon,
+} from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as v from "valibot";
 import { Logo } from "../logo";
@@ -19,6 +29,7 @@ import { SETTINGS_QUERY_KEY, type SettingsClient } from "./client";
 import { VaultAccess, VaultRows } from "./connections";
 import { SitePolicy } from "./site-policy";
 import { BitwardenSetup } from "./bitwarden-setup";
+import { DeviceModelPanel, type DeviceModelClient } from "./device-model";
 import type { ConnectionClient } from "./connection-client";
 import { backgroundOnlyConflict, saveConflictMessage } from "./save-conflict";
 import type { ServiceClient } from "./service-client";
@@ -32,6 +43,7 @@ type AcceptedSettings = Extract<SettingsResponse, { ok: true }>;
 const emptySettings: LocalSettings = {
   connections: [],
   excludedSites: [],
+  repromptSites: [],
   siteDefaults: [],
   bindings: [],
 };
@@ -41,12 +53,15 @@ export function SettingsApp({
   connectionClient,
   serviceClient,
   vaultTimeoutClient,
+  deviceModelClient,
 }: {
   client: SettingsClient;
   connectionClient?: ConnectionClient;
   serviceClient?: ServiceClient;
   /** This device's vault timeout (ADR 0075), shown with a real Bitwarden connection. */
   vaultTimeoutClient?: VaultTimeoutClient;
+  /** This device's own Anthropic API key (ADR 0040). */
+  deviceModelClient?: DeviceModelClient;
 }) {
   const { t } = useTranslation(undefined, { i18n });
   const queryClient = useQueryClient();
@@ -262,6 +277,7 @@ export function SettingsApp({
     // defaults would then replace the rebased draft on the next render.
     form.setFieldValue("connections", value.connections);
     form.setFieldValue("excludedSites", value.excludedSites);
+    form.setFieldValue("repromptSites", value.repromptSites);
     form.setFieldValue("siteDefaults", value.siteDefaults);
     form.setFieldValue("bindings", value.bindings);
     rebased.current = true;
@@ -330,6 +346,7 @@ export function SettingsApp({
     unsavedEdits.current.push(update);
     form.setFieldValue("connections", next.connections);
     form.setFieldValue("excludedSites", next.excludedSites);
+    form.setFieldValue("repromptSites", next.repromptSites);
     form.setFieldValue("siteDefaults", next.siteDefaults);
     edits.current += 1;
     setDirty(true);
@@ -477,6 +494,7 @@ export function SettingsApp({
       : []),
     { id: "sites", label: t("Sites"), icon: Globe },
     ...(serviceClient ? [{ id: "sync", label: t("Sync service"), icon: Link }] : []),
+    ...(deviceModelClient ? [{ id: "ai-key", label: t("AI key"), icon: KeyRound }] : []),
   ];
   return (
     <div className="mx-auto flex max-w-[70rem] flex-col gap-8 px-6 pt-8 pb-12 max-sm:px-4">
@@ -609,7 +627,8 @@ export function SettingsApp({
               </Panel>
             )}
           </fieldset>
-          {serviceClient && <ServiceConnection client={serviceClient} />}
+          {serviceClient && <ServiceConnection client={serviceClient} settingsClient={client} />}
+          {deviceModelClient && <DeviceModelPanel client={deviceModelClient} />}
           <footer className="flex flex-wrap gap-4 text-[0.8125rem] leading-5 text-ink-muted">
             <a href="legal.html" target="_blank" rel="noreferrer">
               {t("Licenses and source")}

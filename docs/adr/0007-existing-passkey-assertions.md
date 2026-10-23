@@ -50,6 +50,12 @@ Bitwarden's master password re-prompt (`reprompt: 1`), as filling does
 ([vault adapter](../architecture.md#vault-adapter)). Settings for UP/UV and for
 re-prompt are planned for [phase 3](../plan.md#phase-3-public-release) (owner,
 2026-10-13 21:57 UTC); until then both stay as they are.
+Amended on 2026-10-23 (owner, 12:46 UTC): on a site listed in `repromptSites`, a passkey
+of an item with re-prompt signs only after its master password is entered in the
+chooser window ([ADR 0021](0021-account-choice-outside-settings.md),
+[vault adapter](../architecture.md#vault-adapter)); when no window can open, the request
+goes to the browser. Elsewhere such passkeys sign as before. UP and UV are unchanged
+(implemented).
 Amended on 2026-10-23 to match the code since
 [ADR 0021](0021-account-choice-outside-settings.md): [Bridge topology](#bridge-topology)
 said navigation does not cancel a request, but leaving a document cancels its pending

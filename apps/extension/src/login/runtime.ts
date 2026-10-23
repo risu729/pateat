@@ -81,8 +81,15 @@ import {
   loginTargetSchema,
   type DatePart,
   type DetailLink,
-  type LoginDetail,
   type LoginFieldTarget,
+  questionText,
+  shownQuestionSchema,
+  storedQuestionSchema,
+  detailSourceFieldSchema,
+  detailFormatFits,
+  detailFormatSchema,
+  loginFieldTargetSchema,
+  type LoginDetail,
   totpFieldMismatch,
   totpFieldReference,
   transitionLoginAttempt,
@@ -101,6 +108,7 @@ import {
   type LoginObservation,
   type LoginOperation,
   isLoginRouteRecipe,
+  itemAsksForMasterPassword,
   chooserClickBranch,
   chooserRoute,
   type ChooserClick,
@@ -172,6 +180,7 @@ import {
   type TargetRequirement,
   type TargetState,
   type LoginSecretKind,
+  type AskedQuestion,
 } from "./wire";
 import {
   DEFAULT_PROBE_ORIGIN,
@@ -191,10 +200,12 @@ import {
   choiceRequestSchema,
   logoutReasonSchema,
   pickRequestSchema,
+  repromptRequestSchema,
   statusRequestSchema,
   type ChoiceResponse,
   type LogoutReason,
   type PickResponse,
+  type RepromptResponse,
   type StatusResponse,
 } from "./choice-wire";
 import { customFieldOffers, type CustomFieldOffer } from "./generation-slots";
@@ -326,6 +337,8 @@ const SIGN_IN_RECHECKS = 10;
  * answer to the step, read for a sign-in form shown again (ADR 0029).
  */
 const SITE_MOVE_MS = 30_000;
+/** How long a master password typed for a re-prompt item lets its document's login start. */
+const REPROMPT_GRANT_MS = 60_000;
 /** Readings of that move's new page, a second apart, before it must have loaded quietly. */
 const SITE_MOVE_READINGS = 5;
 /**
@@ -693,6 +706,39 @@ const pendingChoiceSchema = v.strictObject({
   logout: v.optional(logoutReasonSchema),
 });
 /**
+ * A secret question the judge paired with one of the login item's custom fields (ADR 0061,
+ * owner 2026-10-23): the answer input, the field, the question in its compared form, which
+ * the page must show as one whole question, and as the judge copied it from the page
+ * (`shown`, trimmed), for the popup only. The popup proposes it; only the owner's
+ * confirmation links it.
+ */
+const pairedQuestionSchema = v.strictObject({
+  field: detailSourceFieldSchema.options[1],
+  question: storedQuestionSchema,
+  shown: shownQuestionSchema,
+});
+type PairedQuestion = v.InferOutput<typeof pairedQuestionSchema> & { target: LoginFieldTarget };
+/**
+ * The judge's pairings as a login keeps them (ADR 0061): each answer input with the custom
+ * field whose slot the judge named, and the question. A slot sent for no custom field, or
+ * a question too short or too long to store, pairs nothing.
+ */
+function pairedQuestions(
+  path: string,
+  questions: readonly { field: LoginFieldTarget; slot: string; shown: string }[] | undefined,
+  offers: readonly CustomFieldOffer[],
+): { path: string; questions: PairedQuestion[] } | undefined {
+  const kept = (questions ?? []).flatMap((entry) => {
+    const offer = offers.find((candidate) => candidate.slot.id === entry.slot);
+    const question = questionText(entry.shown);
+    const shown = entry.shown.trim();
+    return offer && v.is(storedQuestionSchema, question) && v.is(shownQuestionSchema, shown)
+      ? [{ target: entry.field, field: offer.reference, question, shown }]
+      : [];
+  });
+  return kept.length ? { path, questions: kept } : undefined;
+}
+/**
  * A `detail` handler that a tab's login stopped at because no linked vault field had a
  * value for it (ADR 0061); the popup proposes fields for it while the tab shows `document`.
  */
@@ -704,8 +750,32 @@ const detailOfferSchema = v.strictObject({
   handler: v.pipe(v.number(), v.integer(), v.minValue(0)),
   /** The login item and its site. */
   account: v.strictObject({ connectionId: v.string(), itemId: v.string(), origin: v.string() }),
-  /** The handler's fields Pateat fills, each in one input or split over several. */
-  fields: v.pipe(v.array(detailFieldSchema), v.minLength(1), v.maxLength(3)),
+  /**
+   * The handler's fields Pateat fills: one in one input, which for a secret question's
+   * answer may carry the judge's pairing until the owner confirms it, or one split over
+   * several inputs.
+   */
+  fields: v.pipe(
+    v.array(
+      v.union([
+        v.pipe(
+          v.strictObject({
+            detail: loginDetailSchema,
+            format: v.optional(detailFormatSchema),
+            target: loginFieldTargetSchema,
+            paired: v.optional(pairedQuestionSchema),
+          }),
+          v.check(
+            (entry) => detailFormatFits(entry.detail, entry.format),
+            "A birth date or card expiry input has a format of its own, and no other input has one",
+          ),
+        ),
+        detailFieldSchema.options[1],
+      ]),
+    ),
+    v.minLength(1),
+    v.maxLength(3),
+  ),
   /** The handler's button, which must still show for the popup's fill. */
   target: loginTargetSchema,
 });
@@ -781,6 +851,12 @@ type Execution = {
    * into read from, by handler (ADR 0061). Kept in memory only.
    */
   answers?: Map<number, DetailSourceField>;
+  /**
+   * The secret questions the judge paired with the login item's custom fields on the page
+   * at `path` (ADR 0061), for the popup to propose once the login stops at their handler.
+   * Unconfirmed, so nothing is ever filled from them. Kept in memory only.
+   */
+  paired?: { path: string; questions: PairedQuestion[] };
   /** A chooser login's recipe (ADR 0028), whose list its first step clicks on. */
   chooser?: LoginChooserRecipe;
   /** A fill-only login's accounts, offered once it ends (ADR 0021 D). */
@@ -1261,6 +1337,12 @@ export interface LoginGeneration {
      */
     stop?: true,
     /**
+     * The login account's slots, built as for generation (owner 2026-10-23: the same
+     * information goes to every model call unless there is a sound reason); `totp` goes
+     * only with a page that shows a code field.
+     */
+    slots?: readonly SemanticSlot[],
+    /**
      * The page still shows the route's sign-in form beside another form that may ask for a
      * detail (`showsBesideForm`): the service keeps only a `detail` handler from it (ADR
      * 0061).
@@ -1279,6 +1361,11 @@ export interface LoginGeneration {
     reason?: string;
     /** A chooser login's is the whole chooser (ADR 0028); either is the judged layout. */
     recipe?: LoginRecipe | LoginChooserRecipe;
+    /**
+     * With `recipe`: the secret questions the judge paired with a slot sent, by the answer
+     * input, for the owner to confirm in the popup (ADR 0061).
+     */
+    questions?: { field: LoginFieldTarget; slot: string; shown: string }[];
     /** How long the request took, when one was sent (ADR 0019). */
     timing?: ServiceTiming;
   }>;
@@ -1293,7 +1380,9 @@ export interface LoginGeneration {
    */
   samplePage?(
     sample: { recipeId: string; revision: number; route: LoginRoute; branch?: string },
-    describe: () => Promise<{ observation: LoginObservation } | { unsent: string }>,
+    describe: () => Promise<
+      { observation: LoginObservation; slots: readonly SemanticSlot[] } | { unsent: string }
+    >,
     sending?: () => Promise<string | undefined>,
   ): Promise<PageSampleOutcome>;
   /**
@@ -2346,6 +2435,21 @@ export function createLoginRuntime(
      * the site's items for the toolbar badge (ADR 0021).
      */
     announced?: (tabId: number, url: string) => void;
+    /**
+     * Asks for the master password of a login's item that has Bitwarden's re-prompt, on a
+     * site whose settings honour it, in Pateat's chooser window (ADR 0021; owner, 2026-10-23
+     * 12:46 UTC). `verified` once the vault accepted it; `unavailable` when no window may
+     * open, as for a tab in the background or in incognito. Without it such an item never
+     * starts a login there.
+     */
+    askMasterPassword?: (input: {
+      tabId: number;
+      origin: string;
+      account: LoginAccount;
+      connection: VaultConnectionMetadata;
+      item: VaultItemMetadata;
+      signal: AbortSignal;
+    }) => Promise<"verified" | "closed" | "unavailable">;
   },
 ) {
   const { fields, sites, recipes = noLoginRecipes, uris, generation, repairs } = options;
@@ -2536,6 +2640,36 @@ export function createLoginRuntime(
    */
   const replacedTabs = new Set<number>();
   const picked = new Map<number, PickedAccount>();
+  /**
+   * A master password typed for a re-prompt item, by tab and document: the document's next
+   * login with that item starts once, within `REPROMPT_GRANT_MS`. Kept in memory only, so a
+   * restarted worker asks again.
+   */
+  const repromptGrants = new Map<string, { connectionId: string; itemId: string; at: number }>();
+  /** The login each tab's top document refused for the master password, for the popup. */
+  const repromptWaiting = new Map<
+    number,
+    { document: LoginDocument; account: LoginAccount; pick?: PickedAccount }
+  >();
+  /** Windows asking, by tab and document, so a document announcing again opens no second. */
+  const repromptAsking = new Map<string, AbortController>();
+  /**
+   * Ends the master password state of one document, or of every document of the tab: its
+   * window closes, so a document that replaced it can ask, and an unused grant goes.
+   */
+  function dropReprompt(tabId: number, documentId?: string): void {
+    const matches = (key: string) =>
+      documentId === undefined ? key.startsWith(`${tabId} `) : key === `${tabId} ${documentId}`;
+    for (const [key, controller] of repromptAsking)
+      if (matches(key)) {
+        repromptAsking.delete(key);
+        controller.abort();
+      }
+    for (const key of repromptGrants.keys()) if (matches(key)) repromptGrants.delete(key);
+    const waiting = repromptWaiting.get(tabId);
+    if (waiting && (documentId === undefined || waiting.document.documentId === documentId))
+      repromptWaiting.delete(tabId);
+  }
   const pending = new Map<number, PendingChoice>();
   /** By `recordKey`: tabs that logged out of an origin and have not picked an account yet. */
   const logouts = new Set<string>();
@@ -3197,6 +3331,87 @@ export function createLoginRuntime(
       ...(known?.refused ? { refused: clipCodes(known.refused) } : {}),
       ...(known?.generation ? { generation: clipCodes(known.generation) } : {}),
     };
+  }
+  /**
+   * Opens the chooser window for the master password of a refused login's re-prompt item,
+   * once per document at a time. Once the vault accepts it, the document announces again and
+   * its login starts with that item, as after a pick in the popup (ADR 0021 B), whose pick it
+   * keeps. The check is never cut off by the page: an aborted check would lock the vault.
+   */
+  async function askMasterPassword(
+    asking: { document: LoginDocument; account: LoginAccount; pick?: PickedAccount },
+    connection: VaultConnectionMetadata,
+    item: VaultItemMetadata,
+  ): Promise<RepromptResponse> {
+    const { document, account: login } = asking;
+    const key = `${document.tabId} ${document.documentId}`;
+    if (!options.askMasterPassword) return { ok: false, reason: "unavailable" };
+    if (repromptAsking.has(key)) return { ok: true };
+    const controller = new AbortController();
+    repromptAsking.set(key, controller);
+    let answer: "verified" | "closed" | "unavailable";
+    try {
+      answer = await options.askMasterPassword({
+        tabId: document.tabId,
+        origin: document.origin,
+        account: login,
+        connection,
+        item,
+        signal: controller.signal,
+      });
+    } catch {
+      answer = "unavailable";
+    } finally {
+      if (repromptAsking.get(key) === controller) repromptAsking.delete(key);
+    }
+    if (answer !== "verified") return { ok: false, reason: answer };
+    const live = documents.get(frameKey(document));
+    if (live?.document.documentId !== document.documentId || controller.signal.aborted)
+      return { ok: false, reason: "document-gone" };
+    // The document may have started another login meanwhile, as after a pick in the popup.
+    if (live.reason !== "master-password-reprompt") return { ok: false, reason: "not-waiting" };
+    repromptGrants.set(key, {
+      connectionId: login.connectionId,
+      itemId: login.itemId,
+      at: Date.now(),
+    });
+    if (asking.pick) {
+      picked.set(document.tabId, { ...asking.pick });
+      await quietly(saveSession);
+    }
+    try {
+      await browser.tabs.sendMessage(
+        document.tabId,
+        { version: 1, type: "login.reconnect" },
+        { frameId: document.frameId, documentId: document.documentId },
+      );
+    } catch {
+      repromptGrants.delete(key);
+      return { ok: false, reason: "document-gone" };
+    }
+    return { ok: true };
+  }
+  /** The popup's button for a tab whose login waits for the master password. */
+  async function repromptFor(tabId: number): Promise<RepromptResponse> {
+    const waiting = repromptWaiting.get(tabId);
+    const live = documents.get(frameKey({ tabId, frameId: 0 }));
+    if (
+      !waiting ||
+      live?.document.documentId !== waiting.document.documentId ||
+      live.reason !== "master-password-reprompt"
+    )
+      return { ok: false, reason: "not-waiting" };
+    const snapshot = await settings.handle({ version: 1, type: "settings.get" });
+    if (!snapshot.ok) return { ok: false, reason: "unavailable" };
+    const connection = snapshot.catalog.connections.find(
+      (entry) => entry.id === waiting.account.connectionId,
+    );
+    const item = connection?.items.find((entry) => entry.id === waiting.account.itemId);
+    if (!connection || !item) return { ok: false, reason: "unavailable" };
+    // The site may have stopped asking since.
+    if (!itemAsksForMasterPassword(snapshot.snapshot.settings, item, live.url))
+      return { ok: false, reason: "not-waiting" };
+    return askMasterPassword(waiting, connection, item);
   }
   /**
    * Restarts the refused document's login with the picked account: the document announces
@@ -5473,8 +5688,15 @@ export function createLoginRuntime(
     return undefined;
   }
   /**
+   * What the page must show beside an answer input for a field (ADR 0061): the question the
+   * owner confirmed for it, as one whole question, when there is one; else its name.
+   */
+  const askOf = (name: string, question: string | undefined): AskedQuestion =>
+    question === undefined ? { name } : { question };
+  /**
    * The login item's saved links for secret questions' answers that the device may read
-   * and the site has not refused, with their question fields' names (ADR 0061).
+   * and the site has not refused, each with what the page must show beside its input
+   * (`askOf`).
    */
   function answerSources(
     authorized: Pick<Authorized, "settings" | "catalog">,
@@ -5483,21 +5705,47 @@ export function createLoginRuntime(
     return savedDetailLinks(authorized.settings, found.owner, "secret-answer").flatMap((link) => {
       if (refusedDetails.has(refusalKey(found.owner, link.detail, link.source.field))) return [];
       const source = linkedField(authorized.settings, authorized.catalog, found.connection, link);
-      return source?.name ? [{ link, source, name: source.name }] : [];
+      return source?.name
+        ? [
+            {
+              link,
+              source,
+              ask: askOf(source.name, link.question),
+            },
+          ]
+        : [];
     });
   }
   /**
-   * Which of `sources`, each with its question field's name, is the question the page asks
-   * beside `target` (ADR 0061): the document matches the names against its own text, which
-   * never leaves it.
+   * The question the owner confirmed for the login item's answer field `fieldId`, saved
+   * with its link (ADR 0061), or none.
    */
-  async function askedSource<T extends { name: string }>(
+  function confirmedQuestion(
+    policy: Pick<LocalSettings, "detailLinks">,
+    owner: DetailOwner,
+    item: Pick<VaultItemMetadata, "fields">,
+    fieldId: string,
+  ): string | undefined {
+    return savedDetailLinks(policy, owner, "secret-answer").find(
+      (link) =>
+        link.source.itemId === owner.itemId &&
+        resolveDetailSourceField(link.source.field, item.fields) === fieldId,
+    )?.question;
+  }
+  /**
+   * Which of `sources` is the question the page asks beside `target` (ADR 0061), each by
+   * what `askOf` gives, which the document compares with its own text, which never leaves
+   * it.
+   */
+  async function askedSource<T extends { ask: AskedQuestion }>(
     live: LiveDocument,
     path: string,
     target: LoginFieldTarget,
     sources: readonly T[],
   ): Promise<T | undefined> {
-    const named = sources.filter((entry) => entry.name.length <= 200).slice(0, 100);
+    const named = sources
+      .filter(({ ask }) => ("name" in ask ? ask.name : ask.question).length <= 200)
+      .slice(0, 100);
     if (!named.length) return undefined;
     const answer = v.safeParse(
       v.object({
@@ -5508,7 +5756,7 @@ export function createLoginRuntime(
         type: "login.detail.question",
         path,
         target,
-        names: named.map((entry) => entry.name),
+        names: named.map(({ ask }) => ask),
       }).catch(() => undefined),
     );
     return answer.success && answer.output.index !== undefined
@@ -5539,7 +5787,8 @@ export function createLoginRuntime(
       Infinity,
     ).flatMap((candidate) => {
       const name = item.fields.find((entry) => entry.id === candidate.fieldId)?.name;
-      return name ? [{ fieldId: candidate.fieldId, name }] : [];
+      const question = confirmedQuestion(authorized.settings, found.owner, item, candidate.fieldId);
+      return name ? [{ fieldId: candidate.fieldId, ask: askOf(name, question) }] : [];
     });
     for (const field of handler.fields) {
       if (field.detail !== "secret-answer" || "parts" in field) continue;
@@ -5551,10 +5800,26 @@ export function createLoginRuntime(
   }
   /**
    * Keeps the `detail` handler a login stopped at for want of a link, so the popup can
-   * propose vault fields for it while the tab shows this document (ADR 0061).
+   * propose vault fields for it while the tab shows this document (ADR 0061), with the
+   * judge's pairing of each answer input with one of the item's fields, when this login's
+   * judgement of the page made one.
    */
   async function offerDetails(run: Execution, handler: DetailHandler, index: number) {
-    const asked = handler.fields.filter((field) => !manualDetails.includes(field.detail));
+    const paired = run.paired?.path === handler.path ? run.paired.questions : [];
+    const asked = handler.fields
+      .filter((field) => !manualDetails.includes(field.detail))
+      .map((field) => {
+        const pairing =
+          field.detail === "secret-answer" && !("parts" in field)
+            ? paired.find((entry) => sameLoginTarget(entry.target, field.target))
+            : undefined;
+        return pairing
+          ? {
+              ...field,
+              paired: { field: pairing.field, question: pairing.question, shown: pairing.shown },
+            }
+          : field;
+      });
     if (!asked.length) return;
     await sessionLoaded;
     detailOffers.set(run.live.document.tabId, {
@@ -5655,6 +5920,11 @@ export function createLoginRuntime(
     (detail !== "secret-answer" ||
       field === undefined ||
       sourceFieldKey(link.source.field) === sourceFieldKey(field));
+  /** Whether two of a login item's answer links hold the same confirmed question. */
+  const sameQuestion = (link: DetailLink, other: DetailLink) =>
+    link.question !== undefined &&
+    link.question === other.question &&
+    sameLink(link, other, "secret-answer");
   /**
    * Removes the links whose values a login filled once the site refused them, as when the
    * handler's page showed again or the login was rejected, so the next login asks again
@@ -5730,11 +6000,15 @@ export function createLoginRuntime(
     else pendingDetails.delete(tabId);
     await quietly(saveSession);
     if (!confirmed) return;
+    // A confirmed question replaces the link that held it, so one page's question never
+    // matches two fields.
     const written = await writeDetailLinks(run, (links) => [
       ...links.filter(
         (link) =>
-          !kept.some((entry) =>
-            sameLink(link, entry.link, entry.link.detail, entry.link.source.field),
+          !kept.some(
+            (entry) =>
+              sameLink(link, entry.link, entry.link.detail, entry.link.source.field) ||
+              sameQuestion(link, entry.link),
           ),
       ),
       ...kept.map((entry) => entry.link),
@@ -5796,7 +6070,7 @@ export function createLoginRuntime(
     authorized: Authorized,
     stepIndex: number,
   ): Promise<
-    | (Omit<DetailFillValue, "secret"> & { secret?: LoginSecretKind; question?: string })[]
+    | (Omit<DetailFillValue, "secret"> & { secret?: LoginSecretKind; question?: AskedQuestion })[]
     | "unreadable"
     | "unavailable"
     | "unfit"
@@ -5808,7 +6082,7 @@ export function createLoginRuntime(
     const found = detailOwner(run.metadata.account, authorized.catalog);
     if (!field || !found || index === undefined || handler?.kind !== "detail") return "unavailable";
     let source: { itemId: string; fieldId: string } | undefined;
-    let question: { field: DetailSourceField; name: string } | undefined;
+    let question: { field: DetailSourceField; ask: AskedQuestion } | undefined;
     if (field.detail === "secret-answer") {
       if ("parts" in field) return "unavailable";
       const asked = await askedSource(
@@ -5819,7 +6093,7 @@ export function createLoginRuntime(
       );
       if (!current(run)) return "unavailable";
       source = asked?.source;
-      question = asked && { field: asked.link.source.field, name: asked.name };
+      question = asked && { field: asked.link.source.field, ask: asked.ask };
     } else {
       const link = savedDetailLink(authorized.settings, found.owner, field.detail);
       source =
@@ -5842,7 +6116,7 @@ export function createLoginRuntime(
       if (value === undefined) return "unreadable";
       // Refused, the answer's link is removed by its question field.
       (run.answers ??= new Map()).set(index, question.field);
-      return [{ value, secret: "answer", question: question.name }];
+      return [{ value, secret: "answer", question: question.ask }];
     }
     // An answer always goes with its question. A split value is made into all its parts
     // here, right after the read (ADR 0061).
@@ -5878,21 +6152,51 @@ export function createLoginRuntime(
   function detailAccount(tabId: number, pageOrigin: string) {
     return shownOffer(tabId, pageOrigin)?.account ?? recordFor(tabId, pageOrigin)?.account;
   }
-  /** The candidate whose field's name is the question the page asks beside `target`. */
-  async function askedCandidate<T extends { itemId: string; fieldId: string }>(
+  /**
+   * Which of `candidates`, the login item's answer fields, the popup offers for an answer
+   * input (ADR 0061), with what the page must show beside it for the fill (`askOf`): the
+   * field whose name, or whose confirmed question, the page shows there; or else the field
+   * the judge paired with the input, while the page still shows the paired question there
+   * as one whole question, with that question for the owner to confirm and as the page
+   * showed it (`shown`).
+   */
+  async function answerCandidate<T extends { itemId: string; fieldId: string }>(
     live: LiveDocument,
     path: string,
-    target: LoginFieldTarget,
-    connection: VaultConnectionMetadata,
+    field: Extract<DetailOffer["fields"][number], { target: LoginFieldTarget }>,
+    found: NonNullable<ReturnType<typeof detailOwner>>,
+    policy: Pick<LocalSettings, "detailLinks">,
     candidates: readonly T[],
-  ): Promise<T | undefined> {
+  ): Promise<{ candidate: T; ask: AskedQuestion; question?: string; shown?: string } | undefined> {
+    const item = found.connection.items.find((entry) => entry.id === found.owner.itemId);
+    if (!item) return undefined;
     const named = candidates.flatMap((candidate) => {
-      const name = connection.items
-        .find((item) => item.id === candidate.itemId)
-        ?.fields.find((entry) => entry.id === candidate.fieldId)?.name;
-      return name ? [{ candidate, name }] : [];
+      const name =
+        candidate.itemId === item.id
+          ? item.fields.find((entry) => entry.id === candidate.fieldId)?.name
+          : undefined;
+      const question = name
+        ? confirmedQuestion(policy, found.owner, item, candidate.fieldId)
+        : undefined;
+      return name ? [{ candidate, ask: askOf(name, question) }] : [];
     });
-    return (await askedSource(live, path, target, named))?.candidate;
+    const asked = await askedSource(live, path, field.target, named);
+    if (asked) return { candidate: asked.candidate, ask: asked.ask };
+    const { paired } = field;
+    const pairing =
+      paired &&
+      named.find((entry) => {
+        const reference = customFieldReference(item.fields, entry.candidate.fieldId);
+        return reference && sourceFieldKey(reference) === sourceFieldKey(paired.field);
+      });
+    if (!paired || !pairing) return undefined;
+    // Nothing fuzzy: the question the judge copied must be one whole question beside the
+    // input, never a part of one, such as its label.
+    const ask = { question: paired.question };
+    const shown = await askedSource(live, path, field.target, [{ ask }]);
+    return shown
+      ? { candidate: pairing.candidate, ask, question: paired.question, shown: paired.shown }
+      : undefined;
   }
   /**
    * What the popup shows about a page's personal details (ADR 0061): the handler the tab's
@@ -5923,14 +6227,18 @@ export function createLoginRuntime(
         loginItemId: found.owner.itemId,
       });
       // A secret question's answer is offered only from the field named as the page's
-      // question, which the document finds.
+      // question, or confirmed for it, which the document finds; or from the field the
+      // judge paired with it, with the question for the owner to confirm.
+      let question: string | undefined;
       if (field.detail === "secret-answer") {
         const asked =
           live &&
           !("parts" in field) &&
           // eslint-disable-next-line no-await-in-loop
-          (await askedCandidate(live, offer!.path, field.target, found.connection, candidates));
-        candidates = asked ? [asked] : [];
+          (await answerCandidate(live, offer!.path, field, found, policy, candidates));
+        candidates = asked ? [asked.candidate] : [];
+        // The popup shows the question as the page showed it.
+        question = asked ? asked.shown : undefined;
       }
       // A split birth date is named as the one input it reads as (ADR 0061).
       const format = detailFieldFormat(field);
@@ -5941,6 +6249,7 @@ export function createLoginRuntime(
           candidates: candidates as [(typeof candidates)[number], ...typeof candidates],
           // A member ID's fields' names say little, so none is chosen for the owner.
           ...(field.detail === "member-id" ? { preselect: false as const } : {}),
+          ...(question ? { question } : {}),
         });
     }
     const kept = pendingDetails.get(tabId) ?? [];
@@ -6041,19 +6350,16 @@ export function createLoginRuntime(
       (entry) => entry.itemId === request.itemId && entry.fieldId === request.fieldId,
     );
     if (!chosen) return { ok: false, reason: "not-a-candidate" };
-    // A secret question's answer goes only under the page's own question.
-    const question =
-      field.detail === "secret-answer"
-        ? found.connection.items
-            .find((entry) => entry.id === request.itemId)
-            ?.fields.find((entry) => entry.id === request.fieldId)?.name
+    // A secret question's answer goes only under the page's own question: its field's name
+    // or the question confirmed for it, or, confirmed by this Fill, the question the judge
+    // paired with the field (ADR 0061).
+    const answer =
+      field.detail === "secret-answer" && !("parts" in field)
+        ? await answerCandidate(live, offer.path, field, found, snapshot.snapshot.settings, [
+            chosen,
+          ])
         : undefined;
-    if (
-      field.detail === "secret-answer" &&
-      (!question ||
-        "parts" in field ||
-        !(await askedCandidate(live, offer.path, field.target, found.connection, [chosen])))
-    )
+    if (field.detail === "secret-answer" && !answer)
       return { ok: false, reason: "not-a-candidate" };
     const item = found.connection.items.find((entry) => entry.id === request.itemId);
     const reference = request.fieldId.startsWith("custom.")
@@ -6107,10 +6413,10 @@ export function createLoginRuntime(
     // included, is made here right after the read.
     const values =
       field.detail === "secret-answer" && !("parts" in field)
-        ? ((answer) =>
-            answer === undefined
+        ? ((value) =>
+            value === undefined || !answer
               ? undefined
-              : [{ value: answer, secret: "answer" as const, question: question! }])(
+              : [{ value, secret: "answer" as const, question: answer.ask }])(
             detailValue(field.detail, field.format, read[0]),
           )
         : detailFieldValues(field, read[0], read[1]);
@@ -6136,6 +6442,8 @@ export function createLoginRuntime(
       ...found.owner,
       detail: field.detail,
       source: { itemId: request.itemId, field: source.output },
+      // The owner confirmed the judge's pairing: later logins look for the stored question.
+      ...(answer?.question ? { question: answer.question } : {}),
     };
     pendingDetails.set(request.tabId, [
       // One link per handler: a second Fill, as after choosing another radio, replaces
@@ -6144,6 +6452,7 @@ export function createLoginRuntime(
       ...(pendingDetails.get(request.tabId) ?? []).filter(
         (entry) =>
           !sameLink(entry.link, found.owner, field.detail, link.source.field) &&
+          !sameQuestion(entry.link, link) &&
           !(
             entry.attemptId === offer.attemptId &&
             entry.handler === offer.handler &&
@@ -6577,9 +6886,12 @@ export function createLoginRuntime(
   /**
    * The usernames hidden from a judged page: those of the items that match it, as for a
    * page sent for generation, and the login's own account's even when it does not match
-   * the page's URL. `undefined` when one cannot be read.
+   * the page's URL, with the shape of the login's own (`usernameShape`) for the judge's
+   * slots, so it is read once. `undefined` when one cannot be read.
    */
-  async function judgedUsernames(run: Execution): Promise<string[] | undefined> {
+  async function judgedUsernames(
+    run: Execution,
+  ): Promise<{ usernames: string[]; shape: ValueShape | undefined } | undefined> {
     const { connectionId, itemId } = run.metadata.account;
     const scope = await generationSlotsFor(run.live).catch(() => undefined);
     let reads = scope ? usernameReads(scope) : [];
@@ -6598,7 +6910,20 @@ export function createLoginRuntime(
         ...usernameReads({ items: [{ connection, item }], settings: snapshot.snapshot.settings }),
       ];
     }
-    return readUsernames(run.live.document.origin, reads);
+    const own = (read: (typeof reads)[number]) =>
+      read.connection.id === connectionId && read.itemId === itemId;
+    const mine = await readUsernames(run.live.document.origin, reads.filter(own));
+    if (!mine) return undefined;
+    const shape = usernameShape({ complete: true }, mine);
+    const others = await readUsernames(
+      run.live.document.origin,
+      reads.filter((read) => !own(read)),
+    );
+    if (!others) {
+      mine.fill("");
+      return undefined;
+    }
+    return { usernames: [...mine, ...others], shape };
   }
   /**
    * The page's description for the judge, on `path`, with the usernames of the items that
@@ -6609,7 +6934,12 @@ export function createLoginRuntime(
     run: Execution,
     path: string,
   ): Promise<
-    | { observation: LoginObservation; disabledLeftOut: boolean; inputLeftOut: boolean }
+    | {
+        observation: LoginObservation;
+        disabledLeftOut: boolean;
+        inputLeftOut: boolean;
+        usernameShape?: ValueShape;
+      }
     | { unsent: string }
     | undefined
   > {
@@ -6650,10 +6980,15 @@ export function createLoginRuntime(
     // A judged page can show the identifier just entered: the usernames of the items that
     // match it, and the login's own, are hidden first.
     const usernames = await judgedUsernames(run).catch(() => undefined);
-    const hidden = hideUsernames(observation, usernames, run.live);
+    const hidden = hideUsernames(observation, usernames?.usernames, run.live);
     if (!current(run)) return undefined;
     if ("reason" in hidden) return { unsent: hidden.reason };
-    return { observation: hidden.observation, disabledLeftOut, inputLeftOut };
+    return {
+      observation: hidden.observation,
+      disabledLeftOut,
+      inputLeftOut,
+      ...(usernames?.shape ? { usernameShape: usernames.shape } : {}),
+    };
   }
   /**
    * Sends the page a login ended on, once its recipe's signed-in marker completed it with no
@@ -6714,7 +7049,9 @@ export function createLoginRuntime(
         : undefined;
     };
     /** The page as the judge would get it, while it is still the one the login ended on. */
-    const describe = async (): Promise<{ observation: LoginObservation } | { unsent: string }> => {
+    const describe = async (): Promise<
+      { observation: LoginObservation; slots: SemanticSlot[] } | { unsent: string }
+    > => {
       const ended = () =>
         current(run) && run.metadata.id === metadata.id && run.metadata.state === "authenticated";
       if (!ended()) return { unsent: "page-changed" };
@@ -6725,7 +7062,12 @@ export function createLoginRuntime(
       if (!described || !ended()) return { unsent: "page-changed" };
       if ("unsent" in described) return described;
       if (described.disabledLeftOut) return { unsent: "disabled-left-out" };
-      return { observation: described.observation };
+      // The account's slots, as the judge request would carry them (owner 2026-10-23).
+      const judged = await judgeSlots(live.document.origin, metadata.account, metadata.route, {
+        usernameShape: described.usernameShape,
+      });
+      if (!ended()) return { unsent: "page-changed" };
+      return { observation: described.observation, slots: judged.slots };
     };
     void sample(
       {
@@ -6850,7 +7192,7 @@ export function createLoginRuntime(
     if (!described) return true;
     // A page that cannot be described completely is not sent and does not count.
     if ("unsent" in described) return notSent(besideCandidate ? "sign-in-shown" : described.unsent);
-    const { observation, disabledLeftOut, inputLeftOut } = described;
+    const { observation, disabledLeftOut, inputLeftOut, usernameShape: shape } = described;
     // The sign-in form beside another form with a text-like input and its own button, on a
     // path without a `detail` handler, as the service checks (ADR 0061); otherwise the page
     // is still the sign-in page.
@@ -6865,6 +7207,11 @@ export function createLoginRuntime(
     await change(run, { type: "JUDGING", operationId });
     if (!current(run)) return true;
     if (pagesLeft(run.metadata, operationId) !== left - 1) return false;
+    // The account's slots go with the page, as with a generation request (owner 2026-10-23).
+    const judged = await judgeSlots(run.live.document.origin, metadata.account, metadata.route, {
+      usernameShape: shape,
+    });
+    if (!current(run)) return true;
     const watchedPage = run.metadata.watch !== undefined;
     // The answer's timing, once it came (ADR 0019).
     let timed: { timing?: ServiceTiming } = {};
@@ -6891,23 +7238,17 @@ export function createLoginRuntime(
         ...(beside ? { beside: true as const } : {}),
         ...timed,
       });
-    // The login's layout and chooser branch (ADR 0060), whether the description left a
-    // disabled field out (ADR 0029), and whether the page is beside the sign-in form (ADR
-    // 0061); each is passed only when there is one.
+    // The login's layout and chooser branch (ADR 0060), and whether the description left a
+    // disabled field out (ADR 0029). The account's slots go after them, and `beside` only
+    // for a page beside the sign-in form (ADR 0061).
     const branch = branchOf(metadata);
-    const judgedTail: [(string | undefined)?, (true | undefined)?, undefined?, true?] = beside
-      ? [branch, disabledLeftOut ? true : undefined, undefined, true]
-      : disabledLeftOut
-        ? [branch, true]
-        : branch
-          ? [branch]
-          : [];
     const spin = spinning(run.live.document.tabId);
     const asked = Date.now();
     const {
       verdict,
       reason,
       recipe: added,
+      questions,
       timing,
     } = await generation
       .judge(
@@ -6919,9 +7260,18 @@ export function createLoginRuntime(
         metadata.route === "passkey" && passkeyAnswersRequest(recipe) ? "password" : metadata.route,
         observation,
         spin.sent(() => reportJudge("sent")),
-        ...judgedTail,
+        branch,
+        disabledLeftOut ? true : undefined,
+        undefined,
+        judged.slots,
+        ...(beside ? [true as const] : []),
       )
       .finally(spin.stop);
+    // The judge's pairings of the page's secret questions with the account's fields, kept
+    // for the popup to propose, never to fill from (ADR 0061).
+    const paired = pairedQuestions(remaining.path, questions, judged.offers);
+    if (paired) run.paired = paired;
+    else delete run.paired;
     spend(metadata.id, Date.now() - asked, timing);
     if (timing) timed = { timing };
     if (!current(run)) {
@@ -8092,7 +8442,7 @@ export function createLoginRuntime(
         slot: string;
         value: string;
         secret?: LoginSecretKind;
-        question?: string;
+        question?: AskedQuestion;
         group?: number;
         part?: DatePart;
         shortYear?: true;
@@ -9429,6 +9779,71 @@ export function createLoginRuntime(
     }
     return slots;
   }
+  /**
+   * The login account's slots for the judge (owner 2026-10-23: the same information goes to
+   * every model call unless there is a sound reason), built as a generation request's are
+   * but from the login's own item only: the built-in fields it can fill, one slot per
+   * custom field it allows by name, the username's shape and the Text fields' shapes (ADR
+   * 0010, ADR 0027). Never a value, an item name or a binding. `offers` names each custom
+   * slot's field. None while the item cannot be read or may not be used. On the `passkey`
+   * route, which reads no vault value (ADR 0027), the slots carry no shapes (`route`).
+   * `known` gives the username's shape from a read the caller already made.
+   */
+  async function judgeSlots(
+    pageOrigin: string,
+    login: Pick<LoginAccount, "connectionId" | "itemId">,
+    route: LoginRoute | undefined,
+    known?: { usernameShape: ValueShape | undefined },
+  ): Promise<{ slots: SemanticSlot[]; offers: CustomFieldOffer[] }> {
+    const none = { slots: [], offers: [] };
+    const snapshot = await settings
+      .handle({ version: 1, type: "settings.get" })
+      .catch(() => undefined);
+    if (!snapshot?.ok) return none;
+    const policy = snapshot.snapshot.settings;
+    const connection = snapshot.catalog.connections.find(
+      (entry) => entry.id === login.connectionId,
+    );
+    const item = connection?.items.find((entry) => entry.id === login.itemId);
+    const eligibility =
+      connection && item
+        ? getItemEligibility(policy, snapshot.catalog, connection.id, item.id)
+        : undefined;
+    if (!connection || !item || !eligibility?.eligible) return none;
+    const scope: GenerationScope = {
+      slots: generationSlots
+        .filter(({ fieldId }) =>
+          offersGenerationField(policy, { connectionId: connection.id, item }, fieldId),
+        )
+        .map(({ slot }) => slot),
+      offers: customFieldOffers([
+        { connectionId: connection.id, item, allowedFieldIds: eligibility.fieldIds },
+      ]),
+      items: [{ connection, item }],
+      settings: policy,
+      complete: true,
+    };
+    const plain = () => scope.offers.map((offer) => offer.slot);
+    if (route === "passkey") return { slots: [...scope.slots, ...plain()], offers: scope.offers };
+    let shape = known?.usernameShape;
+    if (!known) {
+      const usernames = await readUsernames(pageOrigin, usernameReads(scope)).catch(
+        () => undefined,
+      );
+      shape = usernames && usernameShape(scope, usernames);
+      usernames?.fill("");
+    }
+    const custom = await customSlots(pageOrigin, scope).catch(plain);
+    return {
+      slots: [
+        ...scope.slots.map((slot) =>
+          slot.id === "username" && shape ? { ...slot, valueShape: shape } : slot,
+        ),
+        ...custom,
+      ],
+      offers: scope.offers,
+    };
+  }
   /** Logs once per document and reason why it was not sent for generation. */
   function skipGeneration(
     live: LiveDocument,
@@ -10493,6 +10908,7 @@ export function createLoginRuntime(
         ? { entryRefusals: oldLive.entryRefusals }
         : {}),
     };
+    if (oldLive && !sameDocument) dropReprompt(oldLive.document.tabId, oldLive.document.documentId);
     documents.set(key, live);
     // The tab's next page after a page Pateat does not fill (ADR 0035).
     const earlier = confirmVisits.get(document.tabId);
@@ -11864,6 +12280,44 @@ export function createLoginRuntime(
         showHeld(document.tabId);
         return refuse("origin-busy");
       }
+      // An item with Bitwarden's re-prompt starts a login on a site that honours it only
+      // after its master password was typed for this document; until then the page is
+      // neither filled nor pressed, and the chooser window asks (owner, 2026-10-23 12:46 UTC).
+      // Its username may already have been read to match the page's accounts, as Bitwarden
+      // shows usernames without asking.
+      // The started login goes on across its pages, and answers the site's passkey request
+      // with that item (ADR 0027), without asking again.
+      const connection = snapshot.catalog.connections.find(
+        (entry) => entry.id === plan.account.connectionId,
+      );
+      const item = connection?.items.find((entry) => entry.id === plan.account.itemId);
+      if (connection && itemAsksForMasterPassword(snapshot.snapshot.settings, item, live.url)) {
+        const grantKey = `${document.tabId} ${document.documentId}`;
+        const grant = repromptGrants.get(grantKey);
+        if (
+          grant?.connectionId === plan.account.connectionId &&
+          grant.itemId === plan.account.itemId &&
+          Date.now() - grant.at <= REPROMPT_GRANT_MS
+        ) {
+          repromptGrants.delete(grantKey);
+          if (document.frameId === 0) repromptWaiting.delete(document.tabId);
+        } else {
+          const awaiting = {
+            document,
+            account: {
+              origin: document.origin,
+              connectionId: plan.account.connectionId,
+              itemId: plan.account.itemId,
+            },
+            ...(picked.get(document.tabId)?.documentId === document.documentId
+              ? { pick: { ...picked.get(document.tabId)! } }
+              : {}),
+          };
+          if (document.frameId === 0) repromptWaiting.set(document.tabId, awaiting);
+          void askMasterPassword(awaiting, connection, item!);
+          return refuse("master-password-reprompt");
+        }
+      }
     }
     if (!previous && persisted.size >= 100) return refuse("attempt-limit");
     // Another document of the tab, such as a frame, may have started an attempt while this
@@ -12823,6 +13277,8 @@ export function createLoginRuntime(
       if (fill.success) return popupDetailFill(fill.output);
       const remove = v.safeParse(detailRemoveRequestSchema, message);
       if (remove.success) return popupDetailRemove(remove.output.tabId, remove.output.detail);
+      const reprompt = v.safeParse(repromptRequestSchema, message);
+      if (reprompt.success) return repromptFor(reprompt.output.tabId);
       return undefined;
     }
     if (v.safeParse(logoutClickedSchema, message).success) {
@@ -13118,6 +13574,7 @@ export function createLoginRuntime(
   function forgetTab(tabId: number): void {
     const visit = confirmVisits.get(tabId);
     if (visit) leaveConfirm(visit);
+    dropReprompt(tabId);
     passwordSubmits.delete(tabId);
     passwordFills.delete(tabId);
     afterSignIn.delete(tabId);
@@ -13486,6 +13943,8 @@ export function createLoginRuntime(
       reportJudge("not-sent", unsent);
       return false;
     }
+    // The login's own username's shape, for the judge's slots, from the value already read.
+    const shape = usernameShape({ complete: true }, username ? [username] : []);
     // The usernames of the items that match the page are hidden too, as for any judged page.
     const scope = await generationSlotsFor(live).catch(() => undefined);
     const others = await readUsernames(
@@ -13503,6 +13962,11 @@ export function createLoginRuntime(
       reportJudge("not-sent", hidden.reason);
       return false;
     }
+    // The account's slots go with the page, as for every judged page (owner 2026-10-23).
+    const judged = await judgeSlots(document.origin, record.account, record.route, {
+      usernameShape: shape,
+    });
+    if (stale()) return false;
     const spin = spinning(document.tabId);
     const asked = Date.now();
     const { verdict, reason, timing } = await generation
@@ -13515,7 +13979,9 @@ export function createLoginRuntime(
         // A description that left out a disabled field says so (ADR 0029); only `signed-in`
         // completes a moved login then.
         branchOf(record),
-        ...(disabledLeftOut ? [true as const] : []),
+        disabledLeftOut ? true : undefined,
+        undefined,
+        judged.slots,
       )
       .finally(spin.stop);
     spend(record.id, Date.now() - asked, timing);
@@ -14395,10 +14861,19 @@ export function createLoginRuntime(
     if (!described) return true;
     if ("unsent" in described) return notSent(described.unsent);
     if (!stopped()) return false;
-    const { observation, disabledLeftOut } = described;
+    const { observation, disabledLeftOut, usernameShape: shape } = described;
     await change(run, judging);
     if (!current(run)) return true;
     if (!stopped() || run.metadata.stopJudged !== true) return false;
+    // The account's slots go with the page, as for every judged page (owner 2026-10-23).
+    const judged = await judgeSlots(
+      run.live.document.origin,
+      run.metadata.account,
+      run.metadata.route,
+      { usernameShape: shape },
+    );
+    if (!current(run)) return true;
+    if (!stopped()) return false;
     const { recipe } = run;
     // The answer's timing, once it came (ADR 0019).
     let timed: { timing?: ServiceTiming } = {};
@@ -14436,6 +14911,7 @@ export function createLoginRuntime(
         branchOf(run.metadata),
         disabledLeftOut ? true : undefined,
         true,
+        judged.slots,
       )
       .finally(spin.stop);
     spend(run.metadata.id, Date.now() - asked, timing);
