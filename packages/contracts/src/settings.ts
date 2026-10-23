@@ -267,10 +267,42 @@ export const localSettingsSchema = v.pipe(
   }),
 );
 
+/**
+ * What wrote a settings revision, so a save that meets a revision conflict can say why
+ * (ADR 0025). Only the settings page and the toolbar popup send `settings.save`.
+ */
+export const SETTINGS_CHANGE_CAUSES = [
+  /** A save from a settings page or the toolbar popup. */
+  "settings-save",
+  /** A new vault connection's policy entry. */
+  "vault-added",
+  /** A vault snapshot adopted after a password sign-in or the **Sync** button. */
+  "vault-sync",
+  /** A vault snapshot adopted by an automatic check (ADR 0025). */
+  "automatic-vault-sync",
+  /** A custom-field review (ADR 0023). */
+  "field-review",
+  /** Settings merged from the Pateat service. */
+  "service-sync",
+  /** An account used on a site, from a login or a passkey request, saved for it (ADR 0021). */
+  "account-choice",
+  /** A vault field linked to a personal detail on a site, or that link removed (ADR 0061). */
+  "detail-link",
+] as const;
+export const settingsChangeCauseSchema = v.picklist(SETTINGS_CHANGE_CAUSES);
+/** The most recent revisions whose cause the snapshot keeps. */
+export const SETTINGS_CHANGE_HISTORY = 16;
 export const settingsSnapshotSchema = v.strictObject({
   version: v.literal(1),
   revision,
   settings: localSettingsSchema,
+  /** The cause of each of the last revisions, oldest first; it holds no setting value. */
+  changes: v.optional(
+    v.pipe(
+      v.array(v.strictObject({ revision, cause: settingsChangeCauseSchema })),
+      v.maxLength(SETTINGS_CHANGE_HISTORY),
+    ),
+  ),
   fieldPolicies: v.optional(
     v.pipe(
       v.array(
@@ -355,6 +387,16 @@ export const settingsErrorSchema = v.strictObject({
     "revision-conflict",
   ]),
   message: v.string(),
+  /**
+   * With `revision-conflict`: the distinct causes of the revisions written since the
+   * expected one, oldest first, and `unknown` when the snapshot no longer records one.
+   */
+  causes: v.optional(
+    v.pipe(
+      v.array(v.picklist([...SETTINGS_CHANGE_CAUSES, "unknown"])),
+      v.maxLength(SETTINGS_CHANGE_CAUSES.length + 1),
+    ),
+  ),
 });
 export const settingsResponseSchema = v.variant("ok", [
   v.strictObject({
@@ -373,6 +415,8 @@ export type SettingsSnapshot = v.InferOutput<typeof settingsSnapshotSchema>;
 export type SettingsRequest = v.InferOutput<typeof settingsRequestSchema>;
 export type SettingsResponse = v.InferOutput<typeof settingsResponseSchema>;
 export type SettingsError = v.InferOutput<typeof settingsErrorSchema>;
+export type SettingsChangeCause = v.InferOutput<typeof settingsChangeCauseSchema>;
+export type SettingsConflictCause = NonNullable<SettingsError["causes"]>[number];
 export type VaultCatalog = v.InferOutput<typeof vaultCatalogSchema>;
 export type VaultFieldReference = v.InferOutput<typeof vaultFieldReferenceSchema>;
 export type SavedLoginBinding = v.InferOutput<typeof savedLoginBindingSchema>;

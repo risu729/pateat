@@ -1,4 +1,5 @@
 import { birthDateFormatSchema, loginDetailSchema, type LoginDetail } from "@pateat/contracts";
+import type { TFunction } from "i18next";
 import * as v from "valibot";
 
 const id = v.pipe(v.string(), v.minLength(1), v.maxLength(120));
@@ -119,32 +120,33 @@ export type DetailFillRequest = Omit<
 export type DetailFillResponse = v.InferOutput<typeof detailFillResponseSchema>;
 export type DetailRemoveResponse = v.InferOutput<typeof detailRemoveResponseSchema>;
 
-/** What each detail is, as the popup says it (ADR 0061). */
-export function detailName(detail: LoginDetail, format?: string): string {
+/** What each detail is, as the popup says it (ADR 0061), in the UI language. */
+export function detailName(detail: LoginDetail, t: TFunction, format?: string): string {
   if (detail === "birth-date")
     return format === "yyyymm"
-      ? "your birth year and month"
+      ? t("your birth year and month")
       : format === "mmdd"
-        ? "your birth month and day"
-        : "your birth date";
+        ? t("your birth month and day")
+        : t("your birth date");
   return {
-    "phone-last-4": "the last 4 digits of your phone number",
-    "card-last-4": "the last 4 digits of your card number",
-    "card-code": "your card's security code",
-  }[detail];
+    "phone-last-4": () => t("the last 4 digits of your phone number"),
+    "card-last-4": () => t("the last 4 digits of your card number"),
+    "card-code": () => t("your card's security code"),
+  }[detail]();
 }
 
 /** The popup's message for a **Fill** that filled nothing. */
 export function detailFillFailure(
   reason: Extract<DetailFillResponse, { ok: false }>["reason"],
+  t: TFunction,
 ): string {
   return {
-    "document-gone": "The page changed, so nothing was filled.",
-    "not-a-candidate": "This page no longer asks for it.",
-    unreadable: "That field does not hold a value Pateat can use here.",
-    unavailable: "Pateat cannot read that field now. Unlock the vault and try again.",
-    "not-filled": "The page did not accept the value.",
-  }[reason];
+    "document-gone": () => t("The page changed, so nothing was filled."),
+    "not-a-candidate": () => t("This page no longer asks for it."),
+    unreadable: () => t("That field does not hold a value Pateat can use here."),
+    unavailable: () => t("Pateat cannot read that field now. Unlock the vault and try again."),
+    "not-filled": () => t("The page did not accept the value."),
+  }[reason]();
 }
 
 /** What the popup may ask the background about a page's personal details (ADR 0061). */

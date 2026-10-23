@@ -36,6 +36,7 @@ export const OWNER_TABLES = [
   "login_outcomes",
   "login_timings",
   "inference_credentials",
+  "inference_model_configs",
   "devices",
   "owner_identities",
 ] as const;
@@ -89,6 +90,7 @@ function recipeDocument(id: string, revision: number) {
     id,
     revision,
     origin: "https://smoke.pateat.invalid",
+    pageKind: "sign-in",
     slots: ["username", "password"],
     steps: [
       {
