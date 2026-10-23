@@ -125,6 +125,48 @@ describe("extractLoginObservation", () => {
     expect(result.ok && result.observation.language).toBe("en");
   });
 
+  it("leaves out a field both faint and disabled, which takes no input", () => {
+    // SBI新生銀行's login form (2026-10-23): a disabled text and password pair at opacity
+    // 0, 12 pixels square, before the real fields.
+    const decoys = (style: string) =>
+      `<input name="dummy_text" disabled style="${style}">` +
+      `<input name="dummy_password" type="password" disabled style="${style}">`;
+    const form = (extra: string) =>
+      `<form id="f">${extra}<input id="u"><input id="p" type="password"><button id="go">Log in</button></form>`;
+    for (const style of [
+      "position:absolute;width:12px;height:12px;opacity:0",
+      "width:1px;height:1px;padding:0;border:0",
+    ]) {
+      page(form(decoys(style)));
+      expect(observe().complete, style).toBe(true);
+      expect(
+        summary(observe()).map((entry) => entry.target.value),
+        style,
+      ).toEqual(["u", "p", "go"]);
+      // The page after a sign-in still reads such a field, which may be a code field
+      // waiting for a timer: the disabled password pair still makes it incomplete.
+      page(`<button id="logout">Sign out</button>${form(decoys(style))}`);
+      const signedIn = extractSignedInObservation();
+      expect(signedIn.ok && [signedIn.observation.complete, signedIn.gap], style).toEqual([
+        false,
+        "unfillable-field",
+      ]);
+    }
+    // Faint alone, disabled alone, or faint and read-only, still cannot be filled.
+    for (const extra of [
+      `<input id="pin" style="opacity:0">`,
+      `<input id="pin" type="password" disabled>`,
+      `<input id="pin" style="opacity:0" readonly>`,
+    ]) {
+      page(form(extra));
+      const result = extractLoginObservation();
+      expect(result.ok && [result.observation.complete, result.gap], extra).toEqual([
+        false,
+        "unfillable-field",
+      ]);
+    }
+  });
+
   it("skips hidden, off-page, disabled and read-only fields but keeps disabled buttons", () => {
     page(
       `<form id="f">
