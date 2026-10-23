@@ -133,7 +133,7 @@ export default defineBackground(() => {
   const vaultTimeout = createVaultTimeout({
     setting: vaultTimeoutSetting,
     activity: sessionValue(VAULT_ACTIVITY_KEY),
-    timeOut: (action, connectionIds) => connections.timeOut(action, connectionIds),
+    timeOut: (action, connectionIds, retry) => connections.timeOut(action, connectionIds, retry),
     keepKeys: (retention) => connections.keepKeys(retention),
     schedule: async (when) => {
       if (when === undefined) await browser.alarms.clear(VAULT_TIMEOUT_ALARM);

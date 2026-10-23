@@ -565,18 +565,24 @@ describe("vault timeout and lock (ADR 0075)", () => {
   });
 
   describe("settings-page requests", () => {
+    /**
+     * A settings page whose requests settle on their own reply. A request the test never
+     * lets finish stays pending instead of failing after the test has ended.
+     */
     function port() {
+      const waiting = new Map<string, (result: unknown) => void>();
       const sent = settingsPort(() => undefined);
+      sent.postMessage.mockImplementation(((reply: { requestId: string; result: unknown }) => {
+        waiting.get(reply.requestId)?.(reply.result);
+        waiting.delete(reply.requestId);
+      }) as () => void);
       return {
         ...sent,
-        async request(message: Record<string, unknown>) {
+        request(message: Record<string, unknown>) {
           const requestId = crypto.randomUUID();
-          const before = sent.postMessage.mock.calls.length;
+          const result = new Promise<unknown>((resolve) => waiting.set(requestId, resolve));
           sent.send({ requestId, ...message });
-          await vi.waitFor(() =>
-            expect(sent.postMessage.mock.calls.length).toBeGreaterThan(before),
-          );
-          return (sent.postMessage.mock.calls.at(-1) as unknown as [{ result: unknown }])[0].result;
+          return result;
         },
       };
     }

@@ -276,16 +276,16 @@ with the same two sessions per connection. Past 5 connections the options page w
 that the official extension allows 5 accounts and that each unlocked vault uses more
 memory ([differences](bitwarden-differences.md#connections-and-key-derivation)). The
 vault manager forgets a live session the host has ended (a timeout, cancellation, Worker
-failure or a lost offscreen document), so while the vault is unlocked the next
-vault read restores it from the key kept on disk or in the browser session instead of
-failing until the service worker restarts; a locked vault's restore fails `vault-locked`,
-and a logged-out one's `auto-unlock-disabled`
-([ADR 0075](adr/0075-vault-lock-and-timeout.md)). The initial caller
-remains a synthetic compatibility probe. Durable cache, retained unlock material and
-production connection setup are separate gates. Opening a new snapshot does not itself
-accept it or retire older sessions. The future cache manager must explicitly retire
-superseded handles and invalidate affected policy/recipe references before accepting a
-replacement snapshot for credential release.
+failure or a lost offscreen document), so while the vault is unlocked the next vault
+read restores it from the key kept on disk or in the browser session instead of failing
+until the service worker restarts; a locked vault's restore fails `vault-locked`, and a
+logged-out one's `auto-unlock-disabled`
+([ADR 0075](adr/0075-vault-lock-and-timeout.md)). The initial caller remains a synthetic
+compatibility probe. Durable cache, retained unlock material and production connection
+setup are separate gates. Opening a new snapshot does not itself accept it or retire
+older sessions. The future cache manager must explicitly retire superseded handles and
+invalidate affected policy/recipe references before accepting a replacement snapshot for
+credential release.
 
 Design later personal API key, SSO, device approval and Bitwarden passkey login
 flows without assuming every user has a master password. Authentication and
