@@ -23,7 +23,7 @@ const maxOutputTokens = 1_024;
 // Charged for each call whose usage was not reported, so the cap still holds. Treats
 // every input byte as a token, which overstates real token counts.
 const worstCaseCallUsd = (rates: ClaudeRates) => {
-  const { input, output } = claudeWorstCaseRates(rates);
+  const { input, output } = claudeWorstCaseRates(rates, limits.maxInputBytes);
   return (limits.maxInputBytes * input + maxOutputTokens * output) / 1_000_000;
 };
 const maxCallsPerCase = limits.maxRetries + 1;

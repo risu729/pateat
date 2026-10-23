@@ -70,7 +70,7 @@ export const CLAUDE_CALL_LIMITS = {
  * bound: a request holds at most `maxInputBytes` tokens.
  */
 const reservedMicroUsd = ({ rates }: ClaudeModelChoice) => {
-  const { input, output } = claudeWorstCaseRates(rates);
+  const { input, output } = claudeWorstCaseRates(rates, ROLE_LIMITS.maxInputBytes);
   return ROLE_LIMITS.maxInputBytes * input + MAX_OUTPUT_TOKENS * output;
 };
 

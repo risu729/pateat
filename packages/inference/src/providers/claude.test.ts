@@ -187,7 +187,9 @@ describe("Claude generation adapter", () => {
     expect(estimateClaudeCostUsd({ inputTokens: 100_001, outputTokens: 0 }, haiku)).toBeCloseTo(
       0.05,
     );
-    expect(claudeWorstCaseRates(haiku)).toEqual({ input: 0.5, output: 2.5 });
+    // The roles' 64 KiB input bound keeps every prompt below the threshold.
+    expect(claudeWorstCaseRates(haiku, 64 * 1024)).toEqual({ input: 0.1, output: 0.5 });
+    expect(claudeWorstCaseRates(haiku, 200_000)).toEqual({ input: 0.5, output: 2.5 });
   });
 
   it("prices the service's models from the committed pricing page", () => {

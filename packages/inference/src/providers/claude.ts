@@ -54,12 +54,16 @@ export const claudeRefusalFallback = {
   rates: publishedRates("claude-sonnet-5-5"),
 } as const;
 
-/** The highest per-token rates a call can be charged, for spend bounds. */
-export function claudeWorstCaseRates(rates: ClaudeRates): ClaudeTokenRates {
-  return {
-    input: Math.max(rates.input, rates.longPrompt?.input ?? 0),
-    output: Math.max(rates.output, rates.longPrompt?.output ?? 0),
-  };
+/**
+ * The highest per-token rates a call of at most `maxInputTokens` prompt tokens can be
+ * charged, for spend bounds: long-prompt rates only when such a prompt can exceed their
+ * threshold.
+ */
+export function claudeWorstCaseRates(rates: ClaudeRates, maxInputTokens: number): ClaudeTokenRates {
+  const { longPrompt } = rates;
+  return longPrompt !== undefined && maxInputTokens > longPrompt.overInputTokens
+    ? { input: longPrompt.input, output: longPrompt.output }
+    : { input: rates.input, output: rates.output };
 }
 
 export const claudeEfforts = ["low", "medium", "high", "xhigh", "max"] as const;

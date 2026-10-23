@@ -15,6 +15,8 @@ defaults:
 jobs:
   refresh:
     name: Refresh Claude rates
+    # The proposal targets main, so it starts only from main.
+    if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
@@ -42,29 +44,36 @@ jobs:
           FILE: packages/inference/src/providers/claude-pricing.json
         run: |
           set -euo pipefail
+          open_pr=$(gh pr list -R "${REPO}" --head "${BRANCH}" --base main --state open --json number --jq '.[0].number // empty')
           if git diff --quiet -- "${FILE}"; then
             echo "The rates are unchanged."
+            # The page went back to main's rates: the open proposal is stale.
+            if [[ -n "${open_pr}" ]]; then
+              gh pr close -R "${REPO}" "${open_pr}" --delete-branch \
+                --comment "The pricing page lists main's rates again."
+            fi
             exit 0
           fi
           git diff -- "${FILE}"
-          # An open proposal that already carries these rates needs nothing more.
-          if current=$(gh api "repos/${REPO}/contents/${FILE}?ref=${BRANCH}" --jq .content 2>/dev/null) &&
-            base64 -d <<<"${current}" | cmp -s - "${FILE}"; then
-            echo "The open proposal already carries these rates."
-            exit 0
-          fi
-          # Restart the branch from this main commit. The contents API commits as the
-          # Actions bot, and GitHub signs that commit.
-          if gh api "repos/${REPO}/git/ref/heads/${BRANCH}" >/dev/null 2>&1; then
+          if [[ -n "${open_pr}" ]]; then
+            current=$(gh api "repos/${REPO}/contents/${FILE}?ref=${BRANCH}" --jq .content)
+            if base64 -d <<<"${current}" | cmp -s - "${FILE}"; then
+              echo "Pull request #${open_pr} already carries these rates."
+              exit 0
+            fi
+          elif gh api "repos/${REPO}/git/ref/heads/${BRANCH}" >/dev/null 2>&1; then
+            # No open proposal uses the branch: restart it from this main commit.
             gh api -X PATCH "repos/${REPO}/git/refs/heads/${BRANCH}" -f sha="${BASE_SHA}" -F force=true >/dev/null
           else
             gh api -X POST "repos/${REPO}/git/refs" -f ref="refs/heads/${BRANCH}" -f sha="${BASE_SHA}" >/dev/null
           fi
+          # The contents API commits as the Actions bot, and GitHub signs that commit. An
+          # open proposal gets a new commit on top, so it is never left without changes.
           blob=$(gh api "repos/${REPO}/contents/${FILE}?ref=${BRANCH}" --jq .sha)
           gh api -X PUT "repos/${REPO}/contents/${FILE}" \
             -f message="chore(inference): refresh Claude rates from the pricing page" \
             -f content="$(base64 -w0 "${FILE}")" -f sha="${blob}" -f branch="${BRANCH}" >/dev/null
-          if [[ "$(gh pr list -R "${REPO}" --head "${BRANCH}" --state open --json number --jq length)" == 0 ]]; then
+          if [[ -z "${open_pr}" ]]; then
             gh pr create -R "${REPO}" --head "${BRANCH}" --base main \
               --title "chore(inference): refresh Claude rates from the pricing page" \
               --body "The scheduled pricing workflow read new rates from https://platform.claude.com/docs/en/about-claude/pricing.md (ADR 0014). Check the diff against the page, then merge once CI passes."

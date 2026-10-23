@@ -47,10 +47,12 @@ monthly Claude API credit and chose the model. The offline harness in
 - Model rates are not written by hand (owner, 2026-10-23 11:31 UTC). `mise run
   //packages/inference:pricing` reads the model and fast mode tables of Anthropic's
   public pricing page (`https://platform.claude.com/docs/en/about-claude/pricing.md`)
-  into `packages/inference/src/providers/claude-pricing.json`, keyed by the Models API
-  display name (`claude-opus-5-5` is `Claude Opus 5.5`), and stops on any table it
+  into `packages/inference/src/providers/claude-pricing.json`, keyed by the page's model
+  names, which a model ID maps to (`claude-opus-5-5` is `Claude Opus 5.5`, as the Models
+  API's display name also reads), and stops on any table it
   cannot read whole. The service and the benchmark charge those rates; Haiku 5.5's
-  higher price above 100,000 prompt tokens is kept too. The pricing workflow
+  higher price above 100,000 prompt tokens is kept too, though the 64 KiB input bound
+  keeps every call below it. The pricing workflow
   (`.github/workflows/pricing.yml`) runs the task daily and proposes any change as a
   pull request, merged like any other once CI passes. The Models API carries no prices
   and no fast mode flag, so the page is the provider's only source for both.
