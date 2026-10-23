@@ -1297,49 +1297,37 @@ describe("recipe sync", () => {
     expect(await sync.recipes.later!(SITE, "/secret")).toEqual([two]);
   });
 
-  it("runs only a layout generated as sign-in, and routes every layout (ADR 0035, ADR 0060)", async () => {
-    const first = route("bank-signin", "/login");
-    const confirm = parseLoginRecipe({
+  it("runs no layout of a recipe generated as confirm, and routes every layout (ADR 0035, ADR 0060)", async () => {
+    const first = parseLoginRecipe({ ...route("bank-signin", "/login"), pageKind: "confirm" });
+    const second = parseLoginRecipe({
       ...first,
-      pageKind: "confirm",
       steps: [
         { kind: "fill", path: "/login", fields: [{ slot: "username", target: target("email") }] },
         { kind: "fill", path: "/secret", fields: [{ slot: "password", target: target("secret") }] },
         { kind: "click", path: "/secret", target: target("go"), purpose: "submit" },
       ],
     });
+    // Every layout of a recipe has its start page's kind.
     const layered: LoginRecipeDocument = {
       ...storedOf(first),
       layouts: [
         toLoginLayout(first, { key: "1000", createdAt: 1000 }),
-        toLoginLayout(confirm, { key: "2000", createdAt: 2000 }),
+        toLoginLayout(second, { key: "2000", createdAt: 2000 }),
       ],
     };
     const stored = { version: 2, origin: SERVICE, deviceId: DEVICE, cursor: 1, recipes: [layered] };
     const { sync } = setup({ stored, scheduled: { version: 1, startedAt: 0, retryAt: 9e9 } });
     const one = { ...first, layout: "1000" };
-    const two = { ...confirm, layout: "2000" };
-    // The newer confirm layout is never chosen, named or started at a later step.
-    expect(await sync.recipes.recipe(SITE, "/login")).toEqual(one);
-    expect(await sync.recipes.recipe(SITE, "/x", "bank-signin")).toEqual(one);
+    const two = { ...second, layout: "2000" };
+    // No layout is chosen, named or started at a later step.
+    expect(await sync.recipes.recipe(SITE, "/login")).toBeUndefined();
+    expect(await sync.recipes.recipe(SITE, "/x", "bank-signin")).toBeUndefined();
     expect(await sync.recipes.recipe(SITE, "/x", "bank-signin", "2000")).toBeUndefined();
-    expect(await sync.recipes.layouts!(SITE, "/login")).toEqual([{ recipe: one, createdAt: 1000 }]);
-    expect(await sync.recipes.starts(SITE)).toEqual([
-      { path: "/login", steps: [first.steps[0]], later: [first.steps[1]] },
-    ]);
+    expect(await sync.recipes.layouts!(SITE, "/login")).toEqual([]);
+    expect(await sync.recipes.starts(SITE)).toEqual([]);
     expect(await sync.recipes.later!(SITE, "/secret")).toEqual([]);
-    // Every layout's markers still read, and every layout is a route of the origin.
-    expect(await sync.recipes.layoutsOf!(SITE, "bank-signin")).toEqual([one, two]);
+    // Every layout is still a route of the origin, as a logout check reads them.
     expect(await sync.recipes.routes!(SITE)).toEqual([one, two]);
-    // A recipe whose only layout is confirm starts nothing.
-    const only = { ...stored, recipes: [storedOf(confirm)] };
-    const { sync: alone } = setup({
-      stored: only,
-      scheduled: { version: 1, startedAt: 0, retryAt: 9e9 },
-    });
-    expect(await alone.recipes.recipe(SITE, "/login")).toBeUndefined();
-    expect(await alone.recipes.starts(SITE)).toEqual([]);
-    expect(await alone.recipes.routes!(SITE)).toEqual([{ ...confirm, layout: "1000" }]);
   });
 
   it("ignores a cache written before layouts (ADR 0060), so every recipe is pulled again", async () => {

@@ -34,6 +34,9 @@ import {
   passkeyAnswersRequest,
   passwordStopOrMiss,
   passwordVariants,
+  languageDecides,
+  layoutFirstSteps,
+  layoutShown,
   rankLayouts,
   layoutStartTargets,
   recipeBranch,
@@ -1312,10 +1315,12 @@ const stepTargets = (step: LoginStep) =>
  * a recipe without layouts, as the probe build's.
  */
 function branchOf(metadata: LoginAttemptMetadata): string | undefined {
-  return recipeBranch(
-    metadata.layout,
-    metadata.chooser ? chooserClickBranch(metadata.chooser.click) : undefined,
-  );
+  return metadata.layout === undefined
+    ? undefined
+    : recipeBranch(
+        metadata.layout,
+        metadata.chooser ? chooserClickBranch(metadata.chooser.click) : undefined,
+      );
 }
 /** `branchOf` as an optional `branch` member. */
 function branchField(metadata: LoginAttemptMetadata): { branch?: string } {
@@ -6850,7 +6855,7 @@ export function createLoginRuntime(
         live.document.origin,
         live.path,
         { recipeId: chooser.id, revision: chooser.revision },
-        recipeBranch(chooser.layout, "other"),
+        chooser.layout === undefined ? undefined : recipeBranch(chooser.layout, "other"),
       )
       .catch(() => undefined);
   }
@@ -7168,46 +7173,88 @@ export function createLoginRuntime(
     return false;
   }
   /**
-   * How many of `targets` the document shows now, each as one visible element; the wire
-   * takes at most 24, and a page that cannot be asked shows none.
+   * Which of `targets` the document shows now, each as one visible element: `true` shown,
+   * `false` not, `undefined` not asked. The wire takes at most 24, and a page that cannot be
+   * asked answers none.
    */
-  async function countShown(live: LiveDocument, targets: readonly LoginTarget[]) {
+  async function shownTargets(
+    live: LiveDocument,
+    targets: readonly LoginTarget[],
+  ): Promise<(target: LoginTarget) => boolean | undefined> {
     const asked = targets.slice(0, 24);
-    if (!asked.length) return 0;
+    let states: readonly string[] = [];
+    if (asked.length)
+      try {
+        const parsed = v.safeParse(
+          observationSchema,
+          await send(live, {
+            type: "login.observe",
+            path: live.path,
+            targets: asked,
+            require: asked.map(() => "shown" as const),
+          }),
+        );
+        if (parsed.success) states = parsed.output.targets;
+      } catch {
+        // Nothing is known of a page that could not be asked.
+      }
+    return (target) => {
+      const at = asked.findIndex((other) => sameLoginTarget(other, target));
+      return at === -1 || states[at] === undefined ? undefined : states[at] === "unique";
+    };
+  }
+  /**
+   * The page's language as its observation names it (ADR 0060), the same reading that gave
+   * a layout its language when it was generated; `undefined` when the page cannot be
+   * described. Read only when it decides between layouts.
+   */
+  async function observedLanguage(
+    live: LiveDocument,
+    page: "login" | "accounts",
+  ): Promise<LoginObservation["language"] | undefined> {
     try {
-      const parsed = v.safeParse(
-        observationSchema,
-        await send(live, {
-          type: "login.observe",
-          path: live.path,
-          targets: asked,
-          require: asked.map(() => "shown" as const),
-        }),
+      const extracted = v.safeParse(
+        extractResultSchema,
+        await send(live, { type: "login.extract", page }),
       );
-      return parsed.success
-        ? parsed.output.targets.filter((state) => state === "unique").length
-        : 0;
+      if (!extracted.success || !extracted.output.ok) return undefined;
+      const described = v.safeParse(
+        v.object({ language: v.picklist(["ja", "en", "mixed"]) }),
+        extracted.output.observation,
+      );
+      return described.success ? described.output.language : undefined;
     } catch {
-      return 0;
+      return undefined;
     }
   }
   /**
-   * Layouts of one recipe best first for a new login (ADR 0060): by how many of each one's
-   * start page elements (`targetsOf`) the document shows, then the page's language, then
-   * the newest (`rankLayouts`). Those that show fewer drop out.
+   * Layouts of one recipe best first for a new login (ADR 0060): those one of whose first
+   * steps (`firstStepsOf`) the document shows whole, then with the fewest of their start
+   * page elements (`targetsOf`) missing, then the most shown; then the page's language, read
+   * only when the best ones differ in it, and the newest (`rankLayouts`). The others drop
+   * out.
    */
   async function rankedLayouts<Recipe>(
     live: LiveDocument,
     candidates: readonly LayoutCandidate<Recipe>[],
     targetsOf: (recipe: Recipe) => readonly LoginTarget[],
-    language: LoginObservation["language"] | undefined,
+    firstStepsOf: (recipe: Recipe) => readonly (readonly LoginTarget[])[],
+    page: "login" | "accounts",
   ): Promise<LayoutCandidate<Recipe>[]> {
-    const shown: number[] = [];
-    /* eslint-disable no-await-in-loop */
-    for (const candidate of candidates)
-      shown.push(await countShown(live, targetsOf(candidate.recipe)));
-    /* eslint-enable no-await-in-loop */
-    return rankLayouts(candidates, shown, language);
+    const all = candidates.flatMap((candidate) => targetsOf(candidate.recipe));
+    const shows = await shownTargets(
+      live,
+      all.filter(
+        (target, index) => all.findIndex((other) => sameLoginTarget(other, target)) === index,
+      ),
+    );
+    const shown = candidates.map((candidate) =>
+      layoutShown(firstStepsOf(candidate.recipe), targetsOf(candidate.recipe), shows),
+    );
+    const ranked = rankLayouts(candidates, shown);
+    return languageDecides(ranked)
+      ? rankLayouts(candidates, shown, await observedLanguage(live, page))
+      : ranked;
   }
   /**
    * The `signedIn` hint of a page sent as a recipe's first page (ADR 0035): whether a
@@ -7521,8 +7568,11 @@ export function createLoginRuntime(
     passkeyOnly = false,
   ): Promise<void> {
     if (!generation) return;
+    // A chooser's `other` branch is named by its layout (ADR 0060); only the probe build's
+    // choosers have none, and their pages are never offered.
+    if (otherless && otherless.layout === undefined) return;
     const base = otherless && { recipeId: otherless.id, revision: otherless.revision };
-    const otherBranch = otherless && recipeBranch(otherless.layout, "other");
+    const otherBranch = otherless?.layout && recipeBranch(otherless.layout, "other");
     const key = frameKey(live.document);
     let sent = false;
     try {
@@ -7660,7 +7710,7 @@ export function createLoginRuntime(
                   ),
                   ...custom,
                 ],
-            ...(base && otherBranch ? { base, branch: otherBranch } : base ? { base } : {}),
+            ...(base && otherBranch ? { base, branch: otherBranch } : {}),
           },
           spin.sent(() =>
             report(live.document, {
@@ -7908,7 +7958,7 @@ export function createLoginRuntime(
   async function ready(
     sender: Sender,
     token: string,
-    start?: { path: string; language?: LoginObservation["language"] | undefined },
+    start?: { path: string },
     signIn?: { path: string; identifier?: true | undefined; passkey?: true | undefined },
     shown?: { path: string },
     list?: ListOffer,
@@ -7960,7 +8010,7 @@ export function createLoginRuntime(
     token: string,
     helloKey: string,
     sequence: number,
-    start?: { path: string; language?: LoginObservation["language"] | undefined },
+    start?: { path: string },
     signIn?: { path: string; identifier?: true | undefined; passkey?: true | undefined },
     shown?: { path: string },
     list?: ListOffer,
@@ -8008,7 +8058,7 @@ export function createLoginRuntime(
     token: string,
     helloKey: string,
     sequence: number,
-    start?: { path: string; language?: LoginObservation["language"] | undefined },
+    start?: { path: string },
     signIn?: { path: string; identifier?: true | undefined; passkey?: true | undefined },
     shown?: { path: string },
     list?: ListOffer,
@@ -8783,7 +8833,13 @@ export function createLoginRuntime(
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
       if (candidates.length > 1) {
         layoutCount = candidates.length;
-        const ranked = await rankedLayouts(live, candidates, layoutStartTargets, start.language);
+        const ranked = await rankedLayouts(
+          live,
+          candidates,
+          layoutStartTargets,
+          layoutFirstSteps,
+          "login",
+        );
         if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
         layoutChoices = ranked.map(({ recipe: layout }) => ({ recipe: layout }));
         recipe = layoutChoices[0]?.recipe ?? recipe;
@@ -8806,11 +8862,14 @@ export function createLoginRuntime(
         if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
         if (candidates.length > 1) {
           layoutCount = candidates.length;
+          // The list's buttons are its first step: a layout whose buttons all show fits.
+          const buttons = (candidate: LoginChooserRecipe) => listReadiness(candidate).targets;
           const ranked = await rankedLayouts(
             live,
             candidates,
-            (candidate) => listReadiness(candidate).targets,
-            start.language,
+            buttons,
+            (candidate) => [buttons(candidate)],
+            "accounts",
           );
           if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
           chooser = ranked[0]?.recipe ?? chooser;
@@ -8852,8 +8911,13 @@ export function createLoginRuntime(
         // shows it at each stage: only a `password` variant's first step goes first, and the
         // button is offered to the account as on the first page (ADR 0027).
         let firstShows = false;
+        // Any layout the start page ranked best counts (ADR 0060), not only the first.
+        const layoutsHere = [
+          ...(recipe ? [recipe] : []),
+          ...layoutChoices.slice(1).map((choice) => choice.recipe),
+        ];
         /* eslint-disable no-await-in-loop */
-        for (const variant of recipe ? passwordVariants(recipe) : []) {
+        for (const variant of layoutsHere.flatMap((layout) => passwordVariants(layout))) {
           firstShows = await showsNow(live, loginReadiness(variant.steps[0]!));
           if (firstShows) break;
         }
@@ -8892,20 +8956,28 @@ export function createLoginRuntime(
             ).catch(() => undefined);
             const metaOf = (entry: LoginRecipe) =>
               group?.find((candidate) => candidate.recipe.layout === entry.layout);
-            ranked = rankLayouts(
-              showing.map((entry) => {
-                const meta = metaOf(entry.recipe);
-                return {
-                  recipe: entry,
-                  ...(meta?.language ? { language: meta.language } : {}),
-                  createdAt: meta?.createdAt ?? 0,
-                };
-              }),
-              showing.map((entry) =>
-                [...entry.variants.values()].reduce((sum, steps) => sum + steps.length, 0),
-              ),
-              start?.language,
-            ).map(({ recipe: entry }) => entry);
+            const laterCandidates = showing.map((entry) => {
+              const meta = metaOf(entry.recipe);
+              return {
+                recipe: entry,
+                ...(meta?.language ? { language: meta.language } : {}),
+                createdAt: meta?.createdAt ?? 0,
+              };
+            });
+            // Each shows a later step whole, so only how many show tells them apart.
+            const laterShown = showing.map((entry) => ({
+              starts: true,
+              missing: 0,
+              shown: [...entry.variants.values()].reduce((sum, steps) => sum + steps.length, 0),
+            }));
+            let order = rankLayouts(laterCandidates, laterShown);
+            if (languageDecides(order))
+              order = rankLayouts(
+                laterCandidates,
+                laterShown,
+                await observedLanguage(live, "login"),
+              );
+            ranked = order.map(({ recipe: entry }) => entry);
           }
           layoutCount = Math.max(layoutCount, showing.length);
           const choices: LayoutChoice[] = await Promise.all(

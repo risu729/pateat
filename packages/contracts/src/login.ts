@@ -319,6 +319,9 @@ const variantsOf = (recipe: {
   steps: v.InferOutput<typeof loginStepSchema>[];
   alternatives?: { slots: string[]; steps: v.InferOutput<typeof loginStepSchema>[] }[] | undefined;
 }) => [{ slots: recipe.slots, steps: recipe.steps }, ...(recipe.alternatives ?? [])];
+/** How many slots some routes fill together, each once (ADR 0060). */
+const routeSlotCount = (routes: readonly Parameters<typeof variantsOf>[0][]) =>
+  new Set(routes.flatMap((route) => variantsOf(route).flatMap((variant) => variant.slots))).size;
 const targetKey = (target: v.InferOutput<typeof loginMarkerTargetSchema>) => JSON.stringify(target);
 /** The elements a recipe's markers name: each marker and the elements it needs missing. */
 const completionTargetCount = (
@@ -356,6 +359,14 @@ export type PageKind = v.InferOutput<typeof pageKindSchema>;
  * the page in another language or after the site changed it.
  */
 export const MAX_RECIPE_LAYOUTS = 3;
+/**
+ * The most bytes one stored recipe document takes as JSON (ADR 0060): with the write's
+ * envelope it stays within the service's 128 KiB request body limit, so a device can write
+ * back any document it synced. Each layout's own limits allow more than a third of it.
+ */
+export const MAX_RECIPE_DOCUMENT_BYTES = 120 * 1024;
+const fitsDocumentBytes = (recipe: unknown) =>
+  new TextEncoder().encode(JSON.stringify(recipe)).byteLength <= MAX_RECIPE_DOCUMENT_BYTES;
 /**
  * A layout's stable key (ADR 0060): the service writes the layout's creation time in epoch
  * milliseconds, made unique within the recipe, and never changes or reuses it, so records
@@ -827,10 +838,20 @@ export const loginRecipeDocumentSchema = v.pipe(
       recipe.layouts.every((layout) => layout.steps[0]!.path === recipe.layouts[0]!.steps[0]!.path),
     "Every layout starts on the recipe's start path",
   ),
+  // All layouts share one start page, so they share its kind (ADR 0060): a recipe is run,
+  // or kept as a confirm or unclear page, as a whole.
+  v.check(
+    (recipe) => recipe.layouts.every((layout) => layout.pageKind === recipe.layouts[0]!.pageKind),
+    "Every layout has the recipe's page kind",
+  ),
+  // Bindings are kept per recipe and hold at most 20 slots, so every layout's slots together
+  // fit one (ADR 0060).
+  v.check((recipe) => routeSlotCount(recipe.layouts) <= 20, "Too many recipe slots"),
   v.check(
     (recipe) => recipe.layouts.every((layout) => markersOffOrigin(recipe.origin, layout)),
     "Completion marker names the recipe's own origin",
   ),
+  v.check((recipe) => fitsDocumentBytes(recipe), "Recipe document too large"),
 );
 /**
  * A recipe whose only member is `entry` (ADR 0031): the start path of a page without a
@@ -978,6 +999,15 @@ export const loginChooserDocumentSchema = v.pipe(
     "Duplicate layout keys",
   ),
   v.check(
+    ({ chooser }) =>
+      routeSlotCount(
+        chooser.layouts.flatMap((layout) =>
+          [layout.afterAccount, layout.afterOther].filter((branch) => branch !== undefined),
+        ),
+      ) <= 20,
+    "Too many recipe slots",
+  ),
+  v.check(
     ({ origin, chooser }) =>
       chooser.layouts.every((layout) =>
         [layout.afterAccount, layout.afterOther].every(
@@ -986,6 +1016,7 @@ export const loginChooserDocumentSchema = v.pipe(
       ),
     "Completion marker names the recipe's own origin",
   ),
+  v.check((recipe) => fitsDocumentBytes(recipe), "Recipe document too large"),
 );
 /**
  * Any recipe the service stores and devices sync: a login recipe with its layouts
@@ -1193,13 +1224,17 @@ export function toLoginLayout(recipe: LoginRecipe, meta: LayoutMeta): LoginLayou
 }
 /**
  * The recipe with `layout` in place of the layout of the same key, or added after the
- * others when it has none. The caller checks the result against the schema, which refuses
- * a fourth layout: replacing the least used one is repair's to decide (ADR 0060).
+ * others when it has none. Every layout keeps the start page's kind (ADR 0060), so a layout
+ * of another kind than the recipe's replaces them all: the page is now that kind. The
+ * caller checks the result against the schema, which refuses a fourth layout: replacing
+ * the least used one is repair's to decide.
  */
 export function withLoginLayout(
   recipe: LoginRecipeDocument,
   layout: LoginLayout,
 ): LoginRecipeDocument {
+  if (recipe.layouts.some((entry) => entry.pageKind !== layout.pageKind))
+    return { ...recipe, layouts: [layout] };
   const at = recipe.layouts.findIndex((entry) => entry.key === layout.key);
   return {
     ...recipe,
@@ -1360,15 +1395,11 @@ export type ChooserBranch = v.InferOutput<typeof chooserBranchSchema>;
  */
 export const recipeBranchSchema = v.pipe(v.string(), v.regex(/^\d{1,16}(?::(?:account|other))?$/u));
 /**
- * The branch name of a layout and chooser branch: the key, then the chooser branch after a
- * colon; `undefined` when neither is known, and the chooser branch alone for a chooser
- * without a layout, as the probe build's.
+ * The branch name of a layout and chooser branch (ADR 0060): the key, then the chooser
+ * branch after a colon.
  */
-export function recipeBranch(
-  layout: string | undefined,
-  branch?: ChooserBranch,
-): string | undefined {
-  return [layout, branch].filter((part) => part !== undefined).join(":") || undefined;
+export function recipeBranch(layout: string, branch?: ChooserBranch): string {
+  return branch ? `${layout}:${branch}` : layout;
 }
 /** A branch name's layout key and chooser branch, if it is one (`recipeBranchSchema`). */
 export function parseRecipeBranch(

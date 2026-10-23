@@ -8,6 +8,7 @@ import {
   runsLogin,
   sameLoginTarget,
   type LoginRecipe,
+  type LoginStep,
   type LoginTarget,
   type LoginRecipeDocument,
   type RecipeLanguage,
@@ -69,50 +70,108 @@ export function loginLayoutCandidates(recipe: LoginRecipeDocument): LayoutCandid
   );
 }
 
+/** The elements a step needs to show; a step that waits for an element to go names none. */
+const shownTargets = (step: LoginStep): LoginTarget[] =>
+  step.kind === "fill"
+    ? step.fields.map((field) => field.target)
+    : step.kind === "click" || step.present
+      ? [step.target]
+      : [];
+
+/** The passkey route's steps and each password variant's, in that order. */
+const startRoutes = (recipe: LoginRecipe): LoginStep[][] => [
+  ...(recipe.passkey ? [routeSteps(recipe, { route: "passkey" })] : []),
+  ...passwordVariants(recipe).map((variant) => variant.steps),
+];
+
 /**
  * The elements a layout's start page shows (ADR 0060): those of every route's and
  * variant's steps on the recipe's start path, each once, the passkey button first; a
  * `passkey` route without a button names the first step's element. A new
- * login counts which of them are visible to tell layouts of one start path apart.
+ * login counts which of them show and which are missing to tell layouts of one start path
+ * apart.
  */
 export function layoutStartTargets(recipe: LoginRecipe): LoginTarget[] {
   const start = recipe.steps[0]!.path;
-  const steps = [
-    ...(recipe.passkey ? routeSteps(recipe, { route: "passkey" }) : []),
-    ...passwordVariants(recipe).flatMap((variant) => variant.steps),
-  ].filter((step) => step.path === start);
-  // A step that waits for an element to go names none the page shows.
-  const targets = steps.flatMap((step) =>
-    step.kind === "fill"
-      ? step.fields.map((field) => field.target)
-      : step.kind === "click" || step.present
-        ? [step.target]
-        : [],
-  );
+  const targets = startRoutes(recipe)
+    .flat()
+    .filter((step) => step.path === start)
+    .flatMap(shownTargets);
   return targets.filter(
     (target, index) => targets.findIndex((other) => sameLoginTarget(other, target)) === index,
   );
 }
 
 /**
- * The layouts a new login may run, best first (ADR 0060): only those whose start-path
- * elements show the most (`shown`, one count per candidate), then those of the page's
- * language before the others, then the newest first. The caller takes the first whose plan
- * for the account passes, which puts the plan between the elements and the language;
- * when none passes, the first one's refusal stands. A `mixed` or unknown page language
- * prefers none.
+ * The elements of each route's and variant's first step (ADR 0060), when it is on the
+ * start path: a layout whose page shows every element of one of them can start a login.
+ * A first step that waits for an element to go names none, so it shows no start.
+ */
+export function layoutFirstSteps(recipe: LoginRecipe): LoginTarget[][] {
+  const start = recipe.steps[0]!.path;
+  return startRoutes(recipe).flatMap((steps) =>
+    steps[0]?.path === start ? [shownTargets(steps[0])] : [],
+  );
+}
+
+/**
+ * What a page shows of one layout (ADR 0060): whether every element of one of its first
+ * steps shows (`starts`), and how many of its start-page elements show and are missing.
+ */
+export type LayoutShown = { starts: boolean; shown: number; missing: number };
+
+/**
+ * `LayoutShown` for one layout from what the page shows of each element: `true` shown,
+ * `false` missing, `undefined` not asked, which counts as neither.
+ */
+export function layoutShown(
+  firstSteps: readonly (readonly LoginTarget[])[],
+  targets: readonly LoginTarget[],
+  shows: (target: LoginTarget) => boolean | undefined,
+): LayoutShown {
+  const states = targets.map(shows);
+  return {
+    starts: firstSteps.some(
+      (step) => step.length > 0 && step.every((target) => shows(target) === true),
+    ),
+    shown: states.filter((state) => state === true).length,
+    missing: states.filter((state) => state === false).length,
+  };
+}
+
+/** Negative when `left` fits the page better: one that starts, then fewer missing, then more shown. */
+const compareShown = (left: LayoutShown, right: LayoutShown) =>
+  Number(right.starts) - Number(left.starts) ||
+  left.missing - right.missing ||
+  right.shown - left.shown;
+
+/**
+ * The layouts a new login may run, best first (ADR 0060): only those that fit the page
+ * best (`shown`, one entry per candidate): a layout one of whose first steps shows whole,
+ * then the fewest missing start-page elements, then the most shown. Among those, a layout
+ * of the page's language comes before the others, then the newest first. The caller takes
+ * the first whose plan for the account passes, which puts the plan between the elements
+ * and the language; when none passes, the first one's refusal stands. A `mixed` or unknown
+ * page language prefers none.
  */
 export function rankLayouts<Recipe>(
   candidates: readonly LayoutCandidate<Recipe>[],
-  shown: readonly number[],
+  shown: readonly LayoutShown[],
   language?: LoginObservation["language"],
 ): LayoutCandidate<Recipe>[] {
-  const most = Math.max(0, ...candidates.map((_, index) => shown[index] ?? 0));
+  const none: LayoutShown = { starts: false, shown: 0, missing: 0 };
+  const of = (index: number) => shown[index] ?? none;
+  const best = candidates
+    .map((_, index) => of(index))
+    .reduce<LayoutShown | undefined>(
+      (top, entry) => (!top || compareShown(entry, top) < 0 ? entry : top),
+      undefined,
+    );
   const speaks = (candidate: LayoutCandidate<Recipe>) =>
     language !== undefined && language !== "mixed" && candidate.language === language ? 1 : 0;
   return candidates
-    .filter((_, index) => (shown[index] ?? 0) === most)
     .map((candidate, index) => ({ candidate, index }))
+    .filter(({ index }) => best !== undefined && compareShown(of(index), best) === 0)
     .sort(
       (left, right) =>
         speaks(right.candidate) - speaks(left.candidate) ||
@@ -120,6 +179,14 @@ export function rankLayouts<Recipe>(
         right.index - left.index,
     )
     .map(({ candidate }) => candidate);
+}
+
+/**
+ * Whether the page's language can change `rankLayouts`'s order: the best-fitting layouts
+ * are of more than one language. Only then is the page's language read.
+ */
+export function languageDecides<Recipe>(ranked: readonly LayoutCandidate<Recipe>[]): boolean {
+  return new Set(ranked.map((candidate) => candidate.language)).size > 1;
 }
 
 export type LoginRecipeSelection =
