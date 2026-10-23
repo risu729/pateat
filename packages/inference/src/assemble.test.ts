@@ -861,6 +861,43 @@ describe("judged totp handler (ADR 0027)", () => {
     });
   });
 
+  it("adds a handler without a button for a code page that shows none (#916)", () => {
+    // Slack's two-factor page: six one-digit inputs outside any form and no button.
+    const boxes = Array.from({ length: 6 }, (_, index) =>
+      codeInput(`otp-${index + 1}`, { maxLength: 1 }),
+    );
+    const loose = { origin, path: "/two-factor", candidates: boxes };
+    const added = addHandler(recipe, loose, { kind: "totp", field: target("otp-1") });
+    if (!added.ok) throw new Error(added.reason);
+    expect(added.recipe.handlers).toEqual([
+      { kind: "totp", path: "/two-factor", field: target("otp-1") },
+    ]);
+    expect(extendsRecipe(recipe, added.recipe)).toBe(true);
+    // A form that shows a button submits the code with it.
+    const withButton = {
+      origin,
+      path: "/two-factor",
+      candidates: [
+        ...boxes.map((box) => ({ ...box, group: "code" })),
+        { ...candidate("verify", verify), group: "code" },
+      ],
+    };
+    expect(addHandler(recipe, withButton, { kind: "totp", field: target("otp-1") })).toEqual({
+      ok: false,
+      reason: "not-code-field",
+    });
+    // Its inputs are still never a route step's elements.
+    const routed = {
+      origin,
+      path: "/pw",
+      candidates: [...boxes.slice(0, 5), codeInput("pw", { maxLength: 1 })],
+    };
+    expect(addHandler(recipe, routed, { kind: "totp", field: target("otp-1") })).toEqual({
+      ok: false,
+      reason: "step-target",
+    });
+  });
+
   it("accepts the route's submit button on that path when the code field is new", () => {
     // A sign-in form that asks for the code after the password, with the same button.
     const sameForm = {

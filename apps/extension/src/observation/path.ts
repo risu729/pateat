@@ -18,7 +18,9 @@ function scrambled(run: string): boolean {
  * token, which an observation would otherwise send to the service and its request log: as
  * it is or percent-decoded up to three times, it holds a matrix parameter such as
  * `;jsessionid=`, an ASP.NET cookieless part such as `(S(lit3py55t21z5))`, a query such
- * as Magento's base64-encoded `referer/<URL with ?SID=...>` (`?`, `&` or `=`), a UUID, a
+ * as Magento's base64-encoded `referer/<URL with ?SID=...>` (`?`, `&` or `=`), an email
+ * address such as `taro.yamada@example.com` (`@` after another character and before a
+ * dot and a letter, so `@handle` and `pkg@1.2.3` are not), a UUID, a
  * run of 16 or more letters and digits that contains a digit, or a run of 16 or more
  * letters, digits, `-` and `_` that contains a digit and switches between them as often
  * as a base64url token does. Short or plain-looking tokens are missed. The same test
@@ -38,7 +40,7 @@ export function tokenSegment(raw: string): boolean {
   }
   return forms.some(
     (segment) =>
-      /[;?&=]|\([A-Z]\(/u.test(segment) ||
+      /[;?&=]|\([A-Z]\(|[^@]@[^@]*\.\p{L}/u.test(segment) ||
       /[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}/iu.test(segment) ||
       (segment.match(/[A-Za-z\d]{16,}/gu) ?? []).some((run) => /\d/u.test(run)) ||
       (segment.match(/[\w-]{16,}/gu) ?? []).some((run) => /\d/u.test(run) && scrambled(run)),

@@ -460,12 +460,13 @@ export function splitCodeInputs(
  * {@link isCodeField} accepts, either with at least 6 characters when it limits them and
  * the only such input in its form, or the first of a code split into one input per digit
  * ({@link splitCodeInputs}), which the executor fills one digit per input; and a button
- * of that form. The judge and the recipe assembly both check this.
+ * of that form, or no button on a page that submits the code once it is in (ADR 0027
+ * amendment of 2026-10-23). The judge and the recipe assembly both check this.
  */
 export function isTotpCode(
   page: Pick<LoginObservation, "candidates">,
   field: ObservedCandidate,
-  button: ObservedCandidate,
+  button: ObservedCandidate | undefined,
 ): boolean {
   return totpCodeRefusal(page, field, button) === undefined;
 }
@@ -476,12 +477,15 @@ export function isTotpCode(
  * (`text-locator`), is no code input (`not-code-field`), limits the code below 6
  * characters (`code-too-short`), is one of several code inputs of its form that are no
  * split code, or not the first of one (`several-code-fields`), or the button is no button
- * (`submit-not-button`) or not of the field's form (`submit-other-form`).
+ * (`submit-not-button`) or not of the field's form (`submit-other-form`). Without a button,
+ * the field's form must show none (`submit-unnamed`): a form with a button is taken to
+ * submit the code with it, so a code typed there without its click would wait for the
+ * person.
  */
 export function totpCodeRefusal(
   page: Pick<LoginObservation, "candidates">,
   field: ObservedCandidate,
-  button: ObservedCandidate,
+  button: ObservedCandidate | undefined,
 ): string | undefined {
   if (!(fillRoles as readonly string[]).includes(field.role)) return "not-input";
   if (field.target.by === "text") return "text-locator";
@@ -498,6 +502,13 @@ export function totpCodeRefusal(
     )
       return "several-code-fields";
   }
+  if (!button)
+    return field.group !== undefined &&
+      page.candidates.some(
+        (candidate) => candidate.role === "button" && candidate.group === field.group,
+      )
+      ? "submit-unnamed"
+      : undefined;
   if (button.role !== "button") return "submit-not-button";
   if (button.group !== field.group) return "submit-other-form";
   return undefined;

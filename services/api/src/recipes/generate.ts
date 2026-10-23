@@ -942,9 +942,9 @@ export async function judgeCompletion(
         .where(and(ofRecipe, gte(pageJudgements.judgedAt, utcDayStart(now))));
       return (today?.value ?? 0) >= JUDGEMENTS_PER_RECIPE_DAY ? "judgement-limit" : undefined;
     },
-    // A request the role refuses before sending still uses its slot, as a generation
-    // attempt does; a `partial` row judged again takes today's slot and waits for its new
-    // verdict. Rows of older revisions or judges go once their day is over.
+    // A request the role refuses before sending gives the slot back, as a generation
+    // attempt does (ADR 0027); a `partial` row judged again takes today's slot and waits
+    // for its new verdict. Rows of older revisions or judges go once their day is over.
     beforeSend: (db, now) => [
       db
         .insert(pageJudgements)

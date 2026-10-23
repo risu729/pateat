@@ -92,7 +92,7 @@ async function verify(options: Page, code: string) {
   await options.getByRole("button", { name: "Verify code", exact: true }).click();
 }
 
-const ready = "Vault verified and local cache accepted. Check automatic-unlock status below.";
+const ready = "Vault verified and copied to this device. Check the automatic unlock line below.";
 
 test("signs in over http://localhost and lists every item, an imported passkey's included", async () => {
   const account = await seedAccount();
@@ -128,7 +128,7 @@ test("shows a wrong master password as a rejected sign-in", async () => {
     await connect(options, account, `wrong-${randomUUID()}`);
     await expect(
       options.getByText(
-        "The provider rejected this sign-in. Review the account and password before starting again.",
+        "Bitwarden did not accept this sign-in. Check the email and master password, then try again.",
         { exact: true },
       ),
     ).toBeVisible({ timeout: 60_000 });

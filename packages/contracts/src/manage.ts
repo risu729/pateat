@@ -354,6 +354,59 @@ export const manageDashboardSchema = v.strictObject({
   needsPerson: v.array(manageDashboardFailureSchema),
 });
 
+/**
+ * The identifiers an owner copies from their own Workload Identity Federation rule in
+ * the Claude Console (ADR 0015). None is a secret.
+ */
+export const wifIdentifiersSchema = v.strictObject({
+  federationRuleId: v.pipe(v.string(), v.regex(/^fdrl_[A-Za-z0-9]{1,64}$/)),
+  organizationId: v.pipe(v.string(), v.uuid()),
+  serviceAccountId: v.pipe(v.string(), v.regex(/^svac_[A-Za-z0-9]{1,64}$/)),
+  workspaceId: v.pipe(v.string(), v.regex(/^wrkspc_[A-Za-z0-9]{1,64}$/)),
+});
+
+/** What the owner enters in the Claude Console, and the identifiers saved here. */
+export const manageClaudeSchema = v.strictObject({
+  version: v.literal(1),
+  console: v.strictObject({
+    /** Null while the operator has not configured this service's OIDC issuer. */
+    issuer: v.nullable(v.pipe(v.string(), v.url())),
+    /** The federation rule's exact subject: `owner:<ownerId>`. */
+    subject: v.pipe(v.string(), v.startsWith("owner:")),
+    audience: v.pipe(v.string(), v.url()),
+  }),
+  /** Null when none are saved, or when the saved row no longer validates. */
+  identifiers: v.nullable(wifIdentifiersSchema),
+  /** A row is saved but no longer validates; the owner enters the identifiers again. */
+  storedInvalid: v.boolean(),
+});
+/** Replaces the owner's identifiers. */
+export const manageClaudeWriteSchema = v.strictObject({
+  version: v.literal(1),
+  identifiers: wifIdentifiersSchema,
+});
+
+const httpStatus = v.pipe(v.number(), v.integer(), v.minValue(100), v.maxValue(599));
+/**
+ * The outcome of one token exchange with the saved identifiers. The token itself never
+ * leaves the service.
+ */
+export const manageClaudeTestSchema = v.strictObject({
+  version: v.literal(1),
+  result: v.variant("status", [
+    v.strictObject({
+      status: v.literal("ready"),
+      /** How long Anthropic said the token lasts. */
+      expiresInSeconds: v.pipe(v.number(), v.integer(), v.minValue(0)),
+    }),
+    v.strictObject({
+      status: v.picklist(["not_configured", "stored_invalid", "issuer_unavailable"]),
+    }),
+    v.strictObject({ status: v.literal("rejected"), httpStatus }),
+    v.strictObject({ status: v.literal("failed"), httpStatus: v.optional(httpStatus) }),
+  ]),
+});
+
 export const manageErrorCodeSchema = v.picklist([
   "bad_request",
   /** No Access token: the page must be reloaded through Access. */
@@ -365,7 +418,10 @@ export const manageErrorCodeSchema = v.picklist([
   /** Access's signing keys could not be fetched, so no token can be checked. */
   "access_keys_unavailable",
   "not_found",
-  /** Settings belong to an account with a paired device; this identity has none. */
+  /**
+   * Settings and Claude identifiers belong to an account with a paired device; this
+   * identity has none.
+   */
   "not_paired",
   "method_not_allowed",
   "payload_too_large",
@@ -392,5 +448,9 @@ export type ManageLoginParts = v.InferOutput<typeof manageLoginPartsSchema>;
 export type ManageDashboardEvent = v.InferOutput<typeof manageDashboardEventSchema>;
 export type ManageDashboardFailure = v.InferOutput<typeof manageDashboardFailureSchema>;
 export type ManageDashboard = v.InferOutput<typeof manageDashboardSchema>;
+export type WifIdentifiers = v.InferOutput<typeof wifIdentifiersSchema>;
+export type ManageClaude = v.InferOutput<typeof manageClaudeSchema>;
+export type ManageClaudeWrite = v.InferOutput<typeof manageClaudeWriteSchema>;
+export type ManageClaudeTest = v.InferOutput<typeof manageClaudeTestSchema>;
 export type ManageErrorCode = v.InferOutput<typeof manageErrorCodeSchema>;
 export type ManageError = v.InferOutput<typeof manageErrorSchema>;

@@ -69,12 +69,13 @@ export const judgedPageSchema = v.strictObject({
         described(
           v.strictObject({
             field: reference,
-            submit: reference,
+            submit: v.optional(reference),
             source: v.picklist(["authenticator-app", "sms", "email", "other", "unknown"]),
           }),
           "When the page asks for a code: its input (field; the first box when the code " +
-            "takes one box per digit), the button that submits it (submit) and where the " +
-            "code comes from (source; unknown unless the page says).",
+            "takes one box per digit), the button that submits it (submit; left out when " +
+            "the page shows none) and where the code comes from (source; unknown unless " +
+            "the page says).",
         ),
       ),
       details: v.optional(
@@ -135,7 +136,9 @@ export const completionInstructions = [
   "fingerprint or Windows Hello, even one whose label also names the password.",
   "A button by accessible-name may show only neutral text, such as Select; judge it by",
   "that name.",
-  "A challenge that asks for a code always fills code: its field, submit and source.",
+  "A challenge that asks for a code always fills code: its field, source and submit,",
+  "which is left out only when no button on the page submits the code, as on a page",
+  "that submits it once its last digit is in.",
   "code.source is sms or email when the page says the code was sent to the person or",
   "names where it went (a phone, call, message or address), authenticator-app when it",
   "names an authenticator app, other when it names another source such as a recovery",
@@ -211,7 +214,8 @@ export type SignInJudgement =
       decision: "challenge";
       passkey?: LoginTarget;
       password?: LoginTarget;
-      totp?: { field: LoginFieldTarget; target: LoginTarget };
+      /** Without `target` on a page that shows no button for the code. */
+      totp?: { field: LoginFieldTarget; target?: LoginTarget };
       /**
        * The judged page's personal-detail inputs and the button that submits them (ADR
        * 0061), those that pass `detailInputRefusal`, in the judge's order.
@@ -243,13 +247,15 @@ export type SignInJudgement =
  * comes from an authenticator app, or whose source it does not say (owner decision,
  * 2026-10-13), in a field and with a button that `isTotpCode` accepts; never one it says
  * was sent to the person or comes from another source (`sms`, `email`, `other`). A code split into one input per digit is named by its first
- * input, whichever of them the answer names.
+ * input, whichever of them the answer names. An answer without a button keeps the code
+ * without one, for a page that submits the code once it is in, when the field's form
+ * shows no button (ADR 0027 amendment of 2026-10-23).
  */
 function totpCode(
   page: LoginObservation,
-  code: { field: string; submit: string; source: string } | undefined,
+  code: { field: string; submit?: string | undefined; source: string } | undefined,
 ):
-  | { totp: { field: LoginFieldTarget; target: LoginTarget } }
+  | { totp: { field: LoginFieldTarget; target?: LoginTarget } }
   | { totpDropped: string }
   | undefined {
   if (!code) return undefined;
@@ -257,18 +263,22 @@ function totpCode(
     return { totpDropped: `source-${code.source}` };
   const named = page.candidates.find((candidate) => candidate.id === code.field);
   const field = named && (splitCodeInputs(page, named)?.[0] ?? named);
-  const submit = page.candidates.find((candidate) => candidate.id === code.submit);
+  const submit =
+    code.submit === undefined
+      ? undefined
+      : page.candidates.find((candidate) => candidate.id === code.submit);
   if (!field) return { totpDropped: "unknown-field" };
-  if (!submit) return { totpDropped: "unknown-submit" };
+  if (code.submit !== undefined && !submit) return { totpDropped: "unknown-submit" };
   const refusal = totpCodeRefusal(page, field, submit);
   if (refusal || field.target.by === "text") return { totpDropped: refusal ?? "text-locator" };
   // A link named by its path is only ever a signed-in marker (ADR 0029), and a button named
   // by its accessible name only a `password` handler's (ADR 0048 amendment of 2026-10-19).
-  if (field.target.by === "href" || !isLoginTarget(submit.target))
+  const target = submit?.target;
+  if (field.target.by === "href" || (target && !isLoginTarget(target)))
     return { totpDropped: "href-locator" };
-  if (!isStepTarget(field.target) || !isStepTarget(submit.target))
+  if (!isStepTarget(field.target) || (target && !isStepTarget(target)))
     return { totpDropped: "name-locator" };
-  return { totp: { field: field.target, target: submit.target } };
+  return { totp: { field: field.target, ...(target ? { target } : {}) } };
 }
 
 /** The details whose value may be split over several inputs (ADR 0061). */
@@ -460,7 +470,7 @@ function loggedAnswer(
       : {
           code: {
             field: candidate(code.field),
-            submit: candidate(code.submit),
+            ...(code.submit === undefined ? {} : { submit: candidate(code.submit) }),
             source: code.source,
           },
         }),
