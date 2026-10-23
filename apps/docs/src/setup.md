@@ -71,12 +71,11 @@ These limits apply to Pateat only and do not change anything in Bitwarden.
    **Try again** and **Open sign-in page** repeat either step.
 4. If the service already holds settings, choose a **Settings profile**: an existing
    one, or **New profile with this device's site settings** with a
-   **New profile name**. A profile holds the excluded sites, the sites that ask for the
-   master password and the default accounts, and devices that share a profile share
-   them. Choosing an existing profile replaces this device's own lists with the
-   profile's. Pateat asks first (**Pair and replace**) when this device has excluded
-   sites or default accounts, but not when it has only sites that ask for the master
-   password.
+   **New profile name**. A profile holds the excluded sites, the allowed sites, the
+   sites that ask for the master password and the default accounts, and devices that
+   share a profile share them. Choosing an existing profile replaces this device's own
+   lists with the profile's. Pateat asks first (**Pair and replace**) when this device
+   has any of them, or has **Run only on allowed sites** on.
 
 When pairing succeeds, the page says **This device is paired.** Pateat then syncs its
 profile's settings and the recipes from the service and keeps a copy on this device.
@@ -136,6 +135,17 @@ enter the master password in Pateat's window. Elsewhere such an item is used lik
 other. Re-prompt is checked on the login item only: a personal detail from a linked
 card or identity item is filled without asking, even when that item is marked. The list
 starts empty.
+
+### Allowed sites
+
+To limit Pateat to a few sites, turn **Run only on allowed sites** on in the settings
+page's **Allowed sites** section and add each site with **Allow site**, where
+**Allow subdomains too** covers its subdomains. Pateat then logs in, fills and answers
+passkey requests only on those sites; an excluded site stays excluded even when it is
+allowed. With the switch on and no site allowed, Pateat does nothing anywhere. Turning
+the switch off keeps the list. In the toolbar popup, turning **Pateat on this site** on
+for a site that is not allowed adds it. The list starts empty and off, and belongs to
+the settings profile, like the excluded sites.
 
 ### AI key
 

@@ -101,8 +101,10 @@ export const diagnosticsJa = {
   granted: "許可",
   withheld: "未許可",
   "unavailable ({{error}})": "利用不可（{{error}}）",
-  "excluded sites {{excludedSites}}, site defaults {{siteDefaults}}, bindings {{bindings}}, passkey sites for the browser {{passkeyBrowserSites}}":
-    "除外サイト {{excludedSites}}、サイトの既定アカウント {{siteDefaults}}、フィールドの対応付け {{bindings}}、パスキーのリクエストをブラウザーに任せるサイト {{passkeyBrowserSites}}",
+  "excluded sites {{excludedSites}}, allowed sites {{allowedSites}} (on), site defaults {{siteDefaults}}, bindings {{bindings}}, passkey sites for the browser {{passkeyBrowserSites}}":
+    "除外サイト {{excludedSites}}、許可サイト {{allowedSites}}（オン）、サイトの既定アカウント {{siteDefaults}}、フィールドの対応付け {{bindings}}、パスキーのリクエストをブラウザーに任せるサイト {{passkeyBrowserSites}}",
+  "excluded sites {{excludedSites}}, allowed sites {{allowedSites}} (off), site defaults {{siteDefaults}}, bindings {{bindings}}, passkey sites for the browser {{passkeyBrowserSites}}":
+    "除外サイト {{excludedSites}}、許可サイト {{allowedSites}}（オフ）、サイトの既定アカウント {{siteDefaults}}、フィールドの対応付け {{bindings}}、パスキーのリクエストをブラウザーに任せるサイト {{passkeyBrowserSites}}",
   "{{size}} KB of 10 MB": "10 MB 中 {{size}} KB",
   "{{count}} days": "{{count}} 日",
   "unpacked install": "パッケージ化されていない拡張機能として読み込み",

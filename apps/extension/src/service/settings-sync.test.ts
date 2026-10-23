@@ -60,6 +60,8 @@ const settingsOf = (parts: Partial<LocalSettings> = {}): LocalSettings => ({
   excludedSites: [],
   passkeyBrowserSites: [],
   repromptSites: [],
+  allowedSites: [],
+  allowedSitesEnabled: false,
   siteDefaults: [],
   bindings: [],
   ...parts,
@@ -213,6 +215,8 @@ describe("settings sync on a new pairing", () => {
     const merged = {
       excludedSites: [site("intranet.example")],
       repromptSites: [],
+      allowedSites: [],
+      allowedSitesEnabled: false,
       passkeyBrowserSites: [],
       siteDefaults: [account("https://bank.example"), account("https://shop.example")],
       bindings: [binding("https://bank.example")],
@@ -240,6 +244,8 @@ describe("settings sync on a new pairing", () => {
     const merged = {
       excludedSites: [site("intranet.example")],
       repromptSites: [],
+      allowedSites: [],
+      allowedSitesEnabled: false,
       passkeyBrowserSites: [],
       siteDefaults: [],
       bindings: [binding("https://bank.example"), binding("https://local.example")],
@@ -381,6 +387,8 @@ describe("settings sync after the first", () => {
       excludedSites: [site("intranet.example")],
       passkeyBrowserSites: [],
       repromptSites: [],
+      allowedSites: [],
+      allowedSitesEnabled: false,
       siteDefaults: [account("https://bank.example", "item-service")],
       bindings: [binding("https://bank.example", "totp")],
       popupPageSection: true,
@@ -1556,4 +1564,105 @@ it("changes nothing when the merge base cannot be read", async () => {
   expect(await h.sync.run(CONNECTION, never)).toBe("storage-unavailable");
   expect(h.transport.saveSettings).not.toHaveBeenCalled();
   expect(h.local()?.settings.excludedSites).toEqual(local.excludedSites);
+});
+
+describe("allowed sites (ADR 0077)", () => {
+  const agreed = settingsOf({
+    excludedSites: [site("intranet.example")],
+    allowedSites: [site("bank.example")],
+    allowedSitesEnabled: true,
+  });
+
+  it("merges allowed sites like exclusions, entry by entry", () => {
+    const base = syncedSettings(agreed);
+    const local = syncedSettings({
+      ...agreed,
+      allowedSites: [site("bank.example"), site("local.example")],
+    });
+    const service = syncedSettings({
+      ...agreed,
+      allowedSites: [site("service.example")],
+    });
+    expect(
+      mergeSyncedSettings({ service: base, local: base }, local, service).allowedSites,
+    ).toEqual([site("service.example"), site("local.example")]);
+  });
+
+  it("merges the switch like an entry: the service's change wins, then a local one", () => {
+    const base = syncedSettings(agreed);
+    const off = syncedSettings({ ...agreed, allowedSitesEnabled: false });
+    const merge = (local: typeof base, service: typeof base) =>
+      mergeSyncedSettings({ service: base, local: base }, local, service).allowedSitesEnabled;
+    expect(merge(off, base)).toBe(false);
+    expect(merge(base, off)).toBe(false);
+    const offBase = { service: off, local: off };
+    // From off: turning it on locally stands while the service stayed off, and so does the service's.
+    expect(mergeSyncedSettings(offBase, base, off).allowedSitesEnabled).toBe(true);
+    expect(mergeSyncedSettings(offBase, off, base).allowedSitesEnabled).toBe(true);
+  });
+
+  it("keeps the list when the switch is turned off on another device", async () => {
+    const turnedOff = { ...agreed, allowedSitesEnabled: false };
+    const {
+      sync,
+      transport,
+      local: after,
+    } = setup({
+      local: { ...agreed, connections: [localConnection] },
+      service: state(5, turnedOff),
+      base: baseOf(4, agreed),
+    });
+    expect(await sync.run(CONNECTION, never)).toBe("synced");
+    expect(transport.saveSettings).not.toHaveBeenCalled();
+    expect(after()?.settings).toMatchObject({
+      allowedSites: [site("bank.example")],
+      allowedSitesEnabled: false,
+    });
+  });
+
+  // A device that pairs with an existing profile takes its allowed sites and switch,
+  // both when the profile has them on and when it has none (ADR 0076).
+  it.each([
+    settingsOf({ allowedSites: [site("bank.example")], allowedSitesEnabled: true }),
+    settingsOf({ excludedSites: [site("intranet.example")] }),
+  ])("adopts a profile's allowed sites in place of this device's %#", async (remote) => {
+    const local = settingsOf({
+      allowedSites: [site("local-only.example")],
+      allowedSitesEnabled: true,
+    });
+    const { sync, local: after } = setup({ local, service: state(3, remote) });
+    expect(await sync.run(CONNECTION, never)).toBe("synced");
+    expect(after()?.settings).toMatchObject({
+      allowedSites: remote.allowedSites,
+      allowedSitesEnabled: remote.allowedSitesEnabled,
+    });
+  });
+
+  it("treats settings without allowed sites as an empty list that is off", async () => {
+    const bare: LocalSettings = {
+      connections: [],
+      accountPolicies: [],
+      itemPolicies: [],
+      customFieldReviews: [],
+      excludedSites: [],
+      passkeyBrowserSites: [],
+      repromptSites: [],
+      siteDefaults: [],
+      bindings: [],
+    };
+    expect(syncedSettings(bare)).toMatchObject({ allowedSites: [], allowedSitesEnabled: false });
+    const {
+      sync,
+      transport,
+      local: after,
+    } = setup({
+      local: bare,
+      service: state(4, bare),
+      base: baseOf(4, bare),
+    });
+    expect(await sync.run(CONNECTION, never)).toBe("synced");
+    // Nothing changed, so nothing is written on either side.
+    expect(transport.saveSettings).not.toHaveBeenCalled();
+    expect(after()?.revision).toBe(7);
+  });
 });

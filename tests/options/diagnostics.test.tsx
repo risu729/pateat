@@ -44,7 +44,14 @@ function status(overrides: Partial<DiagnosticsStatus> = {}): DiagnosticsStatus {
       },
     ],
     service: { kind: "not-configured" },
-    settings: { excludedSites: 2, siteDefaults: 2, bindings: 0, passkeyBrowserSites: 1 },
+    settings: {
+      excludedSites: 2,
+      allowedSites: 1,
+      allowedSitesEnabled: true,
+      siteDefaults: 2,
+      bindings: 0,
+      passkeyBrowserSites: 1,
+    },
     storage: { localBytes: 900 },
     logs: { entries: 1284, bytes: 212 * 1024, recentErrors: 0, recentWarnings: 2 },
     checks: [

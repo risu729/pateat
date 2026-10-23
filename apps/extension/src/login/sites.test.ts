@@ -45,6 +45,40 @@ describe("createLoginSites", () => {
     expect(await sites.admission(new URL("http://router.example/"))).toBe("site-excluded");
   });
 
+  it("refuses a site the allowed sites leave out while they are on, and says so (ADR 0077)", async () => {
+    granted.add("https://bank.example/*").add("https://shop.example/*");
+    const sites = sitesWith((settings) => {
+      settings.allowedSites = [{ hostname: "bank.example", includeSubdomains: false }];
+      settings.allowedSitesEnabled = true;
+      settings.excludedSites = [{ hostname: "router.example", includeSubdomains: false }];
+    });
+    expect(await sites.admission(new URL("https://bank.example/login"))).toBe("admitted");
+    expect(await sites.admission(new URL("https://shop.example/"))).toBe("site-not-allowed");
+    // An exclusion is named as such even where the allowed sites also leave the site out.
+    expect(await sites.admission(new URL("https://router.example/"))).toBe("site-excluded");
+    const off = sitesWith((settings) => {
+      settings.allowedSites = [{ hostname: "bank.example", includeSubdomains: false }];
+      settings.allowedSitesEnabled = false;
+    });
+    expect(await off.admission(new URL("https://shop.example/"))).toBe("admitted");
+  });
+
+  it("lists no saved default whose site the allowed sites leave out", async () => {
+    granted.add("https://bank.example/*").add("https://shop.example/*");
+    const sites = sitesWith((settings) => {
+      settings.allowedSitesEnabled = true;
+      settings.siteDefaults = ["https://bank.example", "https://shop.example"].map((origin) => ({
+        origin,
+        provider: "dummy",
+        server: "cloud-us",
+        userId: "user",
+        itemId: "item",
+      }));
+      settings.allowedSites = [{ hostname: "bank.example", includeSubdomains: false }];
+    });
+    expect(await sites.origins()).toEqual(["https://bank.example"]);
+  });
+
   it("lists saved defaults of HTTP and HTTPS origins whose host access is granted", async () => {
     granted.clear();
     granted.add("http://router.example/*");

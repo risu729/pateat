@@ -41,8 +41,8 @@ export const serviceJa = {
   "Enter a device name.": "デバイス名を入力してください。",
   "Service address": "サービスのアドレス",
   "Device name": "デバイス名",
-  "Syncs recipes, site exclusions, default accounts and account bindings. Never sends vault values, passwords or keys.":
-    "レシピ、除外サイト、既定のアカウントとフィールドの対応付けを同期します。保管庫の値、パスワード、鍵は送信しません。",
+  "Syncs recipes, site exclusions, allowed sites, default accounts and account bindings. Never sends vault values, passwords or keys.":
+    "レシピ、除外サイト、許可サイト、既定のアカウントとフィールドの対応付けを同期します。保管庫の値、パスワード、鍵は送信しません。",
   "Pair this device": "このデバイスをペアリング",
   "Try again": "再試行",
   "Open sign-in page": "ログインページを開く",
@@ -70,17 +70,17 @@ export const serviceJa = {
     "プロファイル名は制御文字を含まない 64 文字以内で入力してください。",
   "Enter a name for the new profile.": "新しいプロファイルの名前を入力してください。",
   "Settings profile": "設定プロファイル",
-  "A profile holds site exclusions, sites that ask for the master password and saved accounts. Devices that share one share them; account bindings are shared by every profile.":
-    "プロファイルには除外サイト、マスターパスワードを求めるサイト、保存したアカウントが入っています。同じプロファイルを使うデバイスどうしで共有されます。フィールドの対応付けはすべてのプロファイルで共通です。",
+  "A profile holds site exclusions, allowed sites, sites that ask for the master password and saved accounts. Devices that share one share them; account bindings are shared by every profile.":
+    "プロファイルには除外サイト、許可サイト、マスターパスワードを求めるサイト、保存したアカウントが入っています。同じプロファイルを使うデバイスどうしで共有されます。フィールドの対応付けはすべてのプロファイルで共通です。",
   "New profile with this device's site settings":
     "このデバイスのサイト設定で新しいプロファイルを作成",
   "New profile name": "新しいプロファイルの名前",
   "Replace this device's site settings with {{profile}}'s?":
     "このデバイスのサイト設定を {{profile}} の設定に置き換えますか？",
-  "This device's site exclusions, sites that ask for the master password and saved accounts are removed and {{profile}}'s are used instead. Account bindings are kept.":
-    "このデバイスの除外サイト、マスターパスワードを求めるサイト、保存したアカウントは削除され、代わりに {{profile}} の設定を使います。フィールドの対応付けは残ります。",
-  "This device's site exclusions ({{exclusions}}) and saved accounts ({{defaults}}) are removed and {{profile}}'s are used instead. Account bindings are kept.":
-    "このデバイスの除外サイト（{{exclusions}} 件）と保存したアカウント（{{defaults}} 件）は削除され、代わりに {{profile}} の設定を使います。フィールドの対応付けは残ります。",
+  "This device's site exclusions, allowed sites, sites that ask for the master password and saved accounts are removed and {{profile}}'s are used instead. Account bindings are kept.":
+    "このデバイスの除外サイト、許可サイト、マスターパスワードを求めるサイト、保存したアカウントは削除され、代わりに {{profile}} の設定を使います。フィールドの対応付けは残ります。",
+  "This device's site exclusions ({{exclusions}}), allowed sites ({{allowed}}), sites that ask for the master password ({{reprompt}}) and saved accounts ({{defaults}}) are removed and {{profile}}'s are used instead. Account bindings are kept.":
+    "このデバイスの除外サイト（{{exclusions}} 件）、許可サイト（{{allowed}} 件）、マスターパスワードを求めるサイト（{{reprompt}} 件）、保存したアカウント（{{defaults}} 件）は削除され、代わりに {{profile}} の設定を使います。フィールドの対応付けは残ります。",
   "To keep them, create a new profile from this device instead.":
     "残したい場合は、代わりにこのデバイスの設定で新しいプロファイルを作成してください。",
   "Pair and replace": "置き換えてペアリング",
@@ -100,8 +100,8 @@ export const serviceJa = {
     "サービスから想定外の応答がありました。しばらくしてから、もう一度お試しください。",
   "Profile access failed.": "プロファイルを読み書きできませんでした。",
   "Edit a settings profile": "設定プロファイルの編集",
-  "Change another profile's site exclusions, sites that ask for the master password and saved accounts from here. Account names come from this browser's vaults. Saving does not change which profile this device uses, and account bindings stay shared by every profile.":
-    "ほかのプロファイルの除外サイト、マスターパスワードを求めるサイト、保存したアカウントを、ここで変更できます。アカウント名はこのブラウザーの保管庫から表示します。保存しても、このデバイスが使うプロファイルは変わりません。フィールドの対応付けはすべてのプロファイルで共通のままです。",
+  "Change another profile's site exclusions, allowed sites, sites that ask for the master password and saved accounts from here. Account names come from this browser's vaults. Saving does not change which profile this device uses, and account bindings stay shared by every profile.":
+    "ほかのプロファイルの除外サイト、許可サイト、マスターパスワードを求めるサイト、保存したアカウントを、ここで変更できます。アカウント名はこのブラウザーの保管庫から表示します。保存しても、このデバイスが使うプロファイルは変わりません。フィールドの対応付けはすべてのプロファイルで共通のままです。",
   "Load profiles": "プロファイルを読み込む",
   "Profile to edit": "編集するプロファイル",
   "Choose a profile": "プロファイルを選択",

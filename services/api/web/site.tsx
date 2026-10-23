@@ -5,12 +5,10 @@ import { SiteBindings } from "./bindings";
 import { Button } from "./button";
 import { SiteRecipes } from "./recipes";
 import {
-  allowSite,
   defaultAccountLabel,
   exclusionLabel,
-  exclusionsCovering,
-  excludeSite,
   siteHostname,
+  siteSwitch,
   useSettings,
   useSettingsEdit,
   type SettingsEdit,
@@ -43,10 +41,10 @@ export function SitePage({ client, origin }: { client: ManageClient; origin: str
   }
 
   const current = settings.data?.settings ?? null;
-  const rules = exclusionsCovering(current, hostname);
-  // As in the popup, the switch adds or removes only this hostname's own rule; a rule that
+  // As in the popup, the switch adds or removes only this hostname's own rules; a rule that
   // also covers other sites is changed on the Sites list.
-  const broader = rules.find((rule) => rule.includeSubdomains);
+  const site = siteSwitch(current, hostname);
+  const { broader } = site;
   const siteDefault = current?.siteDefaults.find((entry) => entry.origin === origin);
   const bindings = (current?.bindings ?? []).filter((entry) => entry.origin === origin);
 
@@ -71,26 +69,26 @@ export function SitePage({ client, origin }: { client: ManageClient; origin: str
                 // A checkbox exposes its own checked state to the switch role.
                 // oxlint-disable-next-line jsx-a11y/role-has-required-aria-props
                 role="switch"
-                checked={rules.length === 0}
+                checked={site.on}
                 disabled={edit.isPending || broader !== undefined}
-                aria-describedby={broader ? reasonId : undefined}
-                onChange={(event) =>
-                  change(
-                    event.target.checked
-                      ? allowSite(hostname, `${hostname} allowed`)
-                      : excludeSite(hostname, false),
-                  )
-                }
+                aria-describedby={broader || site.notAllowed ? reasonId : undefined}
+                onChange={(event) => change(site.edit(event.target.checked))}
                 className="relative h-5 w-9 flex-none cursor-pointer appearance-none rounded-full bg-border-strong transition-colors after:absolute after:top-0.5 after:left-0.5 after:size-4 after:rounded-full after:bg-surface after:transition-[left] after:content-[''] checked:bg-accent checked:after:left-[18px] disabled:cursor-default disabled:opacity-50"
               />
               Pateat on this site
             </label>
           )}
         </div>
-        {broader && (
+        {broader ? (
           <p id={reasonId} className="text-[13px]/5 text-ink-muted">
-            Excluded with {exclusionLabel(broader)}; allow it on the Sites list
+            Excluded with {exclusionLabel(broader)}; remove that exclusion on the Sites list
           </p>
+        ) : (
+          site.notAllowed && (
+            <p id={reasonId} className="text-[13px]/5 text-ink-muted">
+              Not an allowed site; turning Pateat on allows it
+            </p>
+          )
         )}
       </div>
       <SuccessNotice id="site-saved" message={notice} />

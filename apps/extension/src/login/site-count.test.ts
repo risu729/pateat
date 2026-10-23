@@ -223,6 +223,16 @@ describe("countSite", () => {
       "site",
       settings({}, { excludedSites: [{ hostname: "login.example", includeSubdomains: false }] }),
     ],
+    [
+      "not-allowed",
+      settings(
+        {},
+        {
+          allowedSites: [{ hostname: "other.example", includeSubdomains: false }],
+          allowedSitesEnabled: true,
+        },
+      ),
+    ],
   ] as const)("names why none is usable: %s", async (excluded, snapshot) => {
     const source = live({ items: [{ id: "a" }, { id: "b" }], uris: ["a", "b"] });
     expect(await countSite(origin, scope([source], snapshot as SettingsSnapshot), run)).toEqual({

@@ -384,6 +384,56 @@ describe("settings profile isolation", () => {
       settings: { excludedSites: initial.excludedSites, bindings: [binding] },
     });
   });
+
+  it("keeps allowed sites and their switch per profile (ADR 0077)", async () => {
+    const { by, device, settings } = await setup();
+    const copied = await copy(by, settings.profileId);
+    const agentPair = await pair(by, copied.id, { label: "Agent" });
+    const agent = v.parse(devicePairResultSchema, await agentPair.json());
+    const agentState = v.parse(
+      syncSettingsStateSchema,
+      await (await deviceApi(agent.credential)).json(),
+    );
+    const allowed = [{ hostname: "bank.example", includeSubdomains: true }];
+    expect(
+      (
+        await save(agent.credential, agentState.revision, {
+          ...createDefaultSettings(),
+          connections: [],
+          allowedSites: allowed,
+          allowedSitesEnabled: true,
+        })
+      ).status,
+    ).toBe(200);
+    expect(await (await deviceApi(agent.credential)).json()).toMatchObject({
+      settings: { allowedSites: allowed, allowedSitesEnabled: true },
+    });
+    // The other profile still has none, and they are off there.
+    const other = v.parse(
+      syncSettingsStateSchema,
+      await (await deviceApi(device.credential)).json(),
+    );
+    expect(other.settings?.allowedSites ?? []).toEqual([]);
+    expect(other.settings?.allowedSitesEnabled ?? false).toBe(false);
+    // Turned off, the list is kept.
+    const current = v.parse(
+      syncSettingsStateSchema,
+      await (await deviceApi(agent.credential)).json(),
+    );
+    expect(
+      (
+        await save(agent.credential, current.revision, {
+          ...createDefaultSettings(),
+          connections: [],
+          allowedSites: allowed,
+          allowedSitesEnabled: false,
+        })
+      ).status,
+    ).toBe(200);
+    const off = v.parse(syncSettingsStateSchema, await (await deviceApi(agent.credential)).json());
+    expect(off.settings?.allowedSites).toEqual(allowed);
+    expect(off.settings?.allowedSitesEnabled ?? false).toBe(false);
+  });
 });
 
 describe("extension profile editor authorization", () => {

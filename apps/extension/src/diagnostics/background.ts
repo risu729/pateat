@@ -114,6 +114,7 @@ export function createDiagnosticsLog(options: {
         ]),
         hosts: [
           ...(settings?.excludedSites ?? []),
+          ...(settings?.allowedSites ?? []),
           // ADR 0007: exact hostnames, as the list matches them.
           ...(settings?.passkeyBrowserSites.map(({ hostname }) => ({
             hostname,

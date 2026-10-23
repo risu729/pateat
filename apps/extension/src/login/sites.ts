@@ -1,8 +1,14 @@
-import { isSiteExcluded, type SettingsSnapshot } from "@pateat/contracts";
+import { isSiteExcluded, siteRefusal, type SettingsSnapshot } from "@pateat/contracts";
 import { browser } from "wxt/browser";
 
 /** Why a document is not admitted; logged for a login-related page (ADR 0019). */
-export type SiteRefusal = "not-web" | "site-excluded" | "no-site-access" | "settings-unavailable";
+export type SiteRefusal =
+  | "not-web"
+  | "site-excluded"
+  /** The allowed sites are on and leave the site out (ADR 0077). */
+  | "site-not-allowed"
+  | "no-site-access"
+  | "settings-unavailable";
 
 export interface LoginSites {
   /** Exact HTTP(S) origins with a saved default, no exclusion and host access still granted. */
@@ -53,7 +59,8 @@ export function createLoginSites(settings: { read(): Promise<SettingsSnapshot> }
       } catch {
         return "settings-unavailable";
       }
-      if (isSiteExcluded(current, url.origin)) return "site-excluded";
+      const refused = siteRefusal(current, url.origin);
+      if (refused) return refused;
       const granted = await browser.permissions
         .contains({ origins: [hostPattern(url)] })
         .catch(() => false);

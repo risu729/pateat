@@ -89,6 +89,10 @@ export const ja = {
   "Pateat's settings could not be loaded.": "Pateat の設定を読み込めませんでした。",
   "{{hostname}} is no longer excluded.": "{{hostname}} の除外を解除しました。",
   "{{hostname}} is now excluded.": "{{hostname}} を除外しました。",
+  "{{hostname}} is now an allowed site.": "{{hostname}} を許可サイトにしました。",
+  "{{hostname}} is no longer an allowed site.": "{{hostname}} を許可サイトから外しました。",
+  "Pateat runs only on allowed sites, and this site is not one of them.":
+    "Pateat は許可サイトでだけ動きます。このサイトは許可サイトではありません。",
   "Vault account": "保管庫のアカウント",
   "{{account}}, not available here": "{{account}}（ここでは利用できません）",
   "Finding the vault items that match this site…":
@@ -306,6 +310,10 @@ export const ja = {
     "Pateat：このサイトに一致するアカウントが {{count}} 件ありますが、このサイトは設定で除外されているため使えません。",
   badgeExcludedSite_other:
     "Pateat：このサイトに一致するアカウントが {{count}} 件ありますが、このサイトは設定で除外されているため使えません。",
+  badgeNotAllowedSite_one:
+    "Pateat：このサイトに一致するアカウントが {{count}} 件ありますが、このサイトは設定の許可サイトに入っていないため使えません。",
+  badgeNotAllowedSite_other:
+    "Pateat：このサイトに一致するアカウントが {{count}} 件ありますが、このサイトは設定の許可サイトに入っていないため使えません。",
   badgeExcludedItems_one:
     "Pateat：このサイトに一致するアカウントが {{count}} 件ありますが、設定で除外されているため使えません。",
   badgeExcludedItems_other:

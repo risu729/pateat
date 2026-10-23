@@ -53,10 +53,11 @@ extension's merge.
   「新しいプロファイルを 作成、とかもできるようにいて」). A new profile has no document
   until the device's first sync, which uploads the device's own exclusions and saved
   accounts into it (`newProfile: true` on `GET /v1/settings`).
-- Choosing an existing profile replaces the device's exclusions and saved accounts with
-  the profile's (owner, Q4: 「サービスのほうを使う」). When the device holds any, the
-  page first shows a warning with their counts and three buttons: **Pair and replace**,
-  **Create a new profile instead** and **Back** (owner, Q4: 「警告画面はいる」).
+- Choosing an existing profile replaces the device's exclusions, allowed sites
+  ([ADR 0077](0077-allowed-sites.md)), sites that ask for the master password and saved
+  accounts with the profile's (owner, Q4: 「サービスのほうを使う」). When the device
+  holds any, or has the allowed sites on, the page first shows a warning with their counts
+  and three buttons: **Pair and replace**, **Create a new profile instead** and **Back** (owner, Q4: 「警告画面はいる」).
 - Bindings belong to the owner, so they keep merging both ways when a device adopts a
   profile (implementation).
 
@@ -67,9 +68,9 @@ extension's merge.
   profile follows another's later changes, stays out.
 - Deleting is refused while any device that is not revoked uses the profile, and the
   refusal names those devices (owner, Q5); the owner's last profile cannot be deleted
-  (implementation). Deleting removes the profile's document, so its exclusions,
-  master-password sites, passkey sites and saved accounts leave the service; only the
-  row stays, with its name and `deleted_at`, so revoked devices still name it
+  (implementation). Deleting removes the profile's document, so its exclusions, allowed
+  sites, master-password sites, passkey sites and saved accounts leave the service; only
+  the row stays, with its name and `deleted_at`, so revoked devices still name it
   (implementation).
 - Names follow device labels' rules and are unique per owner, ignoring case
   (implementation).

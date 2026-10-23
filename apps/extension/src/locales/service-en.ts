@@ -39,8 +39,8 @@ export const serviceEn = {
   "Enter a device name.": "Enter a device name.",
   "Service address": "Service address",
   "Device name": "Device name",
-  "Syncs recipes, site exclusions, default accounts and account bindings. Never sends vault values, passwords or keys.":
-    "Syncs recipes, site exclusions, default accounts and account bindings. Never sends vault values, passwords or keys.",
+  "Syncs recipes, site exclusions, allowed sites, default accounts and account bindings. Never sends vault values, passwords or keys.":
+    "Syncs recipes, site exclusions, allowed sites, default accounts and account bindings. Never sends vault values, passwords or keys.",
   "Pair this device": "Pair this device",
   "Try again": "Try again",
   "Open sign-in page": "Open sign-in page",
@@ -68,16 +68,16 @@ export const serviceEn = {
     "Use a profile name of up to 64 characters without control characters.",
   "Enter a name for the new profile.": "Enter a name for the new profile.",
   "Settings profile": "Settings profile",
-  "A profile holds site exclusions, sites that ask for the master password and saved accounts. Devices that share one share them; account bindings are shared by every profile.":
-    "A profile holds site exclusions, sites that ask for the master password and saved accounts. Devices that share one share them; account bindings are shared by every profile.",
+  "A profile holds site exclusions, allowed sites, sites that ask for the master password and saved accounts. Devices that share one share them; account bindings are shared by every profile.":
+    "A profile holds site exclusions, allowed sites, sites that ask for the master password and saved accounts. Devices that share one share them; account bindings are shared by every profile.",
   "New profile with this device's site settings": "New profile with this device's site settings",
   "New profile name": "New profile name",
   "Replace this device's site settings with {{profile}}'s?":
     "Replace this device's site settings with {{profile}}'s?",
-  "This device's site exclusions, sites that ask for the master password and saved accounts are removed and {{profile}}'s are used instead. Account bindings are kept.":
-    "This device's site exclusions, sites that ask for the master password and saved accounts are removed and {{profile}}'s are used instead. Account bindings are kept.",
-  "This device's site exclusions ({{exclusions}}) and saved accounts ({{defaults}}) are removed and {{profile}}'s are used instead. Account bindings are kept.":
-    "This device's site exclusions ({{exclusions}}) and saved accounts ({{defaults}}) are removed and {{profile}}'s are used instead. Account bindings are kept.",
+  "This device's site exclusions, allowed sites, sites that ask for the master password and saved accounts are removed and {{profile}}'s are used instead. Account bindings are kept.":
+    "This device's site exclusions, allowed sites, sites that ask for the master password and saved accounts are removed and {{profile}}'s are used instead. Account bindings are kept.",
+  "This device's site exclusions ({{exclusions}}), allowed sites ({{allowed}}), sites that ask for the master password ({{reprompt}}) and saved accounts ({{defaults}}) are removed and {{profile}}'s are used instead. Account bindings are kept.":
+    "This device's site exclusions ({{exclusions}}), allowed sites ({{allowed}}), sites that ask for the master password ({{reprompt}}) and saved accounts ({{defaults}}) are removed and {{profile}}'s are used instead. Account bindings are kept.",
   "To keep them, create a new profile from this device instead.":
     "To keep them, create a new profile from this device instead.",
   "Pair and replace": "Pair and replace",
@@ -97,8 +97,8 @@ export const serviceEn = {
     "The service gave an unexpected answer. Try again later.",
   "Profile access failed.": "Profile access failed.",
   "Edit a settings profile": "Edit a settings profile",
-  "Change another profile's site exclusions, sites that ask for the master password and saved accounts from here. Account names come from this browser's vaults. Saving does not change which profile this device uses, and account bindings stay shared by every profile.":
-    "Change another profile's site exclusions, sites that ask for the master password and saved accounts from here. Account names come from this browser's vaults. Saving does not change which profile this device uses, and account bindings stay shared by every profile.",
+  "Change another profile's site exclusions, allowed sites, sites that ask for the master password and saved accounts from here. Account names come from this browser's vaults. Saving does not change which profile this device uses, and account bindings stay shared by every profile.":
+    "Change another profile's site exclusions, allowed sites, sites that ask for the master password and saved accounts from here. Account names come from this browser's vaults. Saving does not change which profile this device uses, and account bindings stay shared by every profile.",
   "Load profiles": "Load profiles",
   "Profile to edit": "Profile to edit",
   "Choose a profile": "Choose a profile",

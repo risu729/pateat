@@ -301,6 +301,20 @@ export const siteDefaultSchema = v.strictObject({
   accountName: v.optional(vaultNameSchema),
 });
 
+/** A hostname, and optionally its subdomains: an exclusion, an allowed site or a re-prompt site. */
+export const siteRuleSchema = v.strictObject({
+  hostname: hostnameSchema,
+  includeSubdomains: v.boolean(),
+});
+const siteRulesSchema = v.pipe(
+  v.array(siteRuleSchema),
+  v.maxLength(1000),
+  v.check(
+    (sites) => new Set(sites.map((site) => site.hostname)).size === sites.length,
+    "Duplicate sites",
+  ),
+);
+
 /**
  * A vault connection on this device, before its provider account is known: the add form's
  * choice whether to use it, applied when the account first syncs (ADR 0023). Never synced.
@@ -403,16 +417,6 @@ const accountKey = (entry: { provider: string; server: string; userId: string })
 const itemKey = (entry: { provider: string; server: string; userId: string; itemId: string }) =>
   JSON.stringify([entry.provider, entry.server, entry.userId, entry.itemId]);
 
-/** Site rules by hostname, optionally with its subdomains, as the settings page lists them. */
-const siteRulesSchema = v.pipe(
-  v.array(v.strictObject({ hostname: hostnameSchema, includeSubdomains: v.boolean() })),
-  v.maxLength(1000),
-  v.check(
-    (sites) => new Set(sites.map((site) => site.hostname)).size === sites.length,
-    "Duplicate sites",
-  ),
-);
-
 export const localSettingsSchema = v.pipe(
   v.strictObject({
     connections: v.pipe(
@@ -456,6 +460,14 @@ export const localSettingsSchema = v.pipe(
      * the list existed has no sites.
      */
     repromptSites: v.optional(siteRulesSchema, []),
+    /**
+     * The allowed sites (ADR 0077): while `allowedSitesEnabled` is true, Pateat acts only
+     * on a site one of these rules covers, and an exclusion still wins. Turning the list
+     * off keeps its rules. Absent is the same as empty and off. A profile part, synced
+     * like the exclusions (ADR 0024).
+     */
+    allowedSites: v.optional(siteRulesSchema),
+    allowedSitesEnabled: v.optional(v.boolean()),
     /**
      * Hostnames whose passkey requests Pateat hands on to the browser unanswered, added by
      * the chooser's "Always for this site" (ADR 0007). Exact hostnames, without subdomains.
@@ -758,6 +770,7 @@ export const settingsResponseSchema = v.variant("ok", [
 export type LocalSettings = v.InferOutput<typeof localSettingsSchema>;
 export type ConnectionSettings = v.InferOutput<typeof connectionSettingsSchema>;
 export type SiteDefault = v.InferOutput<typeof siteDefaultSchema>;
+export type SiteRule = v.InferOutput<typeof siteRuleSchema>;
 export type AccountPolicy = v.InferOutput<typeof accountPolicySchema>;
 export type ItemPolicy = v.InferOutput<typeof itemPolicySchema>;
 export type ExcludedField = v.InferOutput<typeof excludedFieldSchema>;
@@ -1187,20 +1200,61 @@ export function isFieldExcluded(
   return resolveExcludedFields(references, item.fields).fieldIds.includes(fieldId);
 }
 
-function ruleMatches(rules: LocalSettings["excludedSites"], hostname: string): boolean {
-  return rules.some(
-    (site) =>
-      hostname === site.hostname ||
-      (site.includeSubdomains && hostname.endsWith(`.${site.hostname}`)),
+/** Whether a site rule covers a canonical hostname: its own, or a subdomain's if included. */
+export function siteRuleCovers(rule: SiteRule, hostname: string): boolean {
+  return (
+    hostname === rule.hostname || (rule.includeSubdomains && hostname.endsWith(`.${rule.hostname}`))
   );
 }
 
-export function isSiteExcluded(settings: LocalSettings, value: string): boolean {
+type SiteRules = Pick<LocalSettings, "excludedSites" | "allowedSites" | "allowedSitesEnabled">;
+
+/** Whether the allowed sites are on, which limits Pateat to them (ADR 0077). */
+export function allowlistOn(settings: SiteRules): boolean {
+  return settings.allowedSitesEnabled === true;
+}
+
+/**
+ * How the site rules treat a URL: `excluded` when an exclusion covers it, which wins over
+ * the allowed sites; `not-allowed` while the allowed sites are on and none covers it;
+ * `invalid` for a URL that is no policy input.
+ */
+export function siteAccess(
+  settings: SiteRules,
+  value: string,
+): "allowed" | "excluded" | "not-allowed" | "invalid" {
   const url = parseSiteUrl(value);
   const hostname = url && normalizeHostname(url.hostname);
   // Invalid destinations are blocked, never treated as a permission grant.
-  if (!hostname) return true;
-  return ruleMatches(settings.excludedSites, hostname);
+  if (!hostname) return "invalid";
+  if (settings.excludedSites.some((site) => siteRuleCovers(site, hostname))) return "excluded";
+  if (
+    allowlistOn(settings) &&
+    !(settings.allowedSites ?? []).some((site) => siteRuleCovers(site, hostname))
+  )
+    return "not-allowed";
+  return "allowed";
+}
+
+/**
+ * Why Pateat must not act on a URL, for a log line: `site-not-allowed` when only the
+ * allowed sites leave it out, else `site-excluded`, which also covers an invalid URL.
+ */
+export function siteRefusal(
+  settings: SiteRules,
+  value: string,
+): "site-excluded" | "site-not-allowed" | undefined {
+  const access = siteAccess(settings, value);
+  if (access === "allowed") return undefined;
+  return access === "not-allowed" ? "site-not-allowed" : "site-excluded";
+}
+
+/**
+ * Whether Pateat must not act on a URL: it is invalid, an exclusion covers it, or the
+ * allowed sites are on and leave it out. Every login, passkey and vault match checks this.
+ */
+export function isSiteExcluded(settings: SiteRules, value: string): boolean {
+  return siteAccess(settings, value) !== "allowed";
 }
 
 /**
@@ -1212,7 +1266,7 @@ export function asksForMasterPassword(settings: LocalSettings, value: string): b
   const url = parseSiteUrl(value);
   const hostname = url && normalizeHostname(url.hostname);
   if (!hostname) return true;
-  return ruleMatches(settings.repromptSites, hostname);
+  return settings.repromptSites.some((site) => siteRuleCovers(site, hostname));
 }
 
 /** Whether an item has to wait for the master password on this page's site. */
@@ -1242,6 +1296,7 @@ export type SiteAccountResolution =
       reason:
         | "invalid-url"
         | "site-excluded"
+        | "site-not-allowed"
         | "default-not-set"
         | "item-origin-mismatch"
         | "account-ambiguous"
@@ -1285,7 +1340,8 @@ export function resolveSiteAccount(
 ): SiteAccountResolution {
   const url = parseSiteUrl(value);
   if (!url || !normalizeHostname(url.hostname)) return { ok: false, reason: "invalid-url" };
-  if (isSiteExcluded(settings, value)) return { ok: false, reason: "site-excluded" };
+  const refusal = siteRefusal(settings, value);
+  if (refusal) return { ok: false, reason: refusal };
   const selected = settings.siteDefaults.find((entry) => entry.origin === url.origin);
   if (!selected) return { ok: false, reason: "default-not-set" };
   const connection = siteDefaultConnection(selected, catalog);

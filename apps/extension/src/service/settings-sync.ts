@@ -28,7 +28,7 @@ export const MAX_SETTINGS_SYNC_ATTEMPTS = 3;
 export const MAX_SETTINGS_DEFER_MS = 2 * 60 * 1000;
 
 type SiteDefault = LocalSettings["siteDefaults"][number];
-type ExcludedSite = LocalSettings["excludedSites"][number];
+type SiteRule = LocalSettings["excludedSites"][number];
 type PasskeyBrowserSite = LocalSettings["passkeyBrowserSites"][number];
 type Binding = LocalSettings["bindings"][number];
 type AccountPolicy = LocalSettings["accountPolicies"][number];
@@ -45,9 +45,12 @@ export type SyncedSettings = {
   accountPolicies: AccountPolicy[];
   itemPolicies: ItemPolicy[];
   customFieldReviews: CustomFieldReview[];
-  excludedSites: ExcludedSite[];
+  excludedSites: SiteRule[];
   passkeyBrowserSites: PasskeyBrowserSite[];
-  repromptSites: ExcludedSite[];
+  repromptSites: SiteRule[];
+  /** Kept while the list is off; absent in the settings is the same as empty (ADR 0077). */
+  allowedSites: SiteRule[];
+  allowedSitesEnabled: boolean;
   siteDefaults: SiteDefault[];
   bindings: Binding[];
   popupPageSection: boolean;
@@ -67,6 +70,8 @@ export function syncedSettings(settings: LocalSettings): SyncedSettings {
     excludedSites: settings.excludedSites,
     passkeyBrowserSites: settings.passkeyBrowserSites,
     repromptSites: settings.repromptSites,
+    allowedSites: settings.allowedSites ?? [],
+    allowedSitesEnabled: settings.allowedSitesEnabled ?? false,
     siteDefaults: settings.siteDefaults,
     bindings: settings.bindings,
     popupPageSection: popupPageSectionShown(settings),
@@ -80,6 +85,8 @@ const emptySynced: SyncedSettings = {
   excludedSites: [],
   passkeyBrowserSites: [],
   repromptSites: [],
+  allowedSites: [],
+  allowedSitesEnabled: false,
   siteDefaults: [],
   bindings: [],
   popupPageSection: true,
@@ -142,7 +149,7 @@ export type SettingsSyncOutcome =
   | "storage-unavailable"
   | TransportFailure;
 
-const siteKey = (entry: ExcludedSite | PasskeyBrowserSite) => entry.hostname;
+const siteKey = (entry: SiteRule | PasskeyBrowserSite) => entry.hostname;
 const defaultKey = (entry: SiteDefault) => entry.origin;
 const bindingKey = (entry: Binding) =>
   JSON.stringify([
@@ -183,6 +190,11 @@ function mergeEntries<T>(
     if (entry !== undefined) merged.push(entry);
   }
   return merged;
+}
+
+/** One value merged like an entry: the service's change wins, then a local one. */
+function mergeValue<T>(base: { service: T; local: T }, local: T, service: T): T {
+  return same(service, base.service) && !same(local, base.local) ? local : service;
 }
 
 /**
@@ -247,6 +259,17 @@ export function mergeSyncedSettings(
       service.repromptSites,
       siteKey,
     ),
+    allowedSites: mergeEntries(
+      part("allowedSites"),
+      local.allowedSites,
+      service.allowedSites,
+      siteKey,
+    ),
+    allowedSitesEnabled: mergeValue(
+      part("allowedSitesEnabled"),
+      local.allowedSitesEnabled,
+      service.allowedSitesEnabled,
+    ),
     siteDefaults: mergeEntries(
       part("siteDefaults"),
       local.siteDefaults,
@@ -254,12 +277,11 @@ export function mergeSyncedSettings(
       defaultKey,
     ),
     bindings: mergeEntries(part("bindings"), local.bindings, service.bindings, bindingKey),
-    // One value, merged like one entry.
-    popupPageSection:
-      service.popupPageSection === base.service.popupPageSection &&
-      local.popupPageSection !== base.local.popupPageSection
-        ? local.popupPageSection
-        : service.popupPageSection,
+    popupPageSection: mergeValue(
+      part("popupPageSection"),
+      local.popupPageSection,
+      service.popupPageSection,
+    ),
   };
 }
 
@@ -316,6 +338,8 @@ function equalSynced(left: SyncedSettings, right: SyncedSettings): boolean {
     same(sorted(left.excludedSites, siteKey), sorted(right.excludedSites, siteKey)) &&
     same(sorted(left.passkeyBrowserSites, siteKey), sorted(right.passkeyBrowserSites, siteKey)) &&
     same(sorted(left.repromptSites, siteKey), sorted(right.repromptSites, siteKey)) &&
+    same(sorted(left.allowedSites, siteKey), sorted(right.allowedSites, siteKey)) &&
+    left.allowedSitesEnabled === right.allowedSitesEnabled &&
     same(sorted(left.siteDefaults, defaultKey), sorted(right.siteDefaults, defaultKey)) &&
     same(sorted(left.bindings, bindingKey), sorted(right.bindings, bindingKey)) &&
     left.popupPageSection === right.popupPageSection
