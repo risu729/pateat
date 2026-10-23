@@ -1107,9 +1107,40 @@ describe("extractLoginObservation", () => {
     expect(observe().complete).toBe(true);
     expect(observe().candidates.map((candidate) => candidate.target.value)).toEqual(["u", "go"]);
     page(
-      `<form id="f"><input id="u"><input type="checkbox"><button id="go">Log in</button></form>`,
+      `<form id="f"><input id="u"><input type="checkbox" required><button id="go">Log in</button></form>`,
     );
     expect(observe().complete).toBe(false);
+  });
+
+  it("leaves out a checkbox it cannot locate unless the page requires it (Stripe, 2026-10-23)", () => {
+    // Stripe's and 1Password's "Remember me" carry only a per-load React ID and are named
+    // by `aria-labelledby`; a checkbox is never checked by a recipe, only context.
+    const form = (checkbox: string) =>
+      `<form id="f"><input id="u" type="email"><input id="p" type="password">
+        <input type="checkbox" id="react-aria1-:r9:" aria-labelledby="remember" ${checkbox}>
+        <span id="remember">Remember me</span><button id="go">Log in</button></form>`;
+    page(form(""));
+    let observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(observation.candidates.map((candidate) => candidate.target.value)).toEqual([
+      "u",
+      "p",
+      "go",
+    ]);
+    for (const required of ["required", `aria-required="true"`]) {
+      page(form(required));
+      observation = observe();
+      expect(observation.complete, required).toBe(false);
+    }
+    // A located checkbox stays as context.
+    page(
+      `<form id="f"><input id="u"><input type="checkbox" id="keep"><button id="go">Log in</button></form>`,
+    );
+    expect(observe().candidates.map((candidate) => candidate.target.value)).toEqual([
+      "u",
+      "keep",
+      "go",
+    ]);
   });
 
   it("leaves out a show-password icon button without a locator, such as モッピー's and LinkedIn's", () => {
@@ -1476,7 +1507,7 @@ describe("extractLoginObservation", () => {
       [form(`<select id="kind"><option>A</option></select>`), undefined, "unsupported-control"],
       [form(`<input type="radio" id="kind">`), undefined, "unsupported-control"],
       [form(`<input>`), undefined, "unlocated-field"],
-      [form(`<input type="checkbox">`), undefined, "unlocated-checkbox"],
+      [form(`<input type="checkbox" required>`), undefined, "unlocated-checkbox"],
       [form("", `<button>Log in</button><button>Log in</button>`), undefined, "unlocated-button"],
       // An icon button may be the form's only, script-run submit.
       [
@@ -1498,7 +1529,11 @@ describe("extractLoginObservation", () => {
         undefined,
         "unsupported-control",
       ],
-      [form(`<input type="checkbox"><input id="r" readonly>`), undefined, "unfillable-field"],
+      [
+        form(`<input type="checkbox" required><input id="r" readonly>`),
+        undefined,
+        "unfillable-field",
+      ],
       [`${form("<select id='k'></select>")}<div id="host"></div>`, `<input>`, "shadow-field"],
     ] as const)
       expect(gap(html, shadow), html).toEqual([false, expected]);
