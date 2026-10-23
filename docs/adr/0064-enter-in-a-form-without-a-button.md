@@ -1,10 +1,10 @@
 # ADR 0064: A form that shows no button is submitted by Enter in its last field
 
-Status: proposed, implemented ahead of the owner's decision. On 2026-10-23 at 05:28 UTC
-the owner said to set the phases aside for such work, proceed on a working rule and
-decide afterwards, as for the other open PRs
-(「フェーズは一旦無視して、ある程度決め打ちで 進め、後から判断」); this ADR is that
-working rule, and its PR is left for the owner to merge. Found on x.com
+Status: accepted by the owner on 2026-10-23 at 11:31 UTC (「ok」, after asking what was
+left to decide and its downsides:
+「これでいいように思うが決めるべきことは何？デメリットあるの？」), implemented. It was
+built ahead of that decision under the owner's 05:28 UTC rule to set the phases aside,
+proceed on a working rule and decide afterwards. Found on x.com
 ([#860](https://github.com/risu729/pateat/issues/860)). Amends
 [ADR 0018](0018-recipe-generation-route.md) (what a plan's action may be).
 
