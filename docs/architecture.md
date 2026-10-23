@@ -2559,9 +2559,8 @@ ASCII except whitespace and control characters, as in `ctl00$Main$txtUserId` or
 token, a fillable input's visible name
 ([ADR 0037](adr/0037-fields-by-visible-name.md), below) or its `name` within the
 sign-in form ([ADR 0072](adr/0072-field-name-in-the-sign-in-form.md), below), a
-`password` handler's
-button's accessible name (ADR 0048's amendment, below), or, for a click or a state
-check only, a button's text:
+`password` handler's or a route click's button's accessible name (ADR 0048's
+amendments, below), or, for a click or a state check only, a button's text:
 `{ "by": "text", "value": "ログイン" }` names the `<button>` whose rendered text (or,
 without any, its images' `alt`), the `<input type="submit|button">` whose value, or the
 `<input type="image">` whose `alt` equals the value after whitespace is collapsed (owner
@@ -2762,7 +2761,7 @@ ambiguous and an absent element's hidden copy still keeps it from proving the si
 A copy that shows later makes the step ambiguous, as for visible names; a copy hidden
 only from assistive technology, such as a page form behind a modal, still counts.
 
-A control is named by its accessible name only as a `password` handler's button (owner,
+A control is named by its accessible name as a `password` handler's button (owner,
 2026-10-19 01:26 UTC, option A1,
 [ADR 0048's amendment](adr/0048-password-method-button.md#amendment-controls-told-apart-by-their-accessible-names)):
 `{ "by": "accessible-name", "value": "Select Password." }` names the one shown control
@@ -2772,11 +2771,12 @@ outside an `<a href>`) or a fragment link (below); other links, fields and other
 never count. Role and script buttons count anywhere on the page, not only inside a
 login form. The name is the rendered text of the elements its `aria-labelledby` names,
 else its `aria-label`, collapsed as button text is; one over 120 characters gives none.
+A labelling element's own `aria-hidden="true"` does not hide its text here (below).
 It is counted apart from a field's visible name. The contract refuses it everywhere
-else: route steps,
+else, apart from a route step's click (below): other route steps,
 `passkey` and `totp` handlers, signed-in markers and their `absent` elements, the
 rejection, an account switch, a passkey route, a sign-in entry and a list of accounts.
-The extractor offers it only in a description sent to the judge, only for a shown
+For the handler, the extractor offers it only in a description sent to the judge, for a
 control that no `id`, `name`, `data-testid` or text locator names alone, and only when
 no other control on the page has that name, it holds no number, redaction leaves it
 unchanged, and it passes the handler's word check (below), so two controls that both
@@ -2792,6 +2792,18 @@ the click count such a link as a button; the extractor tries the name first for 
 describes it as a button. Everywhere else such a link stays a link (option A2, which
 would have counted it as a button on every page, was not chosen). UniSuper's choice of
 how to verify shows its two controls this way (2026-10-18).
+
+Since the owner's decision of 2026-10-23 11:52 UTC
+([ADR 0048's second amendment](adr/0048-password-method-button.md#amendment-a-login-forms-button-named-only-by-its-accessible-name)),
+a route step's click may also name its button so: the extractor gives a login page's
+login-form native button (a `<button>`, or an `<input>` of type `submit`, `button` or
+`image`) that no `id`, `name`, `data-testid` or text locator names alone its
+accessible name, under the same uniqueness, number and redaction rules but without the
+password word check, before an `id` another load may change, and the click by it
+presses only a native button, never a script button or a fragment link. Amazon.co.jp's
+sign-in submit, an `<input type="submit">` without a `value` labelled by an
+`aria-hidden` 「次に進む」 beside it, is named this way: the text of an element that
+`aria-labelledby` names is read even when its own `aria-hidden="true"` hides it.
 
 A text locator is stored in the recipe, unlike observation labels, which only reach
 inference. Redaction keeps email addresses and long numbers out of it, but a button such

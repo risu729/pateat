@@ -13,6 +13,9 @@ kind, what the judge may name, and the order of handlers shown together) and
 Amended on 2026-10-19 by the owner (01:26 UTC, option A1): the handler's button may be
 named by its accessible name, and the Context's "Password" and "Mobile" buttons are
 corrected ([amendment](#amendment-controls-told-apart-by-their-accessible-names)).
+Amended again on 2026-10-23 by the owner (11:52 UTC, option A): a route step's click
+may name a login form's button by its accessible name
+([amendment](#amendment-a-login-forms-button-named-only-by-its-accessible-name)).
 
 Date: 2026-10-18
 
@@ -340,3 +343,88 @@ chose, likewise unconfirmed:
   another row's control, and it needs more code than A.
 - **C. Keep it as is.** The login stops there with the yellow "!", and the owner presses
   "Select" and types the password.
+
+## Amendment: a login form's button named only by its accessible name
+
+Accepted by the owner on 2026-10-23 at 11:52 UTC, on a decision card that chose option
+A, 「採用 (#882 をマージ)」, over B (a new locator for the form's submit button) and C
+(keep it as is). Claude proposed it after the owner said on 2026-10-23 at 05:28 UTC to
+go ahead with such fixes on an assumed decision and judge them afterwards; another AI
+reviewed the design and the code before the owner was asked. Implemented (local tests
+and a live extraction of the page; not yet a real sign-in).
+
+### Context
+
+On 2026-10-23 at about 05:35 UTC, in cloud Chromium 156 on main `381116f`, the
+extractor described Amazon.co.jp's sign-in page (`/ax/claim`) as incomplete
+(`unlocated-button`), so no recipe could be generated. The login form's only submit is:
+
+```html
+<span class="a-button-inner">
+  <input class="a-button-input" type="submit" aria-labelledby="continue-announce">
+  <span id="continue-announce" class="a-button-text" aria-hidden="true">次に進む</span>
+</span>
+```
+
+The input has no `id`, `name`, `data-testid` or `value`, and is laid at opacity 0.01
+over the text it is labelled by. A text locator reads an input button's `value`, and
+item 2 of the amendment above keeps the accessible-name locator for a `password`
+handler's button, so no locator named it. The label's own `aria-hidden` also kept the
+extension from reading the name at all. The official Bitwarden extension stores no
+locator; its auto-submit clicks the form's `[type="submit"]` element
+(`apps/browser/src/autofill/content/auto-submit-login.ts`).
+
+### Decision
+
+1. **Where.** A route step's `click` (purpose `advance` or `submit`), in any password
+   variant, may name its button by its accessible name. Wait and assert steps, the
+   passkey route, `passkey` and `totp` handlers, signed-in markers, the rejection, an
+   account switch, a sign-in entry and a list of accounts still never take it.
+2. **When the extractor gives it.** Only in a login page's description, and only to a
+   native button (a `<button>`, or an `<input>` of type `submit`, `button` or `image`)
+   of a login form that no `id`, `name`, `data-testid` or text locator names alone, when
+   exactly one shown control on the page has that name, the name holds no number and
+   redaction would not change it, as for a `password` handler's button (item 3 of the
+   amendment above) but without the password word check. It comes before an `id` that
+   another load may change, as a field's visible name does (ADR 0037). Script buttons,
+   `role="button"` elements, icon buttons of `type="button"` without text (mostly
+   show-password toggles), buttons beside the form and fragment links get no such
+   locator here, and stay as before.
+3. **The name.** The rendered text of an element that `aria-labelledby` names is read
+   even when that element's own `aria-hidden="true"` hides it from assistive
+   technology, as a page does for a label the control itself announces; an `inert`
+   element, an `aria-hidden` ancestor or descendant and CSS still hide it. This applies
+   to every accessible-name locator, the `password` handler's included, and not to a
+   field's visible name (ADR 0037). A stored `password` handler whose control has both
+   an `aria-labelledby` naming such an element and an `aria-label` was named by the
+   `aria-label` before and is now named by the labelling text, so it no longer matches
+   and stops at that page until the recipe is judged again.
+4. **Pressing it.** The click by that name presses only a native button, as the
+   extractor offers, never a script button or a fragment link, which stays a `password`
+   handler's button alone. The readiness check is unchanged and still counts a fragment
+   link or script button with that name as ready, since it does not know whether the
+   click is a handler's; the click then fails as one whose target is missing
+   (`target-missing`) and presses nothing.
+5. **The service** accepts such a recipe and such a plan's click; the generation
+   instructions are unchanged, so no page is generated again because of this change.
+
+### Consequences
+
+- Amazon.co.jp's sign-in page is described as complete, and its identifier step can be
+  generated with `{ "by": "accessible-name", "value": "次に進む" }` as its `advance`.
+- The name is stored in the recipe. The number and redaction rules keep phone numbers
+  and addresses out of it, as for a `password` handler's button; a name such as
+  "Continue as 山田" passes them, as the same text would as a text locator.
+- An extension build older than the service refuses a recipe holding such a click, so
+  the service is deployed first, as for item 7 of the amendment above.
+- When the site rewords the label, the step no longer finds its button and the login
+  stops at that page, as a reworded text locator does.
+
+### Alternatives
+
+- **The form's submit button.** A locator meaning "the one submit button of the form
+  that holds this field", closer to Bitwarden's auto-submit. It names no text, so it
+  survives a reworded label, but it is a new kind of locator that reads another
+  element's form and needs its own rules for forms with several submits.
+- **Keep it as is.** Amazon.co.jp and pages like it are never generated, and the person
+  signs in by hand.
