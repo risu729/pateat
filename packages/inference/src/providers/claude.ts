@@ -52,11 +52,6 @@ export const claudeGeneration = {
   rates: publishedRates("claude-opus-5-5"),
 } as const;
 
-/**
- * The highest per-token rates a call of at most `maxInputTokens` prompt tokens can be
- * charged, for spend bounds: long-prompt rates only when such a prompt can exceed their
- * threshold.
- */
 /** Estimated cost from reported usage at the published rates; undefined when usage is unknown. */
 export function estimateClaudeCostUsd(
   usage: InferenceUsage,
@@ -65,6 +60,11 @@ export function estimateClaudeCostUsd(
   return estimateClaudeCost(usage, rates);
 }
 
+/**
+ * The highest per-token rates a call of at most `maxInputTokens` prompt tokens can be
+ * charged, for spend bounds: long-prompt rates only when such a prompt can exceed their
+ * threshold.
+ */
 export function claudeWorstCaseRates(rates: ClaudeRates, maxInputTokens: number): ClaudeTokenRates {
   const { longPrompt } = rates;
   return longPrompt !== undefined && maxInputTokens > longPrompt.overInputTokens

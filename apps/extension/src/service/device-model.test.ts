@@ -41,7 +41,12 @@ const REQUEST = {
   slots: [{ id: "password", kind: "secret", description: "account password" }],
   signedIn: false,
 } as unknown as RecipeGenerationRequest;
-const BODY = JSON.stringify({ model: "claude-opus-5-5", max_tokens: 1024 });
+const BODY = JSON.stringify({
+  model: "claude-opus-5-5",
+  max_tokens: 1024,
+  system: "Synthetic instructions.",
+  messages: [{ role: "user", content: [{ type: "text", text: "A synthetic page." }] }],
+});
 const CALL: DeviceModelCall = {
   version: 1,
   status: "model-call",
@@ -54,6 +59,8 @@ function setup(
   options: {
     setting?: DeviceModelSetting | undefined;
     spend?: DeviceModelSpend;
+    readSpend?: () => Promise<unknown>;
+    readKey?: () => Promise<unknown>;
     answers?: RecipeGenerationResult[];
     fetch?: typeof globalThis.fetch;
   } = {},
@@ -76,12 +83,12 @@ function setup(
   ) as unknown as typeof globalThis.fetch & ReturnType<typeof vi.fn>;
   const model = createDeviceModel({
     storage: {
-      read: async () => ("setting" in options ? options.setting : SETTING),
+      read: options.readKey ?? (async () => ("setting" in options ? options.setting : SETTING)),
       write: async () => {},
       clear: async () => {},
     },
     spend: {
-      read: async () => spend,
+      read: options.readSpend ?? (async () => spend),
       write: async (value) => {
         spend = value;
       },
@@ -225,6 +232,69 @@ describe("model calls with this device's own key (ADR 0040)", () => {
       error: "unexpected-response",
     });
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["a tool", { tools: [{ type: "web_search_20250305", name: "web_search" }] }],
+    ["streaming", { stream: true }],
+    ["a larger answer", { max_tokens: 64_000 }],
+    ["another server", { mcp_servers: [{ type: "url", url: "https://mcp.example.test" }] }],
+  ])("never sends a call that asks for %s", async (_name, extra) => {
+    const body = JSON.stringify({ ...JSON.parse(BODY), ...extra });
+    const { transport, fetch } = setup({
+      answers: [{ ...CALL, call: { ...CALL.call, body } } as RecipeGenerationResult],
+    });
+    expect(await transport.generateRecipe(ORIGIN, CREDENTIAL, REQUEST)).toEqual({
+      kind: "failed",
+      error: "unexpected-response",
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("never sends a call with a beta other than fast mode's", async () => {
+    const { transport, fetch } = setup({
+      answers: [
+        {
+          ...CALL,
+          call: { ...CALL.call, headers: { "anthropic-beta": "mcp-client-2025-04-04" } },
+        } as RecipeGenerationResult,
+      ],
+    });
+    expect((await transport.generateRecipe(ORIGIN, CREDENTIAL, REQUEST)).kind).toBe("failed");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("charges an answer too large to pass on, and passes it on as none", async () => {
+    const large = JSON.stringify({
+      usage: { input_tokens: 1_000, output_tokens: 10 },
+      padding: "x".repeat(20 * 1024),
+    });
+    const { transport, sent, spend } = setup({ fetch: async () => new Response(large) });
+    await transport.generateRecipe(ORIGIN, CREDENTIAL, REQUEST);
+    expect(sent[1]?.responses[0]?.kind).toBe("unreachable");
+    expect(currentSpend(spend(), NOW).dayMicroUsd).toBeGreaterThan(0);
+  });
+
+  it("stops when the spend count cannot be read, rather than counting nothing", async () => {
+    const { transport, fetch } = setup({
+      readSpend: () => Promise.reject(new Error("storage unavailable")),
+    });
+    expect(await transport.generateRecipe(ORIGIN, CREDENTIAL, REQUEST)).toEqual({
+      kind: "failed",
+      error: "unexpected-response",
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("never falls back to the service's credential when the key cannot be read", async () => {
+    const { transport, sent } = setup({
+      readKey: () => Promise.reject(new Error("storage unavailable")),
+    });
+    expect(await transport.generateRecipe(ORIGIN, CREDENTIAL, REQUEST)).toEqual({
+      kind: "failed",
+      error: "unexpected-response",
+    });
+    expect(sent).toEqual([]);
   });
 
   it("charges the worst case for a call without reported usage, and nothing when it never left", () => {

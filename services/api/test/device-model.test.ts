@@ -1,4 +1,5 @@
 import {
+  deviceModelCallAllowed,
   deviceModelRequestHash,
   type DeviceModelResponse,
   type LoginObservation,
@@ -11,6 +12,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { createDeviceToken, hashDeviceToken } from "../src/auth";
 import { saveWifCredential } from "../src/claude/credentials";
 import { CLAUDE_CALL_LIMITS } from "../src/claude/calls";
+import { saveModelConfig } from "../src/claude/models";
 
 // A paired device that makes the model calls with its own key (ADR 0040). Synthetic owners,
 // devices and pages only; any request to Anthropic fails the test, since the service must
@@ -118,6 +120,8 @@ async function generate(device: Device, responses: DeviceModelResponse[]) {
 function modelCall(answer: RecipeGenerationResult) {
   if (answer.status !== "model-call")
     throw new Error(`Expected a model call, got ${answer.status}`);
+  // Every call the routes hand over is one a device sends with its key.
+  expect(deviceModelCallAllowed(answer.call)).toBe(true);
   return answer.call;
 }
 
@@ -220,6 +224,39 @@ describe("model calls a paired device makes with its own key (ADR 0040)", () => 
     expect((await logOf(device.ownerId)).map((row) => [row.model_id, row.outcome])).toEqual([
       ["claude-opus-5-5", "refused"],
       ["claude-sonnet-5-5", "ok"],
+    ]);
+  });
+
+  it("hands over a fast mode call, then the standard one after it is rate limited", async () => {
+    const device = await owner();
+    const choice = (model: string, speed: "standard" | "fast") => ({
+      provider: "anthropic" as const,
+      model,
+      effort: "low" as const,
+      speed,
+    });
+    await saveModelConfig(env.DB, device.ownerId, {
+      generate: [choice("claude-opus-5-5", "fast"), choice("claude-sonnet-5-5", "standard")],
+      judge: [choice("claude-opus-5-5", "standard")],
+    });
+    const fast = modelCall(await generate(device, []));
+    expect(JSON.parse(fast.body)).toMatchObject({ model: "claude-opus-5-5", speed: "fast" });
+    expect(fast.headers["anthropic-beta"]).toContain("fast-mode");
+    const limited: DeviceModelResponse = {
+      kind: "response",
+      request: await deviceModelRequestHash(fast.body),
+      status: 429,
+      body: JSON.stringify({ type: "error", error: { type: "rate_limit_error", message: "slow" } }),
+    };
+    const standard = modelCall(await generate(device, [limited]));
+    expect(standard.index).toBe(1);
+    expect(JSON.parse(standard.body)).toMatchObject({ model: "claude-opus-5-5" });
+    expect(JSON.parse(standard.body)).not.toHaveProperty("speed", "fast");
+    const answer = await generate(device, [limited, await answered(standard.body, { text: plan })]);
+    expect(answer.status).toBe("recipe");
+    expect((await logOf(device.ownerId)).map((row) => [row.source, row.outcome])).toEqual([
+      ["device", "rate-limited"],
+      ["device", "ok"],
     ]);
   });
 

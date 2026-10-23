@@ -137,7 +137,8 @@ export function DeviceModelPanel({ client }: { client: DeviceModelClient }) {
     save.mutate({ apiKey: parsed.output, ...limits });
   }
   function saveLimit(which: "dailyLimitUsd" | "monthlyLimitUsd", text: string) {
-    if (!current?.saved) return;
+    // Enter and then leaving the field save once.
+    if (!current?.saved || save.isPending) return;
     const amount = limitOf(text);
     if (amount === undefined) {
       setMessage(

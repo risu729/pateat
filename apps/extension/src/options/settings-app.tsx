@@ -59,7 +59,7 @@ export function SettingsApp({
   serviceClient?: ServiceClient;
   /** This device's vault timeout (ADR 0075), shown with a real Bitwarden connection. */
   vaultTimeoutClient?: VaultTimeoutClient;
-  /** This device's own Anthropic API key (ADR 0040), shown with the sync service. */
+  /** This device's own Anthropic API key (ADR 0040). */
   deviceModelClient?: DeviceModelClient;
 }) {
   const { t } = useTranslation(undefined, { i18n });

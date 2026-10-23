@@ -85,6 +85,63 @@ export const deviceModelCallSchema = v.strictObject({
   }),
 });
 
+/** The most output tokens a model call may ask for, as the service's `MAX_OUTPUT_TOKENS`. */
+export const MAX_DEVICE_MODEL_OUTPUT_TOKENS = 1_024;
+/** The only `anthropic-beta` value a device sends: fast mode's. */
+export const deviceModelBetas = ["fast-mode-2026-02-01"] as const;
+
+const textBlock = v.strictObject({ type: v.literal("text"), text: v.string() });
+const text = v.union([v.string(), v.array(textBlock)]);
+/**
+ * The Messages request a device sends with its key: text in and structured text out,
+ * nothing that runs tools, streams or calls other servers, so a service, possibly someone
+ * else's, can use the key for nothing but the routes' own model calls.
+ */
+const deviceModelBodySchema = v.strictObject({
+  model: v.pipe(v.string(), v.regex(/^claude-[a-z0-9-]+$/u)),
+  max_tokens: v.pipe(
+    v.number(),
+    v.integer(),
+    v.minValue(1),
+    v.maxValue(MAX_DEVICE_MODEL_OUTPUT_TOKENS),
+  ),
+  speed: v.optional(v.picklist(["fast", "standard"])),
+  output_config: v.optional(
+    v.strictObject({
+      effort: v.optional(v.picklist(["low", "medium", "high", "xhigh", "max"])),
+      format: v.optional(
+        v.strictObject({
+          type: v.literal("json_schema"),
+          schema: v.record(v.string(), v.unknown()),
+        }),
+      ),
+    }),
+  ),
+  system: v.optional(text),
+  messages: v.pipe(
+    v.array(v.strictObject({ role: v.picklist(["user", "assistant"]), content: text })),
+    v.minLength(1),
+  ),
+});
+
+/** Whether a device sends this call with its key; see `deviceModelBodySchema`. */
+export function deviceModelCallAllowed(call: DeviceModelCall["call"]): boolean {
+  const betas = call.headers["anthropic-beta"]?.split(",").map((beta) => beta.trim()) ?? [];
+  if (!betas.every((beta) => (deviceModelBetas as readonly string[]).includes(beta))) return false;
+  if (
+    call.headers["content-type"] !== undefined &&
+    call.headers["content-type"] !== "application/json"
+  )
+    return false;
+  let body: unknown;
+  try {
+    body = JSON.parse(call.body);
+  } catch {
+    return false;
+  }
+  return v.is(deviceModelBodySchema, body);
+}
+
 export type DeviceModelResponse = v.InferOutput<typeof deviceModelResponseSchema>;
 export type DeviceModel = v.InferOutput<typeof deviceModelSchema>;
 export type DeviceModelCall = v.InferOutput<typeof deviceModelCallSchema>;

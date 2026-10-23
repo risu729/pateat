@@ -51,13 +51,18 @@ pressed.
 
 A key starts with the service's own limits, $5 a day and $100 a month (UTC), and the
 person can change them. The device counts what its key spent: the usage Anthropic
-reports at the model's published rates (`@pateat/inference/claude-rates`); for a call
-that timed out or answered without usage, the worst case of 64 KiB of input and 1,024
-output tokens, at the highest listed rates when the model is not priced; nothing for a
-call that never reached Anthropic or that it answered with an error. Before each call,
-a device at either limit answers as the service's own stops do (`unavailable` with
-`daily-limit` or `monthly-limit`) and makes no call. The service's limits and its
-automatic stop of fast mode do not count a device's calls.
+reports at the model's published rates (`@pateat/inference/claude-rates`), also for an
+answer too large to pass on; for a call that timed out or answered without usage, the
+worst case of 64 KiB of input (or the body's bytes, when longer) and 1,024 output
+tokens, at the highest listed rates when the model is not priced; nothing for a call
+that never reached Anthropic or that it answered with an error. Before each call, a
+device at either limit answers as the service's own stops do (`unavailable` with
+`daily-limit` or `monthly-limit`) and makes no call. Chosen by an agent: a spend count
+that cannot be read or written, or a key that cannot be read, fails the request; it
+never counts as nothing spent, and never falls back to the owner's credential on the
+service. Two requests at once each check the limit before either is charged, so the
+limits can be passed by one call's cost. The service's limits do not count a device's
+calls.
 
 ### A paired device with its own key
 
@@ -74,7 +79,13 @@ requests (`POST /v1/recipes/generate`) and the judge
    `{ version: 1, status: "model-call", call: { index, headers, body } }`: the
    Messages request body it would send and the `anthropic-version`,
    `anthropic-beta` and `content-type` headers. It holds no credential of the service's.
-3. The device sends that body with its key and the
+3. The device checks the call is one the routes make: a JSON body with a `claude-`
+   model, `max_tokens` of at most 1,024, text in `system` and `messages`, an optional
+   `output_config` with an effort and a JSON schema format, an optional `speed`, and
+   nothing else (no tools, streaming, MCP servers or containers), and no
+   `anthropic-beta` but fast mode's (`deviceModelCallAllowed`). Any other call fails
+   the request unsent, so a service, possibly someone else's, has no other use of the
+   key. It then sends that body with its key and the
    `anthropic-dangerous-direct-browser-access: true` header, then sends the original
    request again with the responses so far. Each response carries the SHA-256 of the
    body it answers, and is the status and body (at most 16 KiB), `timeout` after 10
@@ -95,9 +106,14 @@ and are unchanged.
 
 The device uses the owner's model choices
 ([ADR 0014](0014-claude-generation-provider.md)). A key that cannot use a chosen model
-or fast mode makes that call fail; falling back to the defaults is left for later. Two
-devices that generate for the same page at the same time may both pay for a call; the
-second write is resolved as any write conflict is now.
+or fast mode makes that call fail; falling back to the defaults is left for later. The
+automatic stop of fast mode counts the device rows of all the owner's devices together,
+apart from the service's own rows, so one device whose key has no fast mode, or that is
+offline, can stop fast mode for the others for its window. Two devices that generate
+for the same page at the same time may both pay for a call; the second write is
+resolved as any write conflict is now. A service from before this change refuses
+`deviceModel` with 400, and the device's generation and judge requests then fail; they
+never fall back to the owner's credential.
 
 ### Log rows
 
@@ -105,7 +121,11 @@ While paired, the service logs each call the device made like its own
 ([ADR 0012](0012-inference-request-log.md)), with `source = device` instead of
 `service`, the cost estimated from the reported tokens, and no token or model timings
 (`token_ms` and `model_ms` are null, as the service did not wait for them). Without
-pairing nothing is logged anywhere but the device's spend count.
+pairing nothing is logged anywhere but the device's spend count. The service cannot
+tell a device's response from one the device made up. A paired device could already
+write any recipe with `PUT /v1/recipes/:id`, so recipes gain no new exposure, but such
+rows and the recipe units built from them are only as trustworthy as the device, and
+only `source` tells them apart from the service's own calls in evaluation data.
 
 ### Running without the service (later pull requests)
 

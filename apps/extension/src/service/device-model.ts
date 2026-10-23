@@ -3,7 +3,9 @@ import {
   DEVICE_MODEL_URL,
   deviceModelHeaderNames,
   deviceModelRequestHash,
+  deviceModelCallAllowed,
   MAX_DEVICE_MODEL_CALLS,
+  MAX_DEVICE_MODEL_OUTPUT_TOKENS,
   MAX_DEVICE_MODEL_RESPONSE_BYTES,
   type DeviceModel,
   type DeviceModelCall,
@@ -99,8 +101,15 @@ const highestRates = (): ClaudeRates => {
     output: Math.max(...all.map((rates) => rates.output)),
   };
 };
-/** A call's largest prompt and answer, as the service bounds them (`ROLE_LIMITS`). */
-const WORST_CASE_USAGE = { inputTokens: 64 * 1024, outputTokens: 1_024 };
+const byteLength = (text: string) => new TextEncoder().encode(text).byteLength;
+/**
+ * A call's largest prompt and answer: the service bounds a prompt at 64 KiB
+ * (`ROLE_LIMITS`), and a token is at least a byte, so a longer body counts its bytes.
+ */
+const worstCaseUsage = (body: string) => ({
+  inputTokens: Math.max(64 * 1024, byteLength(body)),
+  outputTokens: MAX_DEVICE_MODEL_OUTPUT_TOKENS,
+});
 
 /**
  * What a call cost, from the usage Anthropic reported at its model's published rates; the
@@ -121,7 +130,7 @@ export function callCostMicroUsd(body: string, response: DeviceModelResponse): n
   const rates =
     (typeof model === "string" ? claudeModelRates(model, fast ? "fast" : "standard") : undefined) ??
     highestRates();
-  let usage = response.kind === "timeout" ? WORST_CASE_USAGE : undefined;
+  let usage = response.kind === "timeout" ? worstCaseUsage(body) : undefined;
   if (response.kind === "response") {
     try {
       const reported = (
@@ -132,7 +141,7 @@ export function callCostMicroUsd(body: string, response: DeviceModelResponse): n
     } catch {
       // Not JSON: no answer was given, so nothing was charged.
     }
-    if (!usage && response.status < 300) usage = WORST_CASE_USAGE;
+    if (!usage && response.status < 300) usage = worstCaseUsage(body);
   }
   if (!usage) return 0;
   return Math.ceil((estimateClaudeCost(usage, rates) ?? 0) * 1_000_000);
@@ -165,15 +174,17 @@ export function createDeviceModel(options: {
   // Spend is added one call at a time, so two requests at once both count.
   let spendQueue: Promise<unknown> = Promise.resolve();
 
+  // A spend count that cannot be read or written stops the calls, rather than counting
+  // nothing.
   async function stopped(setting: DeviceModelSetting) {
-    const spent = currentSpend(await spend.read().catch(() => undefined), now());
+    const spent = currentSpend(await spend.read(), now());
     if (spent.monthMicroUsd >= setting.monthlyLimitUsd * 1_000_000) return "monthly-limit";
     if (spent.dayMicroUsd >= setting.dailyLimitUsd * 1_000_000) return "daily-limit";
     return undefined;
   }
   async function add(micro: number) {
     const at = now();
-    const spent = currentSpend(await spend.read().catch(() => undefined), at);
+    const spent = currentSpend(await spend.read(), at);
     await spend.write({
       version: 1,
       ...periods(at),
@@ -185,11 +196,16 @@ export function createDeviceModel(options: {
     if (micro === 0) return Promise.resolve();
     const added = spendQueue.then(() => add(micro));
     spendQueue = added.catch(() => undefined);
-    return spendQueue;
+    return added;
   }
 
-  /** Sends one model call with the key, to Anthropic's fixed URL only. */
-  async function send(apiKey: string, call: DeviceModelCall["call"]): Promise<DeviceModelResponse> {
+  /**
+   * Sends one model call with the key, to Anthropic's fixed URL only, and what it cost.
+   */
+  async function send(
+    apiKey: string,
+    call: DeviceModelCall["call"],
+  ): Promise<{ response: DeviceModelResponse; cost: number }> {
     const request = await deviceModelRequestHash(call.body);
     const headers = new Headers();
     for (const name of deviceModelHeaderNames) {
@@ -211,12 +227,16 @@ export function createDeviceModel(options: {
         signal: timeout.signal,
       });
       const body = await response.text();
-      // An answer too large to pass on is no answer the service could take.
-      if (new TextEncoder().encode(body).byteLength > MAX_DEVICE_MODEL_RESPONSE_BYTES)
-        return { kind: "unreachable", request };
-      return { kind: "response", request, status: response.status, body };
+      const answered = { kind: "response", request, status: response.status, body } as const;
+      const cost = callCostMicroUsd(call.body, answered);
+      // An answer too large to pass on is no answer the service could take, but Anthropic
+      // still charged it.
+      if (byteLength(body) > MAX_DEVICE_MODEL_RESPONSE_BYTES)
+        return { response: { kind: "unreachable", request }, cost };
+      return { response: answered, cost };
     } catch {
-      return { kind: timeout.signal.aborted ? "timeout" : "unreachable", request };
+      const failed = { kind: timeout.signal.aborted ? "timeout" : "unreachable", request } as const;
+      return { response: failed, cost: callCostMicroUsd(call.body, failed) };
     } finally {
       clearTimeout(timer);
     }
@@ -225,7 +245,15 @@ export function createDeviceModel(options: {
   async function relay<Result extends { status: string }>(
     request: (deviceModel: DeviceModel | undefined) => Promise<InferenceResult<Result>>,
   ): Promise<InferenceResult<Result | Unavailable>> {
-    const setting = parseDeviceModelSetting(await storage.read().catch(() => undefined));
+    let stored: unknown;
+    try {
+      stored = await storage.read();
+    } catch {
+      // Never the owner's credential on the service in place of a key that could not be
+      // read.
+      return { kind: "failed", error: "unexpected-response" };
+    }
+    const setting = parseDeviceModelSetting(stored);
     if (!setting) return request(undefined);
     const responses: DeviceModelResponse[] = [];
     // A service that keeps asking for calls again is stopped after twice the most a
@@ -235,10 +263,21 @@ export function createDeviceModel(options: {
       const answer = await request({ responses: [...responses] });
       if (answer.kind !== "result" || answer.result.status !== "model-call") return answer;
       const { call } = answer.result as unknown as DeviceModelCall;
-      if (call.index > responses.length || made >= 2 * MAX_DEVICE_MODEL_CALLS)
+      // A call the routes never make (tools, streaming, a larger answer, another beta) is
+      // not sent: a service, possibly someone else's, gets no other use of the key.
+      if (
+        call.index > responses.length ||
+        made >= 2 * MAX_DEVICE_MODEL_CALLS ||
+        !deviceModelCallAllowed(call)
+      )
         return { kind: "failed", error: "unexpected-response", ...timed(answer) };
-      // oxlint-disable-next-line no-await-in-loop
-      const stop = await stopped(setting);
+      let stop: Awaited<ReturnType<typeof stopped>>;
+      try {
+        // oxlint-disable-next-line no-await-in-loop
+        stop = await stopped(setting);
+      } catch {
+        return { kind: "failed", error: "unexpected-response", ...timed(answer) };
+      }
       if (stop)
         return {
           kind: "result",
@@ -246,9 +285,13 @@ export function createDeviceModel(options: {
           ...timed(answer),
         };
       // oxlint-disable-next-line no-await-in-loop
-      const response = await send(setting.apiKey, call);
-      // oxlint-disable-next-line no-await-in-loop
-      await charge(callCostMicroUsd(call.body, response));
+      const { response, cost } = await send(setting.apiKey, call);
+      try {
+        // oxlint-disable-next-line no-await-in-loop
+        await charge(cost);
+      } catch {
+        return { kind: "failed", error: "unexpected-response", ...timed(answer) };
+      }
       // A call asked again replaces the response it had and every one after it.
       responses.length = call.index;
       responses.push(response);
