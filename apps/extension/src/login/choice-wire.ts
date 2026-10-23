@@ -107,11 +107,11 @@ export function pickFailure(
   if (reason === "origin-busy")
     return makeDefault
       ? t(
-          "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. {{name}} was not made the default. Close that tab or wait up to 5 minutes, then choose again.",
+          "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. {{name}} was not made the default. Close that tab or wait up to 10 minutes, then choose again.",
           { name },
         )
       : t(
-          "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. Close that tab or wait up to 5 minutes, then choose again.",
+          "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. Close that tab or wait up to 10 minutes, then choose again.",
         );
   if (reason === "not-started")
     return makeDefault

@@ -727,7 +727,7 @@ export function SiteApp({
                 <TriangleAlert size={16} strokeWidth={2} aria-hidden="true" />
                 <span>
                   {t(
-                    "Another tab's login to this site is running or did not succeed. Close that tab or wait up to 5 minutes.",
+                    "Another tab's login to this site is running or did not succeed. Close that tab or wait up to 10 minutes.",
                   )}
                 </span>
               </p>
