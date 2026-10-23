@@ -123,7 +123,7 @@ test.each(["first..last@example.test", ".first@example.test", "名前@example.te
     await fillNew();
     await page.getByLabelText("Email", { exact: true }).fill(email);
     await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
-    await expect.element(page.getByText(/valid email and master password/)).toBeVisible();
+    await expect.element(page.getByText(/a valid email and the master password/)).toBeVisible();
     expect(client.requestProviderPermission).not.toHaveBeenCalled();
     expect(client.begin).not.toHaveBeenCalled();
   },
@@ -136,7 +136,7 @@ test("a loopback HTTP address asks for that origin only (ADR 0059)", async () =>
   await fillNew();
   await page.getByRole("combobox", { name: "Server", exact: true }).selectOptions("self-hosted");
   await page.getByLabelText("Server address", { exact: true }).fill("http://localhost:8000");
-  await expect.element(page.getByText("Chrome asks for access to localhost:8000")).toBeVisible();
+  await expect.element(page.getByText("Chrome asks for access to localhost:8000.")).toBeVisible();
   await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
   expect(client.requestProviderPermission).toHaveBeenCalledWith({
     kind: "self-hosted",
@@ -151,7 +151,9 @@ test("permission denial clears the password and sends no sign-in request", async
   await fillNew();
   await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
   await expect
-    .element(page.getByText("Provider access was not granted. No sign-in request was sent."))
+    .element(
+      page.getByText("Chrome did not grant access to the Bitwarden server, so nothing was sent."),
+    )
     .toBeVisible();
   await expect.element(page.getByLabelText("Master password", { exact: true })).toHaveValue("");
   expect(client.requestProviderPermission).toHaveBeenCalledWith({ kind: "cloud", region: "us" });
@@ -181,7 +183,7 @@ test("a held sign-in clears UI secrets immediately and never puts them in query 
   await expect
     .element(
       page.getByText(
-        "Vault verified and local cache accepted. Check automatic-unlock status below.",
+        "Vault verified and copied to this device. Check the automatic unlock line below.",
       ),
     )
     .toBeVisible();
@@ -200,7 +202,11 @@ test.each([
   await page.getByLabelText("Server address", { exact: true }).fill(address);
   await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
   await expect
-    .element(page.getByText(/Self-hosted addresses must be HTTPS roots, or HTTP on localhost/))
+    .element(
+      page.getByText(
+        /A self-hosted server address is an HTTPS address such as https:\/\/vault\.example\.com, or HTTP on localhost/,
+      ),
+    )
     .toBeVisible();
   expect(client.requestProviderPermission).not.toHaveBeenCalled();
   expect(client.begin).not.toHaveBeenCalled();
@@ -574,7 +580,7 @@ test("a refused code keeps the code screen, its method and its sent email", asyn
   await expect
     .element(
       page.getByText(
-        "Vault verified and local cache accepted. Check automatic-unlock status below.",
+        "Vault verified and copied to this device. Check the automatic unlock line below.",
       ),
     )
     .toBeVisible();
@@ -761,7 +767,7 @@ test("an ended flow answered while Verify code runs leaves that request to answe
     await expect
       .element(
         page.getByText(
-          "Vault verified and local cache accepted. Check automatic-unlock status below.",
+          "Vault verified and copied to this device. Check the automatic unlock line below.",
         ),
       )
       .toBeVisible();
@@ -822,7 +828,7 @@ test("new-device verification is a distinct manual continuation and clears its c
   await expect
     .element(
       page.getByText(
-        "Vault verified and local cache accepted. Check automatic-unlock status below.",
+        "Vault verified and copied to this device. Check the automatic unlock line below.",
       ),
     )
     .toBeVisible();
@@ -842,7 +848,7 @@ test("cancel closes the private lifetime and ignores a late successful begin", a
   const changes = changed.mock.calls.length;
   pending.resolve(ready());
   await expect
-    .element(page.getByText("Setup stopped. Refresh to confirm the latest state."))
+    .element(page.getByText("Setup stopped. Refresh to see the current state."))
     .toBeVisible();
   expect(changed).toHaveBeenCalledTimes(changes);
   // Stopping re-reads the rows once; the late reply adds no read.
@@ -893,7 +899,7 @@ test("existing disabled connections remain preserve-only unless enable is explic
   await expect
     .element(
       page.getByText(
-        "Vault verified and local cache accepted. Check automatic-unlock status below.",
+        "Vault verified and copied to this device. Check the automatic unlock line below.",
       ),
     )
     .toBeVisible();
@@ -954,7 +960,7 @@ test.each(["storage-uncertain", "setup-unavailable"] as const)(
         <SettingsApp client={settings} connectionClient={connection} />
       </QueryClientProvider>,
     );
-    await expect.element(page.getByText("Saved settings loaded. Revision 0")).toBeVisible();
+    await expect.element(page.getByText("Saved settings loaded (revision 0).")).toBeVisible();
     // The draft's save is still pending when setup replaces the vault metadata.
     let resolveSave!: (value: SettingsResponse) => void;
     settings.saveSettings.mockReturnValueOnce(
@@ -968,11 +974,17 @@ test.each(["storage-uncertain", "setup-unavailable"] as const)(
     await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
     await vi.waitFor(() => expect(connection.begin).toHaveBeenCalledTimes(1));
     await expect
-      .element(page.getByText(/Vault metadata changed\. Your unsaved draft has been preserved/))
+      .element(page.getByText(/Your vaults changed\. Your unsaved changes are kept/))
       .toBeVisible();
     resolveSave(saved(1));
+    // The save went through, so nothing is said to be unsaved.
     await expect
-      .element(page.getByText(/Vault metadata changed while settings were being saved/))
+      .element(
+        page.getByText(
+          "Your vaults changed while the settings were being saved. The change was saved; reload saved settings before you change anything else.",
+          { exact: true },
+        ),
+      )
       .toBeVisible();
     expect(document.getElementById("site-list")?.textContent).toContain("draft.example");
     expect(settings.getSettings).toHaveBeenCalledTimes(1);
@@ -982,7 +994,7 @@ test.each(["storage-uncertain", "setup-unavailable"] as const)(
     expect(settings.saveSettings).toHaveBeenCalledTimes(1);
     settings.getSettings.mockResolvedValue(saved(7));
     await page.getByRole("button", { name: "Reload saved settings", exact: true }).click();
-    await expect.element(page.getByText("Saved settings loaded. Revision 7")).toBeVisible();
+    await expect.element(page.getByText("Saved settings loaded (revision 7).")).toBeVisible();
     expect(document.getElementById("site-list")?.textContent).not.toContain("draft.example");
     await page.getByLabelText("Origin", { exact: true }).fill("reviewed.example");
     await page.getByRole("button", { name: "Exclude site", exact: true }).click();
@@ -990,6 +1002,74 @@ test.each(["storage-uncertain", "setup-unavailable"] as const)(
     expect(settings.saveSettings.mock.calls[1]?.[0]).toMatchObject({ expectedRevision: 7 });
   },
 );
+
+/**
+ * Starts a reload of clean settings, then changes the vault metadata while it runs, as a
+ * setup outcome that may have written the catalog does.
+ */
+async function catalogChangeDuringCleanReload() {
+  const connection = mockClient();
+  connection.begin.mockResolvedValue({ ok: false, error: { code: "storage-uncertain" } });
+  function saved(revision: number): Extract<SettingsResponse, { ok: true }> {
+    return {
+      version: 1,
+      ok: true,
+      snapshot: { version: 1, revision, settings: createDefaultSettings() },
+      catalog: structuredClone(DUMMY_VAULT_CATALOG),
+    };
+  }
+  const settings = {
+    getSettings: vi.fn<SettingsClient["getSettings"]>().mockResolvedValue(saved(0)),
+    saveSettings: vi.fn<SettingsClient["saveSettings"]>(),
+    findSiteAccounts: vi.fn<SettingsClient["findSiteAccounts"]>().mockResolvedValue({
+      version: 1,
+      ok: false,
+      reason: "unavailable",
+    }),
+  };
+  await render(
+    <QueryClientProvider client={createMetadataQueryClient()}>
+      <SettingsApp client={settings} connectionClient={connection} />
+    </QueryClientProvider>,
+  );
+  await expect.element(page.getByText("Saved settings loaded (revision 0).")).toBeVisible();
+  const reading = held<SettingsResponse>();
+  settings.getSettings.mockReturnValueOnce(reading.promise);
+  await page.getByRole("button", { name: "Reload saved settings", exact: true }).click();
+  await expect.element(page.getByText("Loading saved settings…")).toBeVisible();
+  await fillNew();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  await vi.waitFor(() => expect(connection.begin).toHaveBeenCalledTimes(1));
+  return { settings, finish: () => reading.resolve(saved(1)) };
+}
+
+test("vault metadata that changes while clean settings reload claims no unsaved changes", async () => {
+  await catalogChangeDuringCleanReload();
+  await expect
+    .element(
+      page.getByText(
+        "Your vaults changed. Reload saved settings to see the current vaults before you change anything else.",
+        { exact: true },
+      ),
+    )
+    .toBeVisible();
+  expect(document.body.textContent).not.toContain("unsaved changes");
+});
+
+test("a reload of clean settings that the vault metadata overtook asks for another without claiming unsaved changes", async () => {
+  const { settings, finish } = await catalogChangeDuringCleanReload();
+  finish();
+  await expect
+    .element(
+      page.getByText(
+        "Your vaults changed while the settings were loading. Reload saved settings again.",
+        { exact: true },
+      ),
+    )
+    .toBeVisible();
+  expect(document.body.textContent).not.toContain("unsaved changes");
+  expect(settings.getSettings).toHaveBeenCalledTimes(2);
+});
 
 test("a challenge while adding a connection reloads a clean draft to the revision the new policy entry wrote", async () => {
   const connection = mockClient();
@@ -1022,18 +1102,22 @@ test("a challenge while adding a connection reloads a clean draft to the revisio
       <SettingsApp client={settings} connectionClient={connection} />
     </QueryClientProvider>,
   );
-  await expect.element(page.getByText("Saved settings loaded. Revision 0")).toBeVisible();
+  await expect.element(page.getByText("Saved settings loaded (revision 0).")).toBeVisible();
   settings.getSettings.mockResolvedValue(saved(1));
   await fillNew();
   await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
   await expect.element(page.getByText("Enter a two-step verification code.")).toBeVisible();
-  await expect.element(page.getByText("Saved settings loaded. Revision 1")).toBeVisible();
+  await expect.element(page.getByText("Saved settings loaded (revision 1).")).toBeVisible();
   expect(settings.getSettings).toHaveBeenCalledTimes(2);
 });
 
-test.each([false, true])(
-  "field review uses current snapshot IDs and starts every custom field excluded (blocked=%s)",
-  async (blocked) => {
+test.each([
+  [false, false],
+  [true, false],
+  [true, true],
+])(
+  "field review uses current snapshot IDs and starts every custom field excluded (blocked=%s, unsaved=%s)",
+  async (blocked, unsaved) => {
     const client = mockClient();
     const snapshot = crypto.randomUUID();
     const accepted: Extract<SettingsResponse, { ok: true }> = {
@@ -1084,6 +1168,7 @@ test.each([false, true])(
           onCatalogChanged={changed}
           acceptedSettings={accepted}
           reviewBlocked={blocked}
+          unsavedChanges={unsaved}
         />
       </QueryClientProvider>,
     );
@@ -1102,6 +1187,17 @@ test.each([false, true])(
     await expect.element(first).toBeChecked();
     await expect.element(second).toBeChecked();
     if (blocked) {
+      // Only unsaved changes are said to be kept, as reloading would drop them.
+      await expect
+        .element(
+          page.getByText(
+            unsaved
+              ? "Reload saved settings to review the current fields. Your unsaved settings changes are kept until you reload."
+              : "Reload saved settings to review the current fields.",
+            { exact: true },
+          ),
+        )
+        .toBeVisible();
       await expect.element(first).toBeDisabled();
       await expect.element(review).toBeDisabled();
       expect(client.review).not.toHaveBeenCalled();
@@ -1192,7 +1288,7 @@ test("a running sync says so, can be cancelled from the header, and its reply re
   await expect
     .element(
       page.getByText(
-        "Vault verified and local cache accepted. Check automatic-unlock status below.",
+        "Vault verified and copied to this device. Check the automatic unlock line below.",
       ),
     )
     .toBeVisible();
@@ -1212,12 +1308,12 @@ test("a running sync says so, can be cancelled from the header, and its reply re
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   expect(client.close).toHaveBeenCalledTimes(1);
   await expect
-    .element(page.getByText("Stopped. Refresh to confirm the latest state.", { exact: true }))
+    .element(page.getByText("Stopped. Refresh to see the current state.", { exact: true }))
     .toBeVisible();
   await expect.element(sync).toBeEnabled();
   late.resolve(ready());
   await expect
-    .element(page.getByText("Stopped. Refresh to confirm the latest state.", { exact: true }))
+    .element(page.getByText("Stopped. Refresh to see the current state.", { exact: true }))
     .toBeVisible();
   // Stopping re-reads the rows once; the late reply adds no read.
   expect(client.list).toHaveBeenCalledTimes(3);
@@ -1253,7 +1349,7 @@ test("deleting a connection needs an explicit confirmation and then removes it f
   await expect
     .element(dialog)
     .toHaveAccessibleDescription(
-      "This removes the connection, its local vault cache, unlock key and sync sign-in from this device. It does not sign out other sessions, and saved settings that refer to it will show it as unavailable.",
+      "This removes the connection, its local vault copy, unlock key and sync sign-in from this device. It does not sign out other sessions, and saved settings that refer to it will show it as unavailable.",
     );
   // Close composes the repo's Button, including its ref and keyboard focus.
   const keep = dialog.getByRole("button", { name: "Keep connection", exact: true });
@@ -1508,7 +1604,7 @@ test("a failed first sign-in switches the form to finishing its connection with 
     .toBeVisible();
   // Connect cannot register a second connection: the form now finishes the listed one.
   await vi.waitFor(() => expect(addForm()).toBe("Sign in to Synthetic vault again"));
-  await expect.element(page.getByText(/The provider rejected this sign-in/)).toBeVisible();
+  await expect.element(page.getByText(/Bitwarden did not accept this sign-in/)).toBeVisible();
   await expect
     .element(page.getByLabelText("Enable automatic unlock on this device", { exact: true }))
     .toBeChecked();
@@ -1659,7 +1755,13 @@ test("an unsupported interaction on a first sign-in switches the form to finishi
   await fillNew();
   await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
   await vi.waitFor(() => expect(addForm()).toBe("Sign in to Synthetic vault again"));
-  await expect.element(page.getByText(/^Setup is incomplete: sso\./)).toBeVisible();
+  await expect
+    .element(
+      page.getByText(
+        /^Setup is incomplete: Bitwarden asks for a step Pateat does not support \(sso\)\./,
+      ),
+    )
+    .toBeVisible();
 });
 
 test("Sign in again on a connection with an unreadable record leaves automatic unlock unchecked", async () => {
@@ -1684,7 +1786,7 @@ test("Sign in again on a connection that never unlocked enables automatic unlock
     .element(page.getByLabelText("Enable automatic unlock on this device", { exact: true }))
     .toBeChecked();
   await expect
-    .element(page.getByText(/finish setting up this connection\. Automatic unlock is enabled/))
+    .element(page.getByText(/finish setting up this connection\. Automatic unlock is turned on/))
     .toBeVisible();
 });
 
@@ -1836,7 +1938,7 @@ test("stopping a first load that does not answer says so", async () => {
   await expect.element(page.getByText("Loading stopped.", { exact: true })).toBeVisible();
 });
 
-test("sync after automatic unlock was disabled explains how to restore it", async () => {
+test("sync after automatic unlock was turned off explains how to turn it back on", async () => {
   const client = mockClient();
   client.list.mockResolvedValue({
     ...status(),
@@ -1858,11 +1960,11 @@ test("sync after automatic unlock was disabled explains how to restore it", asyn
   await expect
     .element(
       page.getByText(
-        /Automatic unlock is off for this connection, and Sync needs it\. Sign in again/,
+        /Automatic unlock is off for this connection, and Sync needs it\. To turn it back on, sign in again/,
       ),
     )
     .toBeVisible();
-  await expect.element(page.getByText(/Connection operation unavailable/)).not.toBeInTheDocument();
+  await expect.element(page.getByText(/The connection could not do this/)).not.toBeInTheDocument();
 });
 
 test("a provider HTTP failure on sync shows an error instead of a lost connection", async () => {
@@ -1904,11 +2006,11 @@ test("a provider HTTP failure on sync shows an error instead of a lost connectio
   );
   await page.getByRole("button", { name: "Saved vault: Sync", exact: true }).click();
   await expect
-    .element(page.getByText(/Connection operation unavailable \(http-error\)/))
+    .element(page.getByText(/The connection could not do this \(http-error\)/))
     .toBeVisible();
   expect(port.postMessage.mock.calls.map(([message]) => message.type)).toContain("connection.sync");
   expect(port.disconnect).not.toHaveBeenCalled();
-  expect(document.body.textContent).not.toContain("The operation could not be confirmed.");
+  expect(document.body.textContent).not.toContain("Pateat could not confirm the result.");
 });
 
 test("an account mismatch names the failed check", async () => {
@@ -2002,12 +2104,12 @@ test("each connection's row holds its vault access, which waits for saved settin
   await expect.element(use).not.toBeChecked();
   expect(document.getElementById("bitwarden-connections")?.contains(use.element())).toBe(true);
   await expect.element(page.getByText("Unavailable connection", { exact: true })).toBeVisible();
-  await expect.element(page.getByText("gone. Its saved settings are preserved.")).toBeVisible();
+  await expect.element(page.getByText("gone. Its saved settings are kept.")).toBeVisible();
   // There is no separate vault access section.
   await expect.element(page.getByRole("heading", { name: "Vault access" })).not.toBeInTheDocument();
 
   await use.click();
-  await expect.element(page.getByText("Settings saved locally. Revision 1")).toBeVisible();
+  await expect.element(page.getByText("Settings saved (revision 1).")).toBeVisible();
   expect(settings.saveSettings.mock.calls[0]?.[0].settings.connections[0]).toMatchObject({
     connectionId: "synthetic",
     enabled: true,
@@ -2020,9 +2122,43 @@ test("each connection's row holds its vault access, which waits for saved settin
     .element(page.getByRole("combobox", { name: "Synthetic vault: Items for Pateat" }))
     .toBeDisabled();
   read.resolve(saved(4));
-  await expect.element(page.getByText("Saved settings loaded. Revision 4")).toBeVisible();
+  await expect.element(page.getByText("Saved settings loaded (revision 4).")).toBeVisible();
   await expect.element(use).toBeEnabled();
   await expect.element(use).not.toBeChecked();
+});
+
+test("past Bitwarden's 5 accounts, adding and listing connections warns without refusing", async () => {
+  const warning =
+    "More than 5 connections. The official Bitwarden extension allows up to 5 accounts, and each unlocked vault uses more memory.";
+  const listed = (count: number) =>
+    Array.from({ length: count }, (_, index) => ({
+      ...registered,
+      connectionId: `listed-${index + 1}`,
+      label: `Vault ${index + 1}`,
+      state: "ready" as const,
+      providerSession: "active" as const,
+    }));
+  const client = mockClient();
+  client.list
+    .mockResolvedValueOnce({ ...status(), connections: listed(5) })
+    .mockResolvedValue({ ...status(), connections: listed(6) });
+  client.begin.mockImplementation(async () => ({ ...ready(), connectionId: "listed-6" }));
+  await mount(client);
+  // Five are within the official limit; the closed form holds the warning hidden.
+  await expect.element(page.getByText(warning)).not.toBeVisible();
+  await page.getByText("Add a connection", { exact: true }).first().click();
+  // The sixth connection is warned about in the form, and Connect stays available.
+  await expect.element(page.getByText(warning)).toBeVisible();
+  await fillNew();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  await expect
+    .element(page.getByRole("button", { name: "Vault 6: Sync", exact: true }))
+    .toBeVisible();
+  // With six listed, the warning stays under the list.
+  await expect.element(page.getByText(warning)).toBeVisible();
+  expect(
+    document.getElementById("bitwarden-connections")?.nextElementSibling?.textContent,
+  ).toContain(warning);
 });
 
 const statusOutput = () => page.elementLocator(document.getElementById("bitwarden-setup-status")!);
@@ -2048,7 +2184,7 @@ test.each(["ready", "error", "cancel"] as const)(
     if (end === "cancel") {
       await page.getByRole("button", { name: "Cancel setup", exact: true }).click();
       await expect
-        .element(page.getByText("Setup stopped. Refresh to confirm the latest state."))
+        .element(page.getByText("Setup stopped. Refresh to see the current state."))
         .toBeVisible();
     } else {
       await code.fill("000123");
@@ -2187,7 +2323,7 @@ test("a failed sync or refresh keeps keyboard focus on its button", async () => 
   await expect.element(sync).toHaveFocus();
   client.list.mockRejectedValue(new Error("synthetic failure"));
   const refresh = await pressWithKeyboard("Refresh connections");
-  await expect.element(page.getByText(/^The operation could not be confirmed/)).toBeVisible();
+  await expect.element(page.getByText(/^Pateat could not confirm the result\./)).toBeVisible();
   await expect.element(refresh).toBeEnabled();
   await expect.element(refresh).toHaveFocus();
 });

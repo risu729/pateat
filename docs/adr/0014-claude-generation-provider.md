@@ -53,8 +53,8 @@ monthly Claude API credit and chose the model. The offline harness in
 - Each owner chooses the models (owner, 2026-10-23 11:11 and 11:31 UTC). For each role
   (`generate`, `judge`) the owner saves an ordered list of up to three choices, each a
   provider (`anthropic`; others such as OpenAI may follow), model, effort and speed
-  (`standard` or `fast`), in `inference_model_configs`. Only the web UI's Models page
-  (`/manage/models`) reads or writes it; device tokens cannot, so a stolen one cannot
+  (`standard` or `fast`), in `inference_model_configs`. Only the web UI's Claude page
+  (`/manage/claude`) reads or writes it; device tokens cannot, so a stolen one cannot
   raise the cost per call. Without a saved list both roles ask `claude-opus-5-5` at
   effort `low`, then `claude-sonnet-5-5` at `low` after a refusal
   (`DEFAULT_MODEL_CONFIG`). A choice in fast mode whose call fails `rate-limited`,

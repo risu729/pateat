@@ -68,15 +68,19 @@ const MAX_RECIPE_EFFECTS = 8;
 /** Pages already sent to be judged after effect step `operationId`. */
 export const judgedPages = (
   metadata: Pick<LoginAttemptMetadata, "judged">,
-  operationId: string,
-): number => (metadata.judged?.operationId === operationId ? metadata.judged.pages : 0);
+  operationId: string | undefined,
+): number =>
+  operationId !== undefined && metadata.judged?.operationId === operationId
+    ? metadata.judged.pages
+    : 0;
 /**
  * Pages the model may still judge for the attempt's current effect step: while the login
- * is watched (ADR 0027), the watch's own pages, else those after the step.
+ * is watched (ADR 0027), the watch's own pages, else those after the step. A login watched
+ * at its stop (ADR 0036) has no step in flight and names none.
  */
 export const pagesLeft = (
   metadata: Pick<LoginAttemptMetadata, "judged" | "watch">,
-  operationId: string,
+  operationId: string | undefined,
 ): number =>
   MAX_JUDGED_PAGES - (metadata.watch ? metadata.watch.pages : judgedPages(metadata, operationId));
 export const loginAttemptStateSchema = v.picklist([
@@ -406,14 +410,16 @@ export const loginAttemptEventSchema = v.variant("type", [
   /**
    * The page would not accept this fill's values (ADR 0010): `before-fill` when a value
    * does not fit its input and nothing was filled, `after-fill` when the page rejected
-   * a preparing fill. It ends the attempt without a retry, since the same values would
-   * be rejected again.
+   * a preparing fill, `code-refused` when the page kept a character of a TOTP code typed as
+   * its own submission out of an input it still shows (ADR 0027 amendment of 2026-10-23),
+   * so it never had the whole code. It ends the attempt without a retry, since the same
+   * values would be rejected again.
    */
   v.strictObject({
     type: v.literal("VALUE_REJECTED"),
     operationId: identifier,
     document: loginDocumentSchema,
-    stage: v.picklist(["before-fill", "after-fill"]),
+    stage: v.picklist(["before-fill", "after-fill", "code-refused"]),
   }),
   /**
    * The attempt takes over a newer revision of its recipe that only adds handlers or
@@ -426,11 +432,12 @@ export const loginAttemptEventSchema = v.variant("type", [
   /**
    * A page after the current effect step is about to be sent to be judged. It counts
    * against the step's pages before the request, so a restart cannot resend without
-   * bound (ADR 0027).
+   * bound (ADR 0027). A login watched at its stop (ADR 0036) has no step in flight, so its
+   * watch's pages name none.
    */
-  v.strictObject({ type: v.literal("JUDGING"), operationId: identifier }),
+  v.strictObject({ type: v.literal("JUDGING"), operationId: v.optional(identifier) }),
   /** The page sent under `JUDGING` reached no model, so it is given back. */
-  v.strictObject({ type: v.literal("UNJUDGED"), operationId: identifier }),
+  v.strictObject({ type: v.literal("UNJUDGED"), operationId: v.optional(identifier) }),
   /**
    * The watch of a login (ADR 0027) is over: it ends where it stopped, `challenge` or an
    * unknown result, and its later pages are no longer read. `abandoned`: the recipe's first
@@ -552,10 +559,26 @@ const leftOrigin = (left: LoginDocument, right: LoginDocument) =>
   right.frameId === 0 &&
   left.tabId === right.tabId &&
   left.origin !== right.origin;
-/** The current operation may have submitted or changed the page. */
+/**
+ * Whether a login of an item without a password is watched at its stop with nothing in
+ * flight (ADR 0036): its watch's pages are judged, though no step names them.
+ */
+export const watchedAtStop = (
+  context: Pick<LoginAttemptMetadata, "state" | "watch" | "stopAt" | "stepIndex" | "operationId">,
+): boolean =>
+  context.state === "watching" &&
+  context.watch !== undefined &&
+  context.stopAt !== undefined &&
+  context.stepIndex === context.stopAt &&
+  context.operationId === undefined;
+/**
+ * The current operation may have submitted or changed the page. A fill whose failure
+ * confirmed that it changed nothing, or that failed before its intent, waits to be tried
+ * again and did not (ADR 0022).
+ */
 const maySubmit = (context: LoginAttemptMetadata) =>
   context.mutationIntent === true ||
-  context.operationKind === "fill" ||
+  (context.operationKind === "fill" && context.retryRequired !== true) ||
   (context.operationKind === "click" && context.submissions > 0);
 const operationMatches = (context: LoginAttemptMetadata, event: LoginAttemptEvent) =>
   "operationId" in event && event.operationId === context.operationId;
@@ -724,7 +747,7 @@ function record(
       };
     }
     case "VALUE_REJECTED":
-      if (event.stage === "after-fill") return { outcome: "fill-rejected" };
+      if (event.stage !== "before-fill") return { outcome: "fill-rejected" };
       return {
         outcome: "value-mismatch",
         // As with a wrong account, the reserved fill effect never started.
@@ -740,6 +763,7 @@ function record(
       return { policyRevision: event.policyRevision };
     case "JUDGING":
       if (context.watch) return { watch: { ...context.watch, pages: context.watch.pages + 1 } };
+      if (event.operationId === undefined) return {};
       return {
         judged: {
           operationId: event.operationId,
@@ -748,6 +772,7 @@ function record(
       };
     case "UNJUDGED":
       if (context.watch) return { watch: { ...context.watch, pages: context.watch.pages - 1 } };
+      if (event.operationId === undefined) return {};
       return {
         judged: {
           operationId: event.operationId,
@@ -975,8 +1000,12 @@ function createLoginAttemptMachine() {
         operationMatches(context, event) &&
         context.operationKind === "fill" &&
         sameLoginDocument(context.document, event.document) &&
-        // Only a preparing fill is checked after filling; an effectful one has submitted.
-        (event.stage === "before-fill" || context.operationEffect === "prepare"),
+        // Only a preparing fill is checked after filling; an effectful one has submitted,
+        // unless it is a code the page kept a character of out.
+        (event.stage === "before-fill" ||
+          (event.stage === "after-fill"
+            ? context.operationEffect === "prepare"
+            : context.operationEffect === "submit")),
       retryAvailable: ({ context, event }) =>
         context.retries < context.maxRetries && !(event.type === "RETRY" && event.final),
       failedPossibleMutation: ({ context, event }) =>
@@ -1065,13 +1094,22 @@ function createLoginAttemptMachine() {
       // the step, then again while the login is watched (ADR 0027).
       canJudge: ({ context, event }) =>
         event.type === "JUDGING" &&
+        event.operationId !== undefined &&
         operationMatches(context, event) &&
         (context.operationKind === "click" ||
           context.operationEffect === "advance" ||
           context.operationEffect === "submit") &&
         pagesLeft(context, event.operationId) > 0,
+      // So are the pages of a login watched at its stop, which has no step in flight to name
+      // (ADR 0036).
+      canJudgeWatchedStop: ({ context, event }) =>
+        event.type === "JUDGING" &&
+        event.operationId === undefined &&
+        watchedAtStop(context) &&
+        pagesLeft(context, undefined) > 0,
       canUnjudge: ({ context, event }) =>
         event.type === "UNJUDGED" &&
+        (event.operationId !== undefined || watchedAtStop(context)) &&
         (context.watch ? context.watch.pages : judgedPages(context, event.operationId)) > 0,
       watchEnds: ({ context }) => context.watch !== undefined,
       // One request per final advance, recorded before it is sent (ADR 0018). A login with
@@ -1330,7 +1368,10 @@ function createLoginAttemptMachine() {
             { guard: "observedAuthenticated", target: "authenticated", actions: "record" },
             { guard: "observedCredentialRejected", target: "blocked", actions: "record" },
           ],
-          JUDGING: { guard: "canJudge", actions: "record" },
+          JUDGING: [
+            { guard: "canJudge", actions: "record" },
+            { guard: "canJudgeWatchedStop", actions: "record" },
+          ],
           UNJUDGED: { guard: "canUnjudge", actions: "record" },
           WATCH_ENDED: { target: "blocked", actions: "watchEnded" },
           // A restart or a new page of the tab keeps the watch; it has nothing in flight.
@@ -1573,7 +1614,24 @@ export function transitionLoginAttempt(
   const event = v.parse(loginAttemptEventSchema, eventValue);
   if (metadata.state === "authenticated" || metadata.state === "blocked") return metadata;
   const snapshot = loginAttemptMachine.resolveState({ value: metadata.state, context: metadata });
-  const [next] = transition(loginAttemptMachine, snapshot, event);
+  // A login still at its first step that has submitted nothing, and has nothing in flight
+  // that may have, has no result to settle as unknown: the page goes on, at the same step, as
+  // one that does not show that step yet, which the step's own bounded wait and the retries
+  // decide (ADR 0022). After a fill the person may have submitted the values themselves.
+  const unsubmitted =
+    event.type === "OBSERVED" &&
+    event.result === "unknown" &&
+    metadata.submissions === 0 &&
+    metadata.stepIndex === (metadata.route === "password" ? (metadata.startStep ?? 0) : 0) &&
+    !maySubmit(metadata)
+      ? transition(loginAttemptMachine, snapshot, { ...event, result: "continue" })[0]
+      : undefined;
+  const [next] =
+    unsubmitted &&
+    (unsubmitted.value === "ready" || unsubmitted.value === "retryable") &&
+    unsubmitted.context.stepIndex === metadata.stepIndex
+      ? [unsubmitted]
+      : transition(loginAttemptMachine, snapshot, event);
   const { watch, ...moved } = {
     ...next.context,
     state: next.value as LoginAttemptMetadata["state"],
