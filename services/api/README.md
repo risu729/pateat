@@ -402,7 +402,8 @@ a first page, the tombstone's revision for a revoked recipe generated again), so
 recipes of one origin that lead to the same page do not block each other. A request that
 passes every check is an attempt, including one the role then refuses locally for its
 size, which would be refused again. Each call first reserves its upper bound (64 KiB of
-input as tokens plus 8,192 output tokens at the ADR 0014 rates, about $0.43) and then
+input as tokens plus 8,192 output tokens at the role's ADR 0014 rates: about $0.21 for
+generation on Sonnet 5.5 and $0.43 for the judge on Opus 5.5) and then
 corrects it from reported usage; usage the provider does not report keeps the
 reservation. The `inference_log` row stores the provider and model, the role's prompt
 version (`prompt_version`: the first 12 hex digits of the SHA-256 of its instructions, a

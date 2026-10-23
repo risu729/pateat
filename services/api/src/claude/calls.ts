@@ -8,6 +8,7 @@ import {
   claudeRoles,
   createClaudeModel,
   estimateClaudeCostUsd,
+  type ClaudeRole,
   outputRejection,
   unknownUsage,
   type InferenceOutcome,
@@ -58,7 +59,7 @@ export const CLAUDE_CALL_LIMITS = {
  * that never finishes still counts. Usage the provider does not report keeps this upper
  * bound: a request holds at most `maxInputBytes` tokens.
  */
-const reservedMicroUsd = (role: ClaudeCall<unknown>["role"]) =>
+const reservedMicroUsd = (role: ClaudeRole) =>
   ROLE_LIMITS.maxInputBytes * claudeRoles[role].rates.input +
   MAX_OUTPUT_TOKENS * claudeRoles[role].rates.output;
 
@@ -69,7 +70,7 @@ type ClaudeModel = ReturnType<typeof createClaudeModel>;
 type RecipePage = (typeof inferenceLogRecipePages)[number];
 
 export type ClaudeCall<T> = {
-  role: "generate" | "judge";
+  role: ClaudeRole;
   /**
    * The role's prompt version (`generationPromptVersion`, `entryGenerationPromptVersion`,
    * `accountListGenerationPromptVersion`, `completionPromptVersion`).

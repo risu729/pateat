@@ -66,7 +66,7 @@ export function createClaudeModel(
         providerOptions: {
           anthropic: {
             effort,
-            // Opus 5.5 rejects the forced tool call of the JSON-tool mode.
+            // Opus 5.5 and Sonnet 5.5 reject the forced tool call of the JSON-tool mode.
             structuredOutputMode: "outputFormat",
           },
         },

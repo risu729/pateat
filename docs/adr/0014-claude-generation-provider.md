@@ -25,8 +25,10 @@ monthly Claude API credit and chose the model. The offline harness in
 ## Decision
 
 - The generation/repair role uses the Claude API with model `claude-opus-5-5` and
-  effort `low`. The owner chose `low` as the tradeoff between speed and accuracy;
-  Opus 5.5 always thinks, and effort bounds how much.
+  effort `low` (Sonnet 5.5 since 2026-10-23, see
+  [separate models per role](#separate-models-per-role-2026-10-23)). The owner chose
+  `low` as the tradeoff between speed and accuracy; Opus 5.5 always thinks, and effort
+  bounds how much.
 - The adapter uses the official AI SDK provider `@ai-sdk/anthropic`, version-matched
   to the pinned `ai` package.
 - The API key stays on the server as a Worker secret, as ADR 0003 requires. The
@@ -85,8 +87,8 @@ monthly Claude API credit and chose the model. The offline harness in
   | --- | --- | --- | --- | --- |
   | Synthetic generation, 17 pages (Opus 4 runs, Sonnet 3) | 0.882 | 1.000 | 0.0117 | 0.0056 |
   | Formasaurus, 131 pages (Opus 2 runs, Sonnet 1) | 0.985 | 1.000 | 0.0120 | 0.0060 |
-  | Japanese 71 and English 18 live pages | 1.000 | 1.000 | 0.0118 | 0.0059 |
-  | Synthetic judged pages, 31 (3 runs) | 0.989 | 0.817 | 0.0097 | 0.0042 |
+  | Japanese 71 and English 18 live pages (Opus 2 runs, Sonnet 1) | 1.000 | 1.000 | about 0.0117 | about 0.0059 |
+  | Synthetic judged pages, 31 (Opus 6 runs, Sonnet 3) | 0.989 | 0.817 | 0.0097 | 0.0042 |
 
   Generation differs on four pages only: two synthetic pages where Opus abstains
   (`en-label-injection`, a label telling the model to delete the account, and
@@ -99,7 +101,10 @@ monthly Claude API credit and chose the model. The offline harness in
   (multi-step banks, account lists, entry pages) were not replayed. Sonnet 5.5 can still
   refuse (its categories include `cyber`); Sonnet 5.5 and Haiku 5.5 refused none of
   about 470 comparison calls, while Fable 5.1 and Opus 5 refused Japanese PIN and SMS
-  pages as `cyber`. A refusal still ends the generation as `refused`, with no fallback.
+  pages as `cyber`. Opus 5.5 refused one judge call as `reasoning_extraction` and ran
+  one into the 8,192-token output limit after 59.7 s (`en-method-chooser`). A refusal
+  still ends the call as `refused`, with no fallback. The choice is to be re-checked
+  against a replay of production `inference_log` pages.
 
 Estimated cost per generation call, assuming about 3,000 input tokens and about 1,000
 output tokens including thinking, at $4 and $20 per million: about $0.03, or about
@@ -120,7 +125,7 @@ an owner decision on that evidence.
 
 ## Alternatives
 
-- `claude-sonnet-5-5` ($2/$10 per million, about $0.015 per call) or
+- `claude-sonnet-5-5` ($2/$10 per million, about $0.016 per call) or
   `claude-haiku-5-5` ($0.10/$0.50, about $0.001 per call): cheaper; not chosen at first
   while the credit covers the expected volume. Sonnet 5.5 became the generation model on
   2026-10-23 on the comparison above. Haiku 5.5 low scored like Opus 5.5 on generation

@@ -409,7 +409,9 @@ describe("recipe generation", () => {
       ["judge", "/home", "ok"],
     ]);
     expect(log[1]).toMatchObject({ input_tokens: null, output_tokens: null, cost_micro_usd: 0 });
-    // Each role is charged and logged at its own model (ADR 0014).
+    // Each role calls, is charged and is logged at its own model (ADR 0014).
+    expect(sent[0]!.body).toMatchObject({ model: "claude-sonnet-5-5" });
+    expect(sent[2]!.body).toMatchObject({ model: "claude-opus-5-5" });
     expect(log[0]).toMatchObject({
       model_id: "claude-sonnet-5-5",
       origin: ORIGIN,
@@ -549,6 +551,31 @@ describe("recipe generation", () => {
         device.ownerId,
       ),
     ).toEqual([{ outcome: "provider-error", input_tokens: null }]);
+  });
+
+  it("reserves a judge call at the judge's own rates", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    replies.push(500);
+    await complete(device, change.recipeId, change.revision);
+    // Two generation calls at reported usage, then the judge's upper bound at Opus 5.5's
+    // rates ($4 and $20 per million).
+    const judgeReserved = 64 * 1024 * 4 + 8_192 * 20;
+    expect(
+      await rows(
+        "SELECT calls, cost_micro_usd FROM inference_spend WHERE owner_id = ?",
+        device.ownerId,
+      ),
+    ).toEqual([
+      { calls: 3, cost_micro_usd: 2 * (3_000 * 2 + 900 * 10) + judgeReserved },
+      { calls: 3, cost_micro_usd: 2 * (3_000 * 2 + 900 * 10) + judgeReserved },
+    ]);
+    expect(
+      await rows(
+        "SELECT model_id, outcome FROM inference_log WHERE owner_id = ? AND role = 'judge'",
+        device.ownerId,
+      ),
+    ).toEqual([{ model_id: "claude-opus-5-5", outcome: "provider-error" }]);
   });
 
   it("names the check that refused the output and logs the refused plan by reference", async () => {
