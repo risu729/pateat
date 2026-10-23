@@ -1,4 +1,7 @@
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 import { Pause, Play } from "lucide-react";
+import { i18n } from "../i18n";
 import { Button } from "../options/button";
 import type { StatusResponse } from "../login/choice-wire";
 import { localClock } from "../time";
@@ -6,8 +9,8 @@ import { localClock } from "../time";
 type Status = Extract<StatusResponse, { ok: true }>;
 
 /** The popup's line while automatic login of the tab's site is paused (ADR 0062). */
-export function pauseLine(until: number, timeZone?: string): string {
-  return `Paused until ${localClock(until, timeZone)}`;
+export function pauseLine(until: number, t: TFunction, timeZone?: string): string {
+  return t("Paused until {{time}}", { time: localClock(until, timeZone) });
 }
 
 /**
@@ -32,6 +35,7 @@ export function PauseControl({
   busy: boolean;
   onChange: (paused: boolean) => void;
 }) {
+  const { t } = useTranslation(undefined, { i18n });
   if (until === undefined)
     return (
       <div className="popup-pause">
@@ -46,7 +50,7 @@ export function PauseControl({
           }}
         >
           <Pause size={16} strokeWidth={2} aria-hidden="true" />
-          Pause automatic login
+          {t("Pause automatic login")}
         </Button>
       </div>
     );
@@ -54,7 +58,7 @@ export function PauseControl({
     <div className="popup-pause">
       <p id="popup-paused" className="popup-muted popup-status">
         <Pause size={16} strokeWidth={2} aria-hidden="true" />
-        {pauseLine(until)}
+        {pauseLine(until, t)}
       </p>
       <Button
         id="popup-resume"
@@ -67,7 +71,7 @@ export function PauseControl({
         }}
       >
         <Play size={16} strokeWidth={2} aria-hidden="true" />
-        Resume
+        {t("Resume")}
       </Button>
     </div>
   );

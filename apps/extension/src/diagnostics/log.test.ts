@@ -1286,6 +1286,58 @@ describe("unhandled errors", () => {
     vi.restoreAllMocks();
   });
 
+  it("logs settings-page sign-in steps, an ended one as info and a failure as a warning", async () => {
+    const log = createDiagnosticsLog({
+      build: { version: "0.1.0", revision: "1c42ad3" },
+      settings: async () => {
+        throw new Error("not needed");
+      },
+      recipeCache: async () => undefined,
+      connections: async () => ({ ok: true, kind: "status", connections: [] }),
+      databaseName: `log-test-${crypto.randomUUID()}`,
+      scope: { addEventListener: () => undefined } as never,
+    });
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const flowId = crypto.randomUUID();
+    log.vaultSignIn("begin", {
+      ok: true,
+      kind: "mfa-required",
+      flowId,
+      providers: [1],
+      expiresAt: 1,
+    });
+    log.vaultSignIn("send-email-code", { ok: true, kind: "email-code", flowId, result: "sent" });
+    log.vaultSignIn("send-email-code", {
+      ok: true,
+      kind: "email-code",
+      flowId,
+      result: "rate-limited",
+    });
+    log.vaultSignIn("continue", {
+      ok: true,
+      kind: "mfa-required",
+      flowId,
+      providers: [1],
+      expiresAt: 1,
+      invalidCode: true,
+    });
+    log.vaultSignIn("keep-alive", { ok: false, error: { code: "setup-expired" } });
+    log.vaultSignIn("continue", { ok: false, error: { code: "authentication-rejected" } });
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(6));
+    const entries = await log.logger.entries();
+    expect(entries.map((entry) => [entry.event, entry.level, entry.fields])).toEqual([
+      ["vault.sign-in", "info", { step: "begin", outcome: "mfa-required" }],
+      ["vault.sign-in", "info", { step: "send-email-code", outcome: "sent" }],
+      ["vault.sign-in", "warn", { step: "send-email-code", outcome: "rate-limited" }],
+      ["vault.sign-in", "info", { step: "continue", outcome: "code-refused" }],
+      ["vault.sign-in", "info", { step: "keep-alive", outcome: "setup-expired" }],
+      ["vault.sign-in", "warn", { step: "continue", outcome: "authentication-rejected" }],
+    ]);
+    expect(JSON.stringify(entries)).not.toContain(flowId);
+    vi.restoreAllMocks();
+  });
+
   it("logs a failed Bitwarden refresh as a warning with its cause and status", async () => {
     const log = createDiagnosticsLog({
       build: { version: "0.1.0", revision: "1c42ad3" },

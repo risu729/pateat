@@ -1,5 +1,6 @@
 // The text "Copy for bug report" copies (ADR 0019). It keeps the KDF family but leaves out
-// its parameters, which are shown on the page only.
+// its parameters, which are shown on the page only. The report stays in English in every
+// UI language; translation is confined to the page around this exact preview.
 import { isoMinute } from "../time";
 import {
   deviceFailureLabel,

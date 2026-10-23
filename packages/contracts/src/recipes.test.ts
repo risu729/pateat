@@ -30,6 +30,7 @@ function recipe(id: string, firstPath: string, revision = 1, at = origin): Login
     id,
     revision,
     origin: at,
+    pageKind: "sign-in",
     slots: ["username", "password"],
     steps: [
       { kind: "fill", path: firstPath, fields: [{ slot: "username", target: target("user") }] },
@@ -101,6 +102,20 @@ describe("recipe selection", () => {
     expect(
       selectLoginRecipe([...recipes, recipe("bank-signin", "/login", 2)], origin, "/login"),
     ).toEqual({ ok: false, reason: "recipe-ambiguous" });
+  });
+
+  it("never lists or starts a recipe generated as confirm or unclear (ADR 0035)", () => {
+    const confirm = { ...recipe("bank-transfer", "/transfer"), pageKind: "confirm" as const };
+    const unclear = { ...recipe("bank-secret", "/secret"), pageKind: "unclear" as const };
+    const all = [...recipes, confirm, unclear];
+    expect(loginRecipesForOrigin(all, origin).map(({ id }) => id)).toEqual([
+      "bank-signin",
+      "bank-admin",
+    ]);
+    expect(selectLoginRecipe(all, origin, "/transfer")).toEqual({
+      ok: false,
+      reason: "recipe-not-found",
+    });
   });
 
   it("never lists or starts an entry recipe (ADR 0031)", () => {

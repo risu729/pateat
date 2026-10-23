@@ -121,6 +121,7 @@ export const LOG_EVENTS = {
     level: "info",
     fields: { connection: "connection", outcome: "code", check: "code" },
   },
+  "vault.sign-in": { level: "info", fields: { step: "code", outcome: "code" } },
   "vault.check": { level: "info", fields: { connection: "connection", outcome: "code" } },
   "vault.refresh": {
     level: "info",
@@ -280,6 +281,11 @@ export const LOG_EVENTS = {
       reason: "code",
       detail: "code",
       candidates: "count",
+      // For `not-started` with `confirm-unsupported`: the recipe generated as a
+      // verification that starts on the page, and its kind (ADR 0035).
+      recipe: "recipe",
+      recipeRevision: "count",
+      pageKind: "code",
       frame: "flag",
       url: "url",
     },
@@ -372,6 +378,10 @@ export const LOG_EVENTS = {
       // `accounts` for a list of accounts (ADR 0028), `entry` for a sign-in entry (ADR 0031),
       // `other` for a form on a chooser's path sent as its `other` branch (ADR 0028).
       page: "code",
+      // A returned route recipe's page kind, and the `signedIn` hint a recipe's first page
+      // was sent with (ADR 0035).
+      pageKind: "code",
+      signedIn: "flag",
       // How long the request took (ADR 0019, amended 2026-10-18).
       roundTripMs: "count",
       serverMs: "count",

@@ -104,7 +104,8 @@ export function validateLogout(
     (candidate.role !== "link" && candidate.role !== "button") ||
     !(isStepTarget(target) || target.by === "accessible-name") ||
     target.by === "autocomplete" ||
-    target.by === "label"
+    target.by === "label" ||
+    target.by === "password-form-name"
   )
     return { ok: false, reason: "incompatible-role" };
   if ([candidate.label, target.value].some((text) => text !== undefined && accountText.test(text)))

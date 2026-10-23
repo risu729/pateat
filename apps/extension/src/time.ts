@@ -15,12 +15,12 @@ export function isoMinute(ms: number): string {
 
 /**
  * A sync time for a settings page, such as `Oct 13, 2026, 11:29 PM` in the browser's
- * locale and time zone. A value outside Temporal's range, which only damaged storage can
- * hold, reads `at an unknown time` instead of breaking the page.
+ * locale (or a supplied UI locale) and time zone. A value outside Temporal's range,
+ * which only damaged storage can hold, reads `at an unknown time` instead of breaking the page.
  */
-export function localSyncTime(ms: number): string {
+export function localSyncTime(ms: number, locale?: string): string {
   try {
-    return Temporal.Instant.fromEpochMilliseconds(ms).toLocaleString(undefined, {
+    return Temporal.Instant.fromEpochMilliseconds(ms).toLocaleString(locale, {
       dateStyle: "medium",
       timeStyle: "short",
     });
@@ -41,6 +41,21 @@ export function localClock(ms: number, timeZone?: string): string {
     );
     return `${String(time.hour).padStart(2, "0")}:${String(time.minute).padStart(2, "0")}`;
   } catch {
+    return "--:--";
+  }
+}
+
+/**
+ * A time of day for a settings page, such as `11:29 PM` in the browser's locale (or a
+ * supplied UI locale) and time zone.
+ */
+export function localClockTime(ms: number, locale?: string): string {
+  try {
+    return Temporal.Instant.fromEpochMilliseconds(ms).toLocaleString(locale, {
+      timeStyle: "short",
+    });
+  } catch {
+    // Only a damaged reply can be out of range; no words, so no language.
     return "--:--";
   }
 }

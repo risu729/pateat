@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { i18n } from "../i18n";
 import type { StatusResponse } from "../login/choice-wire";
 import { pageStatusLines } from "./page-status";
 import { pauseLine, pauseShown } from "./pause";
@@ -14,8 +15,12 @@ const status = (fields: Partial<Status> = {}): Status => ({
 describe("pauseLine", () => {
   it("says until when automatic login is paused, on a 24-hour clock", () => {
     const at = Date.UTC(2026, 9, 23, 3, 40);
-    expect(pauseLine(at, "Asia/Tokyo")).toBe("Paused until 12:40");
-    expect(pauseLine(at, "UTC")).toBe("Paused until 03:40");
+    expect(pauseLine(at, i18n.getFixedT("en"), "Asia/Tokyo")).toBe("Paused until 12:40");
+    expect(pauseLine(at, i18n.getFixedT("en"), "UTC")).toBe("Paused until 03:40");
+  });
+  it("says it in Japanese", () => {
+    const at = Date.UTC(2026, 9, 23, 3, 40);
+    expect(pauseLine(at, i18n.getFixedT("ja"), "UTC")).toBe("03:40 まで一時停止中");
   });
 });
 

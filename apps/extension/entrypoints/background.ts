@@ -23,7 +23,15 @@ import { createProbePasskeySource } from "../src/passkeys/probe";
 import { createPasskeyRuntime } from "../src/passkeys/runtime";
 import { createSignIns, SIGN_INS_KEY } from "../src/passkeys/sign-ins";
 import { sessionValue } from "../src/storage";
+import { followLanguagePreference, i18n } from "../src/i18n";
 import { createLoginBadge, LOGIN_BADGE_KEY, setActionBadge } from "../src/login/badge";
+import {
+  countedOrigin,
+  createCountScope,
+  createSiteCounter,
+  recountingSettings,
+  SITE_COUNT_KEY,
+} from "../src/login/site-count";
 import {
   createVaultPasskeyFinder,
   createVaultPasskeySource,
@@ -96,9 +104,13 @@ export default defineBackground(() => {
       : {}),
     onVaultStateMayChange: () => {
       void actionIcon.refresh();
+      void siteCounter.refresh();
       diagnosticsLog.vaultStateMayChange();
     },
+    // A sync or a restore serves its snapshot only after the record write notified.
+    onVaultOpened: () => void siteCounter.refresh(),
     onSync: diagnosticsLog.vaultSync,
+    onSignIn: diagnosticsLog.vaultSignIn,
     onRefresh: diagnosticsLog.vaultRefresh,
   });
   // The manifest default is the locked icon; a running worker switches it.
@@ -113,14 +125,50 @@ export default defineBackground(() => {
     setBadge: setActionBadge,
     storage: sessionValue(LOGIN_BADGE_KEY),
   });
+  // Restored at once, before the event that woke the worker saves over the stored badges.
   void loginBadge.restore();
+  // Tooltips follow the language chosen on the settings page (ADR 0043); a badge drawn
+  // before the stored choice is read is written again once it applies.
+  i18n.on("languageChanged", () => loginBadge.relabel());
+  void followLanguagePreference();
+  // The popup, logins and the site count match a vault the same way, never opening it.
+  const vaultUris = createVaultUriMatcher(connections);
+  const vaultPasskeyFinder = createVaultPasskeyFinder(connections);
+  // ADR 0021: how many vault items match each tab's HTTP(S) site, under the states above.
+  // A count reads only vaults already open, through the login runtime's vault path.
+  const siteCounter = createSiteCounter({
+    scope: createCountScope(
+      connections,
+      { uris: vaultUris, passkeys: vaultPasskeyFinder },
+      catalog,
+    ),
+    hold: () => login.siteCount.hold(),
+    step: (job) => login.siteCount.step(job),
+    show: (tabId, origin, state) => loginBadge.count(tabId, origin, state),
+    storage: sessionValue(SITE_COUNT_KEY),
+  });
+  const showCount = (tabId: number) =>
+    void browser.tabs
+      .get(tabId)
+      .then((tab) => siteCounter.apply(tabId, tab.url))
+      .catch(() => undefined);
+  void browser.tabs
+    .query({})
+    .then((tabs) => siteCounter.applyTabs(tabs))
+    .catch(() => undefined);
   // Chrome resets a tab's badge when its page commits a navigation, which a url change
   // marks; the url shows only on pages Pateat can read.
   browser.tabs.onUpdated.addListener((tabId, change, tab) => {
     if (change.url !== undefined || change.status === "loading" || change.status === "complete")
       loginBadge.loaded(tabId, tab.url);
+    if (change.status === "loading") siteCounter.loading(tabId);
+    if (change.status === "complete") void siteCounter.loaded(tabId, tab.url);
   });
-  browser.tabs.onRemoved.addListener((tabId) => loginBadge.removed(tabId));
+  browser.tabs.onActivated.addListener(({ tabId }) => showCount(tabId));
+  browser.tabs.onRemoved.addListener((tabId) => {
+    loginBadge.removed(tabId);
+    siteCounter.removed(tabId);
+  });
   const settings = connections.settings;
   const serviceTransport = createServiceTransport();
   const service = createServiceRuntime({
@@ -140,6 +188,7 @@ export default defineBackground(() => {
     // Synced changes replace the policy that running attempts were authorized under.
     applied: () => {
       login.settingsChanged("synced");
+      void siteCounter.refresh();
       passkeys.settingsChanged();
       diagnosticsLog.settingsChanged("synced");
     },
@@ -185,22 +234,18 @@ export default defineBackground(() => {
   });
   // Workers stop when idle, so the persisted schedule, not each start, paces syncs.
   recipeSync.refreshIfStale();
-  // A saved account choice is uploaded at once instead of waiting for the next sync.
-  const loginSettings: typeof settings = {
-    ...settings,
-    update: (expectedRevision, mutate) =>
-      settings.update(expectedRevision, mutate).then((snapshot) => {
-        void recipeSync.sync();
-        return snapshot;
-      }),
-  };
+  // A saved account choice or passkey default is uploaded at once instead of waiting for
+  // the next sync, and the site count badge recounts for it.
+  const loginSettings: typeof settings = recountingSettings(settings, () => {
+    void recipeSync.sync();
+    void siteCounter.refresh();
+  });
   // A model call can outlast the worker's 30-second idle timeout; an extension API call
   // resets it, so the answer is not lost with a stopped worker.
   const keepAlive = <T>(work: Promise<T>): Promise<T> => {
     const timer = setInterval(() => void browser.runtime.getPlatformInfo(), 20_000);
     return work.finally(() => clearInterval(timer));
   };
-  const vaultUris = createVaultUriMatcher(connections);
   const vaultFields = createVaultFieldSource(connections);
   const vaultPasskeys = createVaultPasskeySource(connections);
   // Automatic vault sync (ADR 0025): a revision check on page events and every five
@@ -270,12 +315,31 @@ export default defineBackground(() => {
     report: (report) => {
       diagnosticsLog.login(report);
       loginBadge.observe(report);
+      // A site count the login stopped may run once it ended, settled or is only watched.
+      if (
+        report.type === "attempt" &&
+        (report.state === "authenticated" ||
+          report.state === "blocked" ||
+          report.settled ||
+          report.watched)
+      )
+        siteCounter.retryStopped();
       loginOutcomes.observe(report);
       loginRecords.observe(report);
       recipeUse.observe(report);
     },
     signedIn: (tabId, origin) => noteSignIn(tabId, origin),
     badge: loginBadge,
+    // A late answer to the tab's previous page does not take the tab over from its new one.
+    announced: (tabId, url) =>
+      void browser.tabs
+        .get(tabId)
+        .then((tab) =>
+          countedOrigin(tab.url) === countedOrigin(url)
+            ? siteCounter.announced(tabId, url)
+            : undefined,
+        )
+        .catch(() => undefined),
   });
   // A tab that moved to a page of a paused site shows `II` (ADR 0062); the badge drops the
   // pause first once the site changed.
@@ -286,7 +350,7 @@ export default defineBackground(() => {
   const siteAccounts = createSiteAccountsHandler({
     settings,
     matchUris: vaultUris,
-    findPasskeys: createVaultPasskeyFinder(connections),
+    findPasskeys: vaultPasskeyFinder,
     readField: vaultFields,
   });
   // ADR 0021: one Pateat window to choose among several matching passkeys.
@@ -309,6 +373,8 @@ export default defineBackground(() => {
   // A tab Chrome discards to save memory gets a new ID; its sign-ins and badge stay with it.
   browser.tabs.onReplaced.addListener((added, removed) => {
     loginBadge.replaced(added, removed);
+    siteCounter.removed(removed);
+    showCount(added);
     void signIns.replaced(added, removed).catch(() => {});
   });
   // Saving bumps the revision every login attempt checks; never stop a running login with it.
@@ -350,6 +416,7 @@ export default defineBackground(() => {
         answered: passkeyAnswered,
         // ADR 0063: a site that asks every time opens the chooser with no default.
         defaultUnset: login.defaultUnset,
+        reverification: login.passkeyReverification,
         conditional: login.conditionalRequest,
         hold: () => vaultSync.enter(false),
       })
@@ -365,9 +432,11 @@ export default defineBackground(() => {
         requested: login.passkeyRequested,
         // ADR 0022: a login that moves on to the passkey's site after an answer completes.
         answered: passkeyAnswered,
-        // ADR 0034: the page's own conditional request waits for the login of its page.
+        // ADR 0035: a re-verification after Pateat's login in the tab is handed on.
+        reverification: login.passkeyReverification,
         // ADR 0063: a site that asks every time opens the chooser with no default.
         defaultUnset: login.defaultUnset,
+        // ADR 0034: the page's own conditional request waits for the login of its page.
         conditional: login.conditionalRequest,
         // The open vault is not replaced while a passkey request is looked up or signed.
         hold: () => vaultSync.enter(false),
@@ -470,6 +539,7 @@ export default defineBackground(() => {
       settings.handle(request).then((response) => {
         if (requestType(request) === "settings.save" && response.ok) {
           login.settingsChanged("saved");
+          void siteCounter.refresh();
           passkeys.settingsChanged();
           diagnosticsLog.settingsChanged("saved");
           void recipeSync.sync();

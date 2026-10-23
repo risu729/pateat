@@ -349,6 +349,8 @@ describe("logout generation for an account switch (ADR 0063)", () => {
       JSON.stringify({
         result: {
           decision: "plan",
+          pageKind: "sign-in",
+          irreversible: "no",
           fields: [{ slot: "email", candidate: "email" }],
           action: { candidate: "next", purpose: "advance" },
         },
@@ -362,6 +364,7 @@ describe("logout generation for an account switch (ADR 0063)", () => {
           { id: "next", role: "button", target: { by: "id", value: "next" } },
         ]),
         slots: [{ id: "email", kind: "identifier", description: "account email address" }],
+        signedIn: false,
       })
     ).json()) as RecipeGenerationResult;
     expect(login.status).toBe("recipe");

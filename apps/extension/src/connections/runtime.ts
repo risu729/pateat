@@ -15,7 +15,13 @@ import { createLocalSettingsRuntime } from "../settings";
 import { createIndexedDbVaultStore } from "../vault/storage";
 import { createLocalVaultManager } from "../vault/manager";
 import { vaultFailure } from "../vault/record";
-import { notifyingVaultStore, vaultRecordState, type VaultRecordState } from "./action-icon";
+import {
+  notifyingVaultManager,
+  notifyingVaultStore,
+  vaultRecordState,
+  type VaultRecordState,
+} from "./action-icon";
+import { catalogEntry } from "./catalog";
 import { createBrowserConnectionRegistry } from "./registry";
 import { createConnectionPolicy, quarantinedItems } from "./policy";
 import { providerPermissionOrigins } from "./permissions";
@@ -28,6 +34,14 @@ import type { ConnectionRegistry, ConnectionSetupDependencies, SetupReply } from
 
 /** A diagnostics read must not hold the page as long as a sync may take. */
 const SERVER_CONFIG_TIMEOUT_MS = 5_000;
+
+export type SignInStep = "begin" | "continue" | "send-email-code" | "keep-alive";
+const signInSteps: Partial<Record<v.InferOutput<typeof setupRequestSchema>["type"], SignInStep>> = {
+  "connection.begin": "begin",
+  "connection.continue": "continue",
+  "connection.send-email-code": "send-email-code",
+  "connection.keep-alive": "keep-alive",
+};
 
 export function createConnectionRuntime(
   host: CryptoHost,
@@ -43,8 +57,15 @@ export function createConnectionRuntime(
      * either can change which connections unlock automatically.
      */
     onVaultStateMayChange?: () => void;
+    /** Called once a vault serves a new snapshot after an accepted sync or a restore. */
+    onVaultOpened?: () => void;
     /** Called with each settings-page Sync result, for the local log. */
     onSync?: (connectionId: string, reply: SetupReply) => void;
+    /**
+     * Called with each settings-page sign-in step's result, for the local log: the password,
+     * the code, an email code send, and a heartbeat that found the sign-in gone.
+     */
+    onSignIn?: (step: SignInStep, reply: SetupReply) => void;
     /** Called with each Bitwarden refresh result, for the local log. */
     onRefresh?: (event: RefreshReport) => void;
   } = {},
@@ -68,7 +89,9 @@ export function createConnectionRuntime(
     const store = notifyingVaultStore(createIndexedDbVaultStore({ profile }), () =>
       options.onVaultStateMayChange?.(),
     );
-    const manager = createLocalVaultManager({ profile, host, store });
+    const manager = notifyingVaultManager(createLocalVaultManager({ profile, host, store }), () =>
+      options.onVaultOpened?.(),
+    );
     const value = { store, manager };
     vaults.set(profile.connectionId, value);
     return value;
@@ -90,28 +113,7 @@ export function createConnectionRuntime(
       throw new Error("vault-unavailable");
     return {
       entry: record.data,
-      catalog: {
-        id: connectionId,
-        label: configuration.label,
-        provider: "bitwarden",
-        userId: projected.data.userId,
-        snapshotId: record.data.accepted.snapshotId,
-        groups: projected.data.groups,
-        items: projected.data.items.map((item) => ({
-          id: item.id,
-          label: item.label,
-          allowedOrigins: [],
-          groupIds: item.groupIds,
-          fields: item.fields.map(({ id, label, name, kind, linkedFieldId, empty }) => ({
-            id,
-            label,
-            name,
-            kind,
-            ...(linkedFieldId ? { linkedFieldId } : {}),
-            ...(empty ? { empty } : {}),
-          })),
-        })),
-      } satisfies VaultCatalog["connections"][number],
+      catalog: catalogEntry(connectionId, configuration.label, projected.data),
     };
   }
   async function catalog(snapshot: SettingsSnapshot): Promise<VaultCatalog> {
@@ -260,12 +262,13 @@ export function createConnectionRuntime(
           pending -= 1;
           // A heartbeat changes no vault state.
           if (request.type !== "connection.keep-alive") options.onVaultStateMayChange?.();
-          if (request.type === "connection.sync") {
-            try {
-              options.onSync?.(request.connectionId, reply);
-            } catch {
-              // Logging never holds back the reply.
-            }
+          try {
+            if (request.type === "connection.sync") options.onSync?.(request.connectionId, reply);
+            const step = signInSteps[request.type];
+            // A heartbeat is logged only when it found the sign-in gone.
+            if (step && (step !== "keep-alive" || !reply.ok)) options.onSignIn?.(step, reply);
+          } catch {
+            // Logging never holds back the reply.
           }
           send({ requestId: request.requestId, result: reply });
           return undefined;

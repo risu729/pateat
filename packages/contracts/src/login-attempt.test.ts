@@ -39,6 +39,7 @@ const recipe: LoginRecipe = {
   id: "synthetic-login",
   revision: 2,
   origin: document.origin,
+  pageKind: "sign-in",
   slots: ["password"],
   steps: [
     {
@@ -2883,6 +2884,7 @@ describe("a login that stops before a missing password (ADR 0036)", () => {
     id: "synthetic-email-first",
     revision: 1,
     origin: document.origin,
+    pageKind: "sign-in",
     slots: ["username", "password"],
     steps: [
       {
@@ -3664,6 +3666,7 @@ describe("a login that stops before a missing password (ADR 0036)", () => {
       id: "synthetic-chooser",
       revision: 1,
       origin: document.origin,
+      pageKind: "sign-in",
       slots: ["username", "password"],
       steps: [listClick, ...steps],
       maxSubmissions: branchSubmissions + 1,

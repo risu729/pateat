@@ -1,5 +1,6 @@
 import {
   deviceIdSchema,
+  isLoginRouteRecipe,
   laterStartSteps,
   loginRecipesForOrigin,
   MAX_RECIPE_CACHE_BYTES,
@@ -170,7 +171,8 @@ export function createRecipeSync(options: {
     );
     return write;
   }
-  let retryAt: Promise<number> | undefined;
+  // The stored schedule, read once per worker; `plan` replaces it.
+  let planned: Promise<{ startedAt: number; retryAt: number } | undefined> | undefined;
 
   /** The cache of exactly this paired device; another device's or a corrupt copy is ignored. */
   async function load(connection: ServiceConnection): Promise<RecipeCache | undefined> {
@@ -192,19 +194,23 @@ export function createRecipeSync(options: {
       : undefined;
   }
 
-  /** When the next background sync is due; a clock that moved backwards makes it due now. */
-  function dueAt(): Promise<number> {
-    retryAt ??= schedule.read().then(
+  /**
+   * When the next background sync is due. A clock that moved backwards past the last
+   * start makes it due now, checked on every call, also after a sync in this worker.
+   */
+  async function dueAt(): Promise<number> {
+    planned ??= schedule.read().then(
       (stored) => {
         const parsed = v.safeParse(scheduleSchema, stored);
-        return parsed.success && parsed.output.startedAt <= now() ? parsed.output.retryAt : 0;
+        return parsed.success ? parsed.output : undefined;
       },
-      () => 0,
+      () => undefined,
     );
-    return retryAt;
+    const next = await planned;
+    return next && next.startedAt <= now() ? next.retryAt : 0;
   }
   function plan(startedAt: number, delay: number) {
-    retryAt = Promise.resolve(startedAt + delay);
+    planned = Promise.resolve({ startedAt, retryAt: startedAt + delay });
     // Best effort: a lost write only makes the next worker start sync sooner.
     void schedule
       .write({ version: 1, startedAt, retryAt: startedAt + delay })
@@ -601,6 +607,23 @@ export function createRecipeSync(options: {
       // click on its list, which the page alone does not tell (ADR 0049).
       return loginRecipesForOrigin(cache.recipes, origin).filter((recipe) =>
         laterStartSteps(recipe).some(({ step }) => step.path === path),
+      );
+    },
+    async routes(origin: string) {
+      const connection = await service.connection().catch(() => undefined);
+      if (!connection) return [];
+      const cache = await load(connection);
+      if (!cache) return [];
+      return cache.recipes.flatMap((recipe) =>
+        recipe.origin !== origin
+          ? []
+          : isLoginRouteRecipe(recipe)
+            ? [recipe]
+            : "chooser" in recipe
+              ? [recipe.chooser.afterAccount, recipe.chooser.afterOther].filter(
+                  (branch) => branch !== undefined,
+                )
+              : [],
       );
     },
     async entries(origin: string) {

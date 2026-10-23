@@ -13,6 +13,7 @@ import {
   handlerTargets,
   heldRouteMissing,
   isLoginRouteRecipe,
+  runsLogin,
   loginAutocompleteTokens,
   loginChooserRecipeSchema,
   loginEntryRecipeSchema,
@@ -61,6 +62,7 @@ function recipe(): LoginRecipe {
     id: "bank-login",
     revision: 1,
     origin: "https://bank.example",
+    pageKind: "sign-in",
     slots: ["branch", "account", "password"],
     steps: [
       {
@@ -228,14 +230,26 @@ describe("declarative login boundaries", () => {
     ).toThrow();
   });
 
-  it("refuses an account switch that is a step's button or the rejection", () => {
+  it("refuses an account switch that is a step's button, the rejection or a marker", () => {
     const other = { by: "text", value: "Use another account" } as const;
     expect(parseLoginRecipe({ ...recipe(), accountSwitch: other }).accountSwitch).toEqual(other);
     for (const target of [
       { by: "id", value: "login" },
       { by: "id", value: "rejected" },
+      // A marker proves the sign-in wherever it shows, so a login page that shows the
+      // switch would read as signed in (ADR 0029).
+      { by: "id", value: "authenticated" },
     ])
       expect(() => parseLoginRecipe({ ...recipe(), accountSwitch: target })).toThrow();
+  });
+
+  it("requires the start page's kind, and runs only a sign-in recipe (ADR 0035)", () => {
+    const { pageKind: _kind, ...kindless } = recipe();
+    expect(() => parseLoginRecipe(kindless)).toThrow();
+    expect(() => parseLoginRecipe({ ...recipe(), pageKind: "personal-details" })).toThrow();
+    expect(runsLogin(parseLoginRecipe({ ...recipe(), pageKind: "sign-in" }))).toBe(true);
+    expect(runsLogin(parseLoginRecipe({ ...recipe(), pageKind: "confirm" }))).toBe(false);
+    expect(runsLogin(parseLoginRecipe({ ...recipe(), pageKind: "unclear" }))).toBe(false);
   });
 
   it("accepts a generated recipe whose completion is not learned yet", () => {
@@ -287,6 +301,58 @@ describe("declarative login boundaries", () => {
             purpose: "submit",
           },
         ],
+      },
+    ])
+      expect(() => parseLoginRecipe(malformed)).toThrow();
+  });
+
+  it("submits a form that shows no button by Enter in the field typed last (ADR 0064)", () => {
+    const account = { by: "id", value: "account" } as const;
+    const valid = {
+      ...recipe(),
+      slots: ["account", "password"],
+      maxSubmissions: 2,
+      steps: [
+        { kind: "fill", path: "/login", fields: [{ slot: "account", target: account }] },
+        { kind: "click", path: "/login", target: account, purpose: "advance", press: "enter" },
+        {
+          kind: "fill",
+          path: "/login",
+          fields: [{ slot: "password", target: { by: "id", value: "password" } }],
+        },
+        { kind: "click", path: "/login", target: { by: "id", value: "login" }, purpose: "submit" },
+      ],
+    };
+    expect(parseLoginRecipe(valid)).toEqual({
+      ...valid,
+      steps: valid.steps.map((step) =>
+        step.kind === "fill" ? { ...step, effect: "prepare" } : step,
+      ),
+    });
+    const [fill, enter, ...rest] = valid.steps;
+    for (const malformed of [
+      // Not after a fill, or after one on another path.
+      { ...valid, steps: [enter, fill, ...rest] },
+      { ...valid, steps: [{ ...fill, path: "/other" }, enter, ...rest] },
+      // Not in the field the fill typed last.
+      { ...valid, steps: [fill, { ...enter, target: { by: "id", value: "other" } }, ...rest] },
+      {
+        ...valid,
+        steps: [
+          {
+            ...fill,
+            fields: [...fill!.fields, { slot: "password", target: { by: "id", value: "pin" } }],
+          },
+          enter,
+        ],
+      },
+      // A button's text or accessible name names no field.
+      { ...valid, steps: [fill, { ...enter, target: { by: "text", value: "Next" } }, ...rest] },
+      // Into a code.
+      {
+        ...valid,
+        slots: ["totp", "password"],
+        steps: [{ ...fill, fields: [{ slot: "totp", target: account }] }, enter, ...rest],
       },
     ])
       expect(() => parseLoginRecipe(malformed)).toThrow();
@@ -366,6 +432,8 @@ describe("declarative login boundaries", () => {
       { by: "name", value: "user[login]" },
       { by: "id", value: "a'b\"c" },
       { by: "test-id", value: "sign-in" },
+      { by: "data-test", value: "register-button" },
+      { by: "password-form-name", value: "acct" },
       { by: "autocomplete", value: "username" },
       { by: "autocomplete", value: "current-password" },
       { by: "text", value: "ログイン" },
@@ -377,6 +445,8 @@ describe("declarative login boundaries", () => {
       { by: "id", value: "会員" },
       { by: "id", value: "a\u0000" },
       { by: "test-id", value: "a$b" },
+      { by: "data-test", value: "a b" },
+      { by: "password-form-name", value: "a b" },
       { by: "autocomplete", value: "new-password" },
       { by: "autocomplete", value: "Username" },
       { by: "autocomplete", value: "username webauthn" },
@@ -1115,6 +1185,8 @@ describe("second-factor page handlers (ADR 0027)", () => {
         },
       ],
       ["a changed rejection", { rejection: { by: "id", value: "error" } }],
+      // A continuation keeps its first page's kind (ADR 0035).
+      ["a changed page kind", { pageKind: "confirm" }],
       [
         "a passkey route",
         { passkey: { path: "/identity", target: { by: "text", value: "Use a passkey" } } },
@@ -1520,6 +1592,7 @@ describe("password route variants (ADR 0027)", () => {
     id: "bank-variants",
     revision: 1,
     origin: "https://bank.example",
+    pageKind: "sign-in",
     slots: ["branch", "account", "password"],
     steps: [fill(["branch", "account", "password"]), submit()],
     alternatives: [variant(["contract", "password"])],
@@ -2418,6 +2491,7 @@ describe("chooser recipes (ADR 0028)", () => {
       id: stored.id,
       revision: stored.revision,
       origin: stored.origin,
+      pageKind: "sign-in",
       slots: ["username"],
       steps: [{ kind: "click", path: "/login", target: CHOOSER_ENTRY_TARGET, purpose: "advance" }],
       maxSubmissions: 1,
@@ -2499,6 +2573,7 @@ describe("the stop before a missing password (ADR 0036)", () => {
       id: "synthetic-email-first",
       revision: 1,
       origin: "https://login.example",
+      pageKind: "sign-in",
       slots: ["username", "password"],
       steps: [
         fill(["username"], "/signin"),
@@ -2860,6 +2935,7 @@ describe("later steps a login may start at (ADR 0049)", () => {
     id: "synthetic-later",
     revision: 1,
     origin: "https://login.example",
+    pageKind: "sign-in",
     slots: ["username", "password", "totp"],
     steps: [
       { kind: "fill", path: "/signin", fields: [field("username", "email")] },
