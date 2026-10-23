@@ -228,6 +228,11 @@ export const helloSchema = v.strictObject({
   /** The first step's elements are ready on this path; a new attempt may start. */
   start: v.optional(v.strictObject({ path })),
   /**
+   * The document changed in place after Pateat clicked an account switch in it, and is
+   * announced as a new page (ADR 0078).
+   */
+  switched: v.optional(v.literal(true)),
+  /**
    * A visible password, username or one-time-code input shows on this path, so a page
    * without a recipe may be sent for generation (ADR 0016); `identifier` when the page,
    * after the offer wait (ADR 0057), asks for an account identifier alone instead, or

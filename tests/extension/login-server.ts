@@ -113,6 +113,19 @@ export async function startLoginFixture(
       });
       return;
     }
+    if (path === "/slow-switch") {
+      // An account switch whose next page takes 2.5 s, as a server-side sign-out does.
+      const shown = fixtureUrl.searchParams.get("shown") ?? "";
+      setTimeout(() => {
+        response.writeHead(302, {
+          location: /^[A-Za-z0-9@.*]+$/u.test(shown)
+            ? `/delayed-result?${new URLSearchParams({ shown }).toString()}`
+            : "/delayed-result",
+        });
+        response.end();
+      }, 2500);
+      return;
+    }
     if (path === "/totp-verify") {
       // A slow code verification (ADR 0027): the code page stays until the answer arrives.
       const to = fixtureUrl.searchParams.get("to");
@@ -736,6 +749,8 @@ export async function startLoginFixture(
       // `?switch-in-place` makes that element show the account in place instead, as a
       // single-page app does.
       const inPlace = fixtureUrl.searchParams.has("switch-in-place");
+      // `?switch-slow` makes it load its next page through `/slow-switch`.
+      const slowSwitch = fixtureUrl.searchParams.has("switch-slow");
       // `?maxlength` limits the password input, such as below the synthetic password.
       const maxLength = fixtureUrl.searchParams.get("maxlength");
       // `?form` puts the login in a form: `same-origin` posts to this page with its submit
@@ -787,7 +802,7 @@ export async function startLoginFixture(
             maxLength !== null && /^\d{1,3}$/u.test(maxLength) ? ` maxlength="${maxLength}"` : ""
           }></label>${
             switchPointer !== null && masked.test(switchPointer)
-              ? `<div id="use-another" data-test="use-another-account" style="cursor: pointer"${inPlace ? ` data-shown="Signed in as ${switchPointer}"` : ""} data-next="${path}?${new URLSearchParams({ shown: switchPointer, ...(form === null ? {} : { form }) }).toString().replace(/&/gu, "&amp;")}"><span>Use another account</span></div>`
+              ? `<div id="use-another" data-test="use-another-account" style="cursor: pointer"${inPlace ? ` data-shown="Signed in as ${switchPointer}"` : ""} data-next="${slowSwitch ? "/slow-switch" : path}?${new URLSearchParams({ shown: switchPointer, ...(form === null ? {} : { form }) }).toString().replace(/&/gu, "&amp;")}"><span>Use another account</span></div>`
               : ""
           }${
             // `?reject-fill=switch-form` keeps a second password field hidden until a fill.

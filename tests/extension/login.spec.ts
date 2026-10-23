@@ -1797,6 +1797,15 @@ test("a page showing another account is not filled, and its account switch is cl
       expect(new URL(pointer.url()).searchParams.get("shown")).toBe("****1234");
       await pointer.close();
       await expect.poll(status).not.toContain("authenticated");
+      // One whose next page is slow to load is clicked once, and that page logs in.
+      const slow = await context.newPage();
+      await slow.goto(
+        `${fixture.origin}/delayed-result?shown=****9999&switch-pointer=****1234&switch-slow`,
+      );
+      await expect(slow.locator("#authenticated")).toBeVisible({ timeout: 15_000 });
+      expect(new URL(slow.url()).searchParams.get("shown")).toBe("****1234");
+      await slow.close();
+      await expect.poll(status).not.toContain("authenticated");
       // One that shows the other account in place, as a single-page app, continues there.
       const inPlace = await context.newPage();
       let inPlaceLoads = 0;

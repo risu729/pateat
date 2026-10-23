@@ -553,11 +553,29 @@ export function otherAccountMiss(
 }
 
 /**
+ * Words of a control for another account that does something else than sign in with one,
+ * as "Add another account" or "Sign out of other accounts", which a switch never clicks.
+ */
+const otherActionWords = new Set([
+  "add",
+  "create",
+  "delete",
+  "logout",
+  "manage",
+  "register",
+  "remove",
+  "signout",
+]);
+const otherActionPhrases = /\b(?:log|sign)\s*(?:out|up)\b/iu;
+const otherActionParts = ["ログアウト", "サインアウト", "追加", "作成", "削除", "登録", "管理"];
+
+/**
  * The page's controls that sign in with another account, as a sign-in page showing
  * another account than the login's offers them: the innermost entry-like elements outside
  * page chrome whose whole text, at most 64 characters, names another account by the words
  * {@link otherAccountMiss} reads, and holds no email address, masked text or run of four or
- * more digits. Unlike a list's control, one inside a form with a shown field counts: the
+ * more digits, nor words for another action, such as adding an account or signing out.
+ * Unlike a list's control, one inside a form with a shown field counts: the
  * remembered account's own password form holds it. A native button that would submit its
  * form never counts.
  */
@@ -565,6 +583,13 @@ export function accountSwitchControls(document: Document): HTMLElement[] {
   return entryControls(document).filter((element) => {
     const text = listControlText(element).normalize("NFKC");
     if (!text || text.length > otherTextLimit || !namesOtherAccount(text)) return false;
+    const words = text.toLowerCase().split(/[^\p{L}\p{N}]+/u);
+    if (
+      words.some((word) => otherActionWords.has(word)) ||
+      otherActionPhrases.test(text) ||
+      otherActionParts.some((part) => text.includes(part))
+    )
+      return false;
     if (shownAccounts(text).some((shownAccount) => shownAccount.includes("@"))) return false;
     if (/[*●•]|\p{N}{4}/u.test(text)) return false;
     if (!isButton(element)) return true;

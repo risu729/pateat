@@ -320,7 +320,7 @@ describe("accountSwitchControls", () => {
     expect(accountSwitchControls(document)).toHaveLength(1);
   });
 
-  it("leaves out a submit button, page chrome, a long text and a text naming an account", () => {
+  it("leaves out a submit button, page chrome, a long text, a text naming an account and another action", () => {
     for (const html of [
       `<form><input type="password"><button>Use another account</button></form>`,
       `<header><a href="/switch">Switch accounts</a></header><input type="password">`,
@@ -328,6 +328,9 @@ describe("accountSwitchControls", () => {
       `<input type="password"><button type="button">Not x@example.com? Use another account</button>`,
       `<input type="password"><button type="button">Use another account 1234</button>`,
       `<input type="password"><span>Use another account</span>`,
+      `<input type="password"><button type="button">Add another account</button>`,
+      `<input type="password"><a href="/x">Sign out of other accounts</a>`,
+      `<input type="password"><a href="/x">別のアカウントを追加</a>`,
     ]) {
       document.body.innerHTML = html;
       expect(accountSwitchControls(document), html).toEqual([]);

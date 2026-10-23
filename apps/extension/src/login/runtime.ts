@@ -10833,6 +10833,7 @@ export function createLoginRuntime(
     list?: ListOffer,
     entryHello?: Announced,
     unoffered?: Unoffered,
+    switchedInPlace?: true,
   ): Promise<Readiness> {
     // Admission is async; a later hello from the same frame must not be overtaken by an older one.
     const helloKey = `${sender.tab?.id}:${sender.frameId}`;
@@ -10856,6 +10857,7 @@ export function createLoginRuntime(
           list,
           entryHello,
           unoffered,
+          switchedInPlace,
         );
       } finally {
         leave?.();
@@ -10885,6 +10887,7 @@ export function createLoginRuntime(
     list?: ListOffer,
     entryHello?: Announced,
     unoffered?: Unoffered,
+    switchedInPlace?: true,
     tries = 0,
   ): Promise<Readiness> {
     const result = await admit(
@@ -10898,6 +10901,7 @@ export function createLoginRuntime(
       list,
       entryHello,
       unoffered,
+      switchedInPlace,
     );
     if (result.reason !== CHOICE_SAVED) return result;
     return tries < 2
@@ -10912,6 +10916,7 @@ export function createLoginRuntime(
           list,
           entryHello,
           unoffered,
+          switchedInPlace,
           tries + 1,
         )
       : { ok: false, reason: "stale-document" };
@@ -10933,6 +10938,7 @@ export function createLoginRuntime(
     list?: ListOffer,
     entryHello?: Announced,
     unoffered?: Unoffered,
+    switchedInPlace?: true,
   ): Promise<Readiness> {
     await loaded;
     await sessionLoaded;
@@ -11064,7 +11070,7 @@ export function createLoginRuntime(
     // but never while it already carries an attempt, unless that login finished and the
     // document now watches for a logout (ADR 0021 D), the login is watched and its first
     // step shows in the document (ADR 0027), or the login switched accounts and the
-    // document changed in place (ADR 0078).
+    // document, changed in place, announces itself as a new page (ADR 0078).
     const carried = attempts.get(document.tabId);
     if (
       sameDocument &&
@@ -11073,7 +11079,8 @@ export function createLoginRuntime(
           !(
             document.frameId === 0 &&
             (finishedLogin(carried.metadata) ||
-              (carried.metadata.state === "blocked" &&
+              (switchedInPlace &&
+                carried.metadata.state === "blocked" &&
                 carried.metadata.outcome === "account-switched") ||
               (carried.metadata.watch !== undefined &&
                 start?.path === observedPath(new URL(url).pathname) &&
@@ -13534,6 +13541,7 @@ export function createLoginRuntime(
         hello.output.list,
         hello.output.entry,
         hello.output.unoffered,
+        hello.output.switched,
       );
       const tabId = sender.tab?.id;
       const { announced } = options;

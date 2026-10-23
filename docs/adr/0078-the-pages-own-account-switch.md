@@ -44,20 +44,26 @@ the login.
    another (another, other, different, switch, 別の, 他の, ほかの, 切り替え, 切替) and
    one for an account (account, profile, user and their plurals, アカウント,
    プロフィール, ユーザー), and no email address, masked text or run of four or more
-   digits. Unlike a list's control, one inside a form with a shown field counts, since
-   the remembered account's own password form holds it, but a native button that would
-   submit its form never does. When exactly one shows, it is clicked as a recipe's
+   digits, nor a word for another action (add, create, delete, logout, manage, register,
+   remove, signout, "log out", "sign out", "sign up", ログアウト, サインアウト, 追加,
+   作成, 削除, 登録, 管理), so "Add another account" or "Sign out of other accounts" is
+   never clicked. Unlike a list's control, one inside a form with a shown field counts,
+   since the remembered account's own password form holds it, but a native button that
+   would submit its form never does. When exactly one shows, it is clicked as a recipe's
    switch is: recorded first as `account-switched`, clicked within 10 seconds while it
    is still the only one on the same path, and never again in the attempt that follows.
    A recipe's own target still wins: a recipe that names one never falls back to the
    page's control.
 2. **A switch in place.** After a switch click, the content script waits until the
-   document has loaded and its DOM has had no change for 1 second, at most 5 seconds,
-   and announces the document again as a new page: a recipe that starts on its path
-   starts a new attempt carrying the switch, and a page without one may be offered for
-   generation once more. The background takes the announcement from a document whose
-   attempt ended `account-switched`. A page that still shows another account ends that
-   attempt `wrong-account`.
+   document has loaded and its DOM has had no change for 1 second, at most 5 seconds.
+   If the switch it clicked no longer shows, the page changed in place, and the content
+   script announces the document again as a new page, marked as switched: a recipe that
+   starts on its path starts a new attempt carrying the switch, and a page without one
+   may be offered for generation once more. The background takes only that marked
+   announcement from a document whose attempt ended `account-switched`. A page that
+   still shows the switch is waiting for its next document, which announces itself as
+   before. A page that still shows another account ends the new attempt
+   `wrong-account`.
 
 ## Consequences
 

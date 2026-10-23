@@ -1125,9 +1125,10 @@ form with a shown field, when exactly one shows
 ([ADR 0078](adr/0078-the-pages-own-account-switch.md)). When the target is missing or
 ambiguous, or no single such control shows, the attempt ends `wrong-account` as above. A
 switch that changes the page in place, without loading a new document, continues once
-the page has settled (load and 1 second of DOM quiet, at most 5 seconds): the document
-announces itself again, so a recipe that starts on its path starts a new attempt and a
-page without one may be offered for generation once more. Before a fill step writes
+the page has settled (load and 1 second of DOM quiet, at most 5 seconds) and the switch
+no longer shows: the document announces itself again, marked as switched, so a recipe
+that starts on its path starts a new attempt and a page without one may be offered for
+generation once more. Before a fill step writes
 anything, the content script checks every value against its input
 ([ADR 0010](adr/0010-inference-field-hints.md)): non-empty, within the input's
 `maxlength` and `minlength` (ignored on `number` inputs), and a valid email or number

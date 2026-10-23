@@ -648,17 +648,18 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
    * After an account switch this document may change in place, as a single-page app shows
    * its form for another account (Duolingo, 2026-10-23): once it has settled, it is
    * announced as a new page, so a recipe that starts there starts a new attempt and a page
-   * without one may be offered for generation once more (ADR 0078). A switch that loads a
-   * new document never gets here.
+   * without one may be offered for generation once more (ADR 0078). Only a page that
+   * no longer shows the switch changed in place: one that still does is waiting for the
+   * next document, which announces itself.
    */
-  async function switchedInPlace(): Promise<void> {
+  async function switchedInPlace(element: HTMLElement): Promise<void> {
     await settled(document, accountQuietMs, Date.now() + accountWaitMs);
-    if (cancelled) return;
+    if (cancelled || (element.isConnected && visible(element))) return;
     ended = false;
     announced = false;
     retries = 0;
     offered = false;
-    void announce(false).catch(() => undefined);
+    void announce(false, false, undefined, false, true).catch(() => undefined);
   }
   /**
    * Checks again shortly when a start could not be confirmed for a passing reason. Each
@@ -923,6 +924,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     signIn: boolean | "identifier" | "passkey" = false,
     list?: ListedAccounts,
     entryPage = false,
+    /** The document changed in place after an account switch (ADR 0078). */
+    switched = false,
   ): Promise<unknown> {
     announced = start;
     announcedPath = pagePath();
@@ -942,6 +945,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         : {}),
       ...(list ? { list } : {}),
       ...(entryPage ? { entry: { path: pagePath() } } : {}),
+      ...(switched ? { switched: true as const } : {}),
     });
     const parsed = v.safeParse(readySchema, result);
     if (parsed.success) {
@@ -1131,7 +1135,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       void pressElement(pending.element, pressing).then(
         (pressed) => {
           respond({ ok: pressed !== "missed" });
-          if (pressed !== "missed") void switchedInPlace();
+          if (pressed !== "missed") void switchedInPlace(pending.element);
+          return undefined;
         },
         () => respond({ ok: true }),
       );
