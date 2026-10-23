@@ -66,6 +66,18 @@ function mockClient(saveError?: ManageApiError) {
     revokeRecipe: vi.fn<ManageClient["revokeRecipe"]>(),
     requestLog: vi.fn<ManageClient["requestLog"]>(),
     deleteRequestLog: vi.fn<ManageClient["deleteRequestLog"]>(),
+    claude: vi.fn<ManageClient["claude"]>(async () => ({
+      version: 1,
+      console: {
+        issuer: "https://pateat.example",
+        subject: "owner:4f3c2b1a-0e9d-4c8b-a7f6-e5d4c3b2a190",
+        audience: "https://api.anthropic.com",
+      },
+      identifiers: null,
+      storedInvalid: false,
+    })),
+    saveClaude: vi.fn<ManageClient["saveClaude"]>(),
+    testClaude: vi.fn<ManageClient["testClaude"]>(),
     models: vi.fn<ManageClient["models"]>(async () => structuredClone(view)),
     saveModels: vi.fn<ManageClient["saveModels"]>(async (config: ModelConfig) => {
       if (saveError) throw saveError;
@@ -79,7 +91,7 @@ async function mount(client: ManageClient) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   await render(
     <QueryClientProvider client={queryClient}>
-      <ManageApp client={client} path="/manage/models" />
+      <ManageApp client={client} path="/manage/claude" />
     </QueryClientProvider>,
   );
 }
@@ -94,7 +106,8 @@ test("shows each role's models in order, with the fallbacks after a refusal", as
   await mount(mockClient());
   await expect.element(page.getByRole("heading", { name: "Recipe generation" })).toBeVisible();
   await expect.element(page.getByRole("heading", { name: "Sign-in judge" })).toBeVisible();
-  expect(document.title).toBe("Models – Pateat");
+  expect(document.title).toBe("Claude – Pateat");
+  await expect.element(page.getByRole("region", { name: "Models" })).toBeVisible();
   await expect.element(page.getByText("These are the defaults.")).toBeVisible();
   expect(select("models-generate-0-model").value).toBe("claude-opus-5-5");
   expect(select("models-generate-1-model").value).toBe("claude-sonnet-5-5");
@@ -123,7 +136,7 @@ test("saves an edited order and effort", async () => {
   await page.getByRole("button", { name: "Move Claude Sonnet 5.5 up" }).first().click();
   await page.getByRole("combobox", { name: "Effort" }).first().selectOptions("medium");
   await page.getByRole("button", { name: "Add a fallback" }).first().click();
-  await page.getByRole("button", { name: "Save" }).click();
+  await page.getByRole("button", { name: "Save models" }).click();
   await expect.element(page.getByText("Models saved")).toBeVisible();
   expect(client.saveModels).toHaveBeenCalledWith({
     generate: [
@@ -139,7 +152,7 @@ test("explains a model the list no longer offers", async () => {
   const client = mockClient(new ManageApiError("model_unavailable"));
   await mount(client);
   await expect.element(page.getByRole("heading", { name: "Recipe generation" })).toBeVisible();
-  await page.getByRole("button", { name: "Save" }).click();
+  await page.getByRole("button", { name: "Save models" }).click();
   await expect
     .element(page.getByText(/is no longer offered\. The page now shows the current list/))
     .toBeVisible();
