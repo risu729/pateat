@@ -119,6 +119,11 @@ new owner decision:
   this decision, after UNSW's Microsoft Entra page was logged as incomplete while its
   form still faded in), it is read a second apart, at most ten times, so a form that
   fades in after its input shows is still sent.
+  Since 2026-10-23 (added after this decision, not confirmed by the owner, after x.com's
+  sign-in was offered as a passkey or list page while it loaded and then never sent), a
+  page offered as a list of accounts or a passkey button whose description finds none
+  (`no-candidates`) is read as a sign-in page, and sent as one when it shows a sign-in
+  form by then.
 - The vault match is checked only once the input shows, and only matching items'
   built-in fields decide which of the `username`, `password` and `totp` slots are
   offered.
