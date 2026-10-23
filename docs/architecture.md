@@ -41,6 +41,17 @@ This targets locally installed Chrome. Running in a hosted browser depends on
 that environment allowing installation and storage; it is not an initial
 compatibility claim or an alternative cloud-browser implementation.
 
+Logins and fills never read what the person types or chooses on a page in order to keep
+it (owner, 2026-10-23). No such value is stored, logged, synced, sent to the service or
+the AI, and recipes are never built from the person's own clicks or input
+([ADR 0028](adr/0028-account-chooser-login-pages.md)). Pateat reads a field's value only
+to check whether it is empty or holds what Pateat typed, and keeps neither. A record
+that the person acted, such as the submission signal (`login.document.submitted`,
+ADR 0028) or a logout click ([ADR 0021](adr/0021-account-choice-outside-settings.md)),
+holds no value they entered. Saving a credential to the vault, as the Bitwarden
+extension offers, is the separate later writeback capability below, not part of logins
+and fills.
+
 ## Components and trust boundaries
 
 | Component               | Responsibilities                                                                           | May hold secrets?                                               |
@@ -178,9 +189,13 @@ The pure account mapper prepares trusted transport responses for local crypto.
 It correlates token subject, sync profile and a known account's canonical provider
 binding. Decoding unsigned JWT claims does not verify their signature or establish
 ownership; the calling host must preserve the fixed HTTPS response provenance.
-Authentication salt/KDF and vault-unlock salt/KDF remain independent. Incomplete
-modern account keys cannot fall back to legacy state. Previously verified account
-format and signed security-version floors must survive subsequent syncs.
+An access token whose `exp` has been reached is expired. Like the official clients'
+`TokenService`, which reads only `exp`, the mapper never compares `nbf` (the server's
+issue second) with the local clock, so a clock behind the server's still accepts a
+fresh token; `nbf` and `iat` must only be non-negative integers. Authentication salt/KDF
+and vault-unlock salt/KDF remain independent. Incomplete modern account keys cannot
+fall back to legacy state. Previously verified account format and signed
+security-version floors must survive subsequent syncs.
 
 The initial mapper admits login, secure-note, card and identity items. Other
 types have explicit unavailable results containing only IDs and an unsupported
@@ -434,19 +449,48 @@ guess:
   official login page.
 - A sign-in or sync that takes longer than 120 seconds: the settings page's request
   times out and closes its connection to the worker, which cancels the work. A
-  verification challenge expires after 5 minutes without a countdown, as the official
+  verification challenge expires 5 minutes after the sign-in started, as the official
   clients' pending sign-in does
   ([`LOGIN_SESSION_TIMEOUT_LENGTH`](https://github.com/bitwarden/clients/blob/86f41566aebe5a024796df8abfb3d4d89ec509c1/libs/auth/src/common/services/login-strategies/default-login-strategy-session-timeout.service.ts#L14)).
-  The waiting sign-in, password included, lives only in the service worker, which Chrome
-  stops after 30 seconds without an event, so the settings page sends the worker a
+  The challenge reply carries that end as `expiresAt`, and the code screen says "Enter
+  the code by 8:26 PM. After that the sign-in ends and needs the master password again."
+  A code the server refuses (Bitwarden's "Two-step token is invalid. Try again.",
+  Vaultwarden's invalid or expired TOTP and email token messages) keeps the sign-in
+  waiting, as the official two-step page does
+  ([two-factor-auth.component.ts](https://github.com/bitwarden/clients/blob/86f41566aebe5a024796df8abfb3d4d89ec509c1/libs/auth/src/angular/two-factor-auth/two-factor-auth.component.ts#L338-L353)):
+  the reply is the same challenge with `invalidCode: true`, and the code screen keeps
+  the chosen method and the sent email and says "The code was not accepted: it is wrong
+  or no longer valid." A refused new-device code does the same through `invalidOtp`.
+  Before 2026-10-23 a refused code ended the sign-in and the form asked for the master
+  password again; the owner asked for this change that day (11:50 UTC). The waiting
+  sign-in, password included, lives only in the service worker, which Chrome stops after
+  30 seconds without an event, so the settings page sends the worker a
   `connection.keep-alive` message as soon as a challenge shows and every 20 seconds
-  after (the interval of Chrome's own heartbeat examples). An answer that the flow is
-  gone (its 5 minutes ended, or Chrome restarted the worker anyway) ends the challenge
-  with "This verification session expired"; a first sign-in then offers "Sign in again".
-  Closing the settings page ends the sign-in. Before this, on 2026-10-22 in the owner's
+  after (the interval of Chrome's own heartbeat examples). A tab Chrome froze or slowed,
+  or a computer that slept, hears late, so the page also sends one at `expiresAt` and
+  whenever it becomes visible; of several answers that find the end at once, only the
+  first ends the challenge. A provider request that the end itself aborts answers
+  `setup-expired`, not `cancelled`; the vault download and unlock after an accepted code
+  still count against the 5 minutes, and work the end stops there answers `cancelled`,
+  which the form shows as "The sign-in reached its 5-minute end before it finished." An
+  answer that the flow is gone ends the challenge, a first sign-in then offers "Sign in
+  again", and the sign-in form says why next to the master password (the field's
+  `aria-describedby`): "The sign-in timed out at 8:26 PM: no code was entered within 5
+  minutes." once `expiresAt` passed, else "The sign-in ended early, by 8:24 PM, before
+  its 5 minutes. This usually means Chrome stopped Pateat's background." (the time is
+  when the page found out; Chrome restarting the worker is the usual cause, but a
+  permission removal or a second settings page's Disable automatic unlock ends it the
+  same way); any other error that ends a waiting sign-in is said there too; the panel
+  status says "The sign-in timed out waiting for the code." or "The sign-in ended before
+  the code was entered." The local log records it as `vault.sign-in` with step
+  `keep-alive`, `continue` or `send-email-code` and outcome `setup-expired`. Closing the
+  settings page ends the sign-in. Before the heartbeat, on 2026-10-22 in the owner's
   Chrome with a local Vaultwarden and email two-step, diagnostics recorded four worker
   starts while the code was fetched, and the sign-in asked for the master password
-  again.
+  again. With it, on 2026-10-23 the owner left the code screen for about 10 minutes, and
+  the form asked for the master password again; the only explanation was "This
+  verification session expired. Start sign-in again." in the panel status above the
+  connection rows.
 - A second sign-in step or sync from one settings page while one runs, a new sign-in
   or sync while that page's verification challenge waits (the challenge stays usable),
   a sign-in or sync of a connection that already has one, or a fifth at once across
@@ -709,11 +753,16 @@ slot per custom field a matching item allows (Text, Hidden, or Linked with an al
 source), named by field name and position, under an opaque ID such as `custom-1`
 ([ADR 0027](adr/0027-per-account-login-routes.md)). Just before sending, it reads the
 matching items' usernames and the values of Text fields and of Linked fields that read
-the username or a Text field for their shape, each sent only when all items agree. The
-returned recipe enters the recipe cache and starts at once: `login.reconnect` asks every
-tab's page still tracked on that origin and path that holds no login to announce again.
-That covers the page that was sent and a page refused for want of a recipe while the
-request was in flight, such as one that replaced it in its tab or the same page in
+the username or a Text field for their shape, each sent only when all items agree. A
+list of accounts is sent with no slots or shapes at all, and a sign-in entry page
+without slots; both have the matching items' usernames hidden as every page sent does
+(owner, 2026-10-23 11:48 UTC;
+[ADR 0028](adr/0028-account-chooser-login-pages.md#amendment-2026-10-23-sent-without-slots),
+[ADR 0031](adr/0031-sign-in-entry-pages.md#amendment-2026-10-23-the-matching-items-usernames-are-hidden)).
+The returned recipe enters the recipe cache and starts at once: `login.reconnect` asks
+every tab's page still tracked on that origin and path that holds no login to announce
+again. That covers the page that was sent and a page refused for want of a recipe while
+the request was in flight, such as one that replaced it in its tab or the same page in
 another tab. A generated recipe the chosen item cannot run is revoked and its page
 generated in the same visit
 ([ADR 0058](adr/0058-automatic-recipe-removal.md#a-a-recipe-the-chosen-item-cannot-run)):
@@ -1737,6 +1786,7 @@ be told apart
 | `runtime.updated` | info | previous and new build revision, version |
 | `vault.state` | warn for `unavailable`, `review-required` or `reauthentication-required`, even at a worker's first sight; else debug at the first sight, then info | connection pseudonym, state, previous state, sync sign-in, `synced` when a new snapshot was accepted |
 | `vault.sync` | info for a result, including `unchanged` since the person pressed Sync, and for `cancelled`, else warn | connection pseudonym, the settings-page Sync's result kind or error code, and the account mismatch check when there is one |
+| `vault.sign-in` | info, except warn for an error other than `cancelled` and `setup-expired` and for an email code that was not sent | the settings-page sign-in step (`begin` for the password, `continue` for the code, `send-email-code`, or `keep-alive` only when the heartbeat found the sign-in gone) and its result kind, `code-refused` when the server refused the code and the sign-in still waits, email send result or error code. No connection: a new connection's challenge shows before its ID is listed |
 | `vault.check` | debug for `unchanged`, `skipped` and the same outcome as the connection's last stored check other than `synced`, also after the worker restarted (such as a sign-in that still needs the password, where no request is sent); otherwise info for `synced` and `deferred` (the replacement waits for a login or passkey request), else warn | connection pseudonym and the automatic check's outcome (ADR 0025): `unchanged`, `synced`, `deferred`, `rate-limited`, `failed`, `reauthentication-required`, `account-deleted` or `skipped` |
 | `vault.refresh` | debug for `refreshed`, info for `not-sent`, else warn | connection pseudonym; `not-sent` when no usable session was refreshed and no refresh was sent, with why: `no-session`, `no-refresh-token`, `claimed` (another refresh in this worker holds it), `provider-permission-required`, `cancelled` or the store's error code; `refreshed`, `restored` (the session was put back after a network failure, timeout, 429 or 5xx), `rejected`, `account-mismatch` or `failed` (a non-retryable error drops the claim's refresh token so the sync sign-in needs the password; a store error leaves the claim to resume; a conflict means forget or a password sign-in replaced it); the transport or store error code and HTTP status when there is one |
 | `service.sync` | debug for `synced`, `incomplete`, `not-connected` unless a recipe was added, updated or removed, then info; info for `unreachable`, since a device offline for a while would otherwise fill the warnings, and `busy` (a settings write that waits for a login, a sync superseded by a later one, or attempts that ran out); else warn | recipe and settings sync outcome; `full`, or `recipes` for a recipes-only run after a judged page; recipes added, updated and removed in the cache; how long the run's requests took, added up ([timing](#request-and-login-timing)): `roundTripMs`, and `serverMs` and `networkMs` when every answer named the service's time |
@@ -2012,7 +2062,10 @@ announces goes first); the worker then checks the tab holds no attempt record fo
 origin of the site, no tab keeps a logout of it, the page is not the tab's next page
 after a submitted password form and a vault item matches, and sends the page's shown,
 enabled buttons and links with rendered text outside forms with fields, header and
-navigation first, up to 48, without slots. The content script lists the hosts the page's
+navigation first, up to 48, without slots and with the matching items' usernames hidden
+as `[account]` (a page refused as `username-unread` or `username-shown` is not sent,
+[ADR 0031](adr/0031-sign-in-entry-pages.md#amendment-2026-10-23-the-matching-items-usernames-are-hidden)).
+The content script lists the hosts the page's
 URL and links name, and the worker answers which are on the site, so a link to another
 site, `http:` (unless the page is `http:` too, ADR 0050), to the page itself or only
 another fragment of it, opening another window (by its own `target` or the document's
@@ -2076,10 +2129,12 @@ recipe's next page, whose stored recipe is a chooser still answers `recipe-confl
 The extension sends a page that lists accounts once its DOM has been quiet for a second,
 or 5 seconds after it starts waiting (ADR 0057), unless it follows a submitted password
 form, with a username that is not an email and the other texts beside its buttons shown
-as `[account]`, and caches the chooser it gets. A login on the list clicks the account's
-entry, the `continue` button or `other`, as the content script finds them for the
-account's username, then runs that branch and sends its pages with the branch; with
-nothing to click it ends `account-not-listed`
+as `[account]` and with `slots: []`, which the service requires of a list
+([ADR 0028](adr/0028-account-chooser-login-pages.md#amendment-2026-10-23-sent-without-slots)),
+and caches the chooser it gets. A login on the list clicks the account's entry, the
+`continue` button or `other`, as the content script finds them for the account's
+username, then runs that branch and sends its pages with the branch; with nothing to
+click it ends `account-not-listed`
 ([ADR 0028](adr/0028-account-chooser-login-pages.md#execution)). When the list's path
 shows the stored `other` branch's first step instead of the list, as after the person
 pressed the button for another account, the login runs that branch without a click
@@ -3040,14 +3095,18 @@ steady-state API calls carry no cookie.
   application with a Bypass policy exempts the paths that cannot pass an interactive
   login: the `/v1` sync routes, which accept only device credentials; `/health`; and the
   two `/.well-known` issuer routes that Anthropic fetches anonymously. The Worker
-  verifies the `Cf-Access-Jwt-Assertion` JWT itself:
-  signature against the team JWKS, configured audience tag and issuer, and expiry. It
-  never trusts the plain identity headers. The owner key is the issuer plus the token
-  subject, not the email address. Verification uses Hono's JWT utility with the team
-  JWKS, allowing only RS256; Hono's JWK middleware reads only `Bearer` values, and a
-  dedicated JWT library would need its own owner decision. Tokens without an expiry or a
-  user subject, such as service tokens, are refused. The public keys are edge-cached for
-  five minutes, so a rotated key may be refused briefly.
+  verifies the `Cf-Access-Jwt-Assertion` JWT itself: signature against the team JWKS,
+  configured audience tag and issuer, and expiry. It never trusts the plain identity
+  headers. The owner key is the issuer plus the token subject, not the email address.
+  Verification uses Hono's JWT utility with the team JWKS, allowing only RS256; Hono's
+  JWK middleware reads only `Bearer` values, and a dedicated JWT library would need its
+  own owner decision. Tokens without an expiry or a user subject, such as service
+  tokens, are refused. The public keys are edge-cached for five minutes, so a rotated
+  key may be refused briefly. When they cannot be fetched (an error, an answer that is
+  not a key set, or no answer within five seconds), the request fails as an outage
+  (owner pages 503 asking to try again later, JSON routes 503 `access_keys_unavailable`)
+  rather than as a refused sign-in; the extension's settings page and the web UI ask to
+  try again later.
 - Pairing. **Pair this device** on the settings page asks for site access to the
   service, then the extension's background service worker sends one `POST /pair` with
   the device label, `credentials: "include"`, `redirect: "manual"` and
@@ -3067,8 +3126,8 @@ steady-state API calls carry no cookie.
   settings page opens `<service>/pair/signed-in` in a new tab once per click, where
   Access signs the browser in and the page asks the user to return; it retries once when
   it is shown or focused again, and offers **Try again** and **Open sign-in page**. A
-  refused sign-in, an unlisted extension ID and a service without pairing settings each
-  have their own message.
+  refused sign-in, an unlisted extension ID, a service without pairing settings and a
+  service that could not fetch Access's signing keys each have their own message.
 - Lifetime and recovery. A credential expires once it has gone unused for 90 days, and
   each authenticated use renews it; there is no absolute lifetime and no rotation (owner
   decision, 2026-10-11). The service records a device's last use at most once a day

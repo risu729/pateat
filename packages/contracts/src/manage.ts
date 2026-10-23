@@ -374,6 +374,8 @@ export const manageErrorCodeSchema = v.picklist([
   "forbidden",
   /** The service has no Access configuration. */
   "access_unavailable",
+  /** Access's signing keys could not be fetched, so no token can be checked. */
+  "access_keys_unavailable",
   "not_found",
   /** Settings belong to an account with a paired device; this identity has none. */
   "not_paired",

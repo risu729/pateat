@@ -154,7 +154,11 @@ import {
   probeStarts,
   type ProbeAccount,
 } from "./dummy";
-import { findLiveSiteCandidates, type LiveUriMatcher } from "../vault/site-candidates";
+import {
+  findLiveSiteCandidates,
+  type LiveSiteCandidate,
+  type LiveUriMatcher,
+} from "../vault/site-candidates";
 import {
   choiceRequestSchema,
   logoutReasonSchema,
@@ -1456,6 +1460,20 @@ type GenerationScope = {
   /** Every enabled connection answered and every item's URI rules were evaluated. */
   complete: boolean;
 };
+/** The items that matched a page and the settings they were matched under. */
+type VaultMatch = Pick<GenerationScope, "items" | "settings">;
+
+/** Each URI match's connection and item in the catalog; one the catalog lacks is left out. */
+function catalogItems(
+  catalog: VaultCatalog,
+  candidates: readonly Pick<LiveSiteCandidate, "connectionId" | "itemId">[],
+): GenerationScope["items"] {
+  return candidates.flatMap((candidate) => {
+    const connection = catalog.connections.find((entry) => entry.id === candidate.connectionId);
+    const item = connection?.items.find((entry) => entry.id === candidate.itemId);
+    return connection && item ? [{ connection, item }] : [];
+  });
+}
 
 /**
  * Coordinator is packaged production code. Production admits only `sites` documents and
@@ -6879,13 +6897,7 @@ export function createLoginRuntime(
       miss("no-vault-match", scope.reason);
       return undefined;
     }
-    const items = scope.candidates.flatMap((candidate) => {
-      const connection = snapshot.catalog.connections.find(
-        (entry) => entry.id === candidate.connectionId,
-      );
-      const item = connection?.items.find((entry) => entry.id === candidate.itemId);
-      return connection && item ? [{ connection, item }] : [];
-    });
+    const items = catalogItems(snapshot.catalog, scope.candidates);
     // Only slots a matching item can fill; built-in fields keep these IDs on every device.
     const slots = generationSlots.filter(({ fieldId }) =>
       items.some(({ connection, item }) =>
@@ -7511,11 +7523,6 @@ export function createLoginRuntime(
     if (!generation) return;
     const base = otherless && { recipeId: otherless.id, revision: otherless.revision };
     const otherBranch = otherless && recipeBranch(otherless.layout, "other");
-    const page = list
-      ? ({ page: "accounts" } as const)
-      : base
-        ? ({ page: "other", recipeId: base.recipeId, baseRevision: base.revision } as const)
-        : {};
     const key = frameKey(live.document);
     let sent = false;
     try {
@@ -7560,6 +7567,43 @@ export function createLoginRuntime(
           unsent = "incomplete-observation";
           detail = accepted.detail;
         }
+        // A page offered as a list of accounts or a passkey button before its form rendered,
+        // as x.com's sign-in while it loads (2026-10-23), may show a sign-in form instead by
+        // now: it is sent as a sign-in page, only when it shows an input the document would
+        // have offered as one (ADR 0016), never for a search or newsletter field alone.
+        const shows =
+          unsent === "no-candidates" && (list || passkeyOnly)
+            ? v.safeParse(
+                entryCheckResultSchema,
+                // eslint-disable-next-line no-await-in-loop
+                await send(live, { type: "login.entry.check", starts: [], timeoutMs: 0 }).catch(
+                  () => undefined,
+                ),
+              )
+            : undefined;
+        if (documents.get(key) !== live) return;
+        if (shows?.success && shows.output.signIn) {
+          const signIn = v.safeParse(
+            extractResultSchema,
+            // eslint-disable-next-line no-await-in-loop
+            await send(live, { type: "login.extract", page: "login" }),
+          );
+          if (documents.get(key) !== live) return;
+          const accepted =
+            signIn.success && signIn.output.ok
+              ? acceptedObservation(signIn.output, {
+                  origin: live.document.origin,
+                  path: live.path,
+                  list: false,
+                })
+              : undefined;
+          if (accepted && "observation" in accepted) {
+            observation = accepted.observation;
+            list = undefined;
+            passkeyOnly = false;
+            break;
+          }
+        }
         if (unsent === "cancelled" || read >= EXTRACT_READS) {
           skipGeneration(live, unsent, otherless && "other", detail);
           return;
@@ -7568,6 +7612,11 @@ export function createLoginRuntime(
         await new Promise((resolve) => setTimeout(resolve, EXTRACT_RETRY_MS));
         if (documents.get(key) !== live) return;
       }
+      const page = list
+        ? ({ page: "accounts" } as const)
+        : base
+          ? ({ page: "other", recipeId: base.recipeId, baseRevision: base.revision } as const)
+          : {};
       // The `other` branch's first page asks for the account. A form without such a field,
       // as the password form after the person's own click on a listed profile, belongs to
       // the account branch and is never stored as `other` (ADR 0028).
@@ -7587,7 +7636,12 @@ export function createLoginRuntime(
         skipGeneration(live, hidden.reason, otherless && "other");
         return;
       }
-      const custom = passkeyOnly ? [] : await customSlots(live.document.origin, scope);
+      // A passkey-only page fills nothing, and a list of accounts is sent without slots or
+      // value shapes: no field of the vault helps tell whether it leads on to a sign-in, and
+      // its branches' pages offer them (ADR 0028, owner 2026-10-23 11:48 UTC). So no custom
+      // field is read for either.
+      const slotless = passkeyOnly || list !== undefined;
+      const custom = slotless ? [] : await customSlots(live.document.origin, scope);
       if (documents.get(key) !== live) return;
       const spin = spinning(live.document.tabId);
       const asked = Date.now();
@@ -7598,7 +7652,7 @@ export function createLoginRuntime(
             observation: hidden.observation,
             ...(passkeyOnly ? { passkeyOnly: true } : {}),
             ...(signedIn === undefined ? {} : { signedIn }),
-            slots: passkeyOnly
+            slots: slotless
               ? []
               : [
                   ...scope.slots.map((slot) =>
@@ -9098,16 +9152,16 @@ export function createLoginRuntime(
         if (listed?.inPath || !(listing?.names && entryOffer)) offer = false;
       }
       if (offer && entryOffer) {
-        const refusal = entryPage ? await entryOfferRefusal(live) : "no-return-target";
+        const offered = entryPage ? await entryOfferRefusal(live) : { refusal: "no-return-target" };
         if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
-        if (!refusal) {
+        if ("matched" in offered) {
           live.state = "generating";
           delete live.reason;
           await publish(live);
-          void generateEntryFor(live);
+          void generateEntryFor(live, offered.matched);
           return { ok: false, reason: "generating" };
         }
-        skipGeneration(live, refusal, "entry");
+        skipGeneration(live, offered.refusal, "entry");
         offer = false;
       }
       // A page offered for generation that showed nothing to send by the end of the step
@@ -9950,11 +10004,12 @@ export function createLoginRuntime(
     });
   }
   /**
-   * Whether a vault item's URI matches the page, which needs an unlocked vault; no field is
-   * read. `undefined` when the settings could not be read.
+   * The vault items whose URI matches the page, which needs an unlocked vault, with the
+   * settings they were matched under; no field is read. `undefined` without a vault, or
+   * when the settings could not be read.
    */
-  async function vaultMatches(live: LiveDocument): Promise<boolean | undefined> {
-    if (!uris) return false;
+  async function vaultMatches(live: LiveDocument): Promise<VaultMatch | undefined> {
+    if (!uris) return undefined;
     const snapshot = await settings.handle({ version: 1, type: "settings.get" });
     if (!snapshot.ok) return undefined;
     const scope = await findLiveSiteCandidates({
@@ -9963,31 +10018,39 @@ export function createLoginRuntime(
       url: live.url,
       match: uris,
     });
-    return scope.ok && scope.candidates.length > 0;
+    return {
+      items: scope.ok ? catalogItems(snapshot.catalog, scope.candidates) : [],
+      settings: snapshot.snapshot.settings,
+    };
   }
   /**
    * Why the page may not be sent as a site's sign-in entry beyond ADR 0016's conditions
    * (ADR 0031), cheapest first: its URL no longer names another path of its site; it is the
    * next page after a manual sign-in; the tab holds an attempt record for its site; any tab
-   * keeps a logout of the site; or no vault item matches.
+   * keeps a logout of the site; or no vault item matches. Otherwise the matching items,
+   * whose usernames are hidden from the page sent.
    */
-  async function entryOfferRefusal(live: LiveDocument): Promise<string | undefined> {
+  async function entryOfferRefusal(
+    live: LiveDocument,
+  ): Promise<{ refusal: string } | { matched: VaultMatch }> {
     const site = siteOf(live.document.origin);
     if (site === undefined || !namesReturnPath(new URL(live.url), sameSiteAs(live.url)))
-      return "no-return-target";
+      return { refusal: "no-return-target" };
     // The page right after a sign-in (ADR 0028); the document skips its own next path.
-    if (afterSignIn.get(live.document.tabId) === live.document.documentId) return "after-sign-in";
-    if (siteRecorded(live.document.tabId, site)) return "site-record";
-    if (siteLoggedOut(site)) return "logged-out";
+    if (afterSignIn.get(live.document.tabId) === live.document.documentId)
+      return { refusal: "after-sign-in" };
+    if (siteRecorded(live.document.tabId, site)) return { refusal: "site-record" };
+    if (siteLoggedOut(site)) return { refusal: "logged-out" };
     const matched = await vaultMatches(live).catch(() => undefined);
-    return matched ? undefined : "no-vault-match";
+    return matched?.items.length ? { matched } : { refusal: "no-vault-match" };
   }
   /**
-   * Sends the page as a site's sign-in entry (ADR 0031): its buttons and links, without
-   * slots. A returned entry recipe is in the recipe cache by then; the document announces
-   * again and its entry is pressed.
+   * Sends the page as a site's sign-in entry (ADR 0031): its buttons and links, with the
+   * usernames of the items that matched it hidden as on every page sent, and without slots
+   * (owner 2026-10-23 11:48 UTC). A returned entry recipe is in the recipe cache by then;
+   * the document announces again and its entry is pressed.
    */
-  async function generateEntryFor(live: LiveDocument): Promise<void> {
+  async function generateEntryFor(live: LiveDocument, matched: VaultMatch): Promise<void> {
     if (!generation) return;
     const key = frameKey(live.document);
     let sent = false;
@@ -10021,9 +10084,25 @@ export function createLoginRuntime(
         skipGeneration(live, "incomplete-observation", "entry", detail);
         return;
       }
-      const { observation } = accepted;
       // Only a link is ever pressed, so a page without one is not worth a model call.
-      if (!observation.candidates.some((candidate) => candidate.role === "link")) {
+      const linked = (shown: LoginObservation) =>
+        shown.candidates.some((candidate) => candidate.role === "link");
+      if (!linked(accepted.observation)) {
+        skipGeneration(live, "no-entry-link", "entry");
+        return;
+      }
+      // The matching items' usernames never reach the service, as on every page sent: a
+      // signed-out page may still greet a remembered account (owner 2026-10-23 11:48 UTC).
+      const usernames = await readUsernames(live.document.origin, usernameReads(matched));
+      const hidden = hideUsernames(accepted.observation, usernames, live);
+      if (documents.get(key) !== live) return;
+      if ("reason" in hidden) {
+        skipGeneration(live, hidden.reason, "entry");
+        return;
+      }
+      const { observation } = hidden;
+      // A link whose locator holds a username is left out of the page.
+      if (!linked(observation)) {
         skipGeneration(live, "no-entry-link", "entry");
         return;
       }
@@ -10120,7 +10199,8 @@ export function createLoginRuntime(
       .catch(() => undefined);
     if (!snapshot?.ok) return "settings-unavailable";
     if (isSiteExcluded(snapshot.snapshot.settings, url)) return "site-excluded";
-    if (!(await vaultMatches({ ...live, url }).catch(() => false))) return "no-vault-match";
+    const matched = await vaultMatches({ ...live, url }).catch(() => undefined);
+    if (!matched?.items.length) return "no-vault-match";
     return undefined;
   }
   /**

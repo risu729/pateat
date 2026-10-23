@@ -27,6 +27,10 @@ and `afterOther`, and a branch is named `<layout>:account` or `<layout>:other`. 
 login on the list takes the layout whose list buttons show most, then one of the page's
 language, then the newest.
 
+Amended on 2026-10-23 (owner, 11:48 UTC, implemented):
+[a list is sent without slots](#amendment-2026-10-23-sent-without-slots) or value
+shapes.
+
 Date: 2026-10-12
 
 Note added on 2026-10-12 with [ADR 0031](0031-sign-in-entry-pages.md): the retry window
@@ -219,7 +223,9 @@ instructions, so other prompts stay short.
 As implemented, the answer is `{"decision":"account-list","other":"c1","continue":"c2"}`
 with optional candidate IDs, and the instructions say: "An observation with accounts
 lists saved accounts and has no fields: answer account-list when choosing one of them
-leads on to signing in, else abstain. Never choose an account." The service checks the
+leads on to signing in, else abstain. Never choose an account." (since 2026-10-23 it
+also says the request has no slots, [below](#amendment-2026-10-23-sent-without-slots)).
+The service checks the
 answer before writing anything: the page must have `accounts` (and a form page's answer
 must be a plan), and each named control must be a button or link of the page, not the
 other control, with no `[email]`, `[masked]`, `[number]`, `@` or run of four digits in
@@ -509,8 +515,10 @@ and logs it at debug level as `no-listed-account` with `username-in-path`, since
 page is a signed-in page under the account's own name. No site is named
 ([ADR 0033](0033-no-site-specific-features.md)). A list on such a page was refused once
 read before; this saves reading it and the failure its read could log, and an entry
-offered beside such a list is no longer sent. An entry page that shows no list is
-unchanged, since the entry route reads nothing of the vault.
+offered beside such a list is no longer sent. An entry page that shows no list is not
+compared here; since 2026-10-23 the entry route reads the matching items' usernames
+itself and refuses such a path as `username-shown`
+([ADR 0031](0031-sign-in-entry-pages.md#amendment-2026-10-23-the-matching-items-usernames-are-hidden)).
 
 ## Consequences
 
@@ -551,3 +559,25 @@ for 1 second, or 5 seconds after it began. A list that renders after that wait i
 sent on that visit. Not confirmed by the owner: a text with an `@` that is not a list,
 announced only for the log (`not-a-list`), is still announced when the 10-second window
 ends, unless a sign-in input is offered first.
+
+## Amendment 2026-10-23: sent without slots
+
+The owner's rule (2026-10-23 11:19 UTC): every model call gets the same account
+information unless there is a sound reason, and a reasoned difference is recorded. A
+list of accounts was sent with the slots a form gets, custom field names and the
+username's value shape included, only because the request contract required at least
+one slot; the model maps no slot on a list. The owner chose "送らない" (11:48 UTC): a
+list is sent with `slots: []`. The extension reads no custom field for its shape and
+adds no value shape there; it still reads the matching items' usernames, to compare the
+shown texts and to hide them. The reason recorded: a list has no fields, its answer
+names only controls, and a chooser fills nothing until a branch is generated, whose
+pages are sent with their slots as before.
+
+`recipeGenerationRequestSchema` takes an empty `slots` for an observation with
+`accounts` and refuses any slot there ("A list of accounts has no slots"): the service
+answers 400, and the generation role `invalid-request` without a call. A list is still
+sent only when a matching item offers a slot. The list line now reads: "An observation
+with accounts lists saved accounts and has no fields, and its request has no slots:
+answer account-list when choosing one of them leads on to signing in, else abstain.
+Never choose an account." So the generation role's slot mapping reads as not applying,
+and the list request's prompt version changes.

@@ -230,13 +230,23 @@ describe("recipe generation requests", () => {
       chooser: { path: "/login", other: { by: "text" as const, value: "Use another" } },
     };
     const chooser = { ...recipeChange, recipe: chooserOf(runsChooser) };
-    const list = { ...request, observation: { ...observation, accounts: ["[email]"] } };
+    // A list is sent without slots (owner 2026-10-23 11:48 UTC), never skipped for that.
+    const list = {
+      ...request,
+      observation: { ...observation, accounts: ["[email]"] },
+      slots: [] as [],
+    };
     const h = setup({ kind: "result", result: { version: 1, status: "recipe", change: chooser } });
     // The login runs the chooser's newest layout, which the list's page created (ADR 0060).
     expect(await h.generation.generate(list)).toEqual({
       outcome: "recipe",
       recipe: { ...runsChooser, layout: KEY },
     });
+    expect(h.transport.generateRecipe).toHaveBeenCalledWith(
+      connection.origin,
+      connection.credential,
+      list,
+    );
     expect(h.sync).toHaveBeenCalled();
     // A route recipe never answers a list.
     const routed = setup({

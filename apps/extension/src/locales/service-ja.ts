@@ -22,6 +22,8 @@ export const serviceJa = {
   "This service does not accept this build of Pateat. Its operator must add this extension's ID to PAIRING_EXTENSION_IDS.":
     "この Pateat のビルドはサービスで許可されていません。サービスの管理者が PAIRING_EXTENSION_IDS にこの拡張機能の ID を追加する必要があります。",
   "Pairing is not configured on this service.": "このサービスではペアリングが設定されていません。",
+  "The service could not check your sign-in. Try again later.":
+    "サービスでログインを確認できませんでした。しばらくしてから、もう一度お試しください。",
   "The connection changed elsewhere. This page now shows its current state.":
     "別の場所で接続が変更されました。このページに最新の状態を表示しています。",
   "That request was not valid.": "リクエストが無効です。",
