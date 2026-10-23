@@ -2408,8 +2408,9 @@ text after native buttons and script links, but only in lookups that never name 
 a login's steps and a marker's `absent` elements, where such a control showing again
 counts. Lookups that may name a link (an entry, an account switch, a signed-in marker)
 compare links instead and never match them, so a widget elsewhere on the page never
-stands in for a link, and in a login form a link loses its text locator when such an
-element shares its text. The extractor leaves out a script button without a locator
+stands in for a link, and on a login page a link, in any form, loses its text locator
+when such an element shares its text, since one observation's candidates need distinct
+targets. The extractor leaves out a script button without a locator
 instead of marking the page incomplete. It does the same for an icon button that never
 submits (`type="button"`, or any type outside every form, with no text of its own),
 such as the eye that shows the password on モッピー's and LinkedIn's sign-in pages

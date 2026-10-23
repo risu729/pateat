@@ -1454,7 +1454,9 @@ export function extractLoginObservation(
   // Links and script buttons without a locator are left out without flawing their form.
   // A `role="button"` element is named by its text only inside a login form or beside a
   // password form, where it is the form's own control rather than a widget elsewhere; a
-  // search form beside the login form names none.
+  // search form beside the login form names none. A link never takes the text of such an
+  // element, whatever its form, since one observation's candidates need distinct targets
+  // and the login's own control needs that text more.
   let unlocated = false;
   const located = (entries: typeof required, { optional = false, near = false } = {}) =>
     entries.flatMap((entry) => {
@@ -1462,7 +1464,10 @@ export function extractLoginObservation(
         tokens,
         links: true,
         labels: true,
-        roles: near || (entry.form !== null && loginForms.has(entry.form)),
+        roles:
+          near ||
+          entry.draft.role === "link" ||
+          (entry.form !== null && loginForms.has(entry.form)),
       });
       if (!target) unlocated = true;
       if (!target && !optional) flaw(entry.form, unlocatedGap(entry.draft.role));

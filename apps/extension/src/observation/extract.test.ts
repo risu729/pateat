@@ -930,6 +930,41 @@ describe("extractLoginObservation", () => {
     expect(observe().candidates.map((candidate) => candidate.target.value)).toEqual(["pw", "go"]);
   });
 
+  it("never gives a role=button control and a link of another form the same text locator", () => {
+    // The login form's Help widget is named by its text there; the link of a form that is
+    // no login form, such as a newsletter form beside it, is not checked against it.
+    page(
+      `<form><input id="u"><input id="p" type="password"><button>Sign in</button>
+        <div role="button" tabindex="0">Help</div></form>
+      <form><input id="news" type="text"><a href="/help">Help</a></form>`,
+    );
+    const result = extractLoginObservation();
+    // Two candidates with one locator fail the observation's check.
+    expect(result.ok ? true : result.reason).toBe(true);
+    if (!result.ok) return;
+    const targets = result.observation.candidates.map(({ target }) => JSON.stringify(target));
+    expect(new Set(targets).size).toBe(targets.length);
+    // The login form's own control keeps the text.
+    expect(targets).toContain(JSON.stringify({ by: "text", value: "Help" }));
+    expect(
+      findTargets(document, { by: "text", value: "Help" }).map((element) => element.tagName),
+    ).toEqual(["DIV"]);
+  });
+
+  it("keeps a role=button login control's text when a header link shares it", () => {
+    page(
+      `<header><a href="/accounts/login/">Log in</a></header>
+      <form><input name="email" autocomplete="username"><input name="pass" type="password">
+        <div role="button" tabindex="0">Log in</div></form>`,
+    );
+    const observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(observation.candidates.map(({ target }) => target)).toContainEqual({
+      by: "text",
+      value: "Log in",
+    });
+  });
+
   it("locates a link without an id by its text, only when no other link or button shares it", () => {
     page(
       `<form><p>my2@example.com</p><input id="pw" type="password">
