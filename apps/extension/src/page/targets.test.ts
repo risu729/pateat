@@ -34,6 +34,14 @@ describe("findTargets", () => {
     ]);
     expect(ids(findTargets(document, { by: "name", value: "user[login]" }))).toEqual(["b"]);
     expect(ids(findTargets(document, { by: "test-id", value: "go" }))).toEqual(["c"]);
+    // Only inside a form with a shown password input that is not for a new password.
+    document.body.insertAdjacentHTML(
+      "beforeend",
+      `<form><input id="g" name="acct"><input type="password"></form>
+      <form><input id="h" name="acct"><input type="password" autocomplete="new-password"></form>
+      <form><input id="i" name="acct"><input type="password" hidden></form>`,
+    );
+    expect(ids(findTargets(document, { by: "password-form-name", value: "acct" }))).toEqual(["g"]);
     expect(ids(findTargets(document, { by: "name", value: "x'] , [name" }))).toEqual(["d"]);
     expect(ids(findTargets(document, { by: "id", value: "a" }))).toEqual(["a"]);
   });

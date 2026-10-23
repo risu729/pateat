@@ -121,6 +121,13 @@ export function findTargets(
     return [...document.querySelectorAll("input")].filter(
       (input) => fieldName(input) === target.value,
     );
+  if (target.by === "password-form-name")
+    return shownAmong(
+      [...document.querySelectorAll("[name]")].filter(
+        (element) => element.getAttribute("name") === target.value && signInForm(formOf(element)),
+      ),
+      hidden,
+    );
   if (target.by === "accessible-name")
     return [...document.querySelectorAll(namedControls)].filter(
       (element) => controlName(element) === target.value,
@@ -138,5 +145,28 @@ export function findTargets(
       (element) => element.getAttribute(attribute) === target.value,
     ),
     hidden,
+  );
+}
+
+/** An element's form owner, for a control, or its nearest `<form>` otherwise. */
+const formOf = (element: Element): HTMLFormElement | null =>
+  "form" in element && (element.form === null || element.form instanceof HTMLFormElement)
+    ? element.form
+    : element.closest("form");
+
+/**
+ * Whether `form` holds a shown password input not marked `new-password`, the form a
+ * `password-form-name` locator looks in (proposed ADR 0072).
+ */
+function signInForm(form: HTMLFormElement | null): boolean {
+  return (
+    form !== null &&
+    [...form.elements].some(
+      (element) =>
+        element instanceof HTMLInputElement &&
+        element.type === "password" &&
+        !autocompleteTokens(element).includes("new-password") &&
+        visible(element),
+    )
   );
 }

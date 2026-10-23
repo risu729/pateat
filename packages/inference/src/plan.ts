@@ -224,7 +224,9 @@ function fieldText(candidate: ObservedCandidate): string | undefined {
     candidate.label && ownLabel(tidy(candidate.label), [placeholder, description]),
     placeholder,
     description,
-    by === "id" || by === "name" || by === "test-id" ? tidy(value) : undefined,
+    by === "id" || by === "name" || by === "test-id" || by === "password-form-name"
+      ? tidy(value)
+      : undefined,
   ];
   for (const source of sources) {
     // Checked whole, so a mark or number past the cut still skips the text.
@@ -765,7 +767,10 @@ export type GeneratedAccountList = {
 /** A list control the extension clicks, with the locator the chooser recipe stores. */
 type ListControl = {
   candidate: string;
-  target: Exclude<LoginTarget, { by: "autocomplete" | "label" | "accessible-name" }>;
+  target: Exclude<
+    LoginTarget,
+    { by: "autocomplete" | "label" | "accessible-name" | "password-form-name" }
+  >;
 };
 /** An account list whose named controls passed {@link validateAccountList}. */
 export type ValidatedAccountList = {
@@ -816,7 +821,8 @@ export function validateAccountList(
       (!isActionRole(candidate.role) && candidate.role !== "link") ||
       !isStepTarget(target) ||
       target.by === "autocomplete" ||
-      target.by === "label"
+      target.by === "label" ||
+      target.by === "password-form-name"
     )
       return "incompatible-role";
     if (
@@ -894,7 +900,8 @@ export function validateEntry(
     candidate.role !== "link" ||
     !isStepTarget(target) ||
     target.by === "autocomplete" ||
-    target.by === "label"
+    target.by === "label" ||
+    target.by === "password-form-name"
   )
     return { ok: false, reason: "incompatible-role" };
   if ([candidate.label, target.value].some((text) => text !== undefined && accountText.test(text)))

@@ -1214,6 +1214,32 @@ describe("extractLoginObservation", () => {
     expect(observe().complete).toBe(false);
   });
 
+  it("names a field by its name in the sign-in form when another form repeats it (Hacker News)", () => {
+    // Hacker News's /login (2026-10-23): a create-account form below repeats the names.
+    const form = (creating: string, password: string, submit: string) =>
+      `<form method="post">${creating}<table>
+        <tr><td>username:</td><td><input type="text" name="acct" autocomplete="username"></td></tr>
+        <tr><td>password:</td><td><input type="password" name="pw" autocomplete="${password}"></td></tr>
+      </table><input type="submit" value="${submit}"></form>`;
+    page(
+      `<b>Login</b>${form("", "current-password", "login")}
+      <b>Create Account</b>${form(`<input type="hidden" name="creating" value="t">`, "new-password", "create account")}`,
+    );
+    const observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(observation.candidates.map((candidate) => candidate.target)).toEqual([
+      { by: "password-form-name", value: "acct" },
+      { by: "autocomplete", value: "current-password" },
+      { by: "text", value: "login" },
+    ]);
+    expect(findTargets(document, observation.candidates[0]!.target)).toEqual([
+      document.querySelector("input[name=acct]"),
+    ]);
+    // Two sign-in forms that repeat the name stay ambiguous.
+    page(`${form("", "current-password", "login")}${form("", "current-password", "go")}`);
+    expect(observe().complete).toBe(false);
+  });
+
   it("treats every control outside a form as part of a formless login", () => {
     page(`<input id="u"><input id="p" type="password"><button>Sign in</button>`);
     expect(observe().complete).toBe(true);
