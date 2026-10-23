@@ -1583,10 +1583,10 @@ As [ADR 0043](adr/0043-extension-language-preference.md) records, `chrome.storag
 holds `pateat.language` as `system`, `en` or `ja`, per browser profile and outside
 service sync; `system` takes the first English or Japanese entry of
 `navigator.languages`, else English. Each page reads it before its first render and
-follows changes made on another page; the worker reads it at start, before restoring the
-badges, and rewrites every tab's tooltip when it changes. A notice already on screen
-keeps its catalog key and values, so a language change translates it again without
-resetting drafts, focus or a running operation.
+follows changes made on another page; the worker reads it at start and rewrites every
+tab's tooltip when it changes. A notice already on screen keeps its catalog key and
+values, so a language change translates it again without resetting drafts, focus or a
+running operation.
 
 Bug report text, exported log entries and diagnostic codes stay English. The manifest
 description comes from `public/_locales` by Chrome's own UI language. The service's

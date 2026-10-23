@@ -124,12 +124,12 @@ export default defineBackground(() => {
     setBadge: setActionBadge,
     storage: sessionValue(LOGIN_BADGE_KEY),
   });
-  // Tooltips follow the language chosen on the settings page (ADR 0043). The stored badges
-  // are drawn once it is read; one drawn sooner is written again when it applies.
+  // Restored at once, before the event that woke the worker saves over the stored badges.
+  void loginBadge.restore();
+  // Tooltips follow the language chosen on the settings page (ADR 0043); a badge drawn
+  // before the stored choice is read is written again once it applies.
   i18n.on("languageChanged", () => loginBadge.relabel());
-  void followLanguagePreference()
-    .catch(() => undefined)
-    .then(() => loginBadge.restore());
+  void followLanguagePreference();
   // The popup, logins and the site count match a vault the same way, never opening it.
   const vaultUris = createVaultUriMatcher(connections);
   const vaultPasskeyFinder = createVaultPasskeyFinder(connections);

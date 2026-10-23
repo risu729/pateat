@@ -1655,13 +1655,13 @@ describe("site count", () => {
   it("writes the count's sentences in Japanese without spaces between them (ADR 0043)", () => {
     const ja = i18n.getFixedT("ja");
     expect(countBadge(counted(2, 3, { excluded: "review", unevaluated: 1 }), ja).title).toBe(
-      "Pateat: このサイトのアカウントは 2 件です。ほかに 1 件が設定でカスタムフィールドの確認を待っています。1 件のアイテムを確認できませんでした。",
+      "Pateat：このサイトのアカウントは 2 件です。ほかに 1 件が設定でカスタムフィールドの確認待ちです。1 件のアイテムを確認できませんでした。",
     );
     expect(countBadge(counted(0, 1, { excluded: "site" }), ja).title).toBe(
-      "Pateat: このサイトに一致するアカウントが 1 件ありますが、このサイトは設定で除外されているため使えません。",
+      "Pateat：このサイトに一致するアカウントが 1 件ありますが、このサイトは設定で除外されているため使えません。",
     );
     expect(countBadge({ kind: "unchecked", reason: "locked" }, ja).title).toBe(
-      "Pateat: 保管庫がロックされているため、このサイトのアカウントを数えていません。",
+      "Pateat：保管庫がロックされているため、このサイトのアカウントを数えていません。",
     );
   });
 

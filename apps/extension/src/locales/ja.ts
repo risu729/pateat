@@ -245,45 +245,45 @@ export const ja = {
     "Pateat：ログインの結果が分かりません（{{reason}}）。詳しくは Pateat を開いてください。",
   "Pateat: the login did not succeed ({{reason}}). Open Pateat for details.":
     "Pateat：ログインに成功しませんでした（{{reason}}）。詳しくは Pateat を開いてください。",
-  badgeUsable_one: "Pateat: このサイトのアカウントは {{count}} 件です。",
-  badgeUsable_other: "Pateat: このサイトのアカウントは {{count}} 件です。",
+  badgeUsable_one: "Pateat：このサイトのアカウントは {{count}} 件です。",
+  badgeUsable_other: "Pateat：このサイトのアカウントは {{count}} 件です。",
   badgeMoreExcluded_one: "ほかに {{count}} 件が設定で除外されています。",
   badgeMoreExcluded_other: "ほかに {{count}} 件が設定で除外されています。",
-  badgeMoreReview_one: "ほかに {{count}} 件が設定でカスタムフィールドの確認を待っています。",
-  badgeMoreReview_other: "ほかに {{count}} 件が設定でカスタムフィールドの確認を待っています。",
+  badgeMoreReview_one: "ほかに {{count}} 件が設定でカスタムフィールドの確認待ちです。",
+  badgeMoreReview_other: "ほかに {{count}} 件が設定でカスタムフィールドの確認待ちです。",
   badgeMoreItemsReview_one:
-    "ほかに {{count}} 件が設定で除外されているか、カスタムフィールドの確認を待っています。",
+    "ほかに {{count}} 件が設定で除外されているか、カスタムフィールドの確認待ちです。",
   badgeMoreItemsReview_other:
-    "ほかに {{count}} 件が設定で除外されているか、カスタムフィールドの確認を待っています。",
+    "ほかに {{count}} 件が設定で除外されているか、カスタムフィールドの確認待ちです。",
   badgeUnknown_one: "{{count}} 件のアイテムを確認できませんでした。",
   badgeUnknown_other: "{{count}} 件のアイテムを確認できませんでした。",
   badgeExcludedSite_one:
-    "Pateat: このサイトに一致するアカウントが {{count}} 件ありますが、このサイトは設定で除外されているため使えません。",
+    "Pateat：このサイトに一致するアカウントが {{count}} 件ありますが、このサイトは設定で除外されているため使えません。",
   badgeExcludedSite_other:
-    "Pateat: このサイトに一致するアカウントが {{count}} 件ありますが、このサイトは設定で除外されているため使えません。",
+    "Pateat：このサイトに一致するアカウントが {{count}} 件ありますが、このサイトは設定で除外されているため使えません。",
   badgeExcludedItems_one:
-    "Pateat: このサイトに一致するアカウントが {{count}} 件ありますが、設定で除外されているため使えません。",
+    "Pateat：このサイトに一致するアカウントが {{count}} 件ありますが、設定で除外されているため使えません。",
   badgeExcludedItems_other:
-    "Pateat: このサイトに一致するアカウントが {{count}} 件ありますが、設定で除外されているため使えません。",
+    "Pateat：このサイトに一致するアカウントが {{count}} 件ありますが、設定で除外されているため使えません。",
   badgeExcludedReview_one:
-    "Pateat: このサイトに一致するアカウントが {{count}} 件ありますが、設定でカスタムフィールドの確認を待っているため使えません。",
+    "Pateat：このサイトに一致するアカウントが {{count}} 件ありますが、設定でカスタムフィールドの確認待ちのため使えません。",
   badgeExcludedReview_other:
-    "Pateat: このサイトに一致するアカウントが {{count}} 件ありますが、設定でカスタムフィールドの確認を待っているため使えません。",
+    "Pateat：このサイトに一致するアカウントが {{count}} 件ありますが、設定でカスタムフィールドの確認待ちのため使えません。",
   badgeExcludedItemsReview_one:
-    "Pateat: このサイトに一致するアカウントが {{count}} 件ありますが、設定で除外されているか、カスタムフィールドの確認を待っているため使えません。",
+    "Pateat：このサイトに一致するアカウントが {{count}} 件ありますが、設定で除外されているか、カスタムフィールドの確認待ちのため使えません。",
   badgeExcludedItemsReview_other:
-    "Pateat: このサイトに一致するアカウントが {{count}} 件ありますが、設定で除外されているか、カスタムフィールドの確認を待っているため使えません。",
-  "Pateat: no account for this site.": "Pateat: このサイトのアカウントはありません。",
+    "Pateat：このサイトに一致するアカウントが {{count}} 件ありますが、設定で除外されているか、カスタムフィールドの確認待ちのため使えません。",
+  "Pateat: no account for this site.": "Pateat：このサイトのアカウントはありません。",
   "Pateat: the vault is locked, so this site's accounts were not counted.":
-    "Pateat: 保管庫がロックされているため、このサイトのアカウントを数えていません。",
+    "Pateat：保管庫がロックされているため、このサイトのアカウントを数えていません。",
   "Pateat: the vault has not been opened since Pateat restarted, so this site's accounts were not counted.":
-    "Pateat: Pateat の再起動後に保管庫を開いていないため、このサイトのアカウントを数えていません。",
+    "Pateat：Pateat の再起動後に保管庫を開いていないため、このサイトのアカウントを数えていません。",
   "Pateat: the vault could not be read, so this site's accounts were not counted.":
-    "Pateat: 保管庫を読み取れなかったため、このサイトのアカウントを数えていません。",
+    "Pateat：保管庫を読み取れなかったため、このサイトのアカウントを数えていません。",
   "Pateat: the vault is being updated, so this site's accounts were not counted.":
-    "Pateat: 保管庫を更新中のため、このサイトのアカウントを数えていません。",
+    "Pateat：保管庫を更新中のため、このサイトのアカウントを数えていません。",
   "Pateat: a login or a page check was using the vault, so this site's accounts were not counted yet.":
-    "Pateat: ログインまたはページの確認で保管庫を使用中のため、このサイトのアカウントをまだ数えていません。",
+    "Pateat：ログインまたはページの確認で保管庫を使用中のため、このサイトのアカウントをまだ数えていません。",
   "{{first}} {{next}}": "{{first}}{{next}}",
   "Pateat: asking the AI…": "Pateat：AI に問い合わせています…",
   "Pateat: you logged out of this site in this tab. Click to choose an account.":
