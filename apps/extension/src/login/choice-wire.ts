@@ -87,6 +87,8 @@ export const pickResponseSchema = v.variant("ok", [
       "document-gone",
       "not-started",
       "origin-busy",
+      // A paused site's pick of an item with no password, only a passkey (ADR 0062).
+      "paused-no-password",
     ]),
   }),
 ]);
@@ -105,6 +107,8 @@ export function pickFailure(
     return `The page changed, so nothing was started.${unsaved} Reload it to choose again.`;
   if (reason === "origin-busy")
     return `Another tab's login to this site is running or did not succeed, so Pateat did not log in here.${unsaved} Close that tab or wait up to 5 minutes, then choose again.`;
+  if (reason === "paused-no-password")
+    return `Automatic login is paused on this site, and ${name} has no password, so Pateat did not log in.${unsaved} Resume automatic login to sign in with its passkey.`;
   if (reason === "not-started")
     return `Pateat could not log in with ${name} on this page.${unsaved} Reload the page to choose again.`;
   return `This page is no longer waiting for a choice${unsaved ? `.${unsaved}` : ""}`;

@@ -4,6 +4,7 @@
 import * as v from "valibot";
 import { browser } from "wxt/browser";
 import { localClock } from "../time";
+import { pauseSite } from "./pause";
 import type { LoginReport } from "./runtime";
 
 export const LOGIN_BADGE_KEY = "session:pateat.login-badge.v1";
@@ -495,8 +496,9 @@ export function createLoginBadge(deps: {
     /**
      * A page or frame of the tab loaded or committed: Chrome may have reset the tab's
      * badge, so it is written again. When the top page's origin changed since the last
-     * load, the result, tooltip and choice of the page before no longer apply. `url` is
-     * the top page's, absent for a page Pateat cannot read, which counts as another origin.
+     * load, the result, tooltip and choice of the page before no longer apply, and its
+     * pause once the site changed. `url` is the top page's, absent for a page Pateat cannot
+     * read, which counts as another origin.
      */
     loaded(tabId: number, url?: string): void {
       const origin = (url ? URL.parse(url)?.origin : undefined) ?? "unreadable";
@@ -505,8 +507,9 @@ export function createLoginBadge(deps: {
       if (before !== undefined && before !== origin) {
         choices.delete(tabId);
         notes.delete(tabId);
-        // The new page's pause, if any, is set again once it announces itself.
-        setPause(tabId, undefined);
+        // A pause covers the whole site (ADR 0062); another site's pause, if any, is set
+        // again once the runtime reads it.
+        if (pauseSite(before) !== pauseSite(origin)) setPause(tabId, undefined);
         // A restore still reading the stored results must not bring back this tab's.
         touched.add(tabId);
         if (dropResult(tabId)) save();

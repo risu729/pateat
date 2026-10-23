@@ -347,15 +347,21 @@ describe("login badge", () => {
     expect(h.view(8)).toMatchObject({ text: "" });
   });
 
-  it("drops a pause when the tab loads another origin, or when it is resumed (ADR 0062)", async () => {
+  it("drops a pause when the tab loads another site, or when it is resumed (ADR 0062)", async () => {
     const h = harness();
     const until = Date.now() + 60_000;
     h.badge.loaded(tabId, `${origin}/signin`);
     h.badge.paused(tabId, until);
     await h.flush();
     expect(h.view()).toMatchObject({ text: PAUSED_TEXT });
-    // Chrome resets the badge for the new page; the runtime sets the pause again once that
-    // page announces itself, so nothing draws it back meanwhile.
+    // Another origin of the same registrable site keeps the pause, through any redraw.
+    h.badge.loaded(tabId, `https://www.${new URL(origin).host}/account`);
+    h.badge.note(tabId, "Pateat: held.");
+    await h.flush();
+    expect(h.view()).toMatchObject({ text: PAUSED_TEXT });
+    h.badge.note(tabId, undefined);
+    // Chrome resets the badge for another site's page; the runtime sets that site's pause,
+    // if any, once it read it, so nothing draws the old one back meanwhile.
     h.badge.loaded(tabId, "https://other.example/");
     h.badge.note(tabId, "Pateat: held.");
     await h.flush();

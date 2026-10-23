@@ -280,6 +280,12 @@ describe("pageStatusLines", () => {
     },
   );
 
+  it("reads a login the site's pause stopped as stopped by the pause (ADR 0062)", () => {
+    expect(
+      lines({ login: { state: "blocked", outcome: "policy-changed", cause: "paused" } })[1],
+    ).toEqual(["login", "idle", "The login stopped: automatic login of this site was paused."]);
+  });
+
   it("reads a cancelled login as stopped", () => {
     expect(lines({ login: { state: "blocked", outcome: "cancelled" } })[1]).toEqual([
       "login",

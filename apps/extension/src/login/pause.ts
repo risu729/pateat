@@ -38,7 +38,10 @@ export type LoginPauses = ReturnType<typeof createLoginPauses>;
 /**
  * The paused sites, read once from session storage so a pause survives a worker restart.
  * A pause ends by itself once its time has passed: every check compares the time, so no
- * alarm is needed. Writes land in order; a failed write leaves the memory as it was.
+ * alarm is needed. Writes land in order; a failed write leaves the memory as it was. A store
+ * that could not be read is read again before any check or write, and nothing is written
+ * until it was read, so a failed read never drops the pauses it holds. `incognito` is
+ * `undefined` when the window kind is not known: either kind's pause then counts.
  */
 export function createLoginPauses(
   store: { getValue(): Promise<unknown>; setValue(value: unknown): Promise<void> },
@@ -46,15 +49,32 @@ export function createLoginPauses(
 ) {
   const pauses = new Map<string, Pause>();
   const key = (site: string, incognito: boolean) => `${incognito ? "incognito" : "normal"} ${site}`;
-  const loaded = (async () => {
-    const parsed = v.safeParse(storedSchema, await store.getValue().catch(() => undefined));
+  /** Reads the store into memory; false when it could not be read. */
+  async function read(): Promise<boolean> {
+    let stored: unknown;
+    try {
+      stored = await store.getValue();
+    } catch {
+      return false;
+    }
+    // Damaged contents hold no pause; the next write replaces them.
+    const parsed = v.safeParse(storedSchema, stored);
+    pauses.clear();
     if (parsed.success)
       for (const entry of parsed.output) pauses.set(key(entry.site, entry.incognito), entry);
-  })();
+    return true;
+  }
+  let reading = read();
+  /** Whether the store was read, reading it again after a failed read. */
+  async function ready(): Promise<boolean> {
+    if (await reading) return true;
+    reading = read();
+    return reading;
+  }
   let writes: Promise<unknown> = Promise.resolve();
   /** Stores the pauses that still run, changed by `edit`; memory changes once stored. */
   async function save(edit: (draft: Map<string, Pause>) => void): Promise<void> {
-    await loaded;
+    if (!(await ready())) throw new Error("The paused sites could not be read");
     const draft = new Map(pauses);
     edit(draft);
     const at = now();
@@ -72,6 +92,8 @@ export function createLoginPauses(
     writes = write.catch(() => undefined);
     return write;
   }
+  const kinds = (incognito: boolean | undefined) =>
+    incognito === undefined ? [false, true] : [incognito];
   /** When the site's pause ends, in epoch milliseconds, while it runs. */
   function untilFor(site: string | undefined, incognito: boolean): number | undefined {
     if (site === undefined) return undefined;
@@ -81,17 +103,19 @@ export function createLoginPauses(
     return until > now() ? until : undefined;
   }
   return {
-    loaded,
     /**
      * When the pause covering a page ends, while it runs: the latest end among the sites of
      * `urls`, such as a frame's own URL and its tab's (a frame is paused when either is).
+     * A store that cannot be read holds no pause.
      */
-    async until(urls: readonly (string | URL | undefined)[], incognito: boolean) {
-      await loaded;
-      const ends = urls.flatMap((url) => {
-        const until = url === undefined ? undefined : untilFor(pauseSite(url), incognito);
-        return until === undefined ? [] : [until];
-      });
+    async until(urls: readonly (string | URL | undefined)[], incognito: boolean | undefined) {
+      await ready();
+      const ends = urls.flatMap((url) =>
+        kinds(incognito).flatMap((kind) => {
+          const until = url === undefined ? undefined : untilFor(pauseSite(url), kind);
+          return until === undefined ? [] : [until];
+        }),
+      );
       return ends.length ? Math.max(...ends) : undefined;
     },
     /** Pauses the site of `url` for `PAUSE_MS` from now; its end, or undefined for no site. */
@@ -104,12 +128,21 @@ export function createLoginPauses(
       );
       return until;
     },
-    /** Ends the pause of the site of `url`; true when one was running. */
-    async resume(url: string | URL, incognito: boolean): Promise<boolean> {
+    /**
+     * Ends the pause of the site of `url`, of either window kind when `incognito` is not
+     * known; true when one was running.
+     */
+    async resume(url: string | URL, incognito: boolean | undefined): Promise<boolean> {
       const site = pauseSite(url);
-      await loaded;
-      if (site === undefined || untilFor(site, incognito) === undefined) return false;
-      await commit((draft) => draft.delete(key(site, incognito)));
+      if (!(await ready())) throw new Error("The paused sites could not be read");
+      const running =
+        site === undefined
+          ? []
+          : kinds(incognito).filter((kind) => untilFor(site, kind) !== undefined);
+      if (site === undefined || !running.length) return false;
+      await commit((draft) => {
+        for (const kind of running) draft.delete(key(site, kind));
+      });
       return true;
     },
   };

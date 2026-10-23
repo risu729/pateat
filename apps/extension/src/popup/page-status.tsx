@@ -252,7 +252,12 @@ function attemptLines(status: Status): StatusLine[] {
         text: "After a logout, Pateat only fills the sign-in form and presses nothing; sign in when you are ready.",
       },
     ];
-  const why = outcome ? plain(OUTCOMES, outcome) : "no reason was recorded";
+  const why =
+    outcome === "policy-changed" && login.cause === "paused"
+      ? "automatic login of this site was paused" // ADR 0062
+      : outcome
+        ? plain(OUTCOMES, outcome)
+        : "no reason was recorded";
   const lines: StatusLine[] = [
     QUIET.has(outcome)
       ? { id: "login", tone: "idle", text: `The login stopped: ${why}.` }

@@ -268,6 +268,11 @@ export default defineBackground(() => {
     signedIn: (tabId, origin) => noteSignIn(tabId, origin),
     badge: loginBadge,
   });
+  // A tab that moved to a page of a paused site shows `II` (ADR 0062); the badge drops the
+  // pause first once the site changed.
+  browser.tabs.onUpdated.addListener((_tabId, change, tab) => {
+    if (change.url !== undefined) void login.tabLoaded(tab);
+  });
   const setupProbe = syntheticSetup?.handler(connections);
   const siteAccounts = createSiteAccountsHandler({
     settings,

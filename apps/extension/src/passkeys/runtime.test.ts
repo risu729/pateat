@@ -1250,7 +1250,13 @@ describe("a page's own conditional request through a login (ADR 0034)", () => {
     request: { ...request, mediation: "conditional" },
   });
   const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
-  type Input = { tabId: number; origin: string; documentId: string; signal: AbortSignal };
+  type Input = {
+    tabId: number;
+    origin: string;
+    documentId: string;
+    signal: AbortSignal;
+    incognito: boolean;
+  };
   /** A login runtime whose decisions the test gives, one per waiting request. */
   function decisions() {
     const waiting: Array<{ input: Input; decide(decision: ConditionalDecision): void }> = [];
@@ -1290,6 +1296,8 @@ describe("a page's own conditional request through a login (ADR 0034)", () => {
       origin,
       documentId: "document-a",
       signal: expect.any(AbortSignal),
+      // The sender's window kind, which keeps its own pauses (ADR 0062).
+      incognito: false,
     });
     // Nothing is read from the vault, and the vault is not held, while it waits.
     expect(backing.candidates).not.toHaveBeenCalled();

@@ -3,11 +3,17 @@ import { localClock } from "../time";
 import { createLoginPauses, PAUSE_MS, pauseSite } from "./pause";
 
 function memory(initial?: unknown) {
-  const box = { value: initial, writes: 0, fail: false };
+  const box = { value: initial, writes: 0, fail: false, unreadable: 0 };
   return {
     box,
     store: {
-      getValue: async () => box.value,
+      getValue: async () => {
+        if (box.unreadable > 0) {
+          box.unreadable -= 1;
+          throw new Error("Synthetic read failure");
+        }
+        return box.value;
+      },
       setValue: async (value: unknown) => {
         if (box.fail) throw new Error("Synthetic write failure");
         box.writes += 1;
@@ -115,5 +121,31 @@ describe("createLoginPauses", () => {
     const pauses = createLoginPauses(store, () => 0);
     expect(await pauses.pause("chrome://newtab/", false)).toBeUndefined();
     expect(box.writes).toBe(0);
+  });
+  it("never drops stored pauses after a failed read", async () => {
+    const other = {
+      site: "other.example",
+      incognito: false,
+      until: new Date(PAUSE_MS).toISOString(),
+    };
+    const { store, box } = memory([other]);
+    box.unreadable = 2;
+    const pauses = createLoginPauses(store, () => 0);
+    // The first read and the read again before the write both fail: nothing is written.
+    await expect(pauses.pause("https://example.com/", false)).rejects.toThrow();
+    expect(box.value).toEqual([other]);
+    // A later read succeeds, and the write keeps the other site's pause.
+    await pauses.pause("https://example.com/", false);
+    expect(box.value).toEqual(
+      expect.arrayContaining([other, expect.objectContaining({ site: "example.com" })]),
+    );
+    expect(await pauses.until(["https://other.example/"], false)).toBe(PAUSE_MS);
+  });
+  it("counts either window kind's pause when the kind is not known", async () => {
+    const pauses = createLoginPauses(memory().store, () => 0);
+    await pauses.pause("https://example.com/", true);
+    expect(await pauses.until(["https://example.com/"], undefined)).toBe(PAUSE_MS);
+    expect(await pauses.resume("https://example.com/", undefined)).toBe(true);
+    expect(await pauses.until(["https://example.com/"], true)).toBeUndefined();
   });
 });

@@ -25,7 +25,8 @@ import { createRecipeSync } from "../service/recipes";
 import { createSettingsSync } from "../service/settings-sync";
 import type { ServiceTransport } from "../service/transport";
 import { acceptsSecret, type SecretInput } from "./inputs";
-import { statusResponseSchema } from "./choice-wire";
+import { pickFailure, statusResponseSchema } from "./choice-wire";
+import type { LoginPauses } from "./pause";
 import {
   createLoginBadge,
   memoryBadgeStorage,
@@ -446,6 +447,8 @@ function harness(
     spin?: (tabId: number) => () => void;
     /** The toolbar badge, which keeps the tab's page status for the popup (ADR 0038). */
     badge?: LoginBadge;
+    /** The paused sites (ADR 0062), instead of the ones in `storage.session`. */
+    pauses?: LoginPauses;
   } = {},
 ) {
   const customFields = (fields: CustomField[]) =>
@@ -593,6 +596,7 @@ function harness(
     ...(live.passkeyItems ? { passkeyItems: live.passkeyItems } : {}),
     ...(live.vault ? { vault: live.vault } : {}),
     ...(live.signedIn ? { signedIn: live.signedIn } : {}),
+    ...(live.pauses ? { pauses: live.pauses } : {}),
     ...(live.badge
       ? { badge: live.badge }
       : live.spin
@@ -5027,6 +5031,75 @@ describe("production login document admission", () => {
         },
         15_000,
       );
+      it("keeps a paused site's pause after a pick whose sign-in is unconfirmed (ADR 0062)", async () => {
+        vi.useFakeTimers();
+        onTestFinished(() => void vi.useRealTimers());
+        const report = vi.fn<(entry: LoginReport) => void>();
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris: async () => ({ ok: true, data: both }),
+          generation: {
+            available: vi.fn(async () => true as const),
+            generate: vi.fn(async () => ({ outcome: "abstained", reason: "ambiguous" }) as const),
+            generateEntry: vi.fn(
+              async () => ({ outcome: "abstained", reason: "ambiguous" }) as const,
+            ),
+            judge: vi.fn<LoginGeneration["judge"]>(async (...args) => {
+              args[4]?.();
+              return { verdict: "unclear" };
+            }),
+            slotFields: vi.fn(async () => undefined),
+          },
+          report,
+        });
+        const { completion: _completion, ...withoutCompletion } = recipe;
+        h.recipes.recipe.mockResolvedValue(withoutCompletion);
+        fake.state.present = new Set(["password", "login"]);
+        expect(await setPause(h, true)).toEqual({ ok: true, until: expect.any(Number) });
+        expect(await h.hello()).toEqual({ ok: false, reason: "paused" });
+        fake.state.onReconnect = () => h.hello();
+        fake.state.signs = {
+          password: false,
+          code: false,
+          captcha: false,
+          invalid: false,
+          alert: false,
+        };
+        fake.state.extracted = {
+          "signed-in": {
+            ok: true,
+            observation: {
+              version: 1,
+              origin,
+              path: "/home",
+              complete: true,
+              language: "en",
+              candidates: [
+                { id: "logout", role: "button", target: target("logout"), label: "Sign out" },
+              ],
+            },
+          },
+        };
+        fake.state.onExecute = async (message) => {
+          if ((message["operation"] as { step: { kind: string } }).step.kind !== "click") return;
+          fake.state.present = new Set();
+          fake.state.observedPath = "/home";
+        };
+        expect(await pick(h)).toEqual({ ok: true });
+        await vi.waitFor(
+          () =>
+            expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
+              { state: "authenticated", unconfirmed: true },
+            ]),
+          { timeout: 12_000 },
+        );
+        await vi.advanceTimersByTimeAsync(100);
+        // Only a confirmed sign-in ends the pause, as it is the only one Pateat tells of.
+        expect(fake.state.session["pateat.login-pauses.v1"]).toHaveLength(1);
+        expect(report).not.toHaveBeenCalledWith(
+          expect.objectContaining({ type: "pause", action: "picked" }),
+        );
+      }, 15_000);
       it("refuses a pick that is not offered, for another document, or after the page left", async () => {
         const h = await refused();
         expect(await pick(h, { itemId: "80000000-0000-4000-8000-000000000009" })).toEqual({
@@ -8341,6 +8414,7 @@ describe("production login document admission", () => {
           overrides?: Partial<LocalSettings>;
           uris?: LiveUriMatcher;
           passkeyItems?: (origin: string) => Promise<readonly PasskeyItem[]>;
+          pauses?: LoginPauses;
         } = {},
       ) => {
         fake.state.extracted = { entry: entryPage };
@@ -8357,6 +8431,7 @@ describe("production login document admission", () => {
             report,
             ...(options.entries ? { entries: options.entries } : {}),
             ...(options.passkeyItems ? { passkeyItems: options.passkeyItems } : {}),
+            ...(options.pauses ? { pauses: options.pauses } : {}),
           },
         );
         h.recipes.recipe.mockResolvedValue(undefined);
@@ -8402,6 +8477,31 @@ describe("production login document admission", () => {
             generate: true,
             entry: true,
           });
+        });
+        it("sends no page whose site was paused while it was read (ADR 0062)", async () => {
+          let pausedTill: number | undefined;
+          const { service, h, reports } = setup({
+            pauses: {
+              until: async () => pausedTill,
+              pause: async () => pausedTill,
+              resume: async () => false,
+            },
+          });
+          expect(await h.hello({}, false)).toMatchObject({ generate: true, entry: true });
+          // The person pauses the site while its page is read for generation.
+          fake.state.extracted = {
+            get entry() {
+              pausedTill = Date.now() + 60_000;
+              return entryPage;
+            },
+          };
+          expect(await entryHello(h)).toEqual({ ok: false, reason: "generating" });
+          await vi.waitFor(() => expect(sent("login.reconnect")).toHaveLength(1));
+          expect(sent("login.extract")).toHaveLength(1);
+          expect(service.generateEntry).not.toHaveBeenCalled();
+          expect(reports("generation")).toEqual([
+            expect.objectContaining({ outcome: "skipped", reason: "paused", page: "entry" }),
+          ]);
         });
         it("sends a page whose URL names another path of its site, without slots", async () => {
           const { service, h, reports } = setup();
@@ -26349,7 +26449,9 @@ describe("pausing automatic login of a site (ADR 0062)", () => {
       {
         ...live,
         report: (entry) => reports.push(entry),
-        badge: createLoginBadge({ setBadge: setActionBadge, storage: memoryBadgeStorage() }),
+        badge:
+          live.badge ??
+          createLoginBadge({ setBadge: setActionBadge, storage: memoryBadgeStorage() }),
       },
     );
     const refused = () => reports.filter((entry) => entry.type === "refused");
@@ -26506,19 +26608,183 @@ describe("pausing automatic login of a site (ADR 0062)", () => {
     expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({ ok: true });
   });
 
-  it("does not end the pause on a login that was not picked", async () => {
-    const { h } = paused();
-    fake.state.tabUrls[2] = fake.state.pageUrl;
-    // A login that started before the pause goes on, and its sign-in keeps the pause.
-    fake.state.onExecute = () => new Promise((resolve) => setTimeout(resolve, 50));
+  it("stops the site's running automatic login before its next step; its tab asks", async () => {
+    const { h, reports, refused } = paused();
+    fake.state.openTabs = [1];
+    let pausing: Promise<unknown> | undefined;
+    // The password is filled; the person presses Pause before the form is submitted.
+    fake.state.onExecute = async (message) => {
+      if ((message["operation"] as { step: { kind: string } }).step.kind !== "fill") return;
+      pausing = setPause(h, true);
+      await pausing;
+    };
     expect(await h.hello()).toEqual({ ok: true });
-    await setPause(h, true);
-    await vi.waitFor(() => expect(stored()).toMatchObject([{ state: "authenticated" }]));
+    await vi.waitFor(() => expect(pausing).toBeDefined());
+    expect(await pausing).toEqual({ ok: true, until: expect.any(Number) });
+    await vi.waitFor(() =>
+      expect(reports).toContainEqual(
+        expect.objectContaining({ type: "attempt", outcome: "policy-changed", cause: "paused" }),
+      ),
+    );
+    // The submit is never clicked, and the login holds nothing.
+    expect(
+      executes().map(
+        (entry) =>
+          (entry as unknown as { operation: { step: { kind: string } } }).operation.step.kind,
+      ),
+    ).toEqual(["fill"]);
+    await vi.waitFor(() => expect(stored()).toEqual([]));
     expect(fake.state.session[PAUSES]).toHaveLength(1);
-    expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({
+    await vi.waitFor(() =>
+      expect(refused()).toContainEqual(
+        expect.objectContaining({ tabId: 1, reason: "paused", candidates: 1 }),
+      ),
+    );
+    expect(
+      await h.login.handle({ version: 1, type: "login.choice.get", tabId: 1 }, popup),
+    ).toMatchObject({ ok: true, paused: true });
+    expect(await status(h)).toMatchObject({ page: { state: "denied", reason: "paused" } });
+  });
+
+  it("stops a login when its next page shows on a paused site", async () => {
+    const twoPages = parseLoginRecipe({
+      version: 1,
+      id: "synthetic-two-pages",
+      revision: 1,
+      origin,
+      slots: ["password"],
+      steps: [
+        { kind: "click", path: "/signin", target: target("next"), purpose: "advance" },
+        {
+          kind: "fill",
+          path: "/password",
+          fields: [{ slot: "password", target: target("password") }],
+        },
+        { kind: "click", path: "/password", target: target("login"), purpose: "submit" },
+      ],
+      maxSubmissions: 2,
+    });
+    // A pause this worker did not see start, as one stored before it restarted.
+    let pausedTill: number | undefined;
+    const { h, reports } = paused({
+      pauses: {
+        until: async () => pausedTill,
+        pause: async () => pausedTill,
+        resume: async () => false,
+      },
+    });
+    h.recipes.recipe.mockResolvedValue(twoPages);
+    // The first page's button is pressed; the site is paused before the next page shows.
+    fake.state.onExecute = async () => {
+      pausedTill = Date.now() + 60_000;
+    };
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(executes()).toHaveLength(1));
+    fake.state.pageUrl = `${origin}/password`;
+    fake.state.observedPath = "/password";
+    const answer = await h.hello({ documentId: "next-page" });
+    expect(answer).toEqual({ ok: false, reason: "paused" });
+    expect(reports).toContainEqual(
+      expect.objectContaining({ type: "attempt", outcome: "policy-changed", cause: "paused" }),
+    );
+    expect(executes()).toHaveLength(1);
+    expect(stored()).toEqual([]);
+  });
+
+  it("refuses an announcement whose admission a pause overtook", async () => {
+    const { h } = paused();
+    h.recipes.recipe.mockImplementationOnce(async () => {
+      await setPause(h, true);
+      return recipe;
+    });
+    expect(await h.hello()).toEqual({ ok: false, reason: "paused" });
+    expect(executes()).toEqual([]);
+    expect(stored()).toEqual([]);
+  });
+
+  it("uses the sender's window kind before the tab's", async () => {
+    const { h } = paused();
+    fake.state.incognito = new Set([2]);
+    fake.state.tabUrls[2] = fake.state.pageUrl;
+    await setPause(h, true, 2);
+    // The browser no longer says the tab is incognito; the message's sender does.
+    fake.state.incognito = new Set();
+    expect(await h.hello({ tab: { id: 2, incognito: true }, documentId: "incognito" })).toEqual({
       ok: false,
       reason: "paused",
     });
+    expect(await h.hello({ tab: { id: 2, incognito: false }, documentId: "normal" })).toEqual({
+      ok: true,
+    });
+  });
+
+  it("shows II again after a worker restart, until the pause ends", async () => {
+    fake.state.openTabs = [1, 2, 3];
+    fake.state.tabUrls[2] = "https://www.login.example/account";
+    fake.state.tabUrls[3] = "https://elsewhere.example/";
+    fake.state.session[PAUSES] = [
+      {
+        site: "login.example",
+        incognito: false,
+        until: new Date(Date.now() + 400).toISOString(),
+      },
+    ];
+    // The restarted worker draws the badges of the paused site's tabs without any page
+    // announcing itself.
+    paused();
+    await vi.waitFor(() => expect(fake.state.badges[1]?.text).toBe("II"));
+    await vi.waitFor(() => expect(fake.state.badges[2]?.text).toBe("II"));
+    expect(fake.state.badges[3]?.text ?? "").toBe("");
+    // It ends by itself at the end time.
+    await vi.waitFor(() => expect(fake.state.badges[1]?.text).toBe(""), { timeout: 2000 });
+    expect(fake.state.badges[2]?.text).toBe("");
+  });
+
+  it("shows II on a tab that moved to a page of a paused site", async () => {
+    const badge = createLoginBadge({ setBadge: setActionBadge, storage: memoryBadgeStorage() });
+    const { h } = paused({ badge });
+    fake.state.openTabs = [1];
+    await setPause(h, true);
+    await vi.waitFor(() => expect(fake.state.badges[1]?.text).toBe("II"));
+    const elsewhere = "https://elsewhere.example/";
+    badge.loaded(1, elsewhere);
+    await h.login.tabLoaded({ id: 1, url: elsewhere, incognito: false } as never);
+    await vi.waitFor(() => expect(fake.state.badges[1]?.text).toBe(""));
+    const back = "https://www.login.example/";
+    badge.loaded(1, back);
+    await h.login.tabLoaded({ id: 1, url: back, incognito: false } as never);
+    await vi.waitFor(() => expect(fake.state.badges[1]?.text).toBe("II"));
+  });
+
+  it("re-offers a paused choice whose pick another tab's login overtook", async () => {
+    const { h } = paused();
+    fake.state.incognito = new Set([2]);
+    fake.state.tabUrls[2] = fake.state.pageUrl;
+    await setPause(h, true);
+    expect(await h.hello()).toEqual({ ok: false, reason: "paused" });
+    // The incognito window is not paused; its login starts and holds the site meanwhile.
+    fake.state.onExecute = () => new Promise(() => undefined);
+    fake.state.onReconnect = async () => {
+      await h.hello({ tab: { id: 2 }, documentId: "incognito" });
+      return h.hello();
+    };
+    expect(
+      await h.login.handle(
+        {
+          version: 1,
+          type: "login.choice.pick",
+          tabId: 1,
+          documentId: "synthetic-document",
+          connectionId,
+          itemId,
+          makeDefault: false,
+        },
+        popup,
+      ),
+    ).toEqual({ ok: false, reason: "origin-busy" });
+    expect(
+      await h.login.handle({ version: 1, type: "login.choice.get", tabId: 1 }, popup),
+    ).toMatchObject({ ok: true, paused: true, candidates: [{ connectionId, itemId }] });
   });
 
   it("asks the site's tabs to announce again on resume, so they log in at once", async () => {
@@ -26568,5 +26834,94 @@ describe("pausing automatic login of a site (ADR 0062)", () => {
     await setPause(h, true);
     expect(await waiting).toEqual({ kind: "delegate", reason: "paused" });
     expect(await request("later")).toEqual({ kind: "delegate", reason: "paused" });
+  });
+
+  it("refuses a pick of an item with only a passkey, which the pause keeps from it", async () => {
+    const { h, refused } = paused({
+      passkeys: vi.fn(async () => ({ passkey: true, discoverable: true })),
+    });
+    const original = h.store.handle.getMockImplementation()!;
+    h.store.handle.mockImplementation(async () => {
+      const response = await original();
+      if (response.ok)
+        for (const field of response.catalog.connections[0]!.items[0]!.fields)
+          if (field.id === "login.password") field.empty = true;
+      return response;
+    });
+    await setPause(h, true);
+    expect(await h.hello()).toEqual({ ok: false, reason: "paused" });
+    fake.state.onReconnect = () => h.hello();
+    expect(
+      await h.login.handle(
+        {
+          version: 1,
+          type: "login.choice.pick",
+          tabId: 1,
+          documentId: "synthetic-document",
+          connectionId,
+          itemId,
+          makeDefault: false,
+        },
+        popup,
+      ),
+    ).toEqual({ ok: false, reason: "paused-no-password" });
+    expect(executes()).toEqual([]);
+    expect(stored()).toEqual([]);
+    expect(refused()).toContainEqual(
+      expect.objectContaining({
+        reason: "no-route",
+        detail: expect.stringMatching(/^password-empty/u),
+      }),
+    );
+    expect(pickFailure("paused-no-password", "Synthetic item", false)).toBe(
+      "Automatic login is paused on this site, and Synthetic item has no password, so Pateat did not log in. Resume automatic login to sign in with its passkey.",
+    );
+  });
+
+  it("hands on a conditional request whose site was paused while it was parked", async () => {
+    let pausedTill: number | undefined;
+    const { h } = paused({
+      pauses: {
+        until: async () => pausedTill,
+        pause: async () => pausedTill,
+        resume: async () => false,
+      },
+    });
+    // The pause starts after the request was first checked, before it waits.
+    h.recipes.starts.mockImplementation(async () => {
+      pausedTill = Date.now() + 60_000;
+      return startsOf([recipe.steps[0]!]);
+    });
+    expect(
+      await h.login.conditionalRequest({
+        tabId: 1,
+        origin,
+        documentId: "synthetic-document",
+        signal: new AbortController().signal,
+        incognito: false,
+      }),
+    ).toEqual({ kind: "delegate", reason: "paused" });
+  });
+
+  it("ends paused choices on resume after the pause ran out, and re-announces frames", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const { h } = paused();
+    fake.state.openTabs = [1, 3];
+    const top = "https://top.example/page";
+    fake.state.tabUrls[3] = top;
+    await setPause(h, true);
+    expect(await h.hello()).toEqual({ ok: false, reason: "paused" });
+    await vi.waitFor(() => expect(fake.state.badges[1]?.text).toBe("1"));
+    // A frame of the site inside another site's page.
+    expect(await h.hello({ tab: { id: 3, url: top }, frameId: 4, documentId: "frame" })).toEqual({
+      ok: false,
+      reason: "paused",
+    });
+    vi.setSystemTime(Date.now() + 60 * 60_000);
+    fake.state.reconnects = [];
+    // Nothing is stored any more, yet the pause's choice ends and the pages announce again.
+    expect(await setPause(h, false)).toEqual({ ok: true });
+    expect(fake.state.reconnects).toEqual(expect.arrayContaining([{ tabId: 1 }, { tabId: 3 }]));
+    await vi.waitFor(() => expect(fake.state.badges[1]?.text).toBe(""));
   });
 });
