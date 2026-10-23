@@ -2398,19 +2398,20 @@ or link marker, `rejected` or `challenge`, or abstains when unclear. An unknown 
 one that is not a button or link, or a page that still has a password input not marked
 `new-password` or a field marked `username`, `current-password` or `one-time-code` fails
 as `invalid-output`. The response format describes the marker as a candidate ID (such as
-`c3`) since 2026-10-23: on 31 synthetic judged pages, Sonnet 5.5 and Haiku 5.5 mostly
-answered a button's text (`"Log out"`) instead, which fails here, and with the ID named
-Haiku 5.5 low went from 0.785 to 0.978 (Opus 5.5 never made that error).
-`addCompletion` stores the marker as the recipe's `completion` in
-the next revision. It refuses a marker that is not on the judged page, a page on another
-origin, a marker one of the recipe's own steps uses on that path, and a page that still
-shows an element a step uses on that path or a field any step fills. A failed sign-in
-that shows the form again with the same locators, on its own path or where the form
-posted, is then not learned as signed in. A site that signs in on the login page's own
-path learns its completion only once that form is gone, and the completion then lists
-that path's fill fields as `absent` (at most four), which the executor requires to be
-missing. Both roles share `runStructuredRole` for metering, timeouts and disabled
-telemetry. The service routes call them
+`c3`) since 2026-10-23: on 31 synthetic judged pages, most of Sonnet 5.5's and Haiku
+5.5's errors were a marker given as a button's text (`"Log out"`), which fails here.
+With the ID named, Haiku 5.5 low went from 0.785 to 0.978 and Sonnet 5.5 medium from
+0.817 to 0.968 (3 runs each, on the same pages; Opus 5.5 never made that error). The
+change re-judges each page judged before once. `addCompletion` stores the marker as the
+recipe's `completion` in the next revision. It refuses a marker that is not on the
+judged page, a page on another origin, a marker one of the recipe's own steps uses on
+that path, and a page that still shows an element a step uses on that path or a field
+any step fills. A failed sign-in that shows the form again with the same locators, on
+its own path or where the form posted, is then not learned as signed in. A site that
+signs in on the login page's own path learns its completion only once that form is gone,
+and the completion then lists that path's fill fields as `absent` (at most four), which
+the executor requires to be missing. Both roles share `runStructuredRole` for metering,
+timeouts and disabled telemetry. The service routes call them
 ([API README](../services/api/README.md#recipe-generation)), and the extension calls
 those routes as described under the remaining M4 AI work below.
 
