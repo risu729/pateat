@@ -254,16 +254,17 @@ values and the saved identifiers.
 
 [ADR 0018](../../docs/adr/0018-recipe-generation-route.md) routes, in
 `packages/generation/src/generate.ts` (`@pateat/generation`), which runs against D1
-through `src/recipes/backend.ts` and, for a device that holds its own key, will run against
-that device's storage ([ADR 0040](../../docs/adr/0040-running-without-the-service.md)). Both
-answer 200 with a `status`: `recipe` or `signed-in` with the stored change, `abstained`,
-`rejected`, `challenge` or `unclear`, `failed` with a code, or `unavailable` with a
-reason when no model was called. A generation that fails `invalid-output` because a
-check refused the model's output also names it as `rejection`, in codes only:
-`{ check: "json" }` for output that was not JSON, `{ check: "schema", issue, path }` for
-the first issue of the output format (such as `max-length` at `result.alternatives`;
-`unknown-key` where the model added a key, with the path ending before it), or
-`{ check: "plan", reason }` with the plan check's code (such as `incompatible-role`).
+through `src/recipes/backend.ts` and, for a device that holds its own key, will run
+against that device's storage
+([ADR 0040](../../docs/adr/0040-running-without-the-service.md)). Both answer 200 with a
+`status`: `recipe` or `signed-in` with the stored change, `abstained`, `rejected`,
+`challenge` or `unclear`, `failed` with a code, or `unavailable` with a reason when no
+model was called. A generation that fails `invalid-output` because a check refused the
+model's output also names it as `rejection`, in codes only: `{ check: "json" }` for
+output that was not JSON, `{ check: "schema", issue, path }` for the first issue of the
+output format (such as `max-length` at `result.alternatives`; `unknown-key` where the
+model added a key, with the path ending before it), or `{ check: "plan", reason }` with
+the plan check's code (such as `incompatible-role`).
 
 - `POST /v1/recipes/generate` takes
   `{ version: 1, observation, slots, base?, branch?, signedIn? }`. Each origin and start
