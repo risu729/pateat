@@ -282,6 +282,7 @@ export const PROBLEM_EVENT_FIELDS = {
     notCompleted: "code",
     moved: "flag",
     stop: "code",
+    beside: "flag",
     roundTripMs: "count",
     serverMs: "count",
     networkMs: "count",
