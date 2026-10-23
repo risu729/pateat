@@ -86,7 +86,7 @@ test("the toolbar badge counts the vault items that match each site", async () =
       .poll(() => badge(browser.background, other), { timeout: 15_000 })
       .toMatchObject({ text: "", title: "Pateat: no account for this site." });
 
-    // Excluding the item shows the match in gray once the page counts again.
+    // Excluding the item counts the settled page again, in gray, with no reload.
     const current = await settingsRequest(options);
     const settings = current.snapshot.settings;
     settings.connections = settings.connections.map((entry) =>
@@ -98,7 +98,6 @@ test("the toolbar badge counts the vault items that match each site", async () =
       expectedRevision: current.snapshot.revision,
       settings,
     });
-    await page.reload();
     await expect
       .poll(() => badge(browser.background, site), { timeout: 15_000 })
       .toEqual({

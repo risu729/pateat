@@ -570,8 +570,16 @@ decision left open; they are implementation choices, not owner decisions:
   counts only items saved with an `http://` URI and asks for passkeys only on
   `http://localhost` ([ADR 0050](0050-http-pages-for-http-items.md)). The crypto Worker
   answers from the login URIs it decrypted when the snapshot opened; a count decrypts
-  nothing, and reads an open snapshot's catalog once, kept in memory per connection.
-- Titles: `Pateat: 2 accounts for this site. 1 more is excluded.`;
+  nothing. It reads an open snapshot's catalog once and keeps in memory, per connection,
+  only what eligibility reads: item IDs, group IDs and field IDs, kinds and emptiness,
+  no name or label. That copy goes once a scope read finds the vault closed, locked, on
+  another snapshot, disabled or removed.
+- An item whose URI rules could not be read is noted when the popup's eligibility rule
+  allows it, one whose passkeys could not be read by the passkey rule, and a quarantined
+  item never.
+- Titles: `Pateat: 2 accounts for this site. 1 more is excluded in settings.`, or
+  `1 more waits for a custom-field review in settings.` for a quarantined item, or
+  `N more are excluded or wait for a custom-field review in settings.` for both;
   `Pateat: 3 accounts match this site, but none can be used:` followed by
   `this site is excluded in settings`, `they are excluded in settings`,
   `they wait for a custom-field review in settings`, or both of the last two; and for no
@@ -586,10 +594,17 @@ decision left open; they are implementation choices, not owner decisions:
   the vault is unlocked, and not checked only on a miss.
 - A saved or synced settings change and each vault record write show again what the
   cache has for every counted tab, from one read of the settings and records, so a count
-  of the previous settings stops showing; it does not start a count. A worker start
-  reads them once for all open tabs.
-- A count stopped for a login or an admission is not retried on its own; the page's next
-  announcement counts again.
+  of the previous settings stops showing, and count each miss of a tab whose page has
+  announced or whose 5 seconds passed. The decision limits only worker starts, tab
+  activation and finished loads to the cache. A worker start reads them once for all
+  open tabs, and takes a tab that had finished loading as announced.
+- A count stopped for a login or an admission (of any frame, in any tab) shows no number
+  and a not-checked title that starts
+  `Pateat: a login or a page check was using the vault` and ends `were not counted yet.`
+  It is tried again after 1, 2, 4, 8, 16 and 32 seconds, then no more on its own; after
+  any top frame's handled announcement; and when a login signs in, is blocked, settles
+  as unknown or is only watched. The vault-replacement hold covers only the count's
+  jobs, not the final read of what applies now.
 - A count that finishes after the settings or a vault changed is cached under the key
   it was made for, and the tabs show what applies now instead. An announcement whose
   origin is no longer the tab's does not count.

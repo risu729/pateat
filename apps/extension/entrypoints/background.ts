@@ -299,6 +299,15 @@ export default defineBackground(() => {
     report: (report) => {
       diagnosticsLog.login(report);
       loginBadge.observe(report);
+      // A site count the login stopped may run once it ended, settled or is only watched.
+      if (
+        report.type === "attempt" &&
+        (report.state === "authenticated" ||
+          report.state === "blocked" ||
+          report.settled ||
+          report.watched)
+      )
+        siteCounter.retryStopped();
       loginOutcomes.observe(report);
       loginRecords.observe(report);
       recipeUse.observe(report);

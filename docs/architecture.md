@@ -1530,25 +1530,28 @@ Below those states the badge counts the vault items that match the tab's HTTP(S)
 ([ADR 0021](adr/0021-account-choice-outside-settings.md#site-count-badge);
 `apps/extension/src/login/site-count.ts`): the usable count in teal (`#115e59`), or the
 matching count in light gray (`#cbd5e1`) when every match is excluded, `99+` above 99,
-with a title that names how many more are excluded, why none is usable, and usable items
-whose URI rules or passkeys could not be read. A tab whose vault was not checked
-(locked, not opened since Pateat restarted, unreadable or being updated) shows no number
-and says why in the title. A count matches the origin's URI rules for `origin/` and its
-RP IDs' passkeys in each enabled connection through the popup's own matchers, so an
-`http:` page counts only `http://` URIs, and it also counts on excluded sites. It reads
-only a vault the service worker already has open on the stored record's accepted
-snapshot, never restoring one, through the login runtime: inside the vault-replacement
-hold an admission takes, one crypto job at a time, each only while no login runs and no
-page is being admitted. An admission waits for a job already sent and the count stops
-before its next one. A count runs on a cache miss once the runtime has handled the tab's
-top-frame announcement, or 5 seconds after a finished load the page never announced;
-worker starts, tab activation and finished loads only show a cached count, and a saved
-or synced settings change or a vault record write shows again what the cache has for
-the new settings, which clears a count of the old ones. Counts are cached per origin,
-numbers only, keyed by the settings revision and each enabled connection's accepted
-snapshot, at most 200 origins, in memory and in `chrome.storage.session`
-(`pateat.site-count.v1`); each open snapshot's catalog, which eligibility needs, is read
-once and kept in memory.
+with a title that names how many more are excluded or wait for a custom-field review,
+why none is usable, and usable items whose URI rules or passkeys could not be read. A
+tab whose vault was not checked (locked, not opened since Pateat restarted, unreadable
+or being updated) or whose count a login or an admission stopped shows no number and
+says why in the title. A count matches the origin's URI rules for `origin/` and its RP
+IDs' passkeys in each enabled connection through the popup's own matchers, so an `http:`
+page counts only `http://` URIs, and it also counts on excluded sites. It reads only a
+vault the service worker already has open on the stored record's accepted snapshot,
+never restoring one, through the login runtime: inside the vault-replacement hold an
+admission takes, one crypto job at a time, each only while no login runs and no page is
+being admitted. An admission waits for a job already sent and the count stops before its
+next one; a stopped count is tried again after 1 to 32 seconds, after the next handled
+announcement, or when a login ends. A count runs on a cache miss once the runtime has
+handled the tab's top-frame announcement, or 5 seconds after a finished load the page
+never announced; worker starts, tab activation and finished loads only show a cached
+count, and a saved or synced settings change or a vault record write shows again what
+the cache has for the new settings, which clears a count of the old ones, and counts the
+misses of tabs whose page announced. Counts are cached per origin, numbers only, keyed
+by the settings revision and each enabled connection's accepted snapshot, at most 200
+origins, in memory and in `chrome.storage.session` (`pateat.site-count.v1`); of each
+open snapshot's catalog only the item, group and field IDs that eligibility reads are
+kept in memory, until that vault is no longer open on it.
 
 The service's pages use the same unlocked logo as their favicon (owner request,
 2026-10-12). The owner web UI links the SVG, which Vite emits under `/manage/assets/`

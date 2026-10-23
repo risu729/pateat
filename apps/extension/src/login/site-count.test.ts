@@ -5,6 +5,7 @@ import type { UriCandidates } from "../crypto/wire";
 import { vaultFailure, type VaultResult } from "../vault/record";
 import {
   SITE_COUNT_LIMIT,
+  STOPPED_RETRY_MS,
   UNANNOUNCED_COUNT_MS,
   countSite,
   countedOrigin,
@@ -68,6 +69,7 @@ type Vault = {
   uris?: string[];
   passkeys?: string[];
   unknown?: string[];
+  unknownPasskeys?: string[];
   catalog?: VaultResult<LocalVaultMetadata>;
 };
 function live(vault: Vault = {}): Extract<CountSource, { snapshotId: string }> & {
@@ -106,7 +108,7 @@ function live(vault: Vault = {}): Extract<CountSource, { snapshotId: string }> &
           candidates: (rpId === "login.example" ? (vault.passkeys ?? []) : []).map((itemId) => ({
             itemId,
           })),
-          unavailableItemIds: [],
+          unavailableItemIds: rpId === "login.example" ? (vault.unknownPasskeys ?? []) : [],
         },
       })),
     },
@@ -159,7 +161,18 @@ describe("countSite", () => {
     const snapshot = settings({ excludedItemIds: ["b"] });
     expect(await countSite(origin, scope([source], snapshot), run)).toEqual({
       kind: "count",
-      count: { usable: 1, matching: 2, unevaluated: 0 },
+      count: { usable: 1, matching: 2, unevaluated: 0, excluded: "items" },
+    });
+    // A quarantined item is named as waiting for its review.
+    const review = {
+      ...settings(),
+      fieldPolicies: [
+        { connectionId, snapshotId, quarantinedItemIds: ["b"], protectedItemIds: [] },
+      ],
+    };
+    expect(await countSite(origin, scope([source], review), run)).toEqual({
+      kind: "count",
+      count: { usable: 1, matching: 2, unevaluated: 0, excluded: "review" },
     });
   });
 
@@ -220,6 +233,32 @@ describe("countSite", () => {
       { excludedSites: [{ hostname: "login.example", includeSubdomains: false }] },
     );
     expect(await countSite(origin, scope([source], excluded), run)).toEqual({
+      kind: "count",
+      count: { usable: 0, matching: 0, unevaluated: 0 },
+    });
+  });
+
+  it("notes an unread URI rule by the popup's rule and an unread passkey by the passkey rule", async () => {
+    // An item with no field a login could fill is usable only for its passkey.
+    const source = live({ items: [{ id: "a", fields: [] }], unknown: ["a"] });
+    expect(await countSite(origin, scope([source]), run)).toEqual({
+      kind: "count",
+      count: { usable: 0, matching: 0, unevaluated: 0 },
+    });
+    const passkey = live({ items: [{ id: "a", fields: [] }], unknownPasskeys: ["a"] });
+    expect(await countSite(origin, scope([passkey]), run)).toEqual({
+      kind: "count",
+      count: { usable: 0, matching: 0, unevaluated: 1 },
+    });
+    // A quarantined item is never noted.
+    const review = {
+      ...settings(),
+      fieldPolicies: [
+        { connectionId, snapshotId, quarantinedItemIds: ["a"], protectedItemIds: [] },
+      ],
+    };
+    const quarantined = live({ items: [{ id: "a" }], unknown: ["a"] });
+    expect(await countSite(origin, scope([quarantined], review), run)).toEqual({
       kind: "count",
       count: { usable: 0, matching: 0, unevaluated: 0 },
     });
@@ -294,14 +333,16 @@ describe("countSite", () => {
 describe("createCountScope", () => {
   type Record = { ok: true; data: unknown } | { ok: false };
   function connections(record: Record, handle?: { snapshotId: string }, snapshot = settings()) {
+    let current = handle;
     const manager = {
-      status: () => (handle ? { handle } : {}),
+      status: () => (current ? { handle: current } : {}),
       catalog: vi.fn(async () => ({ ok: true as const, data: metadata([{ id: "a" }]) })),
       matchUris: vi.fn(),
       findPasskeys: vi.fn(),
     };
     return {
       manager,
+      setHandle: (next?: { snapshotId: string }) => (current = next),
       deps: {
         settings: { read: async () => snapshot },
         registry: { list: async () => [{ profile: { connectionId } }] },
@@ -359,6 +400,42 @@ describe("createCountScope", () => {
     expect(match.uris).toHaveBeenCalledWith(connectionId, `${origin}/`);
     expect(match.passkeys).toHaveBeenCalledWith(connectionId, "login.example");
   });
+
+  it("keeps only what eligibility reads, and drops it once the vault closes", async () => {
+    const { deps, manager, setHandle } = connections(active, { snapshotId });
+    const scopeOf = createCountScope(deps, match);
+    const opened = async () => {
+      const read = await scopeOf();
+      const source = "key" in read ? read.sources[0] : undefined;
+      if (!source || !("open" in source) || !source.open) throw new Error("not open");
+      return source.open;
+    };
+    const read = await (await opened()).catalog();
+    expect(read).toEqual({
+      ok: true,
+      data: {
+        connectionId,
+        userId: "user",
+        snapshotId,
+        groups: [],
+        items: [
+          {
+            id: "a",
+            label: "",
+            type: 1,
+            groupIds: [],
+            fields: [{ id: "login.password", label: "", name: null, kind: "text" }],
+          },
+        ],
+      },
+    });
+    // Closed and opened again on the same snapshot, the catalog is read again.
+    setHandle(undefined);
+    await scopeOf();
+    setHandle({ snapshotId });
+    await (await opened()).catalog();
+    expect(manager.catalog).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe("createSiteCounter", () => {
@@ -381,6 +458,7 @@ describe("createSiteCounter", () => {
       options.open === false ? { connectionId, snapshotId } : live({ uris: ["a"] });
     let unchecked: "locked" | undefined;
     const shown = new Map<number, SiteCountState | undefined>();
+    const history: [number, SiteCountState | undefined][] = [];
     const events: string[] = [];
     const step = vi.fn<CountStep>(async (job) => {
       events.push("job");
@@ -390,6 +468,7 @@ describe("createSiteCounter", () => {
     const counter = createSiteCounter({
       scope: async () => {
         scopes += 1;
+        events.push("scope");
         return unchecked
           ? { unchecked }
           : { snapshot, sources: [source], key: JSON.stringify([snapshot.revision]) };
@@ -399,12 +478,16 @@ describe("createSiteCounter", () => {
         return () => events.push("release");
       },
       step: step as CountStep,
-      show: (tabId, _origin, state) => shown.set(tabId, state),
+      show: (tabId, _origin, state) => {
+        shown.set(tabId, state);
+        history.push([tabId, state]);
+      },
       storage,
     });
     return {
       counter,
       shown,
+      history,
       events,
       step,
       storage,
@@ -422,7 +505,8 @@ describe("createSiteCounter", () => {
     await h.counter.announced(1, `${origin}/sign-in`);
     await h.counter.idle();
     expect(h.shown.get(1)).toEqual(one);
-    expect(h.events).toEqual(["hold", "job", "job", "job", "release"]);
+    // The final read of what applies now runs after the hold is released.
+    expect(h.events).toEqual(["scope", "hold", "scope", "job", "job", "job", "release", "scope"]);
     expect(h.stored()).toEqual({
       origins: [[origin, JSON.stringify([1]), one.count]],
     });
@@ -478,16 +562,32 @@ describe("createSiteCounter", () => {
     const h = harness();
     await h.counter.announced(1, `${origin}/`);
     await h.counter.idle();
+    // A tab whose page has not announced yet only shows.
+    h.counter.loading(2);
+    await h.counter.loaded(2, `${origin}/b`);
     h.setSettings(settings({ excludedItemIds: ["a"] }, {}, 2));
+    h.history.length = 0;
     await h.counter.refresh();
-    expect(h.shown.get(1)).toBeUndefined();
-    expect(h.step).toHaveBeenCalledTimes(3);
-    await h.counter.announced(1, `${origin}/`);
     await h.counter.idle();
-    expect(h.shown.get(1)).toEqual({
+    expect(h.history[0]).toEqual([1, undefined]);
+    const gray = {
       kind: "count",
       count: { usable: 0, matching: 1, unevaluated: 0, excluded: "items" },
-    });
+    };
+    expect(h.shown.get(1)).toEqual(gray);
+    expect(h.shown.get(2)).toEqual(gray);
+    expect(h.step).toHaveBeenCalledTimes(6);
+  });
+
+  it("does not count on a change for a tab whose page has not settled", async () => {
+    const h = harness();
+    h.counter.loading(1);
+    await h.counter.loaded(1, `${origin}/`);
+    h.setSettings(settings({}, {}, 2));
+    await h.counter.refresh();
+    await h.counter.idle();
+    expect(h.step).not.toHaveBeenCalled();
+    expect(h.shown.get(1)).toBeUndefined();
   });
 
   it("shows not checked, and opens nothing, while a vault is closed or locked", async () => {
@@ -510,16 +610,82 @@ describe("createSiteCounter", () => {
     expect(h.shown.get(1)).toEqual(one);
   });
 
-  it("leaves the count to the page's next announcement when a login stops it", async () => {
+  /** A step that refuses while another frame's hello is being admitted. */
+  function admitting(h: ReturnType<typeof harness>) {
+    let busy = true;
+    h.step.mockImplementation(async (job) => {
+      if (busy) return undefined;
+      h.events.push("job");
+      return { value: await job() };
+    });
+    return () => (busy = false);
+  }
+  const busy = { kind: "unchecked", reason: "busy" };
+
+  it("shows a count an iframe's admission stopped as busy and tries it again", async () => {
     const h = harness();
-    h.step.mockImplementationOnce(async () => undefined);
+    const admitted = admitting(h);
     await h.counter.announced(1, `${origin}/`);
     await h.counter.idle();
-    expect(h.shown.get(1)).toBeUndefined();
-    expect(h.events).toEqual(["hold", "release"]);
-    await h.counter.announced(1, `${origin}/`);
+    expect(h.shown.get(1)).toEqual(busy);
+    expect(h.events.filter((event) => event !== "scope")).toEqual(["hold", "release"]);
+    // Still admitting at the first retry; done by the second.
+    await vi.advanceTimersByTimeAsync(STOPPED_RETRY_MS[0]);
+    await h.counter.idle();
+    expect(h.shown.get(1)).toEqual(busy);
+    admitted();
+    await vi.advanceTimersByTimeAsync(STOPPED_RETRY_MS[1]);
     await h.counter.idle();
     expect(h.shown.get(1)).toEqual(one);
+    // A finished count is not tried again.
+    const calls = h.step.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(STOPPED_RETRY_MS.reduce((sum, wait) => sum + wait, 0));
+    expect(h.step).toHaveBeenCalledTimes(calls);
+  });
+
+  it("tries a stopped count again on another hello or when a login ends", async () => {
+    const h = harness();
+    const ended = admitting(h);
+    await h.counter.announced(1, `${origin}/`);
+    await h.counter.idle();
+    expect(h.shown.get(1)).toEqual(busy);
+    ended();
+    // Another tab's handled hello means the admission that stopped it is over.
+    await h.counter.announced(2, "https://other.example/");
+    await h.counter.idle();
+    expect(h.shown.get(1)).toEqual(one);
+    const login = admitting(h);
+    h.setSettings(settings({}, {}, 2));
+    await h.counter.refresh();
+    await h.counter.idle();
+    expect(h.shown.get(1)).toEqual(busy);
+    login();
+    h.counter.retryStopped();
+    await h.counter.idle();
+    expect(h.shown.get(1)).toEqual(one);
+  });
+
+  it("stops trying after the last wait, and for a tab that left the site", async () => {
+    const h = harness();
+    admitting(h);
+    await h.counter.announced(1, `${origin}/`);
+    await h.counter.idle();
+    for (const wait of STOPPED_RETRY_MS) {
+      // oxlint-disable-next-line no-await-in-loop
+      await vi.advanceTimersByTimeAsync(wait);
+      // oxlint-disable-next-line no-await-in-loop
+      await h.counter.idle();
+    }
+    const calls = h.step.mock.calls.length;
+    expect(calls).toBe(STOPPED_RETRY_MS.length + 1);
+    await vi.advanceTimersByTimeAsync(STOPPED_RETRY_MS.at(-1) ?? 0);
+    expect(h.step).toHaveBeenCalledTimes(calls);
+    expect(h.shown.get(1)).toEqual(busy);
+    // A login's end tries again, but not for an origin no tab shows.
+    h.counter.removed(1);
+    h.counter.retryStopped();
+    await h.counter.idle();
+    expect(h.step).toHaveBeenCalledTimes(calls);
   });
 
   it("shows what applies now when settings change during a count", async () => {

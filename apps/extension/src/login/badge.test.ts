@@ -1581,13 +1581,20 @@ describe("site count", () => {
 
   it("shows the usable count in teal and how many more are excluded", async () => {
     const h = harness();
-    h.badge.count(tabId, origin, counted(2, 3));
+    h.badge.count(tabId, origin, counted(2, 3, { excluded: "items" }));
     await h.flush();
     expect(h.view()).toEqual({
       text: "2",
       ...TEAL,
-      title: "Pateat: 2 accounts for this site. 1 more is excluded.",
+      title: "Pateat: 2 accounts for this site. 1 more is excluded in settings.",
     });
+    // Quarantined items are named as waiting for a review, not as excluded.
+    expect(countBadge(counted(1, 3, { excluded: "review" })).title).toBe(
+      "Pateat: 1 account for this site. 2 more wait for a custom-field review in settings.",
+    );
+    expect(countBadge(counted(1, 3, { excluded: "items-review" })).title).toBe(
+      "Pateat: 1 account for this site. 2 more are excluded or wait for a custom-field review in settings.",
+    );
   });
 
   it.each([
@@ -1628,6 +1635,11 @@ describe("site count", () => {
       text: "",
       title:
         "Pateat: the vault has not been opened since Pateat restarted, so this site's accounts were not counted.",
+    });
+    // A count a login or a page check stopped says it is tried again, not blank.
+    expect(countBadge({ kind: "unchecked", reason: "busy" })).toEqual({
+      title:
+        "Pateat: a login or a page check was using the vault, so this site's accounts were not counted yet.",
     });
     h.badge.count(tabId, origin, undefined);
     await h.flush();

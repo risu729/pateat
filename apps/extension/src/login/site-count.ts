@@ -1,6 +1,8 @@
 // The site count badge (ADR 0021): how many vault items match a tab's HTTP(S) origin, and
 // how many of them a login may use. A count only reads vaults the service worker already
-// has open; it never opens one, and keeps no item ID, name or value, only the numbers.
+// has open; it never opens one, and keeps only the numbers. While a vault stays open on a
+// snapshot, its item, group and field IDs are kept in memory for eligibility, never a
+// name or a value.
 import {
   getItemEligibility,
   isSiteExcluded,
@@ -24,10 +26,15 @@ export const SITE_COUNT_KEY = "session:pateat.site-count.v1";
 export const SITE_COUNT_LIMIT = 200;
 /** A finished load that the page never announced is counted after this long. */
 export const UNANNOUNCED_COUNT_MS = 5000;
+/** A count stopped for a login or an admission is tried again after these waits. */
+export const STOPPED_RETRY_MS = [1000, 2000, 4000, 8000, 16_000, 32_000] as const;
 
-/** Why a tab shows no number although its site may have items (ADR 0021). */
-export type UncheckedReason = "locked" | "not-opened" | "unreadable" | "updating";
-/** Why none of the matching items is usable. */
+/**
+ * Why a tab shows no number although its site may have items (ADR 0021); `busy` while
+ * logins or page admissions keep a count waiting, until it is tried again.
+ */
+export type UncheckedReason = "locked" | "not-opened" | "unreadable" | "updating" | "busy";
+/** Why some or all of the matching items are not usable. */
 export type ExcludedReason = "site" | "items" | "review" | "items-review";
 export type SiteCount = {
   /** Items a login on the origin may use; the popup lists the same ones. */
@@ -36,7 +43,7 @@ export type SiteCount = {
   matching: number;
   /** Usable items whose URI rules or passkeys could not be read, left out of both numbers. */
   unevaluated: number;
-  /** Set when items match but none is usable. */
+  /** Set when fewer items are usable than match. */
   excluded?: ExcludedReason;
 };
 export type SiteCountState =
@@ -66,7 +73,7 @@ export type CountSource =
     };
 /** What a count of the current settings and vaults needs, read without any crypto job. */
 export type CountScope =
-  | { unchecked: Exclude<UncheckedReason, "not-opened"> }
+  | { unchecked: Exclude<UncheckedReason, "not-opened" | "busy"> }
   | { snapshot: SettingsSnapshot; sources: CountSource[]; key: string };
 
 /** Runs one crypto job unless a login runs or a page is being admitted (ADR 0021). */
@@ -79,9 +86,38 @@ export function countedOrigin(url: string | undefined): string | undefined {
 }
 
 /**
+ * What settings eligibility reads of an open snapshot's catalog: item IDs, groups and
+ * field IDs and kinds. Names and labels are left out, so nothing a count keeps names an
+ * item.
+ */
+function eligibilityOnly(data: LocalVaultMetadata): LocalVaultMetadata {
+  return {
+    connectionId: data.connectionId,
+    userId: data.userId,
+    snapshotId: data.snapshotId,
+    groups: [],
+    items: data.items.map((item) => ({
+      id: item.id,
+      label: "",
+      type: item.type,
+      groupIds: item.groupIds,
+      fields: item.fields.map(({ id, kind, linkedFieldId, empty }) => ({
+        id,
+        label: "",
+        name: null,
+        kind,
+        ...(linkedFieldId ? { linkedFieldId } : {}),
+        ...(empty ? { empty } : {}),
+      })),
+    })),
+  };
+}
+
+/**
  * The connections a count may read, from the registry and the open vaults, without opening
  * any. URI rules and passkeys go through the popup's and the logins' own `uris` and
- * `passkeys`; an open snapshot's catalog is read once per snapshot.
+ * `passkeys`; what eligibility needs of an open snapshot's catalog is read once per
+ * snapshot and dropped once that vault is no longer open on it.
  */
 export function createCountScope(
   connections: Pick<ConnectionRuntime, "registry" | "vaultFor"> & {
@@ -90,7 +126,7 @@ export function createCountScope(
   match: { uris: LiveUriMatcher; passkeys: PasskeyFinder },
   fixed: VaultCatalog = { connections: [] },
 ): () => Promise<CountScope> {
-  /** Each connection's catalog of the last snapshot it was read for. */
+  /** Each open connection's eligibility catalog, for the snapshot it was read for. */
   const catalogs = new Map<string, { snapshotId: string; data: LocalVaultMetadata }>();
   // A vault closed since the scope was read answers as locked, never as no match.
   const locked = () => vaultFailure("crypto-locked");
@@ -101,17 +137,26 @@ export function createCountScope(
     const sources: CountSource[] = fixed.connections
       .filter((connection) => enabled(connection.id))
       .map((connection) => ({ connectionId: connection.id, fixed: connection }));
-    for (const configuration of await connections.registry.list()) {
+    const configurations = await connections.registry.list();
+    const live = new Set(configurations.map(({ profile }) => profile.connectionId));
+    for (const connectionId of catalogs.keys())
+      if (!live.has(connectionId) || !enabled(connectionId)) catalogs.delete(connectionId);
+    // Every record is read, so each closed vault's catalog goes, before one answers.
+    let unchecked: Extract<CountScope, { unchecked: string }>["unchecked"] | undefined;
+    for (const configuration of configurations) {
       const connectionId = configuration.profile.connectionId;
       if (!enabled(connectionId)) continue;
       const vault = connections.vaultFor(configuration.profile);
       // oxlint-disable-next-line no-await-in-loop -- one record read per connection
       const record = await vault.store.read();
-      if (!record.ok) return { unchecked: "unreadable" };
-      if (record.data?.state !== "active") return { unchecked: "locked" };
-      const { snapshotId } = record.data.accepted;
       const handle = vault.manager.status().handle;
-      if (handle && handle.snapshotId !== snapshotId) return { unchecked: "updating" };
+      const snapshotId =
+        record.ok && record.data?.state === "active" ? record.data.accepted.snapshotId : undefined;
+      if (!handle || handle.snapshotId !== snapshotId) catalogs.delete(connectionId);
+      if (!record.ok) unchecked ??= "unreadable";
+      else if (snapshotId === undefined) unchecked ??= "locked";
+      else if (handle && handle.snapshotId !== snapshotId) unchecked ??= "updating";
+      if (unchecked || snapshotId === undefined) continue;
       sources.push({
         connectionId,
         snapshotId,
@@ -122,9 +167,11 @@ export function createCountScope(
                   const cached = catalogs.get(connectionId);
                   if (cached?.snapshotId === snapshotId) return { ok: true, data: cached.data };
                   const read = await vault.manager.catalog(handle);
-                  if (read.ok && read.data.snapshotId === snapshotId)
-                    catalogs.set(connectionId, { snapshotId, data: read.data });
-                  return read;
+                  if (!read.ok) return read;
+                  const data = eligibilityOnly(read.data);
+                  if (data.snapshotId === snapshotId)
+                    catalogs.set(connectionId, { snapshotId, data });
+                  return { ok: true, data };
                 },
                 matchUris: async (url) => (await match.uris(connectionId, url)) ?? locked(),
                 findPasskeys: async (rpId) =>
@@ -134,6 +181,7 @@ export function createCountScope(
           : {}),
       });
     }
+    if (unchecked) return { unchecked };
     const key = JSON.stringify([
       snapshot.revision,
       sources.map((source) => [
@@ -170,9 +218,13 @@ export async function countSite(
   const reasons = new Set<"items" | "review">();
   for (const source of scope.sources) {
     let entry: VaultCatalog["connections"][number];
-    // By item: whether it matched by URI rule, by passkey, and whether a rule was unevaluated.
-    const items = new Map<string, { uri?: true; passkey?: true; unknown?: true }>();
-    const mark = (itemId: string, how: "uri" | "passkey" | "unknown") =>
+    // By item: whether it matched by URI rule or by passkey, and whether one of its URI
+    // rules or its passkeys could not be read.
+    const items = new Map<
+      string,
+      { uri?: true; passkey?: true; unknownUri?: true; unknownPasskey?: true }
+    >();
+    const mark = (itemId: string, how: "uri" | "passkey" | "unknownUri" | "unknownPasskey") =>
       items.set(itemId, { ...items.get(itemId), [how]: true });
     let quarantined: readonly string[];
     if ("fixed" in source) {
@@ -204,8 +256,8 @@ export async function countSite(
       // Non-web schemes and malformed URIs can never match a page, as in the pinned clients.
       for (const unavailable of uris.value.data.unavailableUris)
         if (unavailable.reason !== "unsupported-uri-scheme" && unavailable.reason !== "invalid-uri")
-          mark(unavailable.itemId, "unknown");
-      for (const itemId of uris.value.data.unavailableItemIds) mark(itemId, "unknown");
+          mark(unavailable.itemId, "unknownUri");
+      for (const itemId of uris.value.data.unavailableItemIds) mark(itemId, "unknownUri");
       // Passkeys answer only on HTTPS and `http://localhost`, as in the popup (ADR 0050).
       for (const rpId of passkeyOrigin(origin) ? rpIdsFor(origin) : []) {
         // oxlint-disable-next-line no-await-in-loop
@@ -215,17 +267,19 @@ export async function countSite(
         if (found.value.data.snapshotId !== source.snapshotId || found.value.data.rpId !== rpId)
           return { kind: "unchecked", reason: "updating" };
         for (const candidate of found.value.data.candidates) mark(candidate.itemId, "passkey");
-        for (const itemId of found.value.data.unavailableItemIds) mark(itemId, "unknown");
+        for (const itemId of found.value.data.unavailableItemIds) mark(itemId, "unknownPasskey");
       }
     }
     const catalog = { connections: [entry] };
     for (const [itemId, how] of items) {
       if (!how.uri && !how.passkey) {
-        // Only an item a login could use is noted, as the popup's list does.
+        // Only an item a login could use is noted, by the rule its popup lookup uses.
         if (
           !siteExcluded &&
           !quarantined.includes(itemId) &&
-          passkeyEligible(settings, catalog, source.connectionId, itemId)
+          ((how.unknownUri &&
+            getItemEligibility(settings, catalog, source.connectionId, itemId).eligible) ||
+            (how.unknownPasskey && passkeyEligible(settings, catalog, source.connectionId, itemId)))
         )
           unevaluated += 1;
         continue;
@@ -241,7 +295,7 @@ export async function countSite(
     }
   }
   const excluded: ExcludedReason | undefined =
-    usable > 0 || matching === 0
+    usable === matching
       ? undefined
       : siteExcluded
         ? "site"
@@ -270,7 +324,10 @@ const storedSchema = v.object({
  * Counts each tab's origin when its cached count is missing, and shows the cached one
  * otherwise (ADR 0021). A count runs after the runtime handled the tab's top-frame
  * announcement, or 5 seconds after a finished load the page never announced; worker
- * starts, tab activation and finished loads only show a cached count.
+ * starts, tab activation and finished loads only show a cached count. A settings or vault
+ * change counts the misses of tabs whose page announced (or whose 5 seconds passed). A
+ * count stopped for a login or an admission shows `busy` and is tried again after each of
+ * `STOPPED_RETRY_MS`, after the next handled announcement, or when a login ends.
  */
 export function createSiteCounter(deps: {
   /** Settings and vaults as a count reads them; never opens a vault. */
@@ -286,8 +343,13 @@ export function createSiteCounter(deps: {
   const cache = new Map<string, { key: string; count: SiteCount }>();
   /** Each tab's counted origin, as last told. */
   const tabs = new Map<number, string>();
-  /** Tabs whose page announced since the tab last started loading. */
-  const announced = new Set<number>();
+  /**
+   * Tabs whose page announced since the tab last started loading, whose 5 seconds passed
+   * without one, or that had finished loading when the worker started.
+   */
+  const settled = new Set<number>();
+  /** Origins whose count a login or an admission stopped: retries so far and the next one. */
+  const retries = new Map<string, { attempt: number; timer?: ReturnType<typeof setTimeout> }>();
   const timers = new Map<number, ReturnType<typeof setTimeout>>();
   /** Origins waiting for or in a count. */
   const queued = new Set<string>();
@@ -365,10 +427,17 @@ export function createSiteCounter(deps: {
   function readScope(): Promise<CountScope> {
     return deps.scope().catch(() => ({ unchecked: "unreadable" as const }));
   }
-  /** Shows each given tab's cached count, from one read of the settings and records. */
+  /**
+   * Shows each given tab's cached count, from one read of the settings and records, and
+   * counts the misses of tabs whose page has settled.
+   */
   async function applyAll(entries: Iterable<[number, string]>): Promise<void> {
     const read = readScope();
-    await Promise.all([...entries].map(([tabId, origin]) => apply(tabId, origin, read)));
+    await Promise.all(
+      [...entries].map(async ([tabId, origin]) => {
+        if ((await apply(tabId, origin, read)) && settled.has(tabId)) enqueue(origin);
+      }),
+    );
   }
   function enqueue(origin: string): void {
     if (queued.has(origin)) return;
@@ -378,45 +447,87 @@ export function createSiteCounter(deps: {
       .catch(() => undefined)
       .finally(() => queued.delete(origin));
   }
+  const showing = (origin: string) => [...tabs.values()].includes(origin);
+  function dropRetry(origin: string): void {
+    clearTimeout(retries.get(origin)?.timer);
+    retries.delete(origin);
+  }
+  /** A login or an admission stopped the count: the tabs say so and it is tried again. */
+  function stopped(origin: string): void {
+    showAll(origin, { kind: "unchecked", reason: "busy" });
+    const attempt = retries.get(origin)?.attempt ?? 0;
+    clearTimeout(retries.get(origin)?.timer);
+    const wait = STOPPED_RETRY_MS[attempt];
+    retries.set(origin, {
+      attempt: attempt + 1,
+      ...(wait === undefined
+        ? {}
+        : {
+            timer: setTimeout(() => {
+              if (showing(origin)) enqueue(origin);
+              else dropRetry(origin);
+            }, wait),
+          }),
+    });
+  }
+  /** Tries every stopped count again now, as when a login ended. */
+  function retryStopped(): void {
+    for (const [origin, { timer }] of retries) {
+      clearTimeout(timer);
+      if (!showing(origin)) {
+        retries.delete(origin);
+        continue;
+      }
+      retries.set(origin, { attempt: 0 });
+      enqueue(origin);
+    }
+  }
   async function countOrigin(origin: string): Promise<void> {
-    if (![...tabs.values()].includes(origin)) return;
+    if (!showing(origin)) {
+      dropRetry(origin);
+      return;
+    }
+    let counted: { key: string; state: SiteCountState | undefined } | undefined;
     const release = await deps.hold();
     try {
       const scope = await readScope();
-      if ("unchecked" in scope) {
-        showAll(origin, { kind: "unchecked", reason: scope.unchecked });
-        return;
+      const cached = "key" in scope ? cache.get(origin) : undefined;
+      if ("unchecked" in scope) showAll(origin, { kind: "unchecked", reason: scope.unchecked });
+      else if (cached?.key === scope.key) showAll(origin, { kind: "count", count: cached.count });
+      else {
+        let state: SiteCountState | undefined;
+        try {
+          state = await countSite(origin, scope, deps.step);
+        } catch {
+          state = { kind: "unchecked", reason: "unreadable" };
+        }
+        counted = { key: scope.key, state };
       }
-      const cached = cache.get(origin);
-      if (cached?.key === scope.key) {
-        showAll(origin, { kind: "count", count: cached.count });
-        return;
-      }
-      let state: SiteCountState | undefined;
-      try {
-        state = await countSite(origin, scope, deps.step);
-      } catch {
-        state = { kind: "unchecked", reason: "unreadable" };
-      }
-      // Stopped for a login or a page; the page's next announcement counts again.
-      if (!state) return;
-      if (state.kind === "count") {
-        remember(origin, { key: scope.key, count: state.count });
-        save();
-      }
-      // Settings saved or a vault locked meanwhile: the tabs show what applies now.
-      const now = readScope();
-      const current = await now;
-      if ("key" in current && current.key === scope.key) showAll(origin, state);
-      else
-        await Promise.all(
-          [...tabs]
-            .filter(([, shown]) => shown === origin)
-            .map(([tabId]) => apply(tabId, origin, now)),
-        );
     } finally {
+      // Only the count's own jobs keep vault replacement off.
       release();
     }
+    if (!counted?.state) {
+      if (counted) stopped(origin);
+      else dropRetry(origin);
+      return;
+    }
+    dropRetry(origin);
+    const { key, state } = counted;
+    if (state.kind === "count") {
+      remember(origin, { key, count: state.count });
+      save();
+    }
+    // Settings saved or a vault locked meanwhile: the tabs show what applies now.
+    const now = readScope();
+    const current = await now;
+    if ("key" in current && current.key === key) showAll(origin, state);
+    else
+      await Promise.all(
+        [...tabs]
+          .filter(([, shown]) => shown === origin)
+          .map(([tabId]) => apply(tabId, origin, now)),
+      );
   }
   function stopTimer(tabId: number): void {
     clearTimeout(timers.get(tabId));
@@ -431,21 +542,25 @@ export function createSiteCounter(deps: {
   }
 
   return {
-    /** Shows the cached count of the tab's page, as at worker start or tab activation. */
+    /** Shows the cached count of the tab's page, as on tab activation. */
     async apply(tabId: number, url: string | undefined): Promise<void> {
       const origin = track(tabId, url);
       if (origin) await apply(tabId, origin);
     },
     /** The tab's top frame announced and the runtime handled it. */
     async announced(tabId: number, url: string): Promise<void> {
-      announced.add(tabId);
+      settled.add(tabId);
       stopTimer(tabId);
       const origin = track(tabId, url);
       if (origin && (await apply(tabId, origin))) enqueue(origin);
+      // The admission that stopped another count has ended.
+      retryStopped();
     },
+    /** A login ended, so counts it stopped may run now. */
+    retryStopped,
     /** The tab started loading a page, which has not announced yet. */
     loading(tabId: number): void {
-      announced.delete(tabId);
+      settled.delete(tabId);
       stopTimer(tabId);
     },
     /** The tab's page finished loading; a page that never announces is counted later. */
@@ -454,36 +569,51 @@ export function createSiteCounter(deps: {
       const origin = track(tabId, url);
       if (!origin) return;
       await apply(tabId, origin);
-      if (announced.has(tabId) || tabs.get(tabId) !== origin) return;
+      if (settled.has(tabId) || tabs.get(tabId) !== origin) return;
       // Another load may have armed one while the cached count was read.
       stopTimer(tabId);
       timers.set(
         tabId,
         setTimeout(() => {
           timers.delete(tabId);
-          if (announced.has(tabId) || tabs.get(tabId) !== origin) return;
+          if (settled.has(tabId) || tabs.get(tabId) !== origin) return;
+          settled.add(tabId);
           void apply(tabId, origin).then((miss) => miss && enqueue(origin));
         }, UNANNOUNCED_COUNT_MS),
       );
     },
-    /** Settings or a vault changed: counts made for the previous ones stop showing. */
+    /**
+     * Settings or a vault changed: counts made for the previous ones stop showing, and
+     * settled tabs are counted again.
+     */
     async refresh(): Promise<void> {
       await applyAll(tabs);
     },
-    /** Shows the cached counts of every open tab, as at worker start. */
+    /**
+     * Shows the cached counts of every open tab, as at worker start; a tab that had
+     * finished loading counts as settled, since its page announced to the worker before.
+     */
     async applyTabs(
-      entries: readonly { id?: number | undefined; url?: string | undefined }[],
+      entries: readonly {
+        id?: number | undefined;
+        url?: string | undefined;
+        status?: string | undefined;
+      }[],
     ): Promise<void> {
       const counted: [number, string][] = [];
-      for (const { id, url } of entries) {
+      for (const { id, url, status } of entries) {
         const origin = id === undefined ? undefined : track(id, url);
-        if (id !== undefined && origin) counted.push([id, origin]);
+        if (id === undefined || !origin) continue;
+        if (status === "complete") settled.add(id);
+        counted.push([id, origin]);
       }
-      await applyAll(counted);
+      // Only shows: a count waits for an announcement or a change.
+      const read = readScope();
+      await Promise.all(counted.map(([tabId, origin]) => apply(tabId, origin, read)));
     },
     removed(tabId: number): void {
       tabs.delete(tabId);
-      announced.delete(tabId);
+      settled.delete(tabId);
       stopTimer(tabId);
     },
     /** For tests: resolves once every queued count has finished. */

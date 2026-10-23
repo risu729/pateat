@@ -141,7 +141,17 @@ const UNCHECKED_TITLES: Record<UncheckedReason, string> = {
     "Pateat: the vault has not been opened since Pateat restarted, so this site's accounts were not counted.",
   unreadable: "Pateat: the vault could not be read, so this site's accounts were not counted.",
   updating: "Pateat: the vault is being updated, so this site's accounts were not counted.",
+  busy: "Pateat: a login or a page check was using the vault, so this site's accounts were not counted yet.",
 };
+/** Why the matching items beyond the usable ones cannot be used, by how many there are. */
+function moreTitle(more: number, excluded: SiteCount["excluded"]): string {
+  const one = more === 1;
+  if (excluded === "review")
+    return ` ${more} more ${one ? "waits" : "wait"} for a custom-field review in settings.`;
+  if (excluded === "items-review")
+    return ` ${more} more ${one ? "is" : "are"} excluded or ${one ? "waits" : "wait"} for a custom-field review in settings.`;
+  return ` ${more} more ${one ? "is" : "are"} excluded in settings.`;
+}
 
 /** The badge text, colours and title of a site count (ADR 0021); no text for none. */
 export function countBadge(state: SiteCountState): Partial<Shown> & { title: string } {
@@ -157,7 +167,7 @@ export function countBadge(state: SiteCountState): Partial<Shown> & { title: str
       text: text(usable),
       ...STYLES.usable,
       title: `Pateat: ${plural(usable, "account", "accounts")} for this site.${
-        more ? ` ${more} more ${more === 1 ? "is" : "are"} excluded.` : ""
+        more ? moreTitle(more, excluded) : ""
       }${unknown}`,
     };
   }
