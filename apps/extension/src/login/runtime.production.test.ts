@@ -25407,6 +25407,27 @@ describe("an item without a password, up to its password (ADR 0036)", () => {
     expect(passwordRead(h)).toBe(false);
   });
 
+  it("keeps the login watched at its stop when a later page is judged rejected", async () => {
+    vi.useFakeTimers();
+    // No password was submitted, so the judge's rejection refuses none (ADR 0036).
+    const { judge, generation } = judging({ verdict: "rejected" });
+    const { h, report } = start({ generation });
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => status()?.[0]?.["state"] === "watching");
+    const sent = judge.mock.calls.length;
+    fake.state.signs = quiet;
+    fake.state.pageUrl = `${origin}/home`;
+    fake.state.observedPath = "/home";
+    fake.state.present = new Set();
+    fake.state.extracted = { "signed-in": described("/home") };
+    expect(await h.hello({ documentId: "home-document" }, false)).toMatchObject({ ok: true });
+    await until(() => judge.mock.calls.length === sent + 1);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(status()![0]).toMatchObject({ state: "watching", outcome: "challenge" });
+    expect(judgements(report).at(-1)).toMatchObject({ verdict: "rejected", watched: true });
+    expect(passwordRead(h)).toBe(false);
+  });
+
   it("ends at the stop when the attempt refuses the answer", async () => {
     vi.useFakeTimers();
     // A login left at its stop by a stopped worker, with its submissions spent.

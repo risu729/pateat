@@ -3329,6 +3329,27 @@ describe("a login that stops before a missing password (ADR 0036)", () => {
     const sent = advanced();
     expect(transitionLoginAttempt(sent, judging)).toEqual(sent);
     expect(transitionLoginAttempt(sent, { type: "UNJUDGED" })).toEqual(sent);
+    // A login watched after its advance's own challenge still names that step.
+    const challenged = transitionLoginAttempt(
+      sent,
+      { type: "OBSERVED", result: "challenge", document: top },
+      1000,
+    );
+    expect(challenged).toMatchObject({ state: "watching", operationId: "next-one" });
+    expect(transitionLoginAttempt(challenged, judging)).toEqual(challenged);
+    expect(
+      transitionLoginAttempt(challenged, { type: "JUDGING", operationId: "next-one" }).watch,
+    ).toMatchObject({ pages: 1 });
+    // Nor is a page judged without one for a login at its stop that settled as unknown
+    // after a new page, which is not watched at the stop.
+    const settled = transitionLoginAttempt(
+      transitionLoginAttempt(atStop(), { type: "NAVIGATED", document: top }),
+      { type: "OBSERVED", result: "unknown", document: top },
+      1000,
+    );
+    expect(settled).toMatchObject({ state: "reconciling", settled: true, stepIndex: 2 });
+    expect(settled.operationId).toBeUndefined();
+    expect(transitionLoginAttempt(settled, judging)).toEqual(settled);
   });
 
   it("counts an answer at the stop as a submission and goes on no further", () => {

@@ -61,10 +61,11 @@ But the route choice never starts the `password` route for an item without a pas
    then ends as below.
 4. **The end.** At the stop, the login waits up to three seconds for a request, counting
    one that was already waiting. Without one it fills nothing and ends `challenge`, and
-   is watched for ten minutes, as a top-level `password` login that stops at
-   `challenge` is (ADR 0027). Requests during the watch are no longer the login's
-   (ADR 0027, ADR 0034 rule 5). The watch's own pages are judged as any watched login's
-   are, though the login has no step in flight.
+   is watched for ten minutes, as a top-level `password` login that stops at `challenge`
+   is (ADR 0027). Requests during the watch are no longer the login's (ADR 0027, ADR
+   0034 rule 5). The watch's own pages are judged as any watched login's are, though the
+   login has no step in flight; a page judged rejected leaves it watched, since it
+   submitted no password.
 5. **Signed in or not.** For these logins the username in the header or navigation (ADR
    0029 E2) is not taken as a sign-in, also while watched and on a move to another
    origin of the site (ADR 0022): a page after the identifier has no password field and

@@ -549,6 +549,18 @@ const leftOrigin = (left: LoginDocument, right: LoginDocument) =>
   left.tabId === right.tabId &&
   left.origin !== right.origin;
 /**
+ * Whether a login of an item without a password is watched at its stop with nothing in
+ * flight (ADR 0036): its watch's pages are judged, though no step names them.
+ */
+export const watchedAtStop = (
+  context: Pick<LoginAttemptMetadata, "state" | "watch" | "stopAt" | "stepIndex" | "operationId">,
+): boolean =>
+  context.state === "watching" &&
+  context.watch !== undefined &&
+  context.stopAt !== undefined &&
+  context.stepIndex === context.stopAt &&
+  context.operationId === undefined;
+/**
  * The current operation may have submitted or changed the page. A fill whose failure
  * confirmed that it changed nothing, or that failed before its intent, waits to be tried
  * again and did not (ADR 0022).
@@ -1057,19 +1069,25 @@ function createLoginAttemptMachine() {
         event.result === "unknown" &&
         (!event.document || sameScope(context.document, event.document)),
       // Only an effect step's result is judged, and only a bounded number of pages: after
-      // the step, then again while the login is watched (ADR 0027), as is a login watched
-      // at its stop with nothing in flight (ADR 0036).
+      // the step, then again while the login is watched (ADR 0027).
       canJudge: ({ context, event }) =>
         event.type === "JUDGING" &&
-        (event.operationId === undefined
-          ? context.watch !== undefined && context.operationId === undefined
-          : operationMatches(context, event) &&
-            (context.operationKind === "click" ||
-              context.operationEffect === "advance" ||
-              context.operationEffect === "submit")) &&
+        event.operationId !== undefined &&
+        operationMatches(context, event) &&
+        (context.operationKind === "click" ||
+          context.operationEffect === "advance" ||
+          context.operationEffect === "submit") &&
         pagesLeft(context, event.operationId) > 0,
+      // So are the pages of a login watched at its stop, which has no step in flight to name
+      // (ADR 0036).
+      canJudgeWatchedStop: ({ context, event }) =>
+        event.type === "JUDGING" &&
+        event.operationId === undefined &&
+        watchedAtStop(context) &&
+        pagesLeft(context, undefined) > 0,
       canUnjudge: ({ context, event }) =>
         event.type === "UNJUDGED" &&
+        (event.operationId !== undefined || watchedAtStop(context)) &&
         (context.watch ? context.watch.pages : judgedPages(context, event.operationId)) > 0,
       watchEnds: ({ context }) => context.watch !== undefined,
       // One request per final advance, recorded before it is sent (ADR 0018). A login with
@@ -1328,7 +1346,10 @@ function createLoginAttemptMachine() {
             { guard: "observedAuthenticated", target: "authenticated", actions: "record" },
             { guard: "observedCredentialRejected", target: "blocked", actions: "record" },
           ],
-          JUDGING: { guard: "canJudge", actions: "record" },
+          JUDGING: [
+            { guard: "canJudge", actions: "record" },
+            { guard: "canJudgeWatchedStop", actions: "record" },
+          ],
           UNJUDGED: { guard: "canUnjudge", actions: "record" },
           WATCH_ENDED: { target: "blocked", actions: "watchEnded" },
           // A restart or a new page of the tab keeps the watch; it has nothing in flight.
