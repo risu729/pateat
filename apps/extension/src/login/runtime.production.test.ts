@@ -14951,6 +14951,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
           clear: async () => undefined,
         },
         schedule: { read: async () => undefined, write: async () => undefined },
+        build: "development",
         settings,
       });
       const judgeCompletion = vi

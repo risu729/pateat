@@ -7,6 +7,7 @@ import {
   syncDeviceStateSchema,
   syncRecipeChangeSchema,
   syncRecipeChangesSchema,
+  syncRecipeIdSchema,
   syncRecipeWriteResultSchema,
   syncSettingsStateSchema,
   type DevicePairResult,
@@ -143,12 +144,85 @@ export type DeviceStateResult =
 type Timed = { timing?: ServiceTiming };
 
 export type RecipeChangesResult = (
-  | { kind: "page"; page: SyncRecipeChanges }
+  | {
+      kind: "page";
+      /** The page without the changes in `unreadable`. */
+      page: SyncRecipeChanges;
+      /**
+       * The recipe IDs of active changes whose recipe this build cannot read, as one the
+       * service stored with a locator a newer build added; left out of `page`.
+       */
+      unreadable?: string[];
+    }
   /** The service no longer accepts this device's credential. */
   | { kind: "rejected" }
   | { kind: "failed"; error: TransportFailure }
 ) &
   Timed;
+
+const writtenRevision = v.pipe(
+  v.number(),
+  v.integer(),
+  v.minValue(1),
+  v.maxValue(Number.MAX_SAFE_INTEGER - 1),
+);
+/**
+ * Each change read before its recipe: an active change's own fields and the recipe's
+ * identity must read and match, so only the recipe's body can be left out; a tombstone is
+ * read in full with the page.
+ */
+const recipeChangesPageSchema = v.strictObject({
+  ...syncRecipeChangesSchema.entries,
+  changes: v.pipe(
+    v.array(
+      v.union([
+        v.pipe(
+          v.strictObject({
+            recipeId: syncRecipeIdSchema,
+            revision: writtenRevision,
+            state: v.literal("active"),
+            recipe: v.looseObject({ id: v.unknown(), revision: v.unknown() }),
+          }),
+          v.check(
+            (change) =>
+              change.recipe.id === change.recipeId && change.recipe.revision === change.revision,
+          ),
+        ),
+        v.looseObject({ recipeId: syncRecipeIdSchema, state: v.literal("revoked") }),
+      ]),
+    ),
+    v.maxLength(SYNC_PAGE_LIMIT),
+  ),
+});
+/**
+ * A sync page read change by change: an active change whose recipe this build cannot read,
+ * as one stored by a service that is newer than the extension, is left out and named, so
+ * the rest of the page and every later page still reach the cache (#959). Undefined when the
+ * page itself, a change's own fields or its recipe's identity, or a tombstone does not read.
+ */
+function readRecipeChanges(
+  body: unknown,
+): { page: SyncRecipeChanges; unreadable: string[] } | undefined {
+  const envelope = v.safeParse(recipeChangesPageSchema, body);
+  if (!envelope.success) return undefined;
+  // Each change is checked as sent: the identity read drops keys a strict object refuses.
+  const sent = (body as { changes: unknown[] }).changes;
+  const changes: unknown[] = [];
+  const unreadable: string[] = [];
+  for (const [index, change] of envelope.output.changes.entries()) {
+    if (v.is(syncRecipeChangeSchema, sent[index])) changes.push(sent[index]);
+    else if (change.state === "active") unreadable.push(change.recipeId);
+    else return undefined;
+  }
+  // A recipe left out still counts once, so a page naming it twice stays refused.
+  if (
+    new Set(envelope.output.changes.map((change) => change.recipeId)).size !==
+    envelope.output.changes.length
+  )
+    return undefined;
+  const page = v.safeParse(syncRecipeChangesSchema, { ...envelope.output, changes });
+  return page.success ? { page: page.output, unreadable } : undefined;
+}
 
 export type SettingsResult = (
   | { kind: "state"; state: SyncSettingsState }
@@ -556,10 +630,15 @@ export function createServiceTransport(
       const timed = { timing: response.timing };
       if ("failed" in response) return { kind: "failed", error: response.failed, ...timed };
       if (response.status === 200) {
-        const parsed = v.safeParse(syncRecipeChangesSchema, response.body);
+        const read = readRecipeChanges(response.body);
         // A page that moves the cursor backwards would replay or skip changes.
-        return parsed.success && parsed.output.cursor >= after
-          ? { kind: "page", page: parsed.output, ...timed }
+        return read && read.page.cursor >= after
+          ? {
+              kind: "page",
+              page: read.page,
+              ...(read.unreadable.length ? { unreadable: read.unreadable } : {}),
+              ...timed,
+            }
           : { kind: "failed", error: "unexpected-response", ...timed };
       }
       if (rejected(response)) return { kind: "rejected", ...timed };

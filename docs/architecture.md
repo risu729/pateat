@@ -1990,7 +1990,7 @@ be told apart
 | `vault.sign-in` | info, except warn for an error other than `cancelled` and `setup-expired` and for an email code that was not sent | the settings-page sign-in step (`begin` for the password, `continue` for the code, `send-email-code`, or `keep-alive` only when the heartbeat found the sign-in gone) and its result kind, `code-refused` when the server refused the code and the sign-in still waits, email send result or error code. No connection: a new connection's challenge shows before its ID is listed |
 | `vault.check` | debug for `unchanged`, `skipped` and the same outcome as the connection's last stored check other than `synced`, also after the worker restarted (such as a sign-in that still needs the password, where no request is sent); otherwise info for `synced` and `deferred` (the replacement waits for a login or passkey request), else warn | connection pseudonym and the automatic check's outcome (ADR 0025): `unchanged`, `synced`, `deferred`, `rate-limited`, `failed`, `reauthentication-required`, `account-deleted` or `skipped` |
 | `vault.refresh` | debug for `refreshed`, info for `not-sent`, else warn | connection pseudonym; `not-sent` when no usable session was refreshed and no refresh was sent, with why: `no-session`, `no-refresh-token`, `claimed` (another refresh in this worker holds it), `provider-permission-required`, `cancelled` or the store's error code; `refreshed`, `restored` (the session was put back after a network failure, timeout, 429 or 5xx), `rejected`, `account-mismatch` or `failed` (a non-retryable error drops the claim's refresh token so the sync sign-in needs the password; a store error leaves the claim to resume; a conflict means forget or a password sign-in replaced it); the transport or store error code and HTTP status when there is one |
-| `service.sync` | debug for `synced`, `incomplete`, `not-connected` unless a recipe was added, updated or removed, then info; info for `unreachable`, since a device offline for a while would otherwise fill the warnings, and `busy` (a settings write that waits for a login, a sync superseded by a later one, or attempts that ran out); else warn | recipe and settings sync outcome; `full`, or `recipes` for a recipes-only run after a judged page; recipes added, updated and removed in the cache; how long the run's requests took, added up ([timing](#request-and-login-timing)): `roundTripMs`, and `serverMs` and `networkMs` when every answer named the service's time |
+| `service.sync` | warn when a change was left out as `unreadable`; debug for `synced`, `incomplete`, `not-connected` unless a recipe was added, updated or removed, then info; info for `unreachable`, since a device offline for a while would otherwise fill the warnings, and `busy` (a settings write that waits for a login, a sync superseded by a later one, or attempts that ran out); else warn | recipe and settings sync outcome; `full`, or `recipes` for a recipes-only run after a judged page; recipes added, updated and removed in the cache; `unreadable`, active changes left out because this build cannot read their recipe ([minimal service](#minimal-service)); how long the run's requests took, added up ([timing](#request-and-login-timing)): `roundTripMs`, and `serverMs` and `networkMs` when every answer named the service's time |
 | `service.outcome` | info for `kept` and `failed:unreachable`, else warn | recipe ID and revision (`recipeRevision`), the chooser branch, and the result of one [first login result](#first-login-results-on-the-service) request: `kept`, `refused`, `rejected` or `failed:<code>` |
 | `service.login` | info for `kept`, `refused` and `failed:unreachable`, else warn | recipe ID and revision (`recipeRevision`), the chooser branch, and the result of one [login record](#login-records-on-the-service) request: `kept`, `refused`, `rejected` or `failed:<code>`, or `failed:invalid-record` for a record the contract refuses, which is not sent |
 | `service.use` | debug for `kept` and `refused`, info for `failed:unreachable`, else warn | recipe ID and revision (`recipeRevision`), the layout used (`layout`, [ADR 0060](adr/0060-recipe-layouts.md)) and the result of one [recipe use](#recipe-use-on-the-service) request: `kept`, `refused` (a 404, as for a recipe revoked meanwhile), `rejected` or `failed:<code>` |
@@ -3230,6 +3230,22 @@ gets `recipe-limit` for that generation until the web UI revokes it.
 instead of `recipes`, and the Sites list shows it under Unreadable recipes with Revoke.
 A head whose recipe ID or revision itself fails its contract still answers 500.
 
+The extension reads a change page one change at a time
+([#959](https://github.com/risu729/pateat/issues/959)). The service deploys from `main`
+before an extension is updated, so it can send an active recipe this build's contracts
+reject, such as one with a locator a newer build added. Such a change is left out and
+the rest of the page is applied, so recipes written after it, including one just
+generated for this device, still reach the cache. The cursor moves past it, and the
+device keeps any earlier revision of that recipe it held. The cache records the build
+that left a change out (`unreadableBy`); a sync by any other build reads every head
+again from cursor 0, keeping the cached recipes meanwhile, so the recipe arrives once an
+updated extension can read it; it also replaces the recovery checkpoint of a walk from
+the old cursor with one that skips nothing. `service.sync` counts the changes left out
+as `unreadable`, at warn. Only a recipe's body is left out: a page still fails as
+`unexpected-response` when its own fields, a change's `recipeId`, `revision` or `state`,
+a recipe's `id` and `revision` matching its change's, or a tombstone do not read, or a
+change has another field.
+
 Keep provider selection independent of recipe contracts: Claude for bounded generation
 and Clef-flash, Clef and Jev for finite choices are evaluation candidates, not fixed
 model requirements. Initial inference uses server-held keys. A future direct adapter
@@ -3471,12 +3487,12 @@ these yet. Each says what a device does and how to recover.
   Disconnecting and pairing each device again recovers recipes, since a new pairing
   starts from an empty cache; it does not recover settings, because local settings stay
   and the new pairing merges them without a base as well.
-- An extension built before the service, whose contracts reject a recipe or settings
-  document the service sends. The page fails as an unexpected response, and recipe sync
-  stops at it in the same way, revocations included, while login keeps using the cache;
-  a settings document it cannot read stops settings sync. Updating the extension
-  recovers.
-- Sync records that a new build cannot read after an extension update. The recipe cache
+- An extension built before the service, whose contracts reject a settings document the
+  service sends. Settings sync stops at it until the extension is updated. A recipe it
+  cannot read no longer stops recipe sync: that change is left out until an update
+  ([minimal service](#minimal-service)).
+- Sync records that a new build cannot read after an extension update, or an older
+  build after a downgrade (such as a cache with `unreadableBy`). The recipe cache
   is discarded and synced again from the start, and each recipe is found only once its
   page arrives. The settings base is discarded too, so the next merge has none: an entry
   that the service or another device removed since this device last synced comes back
