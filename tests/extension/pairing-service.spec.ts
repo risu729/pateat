@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PATEAT_EXTENSION_ID } from "../../packages/contracts/src/index";
+import { sendToBackground } from "./background-message";
 import { ACCESS_COOKIE, startSyncService, type SyncService } from "./sync-service";
 
 // Direct pairing (ADR 0020) in bundled Chromium against the built Worker behind a
@@ -15,6 +16,8 @@ import { ACCESS_COOKIE, startSyncService, type SyncService } from "./sync-servic
 const repository = fileURLToPath(new URL("../../", import.meta.url));
 const extensionDirectory = resolve(repository, "apps/extension/.output/chrome-mv3");
 const EXTENSION_ORIGIN = `chrome-extension://${PATEAT_EXTENSION_ID}`;
+/** How often the settings page checks for the first sync after pairing (`SYNC_POLL_MS`). */
+const SYNC_POLL_MS = 10_000;
 
 async function withProduction(run: (context: BrowserContext, options: Page) => Promise<void>) {
   const profile = await mkdtemp(resolve(tmpdir(), "pateat-pairing-test-"));
@@ -142,6 +145,8 @@ test("pairs in one click from the background with the browser's session", async 
   const service = await startSyncService({ access: true });
   try {
     await withProduction(async (context, options) => {
+      // The settings page checks for the first sync on a timer, run here on its clock.
+      await options.clock.install();
       await signIn(context, service);
       const sent = pageRequests(options, service);
       await pair(options, service);
@@ -173,6 +178,11 @@ test("pairs in one click from the background with the browser's session", async 
         .toBeGreaterThan(0);
       for (const request of service.requests.filter((entry) => entry.path.startsWith("/v1/")))
         expect(request.cookie).toBeNull();
+      // Once the background finished that sync, the page's next check shows it.
+      await expect
+        .poll(() => sendToBackground(options, { version: 1, type: "service.get" }))
+        .toMatchObject({ ok: true, state: { kind: "connected", syncedAt: expect.any(Number) } });
+      await options.clock.runFor(SYNC_POLL_MS);
       await expect(options.getByText(/^Recipes and settings synced /)).toBeVisible({
         timeout: 15_000,
       });

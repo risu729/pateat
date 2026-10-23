@@ -418,6 +418,11 @@ Probe-only interruption controls pause after durable intent but before delivery,
 or after execution but before acknowledgement. Only validated messages from the
 extension settings page can configure these controls; web pages cannot. Worker
 restart tests reconcile the retained intent without repeating a fill or click.
+The probe's login configuration can also shorten the 10-second wait for a step's
+elements and an advance's confirmation (`stepWaitMs`), so a test runs past that wait
+by waiting for its result instead of sitting it out; the production build always waits
+the full time. The probe's login status also counts the observations of each document's
+page that a login got back, so a test can wait until a held page was checked again.
 The probe has no real-provider adapter. Its fixed localhost recipes and
 setup messages are excluded from the production build. Chrome use may not be
 able to operate another extension's settings page; manual setup is a supported
