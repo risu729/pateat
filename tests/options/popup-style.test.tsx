@@ -63,6 +63,7 @@ test("long hostnames and usernames wrap inside the 360px popup", async () => {
       held: true,
     }),
     pick: vi.fn<ChoiceClient["pick"]>(),
+    pause: vi.fn<ChoiceClient["pause"]>(),
     status: vi.fn<ChoiceClient["status"]>().mockResolvedValue({ ok: false, reason: "no-page" }),
     switchTo: vi.fn<ChoiceClient["switchTo"]>().mockResolvedValue({ ok: true }),
   };
@@ -120,6 +121,7 @@ test("the page section's long log codes wrap inside the 360px popup", async () =
   const choices = {
     get: vi.fn<ChoiceClient["get"]>().mockResolvedValue({ ok: false, reason: "no-choice" }),
     pick: vi.fn<ChoiceClient["pick"]>(),
+    pause: vi.fn<ChoiceClient["pause"]>(),
     status: vi.fn<ChoiceClient["status"]>().mockResolvedValue({
       ok: true,
       origin: ORIGIN,

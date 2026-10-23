@@ -163,3 +163,21 @@ Pateat's rule is in [Background execution](architecture.md#background-execution)
   next attempt starts a new sign-in and sends a new code; the official page shows
   "invalid verification code" and keeps the sign-in for another try
   ([two-factor-auth.component.ts](https://github.com/bitwarden/clients/blob/86f41566aebe5a024796df8abfb3d4d89ec509c1/libs/auth/src/angular/two-factor-auth/two-factor-auth.component.ts#L338-L353)).
+
+## After a logout, pausing and switching accounts
+
+Proposed on 2026-10-23, not accepted
+([ADR 0062](adr/0062-log-in-again-after-a-logout.md),
+[ADR 0063](adr/0063-switch-accounts-from-the-popup.md)).
+
+- The official extension never presses a button, and its "Autofill on page load" fills
+  on every load without telling a logout apart
+  ([Bitwarden help](https://bitwarden.com/help/auto-fill-browser/)). Pateat logs in
+  again after a logout, unless the same site has logged in automatically twice in the
+  last 10 minutes.
+- The official extension has no timed pause; its blocked domains stop autofill, passkey
+  prompts and save prompts until removed. Pateat's popup pauses a registrable site's
+  automatic login for one hour on the device, besides the synced "Pateat on this site"
+  exclusion.
+- The official extension does not log out of sites. Pateat's popup switch logs a site
+  out with a control its model finds, then logs in with the picked item.

@@ -8,9 +8,11 @@ import {
   badgeResult,
   createLoginBadge,
   memoryBadgeStorage,
+  PAUSED_TEXT,
   setActionBadge,
   type BadgeDetails,
 } from "./badge";
+import { localClock } from "../time";
 import type { LoginReport } from "./runtime";
 
 const action = vi.hoisted(() => ({
@@ -257,12 +259,17 @@ describe("badgeResult for refusals", () => {
     },
   );
 
-  it.each(["no-recipe", "logged-in", "account-ambiguous", "origin-busy", "tab-busy", "logged-out"])(
-    "shows nothing for a %s refusal",
-    (reason) => {
-      expect(badgeResult(refusal(reason, { detail: "x" }), 1000)).toBeUndefined();
-    },
-  );
+  it.each([
+    "no-recipe",
+    "logged-in",
+    "account-ambiguous",
+    "account-asked",
+    "relogin-limit",
+    "origin-busy",
+    "tab-busy",
+  ])("shows nothing for a %s refusal", (reason) => {
+    expect(badgeResult(refusal(reason, { detail: "x" }), 1000)).toBeUndefined();
+  });
 });
 
 describe("setActionBadge", () => {
@@ -314,6 +321,70 @@ describe("login badge", () => {
     h.badge.note(tabId, undefined);
     await h.flush();
     expect(h.view()).toMatchObject(NONE);
+  });
+
+  it("shows a paused site's gray II until the pause ends, under a waiting choice (ADR 0062)", async () => {
+    const h = harness();
+    const until = Date.now() + 60 * 60_000;
+    const PAUSED = {
+      text: PAUSED_TEXT,
+      color: "#6b7280",
+      textColor: "#ffffff",
+      title: `Pateat: automatic login is paused on this site until ${localClock(until)}.`,
+    };
+    h.badge.observe(attempt({ outcome: "credential-rejected" }));
+    h.badge.paused(tabId, until);
+    await h.flush();
+    // A pause shows over a result, and a waiting choice's amber count over a pause.
+    expect(h.view()).toEqual(PAUSED);
+    h.badge.choice(tabId, { count: 1, title: "Pateat: choose an account." });
+    await h.flush();
+    expect(h.view()).toEqual({ text: "1", ...CHOICE, title: "Pateat: choose an account." });
+    h.badge.choice(tabId, undefined);
+    await h.flush();
+    expect(h.view()).toEqual(PAUSED);
+    // Another tab of the site shows it too; the pause ends by itself.
+    h.badge.paused(8, until);
+    await vi.advanceTimersByTimeAsync(60 * 60_000 - 1);
+    expect(h.view(8)).toMatchObject({ text: PAUSED_TEXT });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(h.view()).toMatchObject(FAILED);
+    expect(h.view(8)).toMatchObject({ text: "" });
+  });
+
+  it("drops a pause when the tab loads another site, or when it is resumed (ADR 0062)", async () => {
+    const h = harness();
+    const until = Date.now() + 60_000;
+    h.badge.loaded(tabId, `${origin}/signin`);
+    h.badge.paused(tabId, until);
+    await h.flush();
+    expect(h.view()).toMatchObject({ text: PAUSED_TEXT });
+    // Another origin of the same registrable site keeps the pause, through any redraw.
+    h.badge.loaded(tabId, `https://www.${new URL(origin).host}/account`);
+    h.badge.note(tabId, "Pateat: held.");
+    await h.flush();
+    expect(h.view()).toMatchObject({ text: PAUSED_TEXT });
+    h.badge.note(tabId, undefined);
+    // Chrome resets the badge for another site's page; the runtime sets that site's pause,
+    // if any, once it read it, so nothing draws the old one back meanwhile.
+    h.badge.loaded(tabId, "https://other.example/");
+    h.badge.note(tabId, "Pateat: held.");
+    await h.flush();
+    expect(h.view()).toMatchObject({ text: "", title: "Pateat: held." });
+    h.badge.note(tabId, undefined);
+    h.badge.paused(tabId, until);
+    await h.flush();
+    expect(h.view()).toMatchObject({ text: PAUSED_TEXT });
+    h.badge.replaced(9, tabId);
+    await h.flush();
+    expect(h.view(9)).toMatchObject({ text: PAUSED_TEXT });
+    h.badge.paused(9, undefined);
+    await h.flush();
+    expect(h.view(9)).toMatchObject(NONE);
+    // An end already past shows nothing.
+    h.badge.paused(9, Date.now());
+    await h.flush();
+    expect(h.view(9)).toMatchObject(NONE);
   });
 
   it("keeps the tab's badge through a revocation report (ADR 0058 A)", async () => {
@@ -788,25 +859,6 @@ describe("login badge", () => {
       busy: [],
       statuses: [[tabId, expect.objectContaining({ origin })]],
     });
-  });
-
-  it("keeps that a login only filled the form after a logout", async () => {
-    const h = harness();
-    h.badge.observe(attempt({ outcome: "cancelled", reason: "fill-only" }));
-    await h.flush();
-    expect(h.setValue).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        statuses: [
-          [tabId, { origin, login: { state: "blocked", outcome: "cancelled", fillOnly: true } }],
-        ],
-      }),
-    );
-    // A later login of the tab that is not fill-only drops it.
-    h.badge.observe(attempt({ state: "ready" }));
-    await h.flush();
-    expect(h.setValue).toHaveBeenLastCalledWith(
-      expect.objectContaining({ statuses: [[tabId, { origin, login: { state: "ready" } }]] }),
-    );
   });
 
   it("restores unexpired results and clears the spins a stopped worker left", async () => {
@@ -1333,39 +1385,6 @@ describe("page status", () => {
     // A repeat on another tab records nothing there either.
     h.badge.observe(refusal("no-route", { repeat: true, tabId: 8 }));
     expect(h.badge.status(8)).toBeUndefined();
-  });
-
-  it("records a logout of the tab, and whether the site rejected the login", async () => {
-    const h = harness();
-    const logout = (rejected?: true): LoginReport => ({
-      type: "logout",
-      tabId,
-      origin,
-      recipeId: "recipe",
-      recipeRevision: 1,
-      ...(rejected ? { rejected } : {}),
-    });
-    h.badge.observe(report({ outcome: "recipe" }));
-    h.badge.observe(attempt({ state: "authenticated" }));
-    h.badge.observe(logout());
-    expect(h.badge.status(tabId)).toEqual({
-      origin,
-      login: { state: "logged-out" },
-      generation: { outcome: "recipe" },
-    });
-    h.badge.observe(logout(true));
-    expect(h.badge.status(tabId)?.login).toEqual({ state: "logged-out", outcome: "rejected" });
-    await h.flush();
-    expect(await h.storage.getValue()).toMatchObject({
-      statuses: [[tabId, { login: { state: "logged-out", outcome: "rejected" } }]],
-    });
-    // The same logout again saves nothing; a new login replaces it.
-    h.setValue.mockClear();
-    h.badge.observe(logout(true));
-    await h.flush();
-    expect(h.setValue).not.toHaveBeenCalled();
-    h.badge.observe(start());
-    expect(h.badge.status(tabId)?.login).toEqual({ state: "started" });
   });
 
   it("tells whether a model request for the tab is in flight, as its spin shows", async () => {

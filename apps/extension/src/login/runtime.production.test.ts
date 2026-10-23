@@ -28,7 +28,8 @@ import { createRecipeSync } from "../service/recipes";
 import { createSettingsSync } from "../service/settings-sync";
 import type { ServiceTransport } from "../service/transport";
 import { acceptsSecret, type SecretInput } from "./inputs";
-import { statusResponseSchema } from "./choice-wire";
+import { pickFailure, statusResponseSchema } from "./choice-wire";
+import type { LoginPauses } from "./pause";
 import {
   createLoginBadge,
   memoryBadgeStorage,
@@ -85,6 +86,8 @@ const fake = vi.hoisted(() => {
       | ((message: Record<string, unknown>, tabId: number) => Promise<void>),
     /** Per-tab URLs; other tabs use `pageUrl`. */
     tabUrls: {} as Record<number, string>,
+    /** Tabs in an incognito window. */
+    incognito: new Set<number>(),
     /** Completion, then rejection target states reported by observation. */
     observed: ["unique", "missing"],
     observedPath: "/signin",
@@ -147,6 +150,8 @@ const fake = vi.hoisted(() => {
     logoutClick: { ok: true } as unknown,
     /** Runs when the document presses a logout click, as the page then changes. */
     onLogoutClick: undefined as undefined | ((message: Record<string, unknown>) => void),
+    /** The open tabs `tabs.query` lists, by ID; none when unset. */
+    openTabs: undefined as number[] | undefined,
   };
   const browser = {
     runtime: {
@@ -195,8 +200,17 @@ const fake = vi.hoisted(() => {
       },
     },
     tabs: {
-      query: async () => [],
-      get: async (id: number) => ({ id, url: state.tabUrls[id] ?? state.pageUrl }),
+      query: async () =>
+        (state.openTabs ?? []).map((id) => ({
+          id,
+          url: state.tabUrls[id] ?? state.pageUrl,
+          incognito: state.incognito.has(id),
+        })),
+      get: async (id: number) => ({
+        id,
+        url: state.tabUrls[id] ?? state.pageUrl,
+        incognito: state.incognito.has(id),
+      }),
       sendMessage: async (
         _tabId: number,
         message: Record<string, unknown>,
@@ -447,8 +461,8 @@ function harness(
     badge?: LoginBadge;
     /** An account switch's logout recipes and role (ADR 0063). */
     logout?: LogoutService | undefined;
-    /** Whether automatic login is paused for a page (ADR 0062). */
-    paused?: (url: string, incognito: boolean) => boolean;
+    /** The paused sites (ADR 0062), instead of the ones in `storage.session`. */
+    pauses?: LoginPauses;
   } = {},
 ) {
   const customFields = (fields: CustomField[]) =>
@@ -597,7 +611,7 @@ function harness(
     ...(live.vault ? { vault: live.vault } : {}),
     ...(live.signedIn ? { signedIn: live.signedIn } : {}),
     ...(live.logout ? { logout: live.logout } : {}),
-    ...(live.paused ? { paused: live.paused } : {}),
+    ...(live.pauses ? { pauses: live.pauses } : {}),
     ...(live.badge
       ? { badge: live.badge }
       : live.spin
@@ -659,6 +673,17 @@ const shownHello = (
     sender(from),
   );
 
+/** The toolbar popup pauses or resumes automatic login of a tab's site (ADR 0062). */
+const setPause = (
+  h: { login: { handle(message: unknown, sender: unknown): Promise<unknown> } },
+  paused: boolean,
+  tabId = 1,
+) =>
+  h.login.handle(
+    { version: 1, type: "login.pause.set", tabId, paused },
+    { id: "synthetic-extension", url: "chrome-extension://synthetic-extension/popup.html" },
+  );
+
 describe("production login document admission", () => {
   afterEach(() => {
     // Close every test's tabs, so no attempt left reconciling answers a later test.
@@ -677,6 +702,7 @@ describe("production login document admission", () => {
     fake.state.pageUrl = "https://login.example/signin";
     fake.state.onExecute = undefined;
     fake.state.tabUrls = {};
+    fake.state.incognito = new Set();
     fake.state.observed = ["unique", "missing"];
     fake.state.observedPath = "/signin";
     fake.state.present = undefined;
@@ -690,6 +716,8 @@ describe("production login document admission", () => {
     fake.state.extracted = {};
     fake.state.signs = undefined;
     fake.state.loaded = true;
+    fake.state.incognito = new Set();
+    fake.state.openTabs = undefined;
   });
   it("completes a saved-default HTTPS login with a local recipe and live field", async () => {
     const h = harness();
@@ -724,7 +752,7 @@ describe("production login document admission", () => {
     );
     expect(await h.hello()).toEqual({ ok: true });
     await vi.waitFor(() =>
-      expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
+      expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
         { state: "blocked", outcome: "wrong-account", submissions: 0, retries: 0 },
       ]),
     );
@@ -745,7 +773,7 @@ describe("production login document admission", () => {
     h.fields.mockImplementation(async ({ fieldId }) =>
       fieldId === "login.username" ? "my2@example.com" : "synthetic-secret",
     );
-    const attempts = () => fake.state.storage["pateat.login-attempts.v5"];
+    const attempts = () => fake.state.storage["pateat.login-attempts.v6"];
     const types = () => fake.state.messages.map((entry) => entry.type);
     expect(await h.hello()).toEqual({ ok: true });
     await vi.waitFor(() => expect(types()).toContain("login.switch"));
@@ -782,7 +810,7 @@ describe("production login document admission", () => {
     const executes = () => fake.state.messages.filter((entry) => entry.type === "login.execute");
     expect(await h.hello()).toEqual({ ok: true });
     await vi.waitFor(() =>
-      expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
+      expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
         { state: "blocked", outcome: "wrong-account", submissions: 0 },
       ]),
     );
@@ -797,7 +825,7 @@ describe("production login document admission", () => {
     const h = harness();
     expect(await h.hello()).toEqual({ ok: true });
     await vi.waitFor(() =>
-      expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
+      expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
         { state: "blocked", outcome: "value-mismatch", submissions: 0, retries: 0 },
       ]),
     );
@@ -820,15 +848,15 @@ describe("production login document admission", () => {
   );
   describe("telling of a login that signed in (ADR 0007)", () => {
     const attempts = () =>
-      (fake.state.storage["pateat.login-attempts.v5"] ?? []) as { state: string }[];
+      (fake.state.storage["pateat.login-attempts.v6"] ?? []) as { state: string }[];
     it("tells once when a login reaches signed in, and not again on the tab's next page", async () => {
       const signedIn = vi.fn<(tabId: number, origin: string) => void>();
       const h = harness({}, { signedIn });
       expect(await h.hello()).toEqual({ ok: true });
       await vi.waitFor(() => expect(attempts()).toMatchObject([{ state: "authenticated" }]));
       expect(signedIn.mock.calls).toEqual([[1, origin]]);
-      // The tab's next page of the site starts nothing and tells nothing.
-      await h.hello({ documentId: "next-page" });
+      // The tab's next page of the site, without its form, starts nothing and tells nothing.
+      await h.hello({ documentId: "next-page" }, false);
       await new Promise((resolve) => setTimeout(resolve, 50));
       expect(signedIn).toHaveBeenCalledOnce();
     });
@@ -889,7 +917,7 @@ describe("production login document admission", () => {
     const h = harness();
     expect(await h.hello()).toEqual({ ok: true });
     await vi.waitFor(() =>
-      expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
+      expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
         { state: "blocked", outcome: "fill-rejected", submissions: 0, retries: 0 },
       ]),
     );
@@ -1384,7 +1412,7 @@ describe("production login document admission", () => {
     };
     expect(await h.hello()).toEqual({ ok: true });
     await vi.waitFor(() =>
-      expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
+      expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
         { state: "reconciling", stepIndex: 1 },
       ]),
     );
@@ -1399,7 +1427,7 @@ describe("production login document admission", () => {
     // The page it led to proves the sign-in.
     expect(await h.hello({ documentId: "next-document" }, false)).toEqual({ ok: true });
     await vi.waitFor(() =>
-      expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
+      expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
         { state: "authenticated" },
       ]),
     );
@@ -1440,7 +1468,7 @@ describe("production login document admission", () => {
     };
     expect(await h.hello()).toEqual({ ok: true });
     await vi.waitFor(() =>
-      expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
+      expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
         { state: "blocked", outcome: "policy-changed", usedOperationIds: [] },
       ]),
     );
@@ -1475,7 +1503,7 @@ describe("production login document admission", () => {
     const h = harness({}, { report });
     expect(await h.hello()).toEqual({ ok: true });
     await vi.waitFor(() =>
-      expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
+      expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
         {
           state: "blocked",
           outcome: "retry-limit",
@@ -1511,7 +1539,7 @@ describe("production login document admission", () => {
     const h = harness();
     expect(await h.hello()).toEqual({ ok: true });
     await vi.waitFor(() =>
-      expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
+      expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
         { state: "authenticated", retries: 1 },
       ]),
     );
@@ -1525,7 +1553,7 @@ describe("production login document admission", () => {
     const clock = vi.spyOn(Date, "now").mockImplementation(() => now() + offset);
     const set = fake.browser.storage.local.set;
     fake.browser.storage.local.set = async (values: Record<string, unknown>) => {
-      const [record] = (values["pateat.login-attempts.v5"] ?? []) as Record<string, unknown>[];
+      const [record] = (values["pateat.login-attempts.v6"] ?? []) as Record<string, unknown>[];
       if (offset === 0 && record?.["state"] === "executing" && record["mutationIntent"])
         offset = 16_000;
       await set(values);
@@ -1535,7 +1563,7 @@ describe("production login document admission", () => {
       const h = harness({}, { report });
       expect(await h.hello()).toEqual({ ok: true });
       await vi.waitFor(() =>
-        expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
+        expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
           { state: "authenticated", retries: 1, submissions: 1 },
         ]),
       );
@@ -1564,12 +1592,12 @@ describe("production login document admission", () => {
     const first = harness();
     expect(await first.hello()).toEqual({ ok: true });
     await vi.waitFor(() =>
-      expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
+      expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
         { state: "blocked", outcome: "retry-limit" },
       ]),
     );
-    const [record] = fake.state.storage["pateat.login-attempts.v5"] as Record<string, unknown>[];
-    fake.state.storage["pateat.login-attempts.v5"] = [
+    const [record] = fake.state.storage["pateat.login-attempts.v6"] as Record<string, unknown>[];
+    fake.state.storage["pateat.login-attempts.v6"] = [
       {
         ...record,
         state: "retryable",
@@ -1591,7 +1619,7 @@ describe("production login document admission", () => {
       const restarted = harness();
       expect(await restarted.hello({ documentId: "after-restart" })).toEqual({ ok: true });
       await vi.waitFor(() =>
-        expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
+        expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
           { state: "authenticated", retries: 2 },
         ]),
       );
@@ -1628,7 +1656,7 @@ describe("production login document admission", () => {
       });
       expect(times!.totalMs).toBeLessThanOrEqual(Date.now() - before);
       // The record keeps its stamps, never a value's typing time.
-      expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
+      expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
         { state: "authenticated", timing: { since: expect.any(Number), serviceMs: 0 } },
       ]);
     });
@@ -1653,10 +1681,10 @@ describe("production login document admission", () => {
         times!.totalMs,
       );
       // The record no longer waits for the site.
-      expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
+      expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
         { state: "authenticated", timing: { pageMs: times!.pageMs } },
       ]);
-      expect(fake.state.storage["pateat.login-attempts.v5"]).not.toHaveProperty(
+      expect(fake.state.storage["pateat.login-attempts.v6"]).not.toHaveProperty(
         "0.timing.pageSince",
       );
     });
@@ -1697,15 +1725,15 @@ describe("production login document admission", () => {
       const first = harness();
       expect(await first.hello()).toEqual({ ok: true });
       await vi.waitFor(() =>
-        expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
+        expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
           { state: "blocked", outcome: "retry-limit" },
         ]),
       );
-      const [record] = fake.state.storage["pateat.login-attempts.v5"] as Record<string, unknown>[];
+      const [record] = fake.state.storage["pateat.login-attempts.v6"] as Record<string, unknown>[];
       // The stopped worker had spent a minute on the login: 5 s on the service, of which
       // 0.8 s on the network, and 1 s waiting for the person.
       const since = Date.now() - 60_000;
-      fake.state.storage["pateat.login-attempts.v5"] = [
+      fake.state.storage["pateat.login-attempts.v6"] = [
         {
           ...record,
           state: "retryable",
@@ -1821,7 +1849,7 @@ describe("production login document admission", () => {
       const h = harness({}, { allowedOrigins: [], uris, signedIn });
       expect(await h.hello(framed("https://portal.example/account"))).toEqual({ ok: true });
       await vi.waitFor(() =>
-        expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
+        expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
           { state: "authenticated" },
         ]),
       );
@@ -1868,7 +1896,7 @@ describe("production login document admission", () => {
       expect(answers).toContainEqual({ ok: true });
       expect(answers).toContainEqual({ ok: false, reason: "tab-busy" });
       await vi.waitFor(() => expect(executes()).toHaveLength(1));
-      expect(fake.state.storage["pateat.login-attempts.v5"]).toHaveLength(1);
+      expect(fake.state.storage["pateat.login-attempts.v6"]).toHaveLength(1);
     });
     it("keeps one attempt per tab and lets only a new page end a frame's attempt", async () => {
       fake.state.onExecute = () => new Promise(() => undefined);
@@ -1937,7 +1965,7 @@ describe("production login document admission", () => {
       fake.state.tabUrls[1] = "https://login.example/signin";
       await h.hello({ documentId: "next-page" });
       await vi.waitFor(() =>
-        expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
+        expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
           { state: "blocked", outcome: "cancelled" },
         ]),
       );
@@ -1951,7 +1979,7 @@ describe("production login document admission", () => {
       return { frameId: 3, documentId: "frame-document", tab: { id: 1, url: top }, ...overrides };
     };
     const stored = () =>
-      fake.state.storage["pateat.login-attempts.v5"] as { state: string; outcome?: string }[];
+      fake.state.storage["pateat.login-attempts.v6"] as { state: string; outcome?: string }[];
     it("lets a new page's frame that announced first keep its document", async () => {
       fake.state.onExecute = () => new Promise(() => undefined);
       const h = harness();
@@ -2030,7 +2058,7 @@ describe("production login document admission", () => {
       account: { origin: string };
       document: { tabId: number; documentId: string };
     };
-    const stored = () => (fake.state.storage["pateat.login-attempts.v5"] ?? []) as Stored[];
+    const stored = () => (fake.state.storage["pateat.login-attempts.v6"] ?? []) as Stored[];
     const at = (from: string) => stored().find((entry) => entry.account.origin === from);
     /** Both origins have their own recipe, binding and saved default for the same item. */
     const twoSites = (live: Parameters<typeof harness>[1] = {}) => {
@@ -3069,8 +3097,8 @@ describe("production login document admission", () => {
         expect(reads()).toEqual([]);
       });
     });
-    it("fills without submitting when the site's form shows again after it left", async () => {
-      // site -> identity provider -> back to the site's login form (ADR 0021 D, ADR 0022).
+    it("logs in again when the site's form shows again after it left", async () => {
+      // site -> identity provider -> back to the site's login form (ADR 0022, ADR 0062).
       holdClicks(origin, second);
       const h = twoSites();
       const kinds = () =>
@@ -3081,25 +3109,15 @@ describe("production login document admission", () => {
       await vi.waitFor(() => expect(executes()).toHaveLength(2));
       expect(await navigate(h, secondUrl, "second-document")).toEqual({ ok: true });
       await vi.waitFor(() => expect(executes()).toHaveLength(4));
-      // The site's form is filled once, never clicked, and its record is forgotten.
+      // The site's record is released and its form logs in as on any visit.
       expect(await navigate(h, fake.state.pageUrl, "returned-document")).toEqual({ ok: true });
-      await vi.waitFor(() => expect(executes()).toHaveLength(5));
-      await vi.waitFor(async () => expect(await h.login.active()).toBe(false));
-      expect(kinds().at(-1)).toBe("fill");
-      expect(at(origin)).toBeUndefined();
-      // The tab asks once the fill ends; the form showing again only asks.
-      expect(fake.state.badges[1]?.text).toBe("1");
-      expect(await navigate(h, fake.state.pageUrl, "returned-document")).toEqual({
-        ok: false,
-        reason: "logged-out",
-      });
+      await vi.waitFor(() => expect(executes()).toHaveLength(6));
+      expect(kinds()).toEqual(["fill", "click", "fill", "click", "fill", "click"]);
+      expect(at(origin)).toMatchObject({ state: "submit-intent", submissions: 1 });
+      expect(fake.state.badges[1]?.text ?? "").not.toMatch(/^\d+$/u);
       // Only the site's record was released; the identity provider's stays until its form shows.
       expect(at(second)).toMatchObject({ state: "blocked", outcome: "left-origin" });
-      expect(await navigate(h, secondUrl, "second-again")).toEqual({ ok: true });
-      await vi.waitFor(() => expect(executes()).toHaveLength(6));
-      await vi.waitFor(async () => expect(await h.login.active()).toBe(false));
-      expect(kinds()).toEqual(["fill", "click", "fill", "click", "fill", "fill"]);
-      expect(h.fields).toHaveBeenCalledTimes(4);
+      expect(h.fields).toHaveBeenCalledTimes(3);
     });
     it("never submits again when the tab returns to an origin it left", async () => {
       holdClicks(origin, second);
@@ -3308,7 +3326,7 @@ describe("production login document admission", () => {
         const query = fake.browser.tabs.query;
         fake.browser.tabs.query = async () => [{ id: 1 }, { id: 2 }] as never;
         try {
-          fake.state.storage["pateat.login-attempts.v5"] = [
+          fake.state.storage["pateat.login-attempts.v6"] = [
             {
               ...record!,
               state,
@@ -3396,7 +3414,7 @@ describe("production login document admission", () => {
         const query = fake.browser.tabs.query;
         fake.browser.tabs.query = async () => [{ id: 1 }] as never;
         try {
-          fake.state.storage["pateat.login-attempts.v5"] = [
+          fake.state.storage["pateat.login-attempts.v6"] = [
             {
               ...record!,
               state: "blocked",
@@ -3424,21 +3442,19 @@ describe("production login document admission", () => {
             });
             expect(at(origin)).toMatchObject({ id: record!.id, state: "blocked", outcome });
           }
-          expect(await restarted.hello({ documentId: "next-page" })).toEqual({ ok: true });
-          await vi.waitFor(() => expect(executes().length).toBeGreaterThan(sent));
-          if (released) expect(at(origin)?.id).not.toBe(record!.id);
-          else {
-            // Once the form shows again, the tab asks like after a logout and only fills,
-            // so it never submits again (ADR 0021 D).
-            await vi.waitFor(async () => expect(await restarted.login.active()).toBe(false));
-            expect(
-              executes()
-                .slice(sent)
-                .map(
-                  (entry) =>
-                    (entry as unknown as { operation: { step: LoginStep } }).operation.step.kind,
-                ),
-            ).toEqual(["fill"]);
+          if (released) {
+            expect(await restarted.hello({ documentId: "next-page" })).toEqual({ ok: true });
+            await vi.waitFor(() => expect(executes().length).toBeGreaterThan(sent));
+            expect(at(origin)?.id).not.toBe(record!.id);
+          } else {
+            // Once the form shows again, the tab asks for an account and fills nothing, so
+            // it never submits again (ADR 0062).
+            expect(await restarted.hello({ documentId: "next-page" })).toEqual({
+              ok: false,
+              reason: "account-asked",
+            });
+            await flush();
+            expect(executes()).toHaveLength(sent);
             expect(at(origin)).toBeUndefined();
             expect(fake.state.badges[1]?.title).toContain("the last login on this site stopped");
           }
@@ -3459,7 +3475,7 @@ describe("production login document admission", () => {
       const query = fake.browser.tabs.query;
       fake.browser.tabs.query = async () => [{ id: 1 }, { id: 2 }] as never;
       try {
-        fake.state.storage["pateat.login-attempts.v5"] = [
+        fake.state.storage["pateat.login-attempts.v6"] = [
           {
             ...record!,
             state: "blocked",
@@ -3470,19 +3486,23 @@ describe("production login document admission", () => {
         ];
         fake.state.onExecute = undefined;
         const restarted = twoSites({ report });
-        expect(await restarted.hello({ documentId: "next-page" })).toEqual({ ok: true });
-        await vi.waitFor(async () => expect(await restarted.login.active()).toBe(false));
+        const asked = executes().length;
+        expect(await restarted.hello({ documentId: "next-page" })).toEqual({
+          ok: false,
+          reason: "account-asked",
+        });
+        expect(executes()).toHaveLength(asked);
         expect(
           report.mock.calls
             .map(([entry]) => entry)
             .filter((entry) => entry.type === "refused")
             .at(-1),
         ).toMatchObject({
-          reason: "logged-out",
+          reason: "account-asked",
           detail: "stopped-login",
         });
         expect(fake.state.session["pateat.login-stopped-asks.v1"]).toEqual([{ tabId: 1, origin }]);
-        expect(fake.state.session["pateat.login-logouts.v1"]).toEqual([]);
+        expect(fake.state.session["pateat.login-rejected-asks.v1"] ?? []).toEqual([]);
         // Another tab of the site is not asked: it logs in, with its click.
         const sent = executes().length;
         fake.state.tabUrls[2] = fake.state.pageUrl;
@@ -3514,7 +3534,7 @@ describe("production login document admission", () => {
       const query = fake.browser.tabs.query;
       fake.browser.tabs.query = async () => [{ id: 1 }, { id: 2 }] as never;
       try {
-        fake.state.storage["pateat.login-attempts.v5"] = [
+        fake.state.storage["pateat.login-attempts.v6"] = [
           {
             ...record!,
             state: "blocked",
@@ -3555,7 +3575,7 @@ describe("production login document admission", () => {
       const query = fake.browser.tabs.query;
       fake.browser.tabs.query = async () => [{ id: 1 }] as never;
       try {
-        fake.state.storage["pateat.login-attempts.v5"] = [
+        fake.state.storage["pateat.login-attempts.v6"] = [
           {
             ...record!,
             state: "blocked",
@@ -3594,7 +3614,7 @@ describe("production login document admission", () => {
         expect(at(origin)).toMatchObject({ id: record!.id, outcome: "challenge" });
         // A login that stopped before any submission is not the hold's case: a restarted
         // worker resumes it in its own page without this line.
-        fake.state.storage["pateat.login-attempts.v5"] = [
+        fake.state.storage["pateat.login-attempts.v6"] = [
           { ...stored()[0]!, submissions: 0, document: { ...record!.document } },
         ];
         const again = twoSites({ report });
@@ -3616,7 +3636,7 @@ describe("production login document admission", () => {
       try {
         // The login was stopped by a challenge 6 minutes ago and its tab was left open.
         const changedAt = Date.now() - 6 * 60_000;
-        fake.state.storage["pateat.login-attempts.v5"] = [
+        fake.state.storage["pateat.login-attempts.v6"] = [
           {
             ...record!,
             state: "blocked",
@@ -3653,7 +3673,7 @@ describe("production login document admission", () => {
         try {
           // The result stayed unknown 6 minutes ago and its tab was left open.
           const changedAt = Date.now() - 6 * 60_000;
-          fake.state.storage["pateat.login-attempts.v5"] = [
+          fake.state.storage["pateat.login-attempts.v6"] = [
             {
               ...record!,
               state: "reconciling",
@@ -3790,7 +3810,7 @@ describe("production login document admission", () => {
       expect(await h.hello()).toEqual({ ok: true });
       await vi.waitFor(() => expect(at(origin)).toMatchObject({ state: "authenticated" }));
       const [record] = stored();
-      fake.state.storage["pateat.login-attempts.v5"] = [
+      fake.state.storage["pateat.login-attempts.v6"] = [
         record,
         { ...record, id: crypto.randomUUID(), document: { ...record!.document, documentId: "x" } },
       ];
@@ -3964,7 +3984,7 @@ describe("production login document admission", () => {
       expect(h.settings.settings.siteDefaults).toHaveLength(1);
       // Checked against the saved revision, it is not stopped as a policy change.
       await vi.waitFor(() =>
-        expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
+        expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
           { state: "authenticated", document: { tabId: 1 } },
           { state: "authenticated", document: { tabId: 2 } },
         ]),
@@ -4296,7 +4316,7 @@ describe("production login document admission", () => {
       );
       fake.state.tabUrls[2] = `${second}/signin`;
       const attempts = () =>
-        (fake.state.storage["pateat.login-attempts.v5"] ?? []) as Record<string, unknown>[];
+        (fake.state.storage["pateat.login-attempts.v6"] ?? []) as Record<string, unknown>[];
       expect(await h.hello({ tab: { id: 2 }, url: `${second}/signin` })).toEqual({ ok: true });
       // The record stays until its tab closes; it must not hold the choice off for as long.
       await vi.waitFor(
@@ -4715,7 +4735,7 @@ describe("production login document admission", () => {
         };
         expect(await h.hello()).toEqual({ ok: true });
         await vi.waitFor(() =>
-          expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
+          expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
             { state: "blocked", outcome: "policy-changed" },
           ]),
         );
@@ -4724,12 +4744,12 @@ describe("production login document admission", () => {
         h.settings.revision += 1;
         const next = { documentId: "synthetic-next" };
         expect(await h.hello(next)).toEqual({ ok: false, reason: "account-ambiguous" });
-        expect(fake.state.storage["pateat.login-attempts.v5"]).toEqual([]);
+        expect(fake.state.storage["pateat.login-attempts.v6"]).toEqual([]);
         expect(await ask(h)).toEqual({ ...offered, documentId: "synthetic-next" });
         fake.state.onReconnect = () => h.hello(next);
         expect(await pick(h, next)).toEqual({ ok: true });
         await vi.waitFor(() =>
-          expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
+          expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
             { account: { itemId: otherItemId }, document: { documentId: "synthetic-next" } },
           ]),
         );
@@ -4985,7 +5005,7 @@ describe("production login document admission", () => {
           expect(await pick(h, { makeDefault: true })).toEqual({ ok: true });
           await vi.waitFor(
             () =>
-              expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
+              expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
                 { state: "authenticated" },
               ]),
             { timeout: 12_000 },
@@ -5019,6 +5039,75 @@ describe("production login document admission", () => {
         },
         15_000,
       );
+      it("keeps a paused site's pause after a pick whose sign-in is unconfirmed (ADR 0062)", async () => {
+        vi.useFakeTimers();
+        onTestFinished(() => void vi.useRealTimers());
+        const report = vi.fn<(entry: LoginReport) => void>();
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris: async () => ({ ok: true, data: both }),
+          generation: {
+            available: vi.fn(async () => true as const),
+            generate: vi.fn(async () => ({ outcome: "abstained", reason: "ambiguous" }) as const),
+            generateEntry: vi.fn(
+              async () => ({ outcome: "abstained", reason: "ambiguous" }) as const,
+            ),
+            judge: vi.fn<LoginGeneration["judge"]>(async (...args) => {
+              args[4]?.();
+              return { verdict: "unclear" };
+            }),
+            slotFields: vi.fn(async () => undefined),
+          },
+          report,
+        });
+        const { completion: _completion, ...withoutCompletion } = recipe;
+        h.recipes.recipe.mockResolvedValue(withoutCompletion);
+        fake.state.present = new Set(["password", "login"]);
+        expect(await setPause(h, true)).toEqual({ ok: true, until: expect.any(Number) });
+        expect(await h.hello()).toEqual({ ok: false, reason: "paused" });
+        fake.state.onReconnect = () => h.hello();
+        fake.state.signs = {
+          password: false,
+          code: false,
+          captcha: false,
+          invalid: false,
+          alert: false,
+        };
+        fake.state.extracted = {
+          "signed-in": {
+            ok: true,
+            observation: {
+              version: 1,
+              origin,
+              path: "/home",
+              complete: true,
+              language: "en",
+              candidates: [
+                { id: "logout", role: "button", target: target("logout"), label: "Sign out" },
+              ],
+            },
+          },
+        };
+        fake.state.onExecute = async (message) => {
+          if ((message["operation"] as { step: { kind: string } }).step.kind !== "click") return;
+          fake.state.present = new Set();
+          fake.state.observedPath = "/home";
+        };
+        expect(await pick(h)).toEqual({ ok: true });
+        await vi.waitFor(
+          () =>
+            expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
+              { state: "authenticated", unconfirmed: true },
+            ]),
+          { timeout: 12_000 },
+        );
+        await vi.advanceTimersByTimeAsync(100);
+        // Only a confirmed sign-in ends the pause, as it is the only one Pateat tells of.
+        expect(fake.state.session["pateat.login-pauses.v1"]).toHaveLength(1);
+        expect(report).not.toHaveBeenCalledWith(
+          expect.objectContaining({ type: "pause", action: "picked" }),
+        );
+      }, 15_000);
       it("refuses a pick that is not offered, for another document, or after the page left", async () => {
         const h = await refused();
         expect(await pick(h, { itemId: "80000000-0000-4000-8000-000000000009" })).toEqual({
@@ -5052,7 +5141,7 @@ describe("production login document admission", () => {
       const rejecting = { ...recipe, rejection: target("rejected") };
       const rejectedOffer = {
         ...offered,
-        logout: "rejected",
+        ask: "rejected",
         candidates: [
           { connectionId, itemId },
           { connectionId, itemId: otherItemId },
@@ -5072,15 +5161,15 @@ describe("production login document admission", () => {
         fake.state.observed = ["missing", "unique"];
         expect(await pick(h, { makeDefault: true })).toEqual({ ok: true });
         await vi.waitFor(() =>
-          expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
+          expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
             { state: "blocked", outcome: "credential-rejected" },
           ]),
         );
         const before = fake.state.messages.filter((entry) => entry.type === "login.execute");
         // The page announces again on the result, then once its form's first step shows.
         expect(await h.hello({}, false)).toMatchObject({ ok: false });
-        expect(await h.hello()).toEqual({ ok: false, reason: "logged-out" });
-        expect(fake.state.storage["pateat.login-attempts.v5"]).toEqual([]);
+        expect(await h.hello()).toEqual({ ok: false, reason: "account-asked" });
+        expect(fake.state.storage["pateat.login-attempts.v6"]).toEqual([]);
         expect(await ask(h)).toEqual(rejectedOffer);
         expect(fake.state.badges[1]).toEqual({ text: "2", title: rejectedTitle });
         // The other tab's popup chooses no account either.
@@ -5098,7 +5187,7 @@ describe("production login document admission", () => {
         fake.state.onReconnect = () => h.hello();
         expect(await pick(h, { itemId })).toEqual({ ok: true });
         await vi.waitFor(() =>
-          expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
+          expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
             { state: "authenticated", account: { itemId } },
           ]),
         );
@@ -5137,7 +5226,7 @@ describe("production login document admission", () => {
         };
         expect(await pick(h, { makeDefault: true })).toEqual({ ok: true });
         await vi.waitFor(() =>
-          expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
+          expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
             {
               state: "blocked",
               outcome: "credential-rejected",
@@ -5153,7 +5242,7 @@ describe("production login document admission", () => {
           reason: "recipe-not-found",
           generate: true,
         });
-        expect(fake.state.storage["pateat.login-attempts.v5"]).toEqual([]);
+        expect(fake.state.storage["pateat.login-attempts.v6"]).toEqual([]);
         // Once a recipe starts on that path, its form offers the accounts.
         const session = {
           ...recipe,
@@ -5165,7 +5254,7 @@ describe("production login document admission", () => {
         );
         expect(await h.hello({ documentId: "document-failed" })).toEqual({
           ok: false,
-          reason: "logged-out",
+          reason: "account-asked",
         });
         expect(await ask(h)).toEqual({ ...rejectedOffer, documentId: "document-failed" });
         expect(h.store.update).not.toHaveBeenCalled();
@@ -5176,35 +5265,73 @@ describe("production login document admission", () => {
         fake.state.observed = ["missing", "unique"];
         expect(await h.hello()).toEqual({ ok: true });
         await vi.waitFor(() =>
-          expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
+          expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
             { state: "blocked", outcome: "credential-rejected" },
           ]),
         );
         const before = fake.state.messages.filter((entry) => entry.type === "login.execute");
         await h.hello({}, false);
-        expect(await h.hello()).toEqual({ ok: false, reason: "logged-out" });
-        expect(fake.state.messages.filter((entry) => entry.type === "login.execute")).toEqual(
-          before,
-        );
+        expect(await h.hello()).toEqual({ ok: false, reason: "account-asked" });
+        const sent = () => fake.state.messages.filter((entry) => entry.type === "login.execute");
+        expect(sent()).toEqual(before);
         expect(await ask(h)).toEqual(rejectedOffer);
-        // A later page of the tab is filled with the default, as after a logout.
+        // A later page of the tab asks too, filling nothing (ADR 0062).
         fake.state.observed = ["unique", "missing"];
-        const next = { documentId: "synthetic-next" };
-        expect(await h.hello(next)).toEqual({ ok: true });
+        expect(await h.hello({ documentId: "synthetic-next" })).toEqual({
+          ok: false,
+          reason: "account-asked",
+        });
+        expect(await ask(h)).toEqual({
+          ...rejectedOffer,
+          documentId: "synthetic-next",
+        });
+        // Another tab of the site asks as well, filling nothing; its popup says why.
+        fake.state.tabUrls[2] = fake.state.pageUrl;
+        expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({
+          ok: false,
+          reason: "account-asked",
+        });
+        expect(
+          await h.login.handle({ version: 1, type: "login.choice.get", tabId: 2 }, popup),
+        ).toMatchObject({ ask: "rejected-elsewhere", rejectedElsewhere: true });
+        expect(fake.state.badges[2]?.title).toBe(
+          "Pateat: the site did not accept the last login in another tab. Click to choose an account.",
+        );
+        expect(sent()).toEqual(before);
+      });
+      it("moves a rejected ask with a replaced tab and logs its end once the tab closes", async () => {
+        const report = vi.fn<(entry: LoginReport) => void>();
+        const h = harness({}, { uris: async () => ({ ok: true, data: both }), report });
+        h.recipes.recipe.mockResolvedValue(rejecting);
+        fake.state.observed = ["missing", "unique"];
+        expect(await h.hello()).toEqual({ ok: true });
         await vi.waitFor(() =>
-          expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
-            { fillOnly: true, document: { documentId: "synthetic-next" } },
+          expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
+            { state: "blocked", outcome: "credential-rejected" },
           ]),
         );
-        await vi.waitFor(async () => expect(await h.login.active()).toBe(false));
-        // Another tab of the site fills and asks too; its popup chooses no account either.
+        await h.hello({}, false);
+        expect(await h.hello()).toEqual({ ok: false, reason: "account-asked" });
+        expect(fake.state.session["pateat.login-rejected-asks.v1"]).toEqual([{ tabId: 1, origin }]);
+        // Chrome replaces the tab (prerendering): the ask goes with it.
         fake.state.tabUrls[2] = fake.state.pageUrl;
-        expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({ ok: true });
-        await vi.waitFor(async () =>
-          expect(
-            await h.login.handle({ version: 1, type: "login.choice.get", tabId: 2 }, popup),
-          ).toMatchObject({ logout: "other-tab", rejectedElsewhere: true }),
+        for (const listener of fake.state.replaced) listener(2, 1);
+        await vi.waitFor(() =>
+          expect(fake.state.session["pateat.login-rejected-asks.v1"]).toEqual([
+            { tabId: 2, origin },
+          ]),
         );
+        for (const listener of fake.state.removed) listener(2);
+        await vi.waitFor(() =>
+          expect(fake.state.session["pateat.login-rejected-asks.v1"]).toEqual([]),
+        );
+        expect(report).toHaveBeenCalledWith({
+          type: "ask-ended",
+          tabId: 2,
+          origin,
+          ask: "rejected",
+          cause: "tab-closed",
+        });
       });
       it("offers the choice again after a worker restart, or clears it once the page is gone", async () => {
         await refused();
@@ -5258,7 +5385,7 @@ describe("production login document admission", () => {
           ok: true,
         });
         await vi.waitFor(() =>
-          expect(fake.state.storage["pateat.login-attempts.v5"]).toHaveLength(1),
+          expect(fake.state.storage["pateat.login-attempts.v6"]).toHaveLength(1),
         );
         // The other tab stays open, so its record outlives this worker's start.
         const query = fake.browser.tabs.query;
@@ -5407,20 +5534,18 @@ describe("production login document admission", () => {
             },
           ],
           "pateat.login-choices.v1": [],
-          "pateat.login-logouts.v1": [],
-          "pateat.login-logout-fills.v1": [],
           "pateat.login-stopped-asks.v1": [],
           "pateat.login-rejected-asks.v1": [],
           "pateat.login-entry-presses.v1": [],
           "pateat.login-noted.v1": [["1 synthetic-document /signin", ["account-ambiguous "]]],
-          "pateat.login-logout-clicks.v1": [],
+          "pateat.login-relogins.v1": [],
         });
         // The time the popup offered the choice is the person's, in the login's times too
         // (ADR 0019).
         const [{ waitedMs }] = fake.state.session["pateat.login-picks.v1"] as [
           { waitedMs: number },
         ];
-        expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
+        expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
           { timing: { personMs: waitedMs } },
         ]);
         for (const listener of fake.state.removed) listener(1);
@@ -5429,12 +5554,10 @@ describe("production login document admission", () => {
             "pateat.login-noted.v1": [],
             "pateat.login-picks.v1": [],
             "pateat.login-choices.v1": [],
-            "pateat.login-logouts.v1": [],
-            "pateat.login-logout-fills.v1": [],
             "pateat.login-stopped-asks.v1": [],
             "pateat.login-rejected-asks.v1": [],
             "pateat.login-entry-presses.v1": [],
-            "pateat.login-logout-clicks.v1": [],
+            "pateat.login-relogins.v1": [],
           }),
         );
       });
@@ -5461,7 +5584,7 @@ describe("production login document admission", () => {
         fake.state.tabUrls[1] = `${second}/signin`;
         expect(await h.hello({ url: `${second}/signin` })).toEqual({ ok: true });
         await vi.waitFor(() =>
-          expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
+          expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
             { state: "authenticated", account: { origin: second } },
           ]),
         );
@@ -5489,7 +5612,7 @@ describe("production login document admission", () => {
           fieldId === "login.username" ? "my2@example.com" : "synthetic-secret",
         );
         const stored = () =>
-          fake.state.storage["pateat.login-attempts.v5"] as { id: string; state: string }[];
+          fake.state.storage["pateat.login-attempts.v6"] as { id: string; state: string }[];
         const picks = () => fake.state.session["pateat.login-picks.v1"] as { attemptId?: string }[];
         expect(await h.hello()).toEqual({ ok: false, reason: "account-ambiguous" });
         fake.state.onReconnect = () => h.hello();
@@ -5508,380 +5631,136 @@ describe("production login document admission", () => {
         });
         expect(fake.state.badges[1]?.text).toBe("");
       });
-      describe("after a logout in the same tab (ADR 0021 D)", () => {
-        const logouts = () => fake.state.session["pateat.login-logouts.v1"];
+      describe("after a logout (ADR 0062)", () => {
         const steps = () =>
           fake.state.messages
             .filter((entry) => entry.type === "login.execute")
             .map(
               (entry) => (entry as unknown as { operation: { step: LoginStep } }).operation.step,
             );
-        /**
-         * The form shows after a logout: the saved default fills it once without a click and
-         * the record is forgotten; the document then announces again and asks.
-         */
-        const filledOnly = async (
-          h: ReturnType<typeof harness>,
-          from: Record<string, unknown> = {},
-        ) => {
-          const before = steps().length;
-          expect(await h.hello(from)).toEqual({ ok: true });
-          await vi.waitFor(() => expect(steps()).toHaveLength(before + 1));
-          await vi.waitFor(async () => expect(await h.login.active()).toBe(false));
-          expect(steps().at(-1)?.kind).toBe("fill");
-          // The tab asks as soon as the fill ends.
-          const tabId = (from["tab"] as { id: number } | undefined)?.id ?? 1;
-          expect(fake.state.badges[tabId]?.text).toBe("2");
-          // The content script announces again on the ended status, without a start.
-          expect(await h.hello(from, false)).toMatchObject({
-            ok: false,
-            reason: "form-not-ready",
-          });
-          expect(fake.state.badges[tabId]?.text).toBe("2");
-          // The form showing again in the same document only asks.
-          expect(await h.hello(from)).toEqual({ ok: false, reason: "logged-out" });
-        };
         const attempts = () =>
-          fake.state.storage["pateat.login-attempts.v5"] as {
+          (fake.state.storage["pateat.login-attempts.v6"] ?? []) as {
+            id: string;
             state: string;
             account: { itemId: string };
+            document: { tabId: number; documentId: string };
           }[];
-        /** Logs in with the saved default, then the login form shows again in the tab. */
-        const loggedOut = async () => {
-          const h = harness(
+        const relogins = () => fake.state.session["pateat.login-relogins.v1"];
+        const matched = (report?: (entry: LoginReport) => void) =>
+          harness(
             {},
-            { allowedOrigins: [], uris: async () => ({ ok: true, data: both }) },
+            {
+              allowedOrigins: [],
+              uris: async () => ({ ok: true, data: both }),
+              ...(report ? { report } : {}),
+            },
           );
-          expect(await h.hello()).toEqual({ ok: true });
-          await vi.waitFor(() => expect(attempts()).toMatchObject([{ state: "authenticated" }]));
+        /** The page logs in by itself and signs in, as on any visit. */
+        const signedIn = async (
+          h: ReturnType<typeof harness>,
+          from: { tab?: { id: number }; documentId?: string } = {},
+          itemIdUsed = itemId,
+        ) => {
+          const tabId = from.tab?.id ?? 1;
+          const known = attempts().find((entry) => entry.document.tabId === tabId)?.id;
+          expect(await h.hello(from)).toEqual({ ok: true });
+          await vi.waitFor(() =>
+            expect(
+              attempts().find((entry) => entry.document.tabId === tabId && entry.id !== known),
+            ).toMatchObject({ state: "authenticated", account: { itemId: itemIdUsed } }),
+          );
+          await vi.waitFor(async () => expect(await h.login.active()).toBe(false));
+        };
+        it("logs in again with the saved default once the first step shows again in the tab", async () => {
+          const report = vi.fn<(entry: LoginReport) => void>();
+          const h = matched(report);
+          await signedIn(h);
           // A page of the site without the form only watches for it.
           expect(await h.hello({ documentId: "home" }, false)).toEqual({
             ok: false,
             reason: "logged-in",
             starts: [signinStart],
           });
+          await signedIn(h, { documentId: "signed-out" });
+          // Only this tab's record was released, and nothing asks.
           expect(attempts()).toHaveLength(1);
-          await filledOnly(h, { documentId: "signed-out" });
-          fake.state.onReconnect = () => h.hello({ documentId: "signed-out" });
-          return h;
-        };
-        describe("clicked in the tab after a login it does not know (owner 2026-10-16)", () => {
-          const clicks = () => fake.state.session["pateat.login-logout-clicks.v1"];
-          const clickLogout = (h: ReturnType<typeof harness>, from: Record<string, unknown> = {}) =>
-            h.login.handle(
-              { version: 1, type: "login.document.logout-clicked", token: "synthetic-token" },
-              sender({ documentId: "home", ...from }),
-            );
-          const setup = (report?: (entry: LoginReport) => void) =>
-            harness(
-              {},
-              {
-                allowedOrigins: [],
-                uris: async () => ({ ok: true, data: both }),
-                ...(report ? { report } : {}),
-              },
-            );
-          it("asks and only fills when the first step shows after the click", async () => {
-            const report = vi.fn<(entry: LoginReport) => void>();
-            const h = setup(report);
-            // A page signed in by a login in another tab or an earlier browser session.
-            expect(await h.hello({ documentId: "home" }, false)).toMatchObject({ ok: false });
-            expect(await clickLogout(h)).toBeUndefined();
-            expect(clicks()).toEqual([
-              { tabId: 1, site: "login.example", clickedAt: expect.any(String) },
-            ]);
-            await filledOnly(h, { documentId: "signed-out" });
-            expect(logouts()).toEqual([{ tabId: 1, origin }]);
-            // Used: kept only so the site's passkey requests in the tab ask while it asks.
-            expect(clicks()).toEqual([
-              { tabId: 1, site: "login.example", clickedAt: expect.any(String), used: true },
-            ]);
-            expect(await h.login.logoutClicked(1, "login.example")).toBe(true);
-            expect(steps().map((step) => step.kind)).toEqual(["fill"]);
-            expect(report).toHaveBeenCalledWith({
-              type: "logout",
-              tabId: 1,
-              origin,
-              clicked: true,
-            });
-            // Cookies are shared, so the site's other tabs ask too.
-            fake.state.tabUrls[2] = fake.state.pageUrl;
-            await filledOnly(h, { tab: { id: 2 }, documentId: "other-tab" });
-          });
-          it("logs the tab's asking ending as it closes, and the other tab logs in again", async () => {
-            const report = vi.fn<(entry: LoginReport) => void>();
-            const h = setup(report);
-            expect(await h.hello({ documentId: "home" }, false)).toMatchObject({ ok: false });
-            await clickLogout(h);
-            await filledOnly(h, { documentId: "signed-out" });
-            fake.state.tabUrls[2] = fake.state.pageUrl;
-            await filledOnly(h, { tab: { id: 2 }, documentId: "other-tab" });
-            for (const listener of fake.state.removed) listener(1);
-            await vi.waitFor(() =>
-              expect(report).toHaveBeenCalledWith({
-                type: "ask-ended",
-                tabId: 1,
-                origin,
-                ask: "logout",
-                cause: "tab-closed",
-              }),
-            );
-            expect(logouts()).toEqual([]);
-            // Nothing else asks, so a reload of the other tab logs in (ADR 0021 D).
-            expect(await h.hello({ tab: { id: 2 }, documentId: "reloaded" })).toEqual({
-              ok: true,
-            });
-            await vi.waitFor(() => expect(attempts()).toMatchObject([{ state: "authenticated" }]));
-            expect(attempts()[0]).not.toHaveProperty("fillOnly");
-          });
-          it("reads the next page only once a click sent before it is kept", async () => {
-            const h = setup();
-            // The click's message and the next page's announcement arrive back to back.
-            const clicked = clickLogout(h);
-            await filledOnly(h, { documentId: "signed-out" });
-            await clicked;
-            expect(logouts()).toEqual([{ tabId: 1, origin }]);
-          });
-          it("keeps waiting on a page without the first step, or in a frame", async () => {
-            const h = setup();
-            await clickLogout(h);
-            expect(await h.hello({ documentId: "home" }, false)).toMatchObject({ ok: false });
-            await h.hello({
-              frameId: 3,
-              documentId: "frame",
-              tab: { id: 1, url: fake.state.pageUrl },
-            });
-            // A login form in a frame is no logout (ADR 0021 D's known gap); the click waits.
-            expect(clicks()).toEqual([
-              { tabId: 1, site: "login.example", clickedAt: expect.any(String) },
-            ]);
-          });
-          it("takes a click on another origin of the site", async () => {
-            const h = setup();
-            const www = "https://www.login.example/account";
-            fake.state.tabUrls[1] = www;
-            await clickLogout(h, { url: www });
-            fake.state.tabUrls[1] = fake.state.pageUrl;
-            await filledOnly(h, { documentId: "signed-out" });
-            expect(logouts()).toEqual([{ tabId: 1, origin }]);
-          });
-          it("logs one logout of the tab's own login when it also clicked", async () => {
-            const report = vi.fn<(entry: LoginReport) => void>();
-            const h = setup(report);
-            expect(await h.hello()).toEqual({ ok: true });
-            await vi.waitFor(() => expect(attempts()).toMatchObject([{ state: "authenticated" }]));
-            await clickLogout(h);
-            await filledOnly(h, { documentId: "signed-out" });
-            const logoutReports = report.mock.calls
-              .map(([entry]) => entry)
-              .filter((entry) => entry.type === "logout");
-            expect(logoutReports).toEqual([
-              { type: "logout", tabId: 1, origin, recipeId: recipe.id, recipeRevision: 1 },
-            ]);
-            expect(clicks()).toEqual([expect.objectContaining({ used: true })]);
-          });
-          it("keeps the click across a worker restart", async () => {
-            const h = setup();
-            await clickLogout(h);
-            const restarted = setup();
-            await filledOnly(restarted, { documentId: "signed-out" });
-            expect(steps().map((step) => step.kind)).toEqual(["fill"]);
-          });
-          it("logs in as before without a click in this tab", async () => {
-            const h = setup();
-            // A click in another tab is that tab's.
-            fake.state.tabUrls[2] = fake.state.pageUrl;
-            await clickLogout(h, { tab: { id: 2 } });
-            expect(await h.hello({ documentId: "signed-out" })).toEqual({ ok: true });
-            await vi.waitFor(() => expect(attempts()).toMatchObject([{ state: "authenticated" }]));
-            expect(logouts() ?? []).toEqual([]);
-          });
-          it("forgets the click after 10 minutes", async () => {
-            const h = setup();
-            await clickLogout(h);
-            const now = Date.now();
-            const clock = vi.spyOn(Date, "now").mockImplementation(() => now + 10 * 60_000);
-            try {
-              expect(await h.hello({ documentId: "signed-out" })).toEqual({ ok: true });
-              await vi.waitFor(() =>
-                expect(attempts()).toMatchObject([{ state: "authenticated" }]),
-              );
-            } finally {
-              clock.mockRestore();
-            }
-            expect(clicks()).toEqual([]);
-          });
-          it("forgets the click once the tab leaves the site", async () => {
-            const h = setup();
-            await clickLogout(h);
-            const away = "https://elsewhere.example/";
-            fake.state.tabUrls[1] = away;
-            await h.hello({ documentId: "away", url: away }, false);
-            expect(clicks()).toEqual([]);
-            fake.state.tabUrls[1] = fake.state.pageUrl;
-            expect(await h.hello({ documentId: "signed-out" })).toEqual({ ok: true });
-            await vi.waitFor(() => expect(attempts()).toMatchObject([{ state: "authenticated" }]));
-          });
-          it("moves the click with a tab Chrome replaced, and forgets it when the tab closes", async () => {
-            const h = setup();
-            await clickLogout(h);
-            for (const listener of fake.state.replaced) listener(5, 1);
-            await vi.waitFor(() =>
-              expect(clicks()).toEqual([
-                { tabId: 5, site: "login.example", clickedAt: expect.any(String) },
-              ]),
-            );
-            for (const listener of fake.state.removed) listener(5);
-            await vi.waitFor(() => expect(clicks()).toEqual([]));
-          });
-          it("tells a passkey request of the site in the tab to ask", async () => {
-            const h = setup();
-            expect(await h.login.logoutClicked(1, "login.example")).toBe(false);
-            await clickLogout(h);
-            expect(await h.login.logoutClicked(1, "login.example")).toBe(true);
-            expect(await h.login.logoutClicked(1, "other.example")).toBe(false);
-            expect(await h.login.logoutClicked(2, "login.example")).toBe(false);
-          });
-        });
-        it("never clicks the account switch while it only fills, and asks", async () => {
-          const h = harness(
-            {},
-            { allowedOrigins: [], uris: async () => ({ ok: true, data: both }), username: true },
-          );
-          h.recipes.recipe.mockResolvedValue(
-            parseLoginRecipe({
-              ...recipe,
-              accountSwitch: { by: "text", value: "Use another account" },
-            }),
-          );
-          expect(await h.hello()).toEqual({ ok: true });
-          await vi.waitFor(() => expect(attempts()).toMatchObject([{ state: "authenticated" }]));
-          // The login page after the logout shows another account than the one to fill.
-          fake.state.executeReply = { ok: false, reason: "wrong-account", switchable: true };
-          const before = steps().length;
-          expect(await h.hello({ documentId: "signed-out" })).toEqual({ ok: true });
-          await vi.waitFor(() => expect(steps()).toHaveLength(before + 1));
-          await vi.waitFor(async () => expect(await h.login.active()).toBe(false));
-          const sent = fake.state.messages.filter((entry) => entry.type === "login.execute");
-          expect(sent.at(-1)!.accountSwitch).toBeUndefined();
-          expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.switch");
-          // The fill-only record is forgotten and the tab asks.
-          expect(attempts()).toEqual([]);
-          expect(fake.state.badges[1]?.text).toBe("2");
-        });
-        it("ends the account choice after a logout once the site is excluded", async () => {
-          const h = await loggedOut();
-          expect(fake.state.badges[1]?.text).toBe("2");
-          h.settings.settings.excludedSites = [
-            { hostname: "login.example", includeSubdomains: false },
-          ];
+          expect(steps().map((step) => step.kind)).toEqual(["fill", "click", "fill", "click"]);
           expect(await ask(h)).toEqual({ ok: false, reason: "no-choice" });
-          expect(await pick(h, { documentId: "signed-out" })).toEqual({
+          expect(fake.state.session["pateat.login-choices.v1"] ?? []).toEqual([]);
+          const starts = report.mock.calls
+            .map(([entry]) => entry)
+            .filter((entry) => entry.type === "start");
+          expect(starts).toEqual([
+            expect.objectContaining({ tabId: 1, account: "default" }),
+            expect.objectContaining({ tabId: 1, account: "default" }),
+          ]);
+          expect(
+            report.mock.calls.filter(
+              ([entry]) => entry.type === "refused" && entry.reason !== "not-started",
+            ),
+          ).toEqual([]);
+        });
+        it("logs in again when the form shows again in the document that logged in", async () => {
+          const h = matched();
+          await signedIn(h);
+          // The document announces again after its login ended, as the content script does.
+          expect(await h.hello({}, false)).toEqual({
             ok: false,
-            reason: "no-choice",
+            reason: "logged-in",
+            starts: [signinStart],
           });
-          expect(fake.state.badges[1]).toEqual({ text: "", title: "Pateat" });
+          await signedIn(h);
+          expect(attempts()).toHaveLength(1);
         });
-        it("clears the badge after a logout once saved settings exclude the site", async () => {
-          const h = await loggedOut();
-          h.settings.settings.excludedSites = [
-            { hostname: "login.example", includeSubdomains: false },
-          ];
-          h.login.settingsChanged("saved");
-          await vi.waitFor(() =>
-            expect(fake.state.badges[1]).toEqual({ text: "", title: "Pateat" }),
-          );
-          expect(fake.state.session["pateat.login-choices.v1"]).toEqual([]);
+        it("logs in again in another tab of the site, whose session the logout ended too", async () => {
+          const h = matched();
+          await signedIn(h);
+          fake.state.tabUrls[2] = fake.state.pageUrl;
+          await signedIn(h, { tab: { id: 2 }, documentId: "other-tab" });
+          expect(attempts().map((entry) => [entry.document.tabId, entry.state])).toEqual([
+            [1, "authenticated"],
+            [2, "authenticated"],
+          ]);
+          expect(fake.state.badges[2]?.text ?? "").not.toMatch(/^\d+$/u);
         });
-        it("asks with the saved default first and releases only this tab's record", async () => {
-          const h = await loggedOut();
-          expect(attempts()).toEqual([]);
-          expect(fake.state.badges[1]).toEqual({
-            text: "2",
-            title: "Pateat: you logged out of this site in this tab. Click to choose an account.",
+        it("logs in again with the account the tab picked when no default is saved", async () => {
+          const h = harness(unsaved, {
+            allowedOrigins: [],
+            uris: async () => ({ ok: true, data: both }),
           });
-          expect(await ask(h)).toEqual({
-            ok: true,
-            origin,
-            documentId: "signed-out",
-            candidates: [
-              { connectionId, itemId },
-              { connectionId, itemId: otherItemId },
-            ],
-            logout: "this-tab",
-          });
-          expect(logouts()).toEqual([{ tabId: 1, origin }]);
-          // A one-time pick logs in and leaves the saved default as it was.
-          expect(await pick(h, { documentId: "signed-out" })).toEqual({ ok: true });
+          expect(await h.hello()).toEqual({ ok: false, reason: "account-ambiguous" });
+          fake.state.onReconnect = () => h.hello();
+          expect(await pick(h)).toEqual({ ok: true });
           await vi.waitFor(() =>
             expect(attempts()).toMatchObject([
               { state: "authenticated", account: { itemId: otherItemId } },
             ]),
           );
-          expect(h.settings.settings.siteDefaults).toEqual([
-            { origin, provider: "bitwarden", userId, itemId },
+          // Several accounts match and none is the default: the page asks as on any visit.
+          const before = steps().length;
+          expect(await h.hello({ documentId: "signed-out" })).toEqual({
+            ok: false,
+            reason: "account-ambiguous",
+          });
+          expect(steps()).toHaveLength(before);
+        });
+        it("logs a sign-in form that does not start a login while the tab is signed in", async () => {
+          const report = vi.fn<(report: LoginReport) => void>();
+          const h = matched(report);
+          const refusals = () =>
+            report.mock.calls.map(([entry]) => entry).filter((entry) => entry.type === "refused");
+          await signedIn(h);
+          // A sign-in input whose form is not the recipe's first step: still logged in.
+          const watching = { ok: false, reason: "logged-in", starts: [signinStart] };
+          expect(await shownHello(h, { documentId: "home" })).toEqual(watching);
+          expect(await shownHello(h, { documentId: "home" })).toEqual(watching);
+          expect(refusals()).toEqual([
+            { type: "refused", tabId: 1, origin, reason: "not-started", detail: "logged-in" },
           ]);
-          expect(logouts()).toEqual([]);
-        });
-        it("snapshots the started pick together with the cleared choice and logout", async () => {
-          const h = await loggedOut();
-          // A worker may stop between writes: no written started pick may still carry the
-          // old logout, which would make the restarted worker ask instead of resuming it.
-          const snapshots: Record<string, unknown>[] = [];
-          const set = fake.browser.storage.session.set;
-          const writing = vi
-            .spyOn(fake.browser.storage.session, "set")
-            .mockImplementation((values) => {
-              snapshots.push(structuredClone(values));
-              return set(values);
-            });
-          try {
-            expect(await pick(h, { documentId: "signed-out" })).toEqual({ ok: true });
-            const started = snapshots.filter(
-              (snapshot) =>
-                (snapshot["pateat.login-picks.v1"] as { attemptId?: string }[])[0]?.attemptId,
-            );
-            expect(started.length).toBeGreaterThan(0);
-            for (const snapshot of started) {
-              expect(snapshot["pateat.login-choices.v1"]).toEqual([]);
-              expect(snapshot["pateat.login-logouts.v1"]).toEqual([]);
-              expect(snapshot["pateat.login-stopped-asks.v1"]).toEqual([]);
-              expect(snapshot["pateat.login-rejected-asks.v1"]).toEqual([]);
-            }
-            // Keep the tab open for startup's attempt-record reconciliation.
-            vi.spyOn(fake.browser.tabs, "query").mockResolvedValue([{ id: 1 }] as never);
-            fake.state.onReconnect = undefined;
-            const restarted = matching();
-            expect(await restarted.hello({ documentId: "signed-out" })).toEqual({ ok: true });
-            expect(await ask(restarted)).toEqual({ ok: false, reason: "no-choice" });
-            expect(logouts()).toEqual([]);
-          } finally {
-            writing.mockRestore();
-            vi.mocked(fake.browser.tabs.query).mockRestore();
-          }
-        });
-        it("keeps asking as the tab that logged out after Chrome replaces the tab", async () => {
-          const h = await loggedOut();
-          // Chrome discarded the idle tab and shows it again under a new ID.
-          fake.state.tabUrls[2] = fake.state.pageUrl;
-          for (const listener of fake.state.replaced) listener(2, 1);
-          await vi.waitFor(() => expect(logouts()).toEqual([{ tabId: 2, origin }]));
-          // The restored page fills once and asks as this tab, not as another tab.
-          await filledOnly(h, { tab: { id: 2 }, documentId: "restored" });
-          expect(
-            await h.login.handle({ version: 1, type: "login.choice.get", tabId: 2 }, popup),
-          ).toMatchObject({ documentId: "restored", logout: "this-tab" });
-          expect(fake.state.badges[2]?.title).toBe(
-            "Pateat: you logged out of this site in this tab. Click to choose an account.",
-          );
         });
         it("keeps the tab's login with it after Chrome replaces the tab", async () => {
-          const h = harness(
-            {},
-            { allowedOrigins: [], uris: async () => ({ ok: true, data: both }) },
-          );
-          expect(await h.hello()).toEqual({ ok: true });
-          await vi.waitFor(() => expect(attempts()).toMatchObject([{ state: "authenticated" }]));
+          const h = matched();
+          await signedIn(h);
           fake.state.tabUrls[2] = fake.state.pageUrl;
           for (const listener of fake.state.replaced) listener(2, 1);
           await vi.waitFor(() =>
@@ -5895,22 +5774,15 @@ describe("production login document admission", () => {
           });
         });
         it("keeps the tab's login when the replacement starts a stopped worker", async () => {
-          const h = harness(
-            {},
-            { allowedOrigins: [], uris: async () => ({ ok: true, data: both }) },
-          );
-          expect(await h.hello()).toEqual({ ok: true });
-          await vi.waitFor(() => expect(attempts()).toMatchObject([{ state: "authenticated" }]));
+          const h = matched();
+          await signedIn(h);
           // The worker had stopped; only the tab's new ID is open when it starts again.
           fake.state.replaced.length = 0;
           fake.state.tabUrls[2] = fake.state.pageUrl;
           const query = fake.browser.tabs.query;
           fake.browser.tabs.query = async () => [{ id: 2 }] as never;
           try {
-            const restarted = harness(
-              {},
-              { allowedOrigins: [], uris: async () => ({ ok: true, data: both }) },
-            );
+            const restarted = matched();
             for (const listener of fake.state.replaced) listener(2, 1);
             await vi.waitFor(() =>
               expect(attempts()).toMatchObject([
@@ -5924,217 +5796,158 @@ describe("production login document admission", () => {
             fake.browser.tabs.query = query;
           }
         });
-        it("replaces the saved default with a pick marked as the default", async () => {
-          const h = await loggedOut();
-          expect(await pick(h, { documentId: "signed-out", makeDefault: true })).toEqual({
+        describe("twice within 10 minutes (relogin-limit)", () => {
+          const reloginTitle =
+            "Pateat: this site was logged in again twice in 10 minutes. Click to choose an account.";
+          const limited = {
             ok: true,
-          });
-          await vi.waitFor(() =>
-            expect(h.settings.settings.siteDefaults).toEqual([
-              expect.objectContaining({ origin, userId, itemId: otherItemId }),
-            ]),
-          );
-        });
-        it("times a login picked after a fill-only one from where that one started", async () => {
-          const h = harness(
-            {},
-            { allowedOrigins: [], uris: async () => ({ ok: true, data: both }) },
-          );
-          expect(await h.hello()).toEqual({ ok: true });
-          await vi.waitFor(() => expect(attempts()).toMatchObject([{ state: "authenticated" }]));
-          // The signed-out page is seen at once, and its form shows a minute later.
-          await h.hello({ documentId: "signed-out" }, false);
-          vi.useFakeTimers({ toFake: ["Date"] });
-          onTestFinished(() => void vi.useRealTimers());
-          const formShown = Date.now() + 60_000;
-          vi.setSystemTime(formShown);
-          await filledOnly(h, { documentId: "signed-out" });
-          fake.state.onReconnect = () => h.hello({ documentId: "signed-out" });
-          vi.setSystemTime(formShown + 30_000);
-          expect(await pick(h, { documentId: "signed-out" })).toEqual({ ok: true });
-          await vi.waitFor(() =>
-            expect(attempts()).toMatchObject([
-              { state: "authenticated", account: { itemId: otherItemId } },
-            ]),
-          );
-          // The fill-only login took the page's time before it; the picked one counts from
-          // the fill-only login's start, with the time the choice waited as the person's.
-          const [record] = fake.state.storage["pateat.login-attempts.v5"] as {
-            timing: { since: number; personMs: number };
-          }[];
-          expect(record!.timing.since).toBe(formShown);
-          // About 30 s: each check of `vi.waitFor` moves the faked clock on by 50 ms.
-          expect(record!.timing.personMs).toBeGreaterThan(29_000);
-        });
-        it("watches in the document that logged in and asks when its form shows again", async () => {
-          const h = harness(
-            {},
-            { allowedOrigins: [], uris: async () => ({ ok: true, data: both }) },
-          );
-          expect(await h.hello()).toEqual({ ok: true });
-          await vi.waitFor(() => expect(attempts()).toMatchObject([{ state: "authenticated" }]));
-          // The document announces again after its login ended, as the content script does.
-          expect(await h.hello({}, false)).toEqual({
-            ok: false,
-            reason: "logged-in",
-            starts: [signinStart],
-          });
-          await filledOnly(h);
-          expect(fake.state.badges[1]?.text).toBe("2");
-        });
-        it("fills again after a reload or a worker restart and keeps asking", async () => {
-          await loggedOut();
-          const restarted = harness(
-            {},
-            { allowedOrigins: [], uris: async () => ({ ok: true, data: both }) },
-          );
-          // The document that was filled is not filled again by a restarted worker.
-          expect(await restarted.hello({ documentId: "signed-out" })).toEqual({
-            ok: false,
-            reason: "logged-out",
-          });
-          expect(restarted.fields).not.toHaveBeenCalled();
-          await filledOnly(restarted, { documentId: "reloaded" });
-          expect(restarted.fields).toHaveBeenCalledTimes(1);
-          expect(logouts()).toEqual([{ tabId: 1, origin }]);
-          // Nothing was ever clicked after the logout.
-          expect(steps().map((step) => step.kind)).toEqual(["fill", "click", "fill", "fill"]);
-        });
-        it("forgets a fill-only record a stopped worker left ended", async () => {
-          const h = harness(
-            {},
-            { allowedOrigins: [], uris: async () => ({ ok: true, data: both }) },
-          );
-          expect(await h.hello()).toEqual({ ok: true });
-          await vi.waitFor(() => expect(attempts()).toMatchObject([{ state: "authenticated" }]));
-          const [done] = attempts();
-          expect(await h.hello({ documentId: "signed-out" })).toEqual({ ok: true });
-          await vi.waitFor(async () => expect(await h.login.active()).toBe(false));
-          // As a worker that stopped after ending the fill, before forgetting it, leaves it.
-          fake.state.storage["pateat.login-attempts.v5"] = [
-            { ...done, fillOnly: true, state: "blocked", outcome: "cancelled" },
-          ];
-          const restarted = harness(
-            {},
-            { allowedOrigins: [], uris: async () => ({ ok: true, data: both }) },
-          );
-          await filledOnly(restarted, { documentId: "reloaded" });
-          expect(attempts()).toEqual([]);
-        });
-        it("does not hold the site for other tabs while a tab only fills", async () => {
-          const h = harness(
-            {},
-            { allowedOrigins: [], uris: async () => ({ ok: true, data: both }) },
-          );
-          expect(await h.hello()).toEqual({ ok: true });
-          await vi.waitFor(() => expect(attempts()).toMatchObject([{ state: "authenticated" }]));
-          // The fill after the logout never answers, so it stays running.
-          fake.state.onExecute = () => new Promise(() => undefined);
-          expect(await h.hello({ documentId: "signed-out" })).toEqual({ ok: true });
-          await vi.waitFor(() => expect(steps()).toHaveLength(3));
-          fake.state.tabUrls[2] = fake.state.pageUrl;
-          expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({ ok: true });
-          await vi.waitFor(() => expect(steps()).toHaveLength(4));
-          expect(steps().map((step) => step.kind)).toEqual(["fill", "click", "fill", "fill"]);
-        });
-        it("asks without filling when several accounts match and none is the default", async () => {
-          const h = harness(unsaved, {
-            allowedOrigins: [],
-            uris: async () => ({ ok: true, data: both }),
-          });
-          expect(await h.hello()).toEqual({ ok: false, reason: "account-ambiguous" });
-          fake.state.onReconnect = () => h.hello();
-          expect(await pick(h)).toEqual({ ok: true });
-          await vi.waitFor(() => expect(attempts()).toMatchObject([{ state: "authenticated" }]));
-          const before = steps().length;
-          expect(await h.hello({ documentId: "signed-out" })).toEqual({
-            ok: false,
-            reason: "logged-out",
-          });
-          expect(steps()).toHaveLength(before);
-        });
-        it("logs a sign-in form that is not taken as a logout, and which tab logged out", async () => {
-          const report = vi.fn<(report: LoginReport) => void>();
-          const h = harness(
-            {},
-            { allowedOrigins: [], uris: async () => ({ ok: true, data: both }), report },
-          );
-          const refusals = () =>
-            report.mock.calls.map(([entry]) => entry).filter((entry) => entry.type === "refused");
-          expect(await h.hello()).toEqual({ ok: true });
-          await vi.waitFor(() => expect(attempts()).toMatchObject([{ state: "authenticated" }]));
-          // A sign-in input whose form is not the recipe's first step: still logged in.
-          const watching = { ok: false, reason: "logged-in", starts: [signinStart] };
-          expect(await shownHello(h, { documentId: "home" })).toEqual(watching);
-          expect(await shownHello(h, { documentId: "home" })).toEqual(watching);
-          expect(refusals()).toEqual([
-            { type: "refused", tabId: 1, origin, reason: "not-started", detail: "logged-in" },
-          ]);
-          // The fill after the logout ends asking, and that is logged with the tab that
-          // logged out; the content script does not announce a start again for that form.
-          expect(await h.hello({ documentId: "signed-out" })).toEqual({ ok: true });
-          await vi.waitFor(() =>
-            expect(refusals().at(-1)).toMatchObject({ reason: "logged-out", detail: "this-tab" }),
-          );
-          fake.state.tabUrls[2] = fake.state.pageUrl;
-          expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({ ok: true });
-          await vi.waitFor(() =>
-            expect(refusals().at(-1)).toMatchObject({
-              tabId: 2,
-              reason: "logged-out",
-              detail: "other-tab",
-            }),
-          );
-          expect(refusals().filter((entry) => entry.reason === "logged-out")).toHaveLength(2);
-          // The logout itself, and each login with how its account was chosen.
-          const decisions = report.mock.calls
-            .map(([entry]) => entry)
-            .filter((entry) => entry.type === "start" || entry.type === "logout");
-          expect(decisions).toEqual([
-            expect.objectContaining({ type: "start", tabId: 1, account: "default" }),
-            {
-              type: "logout",
+            origin,
+            documentId: "signed-out-again",
+            candidates: [
+              { connectionId, itemId },
+              { connectionId, itemId: otherItemId },
+            ],
+            ask: "relogin-limit",
+          };
+          /** Two automatic logins of the site signed in; the third would start now. */
+          const twice = async (report?: (entry: LoginReport) => void) => {
+            const h = matched(report);
+            await signedIn(h);
+            await signedIn(h, { documentId: "signed-out" });
+            return h;
+          };
+          it("asks instead of logging in a third time, filling nothing", async () => {
+            const report = vi.fn<(entry: LoginReport) => void>();
+            const h = await twice(report);
+            expect(relogins()).toEqual([
+              {
+                site: "login.example",
+                incognito: false,
+                at: [expect.any(Number), expect.any(Number)],
+              },
+            ]);
+            const before = steps().length;
+            expect(await h.hello({ documentId: "signed-out-again" })).toEqual({
+              ok: false,
+              reason: "relogin-limit",
+            });
+            expect(steps()).toHaveLength(before);
+            expect(h.fields).toHaveBeenCalledTimes(2);
+            // The saved default is listed first, as the popup shows it.
+            expect(await ask(h)).toEqual(limited);
+            expect(fake.state.badges[1]).toEqual({ text: "2", title: reloginTitle });
+            expect(report).toHaveBeenCalledWith({
+              type: "refused",
               tabId: 1,
               origin,
-              recipeId: recipe.id,
-              recipeRevision: recipe.revision,
-            },
-            expect.objectContaining({
-              type: "start",
-              tabId: 1,
-              account: "default",
+              reason: "relogin-limit",
               candidates: 2,
-              fillOnly: true,
-            }),
-            expect.objectContaining({ type: "start", tabId: 2, fillOnly: true }),
-          ]);
-          expect(decisions[0]).not.toHaveProperty("itemId");
-        });
-        it("asks in other tabs of the site while it asks, and a pick there logs in", async () => {
-          const h = await loggedOut();
-          // Cookies are shared: another tab must not log in again behind the user's logout,
-          // so it asks too.
-          fake.state.tabUrls[2] = fake.state.pageUrl;
-          await filledOnly(h, { tab: { id: 2 }, documentId: "other-tab" });
-          expect(fake.state.badges[2]).toEqual({
-            text: "2",
-            title:
-              "Pateat: you logged out of this site in another tab. Click to choose an account.",
+            });
           });
-          expect(h.fields).toHaveBeenCalledTimes(3);
-          fake.state.onReconnect = () => h.hello({ tab: { id: 2 }, documentId: "other-tab" });
-          expect(await pick(h, { tabId: 2, documentId: "other-tab" })).toEqual({ ok: true });
-          await vi.waitFor(() =>
-            expect(attempts()).toMatchObject([
-              { state: "authenticated", account: { itemId: otherItemId } },
-            ]),
-          );
-          // The tab that logged out still asks, and its pick may log in over that login.
-          expect(logouts()).toEqual([{ tabId: 1, origin }]);
-          fake.state.onReconnect = () => h.hello({ documentId: "signed-out" });
-          expect(await pick(h, { documentId: "signed-out", itemId })).toEqual({ ok: true });
-          await vi.waitFor(() => expect(attempts()).toHaveLength(2));
-          expect(logouts()).toEqual([]);
+          it("logs in with a pick in the popup, which is not counted", async () => {
+            const h = await twice();
+            expect(await h.hello({ documentId: "signed-out-again" })).toMatchObject({
+              reason: "relogin-limit",
+            });
+            fake.state.onReconnect = () => h.hello({ documentId: "signed-out-again" });
+            expect(await pick(h, { documentId: "signed-out-again" })).toEqual({ ok: true });
+            await vi.waitFor(() =>
+              expect(attempts()).toMatchObject([
+                { state: "authenticated", account: { itemId: otherItemId } },
+              ]),
+            );
+            expect(fake.state.badges[1]?.text).not.toBe("2");
+            // Still two counted: the next automatic login asks again.
+            expect((relogins() as { at: number[] }[])[0]!.at).toHaveLength(2);
+            expect(await h.hello({ documentId: "signed-out-third" })).toEqual({
+              ok: false,
+              reason: "relogin-limit",
+            });
+          });
+          it("logs in again once 10 minutes passed since the first counted login", async () => {
+            const h = await twice();
+            const [first] = (relogins() as { at: number[] }[])[0]!.at;
+            const clock = vi.spyOn(Date, "now").mockImplementation(() => first! + 10 * 60_000);
+            try {
+              await signedIn(h, { documentId: "signed-out-again" });
+            } finally {
+              clock.mockRestore();
+            }
+            expect((relogins() as { at: number[] }[])[0]!.at).toHaveLength(2);
+          });
+          it("counts the logins of two tabs that log each other out together", async () => {
+            const h = matched();
+            await signedIn(h);
+            fake.state.tabUrls[2] = fake.state.pageUrl;
+            await signedIn(h, { tab: { id: 2 }, documentId: "other-tab" });
+            // The first tab's session ended when the second logged in, as on a site that
+            // allows one session at a time.
+            expect(await h.hello({ documentId: "signed-out" })).toEqual({
+              ok: false,
+              reason: "relogin-limit",
+            });
+            expect(await h.hello({ tab: { id: 2 }, documentId: "other-signed-out" })).toEqual({
+              ok: false,
+              reason: "relogin-limit",
+            });
+          });
+          it("counts an incognito window's logins apart", async () => {
+            const h = await twice();
+            fake.state.incognito.add(2);
+            fake.state.tabUrls[2] = fake.state.pageUrl;
+            await signedIn(h, { tab: { id: 2 }, documentId: "private" });
+            expect(relogins()).toEqual([
+              {
+                site: "login.example",
+                incognito: false,
+                at: [expect.any(Number), expect.any(Number)],
+              },
+              { site: "login.example", incognito: true, at: [expect.any(Number)] },
+            ]);
+          });
+          it("keeps counting across a worker restart", async () => {
+            await twice();
+            const restarted = matched();
+            expect(await restarted.hello({ documentId: "signed-out-again" })).toEqual({
+              ok: false,
+              reason: "relogin-limit",
+            });
+          });
+          it("forgets the site's logins once all of its tabs closed", async () => {
+            const h = await twice();
+            // Another site's tab stays open.
+            const query = vi
+              .spyOn(fake.browser.tabs, "query")
+              .mockResolvedValue([{ id: 3, url: "https://elsewhere.example/" }] as never);
+            try {
+              for (const listener of fake.state.removed) listener(1);
+              await vi.waitFor(() => expect(relogins()).toEqual([]));
+            } finally {
+              query.mockRestore();
+            }
+            await signedIn(h, { documentId: "reopened" });
+          });
+          it("keeps the site's logins while another of its tabs is open", async () => {
+            const h = await twice();
+            const query = vi
+              .spyOn(fake.browser.tabs, "query")
+              .mockResolvedValue([{ id: 2, url: fake.state.pageUrl }] as never);
+            try {
+              for (const listener of fake.state.removed) listener(1);
+              await vi.waitFor(() =>
+                expect(fake.state.session["pateat.login-noted.v1"]).toBeDefined(),
+              );
+              await new Promise((resolve) => setTimeout(resolve, 10));
+              expect((relogins() as { at: number[] }[])[0]!.at).toHaveLength(2);
+            } finally {
+              query.mockRestore();
+            }
+            fake.state.tabUrls[2] = fake.state.pageUrl;
+            expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({
+              ok: false,
+              reason: "relogin-limit",
+            });
+          });
         });
       });
     });
@@ -6363,7 +6176,7 @@ describe("production login document admission", () => {
       };
     }
     const uris = async () => ({ ok: true as const, data: uriMatch() });
-    const status = () => fake.state.storage["pateat.login-attempts.v5"];
+    const status = () => fake.state.storage["pateat.login-attempts.v6"];
 
     it("sends a matching sign-in page for generation and runs the returned recipe", async () => {
       fake.state.extracted = { login: loginPage };
@@ -6870,7 +6683,7 @@ describe("production login document admission", () => {
         cache(h, recipe);
         expect(await h.hello({ tab: { id: 2 }, documentId: "done" })).toEqual({ ok: true });
         await vi.waitFor(() =>
-          expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
+          expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
             { state: "authenticated" },
           ]),
         );
@@ -8190,15 +8003,15 @@ describe("production login document admission", () => {
           const login = harness();
           expect(await login.hello({ tab: { id: 2 }, documentId: "tab-2" })).toEqual({ ok: true });
           await vi.waitFor(() =>
-            expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
+            expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
               { state: "authenticated", document: { tabId: 2 } },
             ]),
           );
-          const [record] = fake.state.storage["pateat.login-attempts.v5"] as Record<
+          const [record] = fake.state.storage["pateat.login-attempts.v6"] as Record<
             string,
             unknown
           >[];
-          fake.state.storage["pateat.login-attempts.v5"] = [
+          fake.state.storage["pateat.login-attempts.v6"] = [
             { ...record, changedAt: Date.now() - age },
           ];
           const query = fake.browser.tabs.query;
@@ -8249,30 +8062,10 @@ describe("production login document admission", () => {
           );
         });
 
-        it("sends the list while a tab of the origin asks after a logout (ADR 0021 D)", async () => {
+        it("sends the list while a tab of the origin asks after a rejected login (ADR 0062)", async () => {
           await signedInTab(60_000);
-          fake.state.session["pateat.login-logouts.v1"] = [{ tabId: 3, origin }];
+          fake.state.session["pateat.login-rejected-asks.v1"] = [{ tabId: 3, origin }];
           const { service, h } = setup();
-          expect(await h.hello({ documentId: "chooser" }, false)).toMatchObject({
-            generate: true,
-          });
-          expect(await listHello(h, undefined, { documentId: "chooser" })).toEqual({
-            ok: false,
-            reason: "generating",
-          });
-          await vi.waitFor(() => expect(service.generate).toHaveBeenCalledTimes(1));
-        });
-
-        it("sends the list after a logout clicked in this tab (ADR 0021 D)", async () => {
-          await signedInTab(60_000);
-          const { service, h } = setup();
-          expect(await h.hello({ documentId: "dashboard" }, false)).toMatchObject({
-            generate: true,
-          });
-          await h.login.handle(
-            { version: 1, type: "login.document.logout-clicked", token: "synthetic-token" },
-            sender({ documentId: "dashboard" }),
-          );
           expect(await h.hello({ documentId: "chooser" }, false)).toMatchObject({
             generate: true,
           });
@@ -8333,6 +8126,7 @@ describe("production login document admission", () => {
           overrides?: Partial<LocalSettings>;
           uris?: LiveUriMatcher;
           passkeyItems?: (origin: string) => Promise<readonly PasskeyItem[]>;
+          pauses?: LoginPauses;
         } = {},
       ) => {
         fake.state.extracted = { entry: entryPage };
@@ -8349,6 +8143,7 @@ describe("production login document admission", () => {
             report,
             ...(options.entries ? { entries: options.entries } : {}),
             ...(options.passkeyItems ? { passkeyItems: options.passkeyItems } : {}),
+            ...(options.pauses ? { pauses: options.pauses } : {}),
           },
         );
         h.recipes.recipe.mockResolvedValue(undefined);
@@ -8378,6 +8173,48 @@ describe("production login document admission", () => {
       });
 
       describe("sending the page", () => {
+        it("sends no page of a paused site (ADR 0062)", async () => {
+          const { service, h, reports } = setup();
+          expect(await setPause(h, true)).toEqual({ ok: true, until: expect.any(Number) });
+          expect(await h.hello({}, false)).toEqual({ ok: false, reason: "recipe-not-found" });
+          expect(await entryHello(h)).toEqual({ ok: false, reason: "recipe-not-found" });
+          expect(service.generateEntry).not.toHaveBeenCalled();
+          expect(service.generate).not.toHaveBeenCalled();
+          expect(reports("generation")).toEqual([
+            expect.objectContaining({ outcome: "skipped", reason: "paused" }),
+          ]);
+          // Once resumed, the page is offered again.
+          expect(await setPause(h, false)).toEqual({ ok: true });
+          expect(await h.hello({ documentId: "after-resume" }, false)).toMatchObject({
+            generate: true,
+            entry: true,
+          });
+        });
+        it("sends no page whose site was paused while it was read (ADR 0062)", async () => {
+          let pausedTill: number | undefined;
+          const { service, h, reports } = setup({
+            pauses: {
+              until: async () => pausedTill,
+              pause: async () => pausedTill,
+              resume: async () => false,
+            },
+          });
+          expect(await h.hello({}, false)).toMatchObject({ generate: true, entry: true });
+          // The person pauses the site while its page is read for generation.
+          fake.state.extracted = {
+            get entry() {
+              pausedTill = Date.now() + 60_000;
+              return entryPage;
+            },
+          };
+          expect(await entryHello(h)).toEqual({ ok: false, reason: "generating" });
+          await vi.waitFor(() => expect(sent("login.reconnect")).toHaveLength(1));
+          expect(sent("login.extract")).toHaveLength(1);
+          expect(service.generateEntry).not.toHaveBeenCalled();
+          expect(reports("generation")).toEqual([
+            expect.objectContaining({ outcome: "skipped", reason: "paused", page: "entry" }),
+          ]);
+        });
         it("sends a page whose URL names another path of its site, without slots", async () => {
           const { service, h, reports } = setup();
           expect(await h.hello({}, false)).toEqual({
@@ -8610,19 +8447,6 @@ describe("production login document admission", () => {
           expect(service.generateEntry).not.toHaveBeenCalled();
           expect(reports("generation")).toEqual([
             expect.objectContaining({ outcome: "skipped", reason, page: "entry" }),
-          ]);
-        });
-
-        it("sends nothing while any tab keeps a logout of the site", async () => {
-          fake.state.session["pateat.login-logouts.v1"] = [
-            { tabId: 2, origin: "https://accounts.login.example" },
-          ];
-          const { service, h, reports } = setup();
-          expect(await h.hello({}, false)).toMatchObject({ entry: true });
-          await entryHello(h);
-          expect(service.generateEntry).not.toHaveBeenCalled();
-          expect(reports("generation")).toEqual([
-            expect.objectContaining({ outcome: "skipped", reason: "logged-out" }),
           ]);
         });
 
@@ -8916,7 +8740,7 @@ describe("production login document admission", () => {
             },
           ]);
           // The press is no attempt: nothing is recorded, held or read from the vault.
-          expect(fake.state.storage["pateat.login-attempts.v5"] ?? []).toEqual([]);
+          expect(fake.state.storage["pateat.login-attempts.v6"] ?? []).toEqual([]);
           expect(h.fields).not.toHaveBeenCalled();
         });
 
@@ -8961,16 +8785,6 @@ describe("production login document admission", () => {
             "no vault item matching the page",
             { uris: async () => ({ ok: true as const, data: uriMatch({ candidates: [] }) }) },
             "no-vault-match",
-          ],
-          [
-            "a logout of the site kept in another tab",
-            { logout: { tabId: 2, origin: "https://accounts.login.example" } },
-            "logged-out",
-          ],
-          [
-            "a logout clicked on the site in this tab",
-            { click: { tabId: 1, site: "login.example", clickedAt: new Date().toISOString() } },
-            "logout-clicked",
           ],
           [
             "a blocked revision",
@@ -9041,16 +8855,12 @@ describe("production login document admission", () => {
             inspect?: Record<string, unknown>;
             overrides?: Partial<LocalSettings>;
             uris?: LiveUriMatcher;
-            logout?: { tabId: number; origin: string };
-            click?: { tabId: number; site: string; clickedAt: string };
             block?: Record<string, unknown>;
             press?: unknown;
           };
           if (option.url) fake.state.pageUrl = option.url;
           fake.state.entry.inspect = inspected(option.inspect);
           if (option.press) fake.state.entry.press = option.press;
-          if (option.logout) fake.state.session["pateat.login-logouts.v1"] = [option.logout];
-          if (option.click) fake.state.session["pateat.login-logout-clicks.v1"] = [option.click];
           if (option.block) fake.state.storage["pateat.login-entry-blocks.v1"] = [option.block];
           const { h, reports } = setup({
             entries: [entryRecipe],
@@ -9136,7 +8946,7 @@ describe("production login document admission", () => {
             fake.state.tabUrls[1] = signin;
             expect(await h.hello({ documentId: "login", url: signin })).toEqual({ ok: true });
             await vi.waitFor(() =>
-              expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
+              expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
                 { state: "authenticated" },
               ]),
             );
@@ -9151,6 +8961,16 @@ describe("production login document admission", () => {
               outcome: "refused",
               reason: "site-record",
             });
+          });
+
+          it("refuses a press while the site is paused (ADR 0062)", async () => {
+            fake.state.entry.inspect = inspected();
+            const { h, reports } = setup({ entries: [entryRecipe] });
+            await setPause(h, true);
+            expect(await h.hello({}, false)).toMatchObject({ reason: "entry" });
+            await vi.waitFor(() => expect(reports("entry")).toHaveLength(1));
+            expect(reports("entry")[0]).toMatchObject({ outcome: "refused", reason: "paused" });
+            expect(sent("login.entry.press")).toEqual([]);
           });
 
           it("refuses a press while another tab's login holds the site", async () => {
@@ -10793,7 +10613,6 @@ describe("production login document admission", () => {
           ),
         ).toEqual([expect.objectContaining({ cause: "sign-in-shown" })]);
         expect(service.judge).not.toHaveBeenCalled();
-        expect(fake.state.session["pateat.login-logouts.v1"]).toEqual([{ tabId: 1, origin }]);
         expect(fake.state.session["pateat.login-rejected-asks.v1"]).toEqual([{ tabId: 1, origin }]);
         // The page is asked to announce again, and asks once its first step shows.
         expect(fake.state.reconnects).toContainEqual({
@@ -10804,7 +10623,7 @@ describe("production login document admission", () => {
         const executes = fake.state.messages.filter((entry) => entry.type === "login.execute");
         expect(await h.hello({ documentId: "document-again" })).toEqual({
           ok: false,
-          reason: "logged-out",
+          reason: "account-asked",
         });
         expect(fake.state.badges[1]).toEqual({
           text: "1",
@@ -11014,7 +10833,7 @@ describe("production login document admission", () => {
       it("asks for an account when the form shows again without a mark after the submitted document settled", async () => {
         await settledFirst([{ ...noSigns, password: true }]);
         await vi.waitFor(() => expect(status()).toEqual([]), { timeout: 8_000 });
-        expect(fake.state.session["pateat.login-logouts.v1"]).toEqual([{ tabId: 1, origin }]);
+        expect(fake.state.session["pateat.login-rejected-asks.v1"]).toEqual([{ tabId: 1, origin }]);
         expect(fake.state.reconnects).toContainEqual({
           tabId: 1,
           frameId: 0,
@@ -11035,7 +10854,7 @@ describe("production login document admission", () => {
             { timeout: 8_000 },
           );
           expect(states()[0]).toMatchObject({ reshown: true, decision: "unknown" });
-          expect(fake.state.session["pateat.login-logouts.v1"] ?? []).toEqual([]);
+          expect(fake.state.session["pateat.login-rejected-asks.v1"] ?? []).toEqual([]);
         },
         12_000,
       );
@@ -11900,7 +11719,7 @@ describe("production login document admission", () => {
           });
           expect(answer).toEqual({ ok: true });
           await vi.waitFor(() =>
-            expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
+            expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
               { state: "blocked", outcome: "retry-limit", retries: 2, submissions: 0 },
             ]),
           );
@@ -12149,6 +11968,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
     fake.state.pageUrl = "https://login.example/signin";
     fake.state.onExecute = undefined;
     fake.state.tabUrls = {};
+    fake.state.incognito = new Set();
     fake.state.observed = ["unique", "missing"];
     fake.state.observedPath = "/signin";
     fake.state.present = new Set(["password", "login"]);
@@ -12183,7 +12003,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
     { id: "c1", role: "button", target: target("logout"), label: "Sign out" },
   ]);
   const status = () =>
-    fake.state.storage["pateat.login-attempts.v5"] as Record<string, unknown>[] | undefined;
+    fake.state.storage["pateat.login-attempts.v6"] as Record<string, unknown>[] | undefined;
   const executed = () =>
     fake.state.messages
       .filter((entry) => entry.type === "login.execute")
@@ -15036,30 +14856,20 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       expect(status()![0]).not.toHaveProperty("watch");
       expect(executed()).toHaveLength(steps);
       expect(judges().at(-1)).toMatchObject({ verdict: "signed-in", watched: true });
-      // The login finished, so its form showing again is a logout (ADR 0021 D).
+      // The login finished, so its form showing again logs in again, as on any visit
+      // (ADR 0062).
       fake.state.pageUrl = `${origin}/signin`;
       fake.state.observedPath = "/signin";
       fake.state.present = new Set(["password", "login"]);
-      await h.hello({ documentId: "signed-out" });
-      await vi.advanceTimersByTimeAsync(5_000);
-      expect(reports).toHaveBeenCalledWith(
-        expect.objectContaining({ type: "logout", tabId: 1, origin }),
-      );
-      expect(fake.state.session["pateat.login-logouts.v1"]).toEqual([{ tabId: 1, origin }]);
-      expect(fake.state.session["pateat.login-stopped-asks.v1"]).toEqual([]);
-      // Another tab of the site asks too and only fills, as after any logout.
       const before = executed().length;
-      fake.state.tabUrls[2] = fake.state.pageUrl;
-      expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({ ok: true });
+      expect(await h.hello({ documentId: "signed-out" })).toEqual({ ok: true });
       await vi.advanceTimersByTimeAsync(5_000);
+      expect(executed().length).toBeGreaterThan(before);
       expect(
-        executed()
-          .slice(before)
-          .map((step) => step.kind),
-      ).toEqual(["fill"]);
-      expect(reports).toHaveBeenCalledWith(
-        expect.objectContaining({ type: "start", tabId: 2, fillOnly: true }),
-      );
+        reports.mock.calls.filter(([entry]) => entry.type === "start" && entry.tabId === 1),
+      ).toHaveLength(2);
+      expect(fake.state.session["pateat.login-stopped-asks.v1"] ?? []).toEqual([]);
+      expect(fake.state.session["pateat.login-rejected-asks.v1"] ?? []).toEqual([]);
     });
 
     it("hides the account's username from a watched page it judges", async () => {
@@ -15209,7 +15019,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
     const abandoned = (outcome: string, tabId = 1) =>
       expect.objectContaining({ type: "attempt", tabId, state: "blocked", outcome });
 
-    it("ends a watch that never signed in when its first step shows again: no logout, this tab only fills", async () => {
+    it("ends a watch that never signed in when its first step shows again: this tab asks", async () => {
       const { h } = await watched();
       const steps = executed().length;
       // The approval expired and the site went back to its sign-in page (owner, 2026-10-13).
@@ -15218,20 +15028,22 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         starts: expect.any(Array),
       });
       // The page reports the first step ready.
-      expect(await h.hello({ documentId: "document-signin" })).toEqual({ ok: true });
+      expect(await h.hello({ documentId: "document-signin" })).toEqual({
+        ok: false,
+        reason: "account-asked",
+      });
       await vi.advanceTimersByTimeAsync(5_000);
-      expect(reports).not.toHaveBeenCalledWith(expect.objectContaining({ type: "logout" }));
       expect(reports).toHaveBeenCalledWith(abandoned("challenge-abandoned"));
-      expect(fake.state.session["pateat.login-logouts.v1"]).toEqual([]);
       expect(fake.state.session["pateat.login-stopped-asks.v1"]).toEqual([{ tabId: 1, origin }]);
-      // The tab fills the form once, without pressing anything.
-      expect(
-        executed()
-          .slice(steps)
-          .map((step) => step.kind),
-      ).toEqual(["fill"]);
+      // The tab asks without filling anything (ADR 0062).
+      expect(executed()).toHaveLength(steps);
       expect(reports).toHaveBeenCalledWith(
-        expect.objectContaining({ type: "start", tabId: 1, fillOnly: true }),
+        expect.objectContaining({
+          type: "refused",
+          tabId: 1,
+          reason: "account-asked",
+          detail: "stopped-login",
+        }),
       );
       expect(fake.state.badges[1]?.title).toBe(
         "Pateat: the last login on this site stopped in this tab. Click to choose an account.",
@@ -15242,7 +15054,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       } as never;
       expect(
         await h.login.handle({ version: 1, type: "login.choice.get", tabId: 1 }, popup),
-      ).toMatchObject({ ok: true, logout: "stopped-login" });
+      ).toMatchObject({ ok: true, ask: "stopped-login" });
       expect(status() ?? []).toEqual([]);
       // Another tab, or a new one, logs in as before and presses the button.
       const before = executed().length;
@@ -15253,10 +15065,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
           .map((step) => step.kind),
       ).toEqual(["fill", "click"]);
       expect(reports).not.toHaveBeenCalledWith(
-        expect.objectContaining({ type: "start", tabId: 2, fillOnly: true }),
-      );
-      expect(reports).not.toHaveBeenCalledWith(
-        expect.objectContaining({ type: "refused", tabId: 2, reason: "logged-out" }),
+        expect.objectContaining({ type: "refused", tabId: 2, reason: "account-asked" }),
       );
     });
 
@@ -15265,9 +15074,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       const steps = executed().length;
       // The approval expired and the person opened the sign-in page in a new tab.
       expect(await signInPage(h, 2, "other-tab")).toEqual({ ok: true });
-      expect(reports).not.toHaveBeenCalledWith(expect.objectContaining({ type: "logout" }));
       expect(reports).toHaveBeenCalledWith(abandoned("challenge-abandoned", 1));
-      expect(fake.state.session["pateat.login-logouts.v1"]).toEqual([]);
       // Only the watched tab asks if its own sign-in page shows again.
       expect(fake.state.session["pateat.login-stopped-asks.v1"]).toEqual([{ tabId: 1, origin }]);
       // The new tab logs in and presses the button.
@@ -15276,17 +15083,13 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
           .slice(steps)
           .map((step) => step.kind),
       ).toEqual(["fill", "click"]);
-      expect(reports).not.toHaveBeenCalledWith(
-        expect.objectContaining({ type: "start", tabId: 2, fillOnly: true }),
-      );
-      // The watched tab's own sign-in page then only fills.
+      // The watched tab's own sign-in page then asks, filling nothing.
       const before = executed().length;
-      expect(await signInPage(h, 1, "document-signin")).toEqual({ ok: true });
-      expect(
-        executed()
-          .slice(before)
-          .map((step) => step.kind),
-      ).toEqual(["fill"]);
+      expect(await signInPage(h, 1, "document-signin")).toEqual({
+        ok: false,
+        reason: "account-asked",
+      });
+      expect(executed()).toHaveLength(before);
     });
 
     it("keeps holding the site against another tab's page left open from before", async () => {
@@ -15308,7 +15111,6 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         ok: false,
         reason: "origin-busy",
       });
-      expect(reports).not.toHaveBeenCalledWith(expect.objectContaining({ type: "logout" }));
       expect(status()).toMatchObject([{ state: "watching", document: { tabId: 1 } }]);
     });
 
@@ -15318,7 +15120,6 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       fake.state.observedPath = "/home";
       fake.state.tabUrls[2] = fake.state.pageUrl;
       await h.hello({ tab: { id: 2 }, documentId: "other-tab" }, false);
-      expect(reports).not.toHaveBeenCalledWith(expect.objectContaining({ type: "logout" }));
       expect(status()).toMatchObject([{ state: "watching", document: { tabId: 1 } }]);
     });
 
@@ -15339,19 +15140,17 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         starts: expect.any(Array),
       });
       const steps = executed().length;
-      expect(await h.hello({ documentId: "document-signin" })).toEqual({ ok: true });
-      await vi.advanceTimersByTimeAsync(5_000);
       // 2026-10-13: Sony Bank's sign-in page after a password submit settled as unknown was
-      // taken as a logout, and every other tab of the site only filled after it.
-      expect(reports).not.toHaveBeenCalledWith(expect.objectContaining({ type: "logout" }));
+      // taken as a logout, and every other tab of the site only filled after it. Only this
+      // tab asks, filling nothing (ADR 0062).
+      expect(await h.hello({ documentId: "document-signin" })).toEqual({
+        ok: false,
+        reason: "account-asked",
+      });
+      await vi.advanceTimersByTimeAsync(5_000);
       expect(reports).toHaveBeenCalledWith(abandoned("watch-abandoned"));
-      expect(fake.state.session["pateat.login-logouts.v1"]).toEqual([]);
       expect(fake.state.session["pateat.login-stopped-asks.v1"]).toEqual([{ tabId: 1, origin }]);
-      expect(
-        executed()
-          .slice(steps)
-          .map((step) => step.kind),
-      ).toEqual(["fill"]);
+      expect(executed()).toHaveLength(steps);
       expect(status() ?? []).toEqual([]);
       const before = executed().length;
       expect(await signInPage(h, 2, "other-tab")).toEqual({ ok: true });
@@ -15371,18 +15170,12 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       ).toMatchObject({ ok: false });
       expect(status()).toMatchObject([{ state: "blocked", outcome: "challenge" }]);
       expect(status()![0]).not.toHaveProperty("watch");
-      // Once the hold ends, the tab's own sign-in page asks and only fills.
+      // Once the hold ends, the tab's own sign-in page asks, filling nothing.
       await vi.advanceTimersByTimeAsync(5 * 60_000);
       const steps = executed().length;
-      expect(await signInPage(h, 1, "back")).toEqual({ ok: true });
-      expect(reports).not.toHaveBeenCalledWith(expect.objectContaining({ type: "logout" }));
-      expect(fake.state.session["pateat.login-logouts.v1"]).toEqual([]);
+      expect(await signInPage(h, 1, "back")).toEqual({ ok: false, reason: "account-asked" });
       expect(fake.state.session["pateat.login-stopped-asks.v1"]).toEqual([{ tabId: 1, origin }]);
-      expect(
-        executed()
-          .slice(steps)
-          .map((step) => step.kind),
-      ).toEqual(["fill"]);
+      expect(executed()).toHaveLength(steps);
       // Another tab logs in as before.
       const before = executed().length;
       expect(await signInPage(h, 2, "other-tab")).toEqual({ ok: true });
@@ -15402,14 +15195,13 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       fake.state.pageUrl = `${origin}/signin`;
       fake.state.observedPath = "/signin";
       fake.state.present = new Set(["password", "login"]);
-      expect(await h.hello({ documentId: "document-next" })).toEqual({ ok: true });
+      expect(await h.hello({ documentId: "document-next" })).toEqual({
+        ok: false,
+        reason: "account-asked",
+      });
       await vi.advanceTimersByTimeAsync(5_000);
       expect(fake.state.session["pateat.login-stopped-asks.v1"]).toEqual([{ tabId: 1, origin }]);
-      expect(
-        executed()
-          .slice(steps)
-          .map((step) => step.kind),
-      ).toEqual(["fill"]);
+      expect(executed()).toHaveLength(steps);
       expect(status() ?? []).toEqual([]);
     });
 
@@ -15465,6 +15257,7 @@ describe("password route variants (ADR 0027)", () => {
     fake.state.pageUrl = "https://login.example/signin";
     fake.state.onExecute = undefined;
     fake.state.tabUrls = {};
+    fake.state.incognito = new Set();
     fake.state.observed = ["unique", "missing"];
     fake.state.observedPath = "/signin";
     fake.state.present = undefined;
@@ -15530,7 +15323,7 @@ describe("password route variants (ADR 0027)", () => {
     ],
   });
   const status = () =>
-    fake.state.storage["pateat.login-attempts.v5"] as Record<string, unknown>[] | undefined;
+    fake.state.storage["pateat.login-attempts.v6"] as Record<string, unknown>[] | undefined;
   /** The targets each executed fill wrote. */
   const filled = () =>
     fake.state.messages
@@ -16144,6 +15937,7 @@ describe("the start page's passkey route (ADR 0027)", () => {
     fake.state.pageUrl = "https://login.example/signin";
     fake.state.onExecute = undefined;
     fake.state.tabUrls = {};
+    fake.state.incognito = new Set();
     fake.state.observed = ["unique", "missing"];
     fake.state.observedPath = "/signin";
     fake.state.present = new Set(["password", "login", "Sign in with a passkey"]);
@@ -16180,7 +15974,7 @@ describe("the start page's passkey route (ADR 0027)", () => {
     { id: "c1", role: "link", target: target("help"), label: "Help" },
   ]);
   const status = () =>
-    fake.state.storage["pateat.login-attempts.v5"] as Record<string, unknown>[] | undefined;
+    fake.state.storage["pateat.login-attempts.v6"] as Record<string, unknown>[] | undefined;
   const executed = () =>
     fake.state.messages
       .filter((entry) => entry.type === "login.execute")
@@ -16569,7 +16363,7 @@ describe("the start page's passkey route (ADR 0027)", () => {
       expect(serialized).not.toContain(key);
   });
 
-  it("never presses a passkey-only page's button again after a logout (ADR 0021 D)", async () => {
+  it("presses a passkey-only page's button again after a logout (#833, ADR 0062)", async () => {
     const only = parseLoginRecipe({
       version: 1,
       id: "synthetic-passkey-only",
@@ -16594,29 +16388,26 @@ describe("the start page's passkey route (ADR 0027)", () => {
       ok: false,
       reason: "logged-in",
     });
-    // The site logs out: the same tab shows the start page with its button again.
+    // The site logs out: the same tab shows the start page with its button again, and the
+    // passkey route presses it again, as on any visit (#833, ADR 0062).
+    const first = status()![0]!["id"];
     fake.state.observedPath = "/signin";
     fake.state.present = new Set([button.value]);
-    expect(await h.hello({ documentId: "signed-out" })).toEqual({
-      ok: false,
-      reason: "logged-out",
-    });
-    // The tab asks for an account, and the passkey route fills and presses nothing.
-    expect(fake.state.badges[1]?.text).toBe("1");
-    expect(fake.state.session["pateat.login-logouts.v1"]).toEqual([{ tabId: 1, origin }]);
-    expect(report).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "logout", tabId: 1, origin, recipeId: only.id }),
+    expect(await h.hello({ documentId: "signed-out" })).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(status()).toMatchObject([{ state: "authenticated", route: "passkey" }]),
     );
-    // Announcing again, as a re-render does, still only asks.
-    expect(await h.hello({ documentId: "signed-out" })).toEqual({
-      ok: false,
-      reason: "logged-out",
-    });
-    expect(clicks(button.value)).toBe(1);
+    expect(status()![0]!["id"]).not.toBe(first);
+    expect(clicks(button.value)).toBe(2);
     expect(fills()).toBe(0);
     expect(h.fields).not.toHaveBeenCalled();
-    // The finished login's record is released, as after any logout, and none starts.
-    expect(status()).toEqual([]);
+    expect(fake.state.badges[1]?.text ?? "").not.toMatch(/^\d+$/u);
+    expect(
+      report.mock.calls.filter(([entry]) => entry.type === "start").map(([entry]) => entry),
+    ).toEqual([
+      expect.objectContaining({ tabId: 1, recipeId: only.id }),
+      expect.objectContaining({ tabId: 1, recipeId: only.id }),
+    ]);
   });
 
   describe("a totp handler after the passkey click, probed independently", () => {
@@ -16968,6 +16759,7 @@ describe("an advance whose next step is on the same path (ADR 0013)", () => {
     fake.state.pageUrl = "https://login.example/signin";
     fake.state.onExecute = undefined;
     fake.state.tabUrls = {};
+    fake.state.incognito = new Set();
     fake.state.observed = ["unique", "missing"];
     fake.state.observedPath = "/signin";
     // An identifier-first form: the email form shows, the password form is hidden.
@@ -17003,7 +16795,7 @@ describe("an advance whose next step is on the same path (ADR 0013)", () => {
       maxSubmissions: 2,
     });
   const status = () =>
-    fake.state.storage["pateat.login-attempts.v5"] as Record<string, unknown>[] | undefined;
+    fake.state.storage["pateat.login-attempts.v6"] as Record<string, unknown>[] | undefined;
   /** The steps the document was asked to run, as `kind:element`. */
   const executed = () =>
     fake.state.messages
@@ -17944,6 +17736,7 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
     fake.state.pageUrl = "https://login.example/signin";
     fake.state.onExecute = undefined;
     fake.state.tabUrls = {};
+    fake.state.incognito = new Set();
     fake.state.observed = ["unique", "missing"];
     fake.state.observedPath = "/signin";
     // The email page: its field and Next show, and no password input yet.
@@ -18004,7 +17797,7 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
     { id: "c1", role: "button", target: target("logout"), label: "Sign out" },
   ]);
   const status = () =>
-    fake.state.storage["pateat.login-attempts.v5"] as Record<string, unknown>[] | undefined;
+    fake.state.storage["pateat.login-attempts.v6"] as Record<string, unknown>[] | undefined;
   const executed = () =>
     fake.state.messages
       .filter((entry) => entry.type === "login.execute")
@@ -18308,7 +18101,7 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
     ]);
   });
 
-  it("after a logout, only fills the continued recipe's first page and never presses Next", async () => {
+  it("after a logout, logs in again with the continued recipe without generating it again", async () => {
     inPlace();
     let h!: ReturnType<typeof harness>;
     const next = continuedOn("/signin");
@@ -18317,7 +18110,7 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
     expect(await h.hello()).toEqual({ ok: true });
     await until(settled("authenticated"));
     expect(executed()).toEqual(allSteps);
-    // The site signs out and shows the email page again in the tab (ADR 0021 D).
+    // The site signs out and shows the email page again in the tab (ADR 0062).
     h.recipes.starts.mockResolvedValue(startsOf([next.steps[0]!]));
     fake.state.observedPath = "/signin";
     fake.state.present = new Set(["email", "next"]);
@@ -18326,14 +18119,13 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
     fake.state.extracted = {};
     onClick(() => undefined);
     expect(await h.hello({ documentId: "signed-out" })).toEqual({ ok: true });
-    await until(() => executed().length === allSteps.length + 1);
+    await until(() => executed().length >= allSteps.length + 1);
     await vi.advanceTimersByTimeAsync(20_000);
-    expect(executed()).toEqual([...allSteps, "fill:email"]);
+    // It logs in again with the continued revision and asks the service for nothing more.
+    expect(executed()).toEqual([...allSteps, "fill:email", "click:next"]);
+    expect(status()).toMatchObject([{ recipeRevision: 2, document: { documentId: "signed-out" } }]);
     expect(service.generate).toHaveBeenCalledTimes(1);
-    expect(service.judge).toHaveBeenCalledTimes(1);
-    // The fill-only record is forgotten and the tab asks for an account.
-    expect(status()).toEqual([]);
-    expect(fake.state.badges[1]?.text).toBe("1");
+    expect(fake.state.badges[1]?.text).toBe("");
   });
 
   it("reports the continuation as not taken over when its record cannot be written", async () => {
@@ -18345,7 +18137,7 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
     const { set } = fake.browser.storage.local;
     // The record naming the continued revision cannot be stored.
     fake.browser.storage.local.set = async (values: Record<string, unknown>) => {
-      const records = values["pateat.login-attempts.v5"] as { recipeRevision?: number }[];
+      const records = values["pateat.login-attempts.v6"] as { recipeRevision?: number }[];
       if (records?.some((record) => record.recipeRevision === 2)) throw new Error("quota");
       return set(values);
     };
@@ -19470,22 +19262,24 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
       expect(service.judge).not.toHaveBeenCalled();
     });
 
-    it("after a logout, only fills the first page and never presses Next or the button", async () => {
+    it("after a logout, logs in again from the first page, pressing Next and the button", async () => {
       choosing();
       const service = generation();
       const h = start(service, { recipe: continued });
       expect(await h.hello()).toEqual({ ok: true });
       await until(settled("authenticated"));
       expect(executed()).toEqual(withPress);
-      // The site signs out and shows the email page again in the tab (ADR 0021 D).
+      // The site signs out and shows the email page again in the tab (ADR 0062).
       fake.state.observedPath = "/signin";
       fake.state.present = new Set(["email", "next"]);
       fake.state.signIn = false;
       fake.state.extracted = {};
       expect(await h.hello({ documentId: "signed-out" })).toEqual({ ok: true });
-      await until(() => executed().length === withPress.length + 1);
-      await vi.advanceTimersByTimeAsync(20_000);
-      expect(executed()).toEqual([...withPress, "fill:email"]);
+      await until(settled("authenticated"));
+      await until(() => executed().length === withPress.length * 2);
+      // The new login runs the whole recipe again, its learned button included.
+      expect(executed()).toEqual([...withPress, ...withPress]);
+      expect(service.generate).not.toHaveBeenCalled();
     });
   });
 
@@ -20090,51 +19884,7 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
       expect(h.settings.settings.bindings).toEqual([]);
     });
 
-    it("after a logout, a fill-only login is never continued, even once Next is pressed", async () => {
-      // Next signs in at once on this site: the username shows in the page header.
-      onClick(() => {
-        fake.state.observedPath = "/home";
-        fake.state.present = new Set(["logout"]);
-        fake.state.signIn = false;
-        fake.state.extracted = { "signed-in": homePage };
-        fake.state.signs = { ...noSigns, username: true };
-      });
-      const service = generation();
-      const h = start(service);
-      expect(await h.hello()).toEqual({ ok: true });
-      await until(settled("authenticated", "authenticated"));
-      expect(executed()).toEqual(allSteps.slice(0, 2));
-      expect(service.generate).not.toHaveBeenCalled();
-      expect(service.judge).not.toHaveBeenCalled();
-      // The site signs out and shows the email page again: the login only fills it (ADR 0021 D).
-      fake.state.signs = undefined;
-      fake.state.observedPath = "/signin";
-      fake.state.present = new Set(["email", "next"]);
-      fake.state.unusable = new Set();
-      fake.state.extracted = {};
-      inPlace();
-      expect(await h.hello({ documentId: "signed-out" })).toEqual({ ok: true });
-      await until(() => executed().length === 3);
-      await vi.advanceTimersByTimeAsync(5_000);
-      expect(executed()).toEqual([...allSteps.slice(0, 2), "fill:email"]);
-      expect(status()).toEqual([]);
-      // The person presses Next: the password form shows in the same document, which
-      // announces itself again. Nothing continues the recipe there.
-      fake.state.unusable = new Set(["email", "next"]);
-      fake.state.present = new Set(["email", "next", "password", "login"]);
-      fake.state.signIn = true;
-      fake.state.extracted = { login: passwordPage("/signin") };
-      expect(await h.hello({ documentId: "signed-out" }, false)).toMatchObject({ ok: false });
-      await vi.advanceTimersByTimeAsync(20_000);
-      expect(executed()).toEqual([...allSteps.slice(0, 2), "fill:email"]);
-      expect(service.generate).not.toHaveBeenCalled();
-      expect(service.judge).not.toHaveBeenCalled();
-      expect(fake.state.messages.some((entry) => entry.type === "login.extract")).toBe(false);
-      expect(status()).toEqual([]);
-      expect(fake.state.badges[1]?.text).toBe("1");
-    });
-
-    it("never presses Next again after a policy change stopped the request, and only fills", async () => {
+    it("never presses Next again after a policy change stopped the request, and asks", async () => {
       inPlace();
       let h!: ReturnType<typeof harness>;
       const next = continuedOn("/signin");
@@ -20149,18 +19899,20 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
       await until(settled("blocked", "policy-changed"));
       expect(status()![0]).toMatchObject({ recipeRevision: 1, submissions: 1 });
       // Next submitted, so the form shown again in a new document never starts a login that
-      // presses it again (#292 releases only a login that submitted nothing): the tab asks
-      // and the form is only filled, with no Next and no request (ADR 0021 D).
+      // presses it again (#292 releases only a login that submitted nothing): the tab asks,
+      // filling nothing, with no Next and no request (ADR 0062).
       fake.state.gone.add("synthetic-document");
       onClick(() => undefined);
       fake.state.present = new Set(["email", "next"]);
       fake.state.unusable = new Set();
       fake.state.signIn = false;
       fake.state.extracted = {};
-      expect(await h.hello({ documentId: "again" })).toEqual({ ok: true });
-      await until(() => executed().length === 3);
+      expect(await h.hello({ documentId: "again" })).toEqual({
+        ok: false,
+        reason: "account-asked",
+      });
       await vi.advanceTimersByTimeAsync(20_000);
-      expect(executed()).toEqual([...allSteps.slice(0, 2), "fill:email"]);
+      expect(executed()).toEqual(allSteps.slice(0, 2));
       expect(fieldReads(h)).not.toContain("login.password");
       expect(service.generate).toHaveBeenCalledTimes(1);
       expect(service.judge).not.toHaveBeenCalled();
@@ -20437,9 +20189,9 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
         expect(status()![0]).toMatchObject({ chooser: { click: "other" } });
       });
 
-      it("only fills the form for the default after a logout", async () => {
-        // This tab logged out of the site (ADR 0021 D); the item is the site default.
-        fake.state.session["pateat.login-logouts.v1"] = [{ tabId: 1, origin }];
+      it("asks without filling the form for the default after a rejected login", async () => {
+        // The site rejected this tab's login (ADR 0062); the item is the site default.
+        fake.state.session["pateat.login-rejected-asks.v1"] = [{ tabId: 1, origin }];
         const reports: LoginReport[] = [];
         const h = onList(
           generation(),
@@ -20448,20 +20200,21 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
           { siteDefaults: [{ origin, provider: "bitwarden", userId, itemId }] },
         );
         shows(h);
-        expect(await h.hello()).toEqual({ ok: true });
+        expect(await h.hello()).toEqual({ ok: false, reason: "account-asked" });
         await vi.advanceTimersByTimeAsync(5_000);
-        expect(executed()).toEqual(["fill:email,password"]);
-        expect(reports.find((entry) => entry.type === "start")).toMatchObject({
-          fillOnly: true,
-          click: "other-shown",
+        expect(executed()).toEqual([]);
+        expect(reports.some((entry) => entry.type === "start")).toBe(false);
+        expect(reports.at(-1)).toMatchObject({
+          type: "refused",
+          reason: "account-asked",
+          detail: "rejected",
         });
-        expect(reports.at(-1)).toMatchObject({ type: "refused", reason: "logged-out" });
       });
 
-      it("logs in with the account picked after a logout", async () => {
-        // This tab logged out of the site (ADR 0021 D), and two items match without a
+      it("logs in with the account picked after a rejected login", async () => {
+        // The site rejected this tab's login (ADR 0062), and two items match without a
         // default; the person then pressed the button for another account on the list.
-        fake.state.session["pateat.login-logouts.v1"] = [{ tabId: 1, origin }];
+        fake.state.session["pateat.login-rejected-asks.v1"] = [{ tabId: 1, origin }];
         const both = uriMatch({
           candidates: [
             { itemId, matches: [{ uriIndex: 0, match: 0 }] },
@@ -20473,7 +20226,7 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
           otherUsername: true,
         });
         shows(h);
-        expect(await h.hello()).toEqual({ ok: false, reason: "logged-out" });
+        expect(await h.hello()).toEqual({ ok: false, reason: "account-asked" });
         expect(executed()).toEqual([]);
         fake.state.onReconnect = () => h.hello();
         expect(
@@ -21830,7 +21583,7 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
         const { watch: _watch, outcome: _outcome, ...record } = status()![0]!;
         expect(record).toMatchObject({ stepIndex: 1, stopAt: 1, submissions: 1 });
         // The worker stopped while the login stood at its stop.
-        fake.state.storage["pateat.login-attempts.v5"] = [{ ...record, state: "ready" }];
+        fake.state.storage["pateat.login-attempts.v6"] = [{ ...record, state: "ready" }];
         fake.state.messages = [];
         const url = `${origin}/password`;
         fake.state.tabUrls[1] = url;
@@ -21961,9 +21714,9 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
         });
       });
 
-      it("presses nothing on the list for a login that only fills after a logout", async () => {
-        // This tab logged out of the site (ADR 0021 D); the item is the site default.
-        fake.state.session["pateat.login-logouts.v1"] = [{ tabId: 1, origin }];
+      it("presses nothing on the list while the tab asks after a rejected login", async () => {
+        // The site rejected this tab's login (ADR 0062); the item is the site default.
+        fake.state.session["pateat.login-rejected-asks.v1"] = [{ tabId: 1, origin }];
         const service = generation();
         const reports: LoginReport[] = [];
         const h = keyOnList(service, withBranch(1, { afterAccount: passwordBranch() }), {
@@ -21973,18 +21726,15 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
           },
           report: reports,
         });
-        expect(await h.hello()).toEqual({ ok: true });
+        expect(await h.hello()).toEqual({ ok: false, reason: "account-asked" });
         await vi.advanceTimersByTimeAsync(5_000);
-        // It fills nothing there, ends, and the tab asks for an account.
-        expect(reports.find((entry) => entry.type === "start")).toMatchObject({
-          fillOnly: true,
+        // It starts nothing there, and the tab asks for an account.
+        expect(reports.some((entry) => entry.type === "start")).toBe(false);
+        expect(reports.at(-1)).toMatchObject({
+          type: "refused",
+          reason: "account-asked",
+          detail: "rejected",
         });
-        expect(reports.find((entry) => entry.type === "start")).not.toHaveProperty("click");
-        expect(attemptReports(reports).at(-1)).toMatchObject({
-          state: "blocked",
-          reason: "fill-only",
-        });
-        expect(reports.at(-1)).toMatchObject({ type: "refused", reason: "logged-out" });
         expect(executed()).toEqual([]);
         expect(fake.state.messages.some((entry) => entry.type === "login.choose")).toBe(false);
         expect(service.generate).not.toHaveBeenCalled();
@@ -22011,6 +21761,7 @@ describe("the start page's own passkey request (ADR 0034)", () => {
     fake.state.pageUrl = "https://login.example/signin";
     fake.state.onExecute = undefined;
     fake.state.tabUrls = {};
+    fake.state.incognito = new Set();
     fake.state.observed = ["unique", "missing"];
     fake.state.observedPath = "/signin";
     // The base recipe has no passkey button: the page asks for a passkey by itself.
@@ -22027,7 +21778,7 @@ describe("the start page's own passkey request (ADR 0034)", () => {
   const discoverable = () => vi.fn(async () => ({ passkey: true, discoverable: true }));
   const secondFactor = () => vi.fn(async () => ({ passkey: true, discoverable: false }));
   const status = () =>
-    fake.state.storage["pateat.login-attempts.v5"] as Record<string, unknown>[] | undefined;
+    fake.state.storage["pateat.login-attempts.v6"] as Record<string, unknown>[] | undefined;
   const executed = () =>
     fake.state.messages
       .filter((entry) => entry.type === "login.execute")
@@ -22616,7 +22367,7 @@ describe("the start page's own passkey request (ADR 0034)", () => {
     expect(await request.decision).toEqual({ kind: "delegate", reason: "login-ended" });
   });
 
-  describe("while the tab asks for an account after a logout (ADR 0021 D)", () => {
+  describe("while the tab asks for an account (ADR 0062)", () => {
     const both = uriMatch({
       candidates: [
         { itemId, matches: [{ uriIndex: 0, match: 0 }] },
@@ -22658,73 +22409,52 @@ describe("the start page's own passkey request (ADR 0034)", () => {
       return started;
     };
     /**
-     * Without a saved default, a picked account signs in; the form then shows in a new
-     * document, which only asks: the popup offers both accounts.
+     * Without a saved default, the site rejected this tab's last login; the form then shows
+     * in a new document, which asks without filling: the popup offers both accounts.
      */
-    const loggedOut = async (live: Parameters<typeof harness>[1] = {}) => {
+    const asked = async (live: Parameters<typeof harness>[1] = {}) => {
+      fake.state.session["pateat.login-rejected-asks.v1"] = [{ tabId: 1, origin }];
       const started = start(recipe, { ...matching, ...live }, { siteDefaults: [], bindings: [] });
       const { h } = started;
-      expect(await h.hello()).toEqual({ ok: false, reason: "account-ambiguous" });
-      fake.state.onReconnect = () => h.hello();
-      signsInOnClick();
-      expect(await pick(h, { documentId: "synthetic-document", itemId })).toEqual({ ok: true });
-      await until(settled("authenticated"), 20_000);
-      fake.state.present = new Set(["password", "login"]);
-      fake.state.onExecute = undefined;
       expect(await h.hello({ documentId: "signed-out" })).toEqual({
         ok: false,
-        reason: "logged-out",
+        reason: "account-asked",
       });
-      expect(await choice(h)).toMatchObject({ documentId: "signed-out", logout: "this-tab" });
+      expect(await choice(h)).toMatchObject({ documentId: "signed-out", ask: "rejected" });
       fake.state.onReconnect = () => h.hello({ documentId: "signed-out" });
       return started;
     };
 
-    it("keeps a request waiting during a login that only fills after a logout, and after it", async () => {
+    it("answers the signed-out page's own request with the default after a logout", async () => {
       vi.useFakeTimers();
-      // The item holds a discoverable passkey, yet the login after the logout only fills.
+      // The item holds a discoverable passkey: the login after the logout answers the
+      // page's request, as on any visit (#833).
       const { h, report } = await signedIn();
-      let release!: () => void;
-      const held = new Promise<void>((resolve) => (release = resolve));
-      fake.state.onExecute = () => held;
-      expect(await h.hello({ documentId: "signed-out" })).toEqual({ ok: true });
-      await until(() => fills() === 2, 5_000);
-      expect(status()![0]).toMatchObject({ fillOnly: true, route: "password" });
-      const request = ask(h, { documentId: "signed-out" });
-      await flush();
-      await vi.advanceTimersByTimeAsync(10_000);
-      expect(request.decided()).toBeUndefined();
-      // The fill ends and the tab asks; the request still waits for the pick.
-      release();
-      await until(() => fake.state.badges[1]?.text === "2", 5_000);
-      expect(await h.login.active()).toBe(false);
-      await vi.advanceTimersByTimeAsync(10_000);
-      expect(request.decided()).toBeUndefined();
-      expect(fills()).toBe(2);
-      expect(clicks("login")).toBe(1);
-      expect(routeChanges(report)).toEqual([]);
-    });
-
-    it("does not answer a login that only fills after a logout when the request came first", async () => {
-      vi.useFakeTimers();
-      const { h, report } = await signedIn();
-      // The signed-out page asks for a passkey before its form is ready.
-      fake.state.onExecute = () => new Promise(() => undefined);
+      fake.state.onExecute = undefined;
       const request = ask(h, { documentId: "signed-out" });
       await flush();
       expect(await h.hello({ documentId: "signed-out" })).toEqual({ ok: true });
-      await until(() => fills() === 2, 5_000);
-      expect(status()![0]).toMatchObject({ fillOnly: true, route: "password" });
-      await vi.advanceTimersByTimeAsync(10_000);
-      expect(request.decided()).toBeUndefined();
-      expect(status()![0]).toMatchObject({ fillOnly: true, route: "password" });
+      await until(() => request.decided() !== undefined, 5_000);
+      expect(request.decided()).toMatchObject({
+        kind: "answer",
+        item: { connectionId, itemId },
+      });
+      expect(status()![0]).toMatchObject({
+        route: "passkey",
+        document: { documentId: "signed-out" },
+      });
+      fake.state.present = new Set(["authenticated"]);
+      (request.decided() as Extract<ConditionalDecision, { kind: "answer" }>).answered(true);
+      await until(settled("authenticated"), 20_000);
+      expect(fills()).toBe(1);
       expect(clicks("login")).toBe(1);
+      expect(fake.state.badges[1]?.text ?? "").not.toMatch(/^\d+$/u);
       expect(routeChanges(report)).toEqual([]);
     });
 
     it("answers a waiting request with the account picked in the popup, on the passkey route", async () => {
       vi.useFakeTimers();
-      const { h, report } = await loggedOut();
+      const { h, report } = await asked();
       expect(await choice(h)).toMatchObject({
         candidates: [
           { connectionId, itemId },
@@ -22757,54 +22487,16 @@ describe("the start page's own passkey request (ADR 0034)", () => {
         account: { connectionId, itemId: otherItemId },
       });
       expect(fills()).toBe(filled);
-      expect(clicks("login")).toBe(1);
+      expect(clicks("login")).toBe(0);
       expect(
         report.mock.calls.map(([entry]) => entry).filter((entry) => entry.type === "start"),
-      ).toEqual([
-        expect.objectContaining({ route: "password", account: "pick" }),
-        expect.objectContaining({ route: "passkey", account: "pick" }),
-      ]);
-      expect(routeChanges(report)).toEqual([]);
-    });
-
-    it("answers a request kept through a login that only filled with the account picked next", async () => {
-      vi.useFakeTimers();
-      const { h, report } = await signedIn();
-      fake.state.onExecute = undefined;
-      const request = ask(h, { documentId: "signed-out" });
-      await flush();
-      expect(await h.hello({ documentId: "signed-out" })).toEqual({ ok: true });
-      await until(() => fake.state.badges[1]?.text === "2", 5_000);
-      expect(fills()).toBe(2);
-      expect(await h.login.active()).toBe(false);
-      await vi.advanceTimersByTimeAsync(10_000);
-      expect(request.decided()).toBeUndefined();
-      fake.state.onReconnect = () => h.hello({ documentId: "signed-out" });
-      expect(await pick(h)).toEqual({ ok: true });
-      await until(() => request.decided() !== undefined, 5_000);
-      expect(request.decided()).toMatchObject({
-        kind: "answer",
-        item: { connectionId, itemId: otherItemId },
-      });
-      fake.state.present = new Set(["authenticated"]);
-      (request.decided() as Extract<ConditionalDecision, { kind: "answer" }>).answered(true);
-      await until(settled("authenticated"), 20_000);
-      expect(status()![0]).toMatchObject({
-        route: "passkey",
-        account: { connectionId, itemId: otherItemId },
-      });
-      // Nothing was pressed after the logout, and the pick filled nothing.
-      expect(fills()).toBe(2);
-      expect(clicks("login")).toBe(1);
-      expect(report.mock.calls.map(([entry]) => entry)).toContainEqual(
-        expect.objectContaining({ type: "start", route: "passkey", account: "pick" }),
-      );
+      ).toEqual([expect.objectContaining({ route: "passkey", account: "pick" })]);
       expect(routeChanges(report)).toEqual([]);
     });
 
     it("hands on a request of another document of the tab that was not asked", async () => {
       vi.useFakeTimers();
-      const { h } = await loggedOut();
+      const { h } = await asked();
       const request = ask(h, { documentId: "other-page" });
       await flush();
       await vi.advanceTimersByTimeAsync(2_500);
@@ -22820,7 +22512,7 @@ describe("the start page's own passkey request (ADR 0034)", () => {
           ? { passkey: false, discoverable: false }
           : { passkey: true, discoverable: true },
       );
-      const { h, report } = await loggedOut({ passkeys });
+      const { h, report } = await asked({ passkeys });
       const request = ask(h, { documentId: "signed-out" });
       await flush();
       await vi.advanceTimersByTimeAsync(10_000);
@@ -22834,34 +22526,40 @@ describe("the start page's own passkey request (ADR 0034)", () => {
       });
       await until(() => request.decided() !== undefined, 5_000);
       expect(request.decided()).toEqual({ kind: "withhold" });
-      expect(fills()).toBe(2);
-      expect(clicks("login")).toBe(2);
+      expect(fills()).toBe(1);
+      expect(clicks("login")).toBe(1);
       expect(routeChanges(report)).toEqual([]);
     });
 
-    it("keeps a request of a tab asked for another tab's logout after that tab's pick logs in", async () => {
+    it("keeps a request of a tab asked for another tab's rejection after that tab's pick logs in", async () => {
       vi.useFakeTimers();
-      const { h, report } = await loggedOut();
+      const { h, report } = await asked();
       const recordOf = (tabId: number) =>
         status()?.find(
           (entry) => (entry["document"] as { tabId: number } | undefined)?.tabId === tabId,
         );
-      // Another tab shows the form and asks only because of this tab's logout.
+      // Another tab shows the form and asks only because of this tab's rejection.
       fake.state.tabUrls[2] = fake.state.pageUrl;
       expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({
         ok: false,
-        reason: "logged-out",
+        reason: "account-asked",
       });
-      expect(await choice(h, 2)).toMatchObject({ documentId: "other-tab", logout: "other-tab" });
+      expect(await choice(h, 2)).toMatchObject({
+        documentId: "other-tab",
+        ask: "rejected-elsewhere",
+      });
       const request = ask(h, { tabId: 2, documentId: "other-tab" });
       await flush();
-      // The first tab's pick logs in there and ends its logout.
+      // The first tab's pick logs in there and ends its ask.
       signsInOnClick();
       expect(await pick(h, { itemId })).toEqual({ ok: true });
       await until(() => recordOf(1)?.["state"] === "authenticated", 20_000);
-      expect(fake.state.session["pateat.login-logouts.v1"]).toEqual([]);
+      expect(fake.state.session["pateat.login-rejected-asks.v1"]).toEqual([]);
       // The second tab's choice is still offered, so its request still waits.
-      expect(await choice(h, 2)).toMatchObject({ documentId: "other-tab", logout: "other-tab" });
+      expect(await choice(h, 2)).toMatchObject({
+        documentId: "other-tab",
+        ask: "rejected-elsewhere",
+      });
       await vi.advanceTimersByTimeAsync(10_000);
       expect(request.decided()).toBeUndefined();
       fake.state.present = new Set(["password", "login"]);
@@ -22892,7 +22590,7 @@ describe("the start page's own passkey request (ADR 0034)", () => {
 
     it("hands a waiting request on soon after a pick that starts no login", async () => {
       vi.useFakeTimers();
-      const { h } = await loggedOut();
+      const { h } = await asked();
       const request = ask(h, { documentId: "signed-out" });
       await flush();
       await vi.advanceTimersByTimeAsync(10_000);
@@ -22914,7 +22612,7 @@ describe("the start page's own passkey request (ADR 0034)", () => {
 
     it("hands a waiting request on soon after a pick whose page does not announce again", async () => {
       vi.useFakeTimers();
-      const { h } = await loggedOut();
+      const { h } = await asked();
       const request = ask(h, { documentId: "signed-out" });
       await flush();
       await vi.advanceTimersByTimeAsync(10_000);
@@ -22927,7 +22625,7 @@ describe("the start page's own passkey request (ADR 0034)", () => {
 
     it("keeps a request whose choice is offered again soon after a pick that started no login", async () => {
       vi.useFakeTimers();
-      const { h, report } = await loggedOut();
+      const { h, report } = await asked();
       const request = ask(h, { documentId: "signed-out" });
       await flush();
       await vi.advanceTimersByTimeAsync(10_000);
@@ -22939,9 +22637,9 @@ describe("the start page's own passkey request (ADR 0034)", () => {
       await vi.advanceTimersByTimeAsync(1_000);
       expect(await h.hello({ documentId: "signed-out" })).toEqual({
         ok: false,
-        reason: "logged-out",
+        reason: "account-asked",
       });
-      expect(await choice(h)).toMatchObject({ documentId: "signed-out", logout: "this-tab" });
+      expect(await choice(h)).toMatchObject({ documentId: "signed-out", ask: "rejected" });
       await vi.advanceTimersByTimeAsync(10_000);
       expect(request.decided()).toBeUndefined();
       const filled = fills();
@@ -22963,13 +22661,13 @@ describe("the start page's own passkey request (ADR 0034)", () => {
       expect(routeChanges(report)).toEqual([]);
     });
 
-    it("hands on a request of a document asked without a logout, even while its pick is pending", async () => {
+    it("hands on a request of a document asked without an ask, even while its pick is pending", async () => {
       vi.useFakeTimers();
       const { h } = start(recipe, matching, { siteDefaults: [], bindings: [] });
-      // Several accounts match and none is the default: the popup asks, with no logout.
+      // Several accounts match and none is the default: the popup asks, with no ask reason.
       expect(await h.hello()).toEqual({ ok: false, reason: "account-ambiguous" });
       expect(await choice(h)).toMatchObject({ ok: true, documentId: "synthetic-document" });
-      expect(await choice(h)).not.toHaveProperty("logout");
+      expect(await choice(h)).not.toHaveProperty("ask");
       const request = ask(h);
       await flush();
       await vi.advanceTimersByTimeAsync(2_500);
@@ -23012,7 +22710,7 @@ describe("the start page's own passkey request (ADR 0034)", () => {
       const query = fake.browser.tabs.query;
       fake.browser.tabs.query = async () => [{ id: 1 }] as never;
       try {
-        fake.state.storage["pateat.login-attempts.v5"] = [
+        fake.state.storage["pateat.login-attempts.v6"] = [
           {
             ...record!,
             state: "blocked",
@@ -23028,10 +22726,13 @@ describe("the start page's own passkey request (ADR 0034)", () => {
         const { h, report } = start(recipe, matching);
         const request = ask(h, { documentId: "next-page" });
         await flush();
-        expect(await h.hello({ documentId: "next-page" })).toEqual({ ok: true });
+        expect(await h.hello({ documentId: "next-page" })).toEqual({
+          ok: false,
+          reason: "account-asked",
+        });
         await until(() => fake.state.badges[1]?.text === "2", 5_000);
         expect(fake.state.session["pateat.login-stopped-asks.v1"]).toEqual([{ tabId: 1, origin }]);
-        expect(fake.state.session["pateat.login-logouts.v1"]).toEqual([]);
+        expect(fake.state.session["pateat.login-rejected-asks.v1"]).toEqual([]);
         await vi.advanceTimersByTimeAsync(10_000);
         expect(request.decided()).toBeUndefined();
         const filled = fills();
@@ -23060,7 +22761,7 @@ describe("the start page's own passkey request (ADR 0034)", () => {
     it("still withholds after four minutes with an item lookup given, and never looks items up", async () => {
       vi.useFakeTimers();
       const passkeyItems = vi.fn(async () => [{ connectionId, itemId: otherItemId }]);
-      const { h } = await loggedOut({ passkeyItems });
+      const { h } = await asked({ passkeyItems });
       const sent = executed().length;
       const request = ask(h, { documentId: "signed-out" });
       await flush();
@@ -23840,6 +23541,7 @@ describe("an item without a password, up to its password (ADR 0036)", () => {
     fake.state.granted = true;
     fake.state.pageUrl = "https://login.example/signin";
     fake.state.tabUrls = {};
+    fake.state.incognito = new Set();
     fake.state.observedPath = "/signin";
     fake.state.present = new Set(["email", "next"]);
     fake.state.unusable = new Set();
@@ -23876,7 +23578,7 @@ describe("an item without a password, up to its password (ADR 0036)", () => {
     maxSubmissions: 2,
   });
   const status = () =>
-    fake.state.storage["pateat.login-attempts.v5"] as Record<string, unknown>[] | undefined;
+    fake.state.storage["pateat.login-attempts.v6"] as Record<string, unknown>[] | undefined;
   const executed = () =>
     fake.state.messages
       .filter((entry) => entry.type === "login.execute")
@@ -24367,7 +24069,7 @@ describe("an item without a password, up to its password (ADR 0036)", () => {
     await until(() => status()?.[0]?.["state"] === "watching");
     const { watch: _watch, outcome: _outcome, ...record } = status()![0] as Record<string, unknown>;
     expect(record).toMatchObject({ stepIndex: 2, stopAt: 2, maxSubmissions: 2 });
-    fake.state.storage["pateat.login-attempts.v5"] = [
+    fake.state.storage["pateat.login-attempts.v6"] = [
       { ...record, state: "ready", submissions: 2 },
     ];
     fake.state.messages = [];
@@ -25137,6 +24839,7 @@ describe("a login that starts at a later step its page shows (ADR 0049)", () => 
     fake.state.pageUrl = "https://login.example/signin/pwd";
     fake.state.onExecute = undefined;
     fake.state.tabUrls = {};
+    fake.state.incognito = new Set();
     fake.state.observed = ["unique", "missing"];
     fake.state.observedPath = "/signin/pwd";
     fake.state.unusable = new Set();
@@ -25179,7 +24882,7 @@ describe("a login that starts at a later step its page shows (ADR 0049)", () => 
     slots: used.slots.map((slot) => ({ slot, field: slot as "username" | "password" })),
   });
   const status = () =>
-    fake.state.storage["pateat.login-attempts.v5"] as Record<string, unknown>[] | undefined;
+    fake.state.storage["pateat.login-attempts.v6"] as Record<string, unknown>[] | undefined;
   const executed = () =>
     fake.state.messages
       .filter((entry) => entry.type === "login.execute")
@@ -25293,59 +24996,31 @@ describe("a login that starts at a later step its page shows (ADR 0049)", () => 
     expect(executed()).toEqual([]);
   });
 
-  it("only fills the later step for the default after a logout", async () => {
-    // This tab logged out of the site (ADR 0021 D); the item is the site default.
-    fake.state.session["pateat.login-logouts.v1"] = [{ tabId: 1, origin }];
+  it("asks at the later step after a rejected login, filling nothing", async () => {
+    // The site rejected this tab's login (ADR 0062); the item is the site default.
+    fake.state.session["pateat.login-rejected-asks.v1"] = [{ tabId: 1, origin }];
     shows(["password", "login"]);
     const { h, reports } = start([twoPages()]);
-    expect(await h.hello()).toEqual({ ok: true });
-    await vi.waitFor(() =>
-      expect(reports.at(-1)).toMatchObject({ type: "refused", reason: "logged-out" }),
-    );
-    expect(executed()).toEqual(["fill:password"]);
-    expect(reports.find((entry) => entry.type === "start")).toMatchObject({
-      fillOnly: true,
-      startStep: 2,
+    expect(await h.hello()).toEqual({ ok: false, reason: "account-asked" });
+    expect(reports.at(-1)).toMatchObject({
+      type: "refused",
+      reason: "account-asked",
+      detail: "rejected",
     });
-  });
-
-  it("only fills the later step a single-page app shows after its filled first step", async () => {
-    // This tab logged out of the site; the sign-in app keeps one document for both pages.
-    fake.state.session["pateat.login-logouts.v1"] = [{ tabId: 1, origin }];
-    fake.state.pageUrl = "https://login.example/signin/id";
-    fake.state.observedPath = "/signin/id";
-    shows(["email", "next"]);
-    const { h, reports } = start([twoPages()]);
-    expect(await h.hello()).toEqual({ ok: true });
-    await vi.waitFor(() =>
-      expect(reports.at(-1)).toMatchObject({ type: "refused", reason: "logged-out" }),
-    );
-    expect(executed()).toEqual(["fill:email"]);
-    // The person presses Next; the same document moves to the password page in place.
-    fake.state.pageUrl = "https://login.example/signin/pwd";
-    fake.state.observedPath = "/signin/pwd";
-    shows(["password", "login"]);
-    expect(await h.hello()).toEqual({ ok: true });
-    await vi.waitFor(() => expect(executed()).toEqual(["fill:email", "fill:password"]));
-    expect(reports.filter((entry) => entry.type === "start").at(-1)).toMatchObject({
-      fillOnly: true,
-      startStep: 2,
-    });
+    expect(executed()).toEqual([]);
+    expect(reports.some((entry) => entry.type === "start")).toBe(false);
   });
 
   it("logs in at the later step a single-page app shows when the popup picks the account", async () => {
-    fake.state.session["pateat.login-logouts.v1"] = [{ tabId: 1, origin }];
+    fake.state.session["pateat.login-rejected-asks.v1"] = [{ tabId: 1, origin }];
     fake.state.pageUrl = "https://login.example/signin/id";
     fake.state.observedPath = "/signin/id";
     shows(["email", "next"]);
-    const { h, reports } = start([twoPages()]);
-    expect(await h.hello()).toEqual({ ok: true });
-    await vi.waitFor(() =>
-      expect(reports.at(-1)).toMatchObject({ type: "refused", reason: "logged-out" }),
-    );
-    // The document announces again once the fill ended, then shows the password page in
-    // place without announcing it.
-    expect(await h.hello({}, false)).toMatchObject({ ok: false, reason: "form-not-ready" });
+    const { h } = start([twoPages()]);
+    expect(await h.hello()).toEqual({ ok: false, reason: "account-asked" });
+    expect(executed()).toEqual([]);
+    // The person goes on in the page, which shows the password page in place without
+    // announcing it.
     fake.state.pageUrl = "https://login.example/signin/pwd";
     fake.state.observedPath = "/signin/pwd";
     shows(["password", "login"]);
@@ -25371,24 +25046,26 @@ describe("a login that starts at a later step its page shows (ADR 0049)", () => 
     expect(status()![0]).toMatchObject({ startStep: 2 });
   });
 
-  it("takes the later step shown again after this tab's login as a logout", async () => {
+  it("logs in again at the later step shown again after this tab's login", async () => {
     shows(["password", "login"]);
     const { h, reports } = start([twoPages()]);
     expect(await h.hello()).toEqual({ ok: true });
     await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
-    // The site logs out and shows the password page of the account it remembers.
+    // The site logs out and shows the password page of the account it remembers: the tab
+    // logs in again from there (ADR 0049, ADR 0062).
     shows(["password", "login"]);
     fake.state.observedPath = "/signin/pwd";
     expect(await h.hello({ documentId: "synthetic-document-2" })).toEqual({ ok: true });
     await vi.waitFor(() =>
-      expect(reports.at(-1)).toMatchObject({ type: "refused", reason: "logged-out" }),
+      expect(status()).toMatchObject([
+        { state: "authenticated", document: { documentId: "synthetic-document-2" } },
+      ]),
     );
-    expect(reports.filter((entry) => entry.type === "logout")).toHaveLength(1);
-    expect(executed()).toEqual(["fill:password", "click:login", "fill:password"]);
-    expect(reports.filter((entry) => entry.type === "start").at(-1)).toMatchObject({
-      fillOnly: true,
-      startStep: 2,
-    });
+    expect(executed()).toEqual(["fill:password", "click:login", "fill:password", "click:login"]);
+    expect(reports.filter((entry) => entry.type === "start")).toEqual([
+      expect.objectContaining({ startStep: 2 }),
+      expect.objectContaining({ startStep: 2 }),
+    ]);
   });
 
   it("starts at the later step beside the start page's passkey button for a password", async () => {
@@ -25522,6 +25199,7 @@ describe("revoking a recipe the chosen item cannot run (ADR 0058 A)", () => {
     fake.state.pageUrl = "https://login.example/signin";
     fake.state.onExecute = undefined;
     fake.state.tabUrls = {};
+    fake.state.incognito = new Set();
     fake.state.observed = ["unique", "missing"];
     fake.state.observedPath = "/signin";
     fake.state.present = new Set(["password", "login"]);
@@ -25716,7 +25394,7 @@ describe("revoking a recipe the chosen item cannot run (ADR 0058 A)", () => {
     expect(refusals(reports)).toEqual([]);
     expect(executed()).toEqual([]);
     expect(h.fields).not.toHaveBeenCalled();
-    expect(fake.state.storage["pateat.login-attempts.v5"] ?? []).toEqual([]);
+    expect(fake.state.storage["pateat.login-attempts.v6"] ?? []).toEqual([]);
   });
 
   it("asks the page to announce again after a conflict whose pull brought a newer revision", async () => {
@@ -26201,15 +25879,9 @@ describe("revoking a recipe the chosen item cannot run (ADR 0058 A)", () => {
       expect(generation.replace).not.toHaveBeenCalled();
     });
 
-    it("a page the tab asks for after a logout (ADR 0021 D)", async () => {
+    it("a page the tab asks for after a rejected login (ADR 0062)", async () => {
+      fake.state.session["pateat.login-rejected-asks.v1"] = [{ tabId: 1, origin }];
       const { h, generation } = start({ replace: dropped() });
-      expect(await h.hello({ documentId: "home" }, false)).toMatchObject({ ok: false });
-      expect(
-        await h.login.handle(
-          { version: 1, type: "login.document.logout-clicked", token: "synthetic-token" },
-          sender({ documentId: "home" }),
-        ),
-      ).toBeUndefined();
       expect(await h.hello({ documentId: "signed-out" })).not.toEqual({
         ok: false,
         reason: "generating",
@@ -26266,7 +25938,533 @@ describe("revoking a recipe the chosen item cannot run (ADR 0058 A)", () => {
   });
 });
 
+describe("pausing automatic login of a site (ADR 0062)", () => {
+  const PAUSES = "pateat.login-pauses.v1";
+  const popup = {
+    id: "synthetic-extension",
+    url: "chrome-extension://synthetic-extension/popup.html",
+  } as never;
+  afterEach(() => {
+    vi.useRealTimers();
+    for (const listener of fake.state.removed.splice(0))
+      for (const tabId of [1, 2, 3, 4]) listener(tabId);
+    fake.state.replaced.length = 0;
+  });
+  beforeEach(() => {
+    fake.state.storage = {};
+    fake.state.session = {};
+    fake.state.badges = {};
+    fake.state.reconnects = [];
+    fake.state.onReconnect = undefined;
+    fake.state.messages = [];
+    fake.state.granted = true;
+    fake.state.pageUrl = "https://login.example/signin";
+    fake.state.onExecute = undefined;
+    fake.state.tabUrls = {};
+    fake.state.observed = ["unique", "missing"];
+    fake.state.observedPath = "/signin";
+    fake.state.present = undefined;
+    fake.state.unusable = new Set();
+    fake.state.awaited = { ok: true };
+    fake.state.onAwait = undefined;
+    fake.state.executeReply = undefined;
+    fake.state.gone = new Set();
+    fake.state.extracted = {};
+    fake.state.signs = undefined;
+    fake.state.loaded = true;
+    fake.state.incognito = new Set();
+    fake.state.openTabs = undefined;
+  });
+  const stored = () =>
+    (fake.state.storage["pateat.login-attempts.v6"] ?? []) as Record<string, unknown>[];
+  const executes = () => fake.state.messages.filter((entry) => entry.type === "login.execute");
+  /** A runtime whose reports and badge the test reads. */
+  const paused = (live: Parameters<typeof harness>[1] = {}) => {
+    const reports: LoginReport[] = [];
+    const h = harness(
+      {},
+      {
+        ...live,
+        report: (entry) => reports.push(entry),
+        badge:
+          live.badge ??
+          createLoginBadge({ setBadge: setActionBadge, storage: memoryBadgeStorage() }),
+      },
+    );
+    const refused = () => reports.filter((entry) => entry.type === "refused");
+    return { h, reports, refused };
+  };
+  const status = async (h: ReturnType<typeof harness>, tabId = 1) =>
+    v.parse(
+      statusResponseSchema,
+      await h.login.handle({ version: 1, type: "login.status.get", tabId }, popup),
+    );
+
+  it("refuses the site's automatic logins in every tab, and offers its account", async () => {
+    const { h, reports, refused } = paused();
+    fake.state.openTabs = [1, 2];
+    fake.state.tabUrls[2] = "https://www.login.example/account";
+    const answer = (await setPause(h, true)) as { ok: true; until: number };
+    expect(answer).toEqual({ ok: true, until: expect.any(Number) });
+    expect(answer.until - Date.now()).toBeGreaterThan(59 * 60_000);
+    expect(fake.state.session[PAUSES]).toEqual([
+      { site: "login.example", incognito: false, until: new Date(answer.until).toISOString() },
+    ]);
+    expect(reports).toContainEqual({ type: "pause", tabId: 1, origin, action: "paused" });
+    // Every tab of the registrable site shows the pause.
+    await vi.waitFor(() => expect(fake.state.badges[2]?.text).toBe("II"));
+    expect(fake.state.badges[2]?.title).toMatch(
+      /^Pateat: automatic login is paused on this site until \d\d:\d\d\.$/u,
+    );
+    expect(await h.hello()).toEqual({ ok: false, reason: "paused" });
+    fake.state.tabUrls[3] = fake.state.pageUrl;
+    expect(await h.hello({ tab: { id: 3 }, documentId: "third" })).toEqual({
+      ok: false,
+      reason: "paused",
+    });
+    expect(executes()).toEqual([]);
+    expect(refused()).toEqual([
+      expect.objectContaining({ tabId: 1, reason: "paused", candidates: 1 }),
+      expect.objectContaining({ tabId: 3, reason: "paused", candidates: 1 }),
+    ]);
+    // The saved default alone is offered, and the choice's amber count shows over the pause.
+    expect(await h.login.handle({ version: 1, type: "login.choice.get", tabId: 1 }, popup)).toEqual(
+      {
+        ok: true,
+        origin,
+        documentId: "synthetic-document",
+        candidates: [{ connectionId, itemId }],
+        paused: true,
+      },
+    );
+    await vi.waitFor(() => expect(fake.state.badges[1]?.text).toBe("1"));
+    expect(fake.state.badges[1]?.title).toBe(
+      "Pateat: automatic login is paused on this site. Click to choose an account.",
+    );
+    expect(await status(h)).toMatchObject({
+      ok: true,
+      pause: { until: answer.until },
+      page: { state: "denied", reason: "paused" },
+    });
+  });
+
+  it("leaves other sites logging in", async () => {
+    const { h } = paused();
+    fake.state.tabUrls[3] = "https://elsewhere.example/";
+    expect(await setPause(h, true, 3)).toEqual({ ok: true, until: expect.any(Number) });
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(stored()).toMatchObject([{ state: "authenticated" }]));
+    expect((await status(h)).ok && (await status(h))).not.toHaveProperty("pause");
+  });
+
+  it("keeps normal and incognito windows apart", async () => {
+    const { h } = paused();
+    fake.state.incognito = new Set([2]);
+    fake.state.tabUrls[2] = fake.state.pageUrl;
+    await setPause(h, true, 2);
+    expect(fake.state.session[PAUSES]).toMatchObject([{ site: "login.example", incognito: true }]);
+    expect(await h.hello({ tab: { id: 2 }, documentId: "incognito" })).toEqual({
+      ok: false,
+      reason: "paused",
+    });
+    // The normal window's tab of the same site still logs in.
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(stored()).toMatchObject([{ state: "authenticated", document: { tabId: 1 } }]),
+    );
+  });
+
+  it("pauses a frame's login when its tab's site or its own site is paused", async () => {
+    const { h } = paused();
+    const top = "https://top.example/page";
+    const frame = { frameId: 4, documentId: "frame", tab: { id: 1, url: top } };
+    fake.state.tabUrls[1] = top;
+    // Unpaused, the frame is refused for another reason: the item does not match the tab.
+    const before = (await h.hello(frame)) as { reason: string };
+    expect(before.reason).toBe("frame-top-mismatch");
+    await setPause(h, true);
+    expect(await h.hello({ ...frame, documentId: "frame-2" })).toEqual({
+      ok: false,
+      reason: "paused",
+    });
+    await setPause(h, false);
+    fake.state.tabUrls[2] = fake.state.pageUrl;
+    await setPause(h, true, 2);
+    expect(await h.hello({ ...frame, documentId: "frame-3" })).toEqual({
+      ok: false,
+      reason: "paused",
+    });
+  });
+
+  it("ends by itself after an hour; an open page waits for its next announcement", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const { h } = paused();
+    await setPause(h, true);
+    expect(await h.hello()).toEqual({ ok: false, reason: "paused" });
+    expect(fake.state.reconnects).toEqual([]);
+    vi.setSystemTime(Date.now() + 60 * 60_000);
+    // Nothing asks the page to announce again.
+    expect(fake.state.reconnects).toEqual([]);
+    expect(await status(h)).not.toHaveProperty("pause");
+    expect(await h.hello({ documentId: "reloaded" })).toEqual({ ok: true });
+  });
+
+  it("survives a worker restart", async () => {
+    const first = paused();
+    await setPause(first.h, true);
+    const restarted = paused();
+    expect(await restarted.h.hello()).toEqual({ ok: false, reason: "paused" });
+  });
+
+  it("logs in once with a popup pick, whose sign-in ends the pause", async () => {
+    const { h, reports } = paused();
+    fake.state.openTabs = [1, 2];
+    fake.state.tabUrls[2] = fake.state.pageUrl;
+    await setPause(h, true);
+    expect(await h.hello()).toEqual({ ok: false, reason: "paused" });
+    fake.state.onReconnect = () => h.hello();
+    expect(
+      await h.login.handle(
+        {
+          version: 1,
+          type: "login.choice.pick",
+          tabId: 1,
+          documentId: "synthetic-document",
+          connectionId,
+          itemId,
+          makeDefault: false,
+        },
+        popup,
+      ),
+    ).toEqual({ ok: true });
+    await vi.waitFor(() => expect(stored()).toMatchObject([{ state: "authenticated" }]));
+    await vi.waitFor(() => expect(fake.state.session[PAUSES]).toEqual([]));
+    expect(reports).toContainEqual({ type: "pause", tabId: 1, origin, action: "picked" });
+    await vi.waitFor(() => expect(fake.state.badges[2]?.text).toBe(""));
+    // The site's other tabs log in by themselves again.
+    expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({ ok: true });
+  });
+
+  it("stops the site's running automatic login before its next step; its tab asks", async () => {
+    const { h, reports, refused } = paused();
+    fake.state.openTabs = [1];
+    let pausing: Promise<unknown> | undefined;
+    // The password is filled; the person presses Pause before the form is submitted.
+    fake.state.onExecute = async (message) => {
+      if ((message["operation"] as { step: { kind: string } }).step.kind !== "fill") return;
+      pausing = setPause(h, true);
+      await pausing;
+    };
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(pausing).toBeDefined());
+    expect(await pausing).toEqual({ ok: true, until: expect.any(Number) });
+    await vi.waitFor(() =>
+      expect(reports).toContainEqual(
+        expect.objectContaining({ type: "attempt", outcome: "policy-changed", cause: "paused" }),
+      ),
+    );
+    // The submit is never clicked, and the login holds nothing.
+    expect(
+      executes().map(
+        (entry) =>
+          (entry as unknown as { operation: { step: { kind: string } } }).operation.step.kind,
+      ),
+    ).toEqual(["fill"]);
+    await vi.waitFor(() => expect(stored()).toEqual([]));
+    expect(fake.state.session[PAUSES]).toHaveLength(1);
+    await vi.waitFor(() =>
+      expect(refused()).toContainEqual(
+        expect.objectContaining({ tabId: 1, reason: "paused", candidates: 1 }),
+      ),
+    );
+    expect(
+      await h.login.handle({ version: 1, type: "login.choice.get", tabId: 1 }, popup),
+    ).toMatchObject({ ok: true, paused: true });
+    expect(await status(h)).toMatchObject({ page: { state: "denied", reason: "paused" } });
+  });
+
+  it("stops a login when its next page shows on a paused site", async () => {
+    const twoPages = parseLoginRecipe({
+      version: 1,
+      id: "synthetic-two-pages",
+      revision: 1,
+      origin,
+      slots: ["password"],
+      steps: [
+        { kind: "click", path: "/signin", target: target("next"), purpose: "advance" },
+        {
+          kind: "fill",
+          path: "/password",
+          fields: [{ slot: "password", target: target("password") }],
+        },
+        { kind: "click", path: "/password", target: target("login"), purpose: "submit" },
+      ],
+      maxSubmissions: 2,
+    });
+    // A pause this worker did not see start, as one stored before it restarted.
+    let pausedTill: number | undefined;
+    const { h, reports } = paused({
+      pauses: {
+        until: async () => pausedTill,
+        pause: async () => pausedTill,
+        resume: async () => false,
+      },
+    });
+    h.recipes.recipe.mockResolvedValue(twoPages);
+    // The first page's button is pressed; the site is paused before the next page shows.
+    fake.state.onExecute = async () => {
+      pausedTill = Date.now() + 60_000;
+    };
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(executes()).toHaveLength(1));
+    fake.state.pageUrl = `${origin}/password`;
+    fake.state.observedPath = "/password";
+    const answer = await h.hello({ documentId: "next-page" });
+    expect(answer).toEqual({ ok: false, reason: "paused" });
+    expect(reports).toContainEqual(
+      expect.objectContaining({ type: "attempt", outcome: "policy-changed", cause: "paused" }),
+    );
+    expect(executes()).toHaveLength(1);
+    expect(stored()).toEqual([]);
+  });
+
+  it("refuses an announcement whose admission a pause overtook", async () => {
+    const { h } = paused();
+    h.recipes.recipe.mockImplementationOnce(async () => {
+      await setPause(h, true);
+      return recipe;
+    });
+    expect(await h.hello()).toEqual({ ok: false, reason: "paused" });
+    expect(executes()).toEqual([]);
+    expect(stored()).toEqual([]);
+  });
+
+  it("uses the sender's window kind before the tab's", async () => {
+    const { h } = paused();
+    fake.state.incognito = new Set([2]);
+    fake.state.tabUrls[2] = fake.state.pageUrl;
+    await setPause(h, true, 2);
+    // The browser no longer says the tab is incognito; the message's sender does.
+    fake.state.incognito = new Set();
+    expect(await h.hello({ tab: { id: 2, incognito: true }, documentId: "incognito" })).toEqual({
+      ok: false,
+      reason: "paused",
+    });
+    expect(await h.hello({ tab: { id: 2, incognito: false }, documentId: "normal" })).toEqual({
+      ok: true,
+    });
+  });
+
+  it("shows II again after a worker restart, until the pause ends", async () => {
+    fake.state.openTabs = [1, 2, 3];
+    fake.state.tabUrls[2] = "https://www.login.example/account";
+    fake.state.tabUrls[3] = "https://elsewhere.example/";
+    fake.state.session[PAUSES] = [
+      {
+        site: "login.example",
+        incognito: false,
+        until: new Date(Date.now() + 400).toISOString(),
+      },
+    ];
+    // The restarted worker draws the badges of the paused site's tabs without any page
+    // announcing itself.
+    paused();
+    await vi.waitFor(() => expect(fake.state.badges[1]?.text).toBe("II"));
+    await vi.waitFor(() => expect(fake.state.badges[2]?.text).toBe("II"));
+    expect(fake.state.badges[3]?.text ?? "").toBe("");
+    // It ends by itself at the end time.
+    await vi.waitFor(() => expect(fake.state.badges[1]?.text).toBe(""), { timeout: 2000 });
+    expect(fake.state.badges[2]?.text).toBe("");
+  });
+
+  it("shows II on a tab that moved to a page of a paused site", async () => {
+    const badge = createLoginBadge({ setBadge: setActionBadge, storage: memoryBadgeStorage() });
+    const { h } = paused({ badge });
+    fake.state.openTabs = [1];
+    await setPause(h, true);
+    await vi.waitFor(() => expect(fake.state.badges[1]?.text).toBe("II"));
+    const elsewhere = "https://elsewhere.example/";
+    badge.loaded(1, elsewhere);
+    await h.login.tabLoaded({ id: 1, url: elsewhere, incognito: false } as never);
+    await vi.waitFor(() => expect(fake.state.badges[1]?.text).toBe(""));
+    const back = "https://www.login.example/";
+    badge.loaded(1, back);
+    await h.login.tabLoaded({ id: 1, url: back, incognito: false } as never);
+    await vi.waitFor(() => expect(fake.state.badges[1]?.text).toBe("II"));
+  });
+
+  it("re-offers a paused choice whose pick another tab's login overtook", async () => {
+    const { h } = paused();
+    fake.state.incognito = new Set([2]);
+    fake.state.tabUrls[2] = fake.state.pageUrl;
+    await setPause(h, true);
+    expect(await h.hello()).toEqual({ ok: false, reason: "paused" });
+    // The incognito window is not paused; its login starts and holds the site meanwhile.
+    fake.state.onExecute = () => new Promise(() => undefined);
+    fake.state.onReconnect = async () => {
+      await h.hello({ tab: { id: 2 }, documentId: "incognito" });
+      return h.hello();
+    };
+    expect(
+      await h.login.handle(
+        {
+          version: 1,
+          type: "login.choice.pick",
+          tabId: 1,
+          documentId: "synthetic-document",
+          connectionId,
+          itemId,
+          makeDefault: false,
+        },
+        popup,
+      ),
+    ).toEqual({ ok: false, reason: "origin-busy" });
+    expect(
+      await h.login.handle({ version: 1, type: "login.choice.get", tabId: 1 }, popup),
+    ).toMatchObject({ ok: true, paused: true, candidates: [{ connectionId, itemId }] });
+  });
+
+  it("asks the site's tabs to announce again on resume, so they log in at once", async () => {
+    const { h, reports } = paused();
+    fake.state.openTabs = [1, 2, 3];
+    fake.state.tabUrls[2] = fake.state.pageUrl;
+    fake.state.tabUrls[3] = "https://elsewhere.example/";
+    await setPause(h, true);
+    expect(await h.hello()).toEqual({ ok: false, reason: "paused" });
+    fake.state.onReconnect = () => h.hello();
+    // Only the resume's own requests count, not the worker start's.
+    fake.state.reconnects = [];
+    expect(await setPause(h, false)).toEqual({ ok: true });
+    expect(reports).toContainEqual({ type: "pause", tabId: 1, origin, action: "resumed" });
+    expect(fake.state.session[PAUSES]).toEqual([]);
+    expect(fake.state.reconnects).toEqual([{ tabId: 1 }, { tabId: 2 }]);
+    await vi.waitFor(() => expect(stored()).toMatchObject([{ state: "authenticated" }]));
+    // The pause's choice ended with it.
+    expect(await h.login.handle({ version: 1, type: "login.choice.get", tabId: 1 }, popup)).toEqual(
+      { ok: false, reason: "no-choice" },
+    );
+    // Nothing is left to resume.
+    expect(await setPause(h, false)).toEqual({ ok: true });
+    expect(fake.state.reconnects).toHaveLength(2);
+  });
+
+  it("has no site to pause on a page that is not a website", async () => {
+    const { h } = paused();
+    fake.state.tabUrls[1] = "chrome://newtab/";
+    expect(await setPause(h, true)).toEqual({ ok: false, reason: "no-site" });
+    expect(fake.state.session[PAUSES]).toBeUndefined();
+  });
+
+  it("hands the site's own conditional passkey requests on at once", async () => {
+    const { h } = paused();
+    fake.state.openTabs = [1];
+    const request = (documentId: string) =>
+      h.login.conditionalRequest({
+        tabId: 1,
+        origin,
+        documentId,
+        signal: new AbortController().signal,
+      });
+    // One already waiting is handed on when the pause starts.
+    const waiting = request("synthetic-document");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await setPause(h, true);
+    expect(await waiting).toEqual({ kind: "delegate", reason: "paused" });
+    expect(await request("later")).toEqual({ kind: "delegate", reason: "paused" });
+  });
+
+  it("refuses a pick of an item with only a passkey, which the pause keeps from it", async () => {
+    const { h, refused } = paused({
+      passkeys: vi.fn(async () => ({ passkey: true, discoverable: true })),
+    });
+    const original = h.store.handle.getMockImplementation()!;
+    h.store.handle.mockImplementation(async () => {
+      const response = await original();
+      if (response.ok)
+        for (const field of response.catalog.connections[0]!.items[0]!.fields)
+          if (field.id === "login.password") field.empty = true;
+      return response;
+    });
+    await setPause(h, true);
+    expect(await h.hello()).toEqual({ ok: false, reason: "paused" });
+    fake.state.onReconnect = () => h.hello();
+    expect(
+      await h.login.handle(
+        {
+          version: 1,
+          type: "login.choice.pick",
+          tabId: 1,
+          documentId: "synthetic-document",
+          connectionId,
+          itemId,
+          makeDefault: false,
+        },
+        popup,
+      ),
+    ).toEqual({ ok: false, reason: "paused-no-password" });
+    expect(executes()).toEqual([]);
+    expect(stored()).toEqual([]);
+    expect(refused()).toContainEqual(
+      expect.objectContaining({
+        reason: "no-route",
+        detail: expect.stringMatching(/^password-empty/u),
+      }),
+    );
+    expect(pickFailure("paused-no-password", "Synthetic item", false)).toBe(
+      "Automatic login is paused on this site, and Synthetic item has no password, so Pateat did not log in. Resume automatic login to sign in with its passkey.",
+    );
+  });
+
+  it("hands on a conditional request whose site was paused while it was parked", async () => {
+    let pausedTill: number | undefined;
+    const { h } = paused({
+      pauses: {
+        until: async () => pausedTill,
+        pause: async () => pausedTill,
+        resume: async () => false,
+      },
+    });
+    // The pause starts after the request was first checked, before it waits.
+    h.recipes.starts.mockImplementation(async () => {
+      pausedTill = Date.now() + 60_000;
+      return startsOf([recipe.steps[0]!]);
+    });
+    expect(
+      await h.login.conditionalRequest({
+        tabId: 1,
+        origin,
+        documentId: "synthetic-document",
+        signal: new AbortController().signal,
+        incognito: false,
+      }),
+    ).toEqual({ kind: "delegate", reason: "paused" });
+  });
+
+  it("ends paused choices on resume after the pause ran out, and re-announces frames", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const { h } = paused();
+    fake.state.openTabs = [1, 3];
+    const top = "https://top.example/page";
+    fake.state.tabUrls[3] = top;
+    await setPause(h, true);
+    expect(await h.hello()).toEqual({ ok: false, reason: "paused" });
+    await vi.waitFor(() => expect(fake.state.badges[1]?.text).toBe("1"));
+    // A frame of the site inside another site's page.
+    expect(await h.hello({ tab: { id: 3, url: top }, frameId: 4, documentId: "frame" })).toEqual({
+      ok: false,
+      reason: "paused",
+    });
+    vi.setSystemTime(Date.now() + 60 * 60_000);
+    fake.state.reconnects = [];
+    // Nothing is stored any more, yet the pause's choice ends and the pages announce again.
+    expect(await setPause(h, false)).toEqual({ ok: true });
+    expect(fake.state.reconnects).toEqual(expect.arrayContaining([{ tabId: 1 }, { tabId: 3 }]));
+    await vi.waitFor(() => expect(fake.state.badges[1]?.text).toBe(""));
+  });
+});
+
 describe("account switching from the popup (ADR 0063)", () => {
+  let pausedNow = false;
   const popup = {
     id: "synthetic-extension",
     url: "chrome-extension://synthetic-extension/popup.html",
@@ -26302,7 +26500,7 @@ describe("account switching from the popup (ADR 0063)", () => {
       await h.login.handle({ version: 1, type: "login.status.get", tabId: 1 }, popup),
     );
   const attempts = () =>
-    (fake.state.storage["pateat.login-attempts.v5"] ?? []) as {
+    (fake.state.storage["pateat.login-attempts.v6"] ?? []) as {
       account: { itemId: string };
       document: { tabId: number; documentId: string };
       state: string;
@@ -26581,11 +26779,24 @@ describe("account switching from the popup (ADR 0063)", () => {
       { itemId: "unlisted-item" },
       "not-a-candidate",
     ],
-    ["a paused site", () => ({ paused: () => true }), {}, "paused"],
+    [
+      "a site paused after its login",
+      () => ({
+        pauses: {
+          until: async () => (pausedNow ? Date.now() + 60 * 60_000 : undefined),
+          pause: async () => Date.now() + 60 * 60_000,
+          resume: async () => false,
+        },
+      }),
+      {},
+      "paused",
+    ],
     ["a worker without the service's logout", () => ({ logout: undefined }), {}, "unavailable"],
   ])("refuses %s", async (_name, live, overrides, reason) => {
     const logout = { recipes: vi.fn(async () => []), generate: vi.fn<LogoutService["generate"]>() };
+    pausedNow = false;
     const { h } = await signedIn({ logout, ...live() });
+    pausedNow = true;
     expect(await switchTo(h, overrides)).toEqual({ ok: false, reason });
     expect(fake.state.session["pateat.login-switch-picks.v1"] ?? []).toEqual([]);
     expect(clicks()).toEqual([]);

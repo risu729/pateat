@@ -4,27 +4,31 @@ const id = v.pipe(v.string(), v.minLength(1), v.maxLength(120));
 const tabId = v.pipe(v.number(), v.integer(), v.minValue(0));
 
 /**
- * Why a tab asks for an account after a logout (ADR 0021 D): it logged out of the site
- * (`this-tab`), the site did not accept its last login (`rejected`), another tab of the
- * site logged out (`other-tab`), or this tab's own login stopped after a submission or its
- * watch ended before it signed in (`stopped-login`).
+ * Why a tab asks for an account instead of logging in, filling nothing (ADR 0021 D, ADR
+ * 0062): the site did not accept its last login (`rejected`) or another tab's that still
+ * asks (`rejected-elsewhere`), this tab's own login stopped after a submission or its
+ * watch ended before it signed in (`stopped-login`), or two automatic logins of the site
+ * ended signed in within 10 minutes (`relogin-limit`).
  */
-export const logoutReasonSchema = v.picklist([
-  "this-tab",
+export const askReasonSchema = v.picklist([
   "rejected",
-  "other-tab",
+  "rejected-elsewhere",
   "stopped-login",
+  "relogin-limit",
 ]);
-export type LogoutReason = v.InferOutput<typeof logoutReasonSchema>;
+export type AskReason = v.InferOutput<typeof askReasonSchema>;
 /** The toolbar popup's line saying why it asks for an account (ADR 0021). */
-export function choiceReason(logout: LogoutReason | undefined, matches: number): string {
-  if (logout === undefined) return `${matches} accounts match this page`;
+export function choiceReason(ask: AskReason | undefined, matches: number, paused = false): string {
+  // A paused site asks with any matching account, also with one (ADR 0062).
+  if (paused) return "Automatic login is paused on this site";
+  if (ask === undefined) return `${matches} accounts match this page`;
   return {
-    "this-tab": "You logged out of this site in this tab",
     rejected: "The site did not accept the last login in this tab",
-    "other-tab": "You logged out of this site in another tab",
+    "rejected-elsewhere": "The site did not accept the last login in another tab",
     "stopped-login": "The last login on this site stopped in this tab",
-  }[logout];
+    "relogin-limit":
+      "Pateat logged in to this site twice in the last 10 minutes, so it waits for you to choose",
+  }[ask];
 }
 /** The toolbar popup asks which accounts the refused login in a tab could use (ADR 0021). */
 export const choiceRequestSchema = v.strictObject({
@@ -48,14 +52,19 @@ export const choiceResponseSchema = v.variant("ok", [
     ok: v.literal(true),
     origin: v.string(),
     documentId: id,
-    /** Several match, or (`logout`) any one after a logout, with the saved default first. */
+    /** Several match, or (`ask`) any one while the tab asks, with the saved default first. */
     candidates: v.pipe(
       v.array(v.strictObject({ connectionId: id, itemId: id })),
       v.minLength(1),
       v.maxLength(100),
     ),
-    /** The tab asks after a logout (ADR 0021 D), and why. */
-    logout: v.optional(logoutReasonSchema),
+    /** The tab asks for an account (ADR 0021 D, ADR 0062), and why. */
+    ask: v.optional(askReasonSchema),
+    /**
+     * Automatic login of the page's site is paused (ADR 0062): any matching account, also
+     * the saved default or the only match, is offered, and a pick logs in once.
+     */
+    paused: v.optional(v.literal(true)),
     /** Another tab's login holds the site, so a pick cannot start yet (ADR 0022). */
     held: v.optional(v.literal(true)),
     /**
@@ -76,6 +85,8 @@ export const pickResponseSchema = v.variant("ok", [
       "document-gone",
       "not-started",
       "origin-busy",
+      // A paused site's pick of an item with no password, only a passkey (ADR 0062).
+      "paused-no-password",
     ]),
   }),
 ]);
@@ -94,6 +105,8 @@ export function pickFailure(
     return `The page changed, so nothing was started.${unsaved} Reload it to choose again.`;
   if (reason === "origin-busy")
     return `Another tab's login to this site is running or did not succeed, so Pateat did not log in here.${unsaved} Close that tab or wait up to 5 minutes, then choose again.`;
+  if (reason === "paused-no-password")
+    return `Automatic login is paused on this site, and ${name} has no password, so Pateat did not log in.${unsaved} Resume automatic login to sign in with its passkey.`;
   if (reason === "not-started")
     return `Pateat could not log in with ${name} on this page.${unsaved} Reload the page to choose again.`;
   return `This page is no longer waiting for a choice${unsaved ? `.${unsaved}` : ""}`;
@@ -203,8 +216,7 @@ export const statusResponseSchema = v.variant("ok", [
     /**
      * The tab's last login on this origin's page: `started`, then its state and outcome;
      * `settled` while it is `reconciling` with a result that settled as unknown, which is
-     * watched from the next page on (ADR 0027); `fillOnly` for a login that only fills the
-     * form after a logout and never presses anything (ADR 0021 D).
+     * watched from the next page on (ADR 0027).
      */
     login: v.optional(
       v.strictObject({
@@ -212,7 +224,6 @@ export const statusResponseSchema = v.variant("ok", [
         outcome: v.optional(code),
         cause: v.optional(code),
         unconfirmed: v.optional(v.literal(true)),
-        fillOnly: v.optional(v.literal(true)),
         settled: v.optional(v.literal(true)),
       }),
     ),
@@ -235,6 +246,8 @@ export const statusResponseSchema = v.variant("ok", [
         itemId: id,
       }),
     ),
+    /** Automatic login of the tab's site is paused until then, in epoch ms (ADR 0062). */
+    pause: v.optional(v.strictObject({ until: v.pipe(v.number(), v.integer(), v.minValue(0)) })),
     /** The tab's last page sent for generation on this origin's page, and what came back. */
     generation: v.optional(
       v.strictObject({
@@ -246,7 +259,26 @@ export const statusResponseSchema = v.variant("ok", [
   }),
   v.strictObject({ ok: v.literal(false), reason: v.literal("no-page") }),
 ]);
+/**
+ * The popup pauses automatic login of the tab's site for an hour, or resumes it (ADR 0062);
+ * the pause covers the registrable site in every tab of the tab's window kind.
+ */
+export const pauseRequestSchema = v.strictObject({
+  version: v.literal(1),
+  type: v.literal("login.pause.set"),
+  tabId,
+  paused: v.boolean(),
+});
+export const pauseResponseSchema = v.variant("ok", [
+  v.strictObject({
+    ok: v.literal(true),
+    /** While paused: when the pause ends, in epoch milliseconds. */
+    until: v.optional(v.pipe(v.number(), v.integer(), v.minValue(0))),
+  }),
+  v.strictObject({ ok: v.literal(false), reason: v.picklist(["no-site", "storage-unavailable"]) }),
+]);
 export type ChoiceResponse = v.InferOutput<typeof choiceResponseSchema>;
+export type PauseResponse = v.InferOutput<typeof pauseResponseSchema>;
 export type StatusResponse = v.InferOutput<typeof statusResponseSchema>;
 export type PickRequest = Omit<v.InferOutput<typeof pickRequestSchema>, "version" | "type">;
 export type PickResponse = v.InferOutput<typeof pickResponseSchema>;
@@ -259,6 +291,8 @@ export interface ChoiceClient {
   status(tabId: number): Promise<StatusResponse>;
   /** Logs the tab out of its site and in again with another account (ADR 0063). */
   switchTo(request: SwitchRequest): Promise<SwitchResponse>;
+  /** Pauses automatic login of the tab's site, or resumes it (ADR 0062). */
+  pause(tabId: number, paused: boolean): Promise<PauseResponse>;
 }
 
 export function createChoiceClient(send: (message: unknown) => Promise<unknown>): ChoiceClient {
@@ -282,6 +316,11 @@ export function createChoiceClient(send: (message: unknown) => Promise<unknown>)
       v.parse(
         switchResponseSchema,
         await send({ version: 1, type: "login.switch.start", ...request }),
+      ),
+    pause: async (tab, paused) =>
+      v.parse(
+        pauseResponseSchema,
+        await send({ version: 1, type: "login.pause.set", tabId: tab, paused }),
       ),
   };
 }

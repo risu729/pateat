@@ -165,7 +165,6 @@ describe("loginOutcomeOf", () => {
     ["a login without a recipe revision", { recipeRevision: 0 }],
     ["a login still running", { state: "executing", outcome: undefined, settled: undefined }],
     ["a login that retries", { state: "retryable", outcome: "timeout", settled: undefined }],
-    ["a fill-only login", { state: "blocked", outcome: "cancelled", reason: "fill-only" }],
     ["a login stopped before a missing password", { state: "watching", stop: "password" }],
     [
       "a login of an item without a password that failed before its stop",

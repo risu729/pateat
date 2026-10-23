@@ -35,6 +35,7 @@ import {
   type ChoiceClient,
 } from "../login/choice-wire";
 import { PageStatusSection } from "./page-status";
+import { PauseControl, pauseShown } from "./pause";
 
 /**
  * How long the popup waits for the site's matches. Each vault lookup of the search is
@@ -482,11 +483,42 @@ export function SiteApp({
     }
   }
 
+  /** Pauses automatic login of the tab's site for an hour, or resumes it (ADR 0062). */
+  async function setPause(paused: boolean) {
+    if (tabId === undefined || busy) return;
+    setBusy(true);
+    say(paused ? "Pausing…" : "Resuming…", "progress");
+    try {
+      const response = await choices.pause(tabId, paused);
+      if (response.ok) {
+        say(
+          paused
+            ? "Automatic login on this site is paused for an hour"
+            : "Automatic login on this site resumed",
+          "success",
+        );
+        await pageStatus.refetch();
+        if (choice.isEnabled) void choice.refetch();
+      } else
+        say(
+          response.reason === "no-site"
+            ? "This tab has no site to pause"
+            : "The pause could not be saved. Try again.",
+          "error",
+        );
+    } catch {
+      say("The pause could not be changed. Reopen this popup and try again.", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const openSettings = (event?: { preventDefault(): void }) => {
     event?.preventDefault();
     host.openSettings();
   };
   let switchControl;
+  let pauseControl;
   let body;
   if (tab.isPending || settings.isPending) body = <p className="popup-muted">Loading…</p>;
   else if (!origin)
@@ -556,7 +588,7 @@ export function SiteApp({
           ) ?? { ...entry, uri: true, passkey: false },
       ),
     };
-    // After a logout the saved default is listed first (ADR 0021 D).
+    // While the tab asks, the saved default is listed first (ADR 0021 D).
     const pickOptions = siteAccountOptions(catalog, matches, false, saved.snapshot.settings).sort(
       (a, b) => Number(b.value === currentValue) - Number(a.value === currentValue),
     );
@@ -565,11 +597,12 @@ export function SiteApp({
     // itself (ADR 0021).
     const shownPick = pickOptions.some((entry) => entry.value === picked)
       ? picked
-      : offered?.logout === "rejected" || offered?.rejectedElsewhere
+      : offered?.ask === "rejected" || offered?.rejectedElsewhere
         ? ""
         : (pickOptions[0]?.value ?? "");
+    // A tab that asks, and a paused site (ADR 0062), offer a single account too.
     const showChoice = Boolean(
-      offered && labelled && pickOptions.length > (offered.logout ? 0 : 1),
+      offered && labelled && pickOptions.length > (offered.ask || offered.paused ? 0 : 1),
     );
     // A pick in a private window is used for this login only unless the user says otherwise.
     const asDefault = makeDefault ?? !tab.data?.incognito;
@@ -727,6 +760,15 @@ export function SiteApp({
         </ul>
       </section>
     );
+    // Only a site Pateat runs on can be paused (ADR 0062).
+    if (site.on && pauseShown(status, Boolean(found?.accounts.length)))
+      pauseControl = (
+        <PauseControl
+          until={status?.pause?.until}
+          busy={busy}
+          onChange={(paused) => void setPause(paused)}
+        />
+      );
     body = (
       <>
         {status && (
@@ -747,7 +789,7 @@ export function SiteApp({
             <div className="popup-section-head">
               <h2 id="popup-choice-heading">Choose an account</h2>
               <p id="popup-choice-reason" className="popup-muted popup-reason">
-                {choiceReason(offered.logout, pickOptions.length)}
+                {choiceReason(offered.ask, pickOptions.length, offered.paused === true)}
               </p>
             </div>
             {offered.held && (
@@ -944,6 +986,7 @@ export function SiteApp({
           </button>
         </div>
         {switchControl}
+        {pauseControl}
       </header>
       <output id="popup-message" className="popup-message" aria-live="polite">
         {notice.text && (

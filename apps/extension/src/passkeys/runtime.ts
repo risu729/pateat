@@ -10,7 +10,6 @@ import {
   type PasskeyCandidates,
   type PasskeyDisplay,
 } from "./select";
-import type { SignedTabs } from "./signed-tabs";
 import {
   CHOOSER_MAX_WAIT_MS,
   CHOOSER_MIN_REMAINING_MS,
@@ -70,10 +69,6 @@ export interface PasskeyChooser {
     readonly entries: readonly (PasskeyDisplay & { readonly preferred?: boolean })[];
     /** The origin has a site default; making another passkey default replaces it. */
     readonly replacesDefault: boolean;
-    /** Pateat signed for this RP ID in this tab before, so this may follow a logout. */
-    readonly again: boolean;
-    /** With `again`: the person clicked a control that logs out on the site in this tab. */
-    readonly loggedOut?: boolean;
     /** Aborted when the request ends any other way; the window then closes. */
     readonly signal: AbortSignal;
   }): Promise<PasskeyChoice>;
@@ -112,12 +107,6 @@ export interface PasskeyRequestReport {
    * out (`timeout`) or the request being cancelled (`cancelled`) while it was open.
    */
   readonly chooser?: PasskeyChoice["kind"] | "timeout" | "cancelled";
-  /** Pateat signed for this RP ID in this tab before, so the request asks again. */
-  readonly signedBefore?: boolean;
-  /** A control that logs out was clicked on the site in this tab, so the request asks. */
-  readonly logoutClicked?: boolean;
-  /** The site's account pick for this browser session signed, before the default (ADR 0063). */
-  readonly sessionPick?: boolean;
   /** The request's mediation, when it names one (ADR 0034). */
   readonly mediation?: "optional" | "conditional" | "required" | "silent" | "immediate" | "other";
   readonly uiMode?: "immediate";
@@ -146,8 +135,7 @@ export interface PasskeyRequestReport {
 /**
  * Who cancelled a request (`page-cancelled`, `settings-changed`), or the step that threw:
  * the wait for a login's decision on a conditional request, the login's account lookup,
- * the passkey lookup, the check for an earlier signing in the tab, the chooser window, or
- * signing.
+ * the passkey lookup, the chooser window, or signing.
  */
 export type PasskeyStopCause =
   | "page-cancelled"
@@ -155,7 +143,6 @@ export type PasskeyStopCause =
   | "login-wait"
   | "account-lookup"
   | "passkey-lookup"
-  | "signed-before-lookup"
   | "chooser"
   | "signing";
 type ReportDetail = {
@@ -258,20 +245,6 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
      * complete (ADR 0022). Never changes the answer.
      */
     answered?: (tabId: number, origin: string, rpId: string, signed: TCandidate) => void;
-    /** Where Pateat signed before; a username-less request there asks again (ADR 0021 D). */
-    signedTabs?: SignedTabs;
-    /**
-     * Whether a control that logs out was clicked on the RP ID's site in the tab, and its
-     * first step has not shown since; a username-less request there asks too (ADR 0021 D).
-     */
-    logoutClicked?: (tabId: number, rpId: string) => Promise<boolean>;
-    /**
-     * The item picked for the origin's site in this browser session without making it the
-     * default, in incognito windows or the others (ADR 0063). Its passkey answers before the
-     * site default's; without one, or without a passkey of it for the request, the request
-     * goes on as before.
-     */
-    sessionPick?: (origin: string, incognito: boolean) => Promise<PasskeyItem | undefined>;
     /**
      * Decides a `conditional` request of a top document through the login of its page
      * (ADR 0034). Without it, conditional requests are handed on (ADR 0007).
@@ -281,6 +254,8 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       origin: string;
       documentId: string;
       signal: AbortSignal;
+      /** Whether the page's tab is incognito, as its sender says; it keeps its own pauses. */
+      incognito: boolean;
     }) => Promise<ConditionalDecision>;
     /**
      * Holds vault replacement off while the vault is read and signed with for a request,
@@ -403,48 +378,9 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       detail.siteDefaultAccepted = accepted.filter((entry) => entry.preferred === true).length;
       if (candidates.siteDefault) detail.siteDefaultItem = candidates.siteDefault;
       detail.complete = candidates.complete;
+      // One match or the site default signs without asking, also after a logout in the tab
+      // (ADR 0062); several matches ask. A running login never asks (ADR 0027).
       const selection = selectPasskey(admission.request, candidates);
-      // The session's pick (ADR 0063), when exactly one passkey of its item fits the request.
-      const sessionItem =
-        login || !options.sessionPick
-          ? undefined
-          : await abortable(
-              Promise.try(() => options.sessionPick!(origin, context.incognito)).catch(
-                () => undefined,
-              ),
-              signal,
-            );
-      const sessionChoice = sessionItem
-        ? await abortable(
-            source.candidates(origin, admission.request.rpId, signal, sessionItem),
-            signal,
-          ).then((own) => (own ? selectPasskey(admission.request, own) : undefined))
-        : undefined;
-      step = "signed-before-lookup";
-      // ADR 0021 D: a username-less request in a tab Pateat already signed in from may follow
-      // a logout, so it asks even for one match or a site default; so does one after a
-      // control that logs out was clicked there. Named credentials, as in a
-      // re-authentication, still sign silently. A running login never asks (ADR 0027).
-      const usernameLess =
-        !login &&
-        options.chooser !== undefined &&
-        admission.request.allowCredentialIds.length === 0;
-      const signedBefore =
-        usernameLess &&
-        (await abortable(
-          options.signedTabs?.has(context.tabId, admission.request.rpId) ?? Promise.resolve(false),
-          signal,
-        ));
-      const loggedOut =
-        usernameLess &&
-        !signedBefore &&
-        (await abortable(
-          options.logoutClicked?.(context.tabId, admission.request.rpId) ?? Promise.resolve(false),
-          signal,
-        ));
-      const again = signedBefore || loggedOut;
-      if (signedBefore) detail.signedBefore = true;
-      if (loggedOut) detail.logoutClicked = true;
       const signWith = (candidate: TCandidate) => {
         step = "signing";
         return abortable(
@@ -486,27 +422,18 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       let credential: TCandidate;
       let assertion: Signed["assertion"] | undefined;
       let makeDefault = false;
-      if (sessionChoice?.kind === "credential" && !again) {
-        credential = sessionChoice.credential;
-        detail.sessionPick = true;
-      } else if (selection.kind === "credential" && !again) credential = selection.credential;
+      if (selection.kind === "credential") credential = selection.credential;
       // A login's item answers alone; otherwise the browser or Bitwarden does, so Pateat
       // never signs in as another account.
       else if (login && selection.kind === "delegate")
         return { kind: "delegate", reason: `login-item-${selection.reason}` };
       else {
-        // Only passkeys Pateat can sign with are offered, the site default first. Without
-        // `again`, fewer than two is not a choice.
+        // Only passkeys Pateat can sign with are offered, the site default first. Fewer than
+        // two is not a choice.
         const offered = accepted
           .filter((entry) => entry.counter === 0)
           .sort((a, b) => Number(b.preferred === true) - Number(a.preferred === true));
-        if (
-          selection.kind === "delegate" &&
-          (again
-            ? offered.length === 0
-            : selection.reason !== "ambiguous-credential" || offered.length < 2)
-        )
-          return selection;
+        if (selection.reason !== "ambiguous-credential" || offered.length < 2) return selection;
         // An unsearched item might hold the passkey the person signed out to switch to.
         if (!candidates.complete) return { kind: "delegate", reason: "vault-incomplete" };
         const remaining = received + chooserWaitMs(admission.request.timeoutMs) - Date.now();
@@ -519,11 +446,7 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
           !context.active ||
           remaining < CHOOSER_MIN_REMAINING_MS
         )
-          // After a logout Pateat never signs unasked; the browser can still offer a choice.
-          return {
-            kind: "delegate",
-            reason: again ? "chooser-unavailable" : "ambiguous-credential",
-          };
+          return { kind: "delegate", reason: "ambiguous-credential" };
         // The window waits for a person, so the lookup budget no longer applies.
         clearTimeout(timer);
         timer = setTimeout(expire, remaining);
@@ -541,8 +464,6 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
             })),
             replacesDefault:
               candidates.siteDefault !== undefined && candidates.siteDefault !== "unset",
-            again,
-            ...(loggedOut ? { loggedOut } : {}),
             signal,
           }),
           signal,
@@ -582,7 +503,13 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       operation.parked = true;
       const decision = await abortable(
         Promise.try(() =>
-          options.conditional!({ tabId: context.tabId, origin, documentId, signal }),
+          options.conditional!({
+            tabId: context.tabId,
+            origin,
+            documentId,
+            signal,
+            incognito: context.incognito,
+          }),
         ),
         signal,
       );
@@ -698,12 +625,6 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
         } catch {
           // Never changes the answer.
         }
-      if (result.kind === "assertion" && detail.rpId !== undefined && options.signedTabs) {
-        const signedTabs = options.signedTabs;
-        const rpId = detail.rpId;
-        // Recorded as the assertion goes back; a later username-less request then asks again.
-        void signedTabs.add(sender.tab!.id!, rpId).catch(() => undefined);
-      }
       const remembered = after.remember;
       const mediation = mediationOf(request);
       if (mediation) detail.mediation = mediation;

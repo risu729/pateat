@@ -1,5 +1,10 @@
 import * as v from "valibot";
-import type { SessionItem } from "./signed-tabs";
+
+/** One `storage.session` item: WXT's, or a fake in tests. */
+export interface SessionItem {
+  getValue(): Promise<unknown>;
+  setValue(value: unknown): Promise<void>;
+}
 
 /** Session storage outlives a worker restart, and ends with the browser session. */
 export const SIGN_INS_KEY = "session:pateat.passkey-sign-ins.v1";

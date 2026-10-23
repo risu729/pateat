@@ -77,7 +77,7 @@ first written on 2026-10-12 (20:50 UTC); each row gives the date of its latest c
 | A list of saved accounts ([ADR 0028](adr/0028-account-chooser-login-pages.md)) | Cloudflare, Wise | Done. Cloudflare: on `cdfa420` (2026-10-12 20:59 UTC) Pateat pressed the default account's row, then the password and the passkey second factor, and the record ended `authenticated`. Wise: on `fdf57ef` (2026-10-13 02:25 UTC) a login from the list ended `authenticated` |
 | A sign-in entry button ([ADR 0031](adr/0031-sign-in-entry-pages.md)) | pixiv | Done |
 | A stored passkey | npm, pixiv | Done |
-| The page's own passkey request, including `required`, and choosing again after a logout ([ADR 0034](adr/0034-answer-page-passkey-requests.md)) | Wise | Signed in with the passkey on `1df2d38`; no Bitwarden "Save passkey" window followed on `fdf57ef` (below); recheck the choice after a logout |
+| The page's own passkey request, including `required`, and choosing again after a logout ([ADR 0034](adr/0034-answer-page-passkey-requests.md)) | Wise | Signed in with the passkey on `1df2d38`; no Bitwarden "Save passkey" window followed on `fdf57ef` (below); the choice after a logout is proposed for removal by [ADR 0062](adr/0062-log-in-again-after-a-logout.md) |
 | A TOTP code from an authenticator app, the source said outside the code form or not at all | Resend | Done: on `2675f0f` with the service at `4ece681` (2026-10-13 05:06 UTC), Pateat went from `/login` through the email, Next and password, the judge answered `challenge`, Pateat typed the item's TOTP and submitted it, and the record ended `authenticated`; nobody typed the code. On `fdf57ef` the code had been dropped as `source-unknown`; a code page that says nothing about where the code comes from now keeps the code and types the item's TOTP once (ADR 0027, owner, 2026-10-13 04:01 UTC) |
 | A TOTP code split into one-digit inputs | ニコニコ | Candidate from its public code (six `maxlength` 1 inputs, [research](research/2026-10-12-split-totp-inputs.md)). In the owner's Chrome on 2026-10-13 at 04:56 UTC the code was typed and submitted, but the signed-in `www.nicovideo.jp/` was judged `unclear` and the login ended `left-origin`: its only signed-in link, to `/my`, shows the nickname. A marker may now name a link by its path (owner's 「リンク先で見分ける」, 05:17 UTC) ([ADR 0029](adr/0029-local-sign-in-state.md)). Done in two runs: on `2675f0f` (04:56 UTC) Pateat typed the item's TOTP into the six inputs, and on `7226178` (07:38 UTC) the moved-to `www.nicovideo.jp` page was judged `signed-in` and the record ended `authenticated`, with no code page that time. Both in one run is not yet seen. Resend has one input (real-Chrome check, 2026-10-12) |
 | Approval in an app, then the signed-in page ([ADR 0027](adr/0027-per-account-login-routes.md#watching-after-a-challenge)) | 三菱UFJダイレクト | Done |
@@ -88,7 +88,7 @@ first written on 2026-10-12 (20:50 UTC); each row gives the date of its latest c
 | A signed-in page on another site after a passkey second factor | Oracle Cloud (security key after the password on an `oraclecloud.com` sign-in host, then `cloud.oracle.com`) | Ended `left-origin` on 2026-10-13 02:59 UTC, 3 seconds after Pateat answered the security key. A move to another site within 30 seconds of a passkey Pateat answered after the item's password now completes on the same checks (owner's 「同じ扱い」, 2026-10-13 03:13 UTC). Done: on `4deb95d` in the owner's Chrome (2026-10-13 08:58 UTC) the sign-in page that went away before it was read kept the login ([#484](https://github.com/risu729/pateat/pull/484)), the IDCS login answered the security key, `cloud.oracle.com` was judged `signed-in`, marked `moved`, and the account choice was saved ([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)) |
 | Google's own sign-in (email first, account choice) | Google | Done: on `8b60ff2` (2026-10-13 07:24 UTC), from `accounts.google.com/AddSession` without signing out, Pateat answered with the item's passkey, returned to `myaccount.google.com`, and the record ended `authenticated`; nobody pressed anything |
 | Choosing among several accounts of one site in the popup ([#187](https://github.com/risu729/pateat/pull/187)) | GitHub | Signed in; recheck the shortened item IDs and the silent stop while another tab's login holds the site, and that a pick of an item with a passkey signs in with it ([ADR 0034](adr/0034-answer-page-passkey-requests.md), local tests only) |
-| Fill only after a logout | アパホテル | Done |
+| Fill only after a logout | アパホテル | Done; proposed for removal by [ADR 0062](adr/0062-log-in-again-after-a-logout.md), which logs in again after a logout |
 | Nothing on a site without a password or passkey sign-in | ABEMA | Done (judged from the code and the Grok Bot's log) |
 | Pages that stopped before generation | モッピー, LinkedIn | Done. モッピー: generated and `authenticated` on `fdf57ef` (2026-10-13 02:53 UTC, row above). LinkedIn: on `c3dc87a` (2026-10-13 06:30 UTC) a new tab on the remembered-account password page generated a recipe, filled and submitted it, the judge answered `signed-in` and the record ended `authenticated` ([ADR 0037](adr/0037-fields-by-visible-name.md)) |
 
@@ -459,6 +459,13 @@ than in this repository.
   so its retention rule needs no work. The first login result of each revision reaches
   the service as codes
   ([ADR 0035](adr/0035-page-kinds-per-site.md#amendment-2026-10-18-login-results-on-the-service)).
+- Logging in again after a logout, the pause button and account switching, built ahead
+  of a decision at the owner's request (2026-10-23 05:28 UTC) and proposed in
+  [ADR 0062](adr/0062-log-in-again-after-a-logout.md) and
+  [ADR 0063](adr/0063-switch-accounts-from-the-popup.md). Once accepted, check in the
+  owner's Chrome: MyJCB ([#833](https://github.com/risu729/pateat/issues/833)) logs in
+  with its passkey after a logout, Pause keeps a site logged out, and a switch on a
+  site with two items logs out and in with the other one.
 - The toolbar badge counts the matching items on every HTTP(S) site (on an `http:` page
   only items saved with an `http://` URI;
   [ADR 0050](adr/0050-http-pages-for-http-items.md)): teal with the usable count, light
@@ -3018,7 +3025,10 @@ default, opens `passkey-picker.html` to choose one once or as the default. After
 signed for an RP ID in a tab, a username-less request for it there opens the window even
 for one match or a default (part D, passkeys).
 
-Choosing again after a logout (part D, passwords) is built. After a login in a tab ended
+Proposed on 2026-10-23 ([ADR 0062](adr/0062-log-in-again-after-a-logout.md), not
+accepted): a logout is followed by an ordinary login, the asks that remain do not fill,
+and a site's automatic login can be paused for an hour. Until then: choosing again after
+a logout (part D, passwords) is built. After a login in a tab ended
 as `authenticated`, or `blocked` with `credential-rejected`, `wrong-account`,
 `left-origin` or `interrupted`, a page of that origin in the tab's top frame answers
 `logged-in` with the first steps to watch, and the content script keeps watching, also
@@ -3065,10 +3075,11 @@ API keys, SSO or device approval; signing in to sites through an identity provid
 (policy in ADR 0026); external email/SMS OTP and magic links; and separately authorized
 post-login actions, including transactions and approvals. UI extensions, automatic
 account switching (logging out and in again when another account is picked while logged
-in, recorded in ADR 0021), recipe sharing, additional service auth, E2EE settings
-sync, MCP and vaults other than Bitwarden are also deferred. They
-are extension points, not implicit permissions or initial acceptance requirements. A
-mode without the service and direct AI are planned for
+in, recorded in ADR 0021, proposed on 2026-10-23 in
+[ADR 0063](adr/0063-switch-accounts-from-the-popup.md)), recipe sharing, additional
+service auth, E2EE settings sync, MCP and vaults other than Bitwarden are also deferred.
+They are extension points, not implicit permissions or initial acceptance requirements.
+A mode without the service and direct AI are planned for
 [phase 3](#phase-3-public-release); the [roadmap](#roadmap) says which of these deferred
 items become issues.
 

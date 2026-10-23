@@ -78,6 +78,7 @@ function noChoice() {
     pick: vi.fn<ChoiceClient["pick"]>().mockResolvedValue({ ok: true }),
     status: vi.fn<ChoiceClient["status"]>().mockResolvedValue({ ok: false, reason: "no-page" }),
     switchTo: vi.fn<ChoiceClient["switchTo"]>().mockResolvedValue({ ok: true }),
+    pause: vi.fn<ChoiceClient["pause"]>().mockResolvedValue({ ok: true }),
   };
 }
 
@@ -854,7 +855,7 @@ test("a pick that starts nothing says so, and the default list returns once the 
     .toHaveLength(3);
 });
 
-test("after a logout, the popup lists the saved default first", async () => {
+test("after two logins in 10 minutes, the popup lists the saved default first", async () => {
   const settings = createDefaultSettings();
   settings.siteDefaults.push({
     origin: "https://bank.example",
@@ -872,11 +873,16 @@ test("after a logout, the popup lists the saved default first", async () => {
       { connectionId: "demo-personal", itemId: "primary" },
       { connectionId: "demo-work", itemId: "primary" },
     ],
-    logout: "this-tab",
+    ask: "relogin-limit",
   });
   await mount(client, "https://bank.example/", choices);
   await expect
-    .element(page.getByText("You logged out of this site in this tab", { exact: true }))
+    .element(
+      page.getByText(
+        "Pateat logged in to this site twice in the last 10 minutes, so it waits for you to choose",
+        { exact: true },
+      ),
+    )
     .toBeVisible();
   const radios = page.getByRole("group", { name: "Account to log in with" }).getByRole("radio");
   await expect
@@ -922,7 +928,7 @@ test("while a choice waits, the saved default can still be removed, and one miss
       { connectionId: "demo-personal", itemId: "primary" },
       { connectionId: "demo-work", itemId: "primary" },
     ],
-    logout: "this-tab",
+    ask: "stopped-login",
   });
   await mount(client, "https://bank.example/", choices);
   await expect.element(page.getByRole("heading", { name: "Choose an account" })).toBeVisible();
@@ -956,7 +962,7 @@ test("after the site rejects a login, the popup says so and offers the accounts"
       { connectionId: "demo-personal", itemId: "primary" },
       { connectionId: "demo-work", itemId: "primary" },
     ],
-    logout: "rejected",
+    ask: "rejected",
   });
   await mount(client, "https://bank.example/", choices);
   await expect
@@ -992,17 +998,22 @@ test("after the site rejects a login in another tab, the popup chooses no accoun
       { connectionId: "demo-personal", itemId: "primary" },
       { connectionId: "demo-work", itemId: "primary" },
     ],
-    logout: "other-tab",
+    ask: "rejected-elsewhere",
     rejectedElsewhere: true,
   });
   await mount(client, "https://bank.example/", choices);
+  await expect
+    .element(
+      page.getByText("The site did not accept the last login in another tab", { exact: true }),
+    )
+    .toBeVisible();
   const offered = page.getByRole("group", { name: "Account to log in with" });
   await expect.element(offered.getByRole("radio").first()).not.toBeChecked();
   await expect.element(offered.getByRole("radio").last()).not.toBeChecked();
   await expect.element(page.getByRole("button", { name: "Log in" })).toBeDisabled();
 });
 
-test("after a logout, the popup asks even with one account", async () => {
+test("after a stopped login, the popup asks even with one account", async () => {
   const { client } = store();
   const choices = noChoice();
   choices.get.mockResolvedValue({
@@ -1010,7 +1021,7 @@ test("after a logout, the popup asks even with one account", async () => {
     origin: "https://bank.example",
     documentId: "signed-out",
     candidates: [{ connectionId: "demo-work", itemId: "primary" }],
-    logout: "this-tab",
+    ask: "stopped-login",
   });
   await mount(client, "https://bank.example/", choices);
   await expect.element(page.getByRole("heading", { name: "Choose an account" })).toBeVisible();
@@ -1263,20 +1274,24 @@ test("the page section says why a page of a site whose recipe starts elsewhere w
   ]);
 });
 
-test("the page section follows a logout of the tab", async () => {
+test("the page section says why the tab waits for a choice", async () => {
   const { client } = store();
-  const choices = onPage({ recipe: "page", login: { state: "logged-out" } });
+  const choices = onPage({ recipe: "page", page: { state: "denied", reason: "relogin-limit" } });
   await mount(client, "https://bank.example/login", choices);
-  await expect.poll(() => lineText("login")).toBe("Logged out of this site in this tab.");
+  await expect
+    .poll(() => lineText("login"))
+    .toBe(
+      "No login started: Pateat logged in to this site twice in the last 10 minutes; choose an account to log in again.",
+    );
   choices.status.mockResolvedValue({
     ok: true,
     origin: "https://bank.example",
     recipe: "page",
-    login: { state: "logged-out", outcome: "rejected" },
+    page: { state: "denied", reason: "account-asked" },
   });
   await expect
     .poll(() => lineText("login"), { timeout: 3000 })
-    .toBe("The site did not accept the last login; choose an account to try again.");
+    .toBe("No login started: Pateat waits for you to choose an account.");
 });
 
 test("the page section names the page's refusal over an older not-started reason", async () => {
@@ -1391,4 +1406,68 @@ test("a page that waits for an account choice offers no switch (ADR 0063)", asyn
   await expect
     .element(page.getByRole("heading", { name: "Switch account" }))
     .not.toBeInTheDocument();
+});
+
+test("a site Pateat logs in to by itself can be paused for an hour, then resumed (ADR 0062)", async () => {
+  const { client } = store();
+  const choices = onPage({ recipe: "page" });
+  await mount(client, "https://bank.example/login", choices);
+  // The row sits under the "Pateat on this site" switch.
+  const pause = page.getByRole("button", { name: "Pause automatic login" });
+  await expect.element(pause).toBeVisible();
+  const until = Date.now() + 60 * 60_000;
+  choices.pause.mockImplementation(async (_tabId, paused) => {
+    choices.status.mockResolvedValue({
+      ok: true,
+      origin: "https://bank.example",
+      recipe: "page",
+      ...(paused ? { pause: { until } } : {}),
+    });
+    return paused ? { ok: true, until } : { ok: true };
+  });
+  await userEvent.click(pause);
+  expect(choices.pause).toHaveBeenCalledWith(7, true);
+  const clock = new Date(until).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  await expect.element(page.getByText(`Paused until ${clock}`, { exact: true })).toBeVisible();
+  await expect
+    .element(page.getByText("Automatic login on this site is paused for an hour"))
+    .toBeVisible();
+  await userEvent.click(page.getByRole("button", { name: "Resume" }));
+  expect(choices.pause).toHaveBeenLastCalledWith(7, false);
+  await expect.element(page.getByRole("button", { name: "Pause automatic login" })).toBeVisible();
+  await expect.element(page.getByText("Automatic login on this site resumed")).toBeVisible();
+});
+
+test("no pause is offered where nothing matches and the site has no recipe", async () => {
+  const { client } = store();
+  const choices = onPage({ origin: "https://nothing.example", recipe: "none" });
+  await mount(client, "https://nothing.example/", choices);
+  await expect
+    .element(page.getByText("No vault item matches this site", { exact: false }))
+    .toBeVisible();
+  expect(page.getByRole("button", { name: "Pause automatic login" }).query()).toBeNull();
+});
+
+test("a paused page offers even its only matching account (ADR 0062)", async () => {
+  const { client } = store();
+  const choices = onPage({ recipe: "page", pause: { until: Date.now() + 60_000 } });
+  choices.get.mockResolvedValue({
+    ok: true,
+    origin: "https://bank.example",
+    documentId: "paused",
+    candidates: [{ connectionId: "demo-work", itemId: "primary" }],
+    paused: true,
+  });
+  await mount(client, "https://bank.example/", choices);
+  await expect
+    .element(page.getByText("Automatic login is paused on this site", { exact: true }))
+    .toBeVisible();
+  await expect
+    .element(page.getByRole("group", { name: "Account to log in with" }).getByRole("radio"))
+    .toHaveLength(1);
+  await expect.element(page.getByRole("button", { name: "Resume" })).toBeVisible();
+  await userEvent.click(page.getByRole("button", { name: "Log in" }));
+  expect(choices.pick).toHaveBeenCalledWith(
+    expect.objectContaining({ documentId: "paused", connectionId: "demo-work" }),
+  );
 });

@@ -14,6 +14,10 @@ Amended on 2026-10-19 at 22:42 UTC: the owner confirmed the delegations where Ch
 rejects Immediate UI, which Claude had added, by choosing 「渡す (今のまま)」 ("hand
 them on, as now").
 
+Amended on 2026-10-23 by [ADR 0062](0062-log-in-again-after-a-logout.md) (proposed,
+not accepted): the chooser no longer opens because Pateat signed in from the tab or a
+logout control was clicked.
+
 Date: 2026-10-19
 
 ## Context

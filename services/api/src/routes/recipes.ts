@@ -269,8 +269,7 @@ export const recipeRoutes = new Hono<ApiEnv>()
   /**
    * A login started on a recipe revision the owner holds, whatever happened after
    * (ADR 0058): it marks the active recipe used, so it is not revoked as unused. Unlike a
-   * login record it covers fill-only logins and ones that stop before an item's missing
-   * password. As for a login record, any revision up to the head counts, and a revoked or
+   * login record it covers logins that stop before an item's missing password. As for a login record, any revision up to the head counts, and a revoked or
    * unknown recipe answers 404.
    */
   .post(

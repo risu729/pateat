@@ -45,8 +45,11 @@ const NOT_STARTED: Record<string, string> = {
   "stopped-login": "the last login on this site stopped in this tab",
   "first-step-missing": "the sign-in form shows, but the recipe's first step was not found",
   "no-recipe-on-path": "no recipe of this site starts on this page",
-  "logged-out": "you logged out of this site; choose an account to log in again",
+  "account-asked": "Pateat waits for you to choose an account",
+  "relogin-limit":
+    "Pateat logged in to this site twice in the last 10 minutes; choose an account to log in again",
   "account-ambiguous": "several accounts match; choose one to log in",
+  paused: "automatic login is paused on this site; choose an account to log in",
   "origin-busy": "another tab's login to this site is running or did not succeed",
   "tab-busy": "another login runs in this tab",
   "attempt-limit": "Pateat already holds as many login records as it can",
@@ -68,6 +71,7 @@ const NOT_SENT: Record<string, string> = {
   "connection-disabled": "the vault connection is turned off",
   "after-sign-in": "this page came right after a sign-in",
   "nothing-offered": "the page showed no sign-in form",
+  paused: "automatic login is paused on this site",
 };
 
 const plain = (table: Record<string, string>, code: string) => table[code] ?? code;
@@ -214,17 +218,6 @@ function attemptLines(status: Status): StatusLine[] {
         ? { id: "login", tone: "warn", text: "The sign-in could not be confirmed." }
         : { id: "login", tone: "ok", text: "Logged in." },
     ];
-  if (login.state === "logged-out")
-    return [
-      {
-        id: "login",
-        tone: "idle",
-        text:
-          login.outcome === "rejected"
-            ? "The site did not accept the last login; choose an account to try again."
-            : "Logged out of this site in this tab.",
-      },
-    ];
   const outcome = login.outcome ?? "";
   // A result that settled as unknown is watched as after a `challenge` (ADR 0027).
   if (login.state === "watching" || (login.state === "reconciling" && login.settled))
@@ -239,18 +232,12 @@ function attemptLines(status: Status): StatusLine[] {
       },
     ];
   if (login.state !== "blocked") return [{ id: "login", tone: "busy", text: "Logging in…" }];
-  // A login that only fills the form after a logout ends by design before anything that
-  // would press a button (ADR 0021 D); a page or person that cancelled it first ends the
-  // same way, so the line names the mode rather than claiming a filled form.
-  if (login.fillOnly && outcome === "cancelled" && !login.cause)
-    return [
-      {
-        id: "login",
-        tone: "idle",
-        text: "After a logout, Pateat only fills the sign-in form and presses nothing; sign in when you are ready.",
-      },
-    ];
-  const why = outcome ? plain(OUTCOMES, outcome) : "no reason was recorded";
+  const why =
+    outcome === "policy-changed" && login.cause === "paused"
+      ? "automatic login of this site was paused" // ADR 0062
+      : outcome
+        ? plain(OUTCOMES, outcome)
+        : "no reason was recorded";
   const lines: StatusLine[] = [
     QUIET.has(outcome)
       ? { id: "login", tone: "idle", text: `The login stopped: ${why}.` }

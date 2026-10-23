@@ -40,7 +40,6 @@ import {
   type ListedAccounts,
 } from "./no-input-offer";
 import { entryElementRefusal, entryHosts, showsSignUp } from "../page/entry";
-import { clickedLogout } from "../page/logout-click";
 import {
   pageSigns,
   passedCaptcha,
@@ -196,7 +195,8 @@ export interface LoginContentOptions {
 export function installLoginContent({ probeStatus = false }: LoginContentOptions = {}): () => void {
   const token = newId();
   let cancelled = false;
-  // Set once this document's login has ended; it then watches for a logout (ADR 0021 D).
+  // Set once this document's login has ended; it then watches for its first step to show
+  // again, as after a logout, when the page logs in again (ADR 0062).
   let ended = false;
   // The site rejected that login here: the form showing with the failure asks at once.
   let rejected = false;
@@ -498,8 +498,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       unwatch();
     } else if (parsed.output.starts) {
       watch(parsed.output.starts, parsed.output.generate === true, parsed.output.entry === true);
-      // In the document that logged in, a form still showing is not a logout; only its
-      // next appearance is (ADR 0021 D). After a rejection it is the form shown again.
+      // In the document that logged in, a form still showing does not log in again; only its
+      // next appearance does (ADR 0021 D, ADR 0062). After a rejection it is the form shown
+      // again.
       if (ended && !rejected && !start) announced = starts.some(ready);
       // A refused start means the background did not see the form on this path yet, for
       // example while the tab still shows the previous URL.
@@ -609,7 +610,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           location.origin,
         );
       respond({ ok: true });
-      // A finished login keeps watching: its first step showing again means a logout.
+      // A finished login keeps watching: its first step showing again logs in again.
       // A new login in this document, as after a pick, watches for its own end.
       if (command.state === "executing") ended = false;
       if (!ended && (command.state === "authenticated" || command.state === "blocked")) {
@@ -1344,29 +1345,13 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       () => undefined,
     );
   };
-  /**
-   * The person clicked a control that logs out (ADR 0021 D, owner 2026-10-16): the tab's
-   * next sign-in form of the site asks instead of logging in. Only on a page of an origin
-   * with recipes, only for the person's own clicks (a page's script clicking for an expired
-   * session is not one), and only the fact is sent, never the control's text.
-   */
-  const onClick = (event: MouseEvent) => {
-    if (cancelled || !event.isTrusted || !starts.length || !clickedLogout(event)) return;
-    void sendMessage("login", { version: 1, type: "login.document.logout-clicked", token }).catch(
-      () => undefined,
-    );
-  };
   document.addEventListener("submit", onSubmit, true);
-  // On the window in the capture phase, so the click is read before most of the page's
-  // own handlers act on it, such as one that removes the menu holding the control.
-  addEventListener("click", onClick, true);
   browser.runtime.onMessage.addListener(listener);
   void announce(false).catch(() => undefined);
   return () => {
     cancelled = true;
     unwatch();
     document.removeEventListener("submit", onSubmit, true);
-    removeEventListener("click", onClick, true);
     browser.runtime.onMessage.removeListener(listener);
   };
 }
