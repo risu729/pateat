@@ -6720,6 +6720,8 @@ export function createLoginRuntime(
     // A click left to the person is theirs to press first.
     if (inFlight && run.heldClick === metadata.stepIndex) return false;
     const at = inFlight ? metadata.stepIndex + 1 : metadata.stepIndex;
+    // Past the login's own last step only an advance goes on (`LAYOUT`'s guard).
+    if (at >= metadata.stepCount && metadata.operationEffect !== "advance") return false;
     const siblings = await siblingsAt(run, at);
     if (!current(run)) return false;
     const done = inFlight
