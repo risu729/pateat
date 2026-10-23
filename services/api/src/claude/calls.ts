@@ -8,6 +8,7 @@ import {
 import {
   claudeGeneration,
   claudeRefusalFallback,
+  claudeWorstCaseRates,
   createClaudeGenerationModel,
   estimateClaudeCostUsd,
   irreversibleSchema,
@@ -68,8 +69,10 @@ export const CLAUDE_CALL_LIMITS = {
  * that never finishes still counts. Usage the provider does not report keeps this upper
  * bound: a request holds at most `maxInputBytes` tokens.
  */
-const reservedMicroUsd = ({ rates }: ClaudeModelChoice) =>
-  ROLE_LIMITS.maxInputBytes * rates.input + MAX_OUTPUT_TOKENS * rates.output;
+const reservedMicroUsd = ({ rates }: ClaudeModelChoice) => {
+  const { input, output } = claudeWorstCaseRates(rates, ROLE_LIMITS.maxInputBytes);
+  return ROLE_LIMITS.maxInputBytes * input + MAX_OUTPUT_TOKENS * output;
+};
 
 type Db = DrizzleD1Database<Record<string, never>>;
 const DAY_MS = 24 * 60 * 60 * 1000;
