@@ -1,5 +1,7 @@
 import {
   manageDashboardSchema,
+  manageClaudeSchema,
+  manageClaudeTestSchema,
   manageDevicesSchema,
   profilesSchema,
   profileSchema,
@@ -18,6 +20,7 @@ import {
   type ManageErrorCode,
   type ModelConfig,
   type SyncSettingsState,
+  type WifIdentifiers,
 } from "@pateat/contracts";
 import * as v from "valibot";
 
@@ -186,6 +189,22 @@ export function createManageClient(fetcher: ManageFetch = (input, init) => fetch
       const response = await call(fetcher, "/request-log", { method: "DELETE" });
       return read(response, manageRequestLogDeletedSchema);
     },
+    /** The Claude Console values for this owner and the identifiers saved here. */
+    async claude() {
+      return read(await call(fetcher, "/claude"), manageClaudeSchema);
+    },
+    async saveClaude(identifiers: WifIdentifiers) {
+      const response = await call(fetcher, "/claude", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ version: 1, identifiers }),
+      });
+      return read(response, manageClaudeSchema);
+    },
+    /** Exchanges one token with the saved identifiers; the token never reaches the page. */
+    async testClaude() {
+      return read(await call(fetcher, "/claude/test", { method: "POST" }), manageClaudeTestSchema);
+    },
   };
 }
 
@@ -206,7 +225,7 @@ export function describeError(error: unknown): string {
     case "not_found":
       return "It no longer exists. Reload the page.";
     case "not_paired":
-      return "No device is paired with this account yet. Pair a device first; settings belong to an account with a paired device.";
+      return "No device is paired with this account yet. Pair a device first; settings and Claude identifiers belong to an account with a paired device.";
     case "payload_too_large":
       return "The change was refused because the settings would be too large. Remove some entries first.";
     case "recipe_conflict":

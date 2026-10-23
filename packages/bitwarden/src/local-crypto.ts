@@ -513,7 +513,7 @@ export async function createLocalCryptoSession(
     "pBKDF2" in kdf
       ? kdf.pBKDF2.iterations <= 2_000_000
       : kdf.argon2id.iterations <= 20 &&
-        kdf.argon2id.memory <= 256 &&
+        kdf.argon2id.memory <= 1024 &&
         kdf.argon2id.parallelism <= 16;
   if (
     !withinResourceBudget(options.kdf) ||

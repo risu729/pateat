@@ -55,6 +55,9 @@ test("selecting another profile clears the old policy view and writes only to th
     saveModels: vi.fn(),
     requestLog: vi.fn(),
     deleteRequestLog: vi.fn(),
+    claude: vi.fn(),
+    saveClaude: vi.fn(),
+    testClaude: vi.fn(),
     revokeDevice: vi.fn(),
     settings: vi.fn(async (id = selected) => {
       const value = id ? states.get(id) : undefined;

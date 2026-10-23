@@ -33,6 +33,9 @@ function mockClient() {
     renameProfile: vi.fn<ManageClient["renameProfile"]>(),
     deleteProfile: vi.fn<ManageClient["deleteProfile"]>(),
     assignProfile: vi.fn<ManageClient["assignProfile"]>(),
+    claude: vi.fn<ManageClient["claude"]>(),
+    saveClaude: vi.fn<ManageClient["saveClaude"]>(),
+    testClaude: vi.fn<ManageClient["testClaude"]>(),
   } satisfies ManageClient;
 }
 

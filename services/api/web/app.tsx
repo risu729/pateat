@@ -3,10 +3,10 @@ import logo from "../../../apps/extension/icons/icon.svg?url";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { describeError, type ManageClient } from "./api";
+import { ClaudePage } from "./claude";
 import { DashboardPage } from "./dashboard";
 import { SETTINGS_QUERY_KEY } from "./settings";
 import { DevicesPage } from "./devices";
-import { ModelsPage } from "./models";
 import { PROFILES_QUERY_KEY, ProfilesPage, storedProfile, storeProfile } from "./profiles";
 import { RequestLogPage } from "./request-log";
 import { SitePage } from "./site";
@@ -29,7 +29,7 @@ const PAGES = [
   { path: "/manage/sites", title: "Sites", Page: SitesPage },
   { path: "/manage/profiles", title: "Profiles", Page: ProfilesPage },
   { path: "/manage", title: "Devices", Page: DevicesPage },
-  { path: "/manage/models", title: "Models", Page: ModelsPage },
+  { path: "/manage/claude", title: "Claude", Page: ClaudePage },
   { path: "/manage/request-log", title: "Request log", Page: RequestLogPage },
 ] as const;
 

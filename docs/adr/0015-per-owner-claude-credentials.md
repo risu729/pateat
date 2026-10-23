@@ -54,8 +54,8 @@ The first credential type is WIF, used by the owner's own deployment first:
   (`fdrl_…`), `organizationId`, `serviceAccountId` (`svac_…`) and `workspaceId`
   (`wrkspc_…`). On 2026-10-11 the owner chose a temporary script-free
   `/manage/claude` page for entering them, with a button that tests the token
-  exchange, so WIF can be tried before the React web UI exists. The web UI replaces
-  that page.
+  exchange, so WIF can be tried before the React web UI exists. The web UI's Claude
+  tab replaced that page on 2026-10-23, together with each role's model choices.
 - For each exchange the Worker signs a fresh JWT `{ iss: <origin>, sub:
   "owner:<ownerId>", aud: "https://api.anthropic.com", iat, nbf, exp, jti }` with a
   lifetime of five minutes. It posts the JWT

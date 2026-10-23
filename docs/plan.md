@@ -61,6 +61,11 @@ changes and security changes they bring still need the owner's approval one by o
 [ADR 0053](adr/0053-passkey-only-generation.md) through
 [#805](https://github.com/risu729/pateat/pull/805); the other four are still open.
 
+Accessibility work has lower priority from 2026-10-23 (owner, 12:57 UTC,
+「一旦アクセシビリティの優先度は下げる」): accessibility work not yet started waits
+behind the rest of its phase, while accessibility pull requests that already exist
+continue as before (12:58 UTC).
+
 ### Phase 1: usable
 
 Done when each kind of login page below works on the real site named for it, in the
@@ -356,15 +361,17 @@ than in this repository.
     shown as unused under the most specific such rule, since exclusion is checked first,
     and its Remove default button deletes only the default. A default that cannot be
     used shows the reason. One add form takes an origin (or a hostname, to exclude), a
-    default account and Exclude subdomains too.
+    default account and Exclude subdomains too. It saves an origin in its canonical
+    spelling (lowercase, punycode host, no default port) and rejects one with a path,
+    query, fragment, trailing slash or credentials.
   - Done: vault access inside each Bitwarden connection. Its row holds the Use this
     vault switch, Items for Pateat and the collapsed lists of included groups and items
     and of excluded items and fields; the separate vault access panel is gone. Saved
     entries without a connection row (the demo vaults, a connection this device no
     longer has) are listed under the rows, and the demo preview lists its vaults in a
     Demo vaults panel.
-  - Approved: `lucide-react` for icons in the polish (owner, 2026-10-12 20:53 UTC); the
-    first PR that uses it adds it.
+  - Done: `lucide-react` for icons in the polish (owner, 2026-10-12 20:53 UTC), used by
+    the extension's pages and `/manage`.
   - Done: the settings page marks Bitwarden (its section in the menu and each connection
     row) with the `lucide-react` `Shield` icon (owner, 2026-10-13 15:02 UTC). The owner
     asked for Bitwarden's own logo, but Bitwarden's
@@ -420,8 +427,9 @@ than in this repository.
     page with a "Pateat on this site" switch, its default account, recipes and bindings
     ([owner web UI](architecture.md#owner-web-ui)).
   - Done: the Worker's script-free pages (`/pair/signed-in`, the Access and error pages
-    and `/manage/claude`) use the same tokens, light or dark as the browser prefers,
-    with the logo beside "Pateat" and the page in one panel. With this, every screen of
+    and the `/manage/claude` form, since moved into the owner web UI) use the same
+    tokens, light or dark as the browser prefers, with the logo beside "Pateat" and the
+    page in one panel. With this, every screen of
     the extension and the service has had its polish pass.
   - Done: the toolbar badge spins (braille frames) in a tab while a model request for
     that tab's page is in flight, and shows how the tab's last login ended: a red `!`
@@ -1000,12 +1008,13 @@ Once the fixes have settled:
   ([comparison](research/2026-10-12-extension-ui-translation.md),
   [dependency policy](development.md#dependency-policy)). The owner chose on 2026-10-18
   to translate now. The extension's pages, toolbar tooltips and manifest description are
-  translated as [ADR 0043](adr/0043-extension-language-preference.md) records; the
-  README and user-facing docs are not. The owner chose
-  (2026-10-12 14:14 UTC) that "the docs" means the README and the user-facing pages,
-  including those the docs website below adds; ADRs, this plan and research notes stay
-  in English. AGENTS.md's English rule gets an exception for the Japanese pages when
-  they land.
+  translated as [ADR 0043](adr/0043-extension-language-preference.md) records. The owner
+  chose (2026-10-12 14:14 UTC) that "the docs" means the README and the user-facing
+  pages, including those the docs website below adds; ADRs, this plan and research notes
+  stay in English. The README part is done: [README.ja.md](../README.ja.md), linked both
+  ways with README.md. AGENTS.md's English rule has an exception for Japanese
+  translations of user-facing pages, which change with their English page in the same
+  PR.
 - The docs website (VitePress 2, see
   [decisions still requiring evidence](#decisions-still-requiring-evidence)) with
   user-facing pages for installation, setup and permissions, plus the M6 operational
@@ -1069,7 +1078,10 @@ Once the fixes have settled:
   without the service that gets recipes from a model API directly reopens the question.
 - Proposed: the checks that matter once other people install Pateat: the install-time
   site-access warning and the prompt after site access was withheld, installed-Chrome
-  dummy-account tests and measured limits.
+  dummy-account tests and measured limits. The
+  [offline synthetic report](research/2026-10-23-synthetic-limits.md) measures
+  configured byte/count limits and JSON sizes reproducibly; browser quotas, hosted
+  load and latency are unmeasured and the integrated M6 gate remains open.
 - Adopting Anthropic's
   [Claude Security plugin](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/claude-security)
   for Claude Code: agents map the architecture, build a threat model, look for
@@ -1143,11 +1155,10 @@ separately (owner, 2026-10-14 07:24 UTC), and the adopted
 be started from the issue alone (owner, 2026-10-14 08:40 UTC). The list below names
 items the owner mentioned and gates still open on 2026-10-11.
 
-- From the [external review](research/2026-10-13-external-review.md): decrypted item
-  copies in the crypto Worker that hold only the fields a request needs instead of the
-  whole item; a scheduled purge of the inference log, which since 2026-10-18 keeps
-  every row one year (a trigger is a deployment change the owner approves); and syncing
-  which recipes exist and which are revoked separately from their bodies, if
+- From the [external review](research/2026-10-13-external-review.md): a scheduled purge
+  of the inference log, which since 2026-10-18 keeps every row one year (a trigger is a
+  deployment change the owner approves); and syncing which recipes exist and which are
+  revoked separately from their bodies, if
   [#544](https://github.com/risu729/pateat/issues/544) and the recipe limits are not
   enough.
 - Signing in through an identity provider
@@ -1245,7 +1256,7 @@ items the owner mentioned and gates still open on 2026-10-11.
   (18:35 UTC), since few users are expected to need them; each needs the owner's
   approval for real-account use.
 - Proposed: the remaining checks, namely pairing while signed out of Access and the
-  Access cookie settings, real sites that wrap `get`, and a navigation during signing.
+  Access cookie settings, and real sites that wrap `get`.
   The packaged synthetic browser suite also covers a page-owned `get` wrapper that
   clones request options: Pateat answers an eligible request once, native fallback
   remains reachable, and caller cancellation survives the copied options. This added
@@ -1467,6 +1478,13 @@ strict cipher and stored-passkey decryption, and verified security-version
 checks. The account mapper below prepares encrypted sync responses for these
 sessions. Extension connection setup and the persistent cache layer have separate
 progress sections below.
+
+Admission covers the whole Argon2id memory range Bitwarden's server allows, up to
+1024 MiB, with at most 20 iterations and 16 lanes; PBKDF2 stays at most 2,000,000
+iterations. At the server's own maximum of 10 iterations and 1024 MiB one derivation
+took about 25 seconds in Node on a cloud container (2026-10-17), so Argon2id
+derivations, and only those, get a 60-second budget instead of 30 (owner's choice
+2026-10-23, [Architecture](architecture.md)).
 
 The pinned SDK's V2 version export also rewraps and re-signs an in-memory copy of
 verified key state. Pateat keeps only its version and does not send or persist
@@ -1989,30 +2007,33 @@ The fourth slice syncs recipes into a last-known-good cache that the login execu
 reads. The background pulls `GET /v1/recipes` pages from the stored cursor with the
 paired device's credential, applies active and revoked changes, and writes the cursor
 and recipes together, so a failed page or write leaves the previous consistent copy. It
-reads at most 50 pages per sync, plus one blocked-page retry after an overflow walk,
-and refuses a page that moves the cursor backwards or
-does not advance it. The cache belongs to one paired device: a new pairing starts from
-an empty cache, nothing is served while no device is paired or the pairing cannot be
-read, and disconnecting or forgetting an unreadable pairing clears it. Sync runs right
-after pairing completes, also when another device's sync is still running, and in the
-background when the worker starts, a lookup arrives or the settings page is open and the
-last attempt is more than five minutes old. The attempt time is stored, so a worker
-restart does not sync again sooner, and a 429 postpones background syncs, but not the
-one after pairing, for 15 minutes. A lookup does not wait for the network or for pairing
-and disconnect requests. The serialized cache is limited to 2 MiB of the extension's 10
-MB `storage.local` quota, which it shares with settings, login attempts and other
-extension state (the vault cache is in IndexedDB); a page that would exceed it is not
-fully applied. Sync walks later current heads within the shared 50-page budget,
-saving revocations and newer non-growing updates to already cached recipes with
-the old applied cursor. A separate device-bound checkpoint resumes lookahead
-across syncs and worker restarts, including freeing changes beyond the first
-50 pages, without adding bytes to the capped recipe cache. Safe cache writes
-precede checkpoint advancement. One additional fresh request retries the
-blocked page from the applied cursor; pending active changes wait until their
-entire page fits. The settled current-head feed can therefore recover when its
-active documents fit the service cap, while storage and transport failures
-retain earlier durable reductions. Disconnect clearing waits for pending
-writes and removes both records
+reads at most 50 pages per sync, plus one blocked-page retry after an overflow walk, and
+refuses a page that moves the cursor backwards or does not advance it. The cache belongs
+to one paired device: a new pairing starts from an empty cache, nothing is served while
+no device is paired or the pairing cannot be read, and disconnecting or forgetting an
+unreadable pairing clears it. Sync runs right after pairing completes, also when another
+device's sync is still running, and in the background when the worker starts, a lookup
+arrives (each page Pateat runs on looks up its recipe) or the settings page loads, and
+the last attempt is more than five minutes old; the open settings page asks again every
+10 seconds only until the first sync finishes or the device is rejected or its cache is
+full. Saving settings or an account choice
+syncs at once, whatever the schedule. The attempt time is stored, so a worker restart
+does not sync again sooner, and a 429, also an edge rate-limit page that is not JSON,
+postpones background syncs, but not the one after pairing, for 15 minutes. A clock set
+back before the last attempt makes a sync due at once, also within one worker. A lookup
+does not wait for the network or for pairing and disconnect requests. The serialized
+cache is limited to 2 MiB of the extension's 10 MB `storage.local` quota, which it
+shares with settings, login attempts and other extension state (the vault cache is in
+IndexedDB); a page that would exceed it is not fully applied. Sync walks later current
+heads within the shared 50-page budget, saving revocations and newer non-growing updates
+to already cached recipes with the old applied cursor. A separate device-bound
+checkpoint resumes lookahead across syncs and worker restarts, including freeing changes
+beyond the first 50 pages, without adding bytes to the capped recipe cache. Safe cache
+writes precede checkpoint advancement. One additional fresh request retries the blocked
+page from the applied cursor; pending active changes wait until their entire page fits.
+The settled current-head feed can therefore recover when its active documents fit the
+service cap, while storage and transport failures retain earlier durable reductions.
+Disconnect clearing waits for pending writes and removes both records
 ([ADR 0013 amendment](adr/0013-service-held-recipes-and-settings.md#amendment-durable-recovery-under-cache-pressure-2026-10-14)).
 How many recipes the cache holds and the implemented service cap are under
 [service limits](architecture.md#service-limits). A 401 marks the device as
@@ -2160,8 +2181,9 @@ tests cover it.
   to Claude per owner through Workload Identity Federation
   ([ADR 0015](adr/0015-per-owner-claude-credentials.md)); a registered, encrypted API
   key is a later second option. The issuer metadata routes, the `inference_credentials`
-  table and `resolveClaudeCredential` exist. Owners enter identifiers on the temporary
-  `/manage/claude` page until the React web UI replaces it. On 2026-10-11 at 12:26 UTC
+  table and `resolveClaudeCredential` exist. Owners enter identifiers on the web UI's
+  Claude tab (`/manage/claude`), which replaced the temporary script-free form page; its
+  layout is proposed and awaits the owner's review. On 2026-10-11 at 12:26 UTC
   the deployed service at `pateat.takuk.me` exchanged a real assertion with Anthropic.
   The owner's federation rule is scoped to `workspace:developer`, because the Console
   offered no `workspace:inference`, and the token was valid for 10 minutes. The first
@@ -2247,8 +2269,20 @@ no content script posts a message to the page, and that with no vault connected 
 request goes to the browser. A claimed assertion from a vault passkey is tested only
 through the probe build, which wraps the same vault source. The real-site and
 real-account results are listed below, including a primary sign-in with a discoverable
-passkey on `https://my.jcb.co.jp`; a navigation during signing relies on Chrome dropping
-the response to the replaced document.
+passkey on `https://my.jcb.co.jp`. A document left while Pateat answers its request gets
+no assertion: the relay sends a cancel on `pagehide`, the background ends the operation
+as `cancelled` (`page-cancelled`) even while the Worker still signs, releases the vault
+hold, closes an open chooser window and records no sign-in, so the tab's next document
+is answered without asking again. Unit tests in `runtime.test.ts`, `relay.test.ts` and
+`page.test.ts` cover this, the relay's also on entering the back/forward cache, and a
+probe-build Playwright test in `tests/extension/passkeys.spec.ts` navigates during a
+delayed signature and with the chooser window open (Playwright's Chromium runs without
+the back/forward cache). A signature that finishes before the cancel arrives still
+counts as a sign-in: the tab is recorded as signed in (so its next username-less request
+asks again), the login and the registration check are told of it and a chosen default is
+saved, while the reply goes to the replaced document's closed message channel, which
+Chrome drops. The owner accepted this few-millisecond race on 2026-10-23
+([ADR 0007](adr/0007-existing-passkey-assertions.md#bridge-topology)).
 [Development](development.md#installed-chrome-synthetic-passkey-probe) describes the
 installed-Chrome acceptance procedure. Page script can detect the wrapper and read the
 extension ID from stack traces; the relay posts only the outcome of a request to the

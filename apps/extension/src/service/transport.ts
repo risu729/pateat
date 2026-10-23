@@ -440,6 +440,12 @@ export function createServiceTransport(
         void response.body?.cancel().catch(() => undefined);
         return { failed: "unexpected-response" as const, timing: timing() };
       }
+      // Every caller reads a 429 as "slow down" without its body, which may be an edge
+      // page that is not JSON, such as Cloudflare's rate-limit page.
+      if (response.status === 429) {
+        void response.body?.cancel().catch(() => undefined);
+        return { status: 429, body: undefined, timing: timing() };
+      }
       const text = await readBounded(response, limit);
       if (text === undefined) return { failed: "unexpected-response" as const, timing: timing() };
       let body: unknown;
