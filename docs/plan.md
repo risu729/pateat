@@ -65,14 +65,14 @@ changes and security changes they bring still need the owner's approval one by o
 [ADR 0041](adr/0041-repair-stale-recipes.md) with [ADR 0060](adr/0060-recipe-layouts.md)
 through
 [#909](https://github.com/risu729/pateat/pull/909),
-[#968](https://github.com/risu729/pateat/pull/968),
-[#911](https://github.com/risu729/pateat/pull/911) and
-[#992](https://github.com/risu729/pateat/pull/992);
+[#968](https://github.com/risu729/pateat/pull/968) and
+[#911](https://github.com/risu729/pateat/pull/911);
 [#664](https://github.com/risu729/pateat/pull/664) landed as
 [ADR 0076](adr/0076-settings-profiles-delivered.md) through
 [#986](https://github.com/risu729/pateat/pull/986);
-[#614](https://github.com/risu729/pateat/pull/614)'s lock, log out and vault timeout
-landed as [ADR 0075](adr/0075-vault-lock-and-timeout.md) through
+the lock, log out and vault timeout part of
+[#614](https://github.com/risu729/pateat/pull/614) landed as
+[ADR 0075](adr/0075-vault-lock-and-timeout.md) through
 [#993](https://github.com/risu729/pateat/pull/993), and its allowed-sites half is still
 to come; [#613](https://github.com/risu729/pateat/pull/613) is being rebuilt as
 [#997](https://github.com/risu729/pateat/pull/997).

@@ -8,9 +8,10 @@ wording is not quoted here; the note under [Later](#later) records a further wis
 decided by this ADR. In the same message the owner asked for what
 [Generation provenance](#generation-provenance) and
 [Changing the recipe schema later](#changing-the-recipe-schema-later) record, and to
-proceed without asking unless something needed explaining. Implemented on
-`claude/review-issue-prs-j7hli2` (local tests only, not tried on real sites, not
-deployed); see [Delivery](#delivery). Amends
+proceed without asking unless something needed explaining. Implemented on main through
+[#909](https://github.com/risu729/pateat/pull/909) and
+[#968](https://github.com/risu729/pateat/pull/968) (local tests only, not tried on real
+sites, not deployed); see [Delivery](#delivery). Amends
 [ADR 0016](0016-recipe-generation-trigger.md) (what a continuation and a judgement
 name), [ADR 0028](0028-account-chooser-login-pages.md) (the chooser's shape and branch
 names), [ADR 0029](0029-local-sign-in-state.md) (E1 reads every layout's markers),
