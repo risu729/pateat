@@ -71,13 +71,15 @@ function syntheticClaude({ abstainOnPassword = false }: { abstainOnPassword?: bo
       return found.id;
     };
     // The `script-link` and `script-url` fixtures' login links have no id, so only their
-    // text names them.
+    // text names them, and the `labelled` fixture's submit input only its accessible name.
     const login = () =>
       prompt.observation.candidates.some(
         ({ target }) => target.by === "id" && target.value === "login",
       )
         ? byTarget("login")
-        : byTarget("Log in", "text");
+        : prompt.observation.candidates.some(({ target }) => target.by === "accessible-name")
+          ? byTarget("Log in", "accessible-name")
+          : byTarget("Log in", "text");
     const passwordPage = prompt.observation.candidates.some(
       ({ target }) => target.by === "id" && target.value === "password",
     );
@@ -196,6 +198,7 @@ for (const [button, marker] of [
   ["anchor", "button"],
   ["script-link", "button"],
   ["script-url", "button"],
+  ["labelled", "button"],
   ["button", "link"],
 ] as const)
   test(`a login page without a recipe is generated on the service, logs in and learns its completion (${button}, ${marker} marker)`, async () => {
