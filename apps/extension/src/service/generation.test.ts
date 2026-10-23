@@ -37,6 +37,7 @@ const request: RecipeGenerationRequest = {
   version: 1,
   observation,
   slots: [{ id: "password", kind: "secret", description: "account password" }],
+  signedIn: false,
 };
 const recipeChange = {
   recipeId: "gen-0123456789abcdef0123456789abcdef",
@@ -47,6 +48,7 @@ const recipeChange = {
     id: "gen-0123456789abcdef0123456789abcdef",
     revision: 1,
     origin: "https://shop.example",
+    pageKind: "sign-in" as const,
     slots: ["password"],
     steps: [
       {

@@ -13,6 +13,7 @@ import {
   handlerTargets,
   heldRouteMissing,
   isLoginRouteRecipe,
+  runsLogin,
   loginAutocompleteTokens,
   loginChooserRecipeSchema,
   loginEntryRecipeSchema,
@@ -60,6 +61,7 @@ function recipe(): LoginRecipe {
     id: "bank-login",
     revision: 1,
     origin: "https://bank.example",
+    pageKind: "sign-in",
     slots: ["branch", "account", "password"],
     steps: [
       {
@@ -235,6 +237,15 @@ describe("declarative login boundaries", () => {
       { by: "id", value: "rejected" },
     ])
       expect(() => parseLoginRecipe({ ...recipe(), accountSwitch: target })).toThrow();
+  });
+
+  it("requires the start page's kind, and runs only a sign-in recipe (ADR 0035)", () => {
+    const { pageKind: _kind, ...kindless } = recipe();
+    expect(() => parseLoginRecipe(kindless)).toThrow();
+    expect(() => parseLoginRecipe({ ...recipe(), pageKind: "personal-details" })).toThrow();
+    expect(runsLogin(parseLoginRecipe({ ...recipe(), pageKind: "sign-in" }))).toBe(true);
+    expect(runsLogin(parseLoginRecipe({ ...recipe(), pageKind: "confirm" }))).toBe(false);
+    expect(runsLogin(parseLoginRecipe({ ...recipe(), pageKind: "unclear" }))).toBe(false);
   });
 
   it("accepts a generated recipe whose completion is not learned yet", () => {
@@ -1166,6 +1177,8 @@ describe("second-factor page handlers (ADR 0027)", () => {
         },
       ],
       ["a changed rejection", { rejection: { by: "id", value: "error" } }],
+      // A continuation keeps its first page's kind (ADR 0035).
+      ["a changed page kind", { pageKind: "confirm" }],
       [
         "a passkey route",
         { passkey: { path: "/identity", target: { by: "text", value: "Use a passkey" } } },
@@ -1571,6 +1584,7 @@ describe("password route variants (ADR 0027)", () => {
     id: "bank-variants",
     revision: 1,
     origin: "https://bank.example",
+    pageKind: "sign-in",
     slots: ["branch", "account", "password"],
     steps: [fill(["branch", "account", "password"]), submit()],
     alternatives: [variant(["contract", "password"])],
@@ -2469,6 +2483,7 @@ describe("chooser recipes (ADR 0028)", () => {
       id: stored.id,
       revision: stored.revision,
       origin: stored.origin,
+      pageKind: "sign-in",
       slots: ["username"],
       steps: [{ kind: "click", path: "/login", target: CHOOSER_ENTRY_TARGET, purpose: "advance" }],
       maxSubmissions: 1,
@@ -2550,6 +2565,7 @@ describe("the stop before a missing password (ADR 0036)", () => {
       id: "synthetic-email-first",
       revision: 1,
       origin: "https://login.example",
+      pageKind: "sign-in",
       slots: ["username", "password"],
       steps: [
         fill(["username"], "/signin"),
@@ -2911,6 +2927,7 @@ describe("later steps a login may start at (ADR 0049)", () => {
     id: "synthetic-later",
     revision: 1,
     origin: "https://login.example",
+    pageKind: "sign-in",
     slots: ["username", "password", "totp"],
     steps: [
       { kind: "fill", path: "/signin", fields: [field("username", "email")] },

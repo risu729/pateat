@@ -130,6 +130,19 @@ Pateat's rule is in [Background execution](architecture.md#background-execution)
   ([ADR 0017](adr/0017-login-forms-in-frames.md)): no person is there to answer a
   prompt during an automatic login.
 
+## Toolbar badge
+
+- The official extension counts the ciphers that match the tab's full URL and shows
+  `9+` above 9
+  ([autofill-badge-updater.service.ts](https://github.com/bitwarden/clients/blob/8246ae9c9a484a0a69f8b27203034555fb872523/apps/browser/src/autofill/services/autofill-badge-updater.service.ts#L52-L66)).
+  Pateat counts the items that match the tab's origin (`origin/`), so a StartsWith or
+  Exact rule for a deeper path is not counted, adds items holding a passkey for the
+  origin's RP IDs, and shows `99+` above 99; items Pateat may not use show their count
+  in light gray instead of being counted with the rest
+  ([ADR 0021](adr/0021-account-choice-outside-settings.md#site-count-badge), owner's
+  decision 2026-10-13 at 14:42 UTC). On an `http:` page only items saved with an
+  `http://` URI count, as for logins (see URI matching above).
+
 ## Passkeys
 
 - Chrome Immediate UI (`uiMode: "immediate"`): the official extension copies only

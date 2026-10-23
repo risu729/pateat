@@ -21,7 +21,7 @@ import {
   signAccess,
   type Owner,
 } from "./access-helpers";
-import { awaitRoomInMinute } from "./limiter";
+import { PAIR_LIMIT, withLimiter } from "./limiter";
 
 // Synthetic Access keys, identities and extension IDs only (see vitest.config.ts).
 
@@ -486,21 +486,22 @@ describe("pairing bodies", () => {
 
 describe("pairing limits and methods", () => {
   it("rate limits each identity", async () => {
+    const limitedEnv = withLimiter("PAIR_LIMITER", PAIR_LIMIT);
+    const send = (by: Owner) => app.request(`${ORIGIN}/pair`, pairInit(by.token), limitedEnv);
     const by = await owner();
     const statuses: number[] = [];
-    await awaitRoomInMinute();
-    for (let attempt = 0; attempt < 11; attempt += 1)
+    for (let attempt = 0; attempt <= PAIR_LIMIT; attempt += 1)
       // oxlint-disable-next-line no-await-in-loop -- the limiter counts sequential calls
-      statuses.push((await pair(by)).status);
-    expect(statuses.slice(0, 10)).toEqual(Array.from({ length: 10 }, () => 201));
-    const limited = await pair(by);
-    expect(statuses[10]).toBe(429);
+      statuses.push((await send(by)).status);
+    expect(statuses.slice(0, PAIR_LIMIT)).toEqual(Array.from({ length: PAIR_LIMIT }, () => 201));
+    const limited = await send(by);
+    expect(statuses[PAIR_LIMIT]).toBe(429);
     expect(limited.status).toBe(429);
     expect(limited.headers.get("Retry-After")).toBe("60");
     expect(await limited.json()).toEqual({ error: "rate_limited" });
-    expect(await devicesOf(by.subject)).toHaveLength(10);
-    expect((await pair(await owner())).status).toBe(201);
-  }, 20_000);
+    expect(await devicesOf(by.subject)).toHaveLength(PAIR_LIMIT);
+    expect((await send(await owner())).status).toBe(201);
+  });
 
   it("answers no preflight and sends no CORS headers", async () => {
     const response = await request("/pair", {

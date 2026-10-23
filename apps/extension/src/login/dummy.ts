@@ -68,6 +68,7 @@ function variantsRecipe(origin: string, path: string): LoginRecipe {
     id: "demo-variants",
     revision: 1,
     origin,
+    pageKind: "sign-in",
     ...contract,
     alternatives: [set(["branch", "account", "password"])],
     completion: [{ target: target("authenticated") }],
@@ -85,6 +86,7 @@ function totpRecipe(origin: string, path: string): LoginRecipe {
     id: "demo-totp",
     revision: 1,
     origin,
+    pageKind: "sign-in",
     slots: ["password"],
     steps: [
       { kind: "fill", path, fields: [{ slot: "password", target: target("password") }] },
@@ -110,6 +112,7 @@ function identifierFirstRecipe(origin: string, path: string, swap = false): Logi
     id: swap ? "demo-identifier-swap" : "demo-identifier-first",
     revision: 1,
     origin,
+    pageKind: "sign-in",
     slots: ["account", "password"],
     steps: [
       { kind: "fill", path, fields: [{ slot: "account", target: target("account") }] },
@@ -164,6 +167,7 @@ export function probeRecipe(origin: string, path: string): LoginRecipe | undefin
     id: `demo-${path.slice(1)}`,
     revision: 1,
     origin,
+    pageKind: "sign-in",
     slots: multi
       ? ["branch", "account", "password"]
       : inputAdvance

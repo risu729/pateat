@@ -26,7 +26,7 @@ import {
   request,
   type Owner,
 } from "./access-helpers";
-import { awaitRoomInMinute } from "./limiter";
+import { OWNER_LIMIT, withLimiter } from "./limiter";
 
 // Synthetic Access keys, identities and extension IDs only. Every test uses fresh
 // subjects so results never depend on rows written by another test.
@@ -252,26 +252,27 @@ describe("owner web UI", () => {
   });
 
   it("rate limits the API per Access identity before the origin check", async () => {
+    const limitedEnv = withLimiter("OWNER_LIMITER", OWNER_LIMIT);
+    const send = (path: string, access: string, init: RequestInit = {}) => {
+      const headers = new Headers(init.headers);
+      headers.set("Cf-Access-Jwt-Assertion", access);
+      return app.request(`${ORIGIN}${path}`, { ...init, headers }, limitedEnv);
+    };
     const { token } = await owner();
-    await awaitRoomInMinute();
     const statuses: number[] = [];
-    for (let attempt = 0; attempt < 120; attempt += 1)
+    for (let attempt = 0; attempt < OWNER_LIMIT; attempt += 1)
       // oxlint-disable-next-line no-await-in-loop -- the limiter counts sequential calls
-      statuses.push((await request("/manage/api/devices", { access: token })).status);
+      statuses.push((await send("/manage/api/devices", token)).status);
     expect(statuses.every((status) => status === 200)).toBe(true);
-    const limited = await manageApi(
-      `/manage/api/devices/${crypto.randomUUID()}/revoke`,
-      token,
-      "POST",
-      "https://attacker.example",
-    );
+    const limited = await send(`/manage/api/devices/${crypto.randomUUID()}/revoke`, token, {
+      method: "POST",
+      headers: { Origin: "https://attacker.example" },
+    });
     expect(limited.status).toBe(429);
     expect(limited.headers.get("Retry-After")).toBe("60");
     expect(await limited.json()).toEqual({ error: "rate_limited" });
-    expect((await request("/manage/api/devices", { access: (await owner()).token })).status).toBe(
-      200,
-    );
-  }, 20_000);
+    expect((await send("/manage/api/devices", (await owner()).token)).status).toBe(200);
+  });
 
   it("lists only the signed-in owner's devices, newest first", async () => {
     const first = await owner();
@@ -561,6 +562,7 @@ describe("owner web UI recipes", () => {
       id,
       revision,
       origin,
+      pageKind: "sign-in",
       slots: ["username", "password"],
       steps: [
         {

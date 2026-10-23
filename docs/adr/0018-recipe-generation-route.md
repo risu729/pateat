@@ -243,7 +243,11 @@ Implementation choices for the page after a recipe's final `advance` step, made 
   ancestor is fading in from opacity 0 counts as visible, as everywhere the page is
   read. On the Grok Bot computer (19:51 UTC), the page after Microsoft's Next was sent
   with only its email form described; such an input making that form qualify is the
-  inferred cause, not checked on the live page. An input marked `new-password` or
+  inferred cause, not checked on the live page. Since 2026-10-23 (agent fix, not an
+  owner decision), a fillable input transparent only under its own `<label>`, which
+  holds it and shows text opaque, also counts as visible: a floating label that reveals
+  the input on focus, as Airbnb's email input; the official Bitwarden extension reads
+  only the input's own opacity. An input marked `new-password` or
   `one-time-code`, and every input of a form that holds one, never counts: a sign-up,
   password change or code form is not continued, and a code page is judged, which may
   add a `totp` handler (ADR 0027). Any other page is judged as before. The email input

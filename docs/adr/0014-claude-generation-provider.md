@@ -65,6 +65,15 @@ monthly Claude API credit and chose the model. The offline harness in
   passkey buttons (`namesPasskey` and `registersPasskey`, now in
   `packages/contracts/src/passkey-button.ts`, with English and Japanese words): they are
   not sent to the model and only refuse a button.
+- On 2026-10-23 the owner compared Claude models and fast mode on both roles (results in
+  [the plan](../plan.md#ai-evaluation-harness-progress)) and kept `claude-opus-5-5` at
+  effort `low` for both, without fast mode (11:03 UTC). The results stay recorded as
+  the options for a faster model if the finite-choice role (the decisions API, Jev or
+  Clef) falls short. The owner also set each call's timeout to 10 seconds and its
+  output to 1,024 tokens, down from 60 seconds and 8,192 (11:03 UTC): every Opus 5.5
+  call in that comparison that succeeded took under 7 seconds and wrote under 300
+  tokens, while a judgement that kept thinking after its answer ran to the output bound
+  in about 55 seconds.
 
 Estimated cost per generation call, assuming about 3,000 input tokens and about 1,000
 output tokens including thinking, at $4 and $20 per million: about $0.03, or about

@@ -2,7 +2,10 @@ import { afterEach, expect, test, vi } from "vitest";
 import { page } from "vitest/browser";
 import { cleanup, render } from "vitest-browser-react";
 import type { ServiceClient } from "../../apps/extension/src/options/service-client";
-import { ServiceConnection } from "../../apps/extension/src/options/service-connection";
+import {
+  ServiceConnection,
+  SYNC_POLL_MS,
+} from "../../apps/extension/src/options/service-connection";
 import type {
   ServiceErrorCode,
   ServiceResponse,
@@ -48,6 +51,8 @@ async function submitPair(origin = ORIGIN) {
 }
 
 afterEach(async () => {
+  // Real timers first, so a failing cleanup cannot leave fake ones to later tests.
+  vi.useRealTimers();
   await cleanup();
   vi.restoreAllMocks();
 });
@@ -289,15 +294,18 @@ test("shows when recipes last synced and when the service rejects the device", a
 });
 
 test("shows the first sync finishing without a reload", async () => {
+  // The page's own poll runs on a fake clock, advanced instead of waited out.
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
   const client = mockClient(connected);
-  await render(<ServiceConnection client={client} pollMs={20} />);
+  await render(<ServiceConnection client={client} />);
   await expect
     .element(page.getByText("Recipes and settings have not finished syncing yet", { exact: true }))
     .toBeVisible();
   client.get.mockResolvedValue(ok({ ...connected, syncedAt: Date.UTC(2026, 9, 10, 6, 0) }));
+  await vi.advanceTimersByTimeAsync(SYNC_POLL_MS);
   await expect.element(page.getByText(/^Recipes and settings synced /)).toBeVisible();
   const calls = client.get.mock.calls.length;
-  await new Promise((resolve) => setTimeout(resolve, 100));
+  await vi.advanceTimersByTimeAsync(5 * SYNC_POLL_MS);
   expect(client.get).toHaveBeenCalledTimes(calls);
 });
 

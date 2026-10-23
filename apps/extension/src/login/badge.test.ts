@@ -6,12 +6,14 @@ import {
   LOGIN_BADGE_KEY,
   NOTICE_MS,
   badgeResult,
+  countBadge,
   createLoginBadge,
   memoryBadgeStorage,
   setActionBadge,
   type BadgeDetails,
 } from "./badge";
 import type { LoginReport } from "./runtime";
+import type { SiteCount } from "./site-count";
 
 const action = vi.hoisted(() => ({
   setBadgeText: vi.fn(async (_details: unknown) => undefined),
@@ -1568,5 +1570,154 @@ it("retains unconfirmed popup details across a worker restart after the notice e
   expect(restarted.badge.status(tabId)).toEqual({
     origin,
     login: { state: "authenticated", outcome: "authenticated", unconfirmed: true },
+  });
+});
+
+describe("site count", () => {
+  const TEAL = { color: "#115e59", textColor: "#ffffff" };
+  const GRAY = { color: "#cbd5e1", textColor: "#1e293b" };
+  const counted = (usable: number, matching = usable, more: Partial<SiteCount> = {}) =>
+    ({ kind: "count", count: { usable, matching, unevaluated: 0, ...more } }) as const;
+
+  it("shows the usable count in teal and how many more are excluded", async () => {
+    const h = harness();
+    h.badge.count(tabId, origin, counted(2, 3, { excluded: "items" }));
+    await h.flush();
+    expect(h.view()).toEqual({
+      text: "2",
+      ...TEAL,
+      title: "Pateat: 2 accounts for this site. 1 more is excluded in settings.",
+    });
+    // Quarantined items are named as waiting for a review, not as excluded.
+    expect(countBadge(counted(1, 3, { excluded: "review" })).title).toBe(
+      "Pateat: 1 account for this site. 2 more wait for a custom-field review in settings.",
+    );
+    expect(countBadge(counted(1, 3, { excluded: "items-review" })).title).toBe(
+      "Pateat: 1 account for this site. 2 more are excluded or wait for a custom-field review in settings.",
+    );
+  });
+
+  it.each([
+    ["site", "this site is excluded in settings"],
+    ["items", "they are excluded in settings"],
+    ["review", "they wait for a custom-field review in settings"],
+  ] as const)("shows matches that are all excluded (%s) in gray", async (excluded, why) => {
+    const h = harness();
+    h.badge.count(tabId, origin, counted(0, 3, { excluded }));
+    await h.flush();
+    expect(h.view()).toEqual({
+      text: "3",
+      ...GRAY,
+      title: `Pateat: 3 accounts match this site, but none can be used: ${why}.`,
+    });
+  });
+
+  it("caps the number at 99+ and notes items whose rules could not be checked", async () => {
+    const h = harness();
+    h.badge.count(tabId, origin, counted(120, 120, { unevaluated: 1 }));
+    await h.flush();
+    expect(h.view()).toEqual({
+      text: "99+",
+      ...TEAL,
+      title: "Pateat: 120 accounts for this site. 1 item could not be checked.",
+    });
+    expect(countBadge(counted(1)).title).toBe("Pateat: 1 account for this site.");
+  });
+
+  it("shows no number for no match or a vault it could not check, saying why", async () => {
+    const h = harness();
+    h.badge.count(tabId, origin, counted(0));
+    await h.flush();
+    expect(h.view()).toMatchObject({ text: "", title: "Pateat: no account for this site." });
+    h.badge.count(tabId, origin, { kind: "unchecked", reason: "not-opened" });
+    await h.flush();
+    expect(h.view()).toMatchObject({
+      text: "",
+      title:
+        "Pateat: the vault has not been opened since Pateat restarted, so this site's accounts were not counted.",
+    });
+    // A count a login or a page check stopped says it is tried again, not blank.
+    expect(countBadge({ kind: "unchecked", reason: "busy" })).toEqual({
+      title:
+        "Pateat: a login or a page check was using the vault, so this site's accounts were not counted yet.",
+    });
+    h.badge.count(tabId, origin, undefined);
+    await h.flush();
+    expect(h.view()).toMatchObject(NONE);
+  });
+
+  it("a waiting choice and a brief result win over the count, which comes back", async () => {
+    const h = harness();
+    h.badge.count(tabId, origin, counted(2));
+    h.badge.choice(tabId, { count: 2, title: "choose" });
+    await h.flush();
+    expect(h.view()).toMatchObject({ text: "2", ...CHOICE, title: "choose" });
+    h.badge.choice(tabId, undefined);
+    await h.flush();
+    expect(h.view()).toMatchObject({ text: "2", ...TEAL });
+    h.badge.observe(attempt({ state: "authenticated" }));
+    await h.flush();
+    expect(h.view()).toMatchObject(SUCCEEDED);
+    await vi.advanceTimersByTimeAsync(NOTICE_MS);
+    expect(h.view()).toMatchObject({ text: "2", ...TEAL });
+  });
+
+  it("a spin and a failure win over the count until they end (ADR 0038)", async () => {
+    const h = harness();
+    h.badge.count(tabId, origin, counted(2));
+    const stop = h.badge.spin(tabId);
+    await h.flush();
+    expect(h.view()).toMatchObject(BUSY);
+    stop();
+    await h.flush();
+    expect(h.view()).toMatchObject({ text: "2", ...TEAL });
+    h.badge.observe(attempt({ state: "blocked", outcome: "credential-rejected" }));
+    await h.flush();
+    expect(h.view()).toMatchObject(FAILED);
+    // A new login clears the failure, and the count shows again.
+    h.badge.observe(start());
+    await h.flush();
+    expect(h.view()).toMatchObject({ text: "2", ...TEAL });
+  });
+
+  it("keeps a held login's tooltip over the count's title", async () => {
+    const h = harness();
+    h.badge.count(tabId, origin, counted(1));
+    h.badge.note(tabId, "held");
+    await h.flush();
+    expect(h.view()).toMatchObject({ text: "1", ...TEAL, title: "held" });
+  });
+
+  it("is written again after a load of the same origin and dropped for another", async () => {
+    const h = harness();
+    h.badge.loaded(tabId, `${origin}/`);
+    h.badge.count(tabId, origin, counted(2));
+    await h.flush();
+    const writes = h.calls.length;
+    h.badge.loaded(tabId, `${origin}/next`);
+    await h.flush();
+    expect(h.calls.length).toBeGreaterThan(writes);
+    expect(h.view()).toMatchObject({ text: "2", ...TEAL });
+    // A count for the page before does not land on the new one.
+    h.badge.loaded(tabId, "https://other.example/");
+    h.badge.count(tabId, origin, counted(5));
+    await h.flush();
+    expect(h.view().text).not.toBe("5");
+    h.badge.count(tabId, "https://other.example", counted(1));
+    await h.flush();
+    expect(h.view()).toMatchObject({ text: "1", ...TEAL });
+  });
+
+  it("moves with a replaced tab and goes with a closed one", async () => {
+    const h = harness();
+    h.badge.count(tabId, origin, counted(3));
+    h.badge.replaced(8, tabId);
+    await h.flush();
+    expect(h.view(8)).toMatchObject({ text: "3", ...TEAL });
+    h.badge.removed(8);
+    h.badge.loaded(8, `${origin}/`);
+    await h.flush();
+    expect(h.view(8).text).toBe("3");
+    expect(h.calls.filter((call) => call.tabId === 8)).toHaveLength(1);
   });
 });
