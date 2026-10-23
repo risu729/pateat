@@ -1,6 +1,6 @@
 import * as v from "valibot";
 import { describe, expect, it } from "vitest";
-import type { LoginRecipe } from "./login";
+import type { LoginRecipeDocument } from "./login";
 import { createDefaultSettings } from "./settings";
 import {
   isGeneratedRecipeId,
@@ -13,25 +13,36 @@ import {
   syncSettingsWriteSchema,
 } from "./sync";
 
-function recipe(revision: number): LoginRecipe {
+function recipe(revision: number): LoginRecipeDocument {
   return {
     version: 1,
     id: "bank-login",
     revision,
     origin: "https://bank.example",
-    pageKind: "sign-in",
-    slots: ["password"],
-    steps: [
+    layouts: [
       {
-        kind: "fill",
-        effect: "prepare",
-        path: "/login",
-        fields: [{ slot: "password", target: { by: "id", value: "password" } }],
+        key: "1760000000000",
+        createdAt: 1760000000000,
+        pageKind: "sign-in",
+        slots: ["password"],
+        steps: [
+          {
+            kind: "fill",
+            effect: "prepare",
+            path: "/login",
+            fields: [{ slot: "password", target: { by: "id", value: "password" } }],
+          },
+          {
+            kind: "click",
+            path: "/login",
+            target: { by: "id", value: "submit" },
+            purpose: "submit",
+          },
+        ],
+        completion: [{ target: { by: "id", value: "welcome" } }],
+        maxSubmissions: 1,
       },
-      { kind: "click", path: "/login", target: { by: "id", value: "submit" }, purpose: "submit" },
     ],
-    completion: [{ target: { by: "id", value: "welcome" } }],
-    maxSubmissions: 1,
   };
 }
 
@@ -77,6 +88,12 @@ describe("recipe sync contract", () => {
       accepts(syncRecipeChangeSchema, { recipeId: "bank-login", revision: 3, state: "revoked" }),
     ).toBe(true);
     expect(accepts(syncRecipeChangeSchema, { ...change, state: "revoked" })).toBe(false);
+    // A login recipe is stored with its layouts, never as the recipe a login runs (ADR 0060).
+    const { layouts, ...identity } = recipe(2);
+    const { key: _key, createdAt: _createdAt, ...route } = layouts[0]!;
+    expect(accepts(syncRecipeChangeSchema, { ...change, recipe: { ...identity, ...route } })).toBe(
+      false,
+    );
   });
 
   it("requires each write to advance exactly one revision", () => {
@@ -97,13 +114,25 @@ describe("recipe sync contract", () => {
 });
 
 describe("login outcome report contract", () => {
-  const report = { version: 1, revision: 3, outcome: "unknown-submit", cause: "settled", step: 1 };
+  const report = {
+    version: 1,
+    revision: 3,
+    branch: "1760000000000",
+    outcome: "unknown-submit",
+    cause: "settled",
+    step: 1,
+  };
 
   it("accepts codes and numbers only", () => {
     expect(accepts(loginOutcomeReportSchema, report)).toBe(true);
-    expect(accepts(loginOutcomeReportSchema, { ...report, branch: "other" })).toBe(true);
+    expect(accepts(loginOutcomeReportSchema, { ...report, branch: "1760000000000:other" })).toBe(
+      true,
+    );
     const { cause: _cause, ...withoutCause } = report;
     expect(accepts(loginOutcomeReportSchema, withoutCause)).toBe(true);
+    // The layout the login ran is required (ADR 0060).
+    const { branch: _branch, ...withoutBranch } = report;
+    expect(accepts(loginOutcomeReportSchema, withoutBranch)).toBe(false);
   });
 
   it("refuses free text, unknown codes and anything beyond the codes", () => {
@@ -118,6 +147,8 @@ describe("login outcome report contract", () => {
       { outcome: "failed" },
       { cause: "Wrong password" },
       { branch: "" },
+      { branch: "other" },
+      { branch: "1760000000000:list" },
       { revision: 0 },
       { step: 41 },
       { step: 1.5 },
@@ -131,6 +162,7 @@ describe("login record contract", () => {
   const record = {
     version: 1,
     revision: 3,
+    branch: "1760000000000",
     outcome: "authenticated",
     extensionBuild: "1c42ad3e9f0b5d7a6c4e2f1a3b5d7e9f0a1c3e5d",
     totalMs: 4210,
@@ -142,7 +174,9 @@ describe("login record contract", () => {
 
   it("accepts codes, the build and whole milliseconds only", () => {
     expect(accepts(loginRecordSchema, record)).toBe(true);
-    expect(accepts(loginRecordSchema, { ...record, branch: "other", cause: "settled" })).toBe(true);
+    expect(
+      accepts(loginRecordSchema, { ...record, branch: "1760000000000:other", cause: "settled" }),
+    ).toBe(true);
     expect(accepts(loginRecordSchema, { ...record, extensionBuild: "development" })).toBe(true);
     expect(accepts(loginRecordSchema, { ...record, totalMs: 86_400_000 })).toBe(true);
   });
@@ -162,6 +196,8 @@ describe("login record contract", () => {
       { outcome: "failed" },
       { cause: "Wrong password" },
       { branch: "" },
+      { branch: "other" },
+      { branch: "1760000000000:list" },
       { revision: 0 },
       { totalMs: -1 },
       { serviceMs: 1.5 },
@@ -177,15 +213,21 @@ describe("login record contract", () => {
     expect(accepts(loginRecordSchema, withoutTotal)).toBe(false);
     const { pageMs: _pageMs, ...withoutPage } = record;
     expect(accepts(loginRecordSchema, withoutPage)).toBe(false);
+    const { branch: _branch, ...withoutBranch } = record;
+    expect(accepts(loginRecordSchema, withoutBranch)).toBe(false);
   });
 });
 
 describe("recipe use report contract (ADR 0058)", () => {
-  it("accepts a version and a written revision only", () => {
-    expect(accepts(recipeUseReportSchema, { version: 1, revision: 1 })).toBe(true);
-    expect(accepts(recipeUseReportSchema, { version: 1, revision: 3 })).toBe(true);
+  it("accepts a version, a written revision and a layout key only (ADR 0060)", () => {
+    expect(accepts(recipeUseReportSchema, { version: 1, layout: "1000", revision: 1 })).toBe(true);
+    expect(accepts(recipeUseReportSchema, { version: 1, layout: "1000", revision: 3 })).toBe(true);
     expect(
-      accepts(recipeUseReportSchema, { version: 1, revision: Number.MAX_SAFE_INTEGER - 1 }),
+      accepts(recipeUseReportSchema, {
+        version: 1,
+        layout: "1000",
+        revision: Number.MAX_SAFE_INTEGER - 1,
+      }),
     ).toBe(true);
   });
 
@@ -199,8 +241,14 @@ describe("recipe use report contract (ADR 0058)", () => {
       { revision: undefined },
       { version: 2 },
       { version: undefined },
+      { layout: undefined },
+      { layout: "" },
+      { layout: "1000:account" },
+      { layout: 1000 },
     ])
-      expect(accepts(recipeUseReportSchema, { version: 1, revision: 1, ...changed })).toBe(false);
+      expect(
+        accepts(recipeUseReportSchema, { version: 1, layout: "1000", revision: 1, ...changed }),
+      ).toBe(false);
     for (const extra of [
       { origin: "https://bank.example" },
       { url: "https://bank.example/login" },
@@ -208,7 +256,9 @@ describe("recipe use report contract (ADR 0058)", () => {
       { branch: "other" },
       { at: 1 },
     ])
-      expect(accepts(recipeUseReportSchema, { version: 1, revision: 1, ...extra })).toBe(false);
+      expect(
+        accepts(recipeUseReportSchema, { version: 1, layout: "1000", revision: 1, ...extra }),
+      ).toBe(false);
     expect(accepts(recipeUseReportSchema, null)).toBe(false);
     expect(accepts(recipeUseReportSchema, [])).toBe(false);
   });

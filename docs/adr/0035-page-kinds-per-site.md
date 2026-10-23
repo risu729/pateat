@@ -17,6 +17,12 @@ revision are implemented ahead of delivery 1, and every row is kept one year; an
 ([below](#amendment-2026-10-18-login-results-on-the-service)): the first login result of
 each revision reaches the service.
 
+Amended on 2026-10-23 by [ADR 0060](0060-recipe-layouts.md) (layouts accepted by the
+owner on 2026-10-23 at 11:41 UTC; implemented on a branch, local tests only): `pageKind`
+moved from the recipe to each of its layouts, every layout of a recipe has the same
+kind, and a layout generated with another kind replaces the recipe's layouts (the last
+two not confirmed by the owner). A chooser branch stays `sign-in`.
+
 Date: 2026-10-12
 
 ## Context
