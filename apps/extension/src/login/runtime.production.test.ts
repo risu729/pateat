@@ -1610,6 +1610,51 @@ describe("production login document admission", () => {
       fake.browser.tabs.query = query;
     }
   });
+  it.each([
+    { state: "retryable", outcome: "structural-mismatch", retries: 1, retryRequired: true },
+    { state: "ready", retries: 1 },
+  ])(
+    "never settles as unknown a $state attempt whose page no longer shows the step",
+    async (left) => {
+      // A restarted worker finds the attempt between steps or waiting to be tried again, on a
+      // page without its step: nothing was submitted, so there is no result to wait for, and
+      // the step's own wait and the retries decide (ADR 0022).
+      fake.state.awaited = { ok: false, reason: "timeout" };
+      const first = harness();
+      expect(await first.hello()).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
+          { state: "blocked", outcome: "retry-limit" },
+        ]),
+      );
+      const [record] = fake.state.storage["pateat.login-attempts.v5"] as Record<string, unknown>[];
+      const { outcome: _outcome, retryRequired: _retryRequired, ...between } = record!;
+      fake.state.storage["pateat.login-attempts.v5"] = [{ ...between, ...left }];
+      fake.state.present = new Set();
+      const report = vi.fn<(report: LoginReport) => void>();
+      const query = fake.browser.tabs.query;
+      fake.browser.tabs.query = async () => [{ id: 1 }] as never;
+      try {
+        const restarted = harness({}, { report });
+        expect(await restarted.hello({ documentId: "after-restart" })).toEqual({ ok: true });
+        await vi.waitFor(
+          () =>
+            expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
+              { state: "blocked", outcome: "retry-limit", retries: 2, submissions: 0 },
+            ]),
+          { timeout: 4_500 },
+        );
+        expect(
+          report.mock.calls.some(
+            ([entry]) => entry.type === "attempt" && entry.outcome === "unknown-submit",
+          ),
+        ).toBe(false);
+        expect(fake.state.messages.filter((entry) => entry.type === "login.execute")).toEqual([]);
+      } finally {
+        fake.browser.tabs.query = query;
+      }
+    },
+  );
   describe("how long a login took (ADR 0019)", () => {
     const attemptReports = (report: ReturnType<typeof vi.fn<(report: LoginReport) => void>>) =>
       report.mock.calls
