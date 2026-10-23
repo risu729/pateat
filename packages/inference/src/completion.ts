@@ -188,6 +188,27 @@ export const completionStopPromptVersion = promptVersionOf(
   outputSchemaJson,
 );
 
+/**
+ * The judge's instructions for a page that still shows the sign-in form Pateat filled,
+ * beside another form (ADR 0061): only a `detail` handler is learned there. They name no
+ * fact of the account.
+ */
+export const completionBesideInstructions = [
+  completionInstructions,
+  "This page still shows the sign-in form Pateat filled, beside another form. Answer",
+  "challenge with details and detailSubmit when that other form asks for one of the",
+  "detail values above; otherwise answer unclear.",
+].join(" ");
+
+/**
+ * The beside page's own prompt version: its judgements are kept apart from the other
+ * pages' and the stop's (ADR 0029), with the same output format.
+ */
+export const completionBesidePromptVersion = promptVersionOf(
+  completionBesideInstructions,
+  outputSchemaJson,
+);
+
 /** A page after a generated recipe's effect step, judged (ADR 0018, ADR 0027). */
 export type SignInJudgement =
   /** The person is signed in on a page they may put off; nothing is learned (ADR 0065). */
@@ -401,6 +422,11 @@ export type CompletionRequest = {
    * `completionStopInstructions`.
    */
   stop?: boolean;
+  /**
+   * The page still shows the sign-in form beside another form that may ask for a detail
+   * (ADR 0061): judged with `completionBesideInstructions`. Never with `stop`.
+   */
+  beside?: boolean;
   abortSignal?: AbortSignal;
 };
 
@@ -454,7 +480,13 @@ export function createCompletionJudge(config: {
       loginPaths: loginPaths.output,
       observation: observation.output,
     });
-    const instructions = request.stop ? completionStopInstructions : completionInstructions;
+    if (request.stop && request.beside)
+      return { status: "failed", error: "invalid-request", calls: 0, usage: noUsage };
+    const instructions = request.stop
+      ? completionStopInstructions
+      : request.beside
+        ? completionBesideInstructions
+        : completionInstructions;
     if (requestBytes([instructions, prompt, outputSchemaJson]) > limits.maxInputBytes)
       return { status: "failed", error: "input-too-large", calls: 0, usage: noUsage };
 

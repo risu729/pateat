@@ -455,7 +455,10 @@ new owner decision:
 - **Judging.** The judge request does not name the variant. The extension does not send
   a page that shows a fill field of any variant on a path of the route, and the service
   answers `not-judgeable` for a page that shows one on any path. The login paths the
-  judge receives are every variant's step paths and the handlers' paths.
+  judge receives are every variant's step paths and the handlers' paths. Amended by
+  [ADR 0061](0061-personal-details-during-a-login.md#judging-a-page-beside-the-sign-in-form)
+  (owner, 2026-10-23 12:25 UTC): a page that also shows a detail form beside the
+  sign-in form is judged, and the service keeps only a `detail` handler from it.
 - **Start detection.** A document watches the first step of every variant of each
   recipe for its origin. A start path is left out only when several recipes start
   there; several variants of one recipe on it are watched together, and any of them
