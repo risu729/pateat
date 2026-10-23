@@ -2882,9 +2882,9 @@ and bitFlyer Lightning. Since #901 the probe runs the main frame in a world of i
 as the content script does, so Seven Bank observes (an ID field labelled only by its
 example, an unlabelled password field and a ログオン button among a dozen others);
 American Express now stops at a real extractor gap (`unsupported-control`). Sakura
-Internet is back, as the plan check accepts its button beside the form. The Japanese set
-now has 113 cases and the English set 46; the heuristic scores 0.73 (19 false submits)
-and 0.65 (7).
+Internet is now included, as the plan check accepts its button beside the form. The
+Japanese set now has 113 cases and the English set 46; the heuristic scores 0.73 (19
+false submits) and 0.65 (7).
 
 The same import measured the extractor on real markup (2026-10-11, main `9cf8356`). Of
 the 241 pages with an annotated login form, 6 gave no observation and 109 an incomplete
