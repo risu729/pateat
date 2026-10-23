@@ -16,6 +16,7 @@ import {
   Info,
   LoaderCircle,
   LogIn,
+  LogOut,
   Settings2,
   Star,
   TriangleAlert,
@@ -26,7 +27,13 @@ import { Button } from "../options/button";
 import { SETTINGS_QUERY_KEY, type SettingsClient } from "../options/client";
 import { siteAccountOptions } from "../options/site-policy";
 import { Logo } from "../logo";
-import { choiceReason, pickFailure, type ChoiceClient } from "../login/choice-wire";
+import {
+  choiceReason,
+  pickFailure,
+  switchRefusal,
+  switchStatus,
+  type ChoiceClient,
+} from "../login/choice-wire";
 import { PageStatusSection } from "./page-status";
 
 /**
@@ -145,6 +152,8 @@ type AccountCard = {
   title: string;
   sub: string;
   isDefault: boolean;
+  /** The account of the tab's last login on the site (ADR 0063). */
+  isUsed?: boolean;
 };
 
 type AccountOption = ReturnType<typeof siteAccountOptions>[number];
@@ -165,6 +174,7 @@ function accountCards(
   options: AccountOption[],
   accounts: MatchedAccounts,
   currentValue: string | undefined,
+  usedValue?: string,
 ): AccountCard[] {
   const cards = options.map((option) => {
     const username = usernameOf(option, accounts);
@@ -174,6 +184,7 @@ function accountCards(
       title: username || option.itemName,
       sub: username ? `${option.itemName} in ${option.connectionLabel}` : option.connectionLabel,
       isDefault: option.value === currentValue,
+      ...(option.value === usedValue ? { isUsed: true } : {}),
     };
   });
   const seen = new Map<string, number>();
@@ -208,6 +219,7 @@ function CardBody({ card }: { card: Omit<AccountCard, "value"> }) {
         <span className="popup-choice-title">{card.title}</span>
         <span className="popup-choice-sub">{card.sub}</span>
       </span>
+      {card.isUsed && <span className="popup-badge">Used in this tab</span>}
       {card.isDefault && <DefaultBadge />}
     </>
   );
@@ -237,7 +249,7 @@ function AccountChoices({
             value={card.value}
             checked={checked === card.value}
             disabled={disabled}
-            aria-label={`${card.title}, ${card.sub}${card.isDefault ? ", default" : ""}`}
+            aria-label={`${card.title}, ${card.sub}${card.isUsed ? ", used in this tab" : ""}${card.isDefault ? ", default" : ""}`}
             onChange={() => onChange(card.value)}
           />
           <CardBody card={card} />
@@ -287,6 +299,8 @@ export function SiteApp({
   const [chosen, setChosen] = useState("");
   const [picked, setPicked] = useState("");
   const [makeDefault, setMakeDefault] = useState<boolean>();
+  // An account switch's pick is kept for this browser session unless made the default.
+  const [switchDefault, setSwitchDefault] = useState(false);
   // The switch shows its new position while that change is saved.
   const [switching, setSwitching] = useState<boolean>();
   const say = (text: string, tone: Tone) => setNotice({ text, tone });
@@ -438,6 +452,31 @@ export function SiteApp({
       await choice.refetch();
     } catch {
       say("The login could not be started. Reopen this popup and try again.", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function switchTo(
+    selected: { connectionId: string; itemId: string; name: string },
+    asDefault: boolean,
+  ) {
+    if (tabId === undefined || busy) return;
+    setBusy(true);
+    say(`Logging out to switch to ${selected.name}…`, "progress");
+    try {
+      const response = await choices.switchTo({
+        tabId,
+        connectionId: selected.connectionId,
+        itemId: selected.itemId,
+        makeDefault: asDefault,
+      });
+      // The page section follows the switch from here.
+      if (response.ok) setNotice({ text: "", tone: "success" });
+      else say(switchRefusal(response.reason, selected.name), "error");
+      await pageStatus.refetch();
+    } catch {
+      say("The switch could not be started. Reopen this popup and try again.", "error");
     } finally {
       setBusy(false);
     }
@@ -617,6 +656,77 @@ export function SiteApp({
 
     const status =
       pageStatus.data?.ok && pageStatus.data.origin === origin ? pageStatus.data : undefined;
+    const usedValue = status?.used
+      ? JSON.stringify([status.used.connectionId, status.used.itemId])
+      : undefined;
+    const accountSwitch = status?.switch;
+    const switchName = (() => {
+      if (!accountSwitch) return undefined;
+      const option = options.find(
+        (entry) =>
+          entry.connectionId === accountSwitch.connectionId &&
+          entry.itemId === accountSwitch.itemId,
+      );
+      return option ? accountName(option, found?.accounts) : "the account";
+    })();
+    // An account switch (ADR 0063): each matching account on a page that waits for no choice.
+    const switchSection = status && options.length > 0 && (
+      <section className="popup-section" aria-labelledby="popup-switch-heading">
+        <div className="popup-section-head">
+          <h2 id="popup-switch-heading">Switch account</h2>
+          <p className="popup-muted popup-reason">
+            Logs this tab out of {hostname}, then logs in with the account you choose
+          </p>
+        </div>
+        <ul className="popup-choices popup-switch-list">
+          {accountCards(options, found?.accounts, currentValue, usedValue).map((card) => {
+            const option = options.find((entry) => entry.value === card.value)!;
+            return (
+              <li key={card.value} className="popup-choice popup-choice--static popup-switch-row">
+                <CardBody card={card} />
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="popup-switch-button"
+                  disabled={busy || accountSwitch?.state === "running"}
+                  aria-label={`Switch to this account: ${card.title}, ${card.sub}`}
+                  onClick={() =>
+                    void switchTo(
+                      { ...option, name: accountName(option, found?.accounts) },
+                      switchDefault,
+                    )
+                  }
+                >
+                  <LogOut size={16} strokeWidth={2} aria-hidden="true" />
+                  Switch to this account
+                </Button>
+              </li>
+            );
+          })}
+        </ul>
+        <label className="checkbox-row popup-check">
+          <input
+            id="popup-switch-default"
+            type="checkbox"
+            checked={switchDefault}
+            disabled={busy}
+            onChange={(event) => setSwitchDefault(event.target.checked)}
+          />
+          Make it the default for {hostname}
+        </label>
+        <ul className="popup-lines" aria-live="polite">
+          {accountSwitch && switchName && (
+            <Line tone={accountSwitch.state === "failed" ? "err" : "idle"} id="popup-switch-status">
+              {switchStatus(accountSwitch.state, accountSwitch.reason, switchName)}
+            </Line>
+          )}
+          <Line tone="idle" id="popup-switch-provider">
+            A site you log in to through another account, such as a company or Google sign-in, may
+            log you out of that account too
+          </Line>
+        </ul>
+      </section>
+    );
     body = (
       <>
         {status && (
@@ -654,7 +764,7 @@ export function SiteApp({
               <legend className="visually-hidden">Account to log in with</legend>
               <AccountChoices
                 name="popup-pick"
-                cards={accountCards(pickOptions, found?.accounts, currentValue)}
+                cards={accountCards(pickOptions, found?.accounts, currentValue, usedValue)}
                 checked={shownPick}
                 disabled={busy}
                 onChange={setPicked}
@@ -723,61 +833,64 @@ export function SiteApp({
             </div>
           )
         ) : site.on ? (
-          <fieldset className="popup-fieldset popup-section">
-            <legend id="popup-default-heading" className="popup-legend">
-              Default account
-            </legend>
-            {missingDefault && (
-              <div id="popup-default" className="popup-choice popup-choice--static">
-                <CardBody card={missingDefault} />
-              </div>
-            )}
-            {options.length > 0 && (
-              <AccountChoices
-                name="popup-default"
-                cards={accountCards(options, found?.accounts, currentValue)}
-                checked={shown}
-                disabled={busy}
-                onChange={setChosen}
-              />
-            )}
-            <ul className="popup-lines" aria-live="polite">
-              {accountsNote && (
-                <Line tone={accountsNote.tone} id="popup-accounts-note">
-                  {accountsNote.text}
-                </Line>
+          <>
+            <fieldset className="popup-fieldset popup-section">
+              <legend id="popup-default-heading" className="popup-legend">
+                Default account
+              </legend>
+              {missingDefault && (
+                <div id="popup-default" className="popup-choice popup-choice--static">
+                  <CardBody card={missingDefault} />
+                </div>
               )}
-              {!current && (
-                <Line tone="idle" id="popup-no-default">
-                  No default account. With exactly one matching item, Pateat uses that item
-                </Line>
+              {options.length > 0 && (
+                <AccountChoices
+                  name="popup-default"
+                  cards={accountCards(options, found?.accounts, currentValue, usedValue)}
+                  checked={shown}
+                  disabled={busy}
+                  onChange={setChosen}
+                />
               )}
-              {found && !found.complete && (
-                <Line tone="warn" id="popup-accounts-incomplete">
-                  Some vaults or items could not be checked, so this list may be incomplete
-                </Line>
-              )}
-              <li className="popup-line popup-line--idle">
-                <Clock size={16} strokeWidth={2} aria-hidden="true" />
-                <span>Takes effect at the next login</span>
-              </li>
-            </ul>
-            {(options.length > 0 || current) && (
-              <div className="popup-actions">
-                {options.length > 0 && (
-                  <Button
-                    id="popup-set-default"
-                    type="button"
-                    disabled={busy || !shown || shown === currentValue}
-                    onClick={setDefault}
-                  >
-                    Use as default
-                  </Button>
+              <ul className="popup-lines" aria-live="polite">
+                {accountsNote && (
+                  <Line tone={accountsNote.tone} id="popup-accounts-note">
+                    {accountsNote.text}
+                  </Line>
                 )}
-                {removeDefaultButton}
-              </div>
-            )}
-          </fieldset>
+                {!current && (
+                  <Line tone="idle" id="popup-no-default">
+                    No default account. With exactly one matching item, Pateat uses that item
+                  </Line>
+                )}
+                {found && !found.complete && (
+                  <Line tone="warn" id="popup-accounts-incomplete">
+                    Some vaults or items could not be checked, so this list may be incomplete
+                  </Line>
+                )}
+                <li className="popup-line popup-line--idle">
+                  <Clock size={16} strokeWidth={2} aria-hidden="true" />
+                  <span>Takes effect at the next login</span>
+                </li>
+              </ul>
+              {(options.length > 0 || current) && (
+                <div className="popup-actions">
+                  {options.length > 0 && (
+                    <Button
+                      id="popup-set-default"
+                      type="button"
+                      disabled={busy || !shown || shown === currentValue}
+                      onClick={setDefault}
+                    >
+                      Use as default
+                    </Button>
+                  )}
+                  {removeDefaultButton}
+                </div>
+              )}
+            </fieldset>
+            {switchSection}
+          </>
         ) : (
           <div className="popup-section">
             {!site.editable && (

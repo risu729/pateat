@@ -116,6 +116,8 @@ export interface PasskeyRequestReport {
   readonly signedBefore?: boolean;
   /** A control that logs out was clicked on the site in this tab, so the request asks. */
   readonly logoutClicked?: boolean;
+  /** The site's account pick for this browser session signed, before the default (ADR 0063). */
+  readonly sessionPick?: boolean;
   /** The request's mediation, when it names one (ADR 0034). */
   readonly mediation?: "optional" | "conditional" | "required" | "silent" | "immediate" | "other";
   readonly uiMode?: "immediate";
@@ -264,6 +266,13 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
      */
     logoutClicked?: (tabId: number, rpId: string) => Promise<boolean>;
     /**
+     * The item picked for the origin's site in this browser session without making it the
+     * default, in incognito windows or the others (ADR 0063). Its passkey answers before the
+     * site default's; without one, or without a passkey of it for the request, the request
+     * goes on as before.
+     */
+    sessionPick?: (origin: string, incognito: boolean) => Promise<PasskeyItem | undefined>;
+    /**
      * Decides a `conditional` request of a top document through the login of its page
      * (ADR 0034). Without it, conditional requests are handed on (ADR 0007).
      */
@@ -395,6 +404,22 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       if (candidates.siteDefault) detail.siteDefaultItem = candidates.siteDefault;
       detail.complete = candidates.complete;
       const selection = selectPasskey(admission.request, candidates);
+      // The session's pick (ADR 0063), when exactly one passkey of its item fits the request.
+      const sessionItem =
+        login || !options.sessionPick
+          ? undefined
+          : await abortable(
+              Promise.try(() => options.sessionPick!(origin, context.incognito)).catch(
+                () => undefined,
+              ),
+              signal,
+            );
+      const sessionChoice = sessionItem
+        ? await abortable(
+            source.candidates(origin, admission.request.rpId, signal, sessionItem),
+            signal,
+          ).then((own) => (own ? selectPasskey(admission.request, own) : undefined))
+        : undefined;
       step = "signed-before-lookup";
       // ADR 0021 D: a username-less request in a tab Pateat already signed in from may follow
       // a logout, so it asks even for one match or a site default; so does one after a
@@ -461,7 +486,10 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       let credential: TCandidate;
       let assertion: Signed["assertion"] | undefined;
       let makeDefault = false;
-      if (selection.kind === "credential" && !again) credential = selection.credential;
+      if (sessionChoice?.kind === "credential" && !again) {
+        credential = sessionChoice.credential;
+        detail.sessionPick = true;
+      } else if (selection.kind === "credential" && !again) credential = selection.credential;
       // A login's item answers alone; otherwise the browser or Bitwarden does, so Pateat
       // never signs in as another account.
       else if (login && selection.kind === "delegate")

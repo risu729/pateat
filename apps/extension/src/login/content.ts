@@ -25,6 +25,7 @@ import { FIELD_GAP_MS, typeValue } from "../page/enter-value";
 import {
   extractAccountListObservation,
   extractEntryObservation,
+  extractLogoutObservation,
   extractLoginObservation,
   extractPasskeyObservation,
   extractSignedInObservation,
@@ -693,6 +694,34 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       );
       return true;
     }
+    if (command.type === "login.logout.click") {
+      // An account switch's click (ADR 0063): waits for the control to show, as a menu's
+      // item does once the menu opens, then presses it as the executor presses a button.
+      const url = location.href;
+      void (async () => {
+        const until = Date.now() + command.timeoutMs;
+        const find = () =>
+          matches(command.target, true).filter(
+            (element): element is HTMLElement => element instanceof HTMLElement && visible(element),
+          );
+        let found = find();
+        for (;;) {
+          if (cancelled || found.length > 0 || Date.now() >= until) break;
+          // eslint-disable-next-line no-await-in-loop
+          await pause(100);
+          found = find();
+        }
+        if (cancelled) return { ok: false, reason: "cancelled" };
+        if (location.href !== url) return { ok: false, reason: "page-changed" };
+        if (found.length !== 1)
+          return { ok: false, reason: found.length ? "ambiguous" : "missing" };
+        const pressed = await pressElement(found[0]!, () => !cancelled && location.href === url);
+        return pressed !== "missed"
+          ? { ok: true }
+          : { ok: false, reason: cancelled ? "cancelled" : "page-changed" };
+      })().then(respond, () => respond({ ok: false, reason: "missing" }));
+      return true;
+    }
     if (command.type === "login.entry.check") {
       // The page after an entry press: polls until a sign-in input, an input that asks for
       // an account identifier alone (ADR 0016), or a first step shows.
@@ -727,7 +756,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                 ? extractAccountListObservation(document, command.names)
                 : command.page === "entry"
                   ? extractEntryObservation(document, (url) => onSite.has(url.hostname))
-                  : extractSignedInObservation();
+                  : command.page === "logout"
+                    ? extractLogoutObservation(document)
+                    : extractSignedInObservation();
       } catch {
         // A page the extractor cannot read still gets an answer the log can name.
         result = { ok: false, reason: "extract-error" };

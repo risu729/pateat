@@ -399,3 +399,16 @@
   font-size: 13px;
   line-height: 20px;
 }
+
+/* An account switch's row (ADR 0063): the account, then its button across the row. */
+.popup-switch-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.popup-switch-row {
+  flex-wrap: wrap;
+}
+.popup-switch-row .popup-switch-button {
+  width: 100%;
+}

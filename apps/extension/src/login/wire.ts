@@ -469,7 +469,7 @@ export const commandSchema = v.variant("type", [
     version: v.literal(1),
     type: v.literal("login.extract"),
     token: id,
-    page: v.picklist(["login", "signed-in", "accounts", "entry", "passkey"]),
+    page: v.picklist(["login", "signed-in", "accounts", "entry", "passkey", "logout"]),
     /**
      * For a list of accounts (ADR 0028): the shown texts that equal a matching item's
      * username that is not an email, hidden from the observation as `[account]`.
@@ -513,6 +513,18 @@ export const commandSchema = v.variant("type", [
     target: loginTargetSchema,
     href,
     url: href,
+  }),
+  /**
+   * Waits up to `timeoutMs` for a logout recipe's target (ADR 0063) to name a shown element
+   * and presses it when it names exactly one, only while the page's URL is still the one the
+   * command found.
+   */
+  v.strictObject({
+    version: v.literal(1),
+    type: v.literal("login.logout.click"),
+    token: id,
+    target: loginTargetSchema,
+    timeoutMs: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(LOGIN_STEP_WAIT_MS)),
   }),
   /**
    * Waits up to `timeoutMs` on the page after an entry press for a sign-in input or one of
@@ -677,6 +689,15 @@ export const entryInspectResultSchema = v.strictObject({
 export const entryPressResultSchema = v.strictObject({
   ok: v.boolean(),
   reason: v.optional(v.picklist(["page-changed", "target-changed", "cancelled"])),
+});
+/**
+ * The answer to `login.logout.click` (ADR 0063): whether the control was pressed, and why
+ * not: it named no shown element or several, or the page changed or the command was
+ * cancelled first.
+ */
+export const logoutClickResultSchema = v.strictObject({
+  ok: v.boolean(),
+  reason: v.optional(v.picklist(["missing", "ambiguous", "page-changed", "cancelled"])),
 });
 /**
  * The answer to `login.entry.check`, for the page after an entry press (ADR 0031). `signIn`

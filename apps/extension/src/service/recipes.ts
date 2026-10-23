@@ -9,6 +9,7 @@ import {
   storedLoginRecipeSchema,
   type LoginChooserRecipe,
   type LoginEntryRecipe,
+  type LoginLogoutRecipe,
   type LoginRecipe,
   type SyncRecipeChanges,
 } from "@pateat/contracts";
@@ -609,6 +610,15 @@ export function createRecipeSync(options: {
       if (!cache) return [];
       return cache.recipes.filter(
         (recipe): recipe is LoginEntryRecipe => "entry" in recipe && recipe.origin === origin,
+      );
+    },
+    async logouts(origin: string) {
+      const connection = await service.connection().catch(() => undefined);
+      if (!connection) return [];
+      const cache = await load(connection);
+      if (!cache) return [];
+      return cache.recipes.filter(
+        (recipe): recipe is LoginLogoutRecipe => "logout" in recipe && recipe.origin === origin,
       );
     },
   };

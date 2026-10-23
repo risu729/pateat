@@ -1761,6 +1761,68 @@ export function extractEntryObservation(
   return observe(document, chosen, true);
 }
 
+/** Where an opened account menu holds its items, besides a modal dialog; a closed one shows none. */
+const openMenus = "[role='menu' i], [role='menubar' i], [popover], details[open]";
+
+/**
+ * The observation of a signed-in page an account switch signs out of (ADR 0063): its shown,
+ * enabled buttons and links outside every form with a field, as candidates the logout role
+ * may name as the control that signs out, opens the menu holding it, or confirms it. The
+ * page's hidden elements are never described, so a closed menu's items show only once a
+ * round opened it. Those in an open modal dialog come first, then those in an open menu,
+ * then those in the page header or navigation, then the rest in document order, up to the
+ * observation's 48 candidates. A link that opens another window or downloads is left out.
+ * Texts carry no number, as a signed-in marker's (ADR 0029), and a text locator with a
+ * number character is never kept, so a balance or an unread count never names a control.
+ * Fields are never described, so the page is sent without slots, as an entry page is
+ * (ADR 0031).
+ */
+export function extractLogoutObservation(
+  document: Document = globalThis.document,
+): ObservationResult {
+  const location = document.location;
+  if (!location) return { ok: false, reason: "unsupported-page" };
+  const tokens = redactsPath(location.pathname);
+  const index = locatorIndex(document);
+  const shownControls = describeAll(document).flatMap((entry) => {
+    if (entry.kind !== "candidate") return [];
+    const { element, role } = entry.draft;
+    if ((role !== "button" && role !== "link") || !enabled(element)) return [];
+    // A form with a field holds its own controls, such as a search box's button.
+    if ((entry.form ?? element.closest("form"))?.querySelector(fields)) return [];
+    if (role === "link") {
+      const refusal = entryElementRefusal(element);
+      if (refusal === "new-window" || refusal === "download") return [];
+    }
+    const target = locate(element, index, {
+      tokens,
+      links: true,
+      lasting: true,
+      redactAttributes: true,
+    });
+    return target && !(target.by === "text" && /\p{Number}/u.test(target.value))
+      ? [{ form: entry.form, draft: entry.draft, target }]
+      : [];
+  });
+  const modals = openModals(document);
+  const rank = (element: Element) =>
+    modals.some((modal) => modal.contains(element))
+      ? 3
+      : element.closest(openMenus)
+        ? 2
+        : element.closest(landmarks)
+          ? 1
+          : 0;
+  // A stable sort keeps document order within each rank.
+  const chosen = shownControls
+    .map((entry) => ({ entry, rank: rank(entry.draft.element) }))
+    .sort((left, right) => right.rank - left.rank)
+    .map(({ entry }) => entry)
+    .slice(0, maxCandidates);
+  if (chosen.length === 0) return { ok: false, reason: "no-candidates" };
+  return observe(document, chosen, true, (text) => withoutNumbers(text));
+}
+
 /** A button-only passkey start, using the same bounded, value-free observation as login. */
 export function extractPasskeyObservation(
   document: Document = globalThis.document,

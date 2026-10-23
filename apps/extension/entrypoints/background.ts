@@ -34,6 +34,7 @@ import {
   type VaultPasskeyCandidate,
 } from "../src/passkeys/vault";
 import { createLoginGeneration } from "../src/service/generation";
+import { createLogoutService } from "../src/service/logout";
 import { createLoginRecords } from "../src/service/login-records";
 import { createLoginOutcomes } from "../src/service/outcomes";
 import { createRecipeUse } from "../src/service/recipe-use";
@@ -254,6 +255,15 @@ export default defineBackground(() => {
       sync: () => recipeSync.sync(),
       refresh: () => recipeSync.sync({ settings: false }),
     }),
+    // ADR 0063: an account switch from the popup signs the tab out first.
+    logout: createLogoutService({
+      service,
+      transport: {
+        generateLogout: (...request) => keepAlive(serviceTransport.generateLogout(...request)),
+      },
+      recipes: recipeSync.recipes,
+      refresh: () => recipeSync.sync({ settings: false }),
+    }),
     // ADR 0027: a passkey handler runs only for an item Pateat can sign with.
     passkeys: (account) => itemPasskeyFacts(vaultPasskeys, account),
     // ADR 0034: a popup choice keeps the page's request only when an item holds a passkey.
@@ -343,6 +353,7 @@ export default defineBackground(() => {
         signedTabs,
         // ADR 0021 D: so does one after a control that logs out was clicked in the tab.
         logoutClicked: login.logoutClicked,
+        sessionPick: login.sessionPick,
         conditional: login.conditionalRequest,
         hold: () => vaultSync.enter(false),
       })
@@ -361,6 +372,8 @@ export default defineBackground(() => {
         signedTabs,
         // ADR 0021 D: so does one after a control that logs out was clicked in the tab.
         logoutClicked: login.logoutClicked,
+        // ADR 0063: the site's account pick for this browser session comes before the default.
+        sessionPick: login.sessionPick,
         // ADR 0034: the page's own conditional request waits for the login of its page.
         conditional: login.conditionalRequest,
         // The open vault is not replaced while a passkey request is looked up or signed.
