@@ -12,14 +12,14 @@ const QUESTION_MIN_LENGTH = 4;
 
 /**
  * A question or a field name as both are compared: NFKC, without case, with curly
- * apostrophes made straight, white space collapsed, and a trailing `?`, `:` or their
- * full-width forms removed (NFKC already folds those).
+ * apostrophes (U+2018, U+2019) made straight, white space collapsed, and a trailing `?`,
+ * `:` or their full-width forms removed (NFKC already folds those).
  */
 export function questionText(raw: string): string {
   return raw
     .normalize("NFKC")
     .toLowerCase()
-    .replaceAll(/[‘’]/gu, "'")
+    .replaceAll(/[\u2018\u2019]/gu, "'")
     .replaceAll(/\s+/gu, " ")
     .trim()
     .replace(/[?:]+$/u, "")

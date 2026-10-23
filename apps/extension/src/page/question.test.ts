@@ -16,7 +16,7 @@ const input = (html: string, id = "answer") => {
 
 describe("questionText", () => {
   it("compares without case, width, curly apostrophes, extra spaces or a trailing mark", () => {
-    expect(questionText("  Mother’s   Maiden Name? ")).toBe("mother's maiden name");
+    expect(questionText("  Mother\u2019s   Maiden Name? ")).toBe("mother's maiden name");
     expect(questionText("母親の旧姓は？")).toBe("母親の旧姓は");
     expect(questionText("ＰＥＴ　ＮＡＭＥ：")).toBe("pet name");
   });
