@@ -3,7 +3,7 @@ import {
   DEVICE_MODEL_URL,
   deviceModelHeaderNames,
   deviceModelRequestHash,
-  deviceModelCallAllowed,
+  deviceModelCallBody,
   MAX_DEVICE_MODEL_CALLS,
   MAX_DEVICE_MODEL_OUTPUT_TOKENS,
   MAX_DEVICE_MODEL_RESPONSE_BYTES,
@@ -173,28 +173,43 @@ export function createDeviceModel(options: {
   const now = options.now ?? Date.now;
   // Spend is added one call at a time, so two requests at once both count.
   let spendQueue: Promise<unknown> = Promise.resolve();
+  // What calls cost that could not be written yet; it still counts toward the limits.
+  let unrecorded = 0;
 
-  // A spend count that cannot be read or written stops the calls, rather than counting
-  // nothing.
+  // A spend count that cannot be read, or reads as something else, stops the calls
+  // rather than counting as nothing spent.
+  async function spentAt(at: number) {
+    const stored = await spend.read();
+    if (stored !== undefined && !v.is(spendSchema, stored))
+      throw new Error("The spend count is unreadable");
+    return currentSpend(stored, at);
+  }
   async function stopped(setting: DeviceModelSetting) {
-    const spent = currentSpend(await spend.read(), now());
+    const counted = await spentAt(now());
+    const spent = {
+      dayMicroUsd: counted.dayMicroUsd + unrecorded,
+      monthMicroUsd: counted.monthMicroUsd + unrecorded,
+    };
     if (spent.monthMicroUsd >= setting.monthlyLimitUsd * 1_000_000) return "monthly-limit";
     if (spent.dayMicroUsd >= setting.dailyLimitUsd * 1_000_000) return "daily-limit";
     return undefined;
   }
-  async function add(micro: number) {
+  async function add() {
     const at = now();
-    const spent = currentSpend(await spend.read(), at);
+    const spent = await spentAt(at);
+    const micro = unrecorded;
     await spend.write({
       version: 1,
       ...periods(at),
       dayMicroUsd: spent.dayMicroUsd + micro,
       monthMicroUsd: spent.monthMicroUsd + micro,
     });
+    unrecorded -= micro;
   }
   function charge(micro: number) {
     if (micro === 0) return Promise.resolve();
-    const added = spendQueue.then(() => add(micro));
+    unrecorded += micro;
+    const added = spendQueue.then(() => add());
     spendQueue = added.catch(() => undefined);
     return added;
   }
@@ -205,6 +220,7 @@ export function createDeviceModel(options: {
   async function send(
     apiKey: string,
     call: DeviceModelCall["call"],
+    body: string,
   ): Promise<{ response: DeviceModelResponse; cost: number }> {
     const request = await deviceModelRequestHash(call.body);
     const headers = new Headers();
@@ -217,26 +233,37 @@ export function createDeviceModel(options: {
     headers.set("anthropic-dangerous-direct-browser-access", "true");
     const timeout = new AbortController();
     const timer = setTimeout(() => timeout.abort(), DEVICE_MODEL_TIMEOUT_MS);
+    const failed = (kind: "timeout" | "unreachable") => ({ kind, request }) as const;
     try {
-      const response = await fetchModel(DEVICE_MODEL_URL, {
-        method: "POST",
-        headers,
-        body: call.body,
-        credentials: "omit",
-        redirect: "error",
-        signal: timeout.signal,
-      });
-      const body = await response.text();
-      const answered = { kind: "response", request, status: response.status, body } as const;
+      let response: Response;
+      try {
+        response = await fetchModel(DEVICE_MODEL_URL, {
+          method: "POST",
+          headers,
+          body,
+          credentials: "omit",
+          redirect: "error",
+          signal: timeout.signal,
+        });
+      } catch {
+        const kind = timeout.signal.aborted ? "timeout" : "unreachable";
+        return { response: failed(kind), cost: callCostMicroUsd(call.body, failed(kind)) };
+      }
+      let text: string;
+      try {
+        text = await response.text();
+      } catch {
+        // Anthropic answered, so the call may have been charged: count its worst case.
+        const kind = timeout.signal.aborted ? "timeout" : "unreachable";
+        return { response: failed(kind), cost: callCostMicroUsd(call.body, failed("timeout")) };
+      }
+      const answered = { kind: "response", request, status: response.status, body: text } as const;
       const cost = callCostMicroUsd(call.body, answered);
       // An answer too large to pass on is no answer the service could take, but Anthropic
       // still charged it.
-      if (byteLength(body) > MAX_DEVICE_MODEL_RESPONSE_BYTES)
-        return { response: { kind: "unreachable", request }, cost };
+      if (byteLength(text) > MAX_DEVICE_MODEL_RESPONSE_BYTES)
+        return { response: failed("unreachable"), cost };
       return { response: answered, cost };
-    } catch {
-      const failed = { kind: timeout.signal.aborted ? "timeout" : "unreachable", request } as const;
-      return { response: failed, cost: callCostMicroUsd(call.body, failed) };
     } finally {
       clearTimeout(timer);
     }
@@ -254,6 +281,9 @@ export function createDeviceModel(options: {
       return { kind: "failed", error: "unexpected-response" };
     }
     const setting = parseDeviceModelSetting(stored);
+    // A record that is no key this version can read fails too, rather than using the
+    // service's credential.
+    if (!setting && stored !== undefined) return { kind: "failed", error: "unexpected-response" };
     if (!setting) return request(undefined);
     const responses: DeviceModelResponse[] = [];
     // A service that keeps asking for calls again is stopped after twice the most a
@@ -265,11 +295,8 @@ export function createDeviceModel(options: {
       const { call } = answer.result as unknown as DeviceModelCall;
       // A call the routes never make (tools, streaming, a larger answer, another beta) is
       // not sent: a service, possibly someone else's, gets no other use of the key.
-      if (
-        call.index > responses.length ||
-        made >= 2 * MAX_DEVICE_MODEL_CALLS ||
-        !deviceModelCallAllowed(call)
-      )
+      const body = deviceModelCallBody(call);
+      if (call.index > responses.length || made >= 2 * MAX_DEVICE_MODEL_CALLS || !body)
         return { kind: "failed", error: "unexpected-response", ...timed(answer) };
       let stop: Awaited<ReturnType<typeof stopped>>;
       try {
@@ -285,7 +312,7 @@ export function createDeviceModel(options: {
           ...timed(answer),
         };
       // oxlint-disable-next-line no-await-in-loop
-      const { response, cost } = await send(setting.apiKey, call);
+      const { response, cost } = await send(setting.apiKey, call, body);
       try {
         // oxlint-disable-next-line no-await-in-loop
         await charge(cost);

@@ -60,6 +60,7 @@ function setup(
     setting?: DeviceModelSetting | undefined;
     spend?: DeviceModelSpend;
     readSpend?: () => Promise<unknown>;
+    writeSpend?: (value: DeviceModelSpend) => Promise<void>;
     readKey?: () => Promise<unknown>;
     answers?: RecipeGenerationResult[];
     fetch?: typeof globalThis.fetch;
@@ -89,9 +90,11 @@ function setup(
     },
     spend: {
       read: options.readSpend ?? (async () => spend),
-      write: async (value) => {
-        spend = value;
-      },
+      write:
+        options.writeSpend ??
+        (async (value) => {
+          spend = value;
+        }),
     },
     fetch,
     now: () => NOW,
@@ -295,6 +298,61 @@ describe("model calls with this device's own key (ADR 0040)", () => {
       error: "unexpected-response",
     });
     expect(sent).toEqual([]);
+  });
+
+  it("keeps counting what it could not write, and stops at the limit", async () => {
+    const { transport, fetch } = setup({
+      answers: [CALL as RecipeGenerationResult, CALL as RecipeGenerationResult],
+      setting: { ...SETTING, dailyLimitUsd: 1 },
+      writeSpend: () => Promise.reject(new Error("quota")),
+    });
+    // A million input tokens is past a $1 daily limit at Opus 5.5's rates.
+    expect((await transport.generateRecipe(ORIGIN, CREDENTIAL, REQUEST)).kind).toBe("failed");
+    expect(await transport.generateRecipe(ORIGIN, CREDENTIAL, REQUEST)).toEqual({
+      kind: "result",
+      result: { version: 1, status: "unavailable", reason: "daily-limit" },
+    });
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it("charges the worst case when the answer's body could not be read", async () => {
+    const broken = new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.error(new Error("connection reset"));
+        },
+      }),
+    );
+    const { transport, sent, spend } = setup({ fetch: async () => broken });
+    await transport.generateRecipe(ORIGIN, CREDENTIAL, REQUEST);
+    expect(sent[1]?.responses[0]?.kind).toBe("unreachable");
+    expect(currentSpend(spend(), NOW).dayMicroUsd).toBe(
+      callCostMicroUsd(BODY, { kind: "timeout", request: "" }),
+    );
+  });
+
+  it("stops when the spend count reads as something else", async () => {
+    const { transport, fetch } = setup({ readSpend: async () => ({ version: 2 }) });
+    expect((await transport.generateRecipe(ORIGIN, CREDENTIAL, REQUEST)).kind).toBe("failed");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("fails rather than using the service's credential for a key record it cannot read", async () => {
+    const { transport, sent } = setup({ readKey: async () => ({ version: 2, apiKey: KEY }) });
+    expect((await transport.generateRecipe(ORIGIN, CREDENTIAL, REQUEST)).kind).toBe("failed");
+    expect(sent).toEqual([]);
+  });
+
+  it("sends the body as checked when a key is given twice", async () => {
+    const body = BODY.replace('"max_tokens":1024', '"max_tokens":64000,"max_tokens":1024');
+    const { transport, fetch, sent } = setup({
+      answers: [{ ...CALL, call: { ...CALL.call, body } } as RecipeGenerationResult, RECIPE],
+    });
+    await transport.generateRecipe(ORIGIN, CREDENTIAL, REQUEST);
+    const [, init] = fetch.mock.calls[0]! as [string, RequestInit];
+    expect(init.body).toBe(BODY);
+    // The service still recognizes the response by the body it built.
+    expect(sent[1]?.responses[0]?.request).toBe(await deviceModelRequestHash(body));
   });
 
   it("charges the worst case for a call without reported usage, and nothing when it never left", () => {

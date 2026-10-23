@@ -124,22 +124,27 @@ const deviceModelBodySchema = v.strictObject({
   ),
 });
 
-/** Whether a device sends this call with its key; see `deviceModelBodySchema`. */
-export function deviceModelCallAllowed(call: DeviceModelCall["call"]): boolean {
+/**
+ * The body a device sends for this call with its key, or none when it is not one the
+ * routes make (`deviceModelBodySchema`). It is the checked body written again, so a key
+ * given twice never reaches Anthropic with the value the check did not see.
+ */
+export function deviceModelCallBody(call: DeviceModelCall["call"]): string | undefined {
   const betas = call.headers["anthropic-beta"]?.split(",").map((beta) => beta.trim()) ?? [];
-  if (!betas.every((beta) => (deviceModelBetas as readonly string[]).includes(beta))) return false;
+  if (!betas.every((beta) => (deviceModelBetas as readonly string[]).includes(beta)))
+    return undefined;
   if (
     call.headers["content-type"] !== undefined &&
     call.headers["content-type"] !== "application/json"
   )
-    return false;
+    return undefined;
   let body: unknown;
   try {
     body = JSON.parse(call.body);
   } catch {
-    return false;
+    return undefined;
   }
-  return v.is(deviceModelBodySchema, body);
+  return v.is(deviceModelBodySchema, body) ? JSON.stringify(body) : undefined;
 }
 
 export type DeviceModelResponse = v.InferOutput<typeof deviceModelResponseSchema>;

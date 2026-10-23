@@ -52,17 +52,18 @@ pressed.
 A key starts with the service's own limits, $5 a day and $100 a month (UTC), and the
 person can change them. The device counts what its key spent: the usage Anthropic
 reports at the model's published rates (`@pateat/inference/claude-rates`), also for an
-answer too large to pass on; for a call that timed out or answered without usage, the
-worst case of 64 KiB of input (or the body's bytes, when longer) and 1,024 output
-tokens, at the highest listed rates when the model is not priced; nothing for a call
-that never reached Anthropic or that it answered with an error. Before each call, a
-device at either limit answers as the service's own stops do (`unavailable` with
-`daily-limit` or `monthly-limit`) and makes no call. Chosen by an agent: a spend count
-that cannot be read or written, or a key that cannot be read, fails the request; it
-never counts as nothing spent, and never falls back to the owner's credential on the
-service. Two requests at once each check the limit before either is charged, so the
-limits can be passed by one call's cost. The service's limits do not count a device's
-calls.
+answer too large to pass on; for a call that timed out, answered without usage or whose
+answer could not be read, the worst case of 64 KiB of input (or the body's bytes, when
+longer) and 1,024 output tokens, at the highest listed rates when the model is not
+priced; nothing for a call that never reached Anthropic or that it answered with an
+error. Before each call, a device at either limit answers as the service's own stops do
+(`unavailable` with `daily-limit` or `monthly-limit`) and makes no call. Chosen by an
+agent: a spend count or a key record that cannot be read, or reads as no record this
+version knows, fails the request; it never counts as nothing spent, and never falls back
+to the owner's credential on the service. A cost that could not be written still counts
+toward the limits until it is. Requests in flight at once each check the limit before
+the others are charged, so the limits can be passed by one call's cost per such request.
+The service's limits do not count a device's calls.
 
 ### A paired device with its own key
 
@@ -83,9 +84,10 @@ requests (`POST /v1/recipes/generate`) and the judge
    model, `max_tokens` of at most 1,024, text in `system` and `messages`, an optional
    `output_config` with an effort and a JSON schema format, an optional `speed`, and
    nothing else (no tools, streaming, MCP servers or containers), and no
-   `anthropic-beta` but fast mode's (`deviceModelCallAllowed`). Any other call fails
-   the request unsent, so a service, possibly someone else's, has no other use of the
-   key. It then sends that body with its key and the
+   `anthropic-beta` but fast mode's (`deviceModelCallBody`). Any other call fails the
+   request unsent, so a service, possibly someone else's, has no other use of the key.
+   It then sends the body as checked, written again from its parsed value, with its key
+   and the
    `anthropic-dangerous-direct-browser-access: true` header, then sends the original
    request again with the responses so far. Each response carries the SHA-256 of the
    body it answers, and is the status and body (at most 16 KiB), `timeout` after 10

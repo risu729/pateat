@@ -1,5 +1,5 @@
 import {
-  deviceModelCallAllowed,
+  deviceModelCallBody,
   deviceModelRequestHash,
   type DeviceModelResponse,
   type LoginObservation,
@@ -121,7 +121,7 @@ function modelCall(answer: RecipeGenerationResult) {
   if (answer.status !== "model-call")
     throw new Error(`Expected a model call, got ${answer.status}`);
   // Every call the routes hand over is one a device sends with its key.
-  expect(deviceModelCallAllowed(answer.call)).toBe(true);
+  expect(deviceModelCallBody(answer.call)).toBe(answer.call.body);
   return answer.call;
 }
 
