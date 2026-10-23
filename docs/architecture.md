@@ -393,10 +393,12 @@ until reconciled. Do not claim an atomic transaction across both stores.
 Persistent reconciliation and its restart tests are under implementation in
 the [connection setup slice](plan.md#connection-setup-and-live-catalog-progress).
 
-Generate TOTP locally and preserve stored parameters. Test raw Base32, standard
-TOTP URIs and Bitwarden's Steam variant. Unsupported OTP formats must not be
-silently interpreted as TOTP. Bitwarden setup's manually entered verification
-codes are distinct from future automatic email/SMS challenge retrieval.
+Generate TOTP locally, giving the code the official Bitwarden SDK gives for the same
+stored key (owner, 2026-10-23), including keys it reads loosely; see
+[TOTP progress](plan.md#local-field-and-totp-progress). Test raw Base32, `otpauth://`
+URIs and Bitwarden's Steam variant against the published SDK. Bitwarden setup's
+manually entered verification codes are distinct from future automatic email/SMS
+challenge retrieval.
 
 ### Unsupported Bitwarden sign-in cases
 

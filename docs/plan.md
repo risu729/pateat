@@ -1567,14 +1567,23 @@ account ID. These are what synced, name-based bindings need
 Disposing a snapshot prevents later resolution. The host must still enforce
 destination policy and invalidate stale operations.
 
-OTPAuth supplies local standard TOTP and Steam generation. Supported inputs are
-Base32 secrets and explicit TOTP URI parameters; unsupported algorithms, HOTP and
-unknown URI parameters are explicit errors. As in Bitwarden, the bits left over after
-a secret's last whole byte are dropped, and the display-only `image`, `icon` and `color`
-URI parameters are ignored. Unlike Bitwarden, padding must be canonical and a secret
-shorter than one byte is refused. OTP seeds are not field values or inference inputs.
-Independent RFC 6238 and pinned upstream answers, clock boundaries and the
-packaged MV3 probe are the verification gates for this slice.
+OTPAuth supplies the HMAC-based one-time password; `generateLocalTotp` in
+`packages/bitwarden/src/totp.ts` reads the key exactly as the official SDK's
+`Totp::from_str` and `decode_b32` do
+([sdk-internal `totp.rs`](https://github.com/bitwarden/sdk-internal/blob/main/crates/bitwarden-vault/src/totp.rs)),
+so Pateat fills the code the person sees in Bitwarden (owner, 2026-10-23: full parity).
+The whole key is lower-cased first. In an `otpauth://` URI the host is ignored, so
+`otpauth://hotp/…` is read as TOTP; the last of repeated parameters wins; unknown
+parameters (`image`, `counter`, `encoder`, …) are ignored; an unknown `algorithm` falls
+back to SHA1; `digits` is clamped to 0–10 (10 digits use the SDK's wrapped `u32`
+modulus); `period` is at least 1; a `digits` or `period` that is not a `u32` takes the
+default. `steam://` gives a five-character Steam code. Any character outside the Base32
+alphabet, `=` included, is skipped, and the bits after the last whole byte are dropped,
+so a short secret gives an empty key, which still yields a code. Only an empty key, an
+`otpauth://` URI that does not parse or has no `secret`, and a key over 8,192 characters
+(a memory bound) give `invalid-totp`. OTP seeds are not field values or
+inference inputs. Independent RFC 6238 and pinned upstream answers, clock boundaries and
+the packaged MV3 probe are the verification gates for this slice.
 
 Connection setup, cache adoption and custom-field exclusion rebinding are now
 integrated, as described below. The remaining M3 integration gaps are listed after

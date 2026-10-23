@@ -151,7 +151,7 @@ describe("local TOTP independent known answers", () => {
     );
   });
 
-  it("preserves supported digits rather than silently clamping them", () => {
+  it("renders one and ten digits", () => {
     for (const [digits, value] of [
       [1, "4"],
       [10, "1284755224"],
@@ -185,66 +185,84 @@ describe("local TOTP independent known answers", () => {
   });
 });
 
+// Keys the official SDK (sdk-internal `Totp::from_str`) accepts loosely. Pateat generates the
+// same code for each of them; the SDK parity block below checks every one.
+const looseKeys = [
+  " ",
+  "ABCD1!",
+  "MY=",
+  "MZ=",
+  "MZ=======",
+  "JBSWY3DPEHPK3PX==",
+  "A",
+  "7",
+  " 7 ",
+  "PIUDISEQYA=====",
+  "PIUDISEQYA=======",
+  "otpauth://totp/Test?secret=",
+  "otpauth://totp/Test?secret=ABCD1!",
+  "otpauth://totp/Test?secret=7",
+  "otpauth://totp/Test?secret=MZ%3D",
+  `otpauth://totp/Test?secret=${bitwardenTotpSecret}&secret=JBSWY3DPEHPK3PX`,
+  `otpauth://totp/Test?secret=${bitwardenTotpSecret}&period=0`,
+  `otpauth://totp/Test?secret=${bitwardenTotpSecret}&period=-1`,
+  `otpauth://totp/Test?secret=${bitwardenTotpSecret}&period=1.5`,
+  `otpauth://totp/Test?secret=${bitwardenTotpSecret}&period=1`,
+  `otpauth://totp/Test?secret=${bitwardenTotpSecret}&period=4294967295`,
+  `otpauth://totp/Test?secret=${bitwardenTotpSecret}&period=4294967296`,
+  `otpauth://totp/Test?secret=${bitwardenTotpSecret}&period=%2B45`,
+  `otpauth://totp/Test?secret=${bitwardenTotpSecret}&digits=0`,
+  `otpauth://totp/Test?secret=${bitwardenTotpSecret}&digits=11`,
+  `otpauth://totp/Test?secret=${bitwardenTotpSecret}&digits=08`,
+  `otpauth://totp/Test?secret=${bitwardenTotpSecret}&digits=+8`,
+  `otpauth://totp/Test?secret=${bitwardenTotpSecret}&digits=%2B8`,
+  `otpauth://totp/Test?secret=${bitwardenTotpSecret}&digits=6&digits=8`,
+  `otpauth://totp/Test?secret=${bitwardenTotpSecret}&image=a.png&image=b.png`,
+  `otpauth://totp/Test?secret=${bitwardenTotpSecret}&color=red&Color=blue`,
+  `otpauth://user:pass@totp/Test?secret=${bitwardenTotpSecret}`,
+  `otpauth://totp/Test?secret=${bitwardenTotpSecret}#secret`,
+  `otpauth://hotp/Test?secret=${bitwardenTotpSecret}&counter=0`,
+  `otpauth://other/Test?secret=${bitwardenTotpSecret}`,
+  `OTPAUTH://TOTP/Test?SECRET=${bitwardenTotpSecret}&ALGORITHM=SHA256&DIGITS=8`,
+  `otpauth://totp/Test?secret=${bitwardenTotpSecret}&algorithm=SHA3-256`,
+  `otpauth://totp/Test?secret=${bitwardenTotpSecret}&algorithm=unknown`,
+  `otpauth://totp/Test?secret=${bitwardenTotpSecret}&algorithm=steam`,
+  `otpauth://totp/Test?secret=${bitwardenTotpSecret}&counter=1`,
+  `otpauth://totp/Test?secret=${bitwardenTotpSecret}&encoder=steam`,
+  `otpauth://totp/Test?secret=${bitwardenTotpSecret}&foo=bar`,
+  `otpauth://totp/Test?secret=${bitwardenTotpSecret}&images=logo.png`,
+  `otpauth://totp/Test?secret=WQIQ\t25BRKZYCJVYP`,
+  `otpauth://totp/Test?secret=${bitwardenTotpSecret}&algorithm=SHA\n256`,
+  `otpauth://totp/Test?secret=${bitwardenTotpSecret}\r`,
+  `otpauth://totp/Test?secret=${bitwardenTotpSecret}&issuer=Control\u007fIssuer`,
+  ` otpauth://totp/Test?secret=${bitwardenTotpSecret}`,
+  "https://example.test/otp",
+  "otpauth-migration://offline?data=CjEKCkhlbGxvId6tvu8",
+  "steam://",
+  "steam://ABCD123",
+  "steam://7",
+  "STEAM://jbswy3dpehpk3px",
+  "WQIQ\t25BR\nKZYC\u0000JVYP",
+  // Unicode case mapping: ß upper-cases to SS, ſ and ı to S and I, the Kelvin sign to K.
+  "ß",
+  "ſſſſ",
+  "ıııı",
+  "\u212a\u212a\u212a\u212a",
+];
+
 describe("local TOTP admission", () => {
-  // Some of these, such as non-canonical padding and one-character secrets, give a code in
-  // the Bitwarden SDK. Pateat refuses them on purpose; do not loosen them toward parity.
+  // The SDK refuses only an otpauth URI that does not parse or has no secret; Bitwarden shows no
+  // code for an empty key.
   it.each([
     "",
-    " ",
-    "ABCD1!",
-    "MY=",
-    "MZ=",
-    "MZ=======",
-    "JBSWY3DPEHPK3PX==",
-    "A",
-    "7",
-    " 7 ",
-    "PIUDISEQYA=====",
-    "PIUDISEQYA=======",
     "otpauth://totp/Test",
-    "otpauth://totp/Test?secret=",
-    "otpauth://totp/Test?secret=ABCD1!",
-    "otpauth://totp/Test?secret=7",
-    "otpauth://totp/Test?secret=MZ%3D",
-    `otpauth://totp/Test?secret=${bitwardenTotpSecret}&secret=${bitwardenTotpSecret}`,
-    `otpauth://totp/Test?secret=${bitwardenTotpSecret}&period=0`,
-    `otpauth://totp/Test?secret=${bitwardenTotpSecret}&period=-1`,
-    `otpauth://totp/Test?secret=${bitwardenTotpSecret}&period=1.5`,
-    `otpauth://totp/Test?secret=${bitwardenTotpSecret}&digits=0`,
-    `otpauth://totp/Test?secret=${bitwardenTotpSecret}&digits=6&digits=8`,
-    `otpauth://totp/Test?secret=${bitwardenTotpSecret}&image=a.png&image=b.png`,
-    `otpauth://totp/Test?secret=${bitwardenTotpSecret}&image=a.png&IMAGE=a.png`,
-    `otpauth://totp/Test?secret=${bitwardenTotpSecret}&icon=a&icon=a`,
-    `otpauth://totp/Test?secret=${bitwardenTotpSecret}&color=red&Color=blue`,
-    `otpauth://user:pass@totp/Test?secret=${bitwardenTotpSecret}`,
-    `otpauth://totp/Test?secret=${bitwardenTotpSecret}#secret`,
-    "steam://",
-    "steam://ABCD123",
-    "steam://7",
-  ])("rejects malformed seed case %# without reflecting it", (seed) => {
+    "otpauth://totp/Test?issuer=Example",
+    "otpauth://[x/?secret=AB",
+    "otpauth://totp:99999999/Test?secret=AB",
+  ])("rejects key case %# without reflecting it", (seed) => {
     expect(generateLocalTotp(seed, clock(59_000))).toEqual({
       ok: false,
       error: { code: "invalid-totp" },
-    });
-  });
-
-  it.each([
-    `otpauth://hotp/Test?secret=${bitwardenTotpSecret}&counter=0`,
-    `otpauth://totp/Test?secret=${bitwardenTotpSecret}&algorithm=SHA3-256`,
-    `otpauth://totp/Test?secret=${bitwardenTotpSecret}&algorithm=unknown`,
-    `otpauth://totp/Test?secret=${bitwardenTotpSecret}&digits=11`,
-    `otpauth://totp/Test?secret=${bitwardenTotpSecret}&period=2147483648`,
-    `otpauth://totp/Test?secret=${bitwardenTotpSecret}&counter=1`,
-    `otpauth://totp/Test?secret=${bitwardenTotpSecret}&encoder=steam`,
-    `otpauth://totp/Test?secret=${bitwardenTotpSecret}&foo=bar`,
-    `otpauth://totp/Test?secret=${bitwardenTotpSecret}&image=logo.png&foo=bar`,
-    `otpauth://totp/Test?secret=${bitwardenTotpSecret}&images=logo.png`,
-    `otpauth://totp/Test?secret=${bitwardenTotpSecret}&colour=red`,
-    "https://example.test/otp",
-  ])("reports unsupported formats explicitly for case %#", (seed) => {
-    expect(generateLocalTotp(seed, clock(59_000))).toEqual({
-      ok: false,
-      error: { code: "unsupported-totp" },
     });
   });
 
@@ -279,20 +297,6 @@ describe("local TOTP admission", () => {
       });
     },
   );
-
-  // WHATWG URL strips literal TAB/CR/LF before parsing; reject before that
-  // normalization can turn an invalid stored seed/algorithm into a valid one.
-  it.each([
-    `otpauth://totp/Test?secret=WQIQ\t25BRKZYCJVYP`,
-    `otpauth://totp/Test?secret=${bitwardenTotpSecret}&algorithm=SHA\n1`,
-    `otpauth://totp/Test?secret=${bitwardenTotpSecret}\r`,
-    `otpauth://totp/Test?secret=${bitwardenTotpSecret}&issuer=Invalid\u007fIssuer`,
-  ])("rejects literal control characters before URL normalization case %#", (seed) => {
-    expect(generateLocalTotp(seed, clock(59_000))).toEqual({
-      ok: false,
-      error: { code: "invalid-totp" },
-    });
-  });
 
   it.each([null, undefined, 123, {}, [bitwardenTotpSecret]])(
     "rejects non-string input case %#",
@@ -347,5 +351,31 @@ describe("local TOTP agrees with the published Bitwarden SDK", () => {
   ])("generates the SDK code with display-only parameters %s", (display) => {
     expectSdkParity(`otpauth://totp/Test?secret=${bitwardenTotpSecret}&${display}`);
     expectSdkParity(`otpauth://totp/Test?${display}&secret=JBSWY3DPEHPK3PX&algorithm=SHA256`);
+  });
+
+  it.each(looseKeys)("generates the SDK code for loose key case %#", (seed) => {
+    expectSdkParity(seed);
+  });
+
+  it.each([
+    "",
+    "otpauth://totp/Test",
+    "otpauth://totp/Test?issuer=Example",
+    "otpauth://[x/?secret=AB",
+    "otpauth://totp:99999999/Test?secret=AB",
+  ])("fails where the SDK fails or shows nothing, case %#", (seed) => {
+    if (seed) expect(() => totp.generate_totp(seed, 59_000)).toThrow();
+    expect(generateLocalTotp(seed, clock(59_000)).ok).toBe(false);
+  });
+
+  // Ten digits: the SDK's u32 `10.pow(10)` wraps to 1410065408, which only shows on a step whose
+  // 31-bit value is at least that, so sweep many steps.
+  it("generates the SDK code for ten digits across many steps", () => {
+    for (let step = 0; step < 400; step += 1) {
+      const now = step * 30_000 + 1_000;
+      const seed = `otpauth://totp/Test?secret=${bitwardenTotpSecret}&digits=10`;
+      const { code, period } = totp.generate_totp(seed, now);
+      expect(generateLocalTotp(seed, clock(now))).toEqual(ok(code, now, period));
+    }
   });
 });
