@@ -402,6 +402,8 @@ export const entryGenerationResultSchema = v.pipe(
  * it, or the one that confirms a sign-out the page asks about. Without `base` the page
  * starts the origin and path's logout recipe; with `base` it is the page after that
  * revision's last click, whose answer appends the next click. Nothing of the vault is sent.
+ * With `deviceModel` the device makes the model calls with its own key, as for generation
+ * (ADR 0040).
  */
 export const logoutGenerationRequestSchema = v.pipe(
   v.strictObject({
@@ -428,6 +430,8 @@ export const logoutGenerationRequestSchema = v.pipe(
      * (ADR 0063).
      */
     local: v.optional(v.strictObject({ path: loginPathSchema, target: logoutTargetSchema })),
+    /** The device makes the model calls with its own key (ADR 0040). */
+    deviceModel: v.optional(deviceModelSchema),
   }),
   v.check(
     (request) => isEntryObservation(request.observation),
@@ -474,6 +478,8 @@ export const logoutGenerationResultSchema = v.pipe(
     }),
     generationAnswers[1],
     generationAnswers[2],
+    /** Only for a request with `deviceModel`: the model call the device makes next. */
+    deviceModelCallSchema,
   ]),
   v.check((result) => rejectsOnlyInvalidOutput(result), "Only invalid output has a rejection"),
 );

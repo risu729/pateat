@@ -32,6 +32,7 @@ import {
   failed,
   failureOf,
   MIN_GENERATION_RECIPE_ROOM_BYTES,
+  modelCall,
   roleConfig,
   unavailable,
   type GenerationEnv,
@@ -160,6 +161,7 @@ export async function generateLogout(
 
   const call = await callClaude(env, scope.ownerId, trace, {
     ...logged,
+    device: request.deviceModel,
     recipe: { ...logged.recipe, baseRevision },
     ...attemptWindow(
       scope.ownerId,
@@ -181,8 +183,7 @@ export async function generateLogout(
         : value,
   });
   if (call.status === "unavailable") return unsent(raced ?? unavailable(call.reason));
-  // A logout request carries no `deviceModel` (ADR 0040), so no call is left to the device.
-  if (call.status === "device-call") return unsent(unavailable("credentials-not-configured"));
+  if (call.status === "device-call") return modelCall(call);
   const { outcome } = call;
   if (outcome.status === "failed") {
     const rejection = outputRejection(outcome);

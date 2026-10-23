@@ -415,7 +415,7 @@ export default defineBackground(() => {
     logout: createLogoutService({
       service,
       transport: {
-        generateLogout: (...request) => keepAlive(serviceTransport.generateLogout(...request)),
+        generateLogout: (...request) => keepAlive(modelRequests.generateLogout(...request)),
       },
       recipes: recipeSync.recipes,
       refresh: () => recipeSync.sync({ settings: false }),

@@ -3,6 +3,7 @@ import {
   deviceModelRequestHash,
   type DeviceModelResponse,
   type LoginObservation,
+  type LogoutGenerationResult,
   type ObservedCandidate,
   type RecipeGenerationResult,
   type SemanticSlot,
@@ -121,8 +122,33 @@ async function generate(device: Device, responses: DeviceModelResponse[]) {
   return (await response.json()) as RecipeGenerationResult;
 }
 
+/** An account switch's signed-in page (ADR 0063), sent with the device's responses so far. */
+async function logout(device: Device, responses: DeviceModelResponse[]) {
+  const response = await exports.default.fetch("https://pateat.invalid/v1/recipes/logout", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${device.token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      version: 1,
+      observation: {
+        version: 1,
+        origin: ORIGIN,
+        path: "/home",
+        language: "en",
+        complete: true,
+        candidates: [
+          { id: "c1", role: "link", target: { by: "text", value: "Orders" } },
+          { id: "c2", role: "button", target: { by: "text", value: "Sign out" } },
+        ],
+      } satisfies LoginObservation,
+      deviceModel: { responses },
+    }),
+  });
+  expect(response.status).toBe(200);
+  return (await response.json()) as LogoutGenerationResult;
+}
+
 /** The model call a `model-call` answer names, which the test then answers. */
-function modelCall(answer: RecipeGenerationResult) {
+function modelCall(answer: RecipeGenerationResult | LogoutGenerationResult) {
   if (answer.status !== "model-call")
     throw new Error(`Expected a model call, got ${answer.status}`);
   // Every call the routes hand over is one a device sends with its key.
@@ -214,6 +240,29 @@ describe("model calls a paired device makes with its own key (ADR 0040)", () => 
     expect(
       await rows("SELECT * FROM generation_attempts WHERE owner_id = ?", device.ownerId),
     ).toHaveLength(1);
+    expect(outbound).toBe(0);
+  });
+
+  it("hands an account switch's logout call to the device, then stores its click", async () => {
+    const device = await owner();
+    const call = modelCall(await logout(device, []));
+    expect(call.index).toBe(0);
+    expect(await logOf(device.ownerId)).toEqual([]);
+    const reply = JSON.stringify({
+      result: { decision: "logout", control: "c2", purpose: "logout" },
+    });
+    const answer = await logout(device, [await answered(call.body, { text: reply })]);
+    expect(answer.status).toBe("recipe");
+    if (answer.status !== "recipe") return;
+    expect(answer.change.recipe.logout.targets).toEqual([
+      expect.objectContaining({ path: "/home", target: { by: "text", value: "Sign out" } }),
+    ]);
+    expect((await logOf(device.ownerId)).map((row) => [row.source, row.outcome])).toEqual([
+      ["device", "ok"],
+    ]);
+    expect(await rows("SELECT * FROM inference_spend WHERE owner_id = ?", device.ownerId)).toEqual(
+      [],
+    );
     expect(outbound).toBe(0);
   });
 

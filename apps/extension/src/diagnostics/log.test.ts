@@ -76,7 +76,7 @@ describe("diagnostics log", () => {
     });
     await logger.log("login.refused", {
       origin: "https://login.excluded.example",
-      reason: "site-excluded",
+      reason: "paused",
     });
     await logger.log("vault.state", {
       connection: "c0a3f8e2-raw-connection-id",
@@ -100,7 +100,7 @@ describe("diagnostics log", () => {
         rpId: expect.stringMatching(/^rp:[0-9a-f]{8}$/u),
         outcome: "assertion",
       },
-      { origin: "https://login.excluded.example", reason: "site-excluded" },
+      { origin: "https://login.excluded.example", reason: "paused" },
       { connection: expect.stringMatching(/^bitwarden:[0-9a-f]{6}$/u), state: "ready" },
       { origin: "https://bank.example", reason: TRUNCATED },
     ]);
@@ -1631,7 +1631,7 @@ describe("unhandled errors", () => {
     log.login({ ...page, outcome: "recent" });
     log.login({ ...page, outcome: "gone" });
     log.login({ ...page, outcome: "refused" });
-    log.login({ ...page, outcome: "not-sent", reason: "site-excluded" });
+    log.login({ ...page, outcome: "not-sent", reason: "paused" });
     log.login({ ...page, outcome: "failed", reason: "unreachable" });
     await vi.waitFor(async () =>
       expect(
@@ -1646,7 +1646,7 @@ describe("unhandled errors", () => {
       ["debug", { ...fields, route: "password", outcome: "recent" }],
       ["debug", { ...fields, route: "password", outcome: "gone" }],
       ["info", { ...fields, route: "password", outcome: "refused" }],
-      ["debug", { ...fields, route: "password", outcome: "not-sent", reason: "site-excluded" }],
+      ["debug", { ...fields, route: "password", outcome: "not-sent", reason: "paused" }],
       ["warn", { ...fields, route: "password", outcome: "failed", reason: "unreachable" }],
     ]);
     vi.restoreAllMocks();
@@ -2590,8 +2590,8 @@ describe("unhandled errors", () => {
       vi.spyOn(console, level).mockImplementation(() => undefined);
     await log.logger.enableDebug();
     const site = { tabId: 4, origin: "https://login.example" };
-    log.login({ type: "refused", ...site, reason: "site-excluded" });
-    log.login({ type: "refused", ...site, reason: "site-excluded", repeat: true });
+    log.login({ type: "refused", ...site, reason: "paused" });
+    log.login({ type: "refused", ...site, reason: "paused", repeat: true });
     log.login({ type: "refused", ...site, reason: "recipe-not-found", unrelated: true });
     log.login({ type: "refused", ...site, reason: "stale-document" });
     log.login({ type: "refused", ...site, reason: "stale-document", detail: "gave-up" });
@@ -2621,8 +2621,8 @@ describe("unhandled errors", () => {
         entry.fields["reason"] ?? entry.fields["message"],
       ]),
     ).toEqual([
-      ["login.refused", "info", "site-excluded"],
-      ["login.refused", "debug", "site-excluded"],
+      ["login.refused", "info", "paused"],
+      ["login.refused", "debug", "paused"],
       ["login.refused", "debug", "recipe-not-found"],
       ["login.refused", "debug", "stale-document"],
       ["login.refused", "info", "stale-document"],
@@ -3245,6 +3245,7 @@ describe("problem lines (ADR 0066)", () => {
         { ...page, state: "executing", step: 0, unsubmitted: true, name: "TypeError" },
       ],
       ["login.entry", { ...page, outcome: "refused", reason: "target-missing" }],
+      ["login.entry", { ...page, outcome: "refused", reason: "paused" }],
       [
         "login.refused",
         {
@@ -3305,7 +3306,7 @@ describe("problem lines (ADR 0066)", () => {
       ["login.refused", { ...page, reason: "account-ambiguous", candidates: 2 }],
       ["login.refused", { ...page, reason: "no-route", detail: "password-empty" }],
       ["login.refused", { ...page, reason: "entry-blocked" }],
-      ["login.refused", { ...page, reason: "site-excluded" }],
+      ["login.refused", { ...page, reason: "paused" }],
       ["login.entry", { ...page, outcome: "blocked", reason: "no-sign-in" }],
       ["login.entry", { ...page, outcome: "refused", reason: "unconfirmed" }],
       ["login.entry", { ...page, outcome: "refused", reason: "exception" }],

@@ -190,7 +190,7 @@ export const failed = (error: Failure) => ({ version: 1, status: "failed", error
 export const failureOf = (error: InferenceErrorCode): Failure =>
   error === "cancelled" ? "timeout" : error;
 /** The model call a device with its own key makes next (ADR 0040). */
-const modelCall = (call: { call: DeviceModelCall["call"] }) =>
+export const modelCall = (call: { call: DeviceModelCall["call"] }) =>
   ({ version: 1, status: "model-call", call: call.call }) as const;
 export const active = (change: SyncRecipeChange | null) =>
   change?.state === "active" ? change : undefined;

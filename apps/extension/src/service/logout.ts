@@ -5,7 +5,8 @@ import type { ServiceTransport } from "./transport";
 
 /**
  * The extension side of `POST /v1/recipes/logout` (ADR 0063): an account switch's
- * signed-in pages go only to the paired service with the device credential. A page is
+ * signed-in pages go only to the paired service with the device credential, and with the
+ * device's own key to Anthropic in the calls the service hands over (ADR 0040). A page is
  * asked about once per switch round, at the person's press, so nothing is claimed for the
  * retry window here; the service keeps its own (ADR 0016). A returned recipe is pulled into
  * the recipe cache behind the switch, which goes on with the answer's copy.
@@ -39,6 +40,9 @@ export function createLogoutService(options: {
       if (result.status === "signed-out") return { outcome: "signed-out" };
       if (result.status === "abstained") return { outcome: "abstained", reason: result.reason };
       if (result.status === "failed") return { outcome: "failed", reason: result.error };
+      // A model call reaches here only when the transport makes no device calls.
+      if (result.status === "model-call")
+        return { outcome: "failed", reason: "unexpected-response" };
       return { outcome: "unavailable", reason: result.reason };
     },
   };

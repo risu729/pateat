@@ -86,6 +86,18 @@ describe("the logout service (ADR 0063)", () => {
       { kind: "result", result: { version: 1, status: "unavailable", reason: "daily-limit" } },
       { outcome: "unavailable", reason: "daily-limit" },
     ],
+    // A model call is the device key's to make (ADR 0040), never an answer here.
+    [
+      {
+        kind: "result",
+        result: {
+          version: 1,
+          status: "model-call",
+          call: { index: 0, headers: {}, body: "{}" },
+        },
+      },
+      { outcome: "failed", reason: "unexpected-response" },
+    ],
     [{ kind: "rejected" }, { outcome: "failed", reason: "device-rejected" }],
     [
       { kind: "failed", error: "timeout" },

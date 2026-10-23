@@ -87,8 +87,11 @@ is not in the observation until the menu is open.
   click the page is observed and sent again, also for a confirmation dialog, for at most
   three clicks, through `POST /v1/recipes/logout`. The answer is a logout recipe, a
   signed-out page, or an abstention (`no-logout-control`, `ambiguous`,
-  `insufficient-evidence`, `unsafe-instructions`). After each click Pateat waits for the
-  page to be quiet for 1.5 seconds, at most 15 seconds.
+  `insufficient-evidence`, `unsafe-instructions`). An owner whose device has its own key
+  ([ADR 0040](0040-running-without-the-service.md)) sends the logout request with
+  `deviceModel` as a generation request is sent, and the device makes the model call.
+  After each click Pateat waits for the page to be quiet for 1.5 seconds, at most 15
+  seconds.
 - A stored click whose control is gone, or no longer alone, is asked for once more in
   its place (`base.keep`): the service replaces the recipe's clicks from there with the
   answer. A switch fails with `no-logout-control`, `still-signed-in`, `page-unreadable`,
