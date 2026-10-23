@@ -173,6 +173,38 @@ export const slotAcceptsOn = (
 export const isActionRole = (role: ObservedCandidate["role"]) =>
   (actionRoles as readonly string[]).includes(role);
 
+/**
+ * The form a button outside every form presses for: the one form the plan's fields share,
+ * when that form holds the page's only password field and shows no button of its own, no
+ * field outside every form is on the page, and the action is the only button outside
+ * every form and names no passkey. Such a button can only be the one the extractor kept
+ * beside that password form (`besideDepth`), as Sakura Internet's login button follows
+ * its form (2026-10-23). Undefined for any other action, which presses for its own group.
+ */
+export function besideForm(
+  page: Pick<LoginObservation, "candidates">,
+  fields: readonly ObservedCandidate[],
+  action: ObservedCandidate,
+): string | undefined {
+  if (action.group !== undefined || namesPasskey(action) || registersPasskey(action))
+    return undefined;
+  const groups = new Set(fields.map((field) => field.group));
+  const [group] = groups;
+  if (groups.size !== 1 || group === undefined) return undefined;
+  const passwords = page.candidates.filter((candidate) => candidate.role === "password");
+  if (passwords.length === 0 || passwords.some((password) => password.group !== group))
+    return undefined;
+  return page.candidates.some(
+    (candidate) =>
+      (isActionRole(candidate.role) &&
+        (candidate.group === group ||
+          (candidate.group === undefined && candidate.id !== action.id))) ||
+      (candidate.group === undefined && (fillRoles as readonly string[]).includes(candidate.role)),
+  )
+    ? undefined
+    : group;
+}
+
 /** The longest recipe slot ID (`recipeSlotIdSchema`). */
 const MAX_SLOT_NAME = 60;
 /** The marks the extractor leaves in observed text in place of what it redacted. */
@@ -228,7 +260,11 @@ function fieldText(candidate: ObservedCandidate): string | undefined {
     candidate.label && ownLabel(tidy(candidate.label), [placeholder, description]),
     placeholder,
     description,
-    by === "id" || by === "name" || by === "test-id" || by === "data-test"
+    by === "id" ||
+    by === "name" ||
+    by === "test-id" ||
+    by === "data-test" ||
+    by === "password-form-name"
       ? tidy(value)
       : undefined,
   ];
@@ -395,13 +431,12 @@ export function validatePagePlan(
     return { ok: false, reason: "duplicate-candidate" };
   if (!submitsForm && !isActionRole(action.role)) return { ok: false, reason: "incompatible-role" };
   // One plan must stay within a single form: every filled element and the action share
-  // one group, or none has a group. A grouped field with an ungrouped action fails closed.
-  const groups = new Set(
-    [...plan.fields.map((field) => candidates.get(field.candidate)!), action].map(
-      (candidate) => candidate.group,
-    ),
-  );
-  if (groups.size > 1) return { ok: false, reason: "mixed-groups" };
+  // one group, or none has a group. A grouped field with an ungrouped action fails closed,
+  // unless the action is the button beside a form without one of its own (`besideForm`).
+  const filledCandidates = plan.fields.map((field) => candidates.get(field.candidate)!);
+  const groups = new Set([...filledCandidates, action].map((candidate) => candidate.group));
+  if (groups.size > 1 && besideForm(observation, filledCandidates, action) === undefined)
+    return { ok: false, reason: "mixed-groups" };
   // A secret in a lone `new-password` field also needs the plan to fill an identifier of
   // the same form there, so a form that asks for a new password alone is never signed up
   // with.
@@ -463,7 +498,8 @@ export function validatePagePlan(
 /**
  * The purpose of a plan's action, read from the page instead of taken from the model
  * (owner, 2026-10-22, #834): a click after only identifiers advances unless its form (or,
- * for an action outside any form, every input outside one) also shows a password or code
+ * for an action outside any form, the form it presses for, {@link besideForm}, else every
+ * input outside one) also shows a password or code
  * input the plan leaves empty, which the click would then submit; any other click submits. A plan that names an unknown slot or candidate keeps `fallback`, for
  * {@link validatePagePlan} to refuse.
  */
@@ -478,9 +514,11 @@ export function actionPurpose(
   if (action === undefined || kinds.includes(undefined)) return fallback;
   if (kinds.some((kind) => kind !== "identifier")) return "submit";
   const filled = new Set(plan.fields.map((field) => field.candidate));
+  const fields = observation.candidates.filter((candidate) => filled.has(candidate.id));
+  const group = besideForm(observation, fields, action) ?? action.group;
   return observation.candidates.some(
     (candidate) =>
-      candidate.group === action.group &&
+      candidate.group === group &&
       !filled.has(candidate.id) &&
       (candidate.role === "password" ||
         ((fillRoles as readonly string[]).includes(candidate.role) && isCodeField(candidate))),
@@ -785,7 +823,10 @@ export type GeneratedAccountList = {
 /** A list control the extension clicks, with the locator the chooser recipe stores. */
 type ListControl = {
   candidate: string;
-  target: Exclude<LoginTarget, { by: "autocomplete" | "label" | "accessible-name" }>;
+  target: Exclude<
+    LoginTarget,
+    { by: "autocomplete" | "label" | "accessible-name" | "password-form-name" }
+  >;
 };
 /** An account list whose named controls passed {@link validateAccountList}. */
 export type ValidatedAccountList = {
@@ -836,7 +877,8 @@ export function validateAccountList(
       (!isActionRole(candidate.role) && candidate.role !== "link") ||
       !isStepTarget(target) ||
       target.by === "autocomplete" ||
-      target.by === "label"
+      target.by === "label" ||
+      target.by === "password-form-name"
     )
       return "incompatible-role";
     if (
@@ -914,7 +956,8 @@ export function validateEntry(
     candidate.role !== "link" ||
     !isStepTarget(target) ||
     target.by === "autocomplete" ||
-    target.by === "label"
+    target.by === "label" ||
+    target.by === "password-form-name"
   )
     return { ok: false, reason: "incompatible-role" };
   if ([candidate.label, target.value].some((text) => text !== undefined && accountText.test(text)))

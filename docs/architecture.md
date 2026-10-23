@@ -902,7 +902,11 @@ since a late click could submit an expired code; its failure ends the attempt
 `retry-limit` at once (ADR 0027). Initiated or possibly initiated effects remain
 counted, not proven server requests: one page handler can itself issue more than one
 request. Each fill step writes only inputs inside one form (or only inputs outside any
-form). Where the values go is checked in the page, as the browser would submit the form:
+form). A plan's click is in the same form, except a button outside every form for the
+fields of the page's only password form when that form lists no button of its own and
+the button is the only one outside every form (`besideForm` in
+`packages/inference/src/plan.ts`, owner's choice 2026-10-23). Where the values go is
+checked in the page, as the browser would submit the form:
 before a fill step writes into a form, the form's `action` attribute, and before a click
 on a submit button or image input, that control's `formaction` attribute or else its
 form's `action`, resolved against the document's base URL (so a `<base href>` counts; an
@@ -2191,7 +2195,9 @@ ASCII except whitespace and control characters, as in `ctl00$Main$txtUserId` or
 `data-test` since [ADR 0071](adr/0071-data-test-locators.md)), an `<input>`'s
 `autocomplete`
 token, a fillable input's visible name
-([ADR 0037](adr/0037-fields-by-visible-name.md), below), a `password` handler's
+([ADR 0037](adr/0037-fields-by-visible-name.md), below) or its `name` within the
+sign-in form ([ADR 0072](adr/0072-field-name-in-the-sign-in-form.md), below), a
+`password` handler's
 button's accessible name (ADR 0048's amendment, below), or, for a click or a state
 check only, a button's text:
 `{ "by": "text", "value": "ログイン" }` names the `<button>` whose rendered text (or,
@@ -2366,6 +2372,15 @@ sign-in field gets it; markers never do.
 「メールアドレス」 and 「パスワード」, so its recipe failed on every visit and was
 generated again each time (2026-10-13). A site that rewords the field gets its recipe
 generated again.
+
+A field that none of those names alone is located by its `name` within the sign-in form
+before an `id` another load may change (owner, 2026-10-23,
+[ADR 0072](adr/0072-field-name-in-the-sign-in-form.md)):
+`{ "by": "password-form-name", "value": "acct" }` names the one shown element whose
+`name` equals the value and whose form also holds a shown password input not marked
+`new-password`. Hacker News's sign-in shows a create-account form below its login form
+with the same `name="acct"`, and its account field has no other locator. Fill steps and
+a `totp` handler's code field take it, never a button, link, entry or list control.
 
 An `id`, `name`, `data-testid` or `autocomplete` locator that several elements match
 counts only the shown ones, by the content script's visibility check (owner,

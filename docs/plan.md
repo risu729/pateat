@@ -2858,17 +2858,33 @@ extractor gap: Rakuten's login (`shadow-control`), Amazon's `/ax/claim`
 (`URL.parse` replaced by the page) and American Express (`eval` disabled) the probe
 failed in the page's own world, where the extension's content script would not.
 
-A second pass the same day observed about 280 more pages (Japanese shops, hosting,
-job and travel sites; English SaaS, banks, universities and streaming services) with
-the same build and added 39 Japanese and 31 English cases, after an independent review
-of every label. Pages whose email step only sends a sign-in link or code, with no
-password (Slack, Vercel, Claude Platform, Instacart, Loom, Temu), are left out, as no
-login item fits them; Slack and Vercel were removed from the first pass for that
-reason. Sakura Internet's login page is left out too: its login button sits outside
-the form of its fields, so the correct plan fails the plan check (`mixed-groups`), a
-case for that check rather than for the corpus. The Japanese set now has 108 cases (15
-abstain, 11 passkey buttons, 27 `advance`) and the English set 45 (5 abstain, 3 passkey
-buttons, 13 `advance`); the heuristic scores 0.73 (18 false submits) and 0.64 (7).
+A second pass the same day observed about 280 more pages (Japanese shops, hosting, job
+and travel sites; English SaaS, banks, universities and streaming services) with the
+same build and added 39 Japanese and 31 English cases, after an independent review of
+every label. Pages whose email step only sends a sign-in link or code, with no password
+(Slack, Vercel, Claude Platform, Instacart, Loom, Temu), are left out, as no login item
+fits them; Slack and Vercel were removed from the first pass for that reason. Sakura
+Internet's login page is left out too: its login button sits outside the form of its
+fields, so the correct plan fails the plan check (`mixed-groups`), a case for that check
+rather than for the corpus at the time. Since 2026-10-23 the check accepts a button
+outside every form for the fields of the page's only password form when that form lists
+no button of its own, no field outside every form is on the page, and the button is the
+only one outside every form and names no passkey (`besideForm`, owner's choice 11:47
+UTC, local tests only; recorded in [Bitwarden
+differences](bitwarden-differences.md#submit-button-outside-the-form)); on the live page
+in cloud Chromium (main `b803056`) generation then planned 会員ID, パスワード and
+ログイン, and the check accepted it. The Japanese set now has 108 cases (15 abstain, 11
+passkey buttons, 27 `advance`) and the English set 45 (5 abstain, 3 passkey buttons, 13
+`advance`); the heuristic scores 0.73 (18 false submits) and 0.64 (7).
+
+A third pass (main `74d5b3c`) added livedoor, FC2, GMO Coin, Seven Bank, Sakura Internet
+and bitFlyer Lightning. Since #901 the probe runs the main frame in a world of its own,
+as the content script does, so Seven Bank observes (an ID field labelled only by its
+example, an unlabelled password field and a ログオン button among a dozen others);
+American Express now stops at a real extractor gap (`unsupported-control`). Sakura
+Internet is now included, as the plan check accepts its button beside the form. The
+Japanese set now has 113 cases and the English set 46; the heuristic scores 0.73 (19
+false submits) and 0.65 (7).
 
 The same import measured the extractor on real markup (2026-10-11, main `9cf8356`). Of
 the 241 pages with an annotated login form, 6 gave no observation and 109 an incomplete
@@ -2972,8 +2988,10 @@ as the executor resolves it, skipping an `id` React's `useId` generated and tryi
 holding a random-looking run or Mantine's `mantine-` prefix (2026-10-13) last, and for
 an input without one, its first `autocomplete` token that is `username`, `email`,
 `current-password`, `one-time-code` or `webauthn` and that no other input carries, then
-its visible name when no other shown fillable input has it, before such an `id`
-([ADR 0037](adr/0037-fields-by-visible-name.md)); a button without one gets a text
+its visible name when no other shown fillable input has it, then its `name` when it is
+the one shown element with that name in a form with a shown password input not marked
+`new-password` ([ADR 0072](adr/0072-field-name-in-the-sign-in-form.md)), before such an
+`id` ([ADR 0037](adr/0037-fields-by-visible-name.md)); a button without one gets a text
 locator when its text matches exactly one button and redaction leaves it unchanged, and
 a script link when its text matches no button and exactly one script link. In a login
 form, a field, button or required checkbox without a target (a checkbox is context

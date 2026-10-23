@@ -48,8 +48,10 @@ export {
 } from "./assemble";
 export {
   claudeGeneration,
+  claudeModelRates,
   claudeRefusalCategory,
   claudeRefusalFallback,
+  claudeWorstCaseRates,
   createClaudeGenerationModel,
   estimateClaudeCostUsd,
   type ClaudeCredential,

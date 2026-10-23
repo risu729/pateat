@@ -15,11 +15,9 @@ import {
   webPageCorpus,
 } from "../packages/inference/src/corpus/real";
 import {
-  claudeBenchmarkModels,
   claudeEfforts,
-  claudeFastModeRates,
   claudeGeneration,
-  type ClaudeBenchmarkModel,
+  claudeModelRates,
   type ClaudeEffort,
 } from "../packages/inference/src/providers/claude";
 
@@ -90,8 +88,12 @@ if (apiKey === undefined || apiKey.trim() === "") {
   process.exit(2);
 }
 
-if (!Object.hasOwn(claudeBenchmarkModels, values.model)) {
-  console.error(`Choose a model: ${Object.keys(claudeBenchmarkModels).join(", ")}.`);
+// Only a model the pricing page lists, so the cost cap can hold.
+const rates = claudeModelRates(values.model);
+if (rates === undefined) {
+  console.error(
+    `The pricing page lists no price for ${values.model}; choose a model in claude-pricing.json.`,
+  );
   process.exit(2);
 }
 if (!(claudeEfforts as readonly string[]).includes(values.effort)) {
@@ -99,11 +101,9 @@ if (!(claudeEfforts as readonly string[]).includes(values.effort)) {
   process.exit(2);
 }
 
-const fastRates = Object.hasOwn(claudeFastModeRates, values.model)
-  ? claudeFastModeRates[values.model as keyof typeof claudeFastModeRates]
-  : undefined;
+const fastRates = claudeModelRates(values.model, "fast");
 if (values.speed !== "standard" && (values.speed !== "fast" || fastRates === undefined)) {
-  console.error(`Fast mode runs only on ${Object.keys(claudeFastModeRates).join(", ")}.`);
+  console.error(`The pricing page lists no fast mode price for ${values.model}.`);
   process.exit(2);
 }
 const run = {
@@ -120,7 +120,7 @@ const run = {
       : {
           modelId: values.model,
           effort: values.effort as ClaudeEffort,
-          rates: claudeBenchmarkModels[values.model as ClaudeBenchmarkModel],
+          rates,
         },
 };
 const result =

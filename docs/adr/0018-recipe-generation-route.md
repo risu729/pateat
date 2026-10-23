@@ -371,7 +371,9 @@ page after it ([ADR 0036](0036-passkey-after-the-identifier.md),
 sets it when the plan is checked:
 
 - a click after a password, a hidden value or a code submits;
-- a click after identifiers alone advances, unless its form (the action's group; inputs
+- a click after identifiers alone advances, unless its form (the action's group, or for
+  a button kept beside the page's only password form, which lists no button of its own,
+  that form, `besideForm`, owner's choice 2026-10-23; inputs
   outside any form count as one) shows a password or code input that the plan leaves
   empty, which the click would submit empty. A short numeric input, such as a phone
   number box, counts as a code input, so such a page still submits;
