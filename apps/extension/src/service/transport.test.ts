@@ -554,6 +554,7 @@ describe("recipe generation", () => {
           version: 1,
           revision: 2,
           route: "password",
+          branch: "1760000000000",
           observation,
         }),
       ),
@@ -581,7 +582,13 @@ describe("recipe generation", () => {
             ? { error: "device_revoked" }
             : { error: "synthetic" },
       );
-      const sample = { version: 1 as const, revision: 2, route: "password" as const, observation };
+      const sample = {
+        version: 1 as const,
+        revision: 2,
+        route: "password" as const,
+        branch: "1760000000000",
+        observation,
+      };
       expect(
         await createServiceTransport({ fetch }).samplePage(ORIGIN, CREDENTIAL, recipeId, sample),
       ).toEqual(expected);
@@ -663,6 +670,7 @@ describe("reportOutcome", () => {
   const report = {
     version: 1,
     revision: 3,
+    branch: "1760000000000",
     outcome: "unknown-submit",
     cause: "settled",
     step: 1,
@@ -712,6 +720,7 @@ describe("reportLogin", () => {
   const record = {
     version: 1,
     revision: 3,
+    branch: "1760000000000",
     outcome: "authenticated",
     extensionBuild: "1c42ad3",
     totalMs: 4210,
@@ -754,11 +763,11 @@ describe("reportLogin", () => {
 });
 
 describe("reportUse", () => {
-  const report = { version: 1, revision: 3 } as const;
+  const report = { version: 1, revision: 3, layout: "1760000000000" } as const;
   const send = (fetch: typeof globalThis.fetch, recipeId = "gen-0123") =>
     createServiceTransport({ fetch }).reportUse(ORIGIN, CREDENTIAL, recipeId, report);
 
-  it("posts only the revision with the device credential, no cookies and no redirects", async () => {
+  it("posts only the revision and layout with the device credential, no cookies and no redirects", async () => {
     const fetch = respond(204);
     expect(await send(fetch)).toEqual({ kind: "kept" });
     const [url, init] = fetch.mock.calls[0]!;
@@ -774,7 +783,11 @@ describe("reportUse", () => {
       Authorization: `Bearer ${CREDENTIAL}`,
       "Content-Type": "application/json",
     });
-    expect(JSON.parse(init!.body as string)).toEqual({ version: 1, revision: 3 });
+    expect(JSON.parse(init!.body as string)).toEqual({
+      version: 1,
+      revision: 3,
+      layout: "1760000000000",
+    });
   });
 
   it("encodes the recipe ID into the path", async () => {
@@ -857,18 +870,24 @@ describe("revokeRecipe (ADR 0058 A)", () => {
       id: recipeId,
       revision: 4,
       origin: "https://shop.example",
-      pageKind: "sign-in",
-      slots: ["password"],
-      steps: [
+      layouts: [
         {
-          kind: "fill",
-          path: "/login",
-          fields: [{ slot: "password", target: { by: "id", value: "password" } }],
-          effect: "submit",
-          event: "change",
+          key: "1760000000000",
+          createdAt: 1760000000000,
+          pageKind: "sign-in",
+          slots: ["password"],
+          steps: [
+            {
+              kind: "fill",
+              path: "/login",
+              fields: [{ slot: "password", target: { by: "id", value: "password" } }],
+              effect: "submit",
+              event: "change",
+            },
+          ],
+          maxSubmissions: 1,
         },
       ],
-      maxSubmissions: 1,
     },
   } as const;
   const send = (fetch: typeof globalThis.fetch, id = recipeId) =>
@@ -1110,6 +1129,7 @@ describe("service timing", () => {
         version: 1,
         revision: 1,
         route: "password",
+        branch: "1760000000000",
         observation: request.observation,
       }),
     ).toEqual({ kind: "rejected", timing: { roundTripMs: 250, serverMs: 20, networkMs: 230 } });

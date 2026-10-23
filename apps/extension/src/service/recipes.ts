@@ -1,16 +1,25 @@
 import {
+  chooserLayouts,
   deviceIdSchema,
-  isLoginRouteRecipe,
+  findChooserLayout,
+  findLayoutRecipe,
   laterStartSteps,
+  loginLayoutCandidates,
   loginRecipesForOrigin,
   MAX_RECIPE_CACHE_BYTES,
+  newestLayout,
+  recipeLayouts,
   recipeStartSteps,
+  runsLogin,
   selectLoginRecipe,
   serviceOriginSchema,
   storedLoginRecipeSchema,
+  type LayoutCandidate,
+  type LoginChooserDocument,
   type LoginChooserRecipe,
   type LoginEntryRecipe,
-  type LoginRecipe,
+  type LoginStep,
+  type LoginTarget,
   type SyncRecipeChanges,
 } from "@pateat/contracts";
 import * as v from "valibot";
@@ -43,9 +52,10 @@ export { MAX_RECIPE_CACHE_BYTES } from "@pateat/contracts";
 // skipped active changes remain pending until their entire page fits.
 // Entry and chooser recipes (ADR 0031, ADR 0028) are cached with the rest; only a
 // chooser is looked up and starts a login, on its list's path, and `entries` lists an
-// origin's entry recipes.
+// origin's entry recipes. Version 2 holds recipes with layouts (ADR 0060): a version 1
+// cache is ignored, so the device pulls every recipe again from the start.
 const cacheSchema = v.strictObject({
-  version: v.literal(1),
+  version: v.literal(2),
   origin: serviceOriginSchema,
   deviceId: deviceIdSchema,
   cursor: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(Number.MAX_SAFE_INTEGER)),
@@ -62,7 +72,7 @@ type RecipeCache = v.InferOutput<typeof cacheSchema>;
 // Kept separately so even an exactly full recipe cache can checkpoint its lookahead.
 // This is not an applied cursor: normal sync still reads every pending current head.
 const recoverySchema = v.strictObject({
-  version: v.literal(1),
+  version: v.literal(2),
   origin: serviceOriginSchema,
   deviceId: deviceIdSchema,
   cursor: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(Number.MAX_SAFE_INTEGER)),
@@ -264,7 +274,7 @@ export function createRecipeSync(options: {
     // A new pairing starts from an empty cache, so another owner's recipes never linger.
     const loaded = await load(connection);
     let cache: RecipeCache = loaded ?? {
-      version: 1,
+      version: 2,
       origin: connection.origin,
       deviceId: connection.deviceId,
       cursor: 0,
@@ -356,7 +366,7 @@ export function createRecipeSync(options: {
     async function checkpoint(after: number): Promise<RecipeSyncOutcome | undefined> {
       if (generation !== started) return "not-connected";
       const next: RecipeRecovery = {
-        version: 1,
+        version: 2,
         origin: cache.origin,
         deviceId: cache.deviceId,
         cursor: cache.cursor,
@@ -518,117 +528,193 @@ export function createRecipeSync(options: {
     await Promise.all([cleared, options.settings?.clear()]);
   }
 
+  /** The cache of the paired device, refreshed in the background when `refresh` is set. */
+  async function current(refresh: boolean): Promise<RecipeCache | undefined> {
+    const connection = await service.connection().catch(() => undefined);
+    if (!connection) return undefined;
+    if (refresh && !connection.rejected) refreshIfStale();
+    return load(connection);
+  }
+  const choosersOf = (cache: RecipeCache, origin: string) =>
+    cache.recipes.filter(
+      (recipe): recipe is LoginChooserDocument => "chooser" in recipe && recipe.origin === origin,
+    );
+  const documentOf = (cache: RecipeCache, origin: string, recipeId: string) =>
+    loginRecipesForOrigin(cache.recipes, origin).find((recipe) => recipe.id === recipeId);
+  /**
+   * The chooser documents whose list shows on the path. The service keeps one generated
+   * recipe per origin and start path; a path where several start, or where a login recipe
+   * starts as well, starts none (ADR 0013).
+   */
+  function choosersOn(cache: RecipeCache, origin: string, path: string) {
+    const here = choosersOf(cache, origin).filter((recipe) => recipe.chooser.path === path);
+    return here.length === 1 &&
+      !loginRecipesForOrigin(cache.recipes, origin).some(
+        (recipe) => recipe.layouts[0]!.steps[0]!.path === path,
+      )
+      ? here[0]
+      : undefined;
+  }
+  const chooserCandidates = (recipe: LoginChooserDocument) =>
+    chooserLayouts(recipe).map((projected, index): LayoutCandidate<LoginChooserRecipe> => ({
+      recipe: projected,
+      ...(recipe.chooser.layouts[index]!.language
+        ? { language: recipe.chooser.layouts[index]!.language }
+        : {}),
+      createdAt: recipe.chooser.layouts[index]!.createdAt,
+    }));
+  /** Steps and targets each once, in order. */
+  const once = <T>(items: readonly T[]) => {
+    const seen = new Set<string>();
+    return items.filter((item) => {
+      const key = JSON.stringify(item);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  };
+
+  // Each lookup projects one layout of a stored recipe to the recipe a login runs (ADR
+  // 0060). Without a layout named, it is the newest one; a new login chooses among
+  // `layouts` (or `choosers`) itself.
   const recipes: LoginRecipes = {
-    async recipe(origin: string, path: string, recipeId?: string) {
-      const connection = await service.connection().catch(() => undefined);
-      if (!connection) return undefined;
-      if (!connection.rejected) refreshIfStale();
-      const cache = await load(connection);
+    async recipe(origin: string, path: string, recipeId?: string, layout?: string) {
+      const cache = await current(true);
       if (!cache) return undefined;
-      // A resumed attempt asks for its own recipe; the executor checks its revision.
-      if (recipeId !== undefined)
-        return loginRecipesForOrigin(cache.recipes, origin).find(
-          (recipe): recipe is LoginRecipe => recipe.id === recipeId,
-        );
+      // A resumed attempt asks for its own recipe and layout; the executor checks its
+      // revision.
+      if (recipeId !== undefined) {
+        const stored = documentOf(cache, origin, recipeId);
+        if (!stored) return undefined;
+        if (layout === undefined) return newestLayout(loginLayoutCandidates(stored))?.recipe;
+        // A layout generated as `confirm` or `unclear` never runs (ADR 0035).
+        const found = findLayoutRecipe(stored, layout);
+        return found && runsLogin(found) ? found : undefined;
+      }
       const selection = selectLoginRecipe(cache.recipes, origin, path);
       return selection.ok ? selection.recipe : undefined;
     },
-    async chooser(origin: string, path: string, recipeId?: string) {
-      const connection = await service.connection().catch(() => undefined);
-      if (!connection) return undefined;
-      if (!connection.rejected) refreshIfStale();
-      const cache = await load(connection);
-      if (!cache) return undefined;
-      const choosers = cache.recipes.filter(
-        (recipe): recipe is LoginChooserRecipe => "chooser" in recipe && recipe.origin === origin,
+    async layouts(origin: string, path: string) {
+      const cache = await current(false);
+      if (!cache) return [];
+      const selection = selectLoginRecipe(cache.recipes, origin, path);
+      return selection.ok ? selection.layouts : [];
+    },
+    async layoutsOf(origin: string, recipeId: string) {
+      const cache = await current(false);
+      if (!cache) return [];
+      const stored = documentOf(cache, origin, recipeId);
+      if (stored) return recipeLayouts(stored);
+      // A chooser login's markers are its branches' (ADR 0028).
+      const chooser = choosersOf(cache, origin).find((recipe) => recipe.id === recipeId);
+      return (chooser ? chooserLayouts(chooser) : []).flatMap((projected) =>
+        [projected.chooser.afterAccount, projected.chooser.afterOther].filter(
+          (branch) => branch !== undefined,
+        ),
       );
-      if (recipeId !== undefined) return choosers.find((recipe) => recipe.id === recipeId);
-      // The service keeps one generated recipe per origin and start path; a path where
-      // several start, or where a login recipe starts as well, starts none (ADR 0013).
-      const here = choosers.filter((recipe) => recipe.chooser.path === path);
-      return here.length === 1 &&
-        !loginRecipesForOrigin(cache.recipes, origin).some(
-          (recipe) => recipe.steps[0]!.path === path,
-        )
-        ? here[0]
-        : undefined;
+    },
+    async chooser(origin: string, path: string, recipeId?: string, layout?: string) {
+      const cache = await current(true);
+      if (!cache) return undefined;
+      const stored =
+        recipeId !== undefined
+          ? choosersOf(cache, origin).find((recipe) => recipe.id === recipeId)
+          : choosersOn(cache, origin, path);
+      if (!stored) return undefined;
+      if (layout !== undefined) return findChooserLayout(stored, layout);
+      return newestLayout(chooserCandidates(stored))?.recipe;
+    },
+    async choosers(origin: string, path: string) {
+      const cache = await current(false);
+      if (!cache) return [];
+      const stored = choosersOn(cache, origin, path);
+      return stored ? chooserCandidates(stored) : [];
     },
     async starts(origin: string) {
-      const connection = await service.connection().catch(() => undefined);
-      if (!connection) return [];
-      const cache = await load(connection);
+      const cache = await current(false);
       if (!cache) return [];
-      // Every variant starts on the recipe's start path (ADR 0027). A chooser recipe (ADR
+      // Every variant starts on the recipe's start path (ADR 0027), in every layout (ADR
+      // 0060): a recipe is one start with every layout's first steps. A chooser recipe (ADR
       // 0028) starts where its list shows, once one of its buttons or a listed account
       // does, or its `other` branch's first step on that path, as when the person pressed
       // the button for another account; an entry recipe (ADR 0031) is left out: the runtime
       // counts its path as a start for generation through `entries` instead.
       return [
-        ...loginRecipesForOrigin(cache.recipes, origin).map((recipe) => {
+        ...loginRecipesForOrigin(cache.recipes, origin).map((stored) => {
+          // A layout generated as `confirm` or `unclear` never starts (ADR 0035).
+          const layouts = loginLayoutCandidates(stored).map((candidate) => candidate.recipe);
           // A later step a login may start at when no first step shows (ADR 0049).
-          const later = laterStartSteps(recipe).map(({ step }) => step);
+          const later = once(
+            layouts.flatMap((recipe) => laterStartSteps(recipe).map(({ step }) => step)),
+          );
           return {
-            path: recipe.steps[0]!.path,
-            steps: recipeStartSteps(recipe),
+            path: stored.layouts[0]!.steps[0]!.path,
+            steps: once(layouts.flatMap(recipeStartSteps)),
             ...(later.length ? { later } : {}),
           };
         }),
-        ...cache.recipes.flatMap((recipe) =>
-          "chooser" in recipe && recipe.origin === origin
-            ? [
-                {
-                  path: recipe.chooser.path,
-                  steps:
-                    recipe.chooser.afterOther?.steps
-                      .slice(0, 1)
-                      // Only a step that waits for an element: one that needs none would
-                      // show on the list as well.
-                      .filter(
-                        (step) =>
-                          step.path === recipe.chooser.path &&
-                          loginReadiness(step).targets.length > 0,
-                      ) ?? [],
-                  list: [recipe.chooser.other, recipe.chooser.continue].filter(
-                    (target) => target !== undefined,
-                  ),
-                },
-              ]
-            : [],
-        ),
+        ...choosersOf(cache, origin).map((stored) => {
+          const layouts = chooserLayouts(stored);
+          return {
+            path: stored.chooser.path,
+            steps: once(
+              layouts.flatMap(
+                (recipe): LoginStep[] =>
+                  recipe.chooser.afterOther?.steps
+                    .slice(0, 1)
+                    // Only a step that waits for an element: one that needs none would
+                    // show on the list as well.
+                    .filter(
+                      (step) =>
+                        step.path === recipe.chooser.path &&
+                        loginReadiness(step).targets.length > 0,
+                    ) ?? [],
+              ),
+            ),
+            list: once(
+              layouts.flatMap((recipe): LoginTarget[] =>
+                [recipe.chooser.other, recipe.chooser.continue].filter(
+                  (target) => target !== undefined,
+                ),
+              ),
+            ),
+          };
+        }),
       ];
     },
     async later(origin: string, path: string) {
-      const connection = await service.connection().catch(() => undefined);
-      if (!connection) return [];
-      const cache = await load(connection);
+      const cache = await current(false);
       if (!cache) return [];
       // A chooser's branches are never started in the middle: which one runs depends on the
-      // click on its list, which the page alone does not tell (ADR 0049).
-      return loginRecipesForOrigin(cache.recipes, origin).filter((recipe) =>
-        laterStartSteps(recipe).some(({ step }) => step.path === path),
-      );
+      // click on its list, which the page alone does not tell (ADR 0049). Each layout with
+      // such a step is a candidate; the runtime chooses among one recipe's (ADR 0060).
+      return loginRecipesForOrigin(cache.recipes, origin)
+        .flatMap((stored) => loginLayoutCandidates(stored).map((candidate) => candidate.recipe))
+        .filter((recipe) => laterStartSteps(recipe).some(({ step }) => step.path === path));
     },
     async routes(origin: string) {
       const connection = await service.connection().catch(() => undefined);
       if (!connection) return [];
       const cache = await load(connection);
       if (!cache) return [];
+      // Every layout of each login recipe whatever its kind, and every chooser layout's
+      // branches (ADR 0060).
       return cache.recipes.flatMap((recipe) =>
         recipe.origin !== origin
           ? []
-          : isLoginRouteRecipe(recipe)
-            ? [recipe]
+          : "layouts" in recipe
+            ? recipeLayouts(recipe)
             : "chooser" in recipe
-              ? [recipe.chooser.afterAccount, recipe.chooser.afterOther].filter(
-                  (branch) => branch !== undefined,
+              ? chooserLayouts(recipe).flatMap((projected) =>
+                  [projected.chooser.afterAccount, projected.chooser.afterOther].filter(
+                    (branch) => branch !== undefined,
+                  ),
                 )
               : [],
       );
     },
     async entries(origin: string) {
-      const connection = await service.connection().catch(() => undefined);
-      if (!connection) return [];
-      const cache = await load(connection);
+      const cache = await current(false);
       if (!cache) return [];
       return cache.recipes.filter(
         (recipe): recipe is LoginEntryRecipe => "entry" in recipe && recipe.origin === origin,

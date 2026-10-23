@@ -13,6 +13,14 @@ item to the items that hold its details) and
 [ADR 0036](0036-passkey-after-the-identifier.md) (a second kind of page judged while it
 still shows the sign-in form).
 
+Amended on 2026-10-23 by [ADR 0060](0060-recipe-layouts.md) (recipe layouts, accepted
+by the owner at 11:41 UTC; merged with this ADR by Claude, local tests only): a `detail`
+handler is learned into the layout the login ran, or that chooser layout's branch, like
+any other handler. "The path has no `detail` handler yet" and "judged once per recipe
+revision, origin and path" hold per layout (and branch), a page beside the sign-in form
+included, and the service records which judge call made the handler, under the beside
+prompt version for such a page, as that layout's `handler:<i>` unit.
+
 Date: 2026-10-23
 
 ## Context

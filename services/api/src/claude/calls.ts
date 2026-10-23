@@ -2,6 +2,7 @@ import {
   INFERENCE_LOG_RETENTION_MS,
   PAGE_SAMPLE_INTERVAL_MS,
   pageKindSchema,
+  parseRecipeBranch,
   type GenerationUnavailableReason,
   type RecipeGenerationResult,
 } from "@pateat/contracts";
@@ -96,9 +97,17 @@ export type ClaudeCall<T> = {
   request: { instructions: string; observation: unknown; [key: string]: unknown };
   /**
    * The recipe the call is for, logged beside the request: the head revision it starts
-   * from (0 for none) and, for generation, whether the page starts the recipe.
+   * from (0 for none) and, for generation, whether the page starts the recipe. `layout` is
+   * the key of the layout a first page's answer creates (ADR 0060); without it, the row's
+   * layout is the one `branch` names.
    */
-  recipe: { recipeId: string; branch: string; baseRevision: number; page?: RecipePage };
+  recipe: {
+    recipeId: string;
+    branch: string;
+    layout?: string;
+    baseRevision: number;
+    page?: RecipePage;
+  };
   /** Checked under the owner's lock, before credentials are resolved. */
   gate?: (db: Db, now: number) => Promise<GenerationUnavailableReason | undefined>;
   /**
@@ -116,6 +125,10 @@ export type UnsentRequest = Pick<
   ClaudeCall<unknown>,
   "role" | "promptVersion" | "origin" | "path" | "request" | "recipe"
 >;
+
+/** The layout a request log row is for (ADR 0060): the one given, or the one `branch` names. */
+const loggedLayout = ({ layout, branch }: { layout?: string; branch: string }) =>
+  layout ?? parseRecipeBranch(branch)?.layout ?? null;
 
 /**
  * The code a request answered without a model call is logged under: its unavailable
@@ -345,6 +358,7 @@ export async function logUnsent(
       outcome,
       recipeId,
       branch,
+      layout: loggedLayout(unsent.recipe),
       baseRevision,
       recipePage: page ?? null,
       ...pageKindColumns(unsent.request, null),
@@ -430,6 +444,7 @@ export async function logPageSample(
           outcome: sql`'sampled'`.as("outcome"),
           recipeId: sql`${recipeId}`.as("recipe_id"),
           branch: sql`${branch}`.as("branch"),
+          layout: sql`${loggedLayout(sample.recipe)}`.as("layout"),
           baseRevision: sql`${baseRevision}`.as("base_revision"),
           revision: sql`NULL`.as("revision"),
           recipePage: sql`NULL`.as("recipe_page"),
@@ -755,6 +770,7 @@ async function sendCall<T>(
       outcome: outcome.status === "failed" ? outcome.error : outcome.status,
       recipeId,
       branch,
+      layout: loggedLayout(call.recipe),
       baseRevision,
       recipePage: page ?? null,
       ...pageKindColumns(call.request, outcome.answer),

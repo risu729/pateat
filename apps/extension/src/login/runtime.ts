@@ -36,6 +36,12 @@ import {
   passkeyAnswersRequest,
   passwordStopOrMiss,
   passwordVariants,
+  languageDecides,
+  layoutFirstSteps,
+  layoutShown,
+  rankLayouts,
+  layoutStartTargets,
+  recipeBranch,
   recipeHasRoute,
   recipeStartSteps,
   laterStartSteps,
@@ -91,9 +97,9 @@ import {
   isLoginRouteRecipe,
   chooserClickBranch,
   chooserRoute,
-  type ChooserBranch,
   type ChooserClick,
   type ListClick,
+  type LayoutCandidate,
   type PageKind,
   type LoginChooserRecipe,
   type LoginRecipe,
@@ -943,6 +949,14 @@ const watchOver = (metadata: LoginAttemptMetadata, now: number) =>
  * list's own buttons, when it shows the list of accounts, and as its steps the first step
  * of its `other` branch when that starts on the list's path.
  */
+/**
+ * One layout a new login may run (ADR 0060), in the order it is tried, with the later
+ * steps that show of it when the login starts at one (ADR 0049).
+ */
+type LayoutChoice = {
+  recipe: LoginRecipe;
+  later?: { variants: Map<number, number[]>; button: boolean } | undefined;
+};
 export type LoginRecipeStart = {
   path: string;
   steps: LoginStep[];
@@ -955,21 +969,45 @@ export type LoginRecipeStart = {
  * ADR 0013); neither carries values.
  */
 export interface LoginRecipes {
-  /** The recipe for a document, or an attempt's own recipe by ID after navigation. */
-  recipe(origin: string, path: string, recipeId?: string): Promise<LoginRecipe | undefined>;
+  /**
+   * The recipe for a document, or an attempt's own recipe by ID after navigation: one
+   * layout of it (ADR 0060), the one named or else the newest.
+   */
+  recipe(
+    origin: string,
+    path: string,
+    recipeId?: string,
+    layout?: string,
+  ): Promise<LoginRecipe | undefined>;
+  /**
+   * Every layout of the recipe that starts on the path, for a new login to choose from
+   * (ADR 0060); none when no single recipe starts there.
+   */
+  layouts?(origin: string, path: string): Promise<LayoutCandidate<LoginRecipe>[]>;
+  /**
+   * Every layout of a recipe by ID, a chooser's branches for a chooser recipe: a sign-in
+   * check reads all their signed-in markers (ADR 0060).
+   */
+  layoutsOf?(origin: string, recipeId: string): Promise<LoginRecipe[]>;
   /** Where every recipe for the origin starts; a document watches for its first steps. */
   starts(origin: string): Promise<LoginRecipeStart[]>;
-  /** The origin's login recipes with a later step on the path a login may start at (ADR 0049). */
+  /**
+   * Each layout of the origin's login recipes with a later step on the path a login may
+   * start at (ADR 0049, ADR 0060).
+   */
   later?(origin: string, path: string): Promise<LoginRecipe[]>;
   /**
    * The chooser recipe (ADR 0028) whose list shows on the path, or a chooser login's own
-   * recipe by ID after navigation.
+   * recipe by ID after navigation: one layout of it, the one named or else the newest.
    */
   chooser?(
     origin: string,
     path: string,
     recipeId?: string,
+    layout?: string,
   ): Promise<LoginChooserRecipe | undefined>;
+  /** Every layout of the chooser whose list shows on the path (ADR 0060). */
+  choosers?(origin: string, path: string): Promise<LayoutCandidate<LoginChooserRecipe>[]>;
   /** The origin's entry recipes (ADR 0031): a start path and the link pressed there. */
   entries(origin: string): Promise<LoginEntryRecipe[]>;
   /**
@@ -1139,13 +1177,14 @@ const asksAccount = (observation: LoginObservation) => {
 export interface LoginGeneration {
   /**
    * `true` when a page may be sent, else why not; with `base` and `branch`, as the first
-   * page of that chooser branch (ADR 0028).
+   * page of that chooser branch (ADR 0028). A branch is the name `recipeBranch` gives a
+   * layout and chooser branch (ADR 0060).
    */
   available(
     origin: string,
     path: string,
     base?: RecipeGenerationRequest["base"],
-    branch?: ChooserBranch,
+    branch?: string,
   ): Promise<true | GenerationHold>;
   /**
    * Sends one page: a recipe's first page, or with `base` the page after the final
@@ -1179,8 +1218,11 @@ export interface LoginGeneration {
     route: LoginRoute,
     observation: LoginObservation,
     sent?: () => void,
-    /** For a chooser login (ADR 0028): the branch whose route is judged. */
-    branch?: ChooserBranch,
+    /**
+     * The layout the login ran (ADR 0060), and for a chooser login (ADR 0028) the branch
+     * whose route is judged, as `recipeBranch` names them; none for a recipe without layouts.
+     */
+    branch?: string,
     /**
      * The description left out a disabled field that may not be a sign-in field: the
      * service keeps the model's abstention as `partial`, so a page of the path described
@@ -1210,7 +1252,7 @@ export interface LoginGeneration {
     verdict: "signed-in" | "rejected" | "challenge" | "optional" | "unclear" | "retry";
     /** For `retry` and `unclear`: the refusal or failure code, for the local log. */
     reason?: string;
-    /** A chooser login's is the whole chooser (ADR 0028). */
+    /** A chooser login's is the whole chooser (ADR 0028); either is the judged layout. */
     recipe?: LoginRecipe | LoginChooserRecipe;
     /** How long the request took, when one was sent (ADR 0019). */
     timing?: ServiceTiming;
@@ -1225,7 +1267,7 @@ export interface LoginGeneration {
    * sampled.
    */
   samplePage?(
-    sample: { recipeId: string; revision: number; route: LoginRoute; branch?: ChooserBranch },
+    sample: { recipeId: string; revision: number; route: LoginRoute; branch?: string },
     describe: () => Promise<{ observation: LoginObservation } | { unsent: string }>,
     sending?: () => Promise<string | undefined>,
   ): Promise<PageSampleOutcome>;
@@ -1413,6 +1455,24 @@ const effectful = (metadata: LoginAttemptMetadata) =>
 const stepTargets = (step: LoginStep) =>
   step.kind === "fill" ? step.fields.map((field) => field.target) : [step.target];
 /**
+ * The name of the layout a login runs (ADR 0060) and, for a chooser login (ADR 0028), the
+ * branch its click led to, as the service's records and requests name them; `undefined` for
+ * a recipe without layouts, as the probe build's.
+ */
+function branchOf(metadata: LoginAttemptMetadata): string | undefined {
+  return metadata.layout === undefined
+    ? undefined
+    : recipeBranch(
+        metadata.layout,
+        metadata.chooser ? chooserClickBranch(metadata.chooser.click) : undefined,
+      );
+}
+/** `branchOf` as an optional `branch` member. */
+function branchField(metadata: LoginAttemptMetadata): { branch?: string } {
+  const branch = branchOf(metadata);
+  return branch ? { branch } : {};
+}
+/**
  * The recipe's signed-in markers as elements to observe (ADR 0029): each marker, which may
  * be a link located by its text (ADR 0018), then the elements it needs missing. `proves`
  * reads their states from `offset`: whether one marker shows once, visible, while each
@@ -1420,6 +1480,9 @@ const stepTargets = (step: LoginStep) =>
  * on `pageOrigin` count: the recipe's own origin by default, or another origin that a
  * login's tab moved to (ADR 0022).
  */
+/** Whether two recipes hold the same signed-in markers, so reading one reads the other. */
+const sameMarkers = (left: LoginRecipe, right: LoginRecipe) =>
+  JSON.stringify(left.completion ?? []) === JSON.stringify(right.completion ?? []);
 function markerProof(recipe: LoginRecipe, pageOrigin = recipe.origin) {
   const markers = (recipe.completion ?? []).filter(
     (marker) => (marker.origin ?? recipe.origin) === pageOrigin,
@@ -1582,8 +1645,11 @@ export type LoginReport = (
       recipeId: string;
       /** The recipe revision the login runs. */
       recipeRevision: number;
-      /** For a chooser login (ADR 0028): the branch whose route it runs. */
-      branch?: ChooserBranch;
+      /**
+       * The layout the login runs (ADR 0060), and for a chooser login (ADR 0028) the branch
+       * whose route it runs, as `recipeBranch` names them.
+       */
+      branch?: string;
       /** The route and password variant the login took when it started (ADR 0027). */
       route: LoginRoute;
       variant?: number;
@@ -1671,6 +1737,10 @@ export type LoginReport = (
       recipeId: string;
       /** The recipe revision the login runs. */
       recipeRevision: number;
+      /** The layout of the recipe the login runs (ADR 0060); absent for one without layouts. */
+      layout?: string;
+      /** How many layouts of the recipe it chose among, when more than one (ADR 0060). */
+      layouts?: number;
       route: LoginRoute;
       variant?: number;
       /** How the account was chosen; absent in the probe build. */
@@ -2235,7 +2305,7 @@ export function createLoginRuntime(
       origin: metadata.document.origin,
       recipeId: metadata.recipeId,
       recipeRevision: metadata.recipeRevision,
-      ...(metadata.chooser ? { branch: chooserClickBranch(metadata.chooser.click) } : {}),
+      ...branchField(metadata),
       route: metadata.route,
       ...(metadata.variant === undefined ? {} : { variant: metadata.variant }),
       state: metadata.state,
@@ -5003,6 +5073,30 @@ export function createLoginRuntime(
    * finished loading. The username goes to the page's content script for its comparison
    * only.
    */
+  /**
+   * Whether a signed-in marker of another layout of the login's recipe shows (ADR 0060),
+   * read as the login's own markers are; `undefined` when the page could not be read.
+   */
+  async function otherLayoutsMarked(run: Execution): Promise<boolean | undefined> {
+    const { recipe } = run;
+    const layouts = await Promise.resolve(recipes.layoutsOf?.(recipe.origin, recipe.id)).catch(
+      () => undefined,
+    );
+    /* eslint-disable no-await-in-loop */
+    for (const other of layouts ?? []) {
+      if (other.layout === recipe.layout && sameMarkers(other, recipe)) continue;
+      const proof = markerProof(other);
+      if (!proof.targets.length) continue;
+      const marked = await observe(run, proof.targets, proof.shown, {
+        links: proof.links,
+        hidden: proof.hidden,
+      });
+      if (!marked) return undefined;
+      if (proof.proves(marked.targets)) return true;
+    }
+    /* eslint-enable no-await-in-loop */
+    return false;
+  }
   async function readSignInState(run: Execution): Promise<
     | {
         signs: SignInSigns;
@@ -5040,6 +5134,10 @@ export function createLoginRuntime(
           })
         : undefined;
     if (proof.targets.length > 0 && !marked) return undefined;
+    // The signed-in markers the recipe's other layouts learned count as well (ADR 0060): a
+    // page of one layout's site may sign in to a page another layout learned.
+    const otherMarked = await otherLayoutsMarked(run);
+    if (otherMarked === undefined) return undefined;
     const authorized = await allowed(run);
     if (!authorized) return undefined;
     let username: string | undefined;
@@ -5115,7 +5213,7 @@ export function createLoginRuntime(
       // A failure counts only next to the sign-in fields.
       f1: s1 && page.invalid,
       f2: s1 && page.alert,
-      e1: marked !== undefined && proof.proves(marked.targets),
+      e1: (marked !== undefined && proof.proves(marked.targets)) || otherMarked,
       e2: page.username === true,
       // The document's path now, which follows a route change of a single-page site.
       e3:
@@ -6147,7 +6245,7 @@ export function createLoginRuntime(
       before.continuation !== undefined
     )
       return;
-    const branch = metadata.chooser ? chooserClickBranch(metadata.chooser.click) : undefined;
+    const branch = branchOf(metadata);
     const reportSample = (
       outcome: Extract<LoginReport, { type: "sample" }>["outcome"],
       reason?: string,
@@ -6350,18 +6448,17 @@ export function createLoginRuntime(
         ...(beside ? { beside: true as const } : {}),
         ...timed,
       });
-    // A chooser login's branch, whether the description left a disabled field out (ADR
-    // 0029), and whether the page is beside the sign-in form (ADR 0061); each is passed only
-    // when there is one.
-    const branch = metadata.chooser ? chooserClickBranch(metadata.chooser.click) : undefined;
-    const judgedTail: [(ChooserBranch | undefined)?, (true | undefined)?, undefined?, true?] =
-      beside
-        ? [branch, disabledLeftOut ? true : undefined, undefined, true]
-        : disabledLeftOut
-          ? [branch, true]
-          : branch
-            ? [branch]
-            : [];
+    // The login's layout and chooser branch (ADR 0060), whether the description left a
+    // disabled field out (ADR 0029), and whether the page is beside the sign-in form (ADR
+    // 0061); each is passed only when there is one.
+    const branch = branchOf(metadata);
+    const judgedTail: [(string | undefined)?, (true | undefined)?, undefined?, true?] = beside
+      ? [branch, disabledLeftOut ? true : undefined, undefined, true]
+      : disabledLeftOut
+        ? [branch, true]
+        : branch
+          ? [branch]
+          : [];
     const spin = spinning(run.live.document.tabId);
     const asked = Date.now();
     const {
@@ -6516,8 +6613,10 @@ export function createLoginRuntime(
   /** The newest cached revision of a login's own recipe, as the route it runs. */
   async function cachedRoute(run: Execution, path: string): Promise<LoginRecipe | undefined> {
     const { origin: pageOrigin } = run.live.document;
-    if (!run.metadata.chooser) return recipes.recipe(pageOrigin, path, run.recipe.id);
-    return routeOf(run, await recipes.chooser?.(pageOrigin, path, run.recipe.id));
+    // The layout the login started on (ADR 0060).
+    const { layout } = run.metadata;
+    if (!run.metadata.chooser) return recipes.recipe(pageOrigin, path, run.recipe.id, layout);
+    return routeOf(run, await recipes.chooser?.(pageOrigin, path, run.recipe.id, layout));
   }
   /**
    * Whether the attempt's in-flight step is the final `advance` step of a recipe that can be
@@ -6816,8 +6915,9 @@ export function createLoginRuntime(
             ...custom,
           ],
           base: { recipeId: recipe.id, revision: recipe.revision },
-          // A chooser login's page is its branch's next page (ADR 0028).
-          ...(metadata.chooser ? { branch: chooserClickBranch(metadata.chooser.click) } : {}),
+          // The page continues the login's layout (ADR 0060); a chooser login's is its
+          // branch's next page (ADR 0028).
+          ...branchField(metadata),
         },
         spin.sent(() =>
           report(page, {
@@ -7860,7 +7960,7 @@ export function createLoginRuntime(
         live.document.origin,
         live.path,
         { recipeId: chooser.id, revision: chooser.revision },
-        "other",
+        chooser.layout === undefined ? undefined : recipeBranch(chooser.layout, "other"),
       )
       .catch(() => undefined);
   }
@@ -8168,12 +8268,105 @@ export function createLoginRuntime(
       return true;
     }
   }
+  /** Whether the document shows a signed-in marker of any layout of the recipe (ADR 0060). */
+  async function showsAnyMarker(live: LiveDocument, recipe: LoginRecipe): Promise<boolean> {
+    const layouts = await Promise.resolve(recipes.layoutsOf?.(recipe.origin, recipe.id)).catch(
+      () => undefined,
+    );
+    const all = [recipe, ...(layouts ?? []).filter((other) => other.layout !== recipe.layout)];
+    for (const layout of all) if (await showsMarker(live, layout)) return true;
+    return false;
+  }
+  /**
+   * Which of `targets` the document shows now, each as one visible element: `true` shown,
+   * `false` not, `undefined` not asked. The wire takes at most 24, and a page that cannot be
+   * asked answers none.
+   */
+  async function shownTargets(
+    live: LiveDocument,
+    targets: readonly LoginTarget[],
+  ): Promise<(target: LoginTarget) => boolean | undefined> {
+    const asked = targets.slice(0, 24);
+    let states: readonly string[] = [];
+    if (asked.length)
+      try {
+        const parsed = v.safeParse(
+          observationSchema,
+          await send(live, {
+            type: "login.observe",
+            path: live.path,
+            targets: asked,
+            require: asked.map(() => "shown" as const),
+          }),
+        );
+        if (parsed.success) states = parsed.output.targets;
+      } catch {
+        // Nothing is known of a page that could not be asked.
+      }
+    return (target) => {
+      const at = asked.findIndex((other) => sameLoginTarget(other, target));
+      return at === -1 || states[at] === undefined ? undefined : states[at] === "unique";
+    };
+  }
+  /**
+   * The page's language as its observation names it (ADR 0060), the same reading that gave
+   * a layout its language when it was generated; `undefined` when the page cannot be
+   * described. Read only when it decides between layouts.
+   */
+  async function observedLanguage(
+    live: LiveDocument,
+    page: "login" | "accounts",
+  ): Promise<LoginObservation["language"] | undefined> {
+    try {
+      const extracted = v.safeParse(
+        extractResultSchema,
+        await send(live, { type: "login.extract", page }),
+      );
+      if (!extracted.success || !extracted.output.ok) return undefined;
+      const described = v.safeParse(
+        v.object({ language: v.picklist(["ja", "en", "mixed"]) }),
+        extracted.output.observation,
+      );
+      return described.success ? described.output.language : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  /**
+   * Layouts of one recipe best first for a new login (ADR 0060): those one of whose first
+   * steps (`firstStepsOf`) the document shows whole, then with the fewest of their start
+   * page elements (`targetsOf`) missing, then the most shown; then the page's language, read
+   * only when the best ones differ in it, and the newest (`rankLayouts`). The others drop
+   * out.
+   */
+  async function rankedLayouts<Recipe>(
+    live: LiveDocument,
+    candidates: readonly LayoutCandidate<Recipe>[],
+    targetsOf: (recipe: Recipe) => readonly LoginTarget[],
+    firstStepsOf: (recipe: Recipe) => readonly (readonly LoginTarget[])[],
+    page: "login" | "accounts",
+  ): Promise<LayoutCandidate<Recipe>[]> {
+    const all = candidates.flatMap((candidate) => targetsOf(candidate.recipe));
+    const shows = await shownTargets(
+      live,
+      all.filter(
+        (target, index) => all.findIndex((other) => sameLoginTarget(other, target)) === index,
+      ),
+    );
+    const shown = candidates.map((candidate) =>
+      layoutShown(firstStepsOf(candidate.recipe), targetsOf(candidate.recipe), shows),
+    );
+    const ranked = rankLayouts(candidates, shown);
+    return languageDecides(ranked)
+      ? rankLayouts(candidates, shown, await observedLanguage(live, page))
+      : ranked;
+  }
   /**
    * The `signedIn` hint of a page sent as a recipe's first page (ADR 0035): whether a
-   * signed-in marker learned on its origin by any of the origin's recipes shows, as ADR
-   * 0029's E1 reads it, or one of `usernames`, the matching items', shows in the page's
-   * header or navigation (E2). Markers past the wire's bound are left out. Only the flag
-   * leaves the device; a page that cannot be read shows neither.
+   * signed-in marker learned on its origin by any layout of the origin's recipes shows (ADR
+   * 0060), as ADR 0029's E1 reads it, or one of `usernames`, the matching items', shows in
+   * the page's header or navigation (E2). Markers past the wire's bound are left out. Only
+   * the flag leaves the device; a page that cannot be read shows neither.
    */
   async function signedInHint(live: LiveDocument, usernames: readonly string[]): Promise<boolean> {
     return (
@@ -8638,7 +8831,11 @@ export function createLoginRuntime(
     passkeyOnly = false,
   ): Promise<void> {
     if (!generation) return;
+    // A chooser's `other` branch is named by its layout (ADR 0060); only the probe build's
+    // choosers have none, and their pages are never offered.
+    if (otherless && otherless.layout === undefined) return;
     const base = otherless && { recipeId: otherless.id, revision: otherless.revision };
+    const otherBranch = otherless?.layout && recipeBranch(otherless.layout, "other");
     const key = frameKey(live.document);
     let sent = false;
     try {
@@ -8779,7 +8976,7 @@ export function createLoginRuntime(
                   ),
                   ...custom,
                 ],
-            ...(base ? { base, branch: "other" as const } : {}),
+            ...(base && otherBranch ? { base, branch: otherBranch } : {}),
           },
           spin.sent(() =>
             report(live.document, {
@@ -9907,16 +10104,67 @@ export function createLoginRuntime(
         ? previous
           ? probeRecipe(origin, `/${previous.recipeId.replace(/^demo-/, "")}`)
           : probeRecipe(origin, live.path)
-        : await recipes.recipe(document.origin, live.path, previous?.recipeId);
+        : await recipes.recipe(document.origin, live.path, previous?.recipeId, previous?.layout);
     if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+    // A new login on a recipe with several layouts (ADR 0060) takes the one whose start
+    // page elements show most, then one of the page's language, then the newest; the
+    // others follow in that order, and the first whose plan passes for the account runs.
+    // A resumed login keeps its own layout.
+    let layoutChoices: LayoutChoice[] = [];
+    let layoutCount = 1;
+    if (
+      recipe &&
+      !previous &&
+      start?.path === live.path &&
+      !(probeMode && document.origin === origin) &&
+      recipes.layouts
+    ) {
+      const candidates = await recipes.layouts(document.origin, live.path).catch(() => []);
+      if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+      if (candidates.length > 1) {
+        layoutCount = candidates.length;
+        const ranked = await rankedLayouts(
+          live,
+          candidates,
+          layoutStartTargets,
+          layoutFirstSteps,
+          "login",
+        );
+        if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+        layoutChoices = ranked.map(({ recipe: layout }) => ({ recipe: layout }));
+        recipe = layoutChoices[0]?.recipe ?? recipe;
+      }
+    }
     // A chooser recipe (ADR 0028): a new login on its list runs the route of its account
     // entry until it decides what to click, and a resumed one the route of its click.
     let chooser: LoginChooserRecipe | undefined;
     if (!recipe && !(probeMode && document.origin === origin) && (!previous || previous.chooser)) {
       chooser = await Promise.resolve(
-        recipes.chooser?.(document.origin, live.path, previous?.recipeId),
+        recipes.chooser?.(document.origin, live.path, previous?.recipeId, previous?.layout),
       ).catch(() => undefined);
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+      // A new login on a chooser with several layouts takes the one whose list buttons
+      // show most, then one of the page's language, then the newest (ADR 0060). Which
+      // account the list holds is decided only once the layout is, so the account's plan
+      // does not choose here.
+      if (chooser && !previous && start?.path === live.path && recipes.choosers) {
+        const candidates = await recipes.choosers(document.origin, live.path).catch(() => []);
+        if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+        if (candidates.length > 1) {
+          layoutCount = candidates.length;
+          // The list's buttons are its first step: a layout whose buttons all show fits.
+          const buttons = (candidate: LoginChooserRecipe) => listReadiness(candidate).targets;
+          const ranked = await rankedLayouts(
+            live,
+            candidates,
+            buttons,
+            (candidate) => [buttons(candidate)],
+            "accounts",
+          );
+          if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+          chooser = ranked[0]?.recipe ?? chooser;
+        }
+      }
       if (chooser) recipe = chooserRoute(chooser, previous?.chooser?.click ?? "entry");
     }
     // The chooser's path shows its `other` branch's form instead of the list, as after the
@@ -9953,18 +10201,23 @@ export function createLoginRuntime(
         // shows it at each stage: only a `password` variant's first step goes first, and the
         // button is offered to the account as on the first page (ADR 0027).
         let firstShows = false;
+        // Any layout the start page ranked best counts (ADR 0060), not only the first.
+        const layoutsHere = [
+          ...(recipe ? [recipe] : []),
+          ...layoutChoices.slice(1).map((choice) => choice.recipe),
+        ];
         /* eslint-disable no-await-in-loop */
-        for (const variant of recipe ? passwordVariants(recipe) : []) {
+        for (const variant of layoutsHere.flatMap((layout) => passwordVariants(layout))) {
           firstShows = await showsNow(live, loginReadiness(variant.steps[0]!));
           if (firstShows) break;
         }
         const showing: { recipe: LoginRecipe; variants: Map<number, number[]> }[] = [];
         if (!firstShows)
           for (const candidate of candidates) {
-            // A page that shows one of the recipe's signed-in markers is signed in, as a
-            // single-page app asking for the password again before a sensitive action: no
-            // login starts there.
-            if (await showsMarker(live, candidate)) continue;
+            // A page that shows one of the recipe's signed-in markers, those of any of its
+            // layouts (ADR 0060), is signed in, as a single-page app asking for the password
+            // again before a sensitive action: no login starts there.
+            if (await showsAnyMarker(live, candidate)) continue;
             const variants = new Map<number, number[]>();
             for (const { variant, index, step } of laterStartSteps(candidate)) {
               if (step.path !== live.path) continue;
@@ -9981,9 +10234,51 @@ export function createLoginRuntime(
           button.passkey.path === live.path &&
           (await showsNow(live, loginReadiness(routeSteps(button, { route: "passkey" })[0]!)));
         // Two recipes whose later steps show start neither, as two first steps do (ADR 0013).
-        if (showing.length === 1) {
-          recipe = showing[0]!.recipe;
-          later = { variants: showing[0]!.variants, button: await buttonShows(recipe) };
+        // Layouts of one recipe are told apart as at its start page (ADR 0060): by how many
+        // of their later steps show, the page's language and age, then the account's plan.
+        const shownRecipes = new Set(showing.map((entry) => entry.recipe.id));
+        if (shownRecipes.size === 1) {
+          let ranked = showing;
+          if (showing.length > 1) {
+            // Each layout's language and creation time, from the recipe's layouts.
+            const group = await Promise.resolve(
+              recipes.layouts?.(document.origin, showing[0]!.recipe.steps[0]!.path),
+            ).catch(() => undefined);
+            const metaOf = (entry: LoginRecipe) =>
+              group?.find((candidate) => candidate.recipe.layout === entry.layout);
+            const laterCandidates = showing.map((entry) => {
+              const meta = metaOf(entry.recipe);
+              return {
+                recipe: entry,
+                ...(meta?.language ? { language: meta.language } : {}),
+                createdAt: meta?.createdAt ?? 0,
+              };
+            });
+            // Each shows a later step whole, so only how many show tells them apart.
+            const laterShown = showing.map((entry) => ({
+              starts: true,
+              missing: 0,
+              shown: [...entry.variants.values()].reduce((sum, steps) => sum + steps.length, 0),
+            }));
+            let order = rankLayouts(laterCandidates, laterShown);
+            if (languageDecides(order))
+              order = rankLayouts(
+                laterCandidates,
+                laterShown,
+                await observedLanguage(live, "login"),
+              );
+            ranked = order.map(({ recipe: entry }) => entry);
+          }
+          layoutCount = Math.max(layoutCount, showing.length);
+          const choices: LayoutChoice[] = await Promise.all(
+            ranked.map(async (entry) => ({
+              recipe: entry.recipe,
+              later: { variants: entry.variants, button: await buttonShows(entry.recipe) },
+            })),
+          );
+          layoutChoices = choices.length > 1 ? choices : [];
+          recipe = choices[0]!.recipe;
+          later = choices[0]!.later;
         } else if (showing.length > 1) recipe = undefined;
         else if (!firstShows && !(await buttonShows(recipe)))
           // No step that may start a login shows, as when the one that announced the page
@@ -10369,21 +10664,43 @@ export function createLoginRuntime(
     // (ADR 0034), as one picked in the popup after a logout and one on a chooser's list do,
     // instead of clicking there; a login that only fills after a logout keeps its form.
     const pageRequest = !previous && document.frameId === 0 && parkedFor(document) !== undefined;
-    let plan = await planFor(snapshot, live, recipe, {
-      asking,
-      fill,
-      ...(previous ? { route: attemptRouteChoice(previous) } : {}),
-      ...(pageRequest ? { pageRequest } : {}),
-      ...(later && !later.button ? { later: true } : {}),
-    });
-    if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
-    if (plan.ok && "fillOnly" in plan && plan.route.route !== "password") {
-      plan = await planFor(snapshot, live, recipe, {
+    const planOf = async (
+      route: LoginRecipe,
+      from: typeof later,
+    ): Promise<Awaited<ReturnType<typeof planFor>> | undefined> => {
+      let planned = await planFor(snapshot, live, route, {
         asking,
-        ...(later && !later.button ? { later: true } : {}),
+        fill,
+        ...(previous ? { route: attemptRouteChoice(previous) } : {}),
+        ...(pageRequest ? { pageRequest } : {}),
+        ...(from && !from.button ? { later: true } : {}),
       });
-      if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+      if (documents.get(key) !== live) return undefined;
+      if (planned.ok && "fillOnly" in planned && planned.route.route !== "password") {
+        planned = await planFor(snapshot, live, route, {
+          asking,
+          ...(from && !from.button ? { later: true } : {}),
+        });
+        if (documents.get(key) !== live) return undefined;
+      }
+      return planned;
+    };
+    let plan = await planOf(recipe, later);
+    if (!plan) return { ok: false, reason: "stale-document" };
+    // Another layout of the recipe, next in order, runs when the account's plan passes on
+    // it and not on the first (ADR 0060); when none passes, the first one's refusal stands.
+    /* eslint-disable no-await-in-loop */
+    for (const choice of layoutChoices.slice(1)) {
+      if (plan.ok) break;
+      const next = await planOf(choice.recipe, choice.later);
+      if (!next) return { ok: false, reason: "stale-document" };
+      if (next.ok) {
+        plan = next;
+        recipe = choice.recipe;
+        later = choice.later;
+      }
     }
+    /* eslint-enable no-await-in-loop */
     // A passkey-only item on a list whose account branch cannot take the stop (ADR 0036,
     // owner 2026-10-13 06:32 UTC: the account's row, else "another account") still reads
     // the list first, planned on the click alone: it goes on only through `other`, and is
@@ -10688,6 +11005,8 @@ export function createLoginRuntime(
         origin: document.origin,
         recipeId: metadata.recipeId,
         recipeRevision: metadata.recipeRevision,
+        ...(metadata.layout === undefined ? {} : { layout: metadata.layout }),
+        ...(layoutCount > 1 ? { layouts: layoutCount } : {}),
         route: metadata.route,
         ...(metadata.variant === undefined ? {} : { variant: metadata.variant }),
         ...("chosen" in plan && plan.chosen
@@ -12000,8 +12319,8 @@ export function createLoginRuntime(
     const { origin: loginOrigin } = record.account;
     const click = record.chooser?.click;
     const found = click
-      ? await recipes.chooser?.(loginOrigin, "/", record.recipeId)
-      : await recipes.recipe(loginOrigin, "/", record.recipeId);
+      ? await recipes.chooser?.(loginOrigin, "/", record.recipeId, record.layout)
+      : await recipes.recipe(loginOrigin, "/", record.recipeId, record.layout);
     const route =
       found && (click && !isLoginRouteRecipe(found) ? chooserRoute(found, click) : found);
     return route && isLoginRouteRecipe(route) && route.revision === record.recipeRevision
@@ -12153,7 +12472,7 @@ export function createLoginRuntime(
         spin.sent(() => reportJudge("sent")),
         // A description that left out a disabled field says so (ADR 0029); only `signed-in`
         // completes a moved login then.
-        record.chooser ? chooserClickBranch(record.chooser.click) : undefined,
+        branchOf(record),
         ...(disabledLeftOut ? [true as const] : []),
       )
       .finally(spin.stop);
@@ -13072,7 +13391,7 @@ export function createLoginRuntime(
         "password",
         observation,
         spin.sent(() => reportJudge("sent")),
-        undefined,
+        branchOf(run.metadata),
         disabledLeftOut ? true : undefined,
         true,
       )

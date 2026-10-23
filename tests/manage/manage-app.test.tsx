@@ -75,6 +75,7 @@ function mockClient(initial = devices()) {
       unreadable: [],
     })),
     revokeRecipe: vi.fn<ManageClient["revokeRecipe"]>(),
+    revokeLayout: vi.fn<ManageClient["revokeLayout"]>(),
     requestLog: vi.fn<ManageClient["requestLog"]>(async () => structuredClone(logged)),
     deleteRequestLog: vi.fn<ManageClient["deleteRequestLog"]>(async () => {
       const { entries: deleted, outcomes, logins, problems } = logged;

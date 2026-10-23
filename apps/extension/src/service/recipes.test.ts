@@ -1,7 +1,11 @@
 import {
+  layoutRecipe,
   MAX_ACTIVE_RECIPE_BYTES,
   parseLoginRecipe,
+  routeBodyOf,
+  toLoginLayout,
   type LoginRecipe,
+  type LoginRecipeDocument,
   type StoredLoginRecipe,
   type SyncRecipeChange,
 } from "@pateat/contracts";
@@ -26,7 +30,7 @@ const OTHER_DEVICE = "7a2e4d2f-6e1c-4b63-8e66-4e8b9f1f3c52";
 const CREDENTIAL = `pateat_device_${"C".repeat(43)}`;
 const target = (value: string) => ({ by: "id" as const, value });
 
-function recipe(id: string, firstPath: string, revision = 1, origin = SITE): LoginRecipe {
+function route(id: string, firstPath: string, revision = 1, origin = SITE): LoginRecipe {
   return parseLoginRecipe({
     version: 1,
     id,
@@ -43,7 +47,22 @@ function recipe(id: string, firstPath: string, revision = 1, origin = SITE): Log
     maxSubmissions: 1,
   });
 }
-const active = (value: LoginRecipe): SyncRecipeChange => ({
+/** The route stored with one layout (ADR 0060), as the service sends it. */
+function storedOf(value: LoginRecipe, key = "1000"): LoginRecipeDocument {
+  const { version, id, revision, origin } = value;
+  return {
+    version,
+    id,
+    revision,
+    origin,
+    layouts: [toLoginLayout(value, { key, createdAt: Number(key) })],
+  };
+}
+/** A stored recipe with one layout of the route. */
+const recipe = (...args: Parameters<typeof route>) => storedOf(route(...args));
+/** The recipe a login runs of a stored recipe's only layout. */
+const projected = (value: LoginRecipeDocument) => layoutRecipe(value, value.layouts[0]!);
+const active = (value: StoredLoginRecipe): SyncRecipeChange => ({
   recipeId: value.id,
   revision: value.revision,
   state: "active",
@@ -65,26 +84,29 @@ const page = (
 
 /** A valid cache with less than one incoming recipe's worth of room left. */
 function crowdedCache() {
-  const held = recipe("cached-one", "/login");
+  const heldRoute = route("cached-one", "/login");
+  const held = storedOf(heldRoute);
   const other = { ...held, id: "cached-two" };
   // Long, valid paths and locators fill the real byte limit with fewer recipes.
   // This keeps schema validation, storage cloning and assertions inexpensive under
   // CI coverage, while all tests still exercise the actual 2 MiB boundary.
-  const filler = parseLoginRecipe({
-    ...held,
-    id: "fill-00000",
-    steps: [
-      ...held.steps.slice(0, 2),
-      ...Array.from({ length: 29 }, () => ({
-        kind: "assert",
-        path: `/${"p".repeat(299)}`,
-        target: target("p".repeat(120)),
-        present: true,
-      })),
-      held.steps.at(-1),
-    ],
-  });
-  const empty = { version: 1, origin: SERVICE, deviceId: DEVICE, cursor: 7, recipes: [] };
+  const filler = storedOf(
+    parseLoginRecipe({
+      ...heldRoute,
+      id: "fill-00000",
+      steps: [
+        ...heldRoute.steps.slice(0, 2),
+        ...Array.from({ length: 29 }, () => ({
+          kind: "assert",
+          path: `/${"p".repeat(299)}`,
+          target: target("p".repeat(120)),
+          present: true,
+        })),
+        heldRoute.steps.at(-1),
+      ],
+    }),
+  );
+  const empty = { version: 2, origin: SERVICE, deviceId: DEVICE, cursor: 7, recipes: [] };
   const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).byteLength;
   const smallBytes = bytes(held) + 1;
   const fillerBytes = bytes(filler) + 1;
@@ -115,22 +137,24 @@ function exactCache() {
     left -= added;
     return value + "p".repeat(added);
   };
-  cache.recipes[0] = parseLoginRecipe({
-    ...held,
-    steps: [
-      {
-        kind: "fill",
-        path: pad("/login", 300),
-        fields: [{ slot: "username", target: target(pad("user", 120)) }],
-      },
-      {
-        kind: "fill",
-        path: pad("/password", 300),
-        fields: [{ slot: "password", target: target(pad("pass", 120)) }],
-      },
-      { kind: "click", path: "/password", target: target(pad("login", 120)), purpose: "submit" },
-    ],
-  });
+  cache.recipes[0] = storedOf(
+    parseLoginRecipe({
+      ...projected(held),
+      steps: [
+        {
+          kind: "fill",
+          path: pad("/login", 300),
+          fields: [{ slot: "username", target: target(pad("user", 120)) }],
+        },
+        {
+          kind: "fill",
+          path: pad("/password", 300),
+          fields: [{ slot: "password", target: target(pad("pass", 120)) }],
+        },
+        { kind: "click", path: "/password", target: target(pad("login", 120)), purpose: "submit" },
+      ],
+    }),
+  );
   expect(left).toBe(0);
   expect(new TextEncoder().encode(JSON.stringify(cache)).byteLength).toBe(MAX_RECIPE_CACHE_BYTES);
   return cache;
@@ -234,7 +258,7 @@ function setup(
 
 describe("recipe sync", () => {
   it("does nothing without a paired device and clears a leftover cache", async () => {
-    const stored = { version: 1, origin: SERVICE, deviceId: DEVICE, cursor: 1, recipes: [] };
+    const stored = { version: 2, origin: SERVICE, deviceId: DEVICE, cursor: 1, recipes: [] };
     const { sync, transport, report, cache } = setup({ stored, connection: undefined });
     expect(await sync.sync()).toBe("not-connected");
     expect(cache()).toBeUndefined();
@@ -269,7 +293,7 @@ describe("recipe sync", () => {
       [SERVICE, CREDENTIAL, 2],
     ]);
     expect(cache()).toEqual({
-      version: 1,
+      version: 2,
       origin: SERVICE,
       deviceId: DEVICE,
       cursor: 4,
@@ -294,7 +318,7 @@ describe("recipe sync", () => {
   });
 
   it("continues from the stored cursor", async () => {
-    const stored = { version: 1, origin: SERVICE, deviceId: DEVICE, cursor: 7, recipes: [] };
+    const stored = { version: 2, origin: SERVICE, deviceId: DEVICE, cursor: 7, recipes: [] };
     const { sync, transport } = setup({ stored, pages: [page([], 7)] });
     await sync.sync();
     expect(transport.recipeChanges).toHaveBeenCalledWith(SERVICE, CREDENTIAL, 7);
@@ -303,13 +327,13 @@ describe("recipe sync", () => {
   it("starts over for another pairing or an unreadable cache", async () => {
     for (const stored of [
       {
-        version: 1,
+        version: 2,
         origin: SERVICE,
         deviceId: OTHER_DEVICE,
         cursor: 9,
         recipes: [recipe("x", "/")],
       },
-      { version: 1, origin: "https://other.example.com", deviceId: DEVICE, cursor: 9, recipes: [] },
+      { version: 2, origin: "https://other.example.com", deviceId: DEVICE, cursor: 9, recipes: [] },
       { version: 2 },
     ]) {
       const { sync, transport, cache } = setup({ stored, pages: [page([], 0)] });
@@ -322,7 +346,7 @@ describe("recipe sync", () => {
 
   it("keeps the cache and stops syncing once the service rejects the device", async () => {
     const stored = {
-      version: 1,
+      version: 2,
       origin: SERVICE,
       deviceId: DEVICE,
       cursor: 3,
@@ -340,7 +364,7 @@ describe("recipe sync", () => {
     expect(await later.sync.sync()).toBe("rejected");
     expect(later.transport.recipeChanges).not.toHaveBeenCalled();
     expect(await later.sync.recipes.recipe(SITE, "/login")).toEqual(
-      recipe("bank-signin", "/login"),
+      projected(recipe("bank-signin", "/login")),
     );
   });
 
@@ -433,20 +457,23 @@ describe("recipe sync", () => {
 
   it("recovers additions before later shrinking current heads when both service snapshots fit", async () => {
     const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).byteLength;
-    const small = recipe("old-000", "/login");
-    const large = parseLoginRecipe({
-      ...small,
-      steps: [
-        ...small.steps.slice(0, 2),
-        ...Array.from({ length: 29 }, () => ({
-          kind: "assert",
-          path: `/${"p".repeat(299)}`,
-          target: target("p".repeat(120)),
-          present: true,
-        })),
-        small.steps.at(-1),
-      ],
-    });
+    const smallRoute = route("old-000", "/login");
+    const small = storedOf(smallRoute);
+    const large = storedOf(
+      parseLoginRecipe({
+        ...smallRoute,
+        steps: [
+          ...smallRoute.steps.slice(0, 2),
+          ...Array.from({ length: 29 }, () => ({
+            kind: "assert",
+            path: `/${"p".repeat(299)}`,
+            target: target("p".repeat(120)),
+            present: true,
+          })),
+          smallRoute.steps.at(-1),
+        ],
+      }),
+    );
     const old = Array.from(
       { length: Math.floor((MAX_ACTIVE_RECIPE_BYTES * 0.9) / bytes(large)) },
       (_, i) => ({ ...large, id: `old-${String(i).padStart(3, "0")}` }),
@@ -465,7 +492,7 @@ describe("recipe sync", () => {
     expect([...added, ...shrunk].reduce((sum, held) => sum + bytes(held), 0)).toBeLessThan(
       MAX_ACTIVE_RECIPE_BYTES,
     );
-    const stored = { version: 1, origin: SERVICE, deviceId: DEVICE, cursor: 1, recipes: old };
+    const stored = { version: 2, origin: SERVICE, deviceId: DEVICE, cursor: 1, recipes: old };
     expect(bytes({ ...stored, recipes: [...old, ...added] })).toBeGreaterThan(
       MAX_RECIPE_CACHE_BYTES,
     );
@@ -506,7 +533,7 @@ describe("recipe sync", () => {
       expect(await first.sync.sync()).toBe("cache-full");
       expect(first.cache()).toEqual(stored);
       expect(first.recovery()).toEqual({
-        version: 1,
+        version: 2,
         origin: SERVICE,
         deviceId: DEVICE,
         cursor: 7,
@@ -630,7 +657,7 @@ describe("recipe sync", () => {
   ])("ignores an invalid or differently bound checkpoint: %j", async (record) => {
     const h = setup({
       stored: crowdedCache(),
-      recovery: { version: 1, ...record },
+      recovery: { version: 2, ...record },
       pages: [page(incoming(), 9, false), page([], 10), page(incoming(), 9, false)],
     });
     expect(await h.sync.sync()).toBe("cache-full");
@@ -642,7 +669,7 @@ describe("recipe sync", () => {
     async (stored) => {
       const h = setup({
         stored,
-        recovery: { version: 1, origin: SERVICE, deviceId: DEVICE, cursor: 0, after: 99 },
+        recovery: { version: 2, origin: SERVICE, deviceId: DEVICE, cursor: 0, after: 99 },
         pages: [page(incoming(), 9)],
       });
       expect(await h.sync.sync()).toBe("synced");
@@ -712,15 +739,19 @@ describe("recipe sync", () => {
 
   it("rejects a UTF-8 growing active head during lookahead even when its character count is unchanged", async () => {
     const stored = crowdedCache();
-    stored.recipes[1] = parseLoginRecipe({
-      ...recipe("cached-two", "/x"),
-      completion: [{ target: { by: "text", value: "x" } }],
-    });
-    const growing = parseLoginRecipe({
-      ...stored.recipes[1],
-      revision: 2,
-      completion: [{ target: { by: "text", value: "日" } }],
-    });
+    stored.recipes[1] = storedOf(
+      parseLoginRecipe({
+        ...route("cached-two", "/x"),
+        completion: [{ target: { by: "text", value: "x" } }],
+      }),
+    );
+    const growing = storedOf(
+      parseLoginRecipe({
+        ...projected(stored.recipes[1]!),
+        revision: 2,
+        completion: [{ target: { by: "text", value: "日" } }],
+      }),
+    );
     const h = setup({
       stored,
       pages: [page(incoming(), 9, false), page([active(growing)], 10), page(incoming(), 9, false)],
@@ -748,7 +779,7 @@ describe("recipe sync", () => {
     const running = h.sync.sync();
     await vi.waitFor(() => expect(h.storage.readRecovery).toHaveBeenCalledOnce());
     await h.sync.clear();
-    loaded({ version: 1, origin: SERVICE, deviceId: DEVICE, cursor: 7, after: 99 });
+    loaded({ version: 2, origin: SERVICE, deviceId: DEVICE, cursor: 7, after: 99 });
     expect(await running).toBe("not-connected");
     expect(h.transport.recipeChanges).not.toHaveBeenCalled();
     expect(h.cache()).toBeUndefined();
@@ -785,7 +816,7 @@ describe("recipe sync", () => {
 
   it("stops before the cache outgrows its share of local storage", async () => {
     const stored = {
-      version: 1,
+      version: 2,
       origin: SERVICE,
       deviceId: DEVICE,
       cursor: 1,
@@ -1137,7 +1168,7 @@ describe("recipe sync", () => {
   });
 
   it("keeps the cache when the paired device cannot be read", async () => {
-    const stored = { version: 1, origin: SERVICE, deviceId: DEVICE, cursor: 1, recipes: [] };
+    const stored = { version: 2, origin: SERVICE, deviceId: DEVICE, cursor: 1, recipes: [] };
     const { sync, service, cache } = setup({ stored });
     service.connection.mockRejectedValue(new Error("storage"));
     expect(await sync.sync()).toBe("storage-unavailable");
@@ -1147,7 +1178,7 @@ describe("recipe sync", () => {
 
   it("forgets the cache when its device is disconnected", async () => {
     const stored = {
-      version: 1,
+      version: 2,
       origin: SERVICE,
       deviceId: DEVICE,
       cursor: 1,
@@ -1181,9 +1212,9 @@ describe("recipe sync", () => {
         },
       ],
     };
-    const single = recipe("bank-signin", "/login");
+    const single = route("bank-signin", "/login");
     const varied = parseLoginRecipe({
-      ...recipe("bank-app", "/app/login"),
+      ...route("bank-app", "/app/login"),
       slots: ["username"],
       steps: [
         {
@@ -1198,11 +1229,11 @@ describe("recipe sync", () => {
       ],
     });
     const stored = {
-      version: 1,
+      version: 2,
       origin: SERVICE,
       deviceId: DEVICE,
       cursor: 1,
-      recipes: [single, varied],
+      recipes: [storedOf(single), storedOf(varied)],
     };
     const { sync } = setup({ stored, scheduled: { version: 1, startedAt: 0, retryAt: 9e9 } });
     expect(await sync.recipes.starts(SITE)).toEqual([
@@ -1210,12 +1241,116 @@ describe("recipe sync", () => {
       { path: "/login", steps: [single.steps[0]], later: [single.steps[1]] },
       { path: "/app/login", steps: [varied.steps[0], varied.alternatives![0]!.steps[0]] },
     ]);
-    expect(await sync.recipes.later!(SITE, "/password")).toEqual([single]);
+    expect(await sync.recipes.later!(SITE, "/password")).toEqual([{ ...single, layout: "1000" }]);
     expect(await sync.recipes.later!(SITE, "/login")).toEqual([]);
     expect(await sync.recipes.starts("https://other.example")).toEqual([]);
     await sync.clear();
     expect(await sync.recipes.starts(SITE)).toEqual([]);
     expect(await sync.recipes.later!(SITE, "/password")).toEqual([]);
+  });
+
+  it("runs one layout of a recipe (ADR 0060): the one named, or else the newest", async () => {
+    const first = route("bank-signin", "/login");
+    const second = parseLoginRecipe({
+      ...first,
+      steps: [
+        { kind: "fill", path: "/login", fields: [{ slot: "username", target: target("email") }] },
+        { kind: "fill", path: "/secret", fields: [{ slot: "password", target: target("secret") }] },
+        { kind: "click", path: "/secret", target: target("go"), purpose: "submit" },
+      ],
+      completion: [{ target: target("home") }],
+    });
+    const layered: LoginRecipeDocument = {
+      ...storedOf(first),
+      layouts: [
+        toLoginLayout(first, { key: "1000", language: "ja", createdAt: 1000 }),
+        toLoginLayout(second, { key: "2000", createdAt: 2000 }),
+      ],
+    };
+    const stored = { version: 2, origin: SERVICE, deviceId: DEVICE, cursor: 1, recipes: [layered] };
+    const { sync } = setup({ stored, scheduled: { version: 1, startedAt: 0, retryAt: 9e9 } });
+    const one = { ...first, layout: "1000" };
+    const two = { ...second, layout: "2000" };
+    expect(await sync.recipes.recipe(SITE, "/login")).toEqual(two);
+    expect(await sync.recipes.recipe(SITE, "/x", "bank-signin")).toEqual(two);
+    expect(await sync.recipes.recipe(SITE, "/x", "bank-signin", "1000")).toEqual(one);
+    // A layout removed meanwhile is gone for the login that ran it.
+    expect(await sync.recipes.recipe(SITE, "/x", "bank-signin", "3000")).toBeUndefined();
+    expect(await sync.recipes.layouts!(SITE, "/login")).toEqual([
+      { recipe: one, language: "ja", createdAt: 1000 },
+      { recipe: two, createdAt: 2000 },
+    ]);
+    expect(await sync.recipes.layouts!(SITE, "/secret")).toEqual([]);
+    // Each layout's own markers, for a sign-in check that reads them all.
+    expect(await sync.recipes.layoutsOf!(SITE, "bank-signin")).toEqual([one, two]);
+    expect(await sync.recipes.layoutsOf!(SITE, "bank-other")).toEqual([]);
+    // One start with every layout's first steps and later steps, each once.
+    expect(await sync.recipes.starts(SITE)).toEqual([
+      {
+        path: "/login",
+        steps: [first.steps[0], second.steps[0]],
+        later: [first.steps[1], second.steps[1]],
+      },
+    ]);
+    // A later step of either layout lists that layout alone.
+    expect(await sync.recipes.later!(SITE, "/password")).toEqual([one]);
+    expect(await sync.recipes.later!(SITE, "/secret")).toEqual([two]);
+  });
+
+  it("runs no layout of a recipe generated as confirm, and routes every layout (ADR 0035, ADR 0060)", async () => {
+    const first = parseLoginRecipe({ ...route("bank-signin", "/login"), pageKind: "confirm" });
+    const second = parseLoginRecipe({
+      ...first,
+      steps: [
+        { kind: "fill", path: "/login", fields: [{ slot: "username", target: target("email") }] },
+        { kind: "fill", path: "/secret", fields: [{ slot: "password", target: target("secret") }] },
+        { kind: "click", path: "/secret", target: target("go"), purpose: "submit" },
+      ],
+    });
+    // Every layout of a recipe has its start page's kind.
+    const layered: LoginRecipeDocument = {
+      ...storedOf(first),
+      layouts: [
+        toLoginLayout(first, { key: "1000", createdAt: 1000 }),
+        toLoginLayout(second, { key: "2000", createdAt: 2000 }),
+      ],
+    };
+    const stored = { version: 2, origin: SERVICE, deviceId: DEVICE, cursor: 1, recipes: [layered] };
+    const { sync } = setup({ stored, scheduled: { version: 1, startedAt: 0, retryAt: 9e9 } });
+    const one = { ...first, layout: "1000" };
+    const two = { ...second, layout: "2000" };
+    // No layout is chosen, named or started at a later step.
+    expect(await sync.recipes.recipe(SITE, "/login")).toBeUndefined();
+    expect(await sync.recipes.recipe(SITE, "/x", "bank-signin")).toBeUndefined();
+    expect(await sync.recipes.recipe(SITE, "/x", "bank-signin", "2000")).toBeUndefined();
+    expect(await sync.recipes.layouts!(SITE, "/login")).toEqual([]);
+    expect(await sync.recipes.starts(SITE)).toEqual([]);
+    expect(await sync.recipes.later!(SITE, "/secret")).toEqual([]);
+    // Every layout is still a route of the origin, as a logout check reads them.
+    expect(await sync.recipes.routes!(SITE)).toEqual([one, two]);
+  });
+
+  it("ignores a cache written before layouts (ADR 0060), so every recipe is pulled again", async () => {
+    const old = {
+      version: 1,
+      origin: SERVICE,
+      deviceId: DEVICE,
+      cursor: 9,
+      recipes: [route("bank-signin", "/login")],
+    };
+    const { sync, cache, transport } = setup({
+      stored: old,
+      pages: [page([active(recipe("bank-signin", "/login", 2))], 3)],
+    });
+    expect(await sync.sync()).toBe("synced");
+    expect(transport.recipeChanges.mock.calls.map(([, , cursor]) => cursor)).toEqual([0]);
+    expect(cache()).toEqual({
+      version: 2,
+      origin: SERVICE,
+      deviceId: DEVICE,
+      cursor: 3,
+      recipes: [recipe("bank-signin", "/login", 2)],
+    });
   });
 
   it("finds a chooser (ADR 0028) by its list's path or its ID, never where a login starts", async () => {
@@ -1225,20 +1360,38 @@ describe("recipe sync", () => {
       id: "bank-chooser",
       revision: 1,
       origin: SITE,
-      chooser: { path: "/profiles", other },
+      chooser: { path: "/profiles", layouts: [{ key: "1000", createdAt: 1000, other }] },
     };
-    const clash = { ...chooser, id: "bank-clash", chooser: { path: "/login" } };
+    const clash = {
+      ...chooser,
+      id: "bank-clash",
+      chooser: { path: "/login", layouts: [{ key: "1000", createdAt: 1000 }] },
+    };
     const stored = {
-      version: 1,
+      version: 2,
       origin: SERVICE,
       deviceId: DEVICE,
       cursor: 1,
       recipes: [recipe("bank-signin", "/login"), chooser, clash],
     };
     const { sync } = setup({ stored, scheduled: { version: 1, startedAt: 0, retryAt: 9e9 } });
-    expect(await sync.recipes.chooser!(SITE, "/profiles")).toEqual(chooser);
-    expect(await sync.recipes.chooser!(SITE, "/elsewhere", "bank-chooser")).toEqual(chooser);
+    const runs = {
+      version: 1,
+      id: "bank-chooser",
+      revision: 1,
+      origin: SITE,
+      layout: "1000",
+      chooser: { path: "/profiles", other },
+    };
+    expect(await sync.recipes.chooser!(SITE, "/profiles")).toEqual(runs);
+    expect(await sync.recipes.chooser!(SITE, "/elsewhere", "bank-chooser")).toEqual(runs);
+    expect(await sync.recipes.chooser!(SITE, "/elsewhere", "bank-chooser", "1000")).toEqual(runs);
+    expect(await sync.recipes.chooser!(SITE, "/elsewhere", "bank-chooser", "2000")).toBeUndefined();
+    expect(await sync.recipes.choosers!(SITE, "/profiles")).toEqual([
+      { recipe: runs, createdAt: 1000 },
+    ]);
     expect(await sync.recipes.chooser!(SITE, "/login")).toBeUndefined();
+    expect(await sync.recipes.choosers!(SITE, "/login")).toEqual([]);
     expect(await sync.recipes.chooser!("https://other.example", "/profiles")).toBeUndefined();
     // A chooser is never a login recipe, by path or by ID.
     expect(await sync.recipes.recipe(SITE, "/profiles", "bank-chooser")).toBeUndefined();
@@ -1251,13 +1404,21 @@ describe("recipe sync", () => {
 
   it("starts a chooser (ADR 0028) also on its other branch's first step on the list's path", async () => {
     const other = { by: "text" as const, value: "Use another profile" };
-    const branch = (path: string) => ({ ...recipe("bank-chooser", path), revision: 2 });
+    const continueButton = { by: "text" as const, value: "Continue" };
+    const branch = (path: string) => routeBodyOf(route("bank-chooser", path, 2));
     const chooser = (path: string) => ({
       version: 1 as const,
       id: "bank-chooser",
       revision: 2,
       origin: SITE,
-      chooser: { path: "/profiles", other, afterOther: branch(path) },
+      chooser: {
+        path: "/profiles",
+        layouts: [
+          { key: "1000", createdAt: 1000, other, afterOther: branch(path) },
+          // Another layout's buttons count too (ADR 0060).
+          { key: "2000", createdAt: 2000, other, continue: continueButton },
+        ],
+      },
     });
     for (const [path, steps] of [
       ["/profiles", [branch("/profiles").steps[0]]],
@@ -1265,7 +1426,7 @@ describe("recipe sync", () => {
       ["/email", []],
     ] as const) {
       const stored = {
-        version: 1,
+        version: 2,
         origin: SERVICE,
         deviceId: DEVICE,
         cursor: 1,
@@ -1274,11 +1435,16 @@ describe("recipe sync", () => {
       const { sync } = setup({ stored, scheduled: { version: 1, startedAt: 0, retryAt: 9e9 } });
       // eslint-disable-next-line no-await-in-loop
       expect(await sync.recipes.starts(SITE)).toEqual([
-        { path: "/profiles", steps, list: [other] },
+        { path: "/profiles", steps, list: [other, continueButton] },
       ]);
       // A branch's password page never starts a login by itself (ADR 0049).
       // eslint-disable-next-line no-await-in-loop
       expect(await sync.recipes.later!(SITE, "/password")).toEqual([]);
+      // A chooser login's sign-in check reads its branches' markers.
+      // eslint-disable-next-line no-await-in-loop
+      expect(await sync.recipes.layoutsOf!(SITE, "bank-chooser")).toEqual([
+        { ...route("bank-chooser", path, 2), layout: "1000" },
+      ]);
     }
   });
 });
@@ -1516,7 +1682,7 @@ describe("recipe sync schedule", () => {
 describe("cached recipe lookup", () => {
   const signin = recipe("bank-signin", "/login");
   const stored = {
-    version: 1,
+    version: 2,
     origin: SERVICE,
     deviceId: DEVICE,
     cursor: 2,
@@ -1525,7 +1691,7 @@ describe("cached recipe lookup", () => {
 
   it("returns a resumed attempt's own recipe by ID on any step", async () => {
     const { sync } = setup({ stored });
-    expect(await sync.recipes.recipe(SITE, "/password", "bank-signin")).toEqual(signin);
+    expect(await sync.recipes.recipe(SITE, "/password", "bank-signin")).toEqual(projected(signin));
     expect(await sync.recipes.recipe(SITE, "/password", "other-site")).toBeUndefined();
   });
 
@@ -1562,11 +1728,11 @@ describe("cached recipe lookup", () => {
     expect(await sync.sync()).toBe("synced");
     expect(cache()["recipes"]).toEqual([...stored.recipes, entry, home]);
     // Sharing the login recipe's start path, it neither replaces nor ambiguates it.
-    expect(await sync.recipes.recipe(SITE, "/login")).toEqual(signin);
+    expect(await sync.recipes.recipe(SITE, "/login")).toEqual(projected(signin));
     expect(await sync.recipes.recipe(SITE, "/")).toBeUndefined();
     expect(await sync.recipes.recipe(SITE, "/", "bank-home")).toBeUndefined();
     expect(await sync.recipes.starts(SITE)).toEqual([
-      { path: "/login", steps: [signin.steps[0]], later: [signin.steps[1]] },
+      { path: "/login", steps: [projected(signin).steps[0]], later: [projected(signin).steps[1]] },
     ]);
   });
 
@@ -1650,9 +1816,9 @@ describe("cached recipe lookup", () => {
         }),
     );
     // The lookup answers from the cache while the first sync is still running.
-    expect(await sync.recipes.recipe(SITE, "/login")).toEqual(signin);
+    expect(await sync.recipes.recipe(SITE, "/login")).toEqual(projected(signin));
     await vi.waitFor(() => expect(transport.recipeChanges).toHaveBeenCalledOnce());
-    expect(await sync.recipes.recipe(SITE, "/login")).toEqual(signin);
+    expect(await sync.recipes.recipe(SITE, "/login")).toEqual(projected(signin));
     release(page([], 2));
     await new Promise((resolve) => setTimeout(resolve, 0));
     time += RECIPE_SYNC_STALE_MS - 1;
@@ -1672,7 +1838,7 @@ describe("cached recipe lookup", () => {
       credential: CREDENTIAL,
       rejected: true,
     });
-    expect(await sync.recipes.recipe(SITE, "/login")).toEqual(signin);
+    expect(await sync.recipes.recipe(SITE, "/login")).toEqual(projected(signin));
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(transport.recipeChanges).not.toHaveBeenCalled();
   });

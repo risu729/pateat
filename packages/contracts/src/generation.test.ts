@@ -24,11 +24,15 @@ const observation = {
   candidates: [{ id: "next", role: "button", target: { by: "id", value: "next" } }],
 };
 const slots = [{ id: "email", kind: "identifier", description: "account email address" }];
-const recipe = {
+/** A recipe stored with one layout of the route (ADR 0060). */
+const stored = (body: Record<string, unknown>) => ({
   version: 1,
   id: "gen-1",
   revision: 2,
   origin: "https://shop.example.test",
+  layouts: [{ key: "1000", createdAt: 1000, ...body }],
+});
+const route = {
   pageKind: "sign-in",
   slots: ["email"],
   steps: [
@@ -41,6 +45,7 @@ const recipe = {
   ],
   maxSubmissions: 1,
 };
+const recipe = stored(route);
 
 describe("recipe generation contracts", () => {
   it("accepts a page with slots and an optional base revision", () => {
@@ -48,9 +53,10 @@ describe("recipe generation contracts", () => {
       v.is(recipeGenerationRequestSchema, { version: 1, observation, slots, signedIn: false }),
     ).toBe(true);
     const base = { recipeId: "gen-1", revision: 1 };
-    expect(v.is(recipeGenerationRequestSchema, { version: 1, observation, slots, base })).toBe(
-      true,
-    );
+    // A base names the layout it continues (ADR 0060).
+    expect(
+      v.is(recipeGenerationRequestSchema, { version: 1, observation, slots, base, branch: "1000" }),
+    ).toBe(true);
     // A chooser branch's page (ADR 0028) names its chooser as the base.
     expect(
       v.is(recipeGenerationRequestSchema, {
@@ -58,15 +64,15 @@ describe("recipe generation contracts", () => {
         observation,
         slots,
         base,
-        branch: "other",
+        branch: "1000:other",
       }),
     ).toBe(true);
     for (const invalid of [
-      { version: 1, observation, slots, base: { recipeId: "gen-1", revision: 0 } },
+      { version: 1, observation, slots, base: { recipeId: "gen-1", revision: 0 }, branch: "1000" },
       { version: 1, observation, slots: [], signedIn: false },
       // A first page carries the signedIn hint (ADR 0035), and only a first page does.
       { version: 1, observation, slots },
-      { version: 1, observation, slots, base, signedIn: false },
+      { version: 1, observation, slots, base, branch: "1000", signedIn: false },
       {
         version: 1,
         observation: { ...observation, accounts: ["[email]"] },
@@ -74,8 +80,10 @@ describe("recipe generation contracts", () => {
         signedIn: true,
       },
       { version: 1, observation, slots, item: "vault-item" },
-      { version: 1, observation, slots, branch: "account" },
-      { version: 1, observation, slots, base, branch: "entry" },
+      { version: 1, observation, slots, base },
+      { version: 1, observation, slots, branch: "1000:account" },
+      { version: 1, observation, slots, base, branch: "other" },
+      { version: 1, observation, slots, base, branch: "1000:entry" },
     ])
       expect(v.is(recipeGenerationRequestSchema, invalid)).toBe(false);
   });
@@ -124,7 +132,10 @@ describe("recipe generation contracts", () => {
       id: "gen-1",
       revision: 2,
       origin: recipe.origin,
-      chooser: { path: "/login", afterAccount: recipe },
+      chooser: {
+        path: "/login",
+        layouts: [{ key: "1000", createdAt: 1000, afterAccount: route }],
+      },
     };
     const change = { recipeId: "gen-1", revision: 2, state: "active", recipe: chooser };
     expect(v.is(recipeGenerationResultSchema, { version: 1, status: "recipe", change })).toBe(true);
@@ -140,26 +151,37 @@ describe("recipe generation contracts", () => {
       v.is(recipeGenerationResultSchema, {
         version: 1,
         status: "recipe",
-        change: { ...change, recipe: { ...chooser, chooser: { path: "/login" } } },
+        change: {
+          ...change,
+          recipe: {
+            ...chooser,
+            chooser: { path: "/login", layouts: [{ key: "1000", createdAt: 1000 }] },
+          },
+        },
         customSlots,
       }),
     ).toBe(false);
     const judged = { version: 1, revision: 2, route: "password", observation };
-    expect(v.is(recipeCompletionRequestSchema, { ...judged, branch: "account" })).toBe(true);
-    expect(v.is(recipeCompletionRequestSchema, { ...judged, branch: "list" })).toBe(false);
+    expect(v.is(recipeCompletionRequestSchema, { ...judged, branch: "1000:account" })).toBe(true);
+    for (const branch of ["1000:list", "account"])
+      expect(v.is(recipeCompletionRequestSchema, { ...judged, branch })).toBe(false);
   });
 
   it("takes a signed-in page sample (ADR 0029) with its route and only its own fields", () => {
-    const sampled = { version: 1, revision: 2, route: "password", observation };
+    const sampled = { version: 1, revision: 2, route: "password", branch: "1000", observation };
     expect(v.is(recipePageSampleRequestSchema, sampled)).toBe(true);
-    expect(v.is(recipePageSampleRequestSchema, { ...sampled, branch: "account" })).toBe(true);
+    expect(v.is(recipePageSampleRequestSchema, { ...sampled, branch: "1000:account" })).toBe(true);
+    // The layout the login ran is required.
+    const { branch: _branch, ...unnamed } = sampled;
     for (const invalid of [
-      { ...sampled, branch: "list" },
+      unnamed,
+      { ...sampled, branch: "account" },
+      { ...sampled, branch: "1000:list" },
       { ...sampled, partial: true },
       { ...sampled, stop: true },
       { ...sampled, beside: true },
       { ...sampled, revision: 0 },
-      { version: 1, revision: 2, observation },
+      { version: 1, revision: 2, branch: "1000", observation },
     ])
       expect(v.is(recipePageSampleRequestSchema, invalid)).toBe(false);
   });
@@ -369,7 +391,7 @@ describe("entry requests and answers (ADR 0031)", () => {
 
 describe("custom slots in a generated recipe (ADR 0027)", () => {
   const custom = {
-    ...recipe,
+    ...route,
     slots: ["email", "branch-number", "pin-code"],
     steps: [
       {
@@ -381,10 +403,10 @@ describe("custom slots in a generated recipe (ADR 0027)", () => {
           { slot: "pin-code", target: { by: "id", value: "pin" } },
         ],
       },
-      recipe.steps[1],
+      route.steps[1],
     ],
   };
-  const change = { recipeId: "gen-1", revision: 2, state: "active", recipe: custom };
+  const change = { recipeId: "gen-1", revision: 2, state: "active", recipe: stored(custom) };
   const answer = (customSlots: unknown) =>
     v.is(recipeGenerationResultSchema, { version: 1, status: "recipe", change, customSlots });
 
@@ -420,7 +442,10 @@ describe("custom slots in a generated recipe (ADR 0027)", () => {
     }));
     const wide = {
       ...change,
-      recipe: { ...custom, slots: [...custom.slots, ...seventeen.map((entry) => entry.slot)] },
+      recipe: stored({
+        ...custom,
+        slots: [...custom.slots, ...seventeen.map((entry) => entry.slot)],
+      }),
     };
     const many = (entries: typeof seventeen) =>
       v.is(recipeGenerationResultSchema, {
@@ -434,10 +459,10 @@ describe("custom slots in a generated recipe (ADR 0027)", () => {
   });
 
   it("maps the slots of every password variant", () => {
-    const submit = { ...recipe.steps[1], purpose: "submit" };
+    const submit = { ...route.steps[1], purpose: "submit" };
     const varied = {
       ...change,
-      recipe: {
+      recipe: stored({
         ...custom,
         steps: [custom.steps[0], submit],
         alternatives: [
@@ -456,7 +481,7 @@ describe("custom slots in a generated recipe (ADR 0027)", () => {
             ],
           },
         ],
-      },
+      }),
     };
     const mapped = (customSlots: unknown) =>
       v.is(recipeGenerationResultSchema, {
@@ -501,14 +526,15 @@ describe("page judgement contracts (ADR 0027)", () => {
   const change = { recipeId: "gen-1", revision: 2, state: "active", recipe };
 
   it("names the login's route, which is required", () => {
-    expect(v.is(recipeCompletionRequestSchema, { version: 1, revision: 2, observation })).toBe(
-      false,
-    );
+    expect(
+      v.is(recipeCompletionRequestSchema, { version: 1, revision: 2, branch: "1000", observation }),
+    ).toBe(false);
     expect(
       v.parse(recipeCompletionRequestSchema, {
         version: 1,
         revision: 2,
         route: "password",
+        branch: "1000",
         observation,
       }).route,
     ).toBe("password");
@@ -517,24 +543,40 @@ describe("page judgement contracts (ADR 0027)", () => {
         version: 1,
         revision: 2,
         route: "passkey",
+        branch: "1000",
         observation,
       }).route,
     ).toBe("passkey");
-    for (const route of ["sso", ""])
+    for (const named of ["sso", ""])
       expect(
-        v.is(recipeCompletionRequestSchema, { version: 1, revision: 2, route, observation }),
+        v.is(recipeCompletionRequestSchema, {
+          version: 1,
+          revision: 2,
+          route: named,
+          branch: "1000",
+          observation,
+        }),
       ).toBe(false);
+    // So is the layout the login ran (ADR 0060).
+    expect(
+      v.is(recipeCompletionRequestSchema, {
+        version: 1,
+        revision: 2,
+        route: "password",
+        observation,
+      }),
+    ).toBe(false);
   });
 
   it("marks a description that left out a disabled field only as true (ADR 0029)", () => {
-    const request = { version: 1, revision: 2, route: "password", observation };
+    const request = { version: 1, revision: 2, route: "password", branch: "1000", observation };
     expect(v.is(recipeCompletionRequestSchema, { ...request, partial: true })).toBe(true);
     for (const partial of [false, "true"])
       expect(v.is(recipeCompletionRequestSchema, { ...request, partial })).toBe(false);
   });
 
   it("marks a page at a stop before a missing password only as true (ADR 0036)", () => {
-    const request = { version: 1, revision: 2, route: "password", observation };
+    const request = { version: 1, revision: 2, route: "password", branch: "1000", observation };
     expect(v.is(recipeCompletionRequestSchema, { ...request, stop: true })).toBe(true);
     for (const stop of [false, "true"])
       expect(v.is(recipeCompletionRequestSchema, { ...request, stop })).toBe(false);
@@ -542,13 +584,13 @@ describe("page judgement contracts (ADR 0027)", () => {
     expect(v.is(recipeCompletionRequestSchema, { ...request, route: "passkey", stop: true })).toBe(
       false,
     );
-    expect(v.is(recipeCompletionRequestSchema, { ...request, branch: "account", stop: true })).toBe(
-      false,
-    );
+    expect(
+      v.is(recipeCompletionRequestSchema, { ...request, branch: "1000:account", stop: true }),
+    ).toBe(false);
   });
 
   it("marks a page beside the sign-in form only as true, never with a stop (ADR 0061)", () => {
-    const request = { version: 1, revision: 2, route: "password", observation };
+    const request = { version: 1, revision: 2, route: "password", branch: "1000", observation };
     expect(v.is(recipeCompletionRequestSchema, { ...request, beside: true })).toBe(true);
     expect(v.is(recipeCompletionRequestSchema, { ...request, beside: true, partial: true })).toBe(
       true,
@@ -558,7 +600,8 @@ describe("page judgement contracts (ADR 0027)", () => {
     // Only a password login without a chooser, and never at its stop.
     for (const invalid of [
       { ...request, route: "passkey", beside: true },
-      { ...request, branch: "account", beside: true },
+      { ...request, branch: "1000:account", beside: true },
+      { ...request, branch: "1000:other", beside: true },
       { ...request, stop: true, beside: true },
     ])
       expect(v.is(recipeCompletionRequestSchema, invalid)).toBe(false);

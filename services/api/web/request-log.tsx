@@ -153,7 +153,8 @@ export function RequestLogPage({ client }: { client: ManageClient }) {
           Vault values are never sent, so they are never logged
         </Line>
         <Line icon={<ShieldCheck size={16} aria-hidden />}>
-          Deleting the log does not change recipes, settings or the spend counted toward the monthly
+          Deleting the log keeps which model made each part of a recipe, without the device or the
+          log entry; it does not change recipes, settings or the spend counted toward the monthly
           and daily limits
         </Line>
       </Lines>
