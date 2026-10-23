@@ -166,10 +166,7 @@ describe("a secret question's answer under the question the owner confirmed (ADR
       command({
         type: "login.detail.fill",
         path: "/question",
-        target,
-        value: "synthetic answer",
-        secret: "answer",
-        question,
+        fields: [{ target, value: "synthetic answer", secret: "answer", question }],
       });
     expect(await fill({ question: "母の旧姓は" })).toEqual({ ok: false });
     // A part of the question is not the question.

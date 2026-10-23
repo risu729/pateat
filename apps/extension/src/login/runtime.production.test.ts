@@ -18488,9 +18488,13 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       expect(answerFills()).toEqual([
         expect.objectContaining({
           type: "login.detail.fill",
-          target: target("answer"),
-          secret: "answer",
-          question: { question: "母親の旧姓は" },
+          fields: [
+            expect.objectContaining({
+              target: target("answer"),
+              secret: "answer",
+              question: { question: "母親の旧姓は" },
+            }),
+          ],
         }),
       ]);
       expect(h.settings.settings.detailLinks).toBeUndefined();
@@ -18622,7 +18626,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       expect(answerFills()).toEqual([
         expect.objectContaining({
           type: "login.detail.fill",
-          question: { name: "母親の旧姓は？" },
+          fields: [expect.objectContaining({ question: { name: "母親の旧姓は？" } })],
         }),
       ]);
     });
@@ -20273,16 +20277,14 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
             type: "login.observe",
             path: "/signin",
             targets: [target("birth"), target("confirm")],
-            require: ["writable", "shown"],
+            require: ["settable", "shown"],
           }),
         );
         expect(popupFills()).toEqual([
           expect.objectContaining({
             type: "login.detail.fill",
             path: "/signin",
-            target: target("birth"),
-            value: "199004",
-            secret: "detail",
+            fields: [{ target: target("birth"), value: "199004", secret: "detail" }],
           }),
         ]);
         expect(JSON.stringify(fake.state.messages)).not.toContain("1990-04-01");
@@ -20329,7 +20331,9 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         expect(
           await fill(h, "synthetic-document", { detail: "phone-last-4", fieldId: phoneField }),
         ).toEqual({ ok: true });
-        expect(popupFills().at(-1)).toMatchObject({ target: target("phone"), value: "5678" });
+        expect(popupFills().at(-1)).toMatchObject({
+          fields: [{ target: target("phone"), value: "5678" }],
+        });
         expect(fake.state.session[pendingKey]).toHaveLength(1);
         await signedIn(h);
         expect(savedLinks(h)).toEqual([
