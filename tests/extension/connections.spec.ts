@@ -365,7 +365,6 @@ test("rejected reauthentication preserves the accepted local record and two inde
           kind: "existing",
           connectionId: first.connectionId,
           password: v1Password,
-          autoUnlock: "preserve",
         },
       }),
     ).toEqual({ ok: false, error: { code: "authentication-rejected" } });

@@ -343,4 +343,9 @@ export const ja = {
   "the answer to your secret question": "秘密の質問の答え",
   "your member or customer number": "会員番号またはお客様番号",
   "ID {{id}}": "ID {{id}}",
+  vaultsLocked_one:
+    "{{count}} 個の保管庫がロック中のため、そのログインとパスキーは待機しています。",
+  vaultsLocked_other:
+    "{{count}} 個の保管庫がロック中のため、それらのログインとパスキーは待機しています。",
+  "Unlock in settings": "設定でロック解除",
 } satisfies Record<keyof typeof en, string>;

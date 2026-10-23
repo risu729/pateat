@@ -1,4 +1,11 @@
-import { detailLength, loginMarkerTargetSchema, loginOriginSchema, loginStepSchema } from "./login";
+import {
+  detailLength,
+  loginMarkerTargetSchema,
+  loginOriginSchema,
+  loginStepSchema,
+  sameLoginTarget,
+  type LoginMarkerTarget,
+} from "./login";
 import { recipeSlotIdSchema, type BirthDateFormat, type LoginDetail } from "./settings";
 import * as v from "valibot";
 
@@ -543,6 +550,31 @@ export function detailInputRefusal(
   if (button.role !== "button") return "submit-not-button";
   if (button.group !== field.group) return "submit-other-form";
   return undefined;
+}
+
+/**
+ * Whether a page that still shows one of `fillTargets`, a route's fill fields, also shows
+ * another form beside them that a `detail` handler may be learned from (ADR 0061): a
+ * text, tel or number input that is none of `fillTargets`, in a form other than every
+ * shown fill field's, with a button in that form. The extension sends such a page with
+ * `beside`, and the service judges it only then.
+ */
+export function showsBesideForm(
+  page: Pick<LoginObservation, "candidates">,
+  fillTargets: readonly LoginMarkerTarget[],
+): boolean {
+  const fill = (candidate: ObservedCandidate) =>
+    fillTargets.some((target) => sameLoginTarget(target, candidate.target));
+  const groups = page.candidates.filter(fill).map((candidate) => candidate.group);
+  if (!groups.length) return false;
+  return page.candidates.some(
+    (input) =>
+      (input.role === "text" || input.role === "tel" || input.role === "number") &&
+      input.group !== undefined &&
+      !fill(input) &&
+      !groups.includes(input.group) &&
+      page.candidates.some((button) => button.role === "button" && button.group === input.group),
+  );
 }
 
 /** Whether the page shows an input the executor would fill a TOTP code into. */

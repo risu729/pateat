@@ -106,6 +106,13 @@ export type ObservationResult =
        * 2026-10-12, ADR 0029). Never sent to the service.
        */
       readonly disabledLeftOut?: true;
+      /**
+       * A signed-in page shows a radio button, select or text area, or an ARIA widget for
+       * one, that is no part of a site search (`leftOutInputs`), which its description
+       * has no role for: the page may ask for a choice or an answer, so an `optional`
+       * answer does not complete it (ADR 0065). Never sent to the service.
+       */
+      readonly inputLeftOut?: true;
     }
   | { readonly ok: false; readonly reason: ObservationRefusal };
 
@@ -1166,6 +1173,90 @@ function describe(element: Element): Found | undefined {
   return undefined;
 }
 
+/** Radio buttons, selects, text areas and the ARIA widgets that stand for them. */
+const answerControls = [
+  "input[type='radio' i]",
+  "select",
+  "textarea",
+  ...["radio", "radiogroup", "combobox", "listbox", "textbox"].map((role) => `[role~='${role}' i]`),
+].join(", ");
+const searchWords = /\bsearch\b|検索|探す/iu;
+/** A search box: a search input, or an input whose name for the person says search. */
+const searchBox = (element: Element) =>
+  (element instanceof HTMLInputElement &&
+    (element.type === "search" || element.inputMode === "search")) ||
+  element.matches("[role~='searchbox' i]") ||
+  ["aria-label", "placeholder", "title"].some((name) =>
+    searchWords.test(element.getAttribute(name) ?? ""),
+  );
+/**
+ * Whether `form` is a small search form: at most four controls in all, as a box, a
+ * category select and a button, whose typed inputs are all search boxes, so a whole page
+ * wrapped in one form, or a sign-in form with a site search box, is none.
+ */
+function searchForm(form: HTMLFormElement): boolean {
+  const held = [...form.querySelectorAll(controls)];
+  const typed = held.filter(
+    (element) =>
+      element instanceof HTMLInputElement &&
+      !["checkbox", "radio", "submit", "button", "reset", "image"].includes(element.type),
+  );
+  return held.length <= 4 && typed.length > 0 && typed.every(searchBox);
+}
+/**
+ * Whether `element` is in the page's footer: `contentinfo`, or a `footer` that is no
+ * part of an article, section, dialog or form, as HTML maps it to that landmark.
+ */
+function pageFooter(element: HTMLElement): boolean {
+  if (element.closest("[role~='contentinfo' i]")) return true;
+  const footer = element.closest("footer");
+  return (
+    footer !== null &&
+    !footer.closest(
+      "article, aside, main, nav, section, dialog, form, [role~='dialog' i], [role~='alertdialog' i]",
+    )
+  );
+}
+/**
+ * Whether the page shows a radio button, select or text area, or an ARIA radio, radio
+ * group, combo box, list box or text box, that is no part of a site search: an answer
+ * the person may be asked for that the description has no role for (ADR 0065). A
+ * disabled one counts, and so does a transparent, tiny or unrendered one under a label
+ * or container that shows, as a styled radio under its label "card" is. One in a search
+ * landmark, a search box itself, a select or combo box of a small search form, and a
+ * select or combo box in the page footer, such as a language picker, do not.
+ */
+function leftOutInputs(document: Document): boolean {
+  // Each form is checked once per scan, however many selects it holds.
+  const searchForms = new Map<HTMLFormElement, boolean>();
+  for (const element of document.querySelectorAll<HTMLElement>(answerControls)) {
+    if (element.closest("search, [role~='search' i]")) continue;
+    if (searchBox(element)) continue;
+    const picker = element instanceof HTMLSelectElement || element.matches("[role~='combobox' i]");
+    // A page footer's select, as a language or region picker, asks nothing of the sign-in.
+    if (picker && pageFooter(element)) continue;
+    const choice = picker || element.matches("[role~='listbox' i]");
+    const form = element.closest("form");
+    if (choice && form) {
+      let search = searchForms.get(form);
+      if (search === undefined) searchForms.set(form, (search = searchForm(form)));
+      if (search) continue;
+    }
+    if (presence(element) !== "absent") return true;
+    // A styled control hides its input under a label or card that shows.
+    const labels =
+      element instanceof HTMLInputElement ||
+      element instanceof HTMLSelectElement ||
+      element instanceof HTMLTextAreaElement
+        ? [...(element.labels ?? [])]
+        : [];
+    const container = element.closest("label") ?? element.parentElement;
+    if ([...labels, ...(container ? [container] : [])].some((shownBy) => visible(shownBy)))
+      return true;
+  }
+  return false;
+}
+
 /** Every element the page shows that `describe` accepts, in document order. */
 const describeAll = (document: Document) =>
   [...document.querySelectorAll(observed)].map(describe).filter((entry) => entry !== undefined);
@@ -1998,7 +2089,11 @@ function mayBeSignIn(input: HTMLInputElement): boolean {
  * box with no ID, a password change form's field or a hotel search's read-only date
  * picker, is left out (owner, 2026-10-12, ADR 0029). A disabled one is left out too, but
  * the result says so (`disabledLeftOut`): it may be a code field waiting for a timer or a
- * sent code, so such a page completes only when the judge answers `signed-in`. Buttons
+ * sent code, so such a page completes only when the judge answers `signed-in`. A radio
+ * button, select or text area, or an ARIA widget for one, is left out as well, and the
+ * result says when the page shows one that is no part of a site search
+ * (`inputLeftOut`, `leftOutInputs`): an `optional` answer does not complete such a page
+ * (ADR 0065). Buttons
  * and links are only possible markers; those past the limit or without a locator are
  * left out, and an ID another load may change (`changingId`) locates no element but a
  * field that may be a sign-in field. A link is located by its text too, as for an
@@ -2032,6 +2127,7 @@ function describeSignedIn(document: Document): ObservationResult {
     ? "shadow-field"
     : undefined;
   let disabledLeftOut = false;
+  const inputLeftOut = leftOutInputs(document);
   const fieldEntries: { form: HTMLFormElement | null; draft: Draft }[] = [];
   const markers: { form: HTMLFormElement | null; draft: Draft }[] = [];
   for (const entry of found) {
@@ -2139,5 +2235,6 @@ function describeSignedIn(document: Document): ObservationResult {
     ...result,
     ...(gap ? { gap } : {}),
     ...(disabledLeftOut ? { disabledLeftOut: true as const } : {}),
+    ...(inputLeftOut ? { inputLeftOut: true as const } : {}),
   };
 }

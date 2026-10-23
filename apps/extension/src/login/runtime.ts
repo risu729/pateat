@@ -57,6 +57,7 @@ import {
   sameLoginDocument,
   sameLoginTarget,
   saveLoginChoice,
+  showsBesideForm,
   siteDefaultConnection,
   templateLoginBinding,
   TOTP_HANDLER_SLOT,
@@ -1208,14 +1209,21 @@ export interface LoginGeneration {
      * 0036, owner 2026-10-13 05:39 UTC).
      */
     stop?: true,
+    /**
+     * The page still shows the route's sign-in form beside another form that may ask for a
+     * detail (`showsBesideForm`): the service keeps only a `detail` handler from it (ADR
+     * 0061).
+     */
+    beside?: true,
   ): Promise<{
     /**
      * `retry` for a temporary refusal before any model call, which gives the page back:
      * no paired service, a rejected device, an unreachable or busy service, the service's
      * own request limit, or a request that failed before the model. `unclear` covers
-     * every other answer, including permanent refusals and failed model calls.
+     * every other answer, including permanent refusals and failed model calls. `optional`
+     * is a page after the sign-in that the person may put off (ADR 0065).
      */
-    verdict: "signed-in" | "rejected" | "challenge" | "unclear" | "retry";
+    verdict: "signed-in" | "rejected" | "challenge" | "optional" | "unclear" | "retry";
     /** For `retry` and `unclear`: the refusal or failure code, for the local log. */
     reason?: string;
     /** A chooser login's is the whole chooser (ADR 0028). */
@@ -1617,6 +1625,11 @@ export type LoginReport = (
       watched?: true;
       /** A new document of the tab resumed the attempt without changing its state or outcome. */
       repeat?: true;
+      /**
+       * Nothing was submitted yet, and the login is still in the document it began in, so
+       * the page is the one it started on or the same document after a fill (ADR 0066).
+       */
+      unsubmitted?: true;
       /** Why the login just changed route (ADR 0034). */
       routeChange?: RouteChange;
       /** The login stops before the password its item lacks (ADR 0036). */
@@ -1796,6 +1809,8 @@ export type LoginReport = (
       /** The state the login was left in, and the step it stopped at. */
       state: LoginAttemptMetadata["state"];
       stepIndex: number;
+      /** As for `attempt`: nothing was submitted yet, in the document the login began in. */
+      unsubmitted?: true;
       name: string;
       /** Logged only when it is one of Pateat's own error codes. */
       message?: string;
@@ -1869,15 +1884,23 @@ export type LoginReport = (
        * `sent` when the page goes out; the service's verdict when it answers; `not-sent`,
        * with the reason, when the page is not sent or could not be described for it.
        */
-      verdict: "sent" | "not-sent" | "signed-in" | "rejected" | "challenge" | "unclear" | "retry";
+      verdict:
+        | "sent"
+        | "not-sent"
+        | "signed-in"
+        | "rejected"
+        | "challenge"
+        | "optional"
+        | "unclear"
+        | "retry";
       reason?: string;
       /** For a returned revision: whether this login took it over. */
       takenOver?: boolean;
       /** A page of a watched login, judged from the watch's own pages (ADR 0027). */
       watched?: true;
       /**
-       * The judge could not decide a page with no sign and no evidence, so the login
-       * completed on it (ADR 0029).
+       * The judge could not decide a page with no sign and no evidence, or found it an
+       * optional page after the sign-in, so the login completed on it (ADR 0029, ADR 0065).
        */
       completed?: true;
       /**
@@ -1901,6 +1924,11 @@ export type LoginReport = (
        * button beside the password field (ADR 0036, owner 2026-10-13 05:39 UTC).
        */
       stop?: "password";
+      /**
+       * The page still shows the route's sign-in form beside another form, judged for a
+       * `detail` handler only (ADR 0061).
+       */
+      beside?: true;
       /** How long the request took, once it was answered or failed (ADR 0019). */
       timing?: ServiceTiming;
     }
@@ -2235,6 +2263,7 @@ export function createLoginRuntime(
       ...(metadata.outcome ? { outcome: metadata.outcome } : {}),
       ...(metadata.unconfirmed ? { unconfirmed: true as const } : {}),
       ...(metadata.watch ? { watched: true as const } : {}),
+      ...(unsubmitted(metadata) ? { unsubmitted: true as const } : {}),
       ...(metadata.fillOnly ? { reason: "fill-only" } : {}),
       ...(metadata.stopAt === undefined ? {} : { stop: "password" as const }),
       ...(policy && metadata.outcome === "policy-changed" ? policy : {}),
@@ -2252,6 +2281,14 @@ export function createLoginRuntime(
   const stepWaitMs = () => (probeMode ? probeStepWaitMs : undefined) ?? LOGIN_STEP_WAIT_MS;
   const documents = new Map<string, LiveDocument>();
   const attempts = new Map<number, Execution>();
+  /**
+   * By attempt ID, the document each new login of this worker began in; a resumed or
+   * recovered one has none, so it never counts as unsubmitted (ADR 0066).
+   */
+  const begunIn = new Map<string, string>();
+  /** Nothing was submitted yet, and the login is still in the document it began in. */
+  const unsubmitted = (metadata: LoginAttemptMetadata) =>
+    metadata.submissions === 0 && begunIn.get(metadata.id) === metadata.document.documentId;
   // ADR 0029's sign-in state reads these, kept in memory only and never stored.
   /**
    * By tab: when the attempt last delivered an effect step, the document it ran in, whether
@@ -4995,6 +5032,8 @@ export function createLoginRuntime(
         signs: SignInSigns;
         decision: SignInDecision;
         loaded: boolean;
+        /** The path the reading was taken on. */
+        path: string;
         /** Why S1 is not read as the form shown again, or F2 not on it, for the log. */
         misses: { reshownMiss?: ReshownMiss; alertMiss?: AlertMiss };
       }
@@ -5120,7 +5159,13 @@ export function createLoginRuntime(
         : reshown && !signs.f2 && page.alertMiss !== undefined
           ? { alertMiss: page.alertMiss }
           : {};
-    return { signs, decision: decideSignInState(signs), loaded: parsed.output.loaded, misses };
+    return {
+      signs,
+      decision: decideSignInState(signs),
+      loaded: parsed.output.loaded,
+      path: observed.path,
+      misses,
+    };
   }
   type DetailHandler = Extract<LoginHandler, { kind: "detail" }>;
   /** The login item a run's links belong to, or none while its vault account is unknown. */
@@ -5440,17 +5485,20 @@ export function createLoginRuntime(
   async function settleDetails(run: Execution, confirmed: boolean): Promise<void> {
     const { tabId } = run.live.document;
     await sessionLoaded;
+    // The offer ends with its login, also when the person typed the value themselves and
+    // the page stays in the same document.
+    const offered = detailOffers.get(tabId)?.attemptId === run.metadata.id;
+    if (offered) detailOffers.delete(tabId);
     const kept = pendingDetails.get(tabId)?.filter((entry) => entry.attemptId === run.metadata.id);
-    if (!kept?.length) return;
+    if (!kept?.length) {
+      if (offered) await quietly(saveSession);
+      return;
+    }
     const rest = pendingDetails.get(tabId)!.filter((entry) => entry.attemptId !== run.metadata.id);
     if (rest.length) pendingDetails.set(tabId, rest);
     else pendingDetails.delete(tabId);
-    if (detailOffers.get(tabId)?.attemptId === run.metadata.id) detailOffers.delete(tabId);
     await quietly(saveSession);
     if (!confirmed) return;
-    // A link the owner chose again replaces one refused before.
-    for (const { link } of kept)
-      refusedDetails.delete(refusalKey(link, link.detail, link.source.field));
     const written = await writeDetailLinks(run, (links) => [
       ...links.filter(
         (link) =>
@@ -5460,6 +5508,15 @@ export function createLoginRuntime(
       ),
       ...kept.map((entry) => entry.link),
     ]);
+    // A link the owner chose again replaces one refused before, once it is written: until
+    // then the settings may still hold the refused one. The session keeps the refusals, so
+    // a restarted worker does not bring a lifted one back.
+    if (written === "saved" || written === "unchanged") {
+      const lifted = kept.filter(({ link }) =>
+        refusedDetails.delete(refusalKey(link, link.detail, link.source.field)),
+      );
+      if (lifted.length) await quietly(saveSession);
+    }
     for (const entry of kept)
       reportDetail(
         run.live.document,
@@ -5977,7 +6034,7 @@ export function createLoginRuntime(
     );
     if (!observed || observed.path !== path) return false;
     let offset = 0;
-    const shown = observable
+    let shown = observable
       .filter((entry) => {
         const states = observed.targets.slice(offset, offset + entry.targets.length);
         offset += entry.targets.length;
@@ -5989,6 +6046,28 @@ export function createLoginRuntime(
       })
       .sort((left, right) => handlerOrder[left.handler.kind] - handlerOrder[right.handler.kind]);
     if (!shown.length) return false;
+    // A `detail` handler learned beside the sign-in form on a route path (ADR 0061) is not
+    // entered for the first time while that form shows a failure beside its fields: the
+    // password was wrong, and the login ends rejected rather than with the handler.
+    if (
+      shown.some(
+        (entry) =>
+          entry.handler.kind === "detail" &&
+          !run.metadata.handlers.some((entered) => entered.index === entry.index),
+      ) &&
+      routeSignInPaths(run.recipe, run.metadata.route).includes(path)
+    ) {
+      const reading = await readSignInState(run);
+      if (!current(run)) return true;
+      if (reading?.decision === "rejected") {
+        shown = shown.filter(
+          (entry) =>
+            entry.handler.kind !== "detail" ||
+            run.metadata.handlers.some((entered) => entered.index === entry.index),
+        );
+        if (!shown.length) return false;
+      }
+    }
     const reportHandler = (
       entry: (typeof entries)[number],
       outcome: Extract<LoginReport, { type: "handler" }>["outcome"],
@@ -6231,11 +6310,14 @@ export function createLoginRuntime(
     run: Execution,
     path: string,
   ): Promise<
-    { observation: LoginObservation; disabledLeftOut: boolean } | { unsent: string } | undefined
+    | { observation: LoginObservation; disabledLeftOut: boolean; inputLeftOut: boolean }
+    | { unsent: string }
+    | undefined
   > {
     let observation: LoginObservation | undefined;
     let unsent = "unreachable";
     let disabledLeftOut = false;
+    let inputLeftOut = false;
     try {
       const extracted = v.safeParse(
         extractResultSchema,
@@ -6259,6 +6341,7 @@ export function createLoginRuntime(
       else {
         observation = parsed.output;
         disabledLeftOut = extracted.output.ok && extracted.output.disabledLeftOut === true;
+        inputLeftOut = extracted.output.ok && extracted.output.inputLeftOut === true;
       }
     } catch {
       // The page could not be asked: `unreachable`.
@@ -6271,7 +6354,7 @@ export function createLoginRuntime(
     const hidden = hideUsernames(observation, usernames, run.live);
     if (!current(run)) return undefined;
     if ("reason" in hidden) return { unsent: hidden.reason };
-    return { observation: hidden.observation, disabledLeftOut };
+    return { observation: hidden.observation, disabledLeftOut, inputLeftOut };
   }
   /**
    * Sends the page a login ended on, once its recipe's signed-in marker completed it with no
@@ -6371,6 +6454,27 @@ export function createLoginRuntime(
       )
       .catch(() => undefined);
   }
+  /**
+   * Whether this attempt has sent the account's credential (ADR 0065): its latest effect
+   * step submitted, after a route step that typed the password or a second factor's
+   * handler (a handler missing from the recipe does not count). The page after an
+   * identifier's Next, or after a `password` handler's button, is no page after the
+   * sign-in. The `passkey` route never completes on an optional page (ADR 0027), so its
+   * own step does not count.
+   */
+  function credentialSent(run: Execution): boolean {
+    const { metadata, recipe } = run;
+    if (metadata.operationEffect !== "submit") return false;
+    const ran = metadata.operationId === undefined ? metadata.stepIndex : metadata.stepIndex + 1;
+    return (attemptPlan(recipe, metadata) ?? [])
+      .slice(0, ran)
+      .some((entry) =>
+        entry.handler === undefined
+          ? entry.step.kind === "fill" &&
+            entry.step.fields.some((field) => field.slot === "password")
+          : ![undefined, "password"].includes(recipe.handlers?.[entry.handler]?.kind),
+      );
+  }
   async function learn(run: Execution, reading?: SignInReading): Promise<boolean> {
     const { recipe, metadata } = run;
     const { operationId } = metadata;
@@ -6410,13 +6514,29 @@ export function createLoginRuntime(
     }
     // A route's sign-in field shows on another path too (S1): such a page is never complete
     // (ADR 0029), and the description may leave the field out when no locator names it.
+    const fieldShown =
+      paths.includes(remaining.path) &&
+      remaining.targets
+        .slice(0, fills.length)
+        .some((state) => state !== "missing" && state !== "unusable");
+    // One on a route path of a password login without a chooser or a stop, read in the tab's
+    // top document on the recipe's own origin, may stand beside another form that asks for
+    // a detail, which is judged on its own (ADR 0061); a failure shown beside the sign-in
+    // form never is, nor a page whose sign-in state was not read.
+    const besideCandidate =
+      fieldShown &&
+      reading !== undefined &&
+      reading.decision !== "rejected" &&
+      metadata.route === "password" &&
+      !metadata.chooser &&
+      metadata.stopAt === undefined &&
+      metadata.pageOrigin === undefined &&
+      run.live.document.frameId === 0 &&
+      run.live.topUrl === undefined &&
+      run.live.document.origin === recipe.origin;
     if (
-      reading?.decision === "unknown" ||
-      reading?.decision === "rejected" ||
-      (paths.includes(remaining.path) &&
-        remaining.targets
-          .slice(0, fills.length)
-          .some((state) => state !== "missing" && state !== "unusable"))
+      !besideCandidate &&
+      (reading?.decision === "unknown" || reading?.decision === "rejected" || fieldShown)
     )
       return notSent("sign-in-shown");
     // A marker shows, but the completion check did not prove the sign-in: more than one
@@ -6430,8 +6550,18 @@ export function createLoginRuntime(
     const described = await describeForJudge(run, remaining.path);
     if (!described) return true;
     // A page that cannot be described completely is not sent and does not count.
-    if ("unsent" in described) return notSent(described.unsent);
-    const { observation, disabledLeftOut } = described;
+    if ("unsent" in described) return notSent(besideCandidate ? "sign-in-shown" : described.unsent);
+    const { observation, disabledLeftOut, inputLeftOut } = described;
+    // The sign-in form beside another form with a text-like input and its own button, on a
+    // path without a `detail` handler, as the service checks (ADR 0061); otherwise the page
+    // is still the sign-in page.
+    const beside =
+      besideCandidate &&
+      showsBesideForm(observation, routeFillTargets(recipe, "password")) &&
+      !(recipe.handlers ?? []).some(
+        (handler) => handler.kind === "detail" && handler.path === observation.path,
+      );
+    if (besideCandidate && !beside) return notSent("sign-in-shown");
     const left = pagesLeft(run.metadata, operationId);
     await change(run, { type: "JUDGING", operationId });
     if (!current(run)) return true;
@@ -6459,16 +6589,21 @@ export function createLoginRuntime(
         ...detail,
         ...(watchedPage ? { watched: true as const } : {}),
         ...(disabledLeftOut ? { disabledLeftOut: true as const } : {}),
+        ...(beside ? { beside: true as const } : {}),
         ...timed,
       });
-    // A chooser login's branch, and whether the description left a disabled field out
-    // (ADR 0029); each is passed only when there is one.
+    // A chooser login's branch, whether the description left a disabled field out (ADR
+    // 0029), and whether the page is beside the sign-in form (ADR 0061); each is passed only
+    // when there is one.
     const branch = metadata.chooser ? chooserClickBranch(metadata.chooser.click) : undefined;
-    const judgedTail: [(ChooserBranch | undefined)?, true?] = disabledLeftOut
-      ? [branch, true]
-      : branch
-        ? [branch]
-        : [];
+    const judgedTail: [(ChooserBranch | undefined)?, (true | undefined)?, undefined?, true?] =
+      beside
+        ? [branch, disabledLeftOut ? true : undefined, undefined, true]
+        : disabledLeftOut
+          ? [branch, true]
+          : branch
+            ? [branch]
+            : [];
     const spin = spinning(run.live.document.tabId);
     const asked = Date.now();
     const {
@@ -6502,7 +6637,12 @@ export function createLoginRuntime(
     if (verdict === "retry") await change(run, { type: "UNJUDGED", operationId });
     // A page with no sign and no evidence completes when the judge cannot decide, unless
     // the login is watched (ADR 0027); one with a sign of another sign-in step goes to the
-    // person, as does a page judged `challenge` before (ADR 0029).
+    // person, as does a page judged `challenge` before (ADR 0029). An optional page after
+    // the sign-in completes as signed in, watched or not, and is left as it is (ADR 0065),
+    // but only on the `password` route once this attempt sent the credential, without a
+    // stop before a missing password and with no radio button, select or text area left
+    // out of its description; on the same path once read again.
+    const sent = credentialSent(run);
     const candidate = undecidedCandidate({
       verdict,
       reason,
@@ -6510,6 +6650,8 @@ export function createLoginRuntime(
       watched: run.metadata.watch !== undefined,
       route: run.metadata.route,
       stopAt: run.metadata.stopAt,
+      sent,
+      inputLeftOut,
     });
     let again: Awaited<ReturnType<typeof readSignInState>>;
     // The judge's answer can take a while: the page completes only if, once the answer is
@@ -6525,6 +6667,9 @@ export function createLoginRuntime(
       ...candidate,
       again,
       disabledLeftOut,
+      // Only an optional page must still be on its path: an undecided one keeps ADR 0029's
+      // rule, as on a single-page app that routes on while it is judged.
+      ...(verdict === "optional" ? { path: remaining.path } : {}),
     });
     // Reported before the takeover's own entries, once whether it is taken over is known.
     let reported = false;
@@ -6554,6 +6699,7 @@ export function createLoginRuntime(
       stopHeld: candidate.stopHeld,
       route: run.metadata.route,
       stopAt: run.metadata.stopAt,
+      sent,
     });
     // The page after the final advance before a stop just past the plan's last step, not
     // found signed in or rejected and with no handler taken over, takes the login to its
@@ -7251,8 +7397,8 @@ export function createLoginRuntime(
       return;
     }
     // Only a page with no sign of a sign-in going on is judged; an undecided answer never
-    // completes a watched login.
-    if (state?.decision === "judge") await learn(run);
+    // completes a watched login, an optional page after the sign-in does (ADR 0065).
+    if (state?.decision === "judge") await learn(run, state);
   }
   async function drive(run: Execution): Promise<void> {
     if (run.running) return;
@@ -7289,6 +7435,7 @@ export function createLoginRuntime(
             route: run.metadata.route,
             state: run.metadata.state,
             stepIndex: run.metadata.stepIndex,
+            ...(unsubmitted(run.metadata) ? { unsubmitted: true as const } : {}),
             name: error instanceof Error ? error.name : typeof error,
             ...(error instanceof Error ? { message: error.message } : {}),
             ...(error instanceof Error && error.stack ? { stack: error.stack } : {}),
@@ -10742,6 +10889,12 @@ export function createLoginRuntime(
         }),
         { type: "RESOLVE" },
       );
+      begunIn.delete(metadata.id);
+      begunIn.set(metadata.id, document.documentId);
+      for (const old of begunIn.keys()) {
+        if (begunIn.size <= 256) break;
+        begunIn.delete(old);
+      }
       // No listed account fits, and the list has no button for another one (ADR 0028).
       if (click === "none") metadata = transitionLoginAttempt(metadata, { type: "NOT_LISTED" });
     }
@@ -12102,12 +12255,14 @@ export function createLoginRuntime(
    * For a `password` login whose tab moved to `live`, a quiet page of another origin
    * (`passwordMoveFits`) that does not show the account's username (ADR 0022): whether a
    * signed-in marker learned on that origin shows, or else the judge of ADR 0029, asked
-   * once, answers `signed-in` for the page or found it signed in before. A judge that
-   * cannot decide, a page that cannot be described or sent, and any other verdict end the
-   * login `left-origin` (a watched one where it stopped), each logged. Once the answer is
-   * back, the page must still be
-   * loaded and quiet, with no passkey request since `since`, the step the move follows.
-   * `username` is the login's own, hidden from the page as for any judged page.
+   * once, answers `signed-in` for the page or found it signed in before, or answers
+   * `optional` (ADR 0065) for a page described without leaving a disabled field out, once
+   * the attempt submitted the password or a TOTP code and without a stop (ADR 0036). A
+   * judge that cannot decide, a page that cannot be described or sent, and any other
+   * verdict end the login `left-origin` (a watched one where it stopped), each logged.
+   * Once the answer is back, the page must still be loaded and show no password field,
+   * code input or CAPTCHA, with no passkey request since `since`, the step the move
+   * follows. `username` is the login's own, hidden from the page as for any judged page.
    */
   async function judgeMove(
     record: LoginAttemptMetadata,
@@ -12118,6 +12273,7 @@ export function createLoginRuntime(
     const { document } = live;
     const recipe = await attemptRecipe(record);
     let disabledLeftOut = false;
+    let inputLeftOut = false;
     // The answer's timing, once it came (ADR 0019).
     let timed: { timing?: ServiceTiming } = {};
     const reportJudge = (
@@ -12202,6 +12358,7 @@ export function createLoginRuntime(
       else {
         observation = parsed.output;
         disabledLeftOut = extracted.output.ok && extracted.output.disabledLeftOut === true;
+        inputLeftOut = extracted.output.ok && extracted.output.inputLeftOut === true;
       }
     } catch {
       // The page could not be asked: `unreachable`.
@@ -12238,7 +12395,7 @@ export function createLoginRuntime(
         hidden.observation,
         spin.sent(() => reportJudge("sent")),
         // A description that left out a disabled field says so (ADR 0029); only `signed-in`
-        // completes a moved login anyway.
+        // completes a moved login then.
         record.chooser ? chooserClickBranch(record.chooser.click) : undefined,
         ...(disabledLeftOut ? [true as const] : []),
       )
@@ -12246,8 +12403,34 @@ export function createLoginRuntime(
     spend(record.id, Date.now() - asked, timing);
     if (timing) timed = { timing };
     reportJudge(verdict, reason);
-    if (verdict !== "signed-in" && !(verdict === "unclear" && reason === "judged-signed-in"))
+    // `optional` (ADR 0065) completes it only on a full description with no radio button,
+    // select or text area left out, once the attempt submitted the item's password or a
+    // TOTP code (a move within the site may follow an identifier's Next), and not for a
+    // login stopped before its missing password, which only `signed-in` proves (ADR 0036).
+    const fill = passwordFills.get(document.tabId);
+    const effect = effects.get(document.tabId);
+    const sent =
+      (fill?.attemptId === record.id && fill.submitted) ||
+      (effect?.attemptId === record.id && effect.code !== undefined);
+    const optional = verdict === "optional";
+    if (
+      verdict !== "signed-in" &&
+      !(verdict === "unclear" && reason === "judged-signed-in") &&
+      !(optional && !disabledLeftOut && !inputLeftOut && record.stopAt === undefined && sent)
+    )
       return false;
+    // An optional page must still be on the path it was judged on.
+    if (optional) {
+      let at: unknown;
+      try {
+        at = await send(live, { type: "login.observe", path: live.path, targets: [] });
+      } catch {
+        return false;
+      }
+      const shown = v.safeParse(observationSchema, at);
+      if (stale() || !shown.success || observedPath(shown.output.path) !== observation.path)
+        return false;
+    }
     // The answer can take a while: the page must still be loaded and show no sign-in step.
     let again: unknown;
     try {

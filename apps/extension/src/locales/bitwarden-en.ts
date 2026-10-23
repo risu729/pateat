@@ -6,8 +6,6 @@ export const bitwardenEn = {
     "Pateat does not have access to the Bitwarden server. Connect or sync again, and allow access when Chrome asks.",
   "Sign in again to sync. The saved local vault can still unlock independently.":
     "Sign in again to sync. The saved local vault can still unlock independently.",
-  "Automatic unlock is off for this connection, and Sync needs it. To turn it back on, sign in again with Enable automatic unlock on this device checked.":
-    "Automatic unlock is off for this connection, and Sync needs it. To turn it back on, sign in again with Enable automatic unlock on this device checked.",
   "The vault is locked. Refresh to check recovery options.":
     "The vault is locked. Refresh to check recovery options.",
   "The operation reached a resource limit. Refresh to check the current vault status before trying again.":
@@ -43,7 +41,6 @@ export const bitwardenEn = {
   "Vault synced {{time}}": "Vault synced {{time}}",
   "at an unknown time": "at an unknown time",
   "Automatic unlock on": "Automatic unlock on",
-  "Automatic unlock off": "Automatic unlock off",
   "Automatic unlock unknown": "Automatic unlock unknown",
   "Review changed fields in {{item}}": "Review changed fields in {{item}}",
   "All current custom fields start excluded. Save this review before the item can be used; other saved exclusions stay in place.":
@@ -83,8 +80,6 @@ export const bitwardenEn = {
     "Enter the new-device verification code from your email.",
   "Vault accepted. {{count}} item needs its field settings reviewed before use.":
     "Vault accepted. {{count}} item needs its field settings reviewed before use.",
-  "Vault verified and copied to this device. Check the automatic unlock line below.":
-    "Vault verified and copied to this device. Check the automatic unlock line below.",
   "Setup is incomplete: Bitwarden asks for a step Pateat does not support ({{reason}}).":
     "Setup is incomplete: Bitwarden asks for a step Pateat does not support ({{reason}}).",
   "Setup cancelled.": "Setup cancelled.",
@@ -92,8 +87,6 @@ export const bitwardenEn = {
     "Sync sign-in removed from this device. This does not sign out other sessions; the local vault still unlocks as before.",
   "Connection deleted from this device, with its local vault copy, unlock key and sync sign-in. This does not sign out other sessions. Saved settings that referred to it now show it as unavailable.":
     "Connection deleted from this device, with its local vault copy, unlock key and sync sign-in. This does not sign out other sessions. Saved settings that referred to it now show it as unavailable.",
-  "Automatic unlock is off. To turn it back on, sign in again with Enable automatic unlock on this device checked.":
-    "Automatic unlock is off. To turn it back on, sign in again with Enable automatic unlock on this device checked.",
   "Pateat could not confirm the result. Refresh, then reload saved settings.":
     "Pateat could not confirm the result. Refresh, then reload saved settings.",
   "Enter a name, a valid email and the master password. A self-hosted server address is an HTTPS address such as https://vault.example.com, or HTTP on localhost or 127.0.0.1, with no path, credentials, query or fragment.":
@@ -107,8 +100,6 @@ export const bitwardenEn = {
   "Syncing {{name}}…": "Syncing {{name}}…",
   "Chrome did not grant access to the Bitwarden server, so nothing was synced.":
     "Chrome did not grant access to the Bitwarden server, so nothing was synced.",
-  "Enter the master password to sign in again. Automatic unlock stays as it is unless you check Enable automatic unlock on this device.":
-    "Enter the master password to sign in again. Automatic unlock stays as it is unless you check Enable automatic unlock on this device.",
   "Cancel setup": "Cancel setup",
   Bitwarden: "Bitwarden",
   "Stopped. Refresh to see the current state.": "Stopped. Refresh to see the current state.",
@@ -123,8 +114,6 @@ export const bitwardenEn = {
   "More for {{name}}": "More for {{name}}",
   "{{name}}: Sync": "{{name}}: Sync",
   "{{name}}: Sign in again": "{{name}}: Sign in again",
-  "{{name}}: Turn off automatic unlock": "{{name}}: Turn off automatic unlock",
-  "Turn off automatic unlock": "Turn off automatic unlock",
   "{{name}}: Forget sync sign-in": "{{name}}: Forget sync sign-in",
   "Forget sync sign-in": "Forget sync sign-in",
   "{{name}}: Delete connection": "{{name}}: Delete connection",
@@ -159,9 +148,6 @@ export const bitwardenEn = {
   Personal: "Personal",
   Email: "Email",
   "Master password": "Master password",
-  "Enable automatic unlock on this device": "Enable automatic unlock on this device",
-  "The master password and verification codes are not saved. An unlock key, an encrypted vault copy and a sync sign-in stay on this device.":
-    "The master password and verification codes are not saved. An unlock key, an encrypted vault copy and a sync sign-in stay on this device.",
   "Chrome asks for access to {{hosts}}.": "Chrome asks for access to {{hosts}}.",
   "Enter an HTTPS server address, or HTTP on localhost or 127.0.0.1.":
     "Enter an HTTPS server address, or HTTP on localhost or 127.0.0.1.",
@@ -228,7 +214,33 @@ export const bitwardenEn = {
   "The code email could not be requested. Resend to try again.":
     "The code email could not be requested. Resend to try again.",
   "Loading stopped.": "Loading stopped.",
-  "Enter the master password to finish setting up this connection. Automatic unlock is turned on, as when adding it.":
-    "Enter the master password to finish setting up this connection. Automatic unlock is turned on, as when adding it.",
   "Resend code": "Resend code",
+  "This connection is logged out on this device. Sign in again to use and sync it.":
+    "This connection is logged out on this device. Sign in again to use and sync it.",
+  "The vault is locked. Unlock it with the master password first.":
+    "The vault is locked. Unlock it with the master password first.",
+  "Vault locked": "Vault locked",
+  "Logged out on this device": "Logged out on this device",
+  "Locks at the vault timeout": "Locks at the vault timeout",
+  "Logged out on this device. Sign in again to use this vault.":
+    "Logged out on this device. Sign in again to use this vault.",
+  "Vault locked. Unlock it with the master password; the sync sign-in stays.":
+    "Vault locked. Unlock it with the master password; the sync sign-in stays.",
+  "Vault unlocked.": "Vault unlocked.",
+  "Enter the master password to finish setting up this connection.":
+    "Enter the master password to finish setting up this connection.",
+  "Enter the master password to sign in again.": "Enter the master password to sign in again.",
+  "Unlocking {{name}}…": "Unlocking {{name}}…",
+  "Invalid master password.": "Invalid master password.",
+  "The vault could not be unlocked. Refresh and try again.":
+    "The vault could not be unlocked. Refresh and try again.",
+  Unlock: "Unlock",
+  "{{name}}: Lock": "{{name}}: Lock",
+  Lock: "Lock",
+  "{{name}}: Log out": "{{name}}: Log out",
+  "Log out": "Log out",
+  "The master password and verification codes are not saved. An encrypted vault copy and a sync sign-in stay on this device, and its unlock key too while the vault timeout is Never.":
+    "The master password and verification codes are not saved. An encrypted vault copy and a sync sign-in stay on this device, and its unlock key too while the vault timeout is Never.",
+  "Vault verified, unlocked and copied to this device.":
+    "Vault verified, unlocked and copied to this device.",
 } as const;

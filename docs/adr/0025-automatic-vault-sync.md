@@ -13,7 +13,8 @@ the owner chose on 2026-10-23 that a conflict only background work caused is ret
 once by itself, and the other details were chosen by an agent. Amended on 2026-10-12 by
 [ADR 0034](0034-answer-page-passkey-requests.md): a conditional passkey request waiting
 for a login is not a request being handled; the hold covers it only while it reads the
-vault and signs.
+vault and signs. Amended on 2026-10-23 by
+[ADR 0075](0075-vault-lock-and-timeout.md): a locked vault is not synced.
 
 Date: 2026-10-11
 
@@ -242,6 +243,12 @@ about one token renewal; `/sync` only when the vault changed. Bitwarden cloud al
 [Identity](https://github.com/bitwarden/server/blob/5e68c1e65dd5ea476c3a00283b2a2ba575574c1d/src/Identity/appsettings.json)),
 so even five connections stay far below it. Self-hosted and Vaultwarden limits depend
 on the installation.
+
+## Locked vaults
+
+A vault that is locked ([ADR 0075](0075-vault-lock-and-timeout.md), 2026-10-23) is
+skipped: verifying what a sync downloads needs its key. The next automatic sync after an
+unlock fetches it.
 
 ## Later work
 
