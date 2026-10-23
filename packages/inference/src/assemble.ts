@@ -385,8 +385,8 @@ export function addHandler(
     const fills = routeFillTargets(base, "password");
     if (
       [...fills, ...routeTargets(base, page.path), ...others].some((element) =>
-        [...handler.fields.map((entry) => entry.target), handler.target].some((target) =>
-          sameTarget(element, target),
+        [...handler.fields.map((entry) => entry.target), handler.target].some((own) =>
+          sameTarget(element, own),
         ),
       )
     )
