@@ -67,7 +67,9 @@ anything instead of being refused `origin-busy` (owner's request, 13:49 UTC, aft
 person restarted an expired QR approval on 三菱UFJ銀行 and Pateat did nothing until the
 old tab closed; on 2026-10-13 this became the end of the watch without a logout, so that
 tab logs in as before,
-[ADR 0027](0027-per-account-login-routes.md#watching-after-a-challenge)). Amended again
+[ADR 0027](0027-per-account-login-routes.md#watching-after-a-challenge); since
+2026-10-23 the watched login holds the site for its whole watch instead, and no hold
+crosses between incognito and normal windows). Amended again
 on 2026-10-12 (21:18 UTC, owner's choice 「AI判定」 on a decision card): a `password`
 login whose tab moves to another origin of the same site right after the submission
 completes when the new page shows the account's username,
@@ -160,6 +162,16 @@ fix them now; the SSO policy itself is recorded separately.
   account choice is saved, and neither is retried. For the logout detection of
   [ADR 0021](0021-account-choice-outside-settings.md) (part D), both count as finished,
   like unknown outcomes.
+  - **Nothing submitted** (amended 2026-10-23). A fill whose failure confirmed it
+    changed nothing, waiting to be tried again, is no possible submission. A `password`
+    login still at its first step that has submitted nothing and has nothing in flight
+    that may have, when a new page of its origin shows or the worker restarts, does not
+    settle as unknown when the reconcile budget runs out: the page goes on at that step
+    as one that does not show it yet, left to the step's own wait and retries. After any
+    fill the person may have submitted the values themselves, so such a page still
+    settles as unknown and is watched; so does an advance fill waiting to be tried
+    again, which this would take past its step, and a login with a stop or on the
+    `passkey` route ends as before.
   - **A move after a passkey answer** (amended 2026-10-12). Such an attempt ends
     `authenticated` instead when all of these hold: after its last effect step and at
     most 30 seconds before the move, Pateat returned an assertion to a passkey request

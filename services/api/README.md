@@ -29,7 +29,7 @@ and `generation.ts`.
 | `GET`/`HEAD /health` | Build revision probe; other methods return 405 |
 | `GET /.well-known/openid-configuration` | OIDC discovery for Claude Workload Identity Federation |
 | `GET /.well-known/jwks.json` | Public halves of the issuer's ES256 keys |
-| `GET /v1/settings` | Current synced settings; revision 0 with `settings: null` before the first write |
+| `GET /v1/settings` | Device-selected profile policy plus shared bindings and `profileId`; revision 0 with `settings: null` before the first write |
 | `PUT /v1/settings` | Replace settings when `expectedRevision` matches; otherwise 409 with the current state |
 | `GET /v1/recipes?after=&limit=` | Latest state of recipes changed after the cursor, at most 100 per page |
 | `PUT /v1/recipes/:recipeId` | Publish an active revision or a tombstone when `expectedRevision` matches |
@@ -41,21 +41,32 @@ and `generation.ts`.
 | `POST /v1/recipes/:recipeId/page-sample` | Log a repeat login's signed-in page for evaluation, without a model call; 201 when kept, 204 when a sample of the recipe and branch is from the last 30 days |
 | `GET /v1/device` | The calling device's paired time, the owner's live recipe count and settings revision, and whether recipe generation would run now, for the diagnostics page |
 | `DELETE /v1/device` | Revoke the calling device's own credential |
-| `POST /pair` | Create a device for the signed-in owner from an allowed extension; 201 with the credential, once |
+| `POST /v1/device/problems` | Keep the calling device's `warn` and `error` local log lines, and `info` lines that say why Pateat did nothing, as it lets them leave (ADR 0066), each line checked on its own; 204, or 429 past the owner's 2,000 lines in 24 hours |
+| `POST /pair` | Create a device for the signed-in owner from an allowed extension; 201 with the credential, once. An owner's later device names `profileId` or a `newProfile` name; otherwise 409 `profile_required` with the profiles |
+| `GET /extension/profiles` | The owner's profiles, for the extension's profile editor; host-wide Access (WARP) and an allowlisted extension `Origin` |
+| `GET`, `PUT /extension/profiles/:profileId/settings` | Read or replace another profile like `/manage/api/profiles/:profileId/settings`, with the same guards |
+| `GET /extension/signed-in` | The page the profile editor opens when it needs a sign-in on the host-wide application |
 | `GET /pair/signed-in` | The page the extension opens when pairing needs a sign-in; it asks the user to go back to Pateat's settings |
-| `GET /manage/dashboard`, `/manage`, `/manage/sites`, `/manage/sites/:scheme/:host`, `/manage/claude`, `/manage/request-log` | Owner web UI (React app): the dashboard of login and request speed, counts, spend and failures; devices; the sites list with excluded sites, unreadable and revoked recipes; one origin's default account, recipes and bindings; Claude credentials, the connection test and each role's models; the request log with Delete all |
+| `GET /manage/dashboard`, `/manage`, `/manage/sites`, `/manage/sites/:scheme/:host`, `/manage/profiles`, `/manage/claude`, `/manage/problems`, `/manage/request-log` | Owner web UI (React app): the dashboard of login and request speed, counts, spend and failures; devices; settings profiles; the sites list with excluded sites, unreadable and revoked recipes; one origin's default account, recipes and bindings; Claude credentials, the connection test and each role's models; the newest problem lines devices sent; the request log with Delete all |
 | `GET /manage/assets/*` | The web UI's built script, styles and notices |
 | `GET /manage/api/dashboard?range=24h\|7d\|30d` | The dashboard's aggregates over the range ending now (default `7d`; another value is 400 `bad_request`), computed in the Worker from only the owner's rows: login time (total less the person's) of the signed-in login records, apart for those that waited on the service, with the median of each part (network, the rest of the service, waiting for the site, the rest, and the person apart) and per site and extension build; model, token, pre-model and server times per role, site and build (of requests that called the model; a request answered without a call counts only as a request and, unless its outcome is `recipe`, a failure; a signed-in page sample, outcome `sampled`, is left out), the median login and model time per UTC day (null on a day without one), the 10 slowest requests, counts, every login's result with how many signed in (in total and per day), the first-login result codes apart, tokens, this UTC day's and month's spend with the limits, active recipes, recipes generated, and failures by code with their latest 20; every set of durations has `n`, and below 20 its values instead of a p90 |
 | `GET /manage/api/devices` | The owner's devices with their last use, newest first |
 | `POST /manage/api/devices/:deviceId/revoke` | Revoke one of the owner's devices; 204 |
-| `GET /manage/api/settings` | The settings `/v1/settings` serves; revision 0 before the first write; 404 `not_paired` without a paired device |
-| `PUT /manage/api/settings` | Replace them like `PUT /v1/settings`; `connections` must be empty and the document at most 120 KiB |
-| `GET /manage/api/recipes` | Every recipe head with its document, most recently changed first; active heads whose document no longer validates are listed apart in `unreadable` |
+| `GET /manage/api/profiles` | The Access owner's profiles |
+| `POST /manage/api/profiles` | Copy an existing owned profile, with `name` and `copyFrom`; 409 `profile_name_taken` |
+| `PATCH /manage/api/profiles/:profileId` | Rename a profile; 409 `profile_name_taken` when another has the name, ignoring case |
+| `DELETE /manage/api/profiles/:profileId` | Delete a profile; 204, or 409 `profile_in_use` with the labels of the devices using it, or 409 `last_profile` |
+| `POST /manage/api/devices/:deviceId/profile` | Assign an owned profile to an owned active device; advances the settings revision |
+| `GET /manage/api/profiles/:profileId/settings` | Selected owned profile with shared bindings and owner revision; 404 for a foreign profile |
+| `PUT /manage/api/profiles/:profileId/settings` | Replace them like `PUT /v1/settings`; `connections` must be empty and the document at most 120 KiB |
+| `GET /manage/api/recipes` | Every recipe head with its document and each layout's last use and first page's source (`firstPage`: origin, model, time; ADR 0060), most recently changed first; active heads whose document no longer validates are listed apart in `unreadable` |
 | `POST /manage/api/recipes/:recipeId/revoke` | Revoke one recipe if `expectedRevision` is its head; otherwise 409 with the current head |
+| `POST /manage/api/recipes/:recipeId/layouts/:layout/revoke` | Remove one layout as the next revision if `expectedRevision` is the head, revoking the recipe when it was the last; 404 for a layout the head lacks, otherwise 409 with the current head |
 | `GET /manage/api/models` | The owner's model choices per role (`config`, the defaults while `saved` is false) and the models they may name (`models`): from the Models API with the owner's credential (`catalog: "models-api"`), else the pricing page (`"pricing"`), each with its efforts, rates and fast mode state (`none`, `available`, `failing`) |
 | `PUT /manage/api/models` | Save `{ version: 1, config }`; a choice the list does not offer (a model, effort or speed, or fast mode while failing) answers 400 `model_unavailable` |
-| `GET /manage/api/request-log` | How many request log rows (`entries`), login result codes (`outcomes`) and login records (`logins`) the owner has, and the oldest one's time (`oldestAt`, null when none) |
-| `DELETE /manage/api/request-log` | Delete every request log row, login result code and login record of the owner, and nothing else; answers how many (`deleted`, `outcomes`, `logins`) |
+| `GET /manage/api/request-log` | How many request log rows (`entries`), login result codes (`outcomes`), login records (`logins`) and problem lines (`problems`) the owner has, and the oldest one's time (`oldestAt`, null when none) |
+| `DELETE /manage/api/request-log` | Delete every request log row, login result code, login record and problem line of the owner, and clear `device_id` and `log_id` of the owner's `recipe_unit_sources` rows, and nothing else; answers how many (`deleted`, `outcomes`, `logins`, `problems`) |
+| `GET /manage/api/problems` | The owner's newest 200 problem lines, newest first, with each device's label (ADR 0066) |
 | `GET /manage/api/claude` | The Claude Console values for this owner and their saved WIF identifiers; 404 `not_paired` without a paired device |
 | `PUT /manage/api/claude` | Replace the owner's four WIF identifiers |
 | `POST /manage/api/claude/test` | Exchange one assertion and return only the outcome, never the token |
@@ -164,14 +175,42 @@ under this cap can therefore recover; see
 [ADR 0013](../../docs/adr/0013-service-held-recipes-and-settings.md#amendment-durable-recovery-under-cache-pressure-2026-10-14).
 The feed contains current heads, rather than every historical revision: a write moves
 its recipe's head to a new increasing sequence. The same batch deletes revisions older
-than the newest 10, and every earlier revision when the write revokes the recipe.
-Every winning write sets the head's `last_used_at`, and so do each accepted `/logins`
-record and `/use` report while the head is active. `GET /v1/recipes` and
-`GET /manage/api/recipes` first revoke up to 50 of the owner's active recipes whose
-`last_used_at` is more than 90 days old, oldest first and never an entry recipe, as
-tombstones with no writing device; a write that marks one used before its revocation
-lands keeps it ([ADR 0058](../../docs/adr/0058-automatic-recipe-removal.md)). A failed
+than the newest 10, and every earlier revision when the write revokes the recipe. Every
+winning write sets the head's `last_used_at`, except a service write that only removes
+layouts, and so do each accepted `/logins` record and `/use` report while the head is
+active. Each layout's own last use is kept in `recipe_layout_uses` (ADR 0060): the
+`/logins` record and `/use` report of a login on it, and the service's continuation,
+handler and marker writes into it; a write that drops a layout deletes its row.
+`GET /v1/recipes` and `GET /manage/api/recipes` first revoke up to 50 of the owner's
+active recipes whose `last_used_at` is more than 90 days old, oldest first and never an
+entry recipe, as tombstones with no writing device; a write that marks one used before
+its revocation lands keeps it
+([ADR 0058](../../docs/adr/0058-automatic-recipe-removal.md)). The same check then
+goes through up to 50 active recipes whose own `last_used_at` is within those 90 days
+and removes each layout whose newer of creation and last use is more than 90 days old,
+as the next revision without it, as long as another layout stays. The write wins only
+while none of the removed layouts was used since the check read their uses. A failed
 check is logged and the request goes on.
+
+`recipe_unit_sources` records which call made each unit of an active recipe
+([ADR 0060](../../docs/adr/0060-recipe-layouts.md#generation-provenance)): service-only,
+never synced and never in the document. A unit is named within its layout (`layout`,
+null for an entry recipe) by `page:<n>` (the page whose steps start at index `n`),
+`handler:<i>` and `marker:<i>` (by index, as the judge only appends them), `list` (a
+chooser layout's buttons), `account/…` or `other/…` (a chooser branch's units) or
+`entry`; `src/recipe-units.ts` defines them and each unit's content. A row holds the
+unit's `digest` (32 hex digits of the SHA-256 of that content as canonical JSON), the
+recipe `revision` whose write recorded it, its `origin` (`generated`, `judged` or
+`device`), the model that answered (`provider`, `model`, `effort`, `speed`, from the
+call's `served` model), the prompt version, the build, the writer device the revision
+records, the request log row's ID (not a foreign key) and `created_at`, the time of the
+winning write. `writeRecipe` writes the rows in the batch of the write that adds the
+units, only when it wins: a generated first page or continuation page, each handler a
+judgement adds (several under one log ID) and the marker it learns, a chooser's list and
+branch pages, and an entry recipe. A device's active `PUT` splits each route at the
+recorded pages, keeps the rows of units whose digest is unchanged, and writes `device`
+rows for units it changed or added. The same batch deletes the rows of units and layouts
+the document dropped, and every row of a revoked recipe.
 
 ## Claude credentials
 
@@ -225,17 +264,24 @@ the path ending before it), or `{ check: "plan", reason }` with the plan check's
 (such as `incompatible-role`).
 
 - `POST /v1/recipes/generate` takes
-  `{ version: 1, observation, slots, base?, signedIn? }`. Each origin and start path has
-  one generated recipe, `gen-` and the first 32 hex digits of the SHA-256 of the JSON
-  `[origin, path]`; a page without `base` is the start of its own. Without `base`, an
-  active recipe is returned as is; with `base`, the page's steps are appended after the
-  recipe's last `advance` step. A stale `base` gets the current recipe back, a `base`
-  whose recipe is revoked answers `recipe-revoked` while the revoked recipe's start page
-  is generated again as the revision after its tombstone, a `base` whose recipe was not
-  generated for this origin and its start path answers `recipe-conflict`. A first page
-  needs room under the active recipe count limit; every generated page, including
-  continuations and entry pages, needs at least 32 KiB of byte room before the model
-  call. A refused write after the call also answers `recipe-limit`. A judge write
+  `{ version: 1, observation, slots, base?, branch?, signedIn? }`. Each origin and start
+  path has one generated recipe, `gen-` and the first 32 hex digits of the SHA-256 of
+  the JSON `[origin, path]`; a page without `base` is the start of its own. The recipe
+  holds up to three layouts ([ADR 0060](../../docs/adr/0060-recipe-layouts.md)); a first
+  page writes one, keyed by its creation time and marked with the page's language.
+  `base` and `branch` go together: `branch` names the layout continued (`<key>`, or
+  `<key>:account` / `<key>:other` for a chooser's branch), and a branch the stored
+  recipe does not have answers `recipe-conflict`. Without `base`, an active recipe is
+  returned as is; with `base`, the page's steps are appended after that layout's last
+  `advance` step. A continuation whose write loses to a write of another layout, or of
+  the chooser layout's other branch, is written once more onto that newer revision while
+  its own layout or branch is unchanged. A stale `base` gets the current recipe back, a
+  `base` whose recipe is revoked answers `recipe-revoked` while the revoked recipe's
+  start page is generated again as the revision after its tombstone, a `base` whose
+  recipe was not generated for this origin and its start path answers `recipe-conflict`.
+  A first page needs room under the active recipe count limit; every generated page,
+  including continuations and entry pages, needs at least 32 KiB of byte room before the
+  model call. A refused write after the call also answers `recipe-limit`. A judge write
   refused for bytes keeps the page's answer (`challenge`, or `signed-in` once the recipe
   has a marker or the page is on another origin of the site) and is logged; only a first
   marker on the recipe's own origin refused for bytes answers `recipe-limit`. A `base`
@@ -281,12 +327,41 @@ the path ending before it), or `{ check: "plan", reason }` with the plan check's
   passkey-only one may (400 otherwise): no slot, field name or value shape goes with a
   list, whose instructions say so
   ([ADR 0028](../../docs/adr/0028-account-chooser-login-pages.md#amendment-2026-10-23-sent-without-slots)).
-  Every plan answers `pageKind` (`sign-in`, `confirm` or `unclear`) and
-  `irreversible` (`yes`, `no` or `unclear`, for evaluation only). The recipe stores its
-  first page's `pageKind`: a continuation keeps the recipe's, and a chooser branch's
-  pages are `sign-in` whatever the model answers. `irreversible` is never stored on a
-  recipe. A recipe stored without `pageKind` no longer validates, so it reads as revoked
-  and its page is generated again rather than taken as `sign-in`.
+  Every plan answers `pageKind` (`sign-in`, `confirm` or `unclear`) and `irreversible`
+  (`yes`, `no` or `unclear`, for evaluation only). Each layout stores its first page's
+  `pageKind` (ADR 0060): a continuation keeps the layout's, and a chooser branch's pages
+  are `sign-in` whatever the model answers. Every layout of a recipe has the same
+  `pageKind`, so a document mixing them fails validation (400 on a `PUT`), and a layout
+  of another kind written by `withLoginLayout` replaces the recipe's layouts. A document
+  also holds at most 20 slots over all its layouts and at most 120 KiB of JSON.
+  `irreversible` is never stored on a recipe. A recipe stored without `pageKind` no
+  longer validates, so it reads as revoked and its page is generated again rather than
+  taken as `sign-in`.
+- `POST /v1/recipes/generate` also takes
+  `{ version: 1, observation, slots, repair: { recipeId, revision, layout?, step? } }`
+  for a page the recipe's layouts no longer match
+  ([ADR 0041](../../docs/adr/0041-repair-stale-recipes.md)): without `layout`, the
+  start page of the recipe that starts on the page's path, a form or, with `slots: []`,
+  a list of accounts; with `layout` and `step` together, the page where that layout's
+  `step` did not show, which must follow an `advance` of a layout without
+  alternatives and lists no accounts. No `base` or `branch` (400 otherwise). An entry
+  request takes `repair: { recipeId, revision }` for an entry recipe whose link no
+  longer shows. A revoked recipe answers `recipe-revoked`; one that is not this
+  origin's active generated recipe, or a layout or step the recipe does not have,
+  `recipe-conflict`; a newer revision than `revision` is returned as is. A later
+  step's page is generated as a continuation of the layout cut before that step. The
+  answer is added as a new layout (marked with the page's language, or the stale
+  layout's for a later step); with three layouts, it takes the place of the least
+  recently used one. A list answered for a chooser is added to the chooser's layouts
+  the same way. A start page whose kind changed, a form where a list was or the other
+  way round, is written as the page's kind in the next revision. A start page that a
+  layout already has, or a later step whose steps a layout already holds, writes
+  nothing and returns the recipe; an answer that only adds a passkey button to a
+  layout's start page is merged into that layout, and only a `sign-in` answer is
+  written. Instead of the retry window, a device repairs a recipe at most once a UTC
+  day, whatever came of the call: the `recipe_repairs` row is written with the attempt,
+  and another repair that day answers `unavailable` with `repair-limit`. Spend limits,
+  byte room and the request log apply as for a first page.
 - `POST /v1/recipes/generate` also takes `{ version: 1, observation }` without `slots`:
   an entry request ([ADR 0031](../../docs/adr/0031-sign-in-entry-pages.md)) for a page
   without a login form, whose observation has no fill candidate and no `accounts`, and
@@ -371,7 +446,8 @@ the path ending before it), or `{ check: "plan", reason }` with the plan check's
   `href-locator` (an element located by a link's path, which only a marker may be). A
   `signed-in` marker on a `totp` handler's path that shows its code field fails
   `addCompletion` like one on the sign-in page, and the call answers `invalid-output`.
-- `stop: true` (only with the `password` route and no `branch`) marks the page of a
+- `stop: true` (only with the `password` route and a `branch` that names no chooser
+  branch) marks the page of a
   `password` login's stop before its item's missing password
   ([ADR 0036](../../docs/adr/0036-passkey-after-the-identifier.md), owner 2026-10-13
   05:39 UTC); like the `passkey` route's name, it tells the service that the item has no
@@ -403,11 +479,12 @@ recipe judged 20 times since the start of the UTC day answers `judgement-limit`.
 of another judge prompt version does not answer a repeat, so a changed prompt judges the
 page again, as one that can now name a handler an earlier prompt could not. A change to
 the local checks that keep a handler alone does not; it needs a prompt change to reach
-pages already judged. The row is written before the first model call, so a request the
-role then refuses locally still uses it. A stop's row is kept as `challenge` or
-undecided, so it answers only later stops' pages, and a stop's judgement counts toward
-the 20 a day. Rows of older revisions or of judge prompt versions other than the two
-current ones are deleted once their UTC day is over.
+pages already judged. The row is written just before the first model request, so a
+request the role refuses locally (`input-too-large`) gives the page back
+([ADR 0027](../../docs/adr/0027-per-account-login-routes.md)). A stop's row is kept as
+`challenge` or undecided, so it answers only later stops' pages, and a stop's judgement
+counts toward the 20 a day. Rows of older revisions or of judge prompt versions other
+than the two current ones are deleted once their UTC day is over.
 
 `src/claude/calls.ts` wraps every model call. Per owner it takes a 90-second lock
 (`busy` otherwise), refuses past $100 of estimated spend a month or $5 a day (UTC, both
@@ -419,8 +496,9 @@ page tried in the previous 10 minutes (ADR 0016), abstentions and failures inclu
 attempt key is the generated recipe ID, the path and the revision being continued (0 for
 a first page, the tombstone's revision for a revoked recipe generated again), so two
 recipes of one origin that lead to the same page do not block each other. A request that
-passes every check is an attempt, including one the role then refuses locally for its
-size, which would be refused again. Each role asks the owner's model choices in order
+reaches the model is an attempt; one the role refuses locally for its size writes no
+attempt row, so its resend is refused for its size again, not `recently-tried`. Each
+role asks the owner's model choices in order
 (`src/claude/models.ts`, saved in `inference_model_configs` from `/manage/claude`, ADR
 0014; by default Claude Opus 5.5 then Claude Sonnet 5.5, both at effort `low`): a
 refusal asks the next choice, a fast mode call that fails `rate-limited`,
@@ -438,18 +516,21 @@ accounts, whose instructions add one list line), the instructions and input as s
 structured result, the outcome code, usage and estimated cost. Since 2026-10-18
 ([ADR 0012](../../docs/adr/0012-inference-request-log.md#amendment-2026-10-18-rows-for-a-real-page-corpus))
 it also records the recipe the call is for (`recipe_id`, `branch`, empty without one),
-`base_revision` (the head revision when the call was made: 0 for none, the tombstone's
-for a revoked recipe generated again, the judged one for the judge), `recipe_page` for
-generation (`first` for a page sent without a base: a new recipe, one generated again, a
-list of accounts or an entry page; `continuation` for one sent with a base, a chooser
-branch's pages included), for generation `signed_in` (the request's hint), `page_kind`
-and `irreversible` (the plan's answers, also for a plan the local checks refused; null
-when the answer was no plan) ([ADR 0035](../../docs/adr/0035-page-kinds-per-site.md)),
-`build` (`PATEAT_BUILD_REVISION`) and `observation_hash` (12
-hex digits of the SHA-256 of the request's observation as JSON). `callClaude` returns
-the row's ID, and once the answer's recipe write succeeds `keepLogRevision` sets
-`revision`; a write refused or lost to a device leaves it null, and a failed update is
-logged as `Inference log revision not kept` and never fails the request. Since the
+`layout` ([ADR 0060](../../docs/adr/0060-recipe-layouts.md): the layout `branch` names,
+or for a recipe's first page sent to the model the key of the layout its answer creates;
+null for an entry page and a first page answered without a call), `base_revision` (the
+head revision when the call was made: 0 for none, the tombstone's for a revoked recipe
+generated again, the judged one for the judge), `recipe_page` for generation (`first`
+for a page sent without a base: a new recipe, one generated again, a list of accounts or
+an entry page; `continuation` for one sent with a base, a chooser branch's pages
+included), for generation `signed_in` (the request's hint), `page_kind` and
+`irreversible` (the plan's answers, also for a plan the local checks refused; null when
+the answer was no plan) ([ADR 0035](../../docs/adr/0035-page-kinds-per-site.md)),
+`build` (`PATEAT_BUILD_REVISION`) and `observation_hash` (12 hex digits of the SHA-256
+of the request's observation as JSON). `callClaude` returns the row's ID, and once the
+answer's recipe write succeeds `keepLogRevision` sets `revision`; a write refused or
+lost to a device leaves it null, and a failed update is logged as
+`Inference log revision not kept` and never fails the request. Since the
 [timings amendment](../../docs/adr/0012-inference-request-log.md#amendment-2026-10-18-request-timings),
 `pre_model_ms` (from the Worker receiving the request to just before the model call:
 authentication, the request limit, the route's reads, the lock and checks, the model
@@ -475,7 +556,11 @@ page or a field name, so the model's text is never stored, and the Worker logs o
 `Model output refused` with the role, its prompt version and the `rejection`. A schema
 `path` resolves each key where the output format defines it, so a key the format defines
 only in another object also ends the path as `unknown-key`; the options of a variant are
-read together, so a key of a sibling option gives that object's issue instead.
+read together, so a key of a sibling option gives that object's issue instead. For
+`refused`, the result is `{ refusalCategory }` with the provider's refusal category code
+(for Claude, `stop_details.category`, such as `cyber`) when it reported a short code
+([ADR 0014](../../docs/adr/0014-claude-generation-provider.md)), and empty otherwise;
+the provider's explanation is never stored.
 
 A request answered without a model call is logged too
 ([ADR 0012](../../docs/adr/0012-inference-request-log.md#amendment-2026-10-18-requests-answered-without-a-model-call)),
@@ -497,7 +582,7 @@ Invalid bodies and requests answered 400 or 404 are not logged: a `base` ID not 
 `gen-…` form, a judged page of an origin no move reaches, a missing recipe. Such a row
 has `server_ms` but no `pre_model_ms`, `token_ms` or `model_ms`.
 
-`POST /v1/recipes/:recipeId/page-sample` takes `{ version: 1, revision, route, branch?,
+`POST /v1/recipes/:recipeId/page-sample` takes `{ version: 1, revision, route, branch,
 observation }`: the signed-in page of a login that the recipe's marker completed
 ([ADR 0029](../../docs/adr/0029-local-sign-in-state.md#amendment-signed-in-page-samples-2026-10-18),
 owner 2026-10-18 08:05 UTC). The revision must be a kept, active revision of the owner's
@@ -523,23 +608,25 @@ failures (agent's choices, not confirmed by the owner).
 
 Rows older than one year are deleted whenever a request is logged and on every
 `GET /v1/recipes`, because routine releases do not apply cron triggers.
-`DELETE /manage/api/request-log` deletes all of the owner's rows; a call still running
-then logs its row afterwards.
+`DELETE /manage/api/request-log` deletes all of the owner's rows and clears `device_id`
+and `log_id` of the owner's `recipe_unit_sources` rows, which keep the model, prompt
+version, build, revision, digest and time; a call still running then logs its row
+afterwards.
 
 `POST /v1/recipes/:recipeId/outcome` takes
-`{ version: 1, revision, branch?, outcome, cause?, step }`: how the first login of that
+`{ version: 1, revision, branch, outcome, cause?, step }`: how the first login of that
 revision on a device ended
 ([ADR 0019](../../docs/adr/0019-local-diagnostics-and-logs.md#amendment-2026-10-18-first-login-results-for-evaluation)).
 `outcome` is a `loginOutcomeSchema` code, `cause` one of `loginOutcomeCauseSchema`'s
 fixed codes and `step` the attempt's step index; any other field, a URL or free text
 answers 400, a body over 1 KiB 413. A recipe the owner does not hold, a revision above
 its head or a revoked head's tombstone answers 404. The `login_outcomes` row keeps the
-owner, recipe, branch (empty without one), revision, the codes and the service's own
+owner, recipe, branch (the layout, ADR 0060), revision, the codes and the service's own
 time; the first report of a revision is kept and any later one, from any device, is
 answered 204 and ignored. Its rows follow the request log's one-year retention (deleted
 with the expired log rows, also on each report) and its delete-all.
 
-`POST /v1/recipes/:recipeId/logins` takes `{ version: 1, revision, branch?, outcome,
+`POST /v1/recipes/:recipeId/logins` takes `{ version: 1, revision, branch, outcome,
 cause?, extensionBuild, totalMs, serviceMs, networkMs, personMs, pageMs }`: one login of
 that revision that ended
 ([ADR 0055](../../docs/adr/0055-login-records-sent-to-the-service.md)). The codes are
@@ -550,21 +637,82 @@ and from this service, counted only for answers that named their `Server-Timing`
 origin, a URL, free text, `otherMs`) answers 400, a body over 1 KiB 413. A recipe the
 owner does not hold, a revision above its head, a revoked head's tombstone, or a recipe
 with no kept document (as after its revocation) answers 404. Each report is one
-`login_timings` row: the owner, recipe, branch (empty without one), revision, the
+`login_timings` row: the owner, recipe, branch (the layout), revision, the
 recipe's `origin` read from the reported revision's document (or the newest kept one
 when that revision was pruned), the codes, the build, the times and the service's own
 time. Its rows follow the request log's one-year retention and its delete-all. The same
 batch marks the recipe used (`last_used_at`) while its head is active, whichever
-revision the record names.
+revision the record names, and the record's layout when the head's document has it.
 
-`POST /v1/recipes/:recipeId/use` takes `{ version: 1, revision }`: a login started on
-that revision, whatever happened after
+`POST /v1/recipes/:recipeId/use` takes `{ version: 1, revision, layout }`: a login
+started on that revision, whatever happened after
 ([ADR 0058](../../docs/adr/0058-automatic-recipe-removal.md)), including the fill-only
 logins and the logins that stop before an item's missing password, which send no
 `/logins` record. Any other field answers 400, a body over 256 bytes 413. It sets the
 head's `last_used_at` to the service's time when the head is active and the revision is
-at most its head, and answers 204; a recipe the owner does not hold, a revision above
-its head or a revoked recipe answers 404. Nothing else is stored.
+at most its head, and answers 204, and marks the layout used when the head's document
+has it; a recipe the owner does not hold, a revision above its head or a revoked recipe
+answers 404. Nothing else is stored.
+
+`POST /v1/device/problems` takes `{ version: 1, extensionBuild, logId, entries }` with 1
+to 100 entries `{ seq, time, level, event, fields }`: the calling device's `warn` and
+`error` local log lines, and `info` lines that say why Pateat did nothing
+(`PROBLEM_INFO_LINES`), it has not sent yet
+([ADR 0066](../../docs/adr/0066-problem-lines-sent-to-the-service.md)).
+`extensionBuild` is the build that wrote every line, `logId` the device log's random ID
+(32 hex digits), `seq` the local log's key, `time` the device's, `level` `warn`, `error`
+or, for an event and outcome of `PROBLEM_INFO_LINES`, `info`, `event` a log event name
+of `PROBLEM_EVENT_FIELDS` (`packages/contracts/src/problems.ts`), and `fields` only the
+fields that event lists, each of its kind (`PROBLEM_FIELD_KINDS`): codes, error names,
+counts, flags, builds, recipe IDs, origins (a configured site's or an `origin:`
+pseudonym), RP IDs, script positions and page paths. No string but a stack holds
+whitespace, none `@`, `?` or `#`, only an origin `://`, and no path `;` or `=`, so free
+text, a URL with a query or parameters or an email address does not pass. Each entry is
+checked on its own (`problemReportEnvelopeSchema`): one that does not pass is left out
+and the others are kept, so a newer extension's line an older service does not know
+costs only that line; a report with no entry that passes, or whose envelope does not
+pass, answers 400, and a body over 64 KiB answers 413. Each kept line is one
+`problem_log` row: the owner, the device, the log ID, `seq`, the build, the level, the
+event, the fields as JSON, the device's time and the service's own time. A line whose
+device, log ID and `seq` are already stored is ignored and not counted, so a retry
+changes nothing, and a log made again on the device never collides with the old one's
+rows. A report whose new lines would take the owner past 2,000 lines received in the
+last 24 hours is refused whole with 429 and `Retry-After: 3600`; the count is read
+before the insert, so two reports at once may pass it by up to one report's lines. Rows
+are kept a year, like the request log (deleted with its expired rows, also on each
+report), and go with the request log's Delete all.
+
+A Claude session reads them through the read-only D1 query tool, for example:
+
+```sql
+SELECT datetime(logged_at / 1000, 'unixepoch') AS at, event, level,
+  json_extract(fields, '$.origin') AS origin, json_extract(fields, '$.outcome') AS outcome,
+  fields, extension_build
+FROM problem_log ORDER BY created_at DESC, seq DESC LIMIT 50;
+```
+
+## Model calls a device makes with its own key
+
+[ADR 0040](../../docs/adr/0040-running-without-the-service.md), in
+`src/claude/calls.ts`. `POST /v1/recipes/generate` (recipes and entry requests) and
+`POST /v1/recipes/:recipeId/completion` take an optional
+`deviceModel: { responses }` (at most 6) from a device that holds its own Anthropic API
+key. The route runs as usual, but where it would call the model it answers 200
+`{ version: 1, status: "model-call", call: { index, headers, body } }`: the Messages
+request body (at most 160 KiB) and its `anthropic-version`, `anthropic-beta` and
+`content-type` headers. The device sends it to Anthropic and sends the request again
+with one more response: `{ kind: "response", request, status, body }` (body at most
+16 KiB), `{ kind: "timeout", request }` or `{ kind: "unreachable", request }`, where
+`request` is the hex SHA-256 of the body it answers. The service takes response `index`
+in place of call `index`; a response whose hash does not match the body built now is
+asked for again with the same index. In this mode the route first runs without
+writes to learn whether another call is needed, and writes the attempt record, log rows
+and recipe only in the run that has every response.
+
+Such calls need no credential on the service and skip its spend stops. Each is logged
+with `source = 'device'` (migration `0032_inference_log_source`), its cost from the
+reported usage, `token_ms` and `model_ms` null, and nothing added to `inference_spend`.
+The automatic stop of fast mode counts the rows of its own source only.
 
 ## Schema and tests
 

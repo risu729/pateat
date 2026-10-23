@@ -1,4 +1,5 @@
 export * from "./extension-id";
+export * from "./device-model";
 export * from "./generation";
 export * from "./settings";
 export * from "./settings-store";
@@ -9,6 +10,7 @@ export * from "./manage";
 export * from "./models";
 export * from "./observation";
 export * from "./pairing";
+export * from "./problems";
 export * from "./password-choice";
 export * from "./recipes";
 export * from "./service-connection";

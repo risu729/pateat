@@ -5,7 +5,9 @@ Status: accepted by the owner on 2026-10-11. Amends
 Anthropic API key as a Worker secret. The issuer, the per-owner identifiers and the
 token exchange are implemented in `services/api/src/claude/`, and owners enter their
 identifiers on `/manage/claude`. The recipe generation routes of
-[ADR 0018](0018-recipe-generation-route.md) use them.
+[ADR 0018](0018-recipe-generation-route.md) use them. Amended by
+[ADR 0040](0040-running-without-the-service.md): a paired device with its own Anthropic
+API key makes the model calls itself, and the service's spend stops do not count them.
 
 Date: 2026-10-11
 

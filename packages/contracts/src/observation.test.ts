@@ -3,9 +3,11 @@ import { describe, expect, it } from "vitest";
 import {
   builtInLoginSlots,
   customSlotIdSchema,
+  detailInputRefusal,
   loginObservationSchema,
   semanticSlotsSchema,
   isCodeField,
+  showsBesideForm,
   showsCodeField,
   slotsForPage,
 } from "./observation";
@@ -152,6 +154,21 @@ describe("observation contract", () => {
     expect(withDescription({ description: "" })).toBe(false);
     expect(withDescription({ description: "x".repeat(121) })).toBe(false);
     expect(withDescription({ description: "a\u202eb" })).toBe(false);
+  });
+
+  it("takes a keypad locator only on fill roles (ADR 0067)", () => {
+    const keypad = { by: "id", value: "soft-keys" };
+    const withKeypad = (index: number, value: unknown = keypad) =>
+      parse({
+        ...base,
+        candidates: base.candidates.map((candidate, at) =>
+          at === index ? { ...candidate, keypad: value } : candidate,
+        ),
+      });
+    expect(withKeypad(1)).toBe(true);
+    expect(withKeypad(1, { by: "test-id", value: "pad" })).toBe(true);
+    expect(withKeypad(2)).toBe(false);
+    expect(withKeypad(1, { by: "text", value: "1" })).toBe(false);
   });
 
   it("bounds a signed-in page's header text at 1,000 characters (ADR 0029)", () => {
@@ -326,6 +343,191 @@ describe("code fields on a generated page (ADR 0027)", () => {
   });
 });
 
+describe("personal-detail inputs (ADR 0061)", () => {
+  // A synthetic page that asks for a birth year and month or a phone's last four digits.
+  const input = (extra: object = {}) =>
+    ({
+      id: "x",
+      role: "text",
+      target: { by: "id", value: "x" },
+      group: "form-1",
+      ...extra,
+    }) as never;
+  const button = (extra: object = {}) =>
+    ({
+      id: "confirm",
+      role: "button",
+      target: { by: "id", value: "confirm" },
+      group: "form-1",
+      ...extra,
+    }) as never;
+  const birth = { detail: "birth-date", format: "yyyymm" } as const;
+  const phone = { detail: "phone-last-4" } as const;
+  const cardLast = { detail: "card-last-4" } as const;
+  const code = { detail: "card-code" } as const;
+  const cardNumber = { detail: "card-number" } as const;
+  const expiry = { detail: "card-expiry", format: "mm/yy" } as const;
+  const pin = { detail: "pin" } as const;
+  const refusal = (entry: Parameters<typeof detailInputRefusal>[0], field: object, submit = {}) =>
+    detailInputRefusal(entry, input(field), button(submit));
+
+  it("accepts the inputs each detail's fill rule admits", () => {
+    expect(refusal(birth, { maxLength: 6 })).toBeUndefined();
+    for (const role of ["text", "tel", "number"]) {
+      expect(refusal(birth, { role })).toBeUndefined();
+      expect(refusal({ detail: "birth-date", format: "yyyymmdd" }, { role })).toBeUndefined();
+    }
+    for (const role of ["text", "tel", "number"]) {
+      expect(refusal(phone, { role, maxLength: 4 })).toBeUndefined();
+      expect(refusal(cardLast, { role })).toBeUndefined();
+    }
+    // Elements outside any form are one form.
+    expect(refusal(phone, { group: undefined }, { group: undefined })).toBeUndefined();
+    // A personal-data hint is no sign-in field.
+    expect(refusal(birth, { autocomplete: "bday" })).toBeUndefined();
+    expect(refusal(phone, { autocomplete: "tel" })).toBeUndefined();
+  });
+
+  it("takes an answer in a text or password input and a member ID in a text, tel or number one", () => {
+    const answer = { detail: "secret-answer" } as const;
+    const member = { detail: "member-id" } as const;
+    for (const role of ["text", "password"]) expect(refusal(answer, { role })).toBeUndefined();
+    for (const role of ["tel", "number", "email"])
+      expect(refusal(answer, { role })).toBe("not-input");
+    for (const role of ["text", "tel", "number"]) expect(refusal(member, { role })).toBeUndefined();
+    expect(refusal(member, { role: "password" })).toBe("not-input");
+    // An answer's label may be the account's own question, which no recipe holds.
+    expect(refusal(answer, { target: { by: "label", value: "Mother's maiden name?" } })).toBe(
+      "label-locator",
+    );
+    expect(refusal(member, { target: { by: "label", value: "Member number" } })).toBeUndefined();
+  });
+
+  it("takes a card's security code in a password input, or a text or tel input of 3 or 4", () => {
+    expect(refusal(code, { role: "password" })).toBeUndefined();
+    expect(refusal(code, { role: "password", maxLength: 4 })).toBeUndefined();
+    for (const role of ["text", "tel"])
+      for (const maxLength of [3, 4]) expect(refusal(code, { role, maxLength })).toBeUndefined();
+    for (const field of [
+      { role: "text" },
+      { role: "tel" },
+      { role: "text", maxLength: 2 },
+      { role: "text", maxLength: 5 },
+      { role: "tel", maxLength: 6 },
+      { role: "number" },
+      { role: "email", maxLength: 3 },
+    ])
+      expect(refusal(code, field)).toBe("not-input");
+    // A password input shorter than the code is too short.
+    expect(refusal(code, { role: "password", maxLength: 2 })).toBe("too-short");
+  });
+
+  it("takes a whole card number or a PIN in a password, text, tel or number input", () => {
+    for (const role of ["password", "text", "tel", "number"]) {
+      expect(refusal(cardNumber, { role })).toBeUndefined();
+      expect(refusal(pin, { role })).toBeUndefined();
+    }
+    expect(refusal(cardNumber, { maxLength: 19 })).toBeUndefined();
+    expect(refusal(cardNumber, { maxLength: 12 })).toBeUndefined();
+    expect(refusal(pin, { role: "password", maxLength: 4 })).toBeUndefined();
+  });
+
+  it("takes a card's expiry date in a text, tel or number input that holds its format", () => {
+    for (const role of ["text", "tel"]) expect(refusal(expiry, { role })).toBeUndefined();
+    expect(refusal({ detail: "card-expiry", format: "mmyy" }, { role: "number" })).toBeUndefined();
+    expect(
+      refusal({ detail: "card-expiry", format: "mmyyyy" }, { role: "number" }),
+    ).toBeUndefined();
+    // A number input takes digits only, so never a format written with `/` or `-`.
+    for (const entry of [
+      expiry,
+      { detail: "card-expiry", format: "mm/yyyy" },
+      { detail: "birth-date", format: "yyyy-mm-dd" },
+      { detail: "birth-date", format: "yyyy/mm/dd" },
+    ] as const)
+      expect(refusal(entry, { role: "number" }), entry.format).toBe("not-input");
+    expect(
+      refusal({ detail: "birth-date", format: "yyyy-mm-dd" }, { role: "tel" }),
+    ).toBeUndefined();
+    expect(refusal(expiry, { maxLength: 5 })).toBeUndefined();
+    expect(refusal({ detail: "card-expiry", format: "mmyy" }, { maxLength: 4 })).toBeUndefined();
+    expect(refusal({ detail: "card-expiry", format: "mm/yyyy" }, { maxLength: 6 })).toBe(
+      "too-short",
+    );
+  });
+
+  it.each([
+    ["a birth date in a password input", birth, { role: "password" }, {}, "not-input"],
+    ["a birth date in an email input", birth, { role: "email" }, {}, "not-input"],
+    ["the last four in an email input", phone, { role: "email" }, {}, "not-input"],
+    ["the last four in a button", cardLast, { role: "button" }, {}, "not-input"],
+    ["the last four in a checkbox", phone, { role: "checkbox" }, {}, "not-input"],
+    [
+      "an input located by its text",
+      phone,
+      { target: { by: "text", value: "Phone" } },
+      {},
+      "text-locator",
+    ],
+    ["a username input", phone, { autocomplete: "username" }, {}, "sign-in-field"],
+    // Only a card's security code goes into a password input, so a PIN or a second
+    // password the judge takes for the last four digits is not kept.
+    ["the phone's last four in a password input", phone, { role: "password" }, {}, "not-input"],
+    ["the card's last four in a password input", cardLast, { role: "password" }, {}, "not-input"],
+    [
+      "a password input",
+      code,
+      { role: "password", autocomplete: "current-password" },
+      {},
+      "sign-in-field",
+    ],
+    [
+      "a new password input",
+      code,
+      { role: "password", autocomplete: "new-password" },
+      {},
+      "sign-in-field",
+    ],
+    ["an email input", phone, { autocomplete: "email" }, {}, "sign-in-field"],
+    ["a one-time code input", birth, { autocomplete: "one-time-code" }, {}, "sign-in-field"],
+    ["a year and month in 5 characters", birth, { maxLength: 5 }, {}, "too-short"],
+    [
+      "a full birth date in 6 characters",
+      { detail: "birth-date", format: "yyyymmdd" },
+      { maxLength: 6 },
+      {},
+      "too-short",
+    ],
+    [
+      "a dashed birth date in 8 characters",
+      { detail: "birth-date", format: "yyyy-mm-dd" },
+      { maxLength: 8 },
+      {},
+      "too-short",
+    ],
+    ["the last four in 3 characters", phone, { maxLength: 3 }, {}, "too-short"],
+    ["a card number in 11 characters", cardNumber, { maxLength: 11 }, {}, "too-short"],
+    ["a PIN in 3 characters", pin, { role: "password", maxLength: 3 }, {}, "too-short"],
+    ["an expiry date with its slash in 4 characters", expiry, { maxLength: 4 }, {}, "too-short"],
+    ["an expiry date in a password input", expiry, { role: "password" }, {}, "not-input"],
+    ["a card number in an email input", cardNumber, { role: "email" }, {}, "not-input"],
+    ["a PIN in a checkbox", pin, { role: "checkbox" }, {}, "not-input"],
+    [
+      "a PIN in the account's password input",
+      pin,
+      { role: "password", autocomplete: "current-password" },
+      {},
+      "sign-in-field",
+    ],
+    ["a submit that is a link", phone, {}, { role: "link" }, "submit-not-button"],
+    ["a submit that is an input", phone, {}, { role: "text" }, "submit-not-button"],
+    ["a submit in another form", phone, {}, { group: "form-2" }, "submit-other-form"],
+    ["a loose submit", phone, {}, { group: undefined }, "submit-other-form"],
+  ] as const)("refuses %s", (_label, entry, field, submit, why) => {
+    expect(refusal(entry, field, submit)).toBe(why);
+  });
+});
+
 describe("custom-field slots (ADR 0027)", () => {
   const custom = (extra: object = {}) => ({
     id: "custom-1",
@@ -415,5 +617,75 @@ describe("custom-field slots (ADR 0027)", () => {
   it("bounds a slot ID at 60 characters", () => {
     expect(v.is(customSlotIdSchema, "店".repeat(60))).toBe(true);
     expect(v.is(customSlotIdSchema, "店".repeat(61))).toBe(false);
+  });
+});
+
+// ADR 0061: a sign-in sidebar left shown behind a lightbox form that asks for a detail.
+// Synthetic page, shaped like a card site's.
+describe("a form beside the sign-in form (ADR 0061)", () => {
+  const id = (value: string) => ({ by: "id", value }) as const;
+  const sidebar = [
+    { id: "c1", role: "text", target: id("user"), group: "side" },
+    { id: "c2", role: "password", target: id("pw"), group: "side" },
+    { id: "c3", role: "button", target: id("login"), group: "side" },
+  ] as const;
+  const lightbox = [
+    { id: "c4", role: "text", target: id("birth"), group: "box", maxLength: 6 },
+    { id: "c5", role: "tel", target: id("phone"), group: "box", maxLength: 4 },
+    { id: "c6", role: "button", target: id("submit"), group: "box" },
+  ] as const;
+  const fills = [id("user"), id("pw")];
+  const page = (candidates: readonly object[]) =>
+    v.parse(loginObservationSchema, { ...base, candidates });
+
+  it("finds a text-like input with its own button in another form", () => {
+    expect(showsBesideForm(page([...sidebar, ...lightbox]), fills)).toBe(true);
+    // A number input counts as a text-like one.
+    expect(
+      showsBesideForm(
+        page([
+          ...sidebar,
+          { id: "c4", role: "number", target: id("birth"), group: "box" },
+          lightbox[2],
+        ]),
+        fills,
+      ),
+    ).toBe(true);
+  });
+
+  it("needs a route fill field shown, another form, a text-like input and its button", () => {
+    // No fill field of the route shows.
+    expect(showsBesideForm(page(lightbox), fills)).toBe(false);
+    // The other inputs are in the sign-in form.
+    expect(
+      showsBesideForm(
+        page([...sidebar, ...lightbox.map((entry) => ({ ...entry, group: "side" }))]),
+        fills,
+      ),
+    ).toBe(false);
+    // Nor when one fill field of the route is in that form too.
+    expect(
+      showsBesideForm(page([sidebar[0], { ...sidebar[1], group: "box" }, ...lightbox]), fills),
+    ).toBe(false);
+    // Nor without a button of that form.
+    expect(showsBesideForm(page([...sidebar, lightbox[0], lightbox[1]]), fills)).toBe(false);
+    // Nor with only a password input there, nor with inputs outside any form.
+    expect(
+      showsBesideForm(page([...sidebar, { ...lightbox[0], role: "password" }, lightbox[2]]), fills),
+    ).toBe(false);
+    expect(
+      showsBesideForm(
+        page([
+          ...sidebar,
+          { id: "c4", role: "text", target: id("birth") },
+          { id: "c6", role: "button", target: id("submit") },
+        ]),
+        fills,
+      ),
+    ).toBe(false);
+    // A route fill field is never the other form's input.
+    expect(
+      showsBesideForm(page([sidebar[1], { ...sidebar[0], group: "box" }, lightbox[2]]), fills),
+    ).toBe(false);
   });
 });

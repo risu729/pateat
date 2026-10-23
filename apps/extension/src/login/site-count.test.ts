@@ -44,6 +44,7 @@ function settings(
       ],
       excludedSites: [],
       passkeyBrowserSites: [],
+      repromptSites: [],
       siteDefaults: [],
       bindings: [],
       ...more,

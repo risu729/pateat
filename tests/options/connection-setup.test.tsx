@@ -57,6 +57,12 @@ function mockClient() {
     disableAutoUnlock: vi
       .fn<ConnectionClient["disableAutoUnlock"]>()
       .mockResolvedValue({ ok: true, kind: "cancelled" }),
+    lock: vi
+      .fn<ConnectionClient["lock"]>()
+      .mockImplementation(async (connectionId) => ({ ok: true, kind: "locked", connectionId })),
+    unlock: vi
+      .fn<ConnectionClient["unlock"]>()
+      .mockImplementation(async (connectionId) => ({ ok: true, kind: "unlocked", connectionId })),
     forgetProviderSession: vi
       .fn<ConnectionClient["forgetProviderSession"]>()
       .mockImplementation(async (connectionId) => ({ ok: true, kind: "forgotten", connectionId })),
@@ -123,7 +129,7 @@ test.each(["first..last@example.test", ".first@example.test", "名前@example.te
     await fillNew();
     await page.getByLabelText("Email", { exact: true }).fill(email);
     await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
-    await expect.element(page.getByText(/valid email and master password/)).toBeVisible();
+    await expect.element(page.getByText(/a valid email and the master password/)).toBeVisible();
     expect(client.requestProviderPermission).not.toHaveBeenCalled();
     expect(client.begin).not.toHaveBeenCalled();
   },
@@ -136,7 +142,7 @@ test("a loopback HTTP address asks for that origin only (ADR 0059)", async () =>
   await fillNew();
   await page.getByRole("combobox", { name: "Server", exact: true }).selectOptions("self-hosted");
   await page.getByLabelText("Server address", { exact: true }).fill("http://localhost:8000");
-  await expect.element(page.getByText("Chrome asks for access to localhost:8000")).toBeVisible();
+  await expect.element(page.getByText("Chrome asks for access to localhost:8000.")).toBeVisible();
   await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
   expect(client.requestProviderPermission).toHaveBeenCalledWith({
     kind: "self-hosted",
@@ -151,7 +157,9 @@ test("permission denial clears the password and sends no sign-in request", async
   await fillNew();
   await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
   await expect
-    .element(page.getByText("Provider access was not granted. No sign-in request was sent."))
+    .element(
+      page.getByText("Chrome did not grant access to the Bitwarden server, so nothing was sent."),
+    )
     .toBeVisible();
   await expect.element(page.getByLabelText("Master password", { exact: true })).toHaveValue("");
   expect(client.requestProviderPermission).toHaveBeenCalledWith({ kind: "cloud", region: "us" });
@@ -179,11 +187,7 @@ test("a held sign-in clears UI secrets immediately and never puts them in query 
   expect(client.begin.mock.calls[0]![0]).toMatchObject({ password, kind: "new", enabled: true });
   pending.resolve(ready());
   await expect
-    .element(
-      page.getByText(
-        "Vault verified and local cache accepted. Check automatic-unlock status below.",
-      ),
-    )
+    .element(page.getByText("Vault verified, unlocked and copied to this device."))
     .toBeVisible();
 });
 
@@ -200,7 +204,11 @@ test.each([
   await page.getByLabelText("Server address", { exact: true }).fill(address);
   await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
   await expect
-    .element(page.getByText(/Self-hosted addresses must be HTTPS roots, or HTTP on localhost/))
+    .element(
+      page.getByText(
+        /A self-hosted server address is an HTTPS address such as https:\/\/vault\.example\.com, or HTTP on localhost/,
+      ),
+    )
     .toBeVisible();
   expect(client.requestProviderPermission).not.toHaveBeenCalled();
   expect(client.begin).not.toHaveBeenCalled();
@@ -572,11 +580,7 @@ test("a refused code keeps the code screen, its method and its sent email", asyn
   await page.getByLabelText("Verification code", { exact: true }).fill("000123");
   await page.getByRole("button", { name: "Verify code", exact: true }).click();
   await expect
-    .element(
-      page.getByText(
-        "Vault verified and local cache accepted. Check automatic-unlock status below.",
-      ),
-    )
+    .element(page.getByText("Vault verified, unlocked and copied to this device."))
     .toBeVisible();
   expect(client.continue).toHaveBeenLastCalledWith({
     flowId,
@@ -759,11 +763,7 @@ test("an ended flow answered while Verify code runs leaves that request to answe
     expect(page.getByText(expiredText).query()).toBeNull();
     pending.resolve(ready());
     await expect
-      .element(
-        page.getByText(
-          "Vault verified and local cache accepted. Check automatic-unlock status below.",
-        ),
-      )
+      .element(page.getByText("Vault verified, unlocked and copied to this device."))
       .toBeVisible();
     expect(page.getByText(expiredText).query()).toBeNull();
   });
@@ -820,11 +820,7 @@ test("new-device verification is a distinct manual continuation and clears its c
     .toHaveValue("");
   pending.resolve(ready());
   await expect
-    .element(
-      page.getByText(
-        "Vault verified and local cache accepted. Check automatic-unlock status below.",
-      ),
-    )
+    .element(page.getByText("Vault verified, unlocked and copied to this device."))
     .toBeVisible();
   expect(client.continue).toHaveBeenCalledWith({ flowId, newDeviceOtp: "000987" });
 });
@@ -842,7 +838,7 @@ test("cancel closes the private lifetime and ignores a late successful begin", a
   const changes = changed.mock.calls.length;
   pending.resolve(ready());
   await expect
-    .element(page.getByText("Setup stopped. Refresh to confirm the latest state."))
+    .element(page.getByText("Setup stopped. Refresh to see the current state."))
     .toBeVisible();
   expect(changed).toHaveBeenCalledTimes(changes);
   // Stopping re-reads the rows once; the late reply adds no read.
@@ -864,7 +860,7 @@ test("unmount closes credential work and ignores its late response", async () =>
   expect(changed).not.toHaveBeenCalled();
 });
 
-test("existing disabled connections remain preserve-only unless enable is explicitly checked", async () => {
+test("Sign in again on a logged-out connection unlocks it without an automatic-unlock choice", async () => {
   const client = mockClient();
   const saved = {
     connectionId: "saved-a",
@@ -877,10 +873,10 @@ test("existing disabled connections remain preserve-only unless enable is explic
   };
   client.list.mockResolvedValue({ ...status(), connections: [saved] });
   await mount(client);
+  await expect.element(page.getByText("Logged out on this device", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Saved vault: Sign in again", exact: true }).click();
-  await expect
-    .element(page.getByLabelText("Enable automatic unlock on this device", { exact: true }))
-    .not.toBeChecked();
+  // The vault timeout decides how long the key stays; the form no longer asks.
+  expect(document.body.textContent).not.toContain("Enable automatic unlock");
   await page.getByLabelText("Master password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Sign in and sync", exact: true }).click();
   await vi.waitFor(() => expect(client.begin).toHaveBeenCalledTimes(1));
@@ -888,26 +884,10 @@ test("existing disabled connections remain preserve-only unless enable is explic
     kind: "existing",
     connectionId: "saved-a",
     password,
-    autoUnlock: "preserve",
   });
   await expect
-    .element(
-      page.getByText(
-        "Vault verified and local cache accepted. Check automatic-unlock status below.",
-      ),
-    )
+    .element(page.getByText("Vault verified, unlocked and copied to this device."))
     .toBeVisible();
-  await page.getByRole("button", { name: "Saved vault: Sign in again", exact: true }).click();
-  await page.getByLabelText("Enable automatic unlock on this device", { exact: true }).click();
-  await page.getByLabelText("Master password", { exact: true }).fill(password);
-  await page.getByRole("button", { name: "Sign in and sync", exact: true }).click();
-  await vi.waitFor(() => expect(client.begin).toHaveBeenCalledTimes(2));
-  expect(client.begin.mock.calls[1]![0]).toEqual({
-    kind: "existing",
-    connectionId: "saved-a",
-    password,
-    autoUnlock: "enable",
-  });
   expect(client.requestProviderPermission).toHaveBeenCalledWith(saved.environment);
 });
 
@@ -954,7 +934,7 @@ test.each(["storage-uncertain", "setup-unavailable"] as const)(
         <SettingsApp client={settings} connectionClient={connection} />
       </QueryClientProvider>,
     );
-    await expect.element(page.getByText("Saved settings loaded. Revision 0")).toBeVisible();
+    await expect.element(page.getByText("Saved settings loaded (revision 0).")).toBeVisible();
     // The draft's save is still pending when setup replaces the vault metadata.
     let resolveSave!: (value: SettingsResponse) => void;
     settings.saveSettings.mockReturnValueOnce(
@@ -968,11 +948,17 @@ test.each(["storage-uncertain", "setup-unavailable"] as const)(
     await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
     await vi.waitFor(() => expect(connection.begin).toHaveBeenCalledTimes(1));
     await expect
-      .element(page.getByText(/Vault metadata changed\. Your unsaved draft has been preserved/))
+      .element(page.getByText(/Your vaults changed\. Your unsaved changes are kept/))
       .toBeVisible();
     resolveSave(saved(1));
+    // The save went through, so nothing is said to be unsaved.
     await expect
-      .element(page.getByText(/Vault metadata changed while settings were being saved/))
+      .element(
+        page.getByText(
+          "Your vaults changed while the settings were being saved. The change was saved; reload saved settings before you change anything else.",
+          { exact: true },
+        ),
+      )
       .toBeVisible();
     expect(document.getElementById("site-list")?.textContent).toContain("draft.example");
     expect(settings.getSettings).toHaveBeenCalledTimes(1);
@@ -982,7 +968,7 @@ test.each(["storage-uncertain", "setup-unavailable"] as const)(
     expect(settings.saveSettings).toHaveBeenCalledTimes(1);
     settings.getSettings.mockResolvedValue(saved(7));
     await page.getByRole("button", { name: "Reload saved settings", exact: true }).click();
-    await expect.element(page.getByText("Saved settings loaded. Revision 7")).toBeVisible();
+    await expect.element(page.getByText("Saved settings loaded (revision 7).")).toBeVisible();
     expect(document.getElementById("site-list")?.textContent).not.toContain("draft.example");
     await page.getByLabelText("Origin", { exact: true }).fill("reviewed.example");
     await page.getByRole("button", { name: "Exclude site", exact: true }).click();
@@ -990,6 +976,74 @@ test.each(["storage-uncertain", "setup-unavailable"] as const)(
     expect(settings.saveSettings.mock.calls[1]?.[0]).toMatchObject({ expectedRevision: 7 });
   },
 );
+
+/**
+ * Starts a reload of clean settings, then changes the vault metadata while it runs, as a
+ * setup outcome that may have written the catalog does.
+ */
+async function catalogChangeDuringCleanReload() {
+  const connection = mockClient();
+  connection.begin.mockResolvedValue({ ok: false, error: { code: "storage-uncertain" } });
+  function saved(revision: number): Extract<SettingsResponse, { ok: true }> {
+    return {
+      version: 1,
+      ok: true,
+      snapshot: { version: 1, revision, settings: createDefaultSettings() },
+      catalog: structuredClone(DUMMY_VAULT_CATALOG),
+    };
+  }
+  const settings = {
+    getSettings: vi.fn<SettingsClient["getSettings"]>().mockResolvedValue(saved(0)),
+    saveSettings: vi.fn<SettingsClient["saveSettings"]>(),
+    findSiteAccounts: vi.fn<SettingsClient["findSiteAccounts"]>().mockResolvedValue({
+      version: 1,
+      ok: false,
+      reason: "unavailable",
+    }),
+  };
+  await render(
+    <QueryClientProvider client={createMetadataQueryClient()}>
+      <SettingsApp client={settings} connectionClient={connection} />
+    </QueryClientProvider>,
+  );
+  await expect.element(page.getByText("Saved settings loaded (revision 0).")).toBeVisible();
+  const reading = held<SettingsResponse>();
+  settings.getSettings.mockReturnValueOnce(reading.promise);
+  await page.getByRole("button", { name: "Reload saved settings", exact: true }).click();
+  await expect.element(page.getByText("Loading saved settings…")).toBeVisible();
+  await fillNew();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  await vi.waitFor(() => expect(connection.begin).toHaveBeenCalledTimes(1));
+  return { settings, finish: () => reading.resolve(saved(1)) };
+}
+
+test("vault metadata that changes while clean settings reload claims no unsaved changes", async () => {
+  await catalogChangeDuringCleanReload();
+  await expect
+    .element(
+      page.getByText(
+        "Your vaults changed. Reload saved settings to see the current vaults before you change anything else.",
+        { exact: true },
+      ),
+    )
+    .toBeVisible();
+  expect(document.body.textContent).not.toContain("unsaved changes");
+});
+
+test("a reload of clean settings that the vault metadata overtook asks for another without claiming unsaved changes", async () => {
+  const { settings, finish } = await catalogChangeDuringCleanReload();
+  finish();
+  await expect
+    .element(
+      page.getByText(
+        "Your vaults changed while the settings were loading. Reload saved settings again.",
+        { exact: true },
+      ),
+    )
+    .toBeVisible();
+  expect(document.body.textContent).not.toContain("unsaved changes");
+  expect(settings.getSettings).toHaveBeenCalledTimes(2);
+});
 
 test("a challenge while adding a connection reloads a clean draft to the revision the new policy entry wrote", async () => {
   const connection = mockClient();
@@ -1022,18 +1076,22 @@ test("a challenge while adding a connection reloads a clean draft to the revisio
       <SettingsApp client={settings} connectionClient={connection} />
     </QueryClientProvider>,
   );
-  await expect.element(page.getByText("Saved settings loaded. Revision 0")).toBeVisible();
+  await expect.element(page.getByText("Saved settings loaded (revision 0).")).toBeVisible();
   settings.getSettings.mockResolvedValue(saved(1));
   await fillNew();
   await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
   await expect.element(page.getByText("Enter a two-step verification code.")).toBeVisible();
-  await expect.element(page.getByText("Saved settings loaded. Revision 1")).toBeVisible();
+  await expect.element(page.getByText("Saved settings loaded (revision 1).")).toBeVisible();
   expect(settings.getSettings).toHaveBeenCalledTimes(2);
 });
 
-test.each([false, true])(
-  "field review uses current snapshot IDs and starts every custom field excluded (blocked=%s)",
-  async (blocked) => {
+test.each([
+  [false, false],
+  [true, false],
+  [true, true],
+])(
+  "field review uses current snapshot IDs and starts every custom field excluded (blocked=%s, unsaved=%s)",
+  async (blocked, unsaved) => {
     const client = mockClient();
     const snapshot = crypto.randomUUID();
     const accepted: Extract<SettingsResponse, { ok: true }> = {
@@ -1084,6 +1142,7 @@ test.each([false, true])(
           onCatalogChanged={changed}
           acceptedSettings={accepted}
           reviewBlocked={blocked}
+          unsavedChanges={unsaved}
         />
       </QueryClientProvider>,
     );
@@ -1102,6 +1161,17 @@ test.each([false, true])(
     await expect.element(first).toBeChecked();
     await expect.element(second).toBeChecked();
     if (blocked) {
+      // Only unsaved changes are said to be kept, as reloading would drop them.
+      await expect
+        .element(
+          page.getByText(
+            unsaved
+              ? "Reload saved settings to review the current fields. Your unsaved settings changes are kept until you reload."
+              : "Reload saved settings to review the current fields.",
+            { exact: true },
+          ),
+        )
+        .toBeVisible();
       await expect.element(first).toBeDisabled();
       await expect.element(review).toBeDisabled();
       expect(client.review).not.toHaveBeenCalled();
@@ -1190,11 +1260,7 @@ test("a running sync says so, can be cancelled from the header, and its reply re
   await expect.element(sync).toBeDisabled();
   pending.resolve(ready());
   await expect
-    .element(
-      page.getByText(
-        "Vault verified and local cache accepted. Check automatic-unlock status below.",
-      ),
-    )
+    .element(page.getByText("Vault verified, unlocked and copied to this device."))
     .toBeVisible();
   await expect.element(sync).toBeEnabled();
   await expect
@@ -1212,12 +1278,12 @@ test("a running sync says so, can be cancelled from the header, and its reply re
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   expect(client.close).toHaveBeenCalledTimes(1);
   await expect
-    .element(page.getByText("Stopped. Refresh to confirm the latest state.", { exact: true }))
+    .element(page.getByText("Stopped. Refresh to see the current state.", { exact: true }))
     .toBeVisible();
   await expect.element(sync).toBeEnabled();
   late.resolve(ready());
   await expect
-    .element(page.getByText("Stopped. Refresh to confirm the latest state.", { exact: true }))
+    .element(page.getByText("Stopped. Refresh to see the current state.", { exact: true }))
     .toBeVisible();
   // Stopping re-reads the rows once; the late reply adds no read.
   expect(client.list).toHaveBeenCalledTimes(3);
@@ -1253,7 +1319,7 @@ test("deleting a connection needs an explicit confirmation and then removes it f
   await expect
     .element(dialog)
     .toHaveAccessibleDescription(
-      "This removes the connection, its local vault cache, unlock key and sync sign-in from this device. It does not sign out other sessions, and saved settings that refer to it will show it as unavailable.",
+      "This removes the connection, its local vault copy, unlock key and sync sign-in from this device. It does not sign out other sessions, and saved settings that refer to it will show it as unavailable.",
     );
   // Close composes the repo's Button, including its ref and keyboard focus.
   const keep = dialog.getByRole("button", { name: "Keep connection", exact: true });
@@ -1492,7 +1558,7 @@ function addForm() {
   return document.querySelector("#bitwarden details > summary")?.textContent;
 }
 
-test("a failed first sign-in switches the form to finishing its connection with automatic unlock", async () => {
+test("a failed first sign-in switches the form to finishing its connection", async () => {
   const client = mockClient();
   client.list
     .mockResolvedValueOnce(status())
@@ -1508,10 +1574,7 @@ test("a failed first sign-in switches the form to finishing its connection with 
     .toBeVisible();
   // Connect cannot register a second connection: the form now finishes the listed one.
   await vi.waitFor(() => expect(addForm()).toBe("Sign in to Synthetic vault again"));
-  await expect.element(page.getByText(/The provider rejected this sign-in/)).toBeVisible();
-  await expect
-    .element(page.getByLabelText("Enable automatic unlock on this device", { exact: true }))
-    .toBeChecked();
+  await expect.element(page.getByText(/Bitwarden did not accept this sign-in/)).toBeVisible();
   await expect.element(page.getByLabelText("Master password", { exact: true })).toHaveFocus();
   await page.getByLabelText("Master password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Sign in and sync", exact: true }).click();
@@ -1520,7 +1583,6 @@ test("a failed first sign-in switches the form to finishing its connection with 
     kind: "existing",
     connectionId: "registered",
     password,
-    autoUnlock: "enable",
   });
 });
 
@@ -1642,9 +1704,6 @@ test("a code rejected after a challenge switches the form to finishing its conne
     .toBeVisible();
   // The background stores the email lower-cased; the typed form still matches it.
   await vi.waitFor(() => expect(addForm()).toBe("Sign in to Synthetic vault again"));
-  await expect
-    .element(page.getByLabelText("Enable automatic unlock on this device", { exact: true }))
-    .toBeChecked();
   // The removed Verify code hands focus to the password the sign-in now needs.
   await expect.element(page.getByLabelText("Master password", { exact: true })).toHaveFocus();
 });
@@ -1659,33 +1718,24 @@ test("an unsupported interaction on a first sign-in switches the form to finishi
   await fillNew();
   await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
   await vi.waitFor(() => expect(addForm()).toBe("Sign in to Synthetic vault again"));
-  await expect.element(page.getByText(/^Setup is incomplete: sso\./)).toBeVisible();
-});
-
-test("Sign in again on a connection with an unreadable record leaves automatic unlock unchecked", async () => {
-  const client = mockClient();
-  client.list.mockResolvedValue({
-    ...status(),
-    connections: [{ ...registered, state: "unavailable" }],
-  });
-  await mount(client);
-  await page.getByRole("button", { name: "Synthetic vault: Sign in again", exact: true }).click();
   await expect
-    .element(page.getByLabelText("Enable automatic unlock on this device", { exact: true }))
-    .not.toBeChecked();
+    .element(
+      page.getByText(
+        /^Setup is incomplete: Bitwarden asks for a step Pateat does not support \(sso\)\./,
+      ),
+    )
+    .toBeVisible();
 });
 
-test("Sign in again on a connection that never unlocked enables automatic unlock", async () => {
+test("Sign in again on a connection that never unlocked asks to finish setting it up", async () => {
   const client = mockClient();
   client.list.mockResolvedValue({ ...status(), connections: [registered] });
   await mount(client);
   await page.getByRole("button", { name: "Synthetic vault: Sign in again", exact: true }).click();
   await expect
-    .element(page.getByLabelText("Enable automatic unlock on this device", { exact: true }))
-    .toBeChecked();
-  await expect
-    .element(page.getByText(/finish setting up this connection\. Automatic unlock is enabled/))
+    .element(page.getByText("Enter the master password to finish setting up this connection."))
     .toBeVisible();
+  await expect.element(page.getByLabelText("Master password", { exact: true })).toHaveFocus();
 });
 
 test("a connection registered after a stopped first sign-in clears the draft on refresh", async () => {
@@ -1836,7 +1886,7 @@ test("stopping a first load that does not answer says so", async () => {
   await expect.element(page.getByText("Loading stopped.", { exact: true })).toBeVisible();
 });
 
-test("sync after automatic unlock was disabled explains how to restore it", async () => {
+test("sync after a log out explains how to restore it", async () => {
   const client = mockClient();
   client.list.mockResolvedValue({
     ...status(),
@@ -1858,11 +1908,11 @@ test("sync after automatic unlock was disabled explains how to restore it", asyn
   await expect
     .element(
       page.getByText(
-        /Automatic unlock is off for this connection, and Sync needs it\. Sign in again/,
+        "This connection is logged out on this device. Sign in again to use and sync it.",
       ),
     )
     .toBeVisible();
-  await expect.element(page.getByText(/Connection operation unavailable/)).not.toBeInTheDocument();
+  await expect.element(page.getByText(/The connection could not do this/)).not.toBeInTheDocument();
 });
 
 test("a provider HTTP failure on sync shows an error instead of a lost connection", async () => {
@@ -1904,11 +1954,11 @@ test("a provider HTTP failure on sync shows an error instead of a lost connectio
   );
   await page.getByRole("button", { name: "Saved vault: Sync", exact: true }).click();
   await expect
-    .element(page.getByText(/Connection operation unavailable \(http-error\)/))
+    .element(page.getByText(/The connection could not do this \(http-error\)/))
     .toBeVisible();
   expect(port.postMessage.mock.calls.map(([message]) => message.type)).toContain("connection.sync");
   expect(port.disconnect).not.toHaveBeenCalled();
-  expect(document.body.textContent).not.toContain("The operation could not be confirmed.");
+  expect(document.body.textContent).not.toContain("Pateat could not confirm the result.");
 });
 
 test("an account mismatch names the failed check", async () => {
@@ -2002,12 +2052,12 @@ test("each connection's row holds its vault access, which waits for saved settin
   await expect.element(use).not.toBeChecked();
   expect(document.getElementById("bitwarden-connections")?.contains(use.element())).toBe(true);
   await expect.element(page.getByText("Unavailable connection", { exact: true })).toBeVisible();
-  await expect.element(page.getByText("gone. Its saved settings are preserved.")).toBeVisible();
+  await expect.element(page.getByText("gone. Its saved settings are kept.")).toBeVisible();
   // There is no separate vault access section.
   await expect.element(page.getByRole("heading", { name: "Vault access" })).not.toBeInTheDocument();
 
   await use.click();
-  await expect.element(page.getByText("Settings saved locally. Revision 1")).toBeVisible();
+  await expect.element(page.getByText("Settings saved (revision 1).")).toBeVisible();
   expect(settings.saveSettings.mock.calls[0]?.[0].settings.connections[0]).toMatchObject({
     connectionId: "synthetic",
     enabled: true,
@@ -2020,7 +2070,7 @@ test("each connection's row holds its vault access, which waits for saved settin
     .element(page.getByRole("combobox", { name: "Synthetic vault: Items for Pateat" }))
     .toBeDisabled();
   read.resolve(saved(4));
-  await expect.element(page.getByText("Saved settings loaded. Revision 4")).toBeVisible();
+  await expect.element(page.getByText("Saved settings loaded (revision 4).")).toBeVisible();
   await expect.element(use).toBeEnabled();
   await expect.element(use).not.toBeChecked();
 });
@@ -2082,7 +2132,7 @@ test.each(["ready", "error", "cancel"] as const)(
     if (end === "cancel") {
       await page.getByRole("button", { name: "Cancel setup", exact: true }).click();
       await expect
-        .element(page.getByText("Setup stopped. Refresh to confirm the latest state."))
+        .element(page.getByText("Setup stopped. Refresh to see the current state."))
         .toBeVisible();
     } else {
       await code.fill("000123");
@@ -2221,7 +2271,7 @@ test("a failed sync or refresh keeps keyboard focus on its button", async () => 
   await expect.element(sync).toHaveFocus();
   client.list.mockRejectedValue(new Error("synthetic failure"));
   const refresh = await pressWithKeyboard("Refresh connections");
-  await expect.element(page.getByText(/^The operation could not be confirmed/)).toBeVisible();
+  await expect.element(page.getByText(/^Pateat could not confirm the result\./)).toBeVisible();
   await expect.element(refresh).toBeEnabled();
   await expect.element(refresh).toHaveFocus();
 });
@@ -2304,4 +2354,217 @@ test("a challenge leaves focus the person moved outside the setup", async () => 
   } finally {
     outside.remove();
   }
+});
+
+// A vault the vault timeout locked (ADR 0075): it keeps its sync sign-in.
+const lockedVault = {
+  connectionId: "saved-l",
+  label: "Locked vault",
+  email: "locked@example.test",
+  environment: { kind: "cloud" as const, region: "us" as const },
+  state: "locked" as const,
+  autoUnlock: "disabled" as const,
+  providerSession: "active" as const,
+};
+/** The row's unlock form comes before the add form's own master password field. */
+const unlockField = () => page.getByLabelText("Master password", { exact: true }).first();
+const unlockRow = () => page.getByRole("button", { name: "Locked vault: Unlock", exact: true });
+const submitUnlock = () => page.getByRole("button", { name: "Unlock", exact: true });
+
+test("a locked vault offers Unlock in its row instead of Sync or a sign-in", async () => {
+  const client = mockClient();
+  client.list.mockResolvedValue({
+    ...status(),
+    connections: [{ ...lockedVault, providerSession: "none" }],
+  });
+  await mount(client);
+  await expect.element(page.getByText("Vault locked", { exact: true })).toBeVisible();
+  await expect.element(unlockRow()).toHaveAttribute("aria-expanded", "false");
+  // Even without a sync sign-in, the offline unlock comes first.
+  expect(page.getByRole("button", { name: "Locked vault: Sign in again" }).query()).toBeNull();
+  expect(page.getByRole("button", { name: "Locked vault: Sync" }).query()).toBeNull();
+  expect(document.body.textContent).not.toContain("Automatic unlock");
+  expect(document.body.textContent).not.toContain("Locks at the vault timeout");
+  await unlockRow().click();
+  await expect.element(unlockRow()).toHaveAttribute("aria-expanded", "true");
+  await expect.element(page.getByText("locked@example.test", { exact: true }).last()).toBeVisible();
+  await expect.element(unlockField()).toHaveFocus();
+  // The button closes the form again without a request.
+  await unlockRow().click();
+  await expect.element(submitUnlock()).not.toBeInTheDocument();
+  expect(client.unlock).not.toHaveBeenCalled();
+});
+
+test("Unlock sends the master password to the worker and re-reads the vaults", async () => {
+  const client = mockClient();
+  client.list.mockResolvedValueOnce({ ...status(), connections: [lockedVault] }).mockResolvedValue({
+    ...status(),
+    connections: [{ ...lockedVault, state: "ready" as const }],
+  });
+  const { changed } = await mount(client);
+  await unlockRow().click();
+  await unlockField().fill(password);
+  await submitUnlock().click();
+  await vi.waitFor(() =>
+    expect(client.unlock).toHaveBeenCalledExactlyOnceWith("saved-l", password),
+  );
+  await expect.element(page.getByText("Vault unlocked.", { exact: true })).toBeVisible();
+  await expect
+    .element(page.getByRole("button", { name: "Locked vault: Sync", exact: true }))
+    .toBeVisible();
+  expect(page.getByLabelText("Master password", { exact: true }).elements()).toHaveLength(1);
+  expect(changed).toHaveBeenCalled();
+  expect(client.begin).not.toHaveBeenCalled();
+  expect(client.requestProviderPermission).not.toHaveBeenCalled();
+  expect(document.body.innerHTML).not.toContain(password);
+});
+
+test("a wrong master password keeps the unlock form open and says so", async () => {
+  const client = mockClient();
+  client.list.mockResolvedValue({ ...status(), connections: [lockedVault] });
+  client.unlock.mockResolvedValueOnce({ ok: false, error: { code: "crypto-failed" } });
+  await mount(client);
+  await unlockRow().click();
+  await unlockField().fill("synthetic-wrong-password");
+  await submitUnlock().click();
+  await expect
+    .element(page.getByText("Invalid master password.", { exact: true }).first())
+    .toBeVisible();
+  await expect.element(unlockField()).toHaveValue("");
+  await expect.element(unlockField()).toHaveAttribute("aria-invalid", "true");
+  await expect.element(submitUnlock()).toBeVisible();
+  expect(client.list).toHaveBeenCalledTimes(1);
+  // The next try reaches the worker again.
+  await unlockField().fill(password);
+  await submitUnlock().click();
+  await vi.waitFor(() => expect(client.unlock).toHaveBeenCalledTimes(2));
+  await expect.element(page.getByText("Vault unlocked.", { exact: true })).toBeVisible();
+});
+
+test("an unlock that fails otherwise says the vault could not be unlocked", async () => {
+  const client = mockClient();
+  client.list.mockResolvedValue({ ...status(), connections: [lockedVault] });
+  client.unlock.mockResolvedValueOnce({ ok: false, error: { code: "storage-failed" } });
+  await mount(client);
+  await unlockRow().click();
+  await unlockField().fill(password);
+  await submitUnlock().click();
+  await expect
+    .element(
+      page.getByText("The vault could not be unlocked. Refresh and try again.", { exact: true }),
+    )
+    .toBeVisible();
+  expect(document.body.textContent).not.toContain("Invalid master password.");
+  await expect.element(unlockField()).not.toHaveAttribute("aria-invalid");
+});
+
+test("Lock in the row menu locks the vault and keeps its sync sign-in", async () => {
+  const client = mockClient();
+  const open = { ...lockedVault, state: "ready" as const, autoUnlock: "enabled" as const };
+  client.list
+    .mockResolvedValueOnce({ ...status(), connections: [open] })
+    .mockResolvedValue({ ...status(), connections: [lockedVault] });
+  const { changed } = await mount(client);
+  await page.getByRole("button", { name: "More for Locked vault", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Locked vault: Lock", exact: true }).click();
+  await vi.waitFor(() => expect(client.lock).toHaveBeenCalledExactlyOnceWith("saved-l"));
+  expect(client.disableAutoUnlock).not.toHaveBeenCalled();
+  await expect
+    .element(
+      page.getByText("Vault locked. Unlock it with the master password; the sync sign-in stays.", {
+        exact: true,
+      }),
+    )
+    .toBeVisible();
+  await expect.element(unlockRow()).toBeVisible();
+  expect(changed).toHaveBeenCalled();
+  // A locked vault cannot be locked again, but can still be logged out.
+  await page.getByRole("button", { name: "More for Locked vault", exact: true }).click();
+  await expect
+    .element(page.getByRole("menuitem", { name: "Locked vault: Lock", exact: true }))
+    .toHaveAttribute("aria-disabled", "true");
+  await expect
+    .element(page.getByRole("menuitem", { name: "Locked vault: Log out", exact: true }))
+    .not.toHaveAttribute("aria-disabled", "true");
+});
+
+test("Log out in the row menu removes the unlock key and the sync sign-in", async () => {
+  const client = mockClient();
+  client.list.mockResolvedValueOnce({ ...status(), connections: [lockedVault] }).mockResolvedValue({
+    ...status(),
+    connections: [{ ...lockedVault, state: "disabled" as const, providerSession: "none" as const }],
+  });
+  client.disableAutoUnlock.mockResolvedValueOnce({
+    ok: true,
+    kind: "disabled",
+    connectionId: "saved-l",
+  });
+  await mount(client);
+  await unlockRow().click();
+  await expect.element(submitUnlock()).toBeVisible();
+  await page.getByRole("button", { name: "More for Locked vault", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Locked vault: Log out", exact: true }).click();
+  await vi.waitFor(() =>
+    expect(client.disableAutoUnlock).toHaveBeenCalledExactlyOnceWith("saved-l"),
+  );
+  expect(client.lock).not.toHaveBeenCalled();
+  await expect
+    .element(
+      page.getByText("Logged out on this device. Sign in again to use this vault.", {
+        exact: true,
+      }),
+    )
+    .toBeVisible();
+  await expect.element(page.getByText("Logged out on this device", { exact: true })).toBeVisible();
+  await expect
+    .element(page.getByRole("button", { name: "Locked vault: Sign in again", exact: true }))
+    .toBeVisible();
+  // The open unlock form went with the lock state.
+  await expect.element(submitUnlock()).not.toBeInTheDocument();
+  await page.getByRole("button", { name: "More for Locked vault", exact: true }).click();
+  await expect
+    .element(page.getByRole("menuitem", { name: "Locked vault: Log out", exact: true }))
+    .toHaveAttribute("aria-disabled", "true");
+  await expect
+    .element(page.getByRole("menuitem", { name: "Locked vault: Lock", exact: true }))
+    .toHaveAttribute("aria-disabled", "true");
+});
+
+test("Lock is not offered for a connection that never unlocked", async () => {
+  const client = mockClient();
+  client.list.mockResolvedValue({ ...status(), connections: [registered] });
+  await mount(client);
+  await page.getByRole("button", { name: "More for Synthetic vault", exact: true }).click();
+  await expect
+    .element(page.getByRole("menuitem", { name: "Synthetic vault: Lock", exact: true }))
+    .toHaveAttribute("aria-disabled", "true");
+});
+
+test("an open vault whose key is in memory says it locks at the vault timeout", async () => {
+  const client = mockClient();
+  client.list.mockResolvedValue({
+    ...status(),
+    connections: [{ ...lockedVault, state: "ready" as const }],
+  });
+  await mount(client);
+  await expect.element(page.getByText("Locks at the vault timeout", { exact: true })).toBeVisible();
+  expect(document.body.textContent).not.toContain("Automatic unlock off");
+});
+
+test("a sync of a vault locked meanwhile asks for the unlock", async () => {
+  const client = mockClient();
+  client.list.mockResolvedValue({
+    ...status(),
+    connections: [{ ...lockedVault, state: "ready" as const, autoUnlock: "enabled" as const }],
+  });
+  client.sync.mockResolvedValueOnce({ ok: false, error: { code: "vault-locked" } });
+  await mount(client);
+  await page.getByRole("button", { name: "Locked vault: Sync", exact: true }).click();
+  await expect
+    .element(
+      page.getByText("The vault is locked. Unlock it with the master password first.", {
+        exact: true,
+      }),
+    )
+    .toBeVisible();
 });

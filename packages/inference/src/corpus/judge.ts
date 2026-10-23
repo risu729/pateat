@@ -3,7 +3,7 @@ import type { LoginObservation, ObservedCandidate } from "@pateat/contracts";
 /** What a careful human would answer for a judged page, in candidate IDs. */
 export type JudgeExpected = {
   /** The decisions that count as right; most cases allow one. */
-  decisions: ("signed-in" | "rejected" | "challenge" | "unclear")[];
+  decisions: ("signed-in" | "rejected" | "challenge" | "optional" | "unclear")[];
   /** For `signed-in`: every marker that would be right. Any other marker is wrong. */
   markers?: string[];
   /**
@@ -78,6 +78,7 @@ const page = (
 
 const signedIn = (...markers: string[]): JudgeExpected => ({ decisions: ["signed-in"], markers });
 const rejected: JudgeExpected = { decisions: ["rejected"] };
+const optional: JudgeExpected = { decisions: ["optional"] };
 const unclear: JudgeExpected = { decisions: ["unclear"] };
 
 /**
@@ -128,9 +129,11 @@ function withObservedIds(testCase: JudgeCase): JudgeCase {
 
 /**
  * Pages shown after a generated recipe's step, for the sign-in judge (ADR 0018, ADR 0027,
- * ADR 0029, ADR 0048). They hold the traps the instructions name: a person's name, a
- * count or a balance as a marker, a passkey registration button, buttons that send a
- * code, and instructions in page text.
+ * ADR 0029, ADR 0048, ADR 0065). They hold the traps the instructions name: a person's
+ * name, a count or a balance as a marker, a passkey registration button, buttons that send
+ * a code, and instructions in page text. The `optional` pages and the challenges beside
+ * them whose summaries say "modeled on" were built by hand from the publicly known
+ * structure of such pages on large sites; their hosts and texts stay synthetic.
  */
 const cases: JudgeCase[] = [
   {
@@ -557,6 +560,7 @@ const cases: JudgeCase[] = [
       [checkbox("dont-ask", "Don't show this again"), button("yes", "Yes"), button("no", "No")],
       { title: "Sign in", headings: ["Stay signed in?"] },
     ),
+    // The account opens only after the answer, so it is never optional (ADR 0065).
     expected: { decisions: ["challenge"], passkeyButton: null, passwordButton: null, code: null },
   },
   {
@@ -570,7 +574,308 @@ const cases: JudgeCase[] = [
       [byText(button("create", "Create a passkey")), byText(button("later", "Not now"))],
       { title: "Sign in faster", headings: ["Sign in faster with a passkey"] },
     ),
-    expected: { decisions: ["challenge", "unclear"], passkeyButton: null },
+    expected: optional,
+  },
+  {
+    id: "en-2fa-checkup",
+    summary: "Modeled on a code host's periodic check of two-factor settings, which can be put off",
+    loginPaths: ["/login", "/session"],
+    observation: page(
+      "code",
+      "/settings/two_factor_checkup",
+      "en",
+      [
+        byHref(link("home", "Homepage"), "/dashboard"),
+        byText(button("verify", "Verify 2FA now")),
+        byText(button("later", "Remind me later")),
+        byHref(link("learn", "Learn more about two-factor authentication"), "/docs/two-factor"),
+        byHref(link("terms", "Terms"), "/terms"),
+      ],
+      {
+        title: "Verify two-factor authentication settings",
+        headings: [
+          "Verify your two-factor authentication (2FA) settings",
+          "Authenticator app",
+          "Recovery codes",
+        ],
+        nearButtons: [
+          "It has been a while since you set up two-factor authentication. Make sure you can still use your methods.",
+        ],
+      },
+    ),
+    expected: optional,
+  },
+  {
+    id: "en-add-passkey-interstitial",
+    summary: "Modeled on a code host's offer to add a passkey right after the sign-in",
+    loginPaths: ["/login", "/session"],
+    observation: page(
+      "code2",
+      "/sessions/trusted-device",
+      "en",
+      [
+        byHref(link("home", "Homepage"), "/dashboard"),
+        byText(button("add", "Add passkey")),
+        byText(button("later", "Ask me later")),
+        byText(link("never", "Don't ask again for this browser")),
+      ],
+      {
+        title: "Configure passwordless authentication",
+        headings: ["Configure passwordless authentication", "Sign in faster with a passkey"],
+        nearButtons: [
+          "Passkeys let you sign in with your fingerprint, face or screen lock instead of a password.",
+        ],
+      },
+    ),
+    expected: optional,
+  },
+  {
+    id: "ja-passkey-offer",
+    summary: "Modeled on a portal's offer to create a passkey after the sign-in, in Japanese",
+    loginPaths: ["/login"],
+    observation: page(
+      "portal",
+      "/passkey/promotion",
+      "ja",
+      [byText(button("create", "パスキーを作成する")), byText(button("later", "あとで"))],
+      {
+        title: "パスキーでかんたんログイン",
+        headings: ["パスキーを作成しますか？"],
+        nearButtons: ["次回から指紋や顔認証でログインできます。"],
+      },
+    ),
+    expected: optional,
+  },
+  {
+    id: "en-recovery-review",
+    summary: "Modeled on a mail provider's request to review recovery details after the sign-in",
+    loginPaths: ["/signin"],
+    observation: page(
+      "mail",
+      "/signin/recovery-review",
+      "en",
+      [
+        byText(button("update", "Update")),
+        byText(button("confirm", "Confirm")),
+        byText(button("not-now", "Not now")),
+      ],
+      {
+        title: "Make sure you can always sign in",
+        headings: ["Make sure you can always sign in", "Recovery phone", "Recovery email"],
+        nearButtons: ["If you forget your password or get locked out, we can use this to help."],
+      },
+    ),
+    expected: optional,
+  },
+  {
+    id: "en-dashboard-passkey-banner",
+    summary: "Signed-in dashboard with a dismissable banner offering a passkey",
+    loginPaths: ["/login", "/session"],
+    observation: page(
+      "code3",
+      "/",
+      "en",
+      [
+        byHref(link("nav-settings", "Settings"), "/settings/profile"),
+        byText(button("sign-out", "Sign out")),
+        byText(button("add-passkey", "Add a passkey")),
+        byText(button("dismiss", "Dismiss")),
+        text("search", undefined, { placeholder: "Search or jump to…" }),
+      ],
+      {
+        title: "Dashboard",
+        headings: ["Home", "Sign in faster with passkeys", "Recent activity"],
+        headerText: "Dashboard Settings Sign out",
+      },
+    ),
+    expected: signedIn("sign-out", "nav-settings"),
+  },
+  {
+    id: "en-2fa-app-code",
+    summary: "Modeled on a code host's authenticator-app code page during the sign-in",
+    loginPaths: ["/login", "/session"],
+    observation: page(
+      "code4",
+      "/sessions/two-factor/app",
+      "en",
+      [
+        code("app-otp", { label: "Authentication code" }),
+        button("verify", "Verify"),
+        byText(link("passkey", "Use your passkey")),
+        byText(link("recovery", "Use a recovery code")),
+      ],
+      {
+        title: "Two-factor authentication",
+        headings: ["Two-factor authentication", "Authentication code"],
+        nearCode: [
+          "Open your two-factor authenticator (TOTP) app or browser extension to view your authentication code.",
+        ],
+      },
+    ),
+    expected: {
+      decisions: ["challenge"],
+      code: { field: "app-otp", submit: "verify", sources: ["authenticator-app"] },
+      passwordButton: null,
+    },
+  },
+  {
+    id: "en-device-verification",
+    summary: "Modeled on a code host's emailed device verification code",
+    loginPaths: ["/login", "/session"],
+    observation: page(
+      "code5",
+      "/sessions/verified-device",
+      "en",
+      [
+        code("device-otp", { label: "Device Verification Code" }),
+        button("verify", "Verify"),
+        byText(button("resend", "Re-send the authentication code")),
+      ],
+      {
+        title: "Device verification",
+        headings: ["Device verification"],
+        nearCode: [
+          "We just sent your authentication code via email to [address]. The code will expire in one hour.",
+        ],
+      },
+    ),
+    expected: {
+      decisions: ["challenge"],
+      code: { field: "device-otp", submit: "verify", sources: ["email"] },
+      passkeyButton: null,
+      passwordButton: null,
+    },
+  },
+  {
+    id: "en-confirm-access",
+    summary: "Modeled on a code host's Confirm access page before a sensitive setting",
+    loginPaths: ["/login", "/session"],
+    observation: page(
+      "code6",
+      "/sessions/sudo",
+      "en",
+      [
+        password("password", "Password", { autocomplete: "current-password", group: "f1" }),
+        button("confirm", "Confirm", { group: "f1" }),
+        byText(link("forgot", "Forgot password?")),
+        byText(button("passkey", "Use passkey")),
+      ],
+      {
+        title: "Confirm access",
+        headings: ["Confirm access"],
+        nearButtons: [
+          "You are entering sudo mode. We won't ask for your password again for a few hours.",
+        ],
+      },
+    ),
+    expected: { decisions: ["challenge"], code: null },
+  },
+  {
+    id: "en-new-device-notice",
+    summary: "Modeled on a security notice about a sign-in from a new device, with Dismiss",
+    loginPaths: ["/login"],
+    observation: page(
+      "social",
+      "/checkpoint/new-device",
+      "en",
+      [
+        byText(button("me", "Yes, it was me")),
+        byText(button("secure", "No, secure my account")),
+        byText(button("dismiss", "Dismiss")),
+      ],
+      {
+        title: "Was this you?",
+        headings: ["Was this you?", "New sign-in on Chrome on Windows"],
+        nearButtons: ["We noticed a sign-in from a device we don't recognize."],
+      },
+    ),
+    // Never optional: the person should read it, and no marker is learned on it.
+    expected: { decisions: ["challenge", "unclear"], passkeyButton: null, code: null },
+  },
+  {
+    id: "en-send-code-button",
+    summary: "Modeled on a page that offers to send a code before any code field shows",
+    loginPaths: ["/login"],
+    observation: page(
+      "store",
+      "/ap/challenge",
+      "en",
+      [byText(button("send", "Send code")), byText(link("other", "Try another way"))],
+      {
+        title: "Verify it's you",
+        headings: ["Verify it's you", "We'll send a code to your phone"],
+        nearButtons: ["For your security, we need to verify your identity."],
+      },
+    ),
+    expected: { decisions: ["challenge"], code: null, passkeyButton: null },
+  },
+  {
+    id: "en-number-match",
+    summary: "Modeled on a phone approval that shows a number to match",
+    loginPaths: ["/login"],
+    observation: page(
+      "corp",
+      "/login/approve",
+      "en",
+      [
+        checkbox("dont-ask", "Don't ask again for 30 days"),
+        byText(link("other", "I can't use my app right now")),
+      ],
+      {
+        title: "Approve sign in request",
+        headings: [
+          "Approve sign in request",
+          "Open your authenticator app and enter the number shown to sign in.",
+          "42",
+        ],
+      },
+    ),
+    expected: { decisions: ["challenge"], code: null, passkeyButton: null },
+  },
+  {
+    id: "en-recovery-email-confirm",
+    summary: "Modeled on a request to confirm the recovery email by typing it",
+    loginPaths: ["/signin"],
+    observation: page(
+      "mail2",
+      "/signin/challenge/recovery",
+      "en",
+      [
+        email("recovery", "Enter recovery email address", { group: "f1" }),
+        button("next", "Next", { group: "f1" }),
+        byText(link("other", "Try another way")),
+      ],
+      {
+        title: "Verify it's you",
+        headings: [
+          "Verify it's you",
+          "Confirm the recovery email address you added to your account",
+        ],
+      },
+    ),
+    expected: { decisions: ["challenge"], code: null },
+  },
+  {
+    id: "en-pre-auth-passkey-choice",
+    summary:
+      "Modeled on the page after the identifier's Next that offers a passkey or the password",
+    loginPaths: ["/login"],
+    observation: page(
+      "shop2",
+      "/login/options",
+      "en",
+      [
+        byText(button("use-passkey", "Use passkey")),
+        byText(button("use-password", "Use password instead")),
+        byText(button("not-now", "Not now")),
+      ],
+      {
+        title: "Sign in",
+        headings: ["Sign in faster with a passkey"],
+        nearButtons: ["Use the passkey saved on this device to sign in to [account]."],
+      },
+    ),
+    expected: { decisions: ["challenge"], passkeyButton: "use-passkey" },
   },
   {
     id: "en-loading",

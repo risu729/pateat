@@ -1,5 +1,13 @@
-import { loginMarkerTargetSchema, loginOriginSchema, loginStepSchema } from "./login";
-import { recipeSlotIdSchema } from "./settings";
+import {
+  detailLength,
+  loginKeypadTargetSchema,
+  loginMarkerTargetSchema,
+  loginOriginSchema,
+  loginStepSchema,
+  sameLoginTarget,
+  type LoginMarkerTarget,
+} from "./login";
+import { recipeSlotIdSchema, type DetailFormat, type LoginDetail } from "./settings";
 import * as v from "valibot";
 
 const identifier = v.pipe(
@@ -111,31 +119,42 @@ export const observedAutocompleteTokens = [
 ] as const;
 
 /** One allowlisted, value-free page element. The ID is local to this observation. */
-export const observedCandidateSchema = v.strictObject({
-  id: identifier,
-  role: candidateRoleSchema,
-  // A link may be named by its path (`href`) on a signed-in page, as a marker only, and a
-  // button by its accessible name there, as a `password` handler's button only.
-  target: loginMarkerTargetSchema,
-  label: v.optional(observedText),
-  placeholder: v.optional(observedText),
-  // Text the page ties to a fill-role field with `aria-describedby`, such as a hint that
-  // the field takes three digits; left out when it repeats the label.
-  description: v.optional(observedText),
-  autocomplete: v.optional(v.picklist([...observedAutocompleteTokens, "off"])),
-  group: v.optional(identifier),
-  // Page-declared input constraints. Lengths are UTF-16 code units, as HTML counts them.
-  // The extractor omits a length outside 1-1024 (0, absent or effectively unbounded
-  // values such as 524288), omits both when minlength exceeds maxlength, and omits
-  // lengths on number inputs, where browsers ignore them, so one odd attribute never
-  // rejects the whole observation. Constraints appear only on fill roles. `pattern` is deliberately absent:
-  // evaluating a page-supplied expression locally could hang the caller.
-  maxLength: v.optional(textLength),
-  minLength: v.optional(textLength),
-  inputMode: v.optional(
-    v.picklist(["none", "text", "decimal", "numeric", "tel", "search", "email", "url"]),
+export const observedCandidateSchema = v.pipe(
+  v.strictObject({
+    id: identifier,
+    role: candidateRoleSchema,
+    // A link may be named by its path (`href`) on a signed-in page, as a marker only, and a
+    // button by its accessible name there, as a `password` handler's button only.
+    target: loginMarkerTargetSchema,
+    label: v.optional(observedText),
+    placeholder: v.optional(observedText),
+    // Text the page ties to a fill-role field with `aria-describedby`, such as a hint that
+    // the field takes three digits; left out when it repeats the label.
+    description: v.optional(observedText),
+    autocomplete: v.optional(v.picklist([...observedAutocompleteTokens, "off"])),
+    group: v.optional(identifier),
+    // Page-declared input constraints. Lengths are UTF-16 code units, as HTML counts them.
+    // The extractor omits a length outside 1-1024 (0, absent or effectively unbounded
+    // values such as 524288), omits both when minlength exceeds maxlength, and omits
+    // lengths on number inputs, where browsers ignore them, so one odd attribute never
+    // rejects the whole observation. Constraints appear only on fill roles. `pattern` is deliberately absent:
+    // evaluating a page-supplied expression locally could hang the caller.
+    maxLength: v.optional(textLength),
+    minLength: v.optional(textLength),
+    inputMode: v.optional(
+      v.picklist(["none", "text", "decimal", "numeric", "tel", "search", "email", "url"]),
+    ),
+    // A read-only fill-role field that takes its characters from the page's software
+    // keyboard, located by its container (ADR 0067). The keys and their labels
+    // are never described.
+    keypad: v.optional(loginKeypadTargetSchema),
+  }),
+  v.check(
+    (candidate) =>
+      candidate.keypad === undefined || (fillRoles as readonly string[]).includes(candidate.role),
+    "Only a fill-role field has a keypad",
   ),
-});
+);
 
 /**
  * Proposed sanitized pre-fill observation for inference. It carries structure and
@@ -446,12 +465,13 @@ export function splitCodeInputs(
  * {@link isCodeField} accepts, either with at least 6 characters when it limits them and
  * the only such input in its form, or the first of a code split into one input per digit
  * ({@link splitCodeInputs}), which the executor fills one digit per input; and a button
- * of that form. The judge and the recipe assembly both check this.
+ * of that form, or no button on a page that submits the code once it is in (ADR 0027
+ * amendment of 2026-10-23). The judge and the recipe assembly both check this.
  */
 export function isTotpCode(
   page: Pick<LoginObservation, "candidates">,
   field: ObservedCandidate,
-  button: ObservedCandidate,
+  button: ObservedCandidate | undefined,
 ): boolean {
   return totpCodeRefusal(page, field, button) === undefined;
 }
@@ -462,12 +482,15 @@ export function isTotpCode(
  * (`text-locator`), is no code input (`not-code-field`), limits the code below 6
  * characters (`code-too-short`), is one of several code inputs of its form that are no
  * split code, or not the first of one (`several-code-fields`), or the button is no button
- * (`submit-not-button`) or not of the field's form (`submit-other-form`).
+ * (`submit-not-button`) or not of the field's form (`submit-other-form`). Without a button,
+ * the field's form must show none (`submit-unnamed`): a form with a button is taken to
+ * submit the code with it, so a code typed there without its click would wait for the
+ * person.
  */
 export function totpCodeRefusal(
   page: Pick<LoginObservation, "candidates">,
   field: ObservedCandidate,
-  button: ObservedCandidate,
+  button: ObservedCandidate | undefined,
 ): string | undefined {
   if (!(fillRoles as readonly string[]).includes(field.role)) return "not-input";
   if (field.target.by === "text") return "text-locator";
@@ -484,9 +507,102 @@ export function totpCodeRefusal(
     )
       return "several-code-fields";
   }
+  if (!button)
+    return field.group !== undefined &&
+      page.candidates.some(
+        (candidate) => candidate.role === "button" && candidate.group === field.group,
+      )
+      ? "submit-unnamed"
+      : undefined;
   if (button.role !== "button") return "submit-not-button";
   if (button.group !== field.group) return "submit-other-form";
   return undefined;
+}
+
+/**
+ * The input roles each detail's fill rule admits; `card-code` also limits the length, and
+ * a value written with `/` or `-` never goes into a number input, which takes digits only.
+ */
+function admitsDetail(
+  { detail, format }: { detail: LoginDetail; format?: DetailFormat | undefined },
+  field: ObservedCandidate,
+): boolean {
+  if (field.role === "number" && format !== undefined && /[/-]/u.test(format)) return false;
+  if (detail === "card-code")
+    return (
+      field.role === "password" ||
+      ((field.role === "text" || field.role === "tel") &&
+        (field.maxLength === 3 || field.maxLength === 4))
+    );
+  if (detail === "secret-answer") return field.role === "text" || field.role === "password";
+  if (detail === "card-number" || detail === "pin")
+    return ["password", "text", "tel", "number"].includes(field.role);
+  return ["text", "tel", "number"].includes(field.role);
+}
+
+/**
+ * Why `field` and `button` of this page may not be a `detail` handler's input for
+ * `entry` and the button that submits it (ADR 0061), for the log, or undefined when they
+ * may. The field must be an input the detail's fill rule admits (`not-input`): a text,
+ * tel or number input for a birth date, the last four digits, a card's expiry date or a
+ * member ID, but no number input for a format with `/` or `-`; a password input, or a
+ * text or tel input limited to 3 or 4 characters, for a card's security code; a password,
+ * text, tel or number input for a whole card number or a PIN; a text or password input
+ * for a secret question's answer. No other detail takes a password input, so a second
+ * password the judge takes for the last four digits is not kept. It must not be located
+ * by its text (`text-locator`), an answer not by its label (`label-locator`), nor be
+ * marked as a sign-in, email or code field (`sign-in-field`), nor declare a `maxlength`
+ * shorter than the value (`too-short`); the button must be a button (`submit-not-button`)
+ * of the field's form (`submit-other-form`). The judge and the recipe assembly both
+ * check this.
+ */
+export function detailInputRefusal(
+  entry: { detail: LoginDetail; format?: DetailFormat | undefined },
+  field: ObservedCandidate,
+  button: ObservedCandidate,
+): string | undefined {
+  const admitted = admitsDetail(entry, field);
+  if (!admitted) return "not-input";
+  if (field.target.by === "text") return "text-locator";
+  // An answer's label may be the account's own question, which a shared recipe never holds.
+  if (entry.detail === "secret-answer" && field.target.by === "label") return "label-locator";
+  if (
+    field.autocomplete === "username" ||
+    field.autocomplete === "email" ||
+    field.autocomplete === "current-password" ||
+    field.autocomplete === "new-password" ||
+    field.autocomplete === "one-time-code"
+  )
+    return "sign-in-field";
+  if (field.maxLength !== undefined && field.maxLength < detailLength(entry)) return "too-short";
+  if (button.role !== "button") return "submit-not-button";
+  if (button.group !== field.group) return "submit-other-form";
+  return undefined;
+}
+
+/**
+ * Whether a page that still shows one of `fillTargets`, a route's fill fields, also shows
+ * another form beside them that a `detail` handler may be learned from (ADR 0061): a
+ * text, tel or number input that is none of `fillTargets`, in a form other than every
+ * shown fill field's, with a button in that form. The extension sends such a page with
+ * `beside`, and the service judges it only then.
+ */
+export function showsBesideForm(
+  page: Pick<LoginObservation, "candidates">,
+  fillTargets: readonly LoginMarkerTarget[],
+): boolean {
+  const fill = (candidate: ObservedCandidate) =>
+    fillTargets.some((target) => sameLoginTarget(target, candidate.target));
+  const groups = page.candidates.filter(fill).map((candidate) => candidate.group);
+  if (!groups.length) return false;
+  return page.candidates.some(
+    (input) =>
+      (input.role === "text" || input.role === "tel" || input.role === "number") &&
+      input.group !== undefined &&
+      !fill(input) &&
+      !groups.includes(input.group) &&
+      page.candidates.some((button) => button.role === "button" && button.group === input.group),
+  );
 }
 
 /** Whether the page shows an input the executor would fill a TOTP code into. */

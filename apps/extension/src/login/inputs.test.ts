@@ -50,7 +50,88 @@ describe("secret input rule", () => {
     ["hidden", oneTimeCode, false],
     ["hidden", longTel, false],
     ["hidden", unboundedTel, false],
+    // A whole card number or a PIN (ADR 0061): a password, text, tel or number input; the
+    // fill checks a declared `maxlength` against the value itself.
+    ["card-number", password, true],
+    // Never into the account's own password field (review of PR #930).
+    ["card-number", declared, false],
+    ["card-number", text, true],
+    ["card-number", unboundedTel, true],
+    ["card-number", number, true],
+    ["card-number", input({ type: "email" }), false],
+    ["card-number", input({ type: "search" }), false],
+    ["pin", password, true],
+    ["pin", pin, true],
+    ["pin", text, true],
+    ["pin", number, true],
+    ["pin", input({ type: "email" }), false],
+    ["pin", input({ type: "url" }), false],
+    // A card's expiry date is a `detail`: no password input.
+    ["detail", password, false],
+    ["detail", text, true],
     [undefined, text, true],
+  ] as const)("%s into %o is %s", (secret, field, expected) => {
+    expect(acceptsSecret(field, secret)).toBe(expected);
+  });
+
+  // A personal detail (ADR 0061) never goes into an input marked as a sign-in or code
+  // field, as the service's check of a `detail` handler refuses one.
+  it.each(["card-number", "pin", "detail", "answer", "card-code"] as const)(
+    "refuses %s in a sign-in or code field",
+    (secret) => {
+      for (const token of [
+        "username",
+        "email",
+        "current-password",
+        "new-password",
+        "one-time-code",
+        "section-login username",
+      ]) {
+        for (const type of ["text", "tel", "number", "password"])
+          expect(
+            acceptsSecret(input({ type, maxLength: 4, autocomplete: token }), secret),
+            `${type} ${token}`,
+          ).toBe(false);
+      }
+      // A personal-data hint or none is no sign-in field.
+      const type = secret === "answer" || secret === "card-code" ? "text" : "tel";
+      expect(acceptsSecret(input({ type, maxLength: 4 }), secret)).toBe(true);
+      for (const autocomplete of ["off", "tel", "bday", "cc-number"])
+        expect(acceptsSecret(input({ type, maxLength: 4, autocomplete }), secret)).toBe(true);
+    },
+  );
+});
+
+// A personal detail (ADR 0061) goes into a text, tel or number input; a card's security
+// code into a password input, or a text or tel input of 3 or 4 characters.
+describe("personal-detail input rule (ADR 0061)", () => {
+  it.each([
+    ["detail", text, true],
+    ["detail", input({ maxLength: 6 }), true],
+    ["detail", pin, true],
+    ["detail", unboundedTel, true],
+    ["detail", number, true],
+    ["detail", numeric, true],
+    ["detail", password, false],
+    ["detail", newPassword, false],
+    ["detail", input({ type: "email" }), false],
+    ["detail", input({ type: "search" }), false],
+    ["card-code", password, true],
+    // A text input marked as the account's password is a sign-in field, which no detail fills.
+    ["card-code", declared, false],
+    ["card-code", input({ maxLength: 3 }), true],
+    ["card-code", input({ maxLength: 4 }), true],
+    ["card-code", input({ inputMode: "numeric", maxLength: 4 }), true],
+    ["card-code", input({ type: "tel", maxLength: 3 }), true],
+    ["card-code", pin, true],
+    ["card-code", text, false],
+    ["card-code", input({ maxLength: 2 }), false],
+    ["card-code", input({ maxLength: 5 }), false],
+    ["card-code", unboundedTel, false],
+    ["card-code", input({ type: "tel", maxLength: 6 }), false],
+    ["card-code", input({ type: "number", maxLength: 4 }), false],
+    ["card-code", oneTimeCode, false],
+    ["card-code", input({ type: "email", maxLength: 4 }), false],
   ] as const)("%s into %o is %s", (secret, field, expected) => {
     expect(acceptsSecret(field, secret)).toBe(expected);
   });

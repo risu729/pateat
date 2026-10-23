@@ -45,6 +45,8 @@ let owned:
       ciphers: Map<string, unknown>;
       verified: boolean;
       metadataContext: PreparedBitwardenAccount["encryptedMetadata"];
+      /** The account's encrypted master-password unlock data, for re-prompt checks. */
+      masterPasswordUnlock: PreparedBitwardenAccount["masterPasswordUnlock"];
       catalog?: LocalVaultMetadata;
       uriContext?: BitwardenUriMatchContext;
       /**
@@ -151,6 +153,7 @@ async function execute(command: HostCommand) {
       ciphers,
       verified: false,
       metadataContext: prepared.encryptedMetadata,
+      masterPasswordUnlock: prepared.masterPasswordUnlock,
       ...(uriContext ? { uriContext } : {}),
       loginUris: new Map(),
     };
@@ -200,12 +203,17 @@ async function execute(command: HostCommand) {
           id: String(checked.data.id),
           label: vaultDisplayLabel(checked.data.name, String(checked.data.id)),
           type: checked.data.type as 1 | 2 | 3 | 4,
+          ...(checked.data.deletedDate || checked.data.archivedDate
+            ? { inactive: true as const }
+            : {}),
           groupIds: [
             ...new Set([
               ...(checked.data.folderId ? [String(checked.data.folderId)] : []),
               ...checked.data.collectionIds.map(String),
             ]),
           ],
+          // Bitwarden's master password re-prompt; a site's settings decide whether it is asked.
+          ...(checked.data.reprompt === 1 ? { reprompt: true as const } : {}),
           fields: snapshot.data.list().map((field) => ({
             id: field.ref.fieldId,
             label: vaultDisplayLabel(field.label, field.ref.fieldId),
@@ -213,6 +221,7 @@ async function execute(command: HostCommand) {
             kind: field.kind,
             ...(field.linkedFieldId ? { linkedFieldId: field.linkedFieldId } : {}),
             ...(field.empty ? { empty: true as const } : {}),
+            ...(field.totpSeed ? { totpSeed: true as const } : {}),
           })),
         });
       } finally {
@@ -236,6 +245,11 @@ async function execute(command: HostCommand) {
     if (!owned.verified) return fail("invalid-request");
     return owned.session.exportUnlockMaterial();
   }
+  if (op.kind === "verify-password")
+    return owned.session.verifyMasterPassword({
+      password: op.password,
+      masterPasswordUnlock: owned.masterPasswordUnlock,
+    });
   if (op.kind === "catalog")
     return owned.verified && owned.catalog
       ? { ok: true as const, data: owned.catalog }
@@ -363,6 +377,7 @@ async function execute(command: HostCommand) {
     return snapshot.data.resolve(op.ref, {
       allowedFieldIds: op.allowedFieldIds,
       ...(op.nowMs === undefined ? {} : { nowMs: () => op.nowMs! }),
+      ...(op.code ? { code: true as const } : {}),
     });
   } finally {
     snapshot.data.dispose();

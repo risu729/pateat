@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { judgedCompletionResult, settleCompletion, undecidedCandidate } from "./completion-policy";
+import type { SignInDecision } from "./sign-in-state";
 
 const candidate = {
   verdict: "unclear",
@@ -97,6 +98,97 @@ describe("undecidedCandidate", () => {
       });
     },
   );
+});
+
+describe("an optional page after the sign-in (ADR 0065)", () => {
+  const optional = { ...candidate, verdict: "optional", sent: true } as const;
+  const outcome = (
+    change: Partial<Parameters<typeof undecidedCandidate>[0]>,
+    again: { decision: SignInDecision; loaded: boolean; path: string } = {
+      decision: "judge",
+      loaded: true,
+      path: "/checkup",
+    },
+  ) => {
+    const input = { ...optional, ...change };
+    const { completes, stopHeld } = undecidedCandidate(input);
+    const settled = settleCompletion({ completes, stopHeld, again, path: "/checkup" });
+    return judgedCompletionResult({ ...input, completes: settled.completes, stopHeld });
+  };
+
+  it("completes confirmed once the credential was sent, watched or not", () => {
+    for (const change of [{}, { watched: true }])
+      expect(outcome(change)).toEqual({ result: "authenticated", confirmed: true });
+  });
+
+  it("never completes on the passkey route, even after a handler sent a second factor", () => {
+    expect(undecidedCandidate({ ...optional, route: "passkey" }).completes).toBe(false);
+    expect(outcome({ route: "passkey" })).toEqual({ result: "challenge", confirmed: false });
+  });
+
+  it("fails closed when a radio button, select or text area was left out", () => {
+    expect(undecidedCandidate({ ...optional, inputLeftOut: true }).completes).toBe(false);
+    expect(outcome({ inputLeftOut: true })).toEqual({ result: "challenge", confirmed: false });
+  });
+
+  it("checks the path only when asked, as for an optional page", () => {
+    const undecided = undecidedCandidate(candidate);
+    expect(undecided.completes).toBe(true);
+    // An undecided page may route on while it is judged (ADR 0029).
+    expect(
+      settleCompletion({
+        ...undecided,
+        again: { decision: "judge", loaded: true, path: "/home" },
+      }).completes,
+    ).toBe(true);
+  });
+
+  it("is not known to be signed in before the credential was sent", () => {
+    expect(undecidedCandidate({ ...optional, sent: false }).completes).toBe(false);
+    expect(outcome({ sent: false })).toEqual({ result: "unknown", confirmed: false });
+    expect(outcome({ sent: false, route: "passkey" }).result).toBe("challenge");
+  });
+
+  it("holds a login that stops before its missing password, which goes on to its stop", () => {
+    expect(undecidedCandidate({ ...optional, stopAt: 0 })).toEqual({
+      completes: false,
+      stopHeld: true,
+    });
+    expect(outcome({ stopAt: 0 })).toEqual({ result: "challenge", confirmed: false });
+  });
+
+  it("fails closed as a challenge on a page with a sign", () => {
+    for (const reading of [
+      undefined,
+      { decision: "judge" as const, confirmed: false },
+      { decision: "continuing" as const, confirmed: true },
+      { decision: "unknown" as const, confirmed: true },
+      { decision: "rejected" as const, confirmed: true },
+      { decision: "signed-in" as const, confirmed: true },
+    ])
+      expect(outcome({ reading })).toEqual({ result: "challenge", confirmed: false });
+  });
+
+  it("fails closed when the fresh reading shows a sign, another path or a field left out", () => {
+    expect(outcome({}, { decision: "continuing", loaded: true, path: "/checkup" }).result).toBe(
+      "challenge",
+    );
+    expect(outcome({}, { decision: "judge", loaded: false, path: "/checkup" }).result).toBe(
+      "challenge",
+    );
+    expect(outcome({}, { decision: "judge", loaded: true, path: "/verify" }).result).toBe(
+      "challenge",
+    );
+    const { completes, stopHeld } = undecidedCandidate(optional);
+    expect(
+      settleCompletion({
+        completes,
+        stopHeld,
+        again: { decision: "judge", loaded: true, path: "/checkup" },
+        disabledLeftOut: true,
+      }).completes,
+    ).toBe(false);
+  });
 });
 
 describe("settleCompletion", () => {

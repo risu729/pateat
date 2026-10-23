@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createPasskeyChooser, type ChooserBrowser } from "./chooser";
+import { createPasskeyChooser, MAX_WRONG_PASSWORDS, type ChooserBrowser } from "./chooser";
 
 const pageUrl = "chrome-extension://synthetic/passkey-picker.html";
 const entries = [
@@ -357,5 +357,118 @@ describe("passkey chooser window", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("master password re-prompt in the chooser window", () => {
+  const sender = (url: string) => ({ url, tab: { windowId: 41 } });
+  async function asking(
+    verify: ((index: number, password: string) => Promise<boolean>) | undefined,
+    purpose?: "login",
+  ) {
+    const { browser } = fakeBrowser();
+    const chooser = createPasskeyChooser(browser);
+    const answer = chooser.choose({
+      tabId: 7,
+      origin: "https://login.example.com",
+      rpId: "example.com",
+      entries: [{ item: "Work", reprompt: true }, { item: "Home" }],
+      ...(verify ? { verify } : {}),
+      replacesDefault: false,
+      again: false,
+      ...(purpose ? { purpose } : {}),
+      signal: new AbortController().signal,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const url = browser.createWindow.mock.calls[0]?.[0].url;
+    const request = url && new URL(url).searchParams.get("request");
+    const check = (index: number, password: string) =>
+      chooser.handle(
+        {
+          version: 1,
+          type: "passkey-chooser.verify",
+          request,
+          index,
+          password,
+          makeDefault: false,
+        },
+        sender(url!),
+      );
+    const choose = (index: number) =>
+      chooser.handle(
+        {
+          version: 1,
+          type: "passkey-chooser.answer",
+          request,
+          answer: { kind: "chosen", index, makeDefault: false },
+        },
+        sender(url!),
+      );
+    return { browser, chooser, answer, url, request, check, choose };
+  }
+
+  it("opens no window for a re-prompt entry it cannot check", async () => {
+    const { browser, answer } = await asking(undefined);
+    expect(await answer).toEqual({ kind: "unavailable" });
+    expect(browser.createWindow).not.toHaveBeenCalled();
+  });
+
+  it("uses a re-prompt entry only once its master password is right", async () => {
+    const verify = vi.fn(async (_index: number, password: string) => password === "right");
+    const { answer, check, choose, chooser, url, request } = await asking(verify);
+    expect(
+      await chooser.handle({ version: 1, type: "passkey-chooser.load", request }, sender(url!)),
+    ).toMatchObject({ ok: true, view: { entries: [{ item: "Work", reprompt: true }, {}] } });
+    // Choosing it without the password, or checking a password for another entry, is refused.
+    expect(await choose(0)).toEqual({ ok: false });
+    expect(await check(1, "right")).toEqual({ ok: false });
+    expect(await check(0, "wrong")).toEqual({ ok: true, matches: false });
+    expect(await check(0, "right")).toEqual({ ok: true, matches: true });
+    expect(await answer).toEqual({ kind: "chosen", index: 0, makeDefault: false });
+    expect(verify).toHaveBeenCalledWith(0, "right");
+  });
+
+  it("still chooses an entry without re-prompt directly", async () => {
+    const { answer, choose } = await asking(async () => false);
+    expect(await choose(1)).toEqual({ ok: true });
+    expect(await answer).toEqual({ kind: "chosen", index: 1, makeDefault: false });
+  });
+
+  it("checks one password at a time", async () => {
+    let finish!: (matches: boolean) => void;
+    const { answer, check } = await asking(
+      () => new Promise<boolean>((resolve) => (finish = resolve)),
+    );
+    const first = check(0, "first");
+    await vi.waitFor(() => expect(finish).toBeDefined());
+    expect(await check(0, "second")).toEqual({ ok: false });
+    finish(true);
+    expect(await first).toEqual({ ok: true, matches: true });
+    expect(await answer).toMatchObject({ kind: "chosen", index: 0 });
+  });
+
+  it("ends the request after five wrong passwords", async () => {
+    const { answer, check } = await asking(async () => false);
+    // One check at a time, as the window sends them.
+    for (let attempt = 1; attempt < MAX_WRONG_PASSWORDS; attempt += 1)
+      // eslint-disable-next-line no-await-in-loop
+      expect(await check(0, `guess-${attempt}`)).toEqual({ ok: true, matches: false });
+    expect(await check(0, "guess-last")).toEqual({ ok: false });
+    expect(await answer).toEqual({ kind: "closed" });
+  });
+
+  it("ends the request when the vault cannot check the password", async () => {
+    const { answer, check } = await asking(async () => {
+      throw new Error("vault-unavailable");
+    });
+    expect(await check(0, "right")).toEqual({ ok: false });
+    expect(await answer).toEqual({ kind: "unavailable" });
+  });
+
+  it("answers a login's window only through the password check", async () => {
+    const { answer, check, choose } = await asking(async () => true, "login");
+    expect(await choose(1)).toEqual({ ok: false });
+    expect(await check(0, "right")).toEqual({ ok: true, matches: true });
+    expect(await answer).toMatchObject({ kind: "chosen", index: 0 });
   });
 });

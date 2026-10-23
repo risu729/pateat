@@ -25,8 +25,11 @@ export const SMOKE_OWNER_PREFIX = "smoke-";
  * A Worker test fails when a table with an `owner_id` column is missing here.
  */
 export const OWNER_TABLES = [
+  "recipe_unit_sources",
+  "recipe_layout_uses",
   "recipe_revisions",
   "recipe_heads",
+  "recipe_repairs",
   "settings",
   "generation_attempts",
   "page_judgements",
@@ -35,9 +38,11 @@ export const OWNER_TABLES = [
   "inference_log",
   "login_outcomes",
   "login_timings",
+  "problem_log",
   "inference_credentials",
   "inference_model_configs",
   "devices",
+  "profiles",
   "owner_identities",
 ] as const;
 
@@ -79,6 +84,7 @@ function settingsDocument(hostname: string) {
   return {
     connections: [],
     excludedSites: [{ hostname, includeSubdomains: true }],
+    repromptSites: [],
     passkeyBrowserSites: [],
     siteDefaults: [],
     bindings: [],
@@ -91,22 +97,33 @@ function recipeDocument(id: string, revision: number) {
     id,
     revision,
     origin: "https://smoke.pateat.invalid",
-    pageKind: "sign-in",
-    slots: ["username", "password"],
-    steps: [
+    layouts: [
       {
-        kind: "fill",
-        effect: "prepare",
-        path: "/login",
-        fields: [
-          { slot: "username", target: { by: "id", value: "username" } },
-          { slot: "password", target: { by: "id", value: "password" } },
+        key: "1000",
+        createdAt: 1000,
+        pageKind: "sign-in",
+        slots: ["username", "password"],
+        steps: [
+          {
+            kind: "fill",
+            effect: "prepare",
+            path: "/login",
+            fields: [
+              { slot: "username", target: { by: "id", value: "username" } },
+              { slot: "password", target: { by: "id", value: "password" } },
+            ],
+          },
+          {
+            kind: "click",
+            path: "/login",
+            target: { by: "id", value: "submit" },
+            purpose: "submit",
+          },
         ],
+        completion: [{ target: { by: "id", value: "welcome" } }],
+        maxSubmissions: 1,
       },
-      { kind: "click", path: "/login", target: { by: "id", value: "submit" }, purpose: "submit" },
     ],
-    completion: [{ target: { by: "id", value: "welcome" } }],
-    maxSubmissions: 1,
   };
 }
 
@@ -117,9 +134,13 @@ async function seedOwner(query: Query): Promise<Device> {
   const { credential, tokenHash } = await createDeviceCredential();
   const now = String(Date.now());
   await query("INSERT INTO owners (id, created_at) VALUES (?, ?)", [ownerId, now]);
+  await query("INSERT INTO profiles (owner_id, id, name) VALUES (?, ?, 'Default')", [
+    ownerId,
+    deviceId,
+  ]);
   await query(
-    "INSERT INTO devices (id, owner_id, token_hash, label, created_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?)",
-    [deviceId, ownerId, tokenHash, "Pateat smoke test", now, now],
+    "INSERT INTO devices (id, owner_id, profile_id, token_hash, label, created_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    [deviceId, ownerId, deviceId, tokenHash, "Pateat smoke test", now, now],
   );
   return { ownerId, deviceId, credential };
 }
@@ -176,7 +197,7 @@ export async function runHostedSmoke(origin: string, fetch: Fetch, query: Query)
     const first = await seedOwner(query);
     const second = await seedOwner(query);
 
-    const empty = { version: 1, revision: 0, settings: null };
+    const empty = { version: 1, profileId: first.deviceId, revision: 0, settings: null };
     check(same((await api(first, "/v1/settings")).json, empty), "a new owner has settings");
     const settings = settingsDocument("smoke.pateat.invalid");
     const written = await api(first, "/v1/settings", "PUT", {
@@ -184,7 +205,7 @@ export async function runHostedSmoke(origin: string, fetch: Fetch, query: Query)
       expectedRevision: 0,
       settings,
     });
-    const stored = { version: 1, revision: 1, settings };
+    const stored = { version: 1, profileId: first.deviceId, revision: 1, settings };
     check(written.status === 200 && same(written.json, stored), `settings write ${written.status}`);
     check(same((await api(first, "/v1/settings")).json, stored), "settings did not read back");
     passed.push("Settings round trip through D1.");
@@ -204,7 +225,10 @@ export async function runHostedSmoke(origin: string, fetch: Fetch, query: Query)
     );
     passed.push("Recipe round trip through D1.");
 
-    check(same((await api(second, "/v1/settings")).json, empty), "another owner's settings leaked");
+    check(
+      same((await api(second, "/v1/settings")).json, { ...empty, profileId: second.deviceId }),
+      "another owner's settings leaked",
+    );
     const others = (await api(second, "/v1/recipes")).json as { changes?: unknown[] };
     check(others.changes?.length === 0, "another owner's recipes leaked");
     const separate = await api(second, `/v1/recipes/${recipeId}`, "PUT", {

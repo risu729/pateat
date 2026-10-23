@@ -3,6 +3,7 @@ import {
   parseLoginRecipe,
   recipeStartSteps,
   type LoginAccountBinding,
+  type LoginKeypadTarget,
   type LoginRecipe,
   type VaultCatalog,
 } from "@pateat/contracts";
@@ -34,11 +35,14 @@ const PROBE_PATHS = [
   "/variants",
   "/passkey",
   "/totp",
+  "/totp-typed",
   "/identifier-first",
   "/identifier-swap",
   "/method-choice",
   "/method-choice-named",
   "/shared-input",
+  "/keypad",
+  "/keypad-position",
 ];
 /** Where every synthetic recipe starts, which a fixture document watches for. */
 export function probeStarts(origin: string): LoginRecipeStart[] {
@@ -79,12 +83,14 @@ function variantsRecipe(origin: string, path: string): LoginRecipe {
 }
 /**
  * A password page followed by an authenticator app code page (ADR 0027): the `totp`
- * handler fills the code into `#code` and clicks `#verify`.
+ * handler fills the code into `#code` and clicks `#verify`. With `typed`, the code page
+ * shows no button and submits the code on its last digit, and the handler has no button
+ * (ADR 0027 amendment of 2026-10-23).
  */
-function totpRecipe(origin: string, path: string): LoginRecipe {
+function totpRecipe(origin: string, path: string, typed = false): LoginRecipe {
   return parseLoginRecipe({
     version: 1,
-    id: "demo-totp",
+    id: typed ? "demo-totp-typed" : "demo-totp",
     revision: 1,
     origin,
     pageKind: "sign-in",
@@ -94,7 +100,12 @@ function totpRecipe(origin: string, path: string): LoginRecipe {
       { kind: "click", path, target: target("login"), purpose: "submit" },
     ],
     handlers: [
-      { kind: "totp", path: "/totp-code", field: target("code"), target: target("verify") },
+      {
+        kind: "totp",
+        path: "/totp-code",
+        field: target("code"),
+        ...(typed ? {} : { target: target("verify") }),
+      },
     ],
     completion: [{ target: target("authenticated") }],
     rejection: target("rejected"),
@@ -180,13 +191,43 @@ function sharedInputRecipe(origin: string, path: string): LoginRecipe {
     maxSubmissions: 1,
   });
 }
+/**
+ * A read-only password input that takes its characters only from the page's shuffled
+ * software keyboard, which `keypad` names (ADR 0067).
+ */
+function keypadRecipe(origin: string, path: string, keypad: LoginKeypadTarget): LoginRecipe {
+  return parseLoginRecipe({
+    version: 1,
+    id: `demo-${path.slice(1)}`,
+    revision: 1,
+    origin,
+    pageKind: "sign-in",
+    slots: ["password"],
+    steps: [
+      {
+        kind: "fill",
+        path,
+        fields: [{ slot: "password", target: target("password"), keypad }],
+      },
+      { kind: "click", path, target: target("login"), purpose: "submit" },
+    ],
+    completion: [{ target: target("authenticated") }],
+    rejection: target("rejected"),
+    maxSubmissions: 1,
+  });
+}
 export function probeRecipe(origin: string, path: string): LoginRecipe | undefined {
   if (!PROBE_PATHS.includes(path)) return undefined;
+  if (path === "/keypad") return keypadRecipe(origin, path, target("keypad"));
+  // From the input up through its label to the form, then the form's second child.
+  if (path === "/keypad-position")
+    return keypadRecipe(origin, path, { by: "position", value: "2:1" });
   if (path === "/method-choice") return methodChoiceRecipe(origin, path);
   if (path === "/method-choice-named") return namedMethodChoiceRecipe(origin, path);
   if (path === "/shared-input") return sharedInputRecipe(origin, path);
   if (path === "/variants") return variantsRecipe(origin, path);
-  if (path === "/totp") return totpRecipe(origin, path);
+  if (path === "/totp" || path === "/totp-typed")
+    return totpRecipe(origin, path, path === "/totp-typed");
   if (path === "/identifier-first") return identifierFirstRecipe(origin, path);
   if (path === "/identifier-swap") return identifierFirstRecipe(origin, path, true);
   const multi = path === "/identity";
@@ -362,7 +403,12 @@ export function grantProbeOrigin(
 }
 
 /** Resolve one allowed field at a time; no values enter recipes, metadata or status. */
-export function resolveDummyField(fieldId: string): string | undefined {
+export function resolveDummyField(
+  fieldId: string,
+  options: { code?: true } = {},
+): string | undefined {
+  // Only the synthetic TOTP field answers a code request.
+  if (options.code && fieldId !== "totp") return undefined;
   if (fieldId === "branch") return "007";
   if (fieldId === "username") return "00001234";
   if (fieldId === "password") return "Pateat-synthetic-only!";

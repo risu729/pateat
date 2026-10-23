@@ -165,7 +165,9 @@ test("Japanese passkey chooser keeps interpolated account markup as literal text
   await expect
     .element(page.getByRole("heading", { name: "login.example.test にログイン" }))
     .toBeVisible();
-  await expect.element(page.getByText("このタブでこのサイトからログアウトしました")).toBeVisible();
+  await expect
+    .element(page.getByText("このタブでこのサイトからログアウトされました。"))
+    .toBeVisible();
   const list = page.getByRole("list", { name: "一致するパスキー" });
   await expect
     .element(list)

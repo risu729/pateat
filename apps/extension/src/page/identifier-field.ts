@@ -32,6 +32,22 @@ const otherWords = new Set([
   "postal",
 ]);
 const otherParts = ["検索", "クーポン", "注文", "追跡", "メルマガ", "マガジン", "購読", "郵便"];
+/**
+ * Words that name the answer to a secret question (ADR 0035), matched as the identifier
+ * words are (`secretAnswer` splits into words): a word of `secretWords` and one of
+ * `answerWords` in the same text, so a survey's or contact form's "answer" alone does not
+ * count. Japanese phrases match anywhere.
+ */
+const secretWords: ReadonlySet<string> = new Set(["secret", "security", "memorable", "challenge"]);
+const answerWords: ReadonlySet<string> = new Set(["answer", "question", "word", "phrase"]);
+const answerParts = [
+  "合言葉",
+  "秘密の質問",
+  "秘密の答え",
+  "秘密の回答",
+  "質問の答え",
+  "質問の回答",
+];
 
 /** Text-like input types, of which a page asking for an identifier alone shows one. */
 const textTypes = new Set(["text", "email", "tel", "number", "url"]);
@@ -144,4 +160,30 @@ export function identifierInput(document: Document): "sole" | "email" | undefine
     names(input, identifierWords, identifierParts)
     ? "sole"
     : undefined;
+}
+
+/**
+ * Whether the page shows a visible, writable `type="text"` input for the answer to a secret
+ * question (ADR 0035): its name, id, placeholder, `aria-label` or label names a secret or
+ * security answer or question, as `secretAnswer`, `Security question answer`, `秘密の質問の答え`
+ * or `合言葉`. Such a page looks like a verification but meets no generation trigger (ADR
+ * 0016), so it is only counted. A search box and an input in a sign-up form do not count.
+ * Only the page's own markup is read, never a value.
+ */
+export function answerInput(document: Document): boolean {
+  return [...document.querySelectorAll("input")].some(
+    (input) =>
+      input.type === "text" &&
+      writable(input) &&
+      !searchField(input) &&
+      !signUpForm(input) &&
+      descriptions(input).some((text) => {
+        const found = words(text);
+        return (
+          (found.some((word) => secretWords.has(word)) &&
+            found.some((word) => answerWords.has(word))) ||
+          answerParts.some((part) => text.normalize("NFKC").includes(part))
+        );
+      }),
+  );
 }

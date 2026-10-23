@@ -338,6 +338,13 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
           return;
         }
       }
+      if (
+        job.operation.kind === "verify-password" &&
+        !v.safeParse(v.strictObject({ matches: v.boolean() }), result.data).success
+      ) {
+        cancelOwned(parsed.output.requestId, "crypto-locked");
+        return;
+      }
       if (job.operation.kind === "catalog") {
         const metadata = v.safeParse(localVaultMetadataSchema, result.data);
         if (
@@ -790,6 +797,14 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
         signal,
       );
     },
+    /** Whether a master password belongs to the session's account; checked offline. */
+    verifyMasterPassword(session: HostSessionRef, password: string, signal?: AbortSignal) {
+      return request<{ matches: boolean }>(
+        session.connectionId,
+        { kind: "verify-password", session, password },
+        signal,
+      );
+    },
     listFields(session: HostSessionRef, itemId: string, signal?: AbortSignal) {
       return request<readonly LocalFieldMetadata[]>(
         session.connectionId,
@@ -807,7 +822,7 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
     resolveField(
       session: HostSessionRef,
       ref: LocalFieldReference,
-      grant: { allowedFieldIds: readonly string[]; nowMs?: number },
+      grant: { allowedFieldIds: readonly string[]; nowMs?: number; code?: true },
       signal?: AbortSignal,
     ) {
       return request<LocalFieldValue>(

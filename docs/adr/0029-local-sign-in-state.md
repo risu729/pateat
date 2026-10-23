@@ -52,6 +52,22 @@ marker completed is sent as a sample, once in 30 days per recipe and branch; see
 [the amendment below](#amendment-signed-in-page-samples-2026-10-18) (implemented, local
 tests only). This also amends [ADR 0012](0012-inference-request-log.md) and
 [ADR 0016](0016-recipe-generation-trigger.md).
+Amended on 2026-10-23 by [ADR 0067](0067-software-keyboard-entry.md): a read-only input
+the step typed on the page's software keyboard is a sign-in input for F1 and F2, as is
+one the re-shown form holds beside a keypad, and an empty read-only password input
+beside a keypad counts for S2.
+
+Amended on 2026-10-23 by [ADR 0060](0060-recipe-layouts.md) (layouts accepted by the
+owner on 2026-10-23 at 11:41 UTC; implemented on a branch, local tests only): a recipe
+holds up to three layouts, and E1 counts a signed-in marker of any layout of the login's
+recipe, read as the login's own markers are; a page where another layout's markers
+cannot be read gives no sign-in state.
+
+Amended on 2026-10-23 by [ADR 0065](0065-optional-pages-after-a-sign-in.md) (owner,
+12:27 UTC): the judge may answer `optional` for a page after the sign-in that the person
+may put off; once the password or a second factor was sent, with no sign and no
+evidence, it completes the login as signed in, confirmed, and learns no marker,
+otherwise it ends `challenge` (implemented, local tests only).
 
 Date: 2026-10-12
 
@@ -531,9 +547,12 @@ What leaves the device, and how often:
   an effect step), the page it ended on is described exactly as for the judge: the same
   extractor and redaction, `headerText`, the account's usernames hidden as `[account]`
   ([ADR 0016](0016-recipe-generation-trigger.md#username-shape)), complete descriptions
-  only. A page the judge would not get (`username-shown`, `username-unread`, an
-  incomplete description) is not sent. E2's username comparison itself still never
-  leaves the device.
+  only, with the account's slots as the judge request carries them (owner, 2026-10-23:
+  the same information goes to every model call unless there is a sound reason;
+  [ADR 0061](0061-personal-details-during-a-login.md#the-judge-gets-the-accounts-slots)).
+  The service logs them in the sample's request. A page the judge would not get
+  (`username-shown`, `username-unread`, an incomplete description) is not sent. E2's
+  username comparison itself still never leaves the device.
 - At most once in 30 days (`PAGE_SAMPLE_INTERVAL_MS`) per service, device, recipe and
   chooser branch, recorded on the device before the request; the service keeps at most
   one per owner, recipe and branch in 30 days and answers a later one 204 without a row.

@@ -1,6 +1,8 @@
 import { toJsonSchema } from "@valibot/to-json-schema";
 import { describe, expect, it } from "vitest";
 import {
+  completionBesideInstructions,
+  completionBesidePromptVersion,
   completionInstructions,
   completionPromptVersion,
   completionStopInstructions,
@@ -37,6 +39,15 @@ describe("prompt versions", () => {
       ),
     );
     expect(await completionStopPromptVersion()).not.toBe(await completionPromptVersion());
+    // So is a page beside the sign-in form (ADR 0061).
+    expect(await completionBesidePromptVersion()).toBe(
+      await promptVersion(
+        completionBesideInstructions,
+        JSON.stringify(toJsonSchema(judgedPageSchema)),
+      ),
+    );
+    expect(await completionBesidePromptVersion()).not.toBe(await completionPromptVersion());
+    expect(await completionBesidePromptVersion()).not.toBe(await completionStopPromptVersion());
     // An entry request (ADR 0031) sends other instructions with the same response format.
     expect(await entryGenerationPromptVersion()).toBe(
       await promptVersion(entryGenerationInstructions, schema),
