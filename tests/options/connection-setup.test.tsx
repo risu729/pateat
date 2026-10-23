@@ -1971,7 +1971,13 @@ test.each(["ready", "error", "cancel"] as const)(
   "a verification challenge takes keyboard focus and hands it to the status after %s",
   async (end) => {
     const client = mockClient();
-    client.begin.mockResolvedValue({ ok: true, kind: "mfa-required", flowId, providers: [0] });
+    client.begin.mockResolvedValue({
+      ok: true,
+      kind: "mfa-required",
+      flowId,
+      providers: [0],
+      expiresAt,
+    });
     if (end === "error")
       client.continue.mockResolvedValue({ ok: false, error: { code: "resource-limit" } });
     await mount(client);
@@ -2001,12 +2007,14 @@ test("a new-device challenge, and a rejected code asking again, focus the code f
     kind: "new-device-verification-required",
     flowId,
     invalidOtp: false,
+    expiresAt,
   });
   client.continue.mockResolvedValue({
     ok: true,
     kind: "new-device-verification-required",
     flowId,
     invalidOtp: true,
+    expiresAt,
   });
   await mount(client);
   await fillNew();
@@ -2015,9 +2023,7 @@ test("a new-device challenge, and a rejected code asking again, focus the code f
   await expect.element(code).toHaveFocus();
   await code.fill("000987");
   await page.getByRole("button", { name: "Verify code", exact: true }).click();
-  await expect
-    .element(page.getByText("The new-device code was rejected. Enter a new code manually."))
-    .toBeVisible();
+  await expect.element(page.getByText("The code was not accepted.", { exact: true })).toBeVisible();
   await expect.element(code).toHaveFocus();
 });
 
@@ -2128,7 +2134,13 @@ test("a failed sync or refresh keeps keyboard focus on its button", async () => 
 
 test("sending and resending the email code keep keyboard focus on the code field", async () => {
   const client = mockClient();
-  client.begin.mockResolvedValue({ ok: true, kind: "mfa-required", flowId, providers: [0, 1] });
+  client.begin.mockResolvedValue({
+    ok: true,
+    kind: "mfa-required",
+    flowId,
+    providers: [0, 1],
+    expiresAt,
+  });
   const pending = held<SetupReply>();
   client.sendEmailCode
     .mockReturnValueOnce(pending.promise)

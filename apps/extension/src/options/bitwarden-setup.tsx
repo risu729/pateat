@@ -452,7 +452,7 @@ export function BitwardenSetup({
       setRefused(again);
       if (again) {
         // The same sign-in waits for another code: the method and the sent email stay.
-        focusCode.current = true;
+        focusNext.current = codeInput;
         say("The code was not accepted.");
       } else if (result.kind === "mfa-required") {
         // Ascending IDs put the authenticator before email, as the official clients rank them.
