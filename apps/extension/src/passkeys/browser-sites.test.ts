@@ -1,4 +1,8 @@
-import { createDefaultSettings, type SettingsSnapshot } from "@pateat/contracts";
+import {
+  createDefaultSettings,
+  type SettingsChangeCause,
+  type SettingsSnapshot,
+} from "@pateat/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { addPasskeyBrowserSite } from "./browser-sites";
 
@@ -13,6 +17,7 @@ function store(passkeyBrowserSites: { hostname: string }[] = []) {
     update: vi.fn(
       async (
         expectedRevision: number | undefined,
+        _cause: SettingsChangeCause,
         mutate: (current: SettingsSnapshot) => SettingsSnapshot,
       ) => {
         if (expectedRevision !== undefined && expectedRevision !== snapshot.revision)
@@ -38,6 +43,12 @@ describe("adding a site whose passkey requests go to the browser", () => {
       { hostname: "login.bank.example" },
     ]);
     expect(current().revision).toBe(4);
+    // A save conflict on the settings page names this cause (ADR 0025).
+    expect(settings.update).toHaveBeenCalledWith(
+      undefined,
+      "passkey-browser-site",
+      expect.any(Function),
+    );
   });
 
   it("writes nothing for a listed hostname, an invalid origin or a full list", async () => {

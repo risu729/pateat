@@ -482,7 +482,13 @@ function edgeRateLimitPage() {
 }
 
 describe("rate limits on device-credential routes", () => {
-  const document = { connections: [], excludedSites: [], siteDefaults: [], bindings: [] };
+  const document = {
+    connections: [],
+    excludedSites: [],
+    passkeyBrowserSites: [],
+    siteDefaults: [],
+    bindings: [],
+  };
   const write = { version: 1, expectedRevision: 3, settings: document } as const;
   const routes: [string, (transport: ServiceTransport) => Promise<object>][] = [
     ["recipe changes", (transport) => transport.recipeChanges(ORIGIN, CREDENTIAL, 3)],

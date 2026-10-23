@@ -1,4 +1,9 @@
-import { normalizeHostname, parseSiteUrl, type SettingsSnapshot } from "@pateat/contracts";
+import {
+  normalizeHostname,
+  parseSiteUrl,
+  type SettingsChangeCause,
+  type SettingsSnapshot,
+} from "@pateat/contracts";
 
 /** The settings schema's bound on the list; a full list keeps its entries. */
 const MAX_SITES = 1000;
@@ -17,6 +22,7 @@ export async function addPasskeyBrowserSite(input: {
     read(): Promise<SettingsSnapshot>;
     update(
       expectedRevision: number | undefined,
+      cause: SettingsChangeCause,
       mutate: (snapshot: SettingsSnapshot) => SettingsSnapshot,
     ): Promise<SettingsSnapshot>;
   };
@@ -40,7 +46,7 @@ export async function addPasskeyBrowserSite(input: {
   // Read first, so a hostname already listed does not bump the revision.
   if (!fits(await input.settings.read())) return false;
   let added = false;
-  await input.settings.update(undefined, (snapshot) => {
+  await input.settings.update(undefined, "passkey-browser-site", (snapshot) => {
     if (!fits(snapshot)) return snapshot;
     added = true;
     return {

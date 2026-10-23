@@ -21,6 +21,8 @@ export const settingsEn = {
     "settings were merged with the Pateat sync service",
   "an account used to sign in on a site was saved for that site":
     "an account used to sign in on a site was saved for that site",
+  "a site was set to hand its passkey requests to the browser":
+    "a site was set to hand its passkey requests to the browser",
   "settings changed for a reason no longer recorded":
     "settings changed for a reason no longer recorded",
   "{{error}} Your unsaved draft has been preserved.":

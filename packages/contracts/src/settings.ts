@@ -242,6 +242,8 @@ export const SETTINGS_CHANGE_CAUSES = [
   "service-sync",
   /** An account used on a site, from a login or a passkey request, saved for it (ADR 0021). */
   "account-choice",
+  /** A site whose passkey requests go to the browser, from the chooser (ADR 0007). */
+  "passkey-browser-site",
 ] as const;
 export const settingsChangeCauseSchema = v.picklist(SETTINGS_CHANGE_CAUSES);
 /** The most recent revisions whose cause the snapshot keeps. */
