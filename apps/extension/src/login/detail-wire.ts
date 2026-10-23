@@ -1,4 +1,4 @@
-import { birthDateFormatSchema, loginDetailSchema, type LoginDetail } from "@pateat/contracts";
+import { detailFormatSchema, loginDetailSchema, type LoginDetail } from "@pateat/contracts";
 import type { TFunction } from "i18next";
 import * as v from "valibot";
 
@@ -39,7 +39,7 @@ export const detailResponseSchema = v.variant("ok", [
           v.array(
             v.strictObject({
               detail: loginDetailSchema,
-              format: v.optional(birthDateFormatSchema),
+              format: v.optional(detailFormatSchema),
               candidates: v.pipe(v.array(sourceSchema), v.minLength(1), v.maxLength(20)),
               /**
                * The first candidate is no guess and is not selected, as for a member ID,
@@ -71,7 +71,7 @@ export const detailResponseSchema = v.variant("ok", [
           pending: v.optional(v.literal(true)),
         }),
       ),
-      v.maxLength(4),
+      v.maxLength(loginDetailSchema.options.length),
     ),
   }),
   v.strictObject({ ok: v.literal(false), reason: v.literal("no-page") }),
@@ -100,12 +100,14 @@ export const detailFillResponseSchema = v.variant("ok", [
       "document-gone",
       /** The offer is gone, or does not list this field for this detail. */
       "not-a-candidate",
-      /** The field's value is not a date, or has too few digits. */
+      /** The field's value is not a date, or has too few or too many digits. */
       "unreadable",
       /** The vault is locked or the field may no longer be used. */
       "unavailable",
       /** The page refused the fill. */
       "not-filled",
+      /** The page shows another account than the login item's. */
+      "other-account",
     ]),
   }),
 ]);
@@ -144,6 +146,9 @@ export function detailName(detail: LoginDetail, t: TFunction, format?: string): 
     "phone-last-4": () => t("the last 4 digits of your phone number"),
     "card-last-4": () => t("the last 4 digits of your card number"),
     "card-code": () => t("your card's security code"),
+    "card-number": () => t("your card number"),
+    "card-expiry": () => t("your card's expiry date"),
+    pin: () => t("your PIN"),
     "secret-answer": () => t("the answer to your secret question"),
     "member-id": () => t("your member or customer number"),
   }[detail]();
@@ -160,6 +165,7 @@ export function detailFillFailure(
     unreadable: () => t("That field does not hold a value Pateat can use here."),
     unavailable: () => t("Pateat cannot read that field now. Unlock the vault and try again."),
     "not-filled": () => t("The page did not accept the value."),
+    "other-account": () => t("This page shows another account, so nothing was filled."),
   }[reason]();
 }
 

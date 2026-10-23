@@ -3,7 +3,7 @@
 Status: accepted by the owner on 2026-10-23 ([decided](#decided-by-the-owner) 6 to 11).
 Claude built it ahead of those decisions on best guesses, as the owner asked at 05:28
 UTC. The design was reviewed against the code by another AI before it was built.
-Deliveries 1, 2, 3, 4 and 6 are implemented; the others are not ([Delivery](#delivery)).
+Deliveries 1 to 6 are implemented; the others are not ([Delivery](#delivery)).
 Implements the
 [phase 2](../plan.md#phase-2-use-it-and-fix-what-comes-up) item on personal details
 asked for during a login. Amends [ADR 0027](0027-per-account-login-routes.md) (a fourth
@@ -83,7 +83,8 @@ catalog ([feasibility note](../research/2026-10-12-card-security-code.md)).
    included (11:41:30 UTC, choosing the option 「全部」: 「2. a.
    全部いれていい基本。ただしログインしてるかの追跡はログアウト後の自動ログインやめる(別で検討中)でも残るはずなので、ログイン完了後の確認画面で自動入力までに止めるのはそのままでいいと思います、たぶん」).
    A confirmation screen after a completed login is unchanged: Pateat still stops at the
-   fill there. Delivery 5 adds those values.
+   fill there. So a page that asks for a whole card number or a PIN now has a detail;
+   `manualDetails` stays empty.
 9. A page that shows the sign-in form again with a detail form beside it is judged
    (12:25 UTC, 「判定に送る」), amending ADR 0027's rule that a page showing a route
    fill field is never judged ([below](#judging-a-page-beside-the-sign-in-form)).
@@ -107,17 +108,57 @@ make each value. A page that asks for anything else stays `challenge`.
 | `phone-last-4` | `identity.phone`, or a Text or Hidden custom field named as one (below) | its last four digits | a text, tel or number input |
 | `card-last-4` | `card.number` | its last four digits | a text, tel or number input |
 | `card-code` | `card.code` | as it is, 3 or 4 digits | a password input, or a text or tel input with `maxlength` 3 or 4 |
+| `card-number` | `card.number` | all its digits, 12 to 19 | a password, text, tel or number input whose `maxlength`, when set, holds it |
+| `card-expiry` | `card.expMonth` and `card.expYear` of the same card item | month and year in the input's `format` | a text, tel or number input |
+| `pin` | a Text or Hidden custom field of the login item or a card item named as a PIN (below) | its digits, 4 to 12 | a password, text, tel or number input whose `maxlength`, when set, holds it |
 | `secret-answer` | a Text or Hidden custom field of the login item named as the question (below) | as it is, trimmed, 1 to 128 characters | a text or password input |
 | `member-id` | a Text or Hidden custom field of the login item named as a member ID (below) | as it is, trimmed, 1 to 64 characters | a text, tel or number input |
 
 These rules replace the Hidden-field rule for these values: a birth date kept in a
-Hidden field may go into a text input. `format` is one of `yyyymmdd`, `yyyymm`,
-`yyyy-mm-dd`, `yyyy/mm/dd` and `mmdd`. A stored birth date is read, after NFKC, as year,
-month and day from `1990-04-01`, `1990/4/1`, `1990.04.01`, `1990年4月1日` or
-`19900401`; any other text is not a date. Digits are what is left after removing all
-but ASCII digits (after NFKC); fewer than four is not a value. The value is made in the
-service worker right after the vault read: the whole phone or card number never reaches
-the page's content script.
+Hidden field may go into a text input. A birth date's `format` is one of `yyyymmdd`,
+`yyyymm`, `yyyy-mm-dd`, `yyyy/mm/dd` and `mmdd`, a card expiry's one of `mmyy`, `mm/yy`,
+`mmyyyy` and `mm/yyyy`; the contracts refuse a format on another detail. A stored birth
+date is read, after NFKC, as year, month and day from `1990-04-01`, `1990/4/1`,
+`1990.04.01`, `1990年4月1日` or `19900401`; any other text is not a date. For the last
+four digits and a card code, digits are what is left after removing all but ASCII digits
+(after NFKC), and fewer than the value needs (four, or a card code's three) is no value.
+A card number or a PIN must be written, after NFKC, as digits alone, perhaps grouped by
+spaces or hyphens; any other text, such as `12ab34` or a note beside the PIN, is no
+value, and so are fewer or more digits than the table allows. An expiry month is 1 to
+12, and a two-digit year is 20yy. No value is unreadable (`detail-unreadable`). A format
+written with `/` or `-` never goes into a number input, which takes digits only. The
+value is made in the service worker right after the vault read: a whole phone number
+never reaches the page's content script, and a whole card number reaches it only for a
+`card-number` input's fill. A card number, expiry date or PIN split over several inputs
+is no detail, as a split birth date is, and Pateat fills no selects.
+
+### Card numbers, expiry dates and PINs
+
+Added on decided 8. A `card-expiry` link reads two fields; its `source` names the card
+item and `card.expMonth`, and the extension reads `card.expYear` from the same item, so
+the link keeps the one-field shape and both fields must be allowed. A `pin` is read from
+a Text or Hidden custom field whose name, after NFKC and without case, holds `pin` as a
+word of its own (not "shipping"), `暗証` or `passcode`; no other detail but an answer
+named after its question reads such a field, so a PIN never fills a member ID's, birth
+date's or phone number's input. Claude chose to read a PIN only from the login item
+itself or a card item, never an identity or another login item: a PIN is a credential
+of one account or card, and another item's PIN belongs to another account. A card
+number and a PIN fill under their own input rule (`card-number`, `pin`), so they may go
+into a password input, which no other detail but a card code takes. In the content
+script, as on the service, no detail goes into an input whose `autocomplete` names a
+sign-in or code field (`username`, `email`, `current-password`, `new-password`,
+`one-time-code`).
+
+Security notes:
+
+- The model picks the page input, and the content script checks only its type, its
+  `maxlength` and that it is no sign-in field. A whole card number or a PIN may
+  therefore land in a wrong input that shows it on screen, such as a second password
+  input the judge takes for a PIN's.
+- A compromised page on the same origin (XSS) can read a filled card number, expiry date
+  or PIN, as it can read a password today.
+- This ADR changes nothing about pages after a completed login: on a confirmation screen
+  after the login completes, Pateat still stops at the fill (decided 8).
 
 ### Secret-question answers and member IDs
 
@@ -285,14 +326,16 @@ On a `challenge` page the judge may also answer:
 ```
 
 Its instructions say what each value is, that a page asking for anything else (a whole
-phone or card number, a card's expiry date, a PIN, a password or a code sent to the
-person) has no `details`, that a birth date split over several inputs or written in a
-form no `format` matches (a two-digit or era year, a separator it lacks) is none either,
-and that a card's security code is a detail, never a `code`. Inputs that fail the checks
-above are dropped and logged by reason, as `totpDropped` is. A paid run on synthetic
-pages ([results](../research/2026-10-23-detail-judge-eval.md)) gave the expected answer
-on every requested page with four model settings; the split-date line came from it.
-Deliveries 5 and 8 widen what has `details`.
+phone number, a password or a code sent to the person) has no `details`, that a birth
+date split over several inputs or written in a form no `format` matches (a two-digit or
+era year, a separator it lacks) is none either, nor a card number or expiry date split
+over several inputs, that a PIN is never the account's password, and that a card's
+security code is a detail, never a `code`. Inputs that fail the checks above are
+dropped and logged by reason, as `totpDropped` is. A paid run on synthetic pages
+([results](../research/2026-10-23-detail-judge-eval.md)) gave the expected answer on
+every requested page with four model settings; the split-date line came from it. The
+lines for decided 8's values have not been run against a model. Delivery 8 widens what
+has `details`.
 
 ### Judging a page beside the sign-in form
 
@@ -328,7 +371,8 @@ The owner's settings gain `detailLinks`, one per login item, site and detail:
 }
 ```
 
-`field` is `identity.phone`, `card.number`, `card.code` or a custom field by name, as
+`field` is `identity.phone`, `card.number`, `card.code`, `card.expMonth` (for
+`card-expiry`, whose year the same card item gives) or a custom field by name, as
 binding references name them. A link is per site, not per recipe, so a new recipe for
 the origin keeps it, and it exists before the first binding is saved. It holds no item
 name: a card item's name often carries its last digits, so names are shown from the
@@ -348,20 +392,24 @@ When a `detail` handler shows and no link has a value for any of its inputs:
    watched afterwards as such a login is ([ADR 0027](0027-per-account-login-routes.md)).
 2. Pateat lists candidates locally from the catalog, in the login item's vault account
    and under the rules above: identity items, and Text or Hidden custom fields whose
-   name contains `phone`, `tel` or `電話`, for `phone-last-4`; Text or Hidden custom
-   fields whose name reads as a birth date (contains `birth`, `dob`, `生年月日` or
-   `誕生日`, in any case) for `birth-date`; card items for `card-last-4` and
-   `card-code`. A link reads only such a field, so a link edited elsewhere never types
-   another custom field, such as a PIN, into the page. An item whose name holds a run of
-   three or more ASCII letters or digits found in the page's host name, or which appears
-   whole in the page's title, comes first.
+   name contains `phone`, `tel` or `電話` and does not read as a PIN, for
+   `phone-last-4`; Text or Hidden custom fields whose name reads as a birth date
+   (contains `birth`, `dob`, `生年月日` or `誕生日`, in any case) and does not read as a
+   PIN for `birth-date`; card items for `card-last-4`, `card-code` and `card-number`,
+   and those whose expiry month and year are both allowed for `card-expiry`; Text or
+   Hidden custom fields named as a PIN, of the login item or a card item, for `pin`. A
+   link reads only such a field, so a link edited elsewhere never types another custom
+   field, such as a PIN into a member ID's input, into the page. An item whose name
+   holds a run of three or more ASCII letters or digits found in the page's host name,
+   or which appears whole in the page's title, comes first.
 3. The popup's "This page" section shows what the page asks for and the candidates, the
    first one selected, for example "This page asks for your birth year and month." and
    "本人 › 生年月日", with **Fill**.
 4. **Fill** fills the input in the tab's current document, checking its choosing radio,
    when that document is the login's, the tab's login is still the one that stopped
    there, the site and the login item are still allowed, and the page still shows the
-   input writable and the button; it does not press the button. The person checks the
+   input writable and the button, and the page shows no other account than the login
+   item's, as for a login's fill; it does not press the button. The person checks the
    value and submits. One link is kept per handler: a second **Fill**, as after choosing
    the other radio, replaces the first. The link is kept for that tab in
    session storage and saved to the owner's settings only when the watched login ends
@@ -385,16 +433,16 @@ lifts it.
 ### Logs
 
 `login.handler` gains the `detail` kind and the outcomes `detail-manual` (never used
-since card codes are filled; kept for a detail that a later owner decision stops
-filling), `detail-unlinked`, `detail-unreadable` (the linked value is not a date or has
-too few digits) and `detail-unavailable` (the vault could not give the linked value at
-the fill); a login that meets either stops as a changed policy (`field-unavailable`).
-About links it gains `detail-saved` (a link filled from the popup was saved after the
-login was confirmed), `detail-not-saved` (it could not be written, as while another
-tab's login runs; it is dropped), `detail-forgotten` (a refused value's link was
-removed) and `detail-kept` (that removal could not be written now). The judge's log
-keeps `details` with each ID that is not a candidate replaced by `?`, and a pairing's
-slot index (`-1` for one not sent) and question. Never a value or
+since every linked value is filled; kept for a detail that a later owner decision stops
+filling), `detail-unlinked`, `detail-unreadable` (the linked value is not a date or an
+expiry month and year, or has too few or too many digits) and `detail-unavailable` (the
+vault could not give the linked value at the fill); a login that meets either stops as a
+changed policy (`field-unavailable`). About links it gains `detail-saved` (a link filled
+from the popup was saved after the login was confirmed), `detail-not-saved` (it could
+not be written, as while another tab's login runs; it is dropped), `detail-forgotten` (a
+refused value's link was removed) and `detail-kept` (that removal could not be written
+now). The judge's log keeps `details` with each ID that is not a candidate replaced by
+`?`, and a pairing's slot index (`-1` for one not sent) and question. Never a value or
 an item name.
 
 ## Delivery

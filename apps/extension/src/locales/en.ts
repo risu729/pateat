@@ -347,6 +347,11 @@ export const en = {
   "This page asks \u201C{{question}}\u201D.": "This page asks \u201C{{question}}\u201D.",
   "Pateat\u2019s AI thinks this field holds the answer. Fill only if it does; Pateat then fills it whenever this question shows.":
     "Pateat\u2019s AI thinks this field holds the answer. Fill only if it does; Pateat then fills it whenever this question shows.",
+  "your card number": "your card number",
+  "your card's expiry date": "your card's expiry date",
+  "your PIN": "your PIN",
+  "This page shows another account, so nothing was filled.":
+    "This page shows another account, so nothing was filled.",
   "ID {{id}}": "ID {{id}}",
   vaultsLocked_one: "{{count}} vault is locked, so its logins and passkeys wait.",
   vaultsLocked_other: "{{count}} vaults are locked, so their logins and passkeys wait.",

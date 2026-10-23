@@ -1113,7 +1113,34 @@ describe("second-factor page handlers (ADR 0027)", () => {
       expect(parses([detail({ fields: [unformatted] })])).toBe(false);
       expect(parses([detail({ fields: [{ ...phone, format: "yyyymm" }] })])).toBe(false);
       expect(parses([detail({ fields: [{ ...birth, format: "ddmmyyyy" }] })])).toBe(false);
-      expect(parses([detail({ fields: [{ ...phone, detail: "pin" }] })])).toBe(false);
+      // A password is never a detail.
+      expect(parses([detail({ fields: [{ ...phone, detail: "password" }] })])).toBe(false);
+    });
+
+    it("takes a card's number, expiry date and a PIN, each format only on its own detail", () => {
+      const number = { detail: "card-number" as const, target: id("number") };
+      const expiry = {
+        detail: "card-expiry" as const,
+        format: "mm/yy" as const,
+        target: id("exp"),
+      };
+      const pin = { detail: "pin" as const, target: id("pin") };
+      expect(parses([detail({ fields: [number, expiry, pin] })])).toBe(true);
+      for (const format of ["mmyy", "mm/yy", "mmyyyy", "mm/yyyy"])
+        expect(parses([detail({ fields: [{ ...expiry, format }] })])).toBe(true);
+      // An expiry date needs a format of its own, never a birth date's, and the other way
+      // round; a separate month or year is no format.
+      const { format: _format, ...unformatted } = expiry;
+      for (const fields of [
+        [unformatted],
+        [{ ...expiry, format: "yyyymm" }],
+        [{ ...expiry, format: "mm" }],
+        [{ ...expiry, format: "yy" }],
+        [{ ...birth, format: "mmyy" }],
+        [{ ...number, format: "mmyy" }],
+        [{ ...pin, format: "mmyy" }],
+      ])
+        expect(parses([detail({ fields })]), JSON.stringify(fields)).toBe(false);
     });
 
     it("refuses no input, four inputs, a duplicate input and an input that is its button", () => {
@@ -1227,6 +1254,16 @@ describe("second-factor page handlers (ADR 0027)", () => {
         ["mmdd", 4],
       ] as const)
         expect(detailLength({ detail: "birth-date", format })).toBe(length);
+      // A card number has 12 digits or more, a PIN 4 or more.
+      expect(detailLength({ detail: "card-number" })).toBe(12);
+      expect(detailLength({ detail: "pin" })).toBe(4);
+      for (const [format, length] of [
+        ["mmyy", 4],
+        ["mm/yy", 5],
+        ["mmyyyy", 6],
+        ["mm/yyyy", 7],
+      ] as const)
+        expect(detailLength({ detail: "card-expiry", format })).toBe(length);
     });
   });
 

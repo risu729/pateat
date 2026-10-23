@@ -350,6 +350,11 @@ export const ja = {
   "This page asks \u201C{{question}}\u201D.": "このページは「{{question}}」と尋ねています。",
   "Pateat\u2019s AI thinks this field holds the answer. Fill only if it does; Pateat then fills it whenever this question shows.":
     "Pateat の AI は、このフィールドが答えだと判断しました。正しい場合だけ「入力」を押してください。押すと、この質問が表示されるたびに Pateat が入力します。",
+  "your card number": "カード番号",
+  "your card's expiry date": "カードの有効期限",
+  "your PIN": "暗証番号",
+  "This page shows another account, so nothing was filled.":
+    "このページには別のアカウントが表示されているため、何も入力しませんでした。",
   "ID {{id}}": "ID {{id}}",
   vaultsLocked_one:
     "{{count}} 個の保管庫がロック中のため、そのログインとパスキーは待機しています。",

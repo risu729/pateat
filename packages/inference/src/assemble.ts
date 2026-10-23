@@ -14,7 +14,7 @@ import {
   routeFillTargets,
   sameLoginTarget as sameTarget,
   splitCodeInputs,
-  type BirthDateFormat,
+  type DetailFormat,
   type LoginDetail,
   type LoginFieldTarget,
   type LoginEntryRecipe,
@@ -344,7 +344,7 @@ export function addHandler(
     | { kind: "totp"; field: LoginFieldTarget; target?: LoginTarget | undefined }
     | {
         kind: "detail";
-        fields: { detail: LoginDetail; format?: BirthDateFormat; target: LoginFieldTarget }[];
+        fields: { detail: LoginDetail; format?: DetailFormat; target: LoginFieldTarget }[];
         target: LoginTarget;
       },
 ): { ok: true; recipe: LoginRecipe } | { ok: false; reason: HandlerRejection } {

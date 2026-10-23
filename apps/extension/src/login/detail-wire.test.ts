@@ -17,6 +17,9 @@ describe("how the popup names a personal detail (ADR 0061)", () => {
     expect(detailName("phone-last-4", en)).toBe("the last 4 digits of your phone number");
     expect(detailName("card-last-4", en)).toBe("the last 4 digits of your card number");
     expect(detailName("card-code", en)).toBe("your card's security code");
+    expect(detailName("card-number", en)).toBe("your card number");
+    expect(detailName("card-expiry", en, "mm/yy")).toBe("your card's expiry date");
+    expect(detailName("pin", en)).toBe("your PIN");
     expect(detailName("secret-answer", en)).toBe("the answer to your secret question");
     expect(detailName("member-id", en)).toBe("your member or customer number");
   });
@@ -24,6 +27,7 @@ describe("how the popup names a personal detail (ADR 0061)", () => {
   it("names them in Japanese (ADR 0043)", () => {
     expect(detailName("birth-date", ja, "yyyymm")).toBe("生年月");
     expect(detailName("card-code", ja)).toBe("カードのセキュリティコード");
+    expect(detailName("pin", ja)).toBe("暗証番号");
   });
 });
 
@@ -38,6 +42,9 @@ describe("the popup's message for a Fill that filled nothing", () => {
       "Pateat cannot read that field now. Unlock the vault and try again.",
     );
     expect(detailFillFailure("not-filled", en)).toBe("The page did not accept the value.");
+    expect(detailFillFailure("other-account", en)).toBe(
+      "This page shows another account, so nothing was filled.",
+    );
     expect(detailFillFailure("not-filled", ja)).toBe("ページが値を受け付けませんでした。");
   });
 });

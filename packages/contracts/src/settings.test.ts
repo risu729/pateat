@@ -411,7 +411,7 @@ describe("personal-detail links (ADR 0061)", () => {
     ["an item name", { ...link, itemName: "Synthetic identity" }],
     ["a value", { ...link, value: "1990-04-01" }],
     ["a source item name", { ...link, source: { ...link.source, itemName: "Me" } }],
-    ["an unknown detail", { ...link, detail: "pin" }],
+    ["an unknown detail", { ...link, detail: "passport-number" }],
     ["a page URL as the site", { ...link, origin: "https://bank.example/signin" }],
     ["a login field as the source", { ...link, source: { itemId: "identity", field: "password" } }],
     [

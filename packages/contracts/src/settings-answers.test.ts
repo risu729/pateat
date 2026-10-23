@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import * as v from "valibot";
 import {
   createDefaultSettings,
+  detailFormatFits,
   localSettingsSchema,
   questionText,
   type DetailLink,
@@ -65,5 +66,29 @@ describe("detail links for answers and member IDs", () => {
   it("compares questions after NFKC, without case and trailing marks", () => {
     expect(questionText("  Mother\u2019s  maiden NAME？ ")).toBe("mother's maiden name");
     expect(questionText("母親の旧姓は：")).toBe("母親の旧姓は");
+  });
+});
+
+describe("detail links and formats for card values and PINs", () => {
+  const card = (detail: DetailLink["detail"], field: string) => ({
+    ...link(detail, "unused"),
+    source: { itemId: "card", field },
+  });
+
+  it("names a card's expiry date by its month, whose year the same card item gives", () => {
+    expect(valid([card("card-expiry", "card.expMonth")] as DetailLink[])).toBe(true);
+    expect(valid([card("card-number", "card.number")] as DetailLink[])).toBe(true);
+    expect(valid([card("card-expiry", "card.expYear")] as DetailLink[])).toBe(false);
+    expect(valid([link("pin", "暗証番号")])).toBe(true);
+  });
+
+  it("fits a format only to its own detail", () => {
+    expect(detailFormatFits("card-expiry", "mm/yy")).toBe(true);
+    expect(detailFormatFits("card-expiry", "yyyymm")).toBe(false);
+    expect(detailFormatFits("card-expiry", undefined)).toBe(false);
+    expect(detailFormatFits("birth-date", "yyyymm")).toBe(true);
+    expect(detailFormatFits("birth-date", "mmyy")).toBe(false);
+    expect(detailFormatFits("card-number", undefined)).toBe(true);
+    expect(detailFormatFits("pin", "mmyy")).toBe(false);
   });
 });
