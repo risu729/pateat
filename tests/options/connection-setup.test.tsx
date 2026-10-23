@@ -2179,3 +2179,35 @@ test("sending and resending the email code keep keyboard focus on the code field
     focus.mockRestore();
   }
 });
+
+test("Cancel setup with nothing running hands keyboard focus to the status", async () => {
+  await mount();
+  await fillNew();
+  const cancel = await pressWithKeyboard("Cancel setup");
+  await expect.element(page.getByText("Setup cancelled.", { exact: true })).toBeVisible();
+  // Nothing is left to cancel, so the button is disabled.
+  await expect.element(cancel).toBeDisabled();
+  await expect.element(statusOutput()).toHaveFocus();
+});
+
+test("a challenge leaves focus the person moved outside the setup", async () => {
+  const client = mockClient();
+  const pending = held<SetupReply>();
+  client.begin.mockReturnValue(pending.promise);
+  await mount(client);
+  await fillNew();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  await vi.waitFor(() => expect(client.begin).toHaveBeenCalledTimes(1));
+  const outside = document.createElement("input");
+  outside.setAttribute("aria-label", "Outside field");
+  document.body.append(outside);
+  try {
+    outside.focus();
+    pending.resolve({ ok: true, kind: "mfa-required", flowId, providers: [0], expiresAt });
+    await expect.element(page.getByLabelText("Verification code", { exact: true })).toBeEnabled();
+    await painted();
+    expect(document.activeElement).toBe(outside);
+  } finally {
+    outside.remove();
+  }
+});

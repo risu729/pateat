@@ -307,6 +307,8 @@ export function BitwardenSetup({
   const shownChallenge = useRef<Challenge>(undefined);
   const deleting = useRef(false);
   const wasBusy = useRef(false);
+  // A cancel ended the person's action, even when no operation was running.
+  const cancelled = useRef(false);
   const [provider, setProvider] = useState<0 | 1>(0);
   const [emailCode, setEmailCode] = useState<EmailCode>();
   // The sign-in whose email code was already asked for once without a click.
@@ -660,6 +662,7 @@ export function BitwardenSetup({
     };
   }, [challenge]);
   function cancel(stopped = "Setup stopped. Refresh to confirm the latest state.") {
+    cancelled.current = true;
     clearSecrets();
     setExisting(undefined);
     setEnded(undefined);
@@ -732,8 +735,13 @@ export function BitwardenSetup({
   }
   useEffect(() => {
     // The first load is not the person's operation and must not take focus.
-    const finished = wasBusy.current && !busy;
+    const finished = (wasBusy.current && !busy) || cancelled.current;
     wasBusy.current = busy && statusKnown;
+    cancelled.current = false;
+    const focused = document.activeElement;
+    // Focus the person moved out of the panel, such as into another settings field while
+    // a sign-in ran, stays there.
+    const lost = !focused || focused === document.body || focused.matches(":disabled");
     if (challenge !== shownChallenge.current) {
       shownChallenge.current = challenge;
       // A new or repeated challenge asks for a code. When it ends, its removed controls
@@ -741,11 +749,7 @@ export function BitwardenSetup({
       // another control to fill, such as the master password to finish a first sign-in.
       if (challenge) focusNext.current = codeInput;
       else if (focusNext.current === codeInput) focusNext.current = undefined;
-      if (
-        !challenge &&
-        !focusNext.current &&
-        (!document.activeElement || document.activeElement === document.body)
-      )
+      if (!challenge && !focusNext.current && (!focused || focused === document.body))
         statusOutput.current?.focus({ preventScroll: true });
     }
     // The control may only now be shown, or still disabled while an operation finishes. An
@@ -754,17 +758,12 @@ export function BitwardenSetup({
     const target = focusNext.current?.current;
     if (target?.isConnected && !target.matches(":disabled") && !operation.current) {
       focusNext.current = undefined;
-      target.focus();
+      if (lost || focused.closest("#bitwarden")) target.focus();
       return;
     }
     // A control the result removed or disabled, such as Cancel setup with nothing left to
     // cancel, leaves focus on the page; the status says what happened.
-    const focused = document.activeElement;
-    if (
-      finished &&
-      !focusNext.current &&
-      (!focused || focused === document.body || focused.matches(":disabled"))
-    )
+    if (finished && !focusNext.current && lost)
       statusOutput.current?.focus({ preventScroll: true });
   });
   const previewEnvironment: BitwardenProfile["environment"] =

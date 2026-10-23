@@ -1683,19 +1683,24 @@ the settings status line and moves focus there. The owner approved this change o
 `/manage` recipe revoke and diagnostics **Clear logs** confirmations remain inline;
 whether they follow is a separate owner decision.
 
-Keyboard focus in the popup and the settings page's Bitwarden setup never falls back to
-the top of the page (owner, 2026-10-23 12:32 UTC):
+Keyboard focus in the popup and the settings page's Bitwarden setup stays with the
+operation the person started instead of falling back to the top of the page (owner,
+2026-10-23 12:32 UTC):
 
 - A button that starts an operation stays focusable while it runs: Base UI's
   `focusableWhenDisabled` marks it `aria-disabled` instead of `disabled`, because Chrome
   moves focus off a focused control that becomes disabled. `Button` dims both states.
-- When the result removes the pressed button or leaves it disabled, focus moves to the
-  result line (`#popup-message`, `#bitwarden-setup-status`) with
-  `focus({ preventScroll: true })`, so a mouse click does not scroll the page. Both are
-  polite live regions, so a screen reader may read the result twice.
+  A row's **More** menu trigger cannot (Base UI's `Menu.Trigger` lacks the option), so
+  during a menu action focus sits on the page until the action ends.
+- When the result removes the pressed button or leaves it disabled, including **Cancel
+  setup** with nothing left to cancel, focus moves to the result line
+  (`#popup-message`, `#bitwarden-setup-status`) with `focus({ preventScroll: true })`,
+  so a mouse click does not scroll the page. Both are polite live regions, so a screen
+  reader may read the result twice.
 - A control the result opens takes focus instead: a verification challenge's code field
-  (also after sending or resending the email code), the master password for **Sign in
-  again**, and **Server** after **Add another connection**.
+  (also after sending or resending the email code, or a refused code), the master
+  password for **Sign in again**, and **Server** after **Add another connection**.
+  Focus the person moved out of the setup panel meanwhile stays where it is.
 
 ## Diagnostics
 
