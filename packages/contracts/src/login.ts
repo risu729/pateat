@@ -246,9 +246,9 @@ const detailFieldSchema = v.pipe(
  * fact. Its steps follow from its kind. `passkey` clicks a button such as "Use security
  * key"; `totp` fills the item's TOTP code into `field` and clicks `target`, its submit
  * button; `password` clicks a button such as "Password" on a page that asks how to
- * confirm the sign-in, which goes on to typing the password (ADR 0048); `detail` fills
- * one of its inputs with a personal detail of a linked item and clicks `target` (ADR
- * 0061).
+ * confirm the sign-in, which goes on to typing the password (ADR 0048); `detail`
+ * fills one of its inputs with a personal detail of a linked item and clicks `target`
+ * (ADR 0061).
  */
 export const loginHandlerSchema = v.variant("kind", [
   v.strictObject({ kind: v.literal("passkey"), path, target: loginTargetSchema }),
@@ -626,8 +626,15 @@ export const loginRecipeSchema = v.pipe(
   // its path, such as the password input of a form that asks for the code after it. A
   // `detail` handler's inputs and button are all its own (ADR 0061): the route's sign-in
   // form may still show beside them.
+  // The `detail` slot is the handler's own, so no route step fills one by that name.
   v.check(
     (recipe) =>
+      !variantsOf(recipe).some((variant) =>
+        variant.steps.some(
+          (step) =>
+            step.kind === "fill" && step.fields.some((field) => field.slot === DETAIL_HANDLER_SLOT),
+        ),
+      ) &&
       !(recipe.handlers ?? []).some((handler) => {
         if (handler.kind !== "totp" && handler.kind !== "detail") return false;
         const own = (handler.kind === "totp" ? [handler.field] : handlerTargets(handler)).map(
@@ -643,7 +650,7 @@ export const loginRecipeSchema = v.pipe(
           ),
         );
       }),
-    "The code field or a detail handler's element is a route step target",
+    "The code field or a detail handler's element is a route step target, or a route slot is named as a detail handler's",
   ),
 
   // A `password` handler's button leads to the password a route step types: it is never a
