@@ -394,9 +394,8 @@ function namesOnly(
  * marker needs, since it must match on every later visit. A
  * script link's text must also name no native button, shown or not, which the executor
  * would take first. With `roles`, another `role="button"` element (`isRoleButton`) is
- * located by its text too, when no native button, script link, other such element or
- * link carries it, whichever form that link is in, as the link may be located by the same
- * text. Button text is used only when redaction leaves it unchanged, so a
+ * located by its text too, when no native button, script link or other such element
+ * carries it. Button text is used only when redaction leaves it unchanged, so a
  * locator never carries an email address or a long number. With
  * `redactAttributes` the same holds for attribute values, since a signed-in page's ids
  * and names often carry the account, and a value that may be a token (`tokenSegment`),
@@ -597,7 +596,6 @@ function contentTarget(
         !index.get("text")!.has(text) &&
         !hasNativeButton(element.ownerDocument, text) &&
         !index.get("script-text")!.has(text) &&
-        !index.get("link-text")!.has(text) &&
         index.get("role-text")!.get(text) === 1
       : index.get("text")!.get(text) === 1;
   if (!unique) return undefined;
@@ -1451,7 +1449,9 @@ export function extractLoginObservation(
   // Links and script buttons without a locator are left out without flawing their form.
   // A `role="button"` element is named by its text only inside a login form or beside a
   // password form, where it is the form's own control rather than a widget elsewhere; a
-  // search form beside the login form names none.
+  // search form beside the login form names none. A link never takes the text of such an
+  // element, whatever its form, since one observation's candidates need distinct targets
+  // and the login's own control needs that text more.
   let unlocated = false;
   const located = (entries: typeof required, { optional = false, near = false } = {}) =>
     entries.flatMap((entry) => {
@@ -1459,7 +1459,10 @@ export function extractLoginObservation(
         tokens,
         links: true,
         labels: true,
-        roles: near || (entry.form !== null && loginForms.has(entry.form)),
+        roles:
+          near ||
+          entry.draft.role === "link" ||
+          (entry.form !== null && loginForms.has(entry.form)),
       });
       if (!target) unlocated = true;
       if (!target && !optional) flaw(entry.form, unlocatedGap(entry.draft.role));
