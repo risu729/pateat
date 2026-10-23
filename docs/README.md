@@ -96,6 +96,7 @@ another also updates the other's `Status:`. Number a new ADR after the highest o
 - [0037: Fields located by their visible name](adr/0037-fields-by-visible-name.md)
 - [0038: The toolbar badge and popup show what a login did](adr/0038-login-status-badge.md)
 - [0039: Token-like path segments are sent as `[id]` on every page](adr/0039-redacted-token-path-segments.md)
+- [0043: Extension language preference](adr/0043-extension-language-preference.md)
 - [0048: A learned button goes on to the password on a page that asks how to verify](adr/0048-password-method-button.md)
 - [0049: A login may start at a later step its page shows](adr/0049-start-at-a-later-step.md)
 - [0050: Plain HTTP pages log in with items saved for `http://`](adr/0050-http-pages-for-http-items.md)
@@ -107,6 +108,7 @@ another also updates the other's `Status:`. Number a new ADR after the highest o
 - [0057: Pages without a sign-in input are decided once the DOM is quiet](adr/0057-decide-no-input-pages-when-the-dom-is-quiet.md)
 - [0058: Recipes that are not used or cannot run are removed automatically](adr/0058-automatic-recipe-removal.md)
 - [0059: The latest Vaultwarden release is a supported server](adr/0059-latest-vaultwarden-server.md)
+- [0064: A form that shows no button is submitted by Enter in its last field](adr/0064-enter-in-a-form-without-a-button.md)
 
 This layout follows the useful separation in
 [Kogane ADR 0041](https://github.com/risu729/kogane/blob/main/docs/adr/0041-documentation-scope.md),

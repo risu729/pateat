@@ -9,10 +9,10 @@
   },
   "dependencies": {
     "@ai-sdk/anthropic": "4.0.84",
-    "@ai-sdk/valibot": "3.0.58",
+    "@ai-sdk/valibot": "3.0.64",
     "@pateat/contracts": "workspace:*",
     "@valibot/to-json-schema": "1.8.0",
-    "ai": "7.0.137",
+    "ai": "7.0.146",
     "valibot": "1.5.0"
   }
 }

@@ -20,7 +20,7 @@ export const chooserViewSchema = v.strictObject({
   entries: v.pipe(
     v.array(
       v.strictObject({
-        item: name,
+        item: v.optional(name),
         userName: v.optional(name),
         account: v.optional(name),
         /** The site default; listed first. */
@@ -146,7 +146,7 @@ export function createPasskeyChooser(browser: ChooserBrowser): PasskeyChooser & 
         origin: input.origin,
         rpId: input.rpId,
         entries: input.entries.map((entry) => ({
-          item: entry.item.slice(0, 1024) || "Unnamed item",
+          ...(entry.item ? { item: entry.item.slice(0, 1024) } : {}),
           ...(entry.userName ? { userName: entry.userName.slice(0, 1024) } : {}),
           ...(entry.account ? { account: entry.account.slice(0, 1024) } : {}),
           ...(entry.preferred === true ? { preferred: true as const } : {}),

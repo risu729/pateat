@@ -14,6 +14,8 @@ service and the extension implement.
 How a page after a submission is settled, and when it is sent to the judge, is amended
 by [ADR 0029](0029-local-sign-in-state.md), whose first part of delivery 2 (completing
 on confirmed evidence of a sign-in) is implemented.
+A plan's action may also be its last field, whose form Enter submits, by
+[ADR 0064](0064-enter-in-a-form-without-a-button.md).
 Amended on 2026-10-11 by [ADR 0027](0027-per-account-login-routes.md): a page is judged
 after any effect step that leads nowhere known, a judgement can add a second-factor
 handler, and judgements are limited per revision and path and to 20 per recipe a day
@@ -241,7 +243,11 @@ Implementation choices for the page after a recipe's final `advance` step, made 
   ancestor is fading in from opacity 0 counts as visible, as everywhere the page is
   read. On the Grok Bot computer (19:51 UTC), the page after Microsoft's Next was sent
   with only its email form described; such an input making that form qualify is the
-  inferred cause, not checked on the live page. An input marked `new-password` or
+  inferred cause, not checked on the live page. Since 2026-10-23 (agent fix, not an
+  owner decision), a fillable input transparent only under its own `<label>`, which
+  holds it and shows text opaque, also counts as visible: a floating label that reveals
+  the input on focus, as Airbnb's email input; the official Bitwarden extension reads
+  only the input's own opacity. An input marked `new-password` or
   `one-time-code`, and every input of a form that holds one, never counts: a sign-up,
   password change or code form is not continued, and a code page is judged, which may
   add a `totp` handler (ADR 0027). Any other page is judged as before. The email input

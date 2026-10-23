@@ -39,6 +39,10 @@ run = "node ../../node_modules/vitest/vitest.mjs run src/connections --coverage.
 depends = [":prepare"]
 run = "node ../../node_modules/vitest/vitest.mjs run src/crypto --coverage.reportsDirectory=../../coverage/extension-crypto"
 
+[tasks."test:i18n"]
+depends = [":prepare"]
+run = "node ../../node_modules/vitest/vitest.mjs run src/i18n.test.ts --coverage.reportsDirectory=../../coverage/extension-i18n"
+
 [tasks."test:login"]
 depends = [":prepare"]
 run = "node ../../node_modules/vitest/vitest.mjs run src/login --coverage.reportsDirectory=../../coverage/extension-login"
@@ -81,6 +85,7 @@ depends = [
   ":test:connections",
   ":test:crypto",
   ":test:dom",
+  ":test:i18n",
   ":test:login",
   ":test:messaging",
   ":test:passkeys",

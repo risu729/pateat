@@ -5,9 +5,12 @@ let profiles hold permissions", "per site"), then 21:11 to 21:30 UTC in the desi
 thread (`sign-in` can be limited to filling, login-time values belong to `sign-in`,
 re-verification is not split by kind for now, Pateat never presses on it, logs for
 evaluation, and the answers to the proposal's seven questions). The proposal was
-reviewed against the code by subagents before each round. Not implemented. Amends
-[ADR 0012](0012-inference-request-log.md) (retention of evaluation rows) and
-[ADR 0024](0024-settings-profiles.md) (two more profile parts).
+reviewed against the code by subagents before each round. Delivery 1 is implemented
+([below](#implementation-of-delivery-1)) except the evaluation fields of
+`confirm-unsupported` pages beyond the recipe and its kind (`amount`, E1 and E2, the
+previous path, `personSubmitted`, the next page's E1) and the counts of pages not sent;
+deliveries 2 to 4 are not. Amends [ADR 0012](0012-inference-request-log.md) (retention
+of evaluation rows) and [ADR 0024](0024-settings-profiles.md) (two more profile parts).
 Amended on 2026-10-18 by
 [ADR 0012](0012-inference-request-log.md#amendment-2026-10-18-rows-for-a-real-page-corpus)
 ([below](#amendment-2026-10-18-request-log-rows)): the request log's recipe ID and
@@ -224,6 +227,37 @@ table by recipe, branch and revision instead of with the local log, which keeps 
 days. The local log fields this ADR adds for `page-off` and `confirm-unsupported` pages
 (the kind, `amount`, E1 and E2, the previous path, `personSubmitted`) still stay on the
 device.
+
+## Implementation of delivery 1
+
+Implemented on 2026-10-23 (phase exception, as the owner allowed for the open PRs), with
+these readings of the text:
+
+- `signedIn` is sent exactly with a recipe's first page that lists no accounts (a form
+  or a passkey-only page), the only pages whose kind is stored; the service refuses it
+  on any other request. E1 reads the signed-in markers of every route recipe of the
+  origin, `confirm` ones and chooser branches included; E2 looks for at most eight
+  matching items' usernames.
+- The plan answers `pageKind` and `irreversible` in the generation and passkey-only
+  instructions; an entry or a list of accounts answers neither. The request log keeps
+  them in `page_kind` and `irreversible`, and the hint in `signed_in`
+  ([migration 0026](../../services/api/migrations/0026_inference_log_page_kinds.sql)).
+- A recipe stored without `pageKind` fails the recipe contract, so the service reads it
+  as revoked and generates its page again as the next revision; devices drop it on sync.
+- A page on whose path a `confirm` or `unclear` recipe starts is not sent again, not
+  logged in to and only watches, logging `login.refused` `not-started` with
+  `confirm-unsupported` and that recipe's ID, revision and kind, also when the page
+  announces a start read before its recipe was generated again. The popup names it and
+  points to revoking the recipe in the web UI. Such a recipe never runs, so never
+  reports use, and is never revoked as unused
+  ([ADR 0058](0058-automatic-recipe-removal.md)), like an entry recipe.
+- "A Pateat login of the origin finished" is read as the tab's record for the origin
+  being `authenticated` and not fill-only. A logout detected since forgets that record;
+  a control that logs out clicked on the RP ID's site in the tab also counts as one. A
+  conditional request is left to ADR 0034, since it belongs to a sign-in field. The
+  request is handed on as `confirm-fill`, the default setting for `confirm` pages.
+- The benchmark report counts the kind each plan answered (`pageKinds`); every corpus
+  page is a sign-in page.
 
 ## Consequences
 

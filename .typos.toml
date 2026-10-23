@@ -3,6 +3,7 @@
 extend-exclude = [
   "packages/inference/src/corpus/formasaurus.json",
   "packages/inference/src/corpus/japanese.json",
+  "packages/inference/src/corpus/web.json",
 ]
 
 [default]

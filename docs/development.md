@@ -186,9 +186,9 @@ Focused tasks are available for diagnosis:
 | `mise run //packages/inference:test` | Score AI role adapters on the synthetic corpus with fake providers and check the real-page corpus |
 | `mise run //packages/inference:typecheck` | Check AI adapter, corpus and harness types |
 | `mise run //packages/inference:corpus:formasaurus <checkout>` | Regenerate the real-page corpus from a local Formasaurus checkout ([plan](plan.md#ai-evaluation-harness-progress)) |
-| `mise run //packages/inference:corpus:japanese (--refresh \| --report <file> <url>...)` | Observe public Japanese login pages live: refresh the Japanese corpus, or report listed pages to label ([plan](plan.md#ai-evaluation-harness-progress)) |
-| `mise run //packages/inference:bench --paid [--corpus real\|japanese] [--from n --count n]` | Run the paid Claude benchmark on the synthetic corpus, the Formasaurus real-page corpus or the Japanese pages, whole or one batch; needs `ANTHROPIC_API_KEY` (in cloud sessions, `PATEAT_ANTHROPIC_API_KEY`) and owner approval for each run |
-| `mise run //packages/inference:bench --provider heuristic [--corpus real\|japanese] [--from n --count n]` | Score the free model-free comparator on the same cases, whole or one batch |
+| `mise run //packages/inference:corpus:japanese (--refresh [--web] \| --report <file> <url>...)` | Observe public login pages live: refresh the Japanese corpus (or with `--web` the English one), or report listed pages to label ([plan](plan.md#ai-evaluation-harness-progress)) |
+| `mise run //packages/inference:bench --paid [--corpus real\|japanese\|web\|judge] [--from n --count n] [--model id] [--effort level] [--speed fast]` | Run the paid Claude benchmark on the synthetic corpus, the Formasaurus real-page corpus, the Japanese pages, the English pages or the sign-in judge's pages, whole or one batch, with the service's model or another one to compare, in fast mode where the model offers it; needs `ANTHROPIC_API_KEY` (in cloud sessions, `PATEAT_ANTHROPIC_API_KEY`) and owner approval for each run |
+| `mise run //packages/inference:bench --provider heuristic [--corpus real\|japanese\|web] [--from n --count n]` | Score the free model-free comparator on the same cases, whole or one batch |
 | `mise run test:tools` | Test artifact/provenance helpers |
 | `mise run coverage:summary` | Merge the coverage that test runs with `PATEAT_COVERAGE=1` wrote and print one row per project ([test coverage](#test-coverage)) |
 | `mise run //services/api:generate:migrations` | Generate D1 migration SQL from the Drizzle schema |
@@ -208,15 +208,16 @@ Focused tasks are available for diagnosis:
 | `mise run check:docs` | Check local documentation links |
 | `mise run check:sdk-source` | Validate installed SDK metadata against its pin and render [exact source notices](sdk-source.md#pinned-upstream-source) without writing files |
 
-On Linux, `mise run browser:install --with-deps` also installs the browser's
-system dependencies. Server type checking and the artifact checks depend on the server
-build, whose generated files they read. Set `PATEAT_REVISION` before the build
-and artifact check to verify a particular source revision. Without it, local
-builds use `development`. The default extension build excludes the test probe;
-neither variant grants vault or real-site login capability. Both the extension and
-`/manage` set Vite's `build.cssTarget` to `chrome145`, matching their supported minimum,
-so production CSS preserves native `light-dark()` theme colors without fallback
-custom properties. The Worker's inline `PAGE_CSS` string is not transformed.
+On Linux, `mise run browser:install --with-deps` also installs the browser's system
+dependencies; CI omits it ([delivery](delivery.md#current-foundation-workflows)). Server
+type checking and the artifact checks depend on the server build, whose generated files
+they read. Set `PATEAT_REVISION` before the build and artifact check to verify a
+particular source revision. Without it, local builds use `development`. The default
+extension build excludes the test probe; neither variant grants vault or real-site login
+capability. Both the extension and `/manage` set Vite's `build.cssTarget` to
+`chrome145`, matching their supported minimum, so production CSS preserves native
+`light-dark()` theme colors without fallback custom properties. The Worker's inline
+`PAGE_CSS` string is not transformed.
 
 Local success is scoped to the tested component. Worker tests and artifact
 checks have passed locally; they do not establish production deployment or
@@ -493,10 +494,14 @@ holds:
   request kept unanswered after a Pateat login of its page signed in, or after four
   minutes of waiting for that login or for a pick after a logout) and the delegate
   `reason`. A conditional request is handed on as `no-recipe` (no recipe for the site),
-  `no-login` (no login of its page started), `login-ended` (the login did not sign
-  in) or `no-pick` (the popup offered its page a choice of accounts outside a logout,
-  with an item that holds a passkey, and nothing was picked within four minutes)
-  ([ADR 0034](adr/0034-answer-page-passkey-requests.md));
+  `no-login` (no login of its page started), `login-ended` (the login did not sign in)
+  or `no-pick` (the popup offered its page a choice of accounts outside a logout, with
+  an item that holds a passkey, and nothing was picked within four minutes)
+  ([ADR 0034](adr/0034-answer-page-passkey-requests.md)). A request outside conditional
+  mediation that names its credentials, in a tab whose Pateat login of the origin signed
+  in with no logout detected since, is a re-verification while signed in and is handed
+  on as `confirm-fill`
+  ([ADR 0035](adr/0035-page-kinds-per-site.md#passkey-re-verification));
 - once the request is admitted, `rpId` and `allowCredentials` (how many credential IDs
   the site listed);
 - once the vault was searched, `stored` (eligible stored passkeys with that RP ID in
@@ -767,8 +772,12 @@ and Renovate has no release-date ordering. It follows the `beta` dist-tag with
 `rollbackPrs`: `followTag` alone never offers a tagged beta whose hash sorts below the
 current one, while `rollbackPrs` offers it as a rollback update. Rollback updates are
 titled as updates but are not automerged. TypeScript, its shared preset and type
-packages are grouped so peer requirements can be reviewed together. Updates
-still have to pass the repository's required checks.
+packages are grouped so peer requirements can be reviewed together. `ai` and the
+`@ai-sdk/*` packages are grouped into one PR because each pins an exact
+`@ai-sdk/provider-utils`: updated apart, `ai` and `@ai-sdk/valibot` can resolve
+different copies, and the `Schema` from one is not assignable to the other in
+`packages/inference/src/structured.ts`. Updates still have to pass the repository's
+required checks.
 
 Renovate tracks the release-tagged hk-config imports through the shared preset. The
 typed Cloudflare compatibility date remains reviewed manually: the shared preset's date
