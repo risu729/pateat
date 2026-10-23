@@ -27,6 +27,7 @@ import {
   controlName,
   fieldName,
   hasNativeButton,
+  isButton,
   isFragmentButton,
   isRoleButton,
   isScriptButton,
@@ -1141,13 +1142,17 @@ const describeAll = (document: Document) =>
   [...document.querySelectorAll(observed)].map(describe).filter((entry) => entry !== undefined);
 
 /**
- * An icon button that never submits its form on its own, such as the eye that shows the
+ * An icon button that never submits a form on its own, such as the eye that shows the
  * password: `type="button"` and no text of its own, so no text locator either. One with
  * text, such as an `<input type="button" value="Login">` that submits by script, is not.
+ * A textless button of any type outside every form has no form to submit either, but
+ * one near the fields outside every form (`nearFields`) may be their script-run submit;
+ * one away from them, such as a cookie banner's close button on Bank of America's home
+ * page (2026-10-23), counts.
  */
-const iconButton = (element: Element) =>
-  (element instanceof HTMLButtonElement || element instanceof HTMLInputElement) &&
-  element.type === "button" &&
+const iconButton = (element: Element, nearFields: (element: Element) => boolean) =>
+  isButton(element) &&
+  (element.type === "button" || (element.form === null && !nearFields(element))) &&
   buttonText(element) === undefined;
 
 /** True when an open shadow root holds a visible match, which the executor cannot reach. */
@@ -1229,7 +1234,8 @@ function loginFormsOf(
  * (`besideDepth`), such as a passkey button, are kept when they can be located and never
  * make the observation incomplete. A field or button that cannot be located (other than
  * a script button, or an icon button that never submits in a form with another button,
- * which is left out), a control
+ * or a textless button away from the fields outside every form when another button
+ * outside every form is located, which is left out), a control
  * the executor cannot act on or a control in a shadow root marks the observation
  * incomplete when it is in a login form (`loginFormsOf`); any other form with one is
  * left out entirely. A field in any shadow root, or more than 48 candidates, marks it
@@ -1312,6 +1318,30 @@ export function extractLoginObservation(
       return input instanceof HTMLInputElement && input.type === "password" ? [entry.form] : [];
     }),
   );
+  // Fields outside every form, and whether a button is near them: one of them within the
+  // button's `besideDepth` nearest ancestors, or the button within one of theirs, so a
+  // button wrapped deeper beside the fields still counts. Reaching the body or the root
+  // counts as near; a mistake that way only marks the page incomplete.
+  const formless = found.flatMap((entry) => {
+    const input =
+      entry.kind === "candidate" ? fillTypes[entry.draft.role] && entry.draft.element : entry.field;
+    return input && entry.form === null ? [input] : [];
+  });
+  const areaOf = (element: Element) => {
+    let area: Element | null = element;
+    for (let depth = 0; depth < besideDepth && area; depth++) area = area.parentElement;
+    return area && area !== document.body && area !== document.documentElement ? area : undefined;
+  };
+  const nearFields = (element: Element) => {
+    const area = areaOf(element);
+    return (
+      !area ||
+      formless.some((field) => {
+        const around = areaOf(field);
+        return area.contains(field) || !around || around.contains(element);
+      })
+    );
+  };
   const areas = [...loginForms].flatMap((form) => {
     if (!passwordForms.has(form)) return [];
     let area: Element | null = form;
@@ -1342,7 +1372,7 @@ export function extractLoginObservation(
     } else if (entry.draft.role === "link") {
       if (entry.form) links.push(entry);
     } else if (isScriptButton(entry.draft.element)) scripted.push(entry);
-    else if (iconButton(entry.draft.element)) icons.push(entry);
+    else if (iconButton(entry.draft.element, nearFields)) icons.push(entry);
     else required.push(entry);
   }
 

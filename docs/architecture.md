@@ -2173,9 +2173,14 @@ compare links instead and never match them, so a widget elsewhere on the page ne
 stands in for a link, and in a login form a link loses its text locator when such an
 element shares its text. The extractor leaves out a script button without a locator
 instead of marking the page incomplete. It does the same for an icon button that never
-submits (`type="button"` with no text of its own), such as
-the eye that shows the password on モッピー's and LinkedIn's sign-in pages (2026-10-12),
-whose only name is an `aria-label`, but only when its form has another located button:
+submits (`type="button"`, or any type outside every form, with no text of its own),
+such as the eye that shows the password on モッピー's and LinkedIn's sign-in pages
+(2026-10-12), whose only name is an `aria-label`, or a cookie banner's close button
+beside Bank of America's sign-in fields, which sit outside any form (2026-10-23), but
+only when its form, or the fields outside every form, has another located button, and,
+for a button of another type outside every form, only when no field outside every form
+is within two ancestors of it and it is within two ancestors of none of them (reaching
+the body counts as near), where it may be their script-run submit:
 an icon-only button may be the form's script-run submit. A `type="button"` button with
 text, such as `<input type="button" value="Login">` submitting by script, still marks
 the page incomplete when it has no unique locator. The executor compares strings and

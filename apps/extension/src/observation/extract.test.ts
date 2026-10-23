@@ -1100,6 +1100,39 @@ describe("extractLoginObservation", () => {
       <form><input name="u2"><input name="p2" type="password"><input type="button" value="Login"></form>`,
     );
     expect(observe().complete).toBe(false);
+    // A textless button outside every form submits nothing, whatever its type, as a
+    // cookie banner's close button beside Bank of America's formless sign-in fields.
+    page(
+      `<main><section><div><input id="u"><input id="p" type="password">
+        <button type="button">Sign in</button></div></section></main>
+      <div id="banner"><div><div><button aria-label="Close" style="width:16px;height:16px">
+      </button></div></div></div>`,
+    );
+    observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(observation.candidates.map((candidate) => candidate.target.value)).toEqual([
+      "u",
+      "p",
+      "Sign in",
+    ]);
+    // Without another button to submit with, it may be the script-run submit itself,
+    // and so it may beside the fields even when a button elsewhere is located.
+    const submit = `<button aria-label="Sign in" style="width:16px;height:16px"></button>`;
+    for (const other of ["", `<header><button id="menu">Menu</button></header>`])
+      for (const fields of [
+        `<div><input id="u"><input id="p" type="password">${submit}</div>`,
+        `<div><div><input id="u"></div><div><input id="p" type="password"></div>
+          <div><span><span>${submit}</span></span></div></div>`,
+      ]) {
+        page(`${other}<main><section>${fields}</section></main>`);
+        expect(observe().complete, other + fields).toBe(false);
+      }
+    // Inside a form, a textless submit button still counts beside another located one.
+    page(
+      `<form><input name="mail"><input name="pass" type="password">${toggle}
+        <button aria-label="Go" style="width:16px;height:16px"></button></form>`,
+    );
+    expect(observe().complete).toBe(false);
     // An icon button may be the form's only, script-run submit, so there it still does.
     page(`<form><input name="mail"><input name="pass" type="password">${toggle}</form>`);
     expect(observe().complete).toBe(false);
