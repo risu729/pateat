@@ -3127,15 +3127,6 @@ these yet. Each says what a device does and how to recover.
   Disconnecting and pairing each device again recovers recipes, since a new pairing
   starts from an empty cache; it does not recover settings, because local settings stay
   and the new pairing merges them without a base as well.
-- A stored recipe the service can no longer read, such as one written before a recipe
-  contract change that came without a D1 migration
-  ([compatibility before release](development.md#compatibility-before-release)). Every
-  change page that holds it answers 500. Devices keep their cursor and ask for the same
-  page again, so later changes, revocations included, never arrive.
-  `/manage/api/recipes` answers 500 as well, so the web UI can neither list nor revoke
-  it, and generation and the completion judge fail for that recipe. Only a revocation
-  sent with its current revision still works. A contract change that refuses stored
-  recipes needs a migration or a revocation of those recipes first.
 - An extension built before the service, whose contracts reject a recipe or settings
   document the service sends. The page fails as an unexpected response, and recipe sync
   stops at it in the same way, revocations included, while login keeps using the cache;

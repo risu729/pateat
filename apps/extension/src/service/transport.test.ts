@@ -472,7 +472,7 @@ function edgeRateLimitPage() {
 describe("rate limits on device-credential routes", () => {
   const document = { connections: [], excludedSites: [], siteDefaults: [], bindings: [] };
   const write = { version: 1, expectedRevision: 3, settings: document } as const;
-  const routes: [string, (transport: ServiceTransport) => Promise<unknown>][] = [
+  const routes: [string, (transport: ServiceTransport) => Promise<object>][] = [
     ["recipe changes", (transport) => transport.recipeChanges(ORIGIN, CREDENTIAL, 3)],
     ["the settings read", (transport) => transport.settings(ORIGIN, CREDENTIAL)],
     ["the settings write", (transport) => transport.saveSettings(ORIGIN, CREDENTIAL, write)],
@@ -488,7 +488,7 @@ describe("rate limits on device-credential routes", () => {
         headers: { "Content-Type": "application/json" },
       },
     );
-    expect(await call(createServiceTransport({ fetch }))).toEqual({
+    expect(await untimed(call(createServiceTransport({ fetch })))).toEqual({
       kind: "failed",
       error: "rate-limited",
     });
@@ -497,7 +497,7 @@ describe("rate limits on device-credential routes", () => {
   // The edge answers before the Worker, so its page is HTML; it still asks Pateat to
   // slow down, which starts the sync back-off instead of reading as a broken answer.
   it.each(routes)("reports an edge HTML 429 on %s as rate limiting", async (_, call) => {
-    expect(await call(createServiceTransport({ fetch: edgeRateLimitPage() }))).toEqual({
+    expect(await untimed(call(createServiceTransport({ fetch: edgeRateLimitPage() })))).toEqual({
       kind: "failed",
       error: "rate-limited",
     });
@@ -618,10 +618,12 @@ describe("recipe generation", () => {
 
   it("reports an edge HTML 429 as rate limiting", async () => {
     expect(
-      await createServiceTransport({ fetch: edgeRateLimitPage() }).generateRecipe(
-        ORIGIN,
-        CREDENTIAL,
-        request,
+      await untimed(
+        createServiceTransport({ fetch: edgeRateLimitPage() }).generateRecipe(
+          ORIGIN,
+          CREDENTIAL,
+          request,
+        ),
       ),
     ).toEqual({ kind: "failed", error: "rate-limited" });
   });
