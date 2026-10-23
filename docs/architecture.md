@@ -693,8 +693,11 @@ Checked against the code on 2026-10-17:
 - Hostnames Pateat does not run on (see
   [Hostnames Pateat does not run on](#hostnames-pateat-does-not-run-on)): the popup says
   Pateat works on HTTPS websites.
-- Internationalized domain names show in their punycode form (`xn--…`); a default's
-  origin can be typed only in that form.
+- Internationalized domain names show in their punycode form (`xn--…`). A default's
+  origin may be typed in any spelling of the bare origin that the browser's `URL` reads
+  as that origin, with no path, query, fragment or trailing slash, as the official
+  clients parse stored URIs: `HTTPS://Bank.Example:443` and `https://例え.jp` are saved
+  as `https://bank.example` and `https://xn--r8jz45g.jp`.
 - HTTPS pages where Chrome runs no extension content script, such as the Chrome Web
   Store or the PDF viewer: the popup still shows the switch and default list.
 - Private windows share the settings of normal ones: the popup's switch and "Use as
