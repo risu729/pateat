@@ -225,6 +225,9 @@ export type HostCommand = v.InferOutput<typeof commandSchema>;
 /** Whether a job derives a key with Argon2id and so gets `ARGON2ID_JOB_BUDGET_MS`. */
 export function derivesArgon2id(operation: HostOperation | HostCommand["operation"]): boolean {
   if (operation.kind === "derive-auth") return derivesAuthenticationWithArgon2id(operation.input);
+  // The Worker checks a master password with the account's own KDF, which the operation
+  // does not name, so it gets the longer budget either way.
+  if (operation.kind === "verify-password") return true;
   // An open with a retained key runs no KDF.
   if (operation.kind !== "open" || operation.unlock.kind !== "password") return false;
   const kdf: unknown = (operation.prepared as { kdf?: unknown } | null | undefined)?.kdf;

@@ -1093,6 +1093,17 @@ describe("cancellation, deadlines and host loss", () => {
     expect(await withKey).toEqual({ ok: false, error: { code: "timeout" } });
   });
 
+  it("gives a master password check the longer budget, since the account's KDF may be Argon2id", async () => {
+    const h = harness({ timeoutMs: 100, argon2idTimeoutMs: 400 });
+    const session = await h.open();
+    const checked = h.host.verifyMasterPassword(session, "synthetic-guess");
+    const checking = await h.command(1);
+    // Past the normal budget, within the Argon2id one.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    h.reply(checking, { ok: true, data: { matches: true } });
+    expect(await checked).toEqual({ ok: true, data: { matches: true } });
+  });
+
   it("times out an Argon2id derivation once its own budget runs out", async () => {
     const h = harness({ timeoutMs: 100, argon2idTimeoutMs: 200 });
     const deriving = h.host.deriveAuthentication(argon2idAuth());
