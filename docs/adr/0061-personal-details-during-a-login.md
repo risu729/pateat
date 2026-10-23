@@ -143,7 +143,7 @@ Security notes:
 - The names of the linked fields are stored in the owner's settings on the service as
   references, as binding references to custom fields already are. A field named after
   its question therefore puts the question's text on the service, though never the
-  answer; decided 5 holds for values.
+  answer; decided 5 holds for values. The owner accepted this on 2026-10-23 11:17 UTC.
 
 ### A `detail` handler
 
