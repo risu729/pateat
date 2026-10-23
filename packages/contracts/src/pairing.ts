@@ -14,18 +14,23 @@ export const deviceIdSchema = v.pipe(v.string(), v.uuid());
  * use renews it. There is no absolute lifetime.
  */
 export const DEVICE_IDLE_LIMIT_MS = 90 * 24 * 60 * 60 * 1000;
-/** A letter, digit, punctuation or symbol: what keeps a device name from showing as blank. */
-export const VISIBLE_LABEL_CHARACTER = /[\p{L}\p{N}\p{P}\p{S}]/u;
+/**
+ * A letter, digit, punctuation mark or symbol that shows: what keeps a device name from
+ * looking blank. Default-ignorable ones such as the Hangul filler U+3164, and the blank
+ * Braille pattern U+2800, show nothing.
+ */
+export const VISIBLE_LABEL_CHARACTER =
+  /(?![\p{Default_Ignorable_Code_Point}\u2800])[\p{L}\p{N}\p{P}\p{S}]/u;
 
 export const deviceLabelSchema = v.pipe(
   v.string(),
   v.trim(),
   v.minLength(1),
   v.maxLength(64),
-  // Control characters, line and paragraph separators and text-direction marks are
-  // refused. Other format characters stay, as emoji need joiners and tags.
+  // Control characters, lone surrogates, line and paragraph separators and text-direction
+  // marks are refused. Other format characters stay, as emoji need joiners and tags.
   v.regex(
-    /^[^\p{Cc}\p{Cs}\p{Zl}\p{Zp}\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]+$/u,
+    /^[^\p{Cc}\p{Cs}\p{Zl}\p{Zp}\p{Bidi_Control}]+$/u,
     "Labels cannot contain control characters, line breaks or text-direction marks",
   ),
   // A name of invisible characters alone would show as blank.

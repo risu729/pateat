@@ -21,7 +21,15 @@ describe("device labels", () => {
 
   it("accepts emoji names joined or tagged by format characters", () => {
     // Zero-width joiner, variation selector, and tag characters of a subdivision flag.
-    for (const label of ["👩‍💻 MacBook", "🏳️‍🌈 laptop", "🏴󠁧󠁢󠁳󠁣󠁴󠁿 PC", "仕事用ノート"])
+    for (const label of [
+      "👩‍💻 MacBook",
+      "🏳️‍🌈 laptop",
+      "🏴󠁧󠁢󠁳󠁣󠁴󠁿 PC",
+      "仕事用ノート",
+      "soft\u00adhyphen",
+      "zero\u200bwidth",
+      "private\ue000use",
+    ])
       expect(v.safeParse(deviceLabelSchema, label).success).toBe(true);
   });
 
@@ -40,6 +48,9 @@ describe("device labels", () => {
       // Invisible characters alone would show as a blank name.
       "\u200b",
       "\u2060\u00ad",
+      "\u3164",
+      "\u2800",
+      "\u0301",
     ])
       expect(v.safeParse(deviceLabelSchema, label).success).toBe(false);
   });
