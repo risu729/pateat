@@ -116,6 +116,8 @@ export type DeleteResult =
 /**
  * Deletes a profile no device that is not revoked uses, unless it is the owner's last. A
  * device paired or moved to it meanwhile makes the conditional update change nothing.
+ * Its exclusions, master-password sites, passkey sites and saved accounts are deleted;
+ * only the row stays, so revoked devices still name it (ADR 0076).
  */
 export async function deleteProfile(
   db: D1Database,
@@ -138,7 +140,8 @@ export async function deleteProfile(
   const [deleted] = await db.batch([
     db
       .prepare(
-        `UPDATE profiles SET deleted_at = ? WHERE owner_id = ? AND id = ? AND deleted_at IS NULL
+        `UPDATE profiles SET deleted_at = ?, document = NULL
+        WHERE owner_id = ? AND id = ? AND deleted_at IS NULL
         AND NOT EXISTS (SELECT 1 FROM devices WHERE owner_id = ? AND profile_id = ?
           AND revoked_at IS NULL)
         AND (SELECT count(*) FROM profiles WHERE owner_id = ? AND deleted_at IS NULL) > 1`,
