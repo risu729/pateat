@@ -1,13 +1,17 @@
 # ADR 0010: Inference field hints and local fill checks
 
-Status: accepted by the owner on 2026-10-10. The hint contract, the shape derivation
-and the local value check are implemented in `packages/contracts`. The executor runs
-both checks. Automatic generation sends the username's shape when every matching item
-agrees ([ADR 0016](0016-recipe-generation-trigger.md#username-shape)). Amended on
-2026-10-11 by [ADR 0027](0027-per-account-login-routes.md) (implemented): generation
-offers custom fields by `fieldName`, with `fieldPosition` (position and count) for a
-name several of the item's custom fields share, and Text shapes when every matching item
-agrees; Hidden fields are offered as a `hidden` slot kind, which never carries a shape.
+Status: accepted by the owner on 2026-10-10. The hint contract, the shape derivation and
+the local value check are implemented in `packages/contracts`. The executor runs both
+checks. Automatic generation sends the username's shape when every matching item agrees
+([ADR 0016](0016-recipe-generation-trigger.md#username-shape)). Amended on 2026-10-11 by
+[ADR 0027](0027-per-account-login-routes.md) (implemented): generation offers custom
+fields by `fieldName`, with `fieldPosition` (position and count) for a name several of
+the item's custom fields share, and Text shapes when every matching item agrees; Hidden
+fields are offered as a `hidden` slot kind, which never carries a shape. Amended on
+2026-10-23 by the owner's rule that every model call gets the same information unless
+there is a sound reason: the judge request carries the login item's slots with these
+hints too
+([ADR 0061](0061-personal-details-during-a-login.md#the-judge-gets-the-accounts-slots)).
 
 Date: 2026-10-10
 

@@ -2396,7 +2396,8 @@ For [ADR 0018](adr/0018-recipe-generation-route.md), `appendPageSteps` builds a
 generated recipe one page at a time: the first page starts it at revision 1, and a later
 page is appended only after a step that advances, within the contract's bounds. The
 recipe's slots are the ones its steps fill. `createCompletionJudge` sends the page shown
-after the final submission, with the login paths, and returns `signed-in` with a button
+after the final submission, with the login paths and the login item's slots (ADR 0061,
+2026-10-23), and returns `signed-in` with a button
 or link marker, `rejected` or `challenge`, or abstains when unclear. An unknown marker,
 one that is not a button or link, or a page that still has a password input not marked
 `new-password` or a field marked `username`, `current-password` or `one-time-code` fails
