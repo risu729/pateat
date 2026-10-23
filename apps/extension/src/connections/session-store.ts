@@ -98,7 +98,11 @@ export function createIndexedDbProviderSessionStore(options: {
               const record = (await stores(RECORDS_STORE).get(profile.connectionId)) as
                 | { revision?: unknown; state?: unknown }
                 | undefined;
-              if (record?.state !== "active" || record.revision !== guard.cacheRevision) {
+              // A locked vault keeps its sign-in (ADR 0075); a logged-out one does not.
+              if (
+                (record?.state !== "active" && record?.state !== "locked") ||
+                record.revision !== guard.cacheRevision
+              ) {
                 abort("storage-conflict");
                 return;
               }

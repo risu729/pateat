@@ -107,6 +107,11 @@ export const loginReadinessSchema = v.strictObject({
   require: v.picklist(["writable", "clickable", "present"]),
   targets: v.pipe(v.array(loginTargetSchema), v.maxLength(20)),
   /**
+   * Those of a `fill` step's `targets` that are entered on the page's software keyboard
+   * (ADR 0067): ready when shown and enabled, read-only or not.
+   */
+  keypad: v.optional(v.pipe(v.array(loginTargetSchema), v.minLength(1), v.maxLength(20))),
+  /**
    * A chooser recipe's start (ADR 0028): ready on its path, without a sign-in input, once
    * one of `targets` shows or the page lists an account by its email, masked or not.
    */
@@ -126,6 +131,10 @@ export function loginReadiness(step: LoginStep): LoginReadiness {
       : step.kind === "click" || (step.kind === "assert" && step.present)
         ? [step.target]
         : [];
+  const keypad =
+    step.kind === "fill"
+      ? step.fields.flatMap((field) => (field.keypad ? [field.target] : []))
+      : [];
   return {
     path: step.path,
     // Enter goes into a field (ADR 0064).
@@ -136,6 +145,7 @@ export function loginReadiness(step: LoginStep): LoginReadiness {
           ? "clickable"
           : "present",
     targets,
+    ...(keypad.length ? { keypad } : {}),
   };
 }
 /**
@@ -175,6 +185,23 @@ export const unofferedReasons = [
   "text-answer",
   "frame",
 ] as const;
+/**
+ * What the first steps watched on a path missed after the step wait (ADR 0041): the
+ * targets that match no element, several, or one that is not rendered, not those that
+ * match one shown element that is not usable yet, and the HTTP status of the document's
+ * own load when the browser reports one.
+ */
+export const startMissSchema = v.strictObject({
+  missing: v.pipe(v.array(loginTargetSchema), v.maxLength(20)),
+  /**
+   * More targets missed than `missing` lists. `found` then says whether a watched first
+   * step had every target match one element.
+   */
+  more: v.optional(v.literal(true)),
+  found: v.optional(v.literal(true)),
+  status: v.optional(v.pipe(v.number(), v.integer(), v.minValue(100), v.maxValue(599))),
+});
+export type StartMiss = v.InferOutput<typeof startMissSchema>;
 export const helloSchema = v.strictObject({
   version: v.literal(1),
   type: v.literal("login.document.ready"),
@@ -203,14 +230,24 @@ export const helloSchema = v.strictObject({
     ),
   ),
   /**
-   * Such an input shows on this path but no first step is ready; sent once per path, only
-   * for the log of a login that did not start. On a page the worker named a verification
+   * Such an input shows on this path but no first step is ready; sent once per path, for
+   * the log of a login that did not start. On a page the worker named a verification
    * Pateat does not fill (`confirm` in its answer), it is sent as soon as that page's first
    * step shows, with `amount`: whether an amount (`¥`, `円` or `$` with digits) shows in the
    * form of that step's elements, never the amount, and absent when they are in no form
-   * (ADR 0035).
+   * (ADR 0035). On a path where a first step is watched, the page may instead ask for an
+   * identifier alone (ADR 0016), and `miss` says what the first steps there missed, for a
+   * stale recipe's repair (ADR 0041). There, `accounts` says the page lists accounts by
+   * email instead (ADR 0028), as a start page that became a list of accounts.
    */
-  shown: v.optional(v.strictObject({ path, amount: v.optional(v.boolean()) })),
+  shown: v.optional(
+    v.strictObject({
+      path,
+      amount: v.optional(v.boolean()),
+      miss: v.optional(startMissSchema),
+      accounts: v.optional(v.literal(true)),
+    }),
+  ),
   /**
    * After the offer wait (ADR 0057), this path shows no sign-in input but lists accounts (ADR
    * 0028): an entry or a text beside at most three buttons with an email, masked or not.
@@ -309,6 +346,20 @@ export const reconnectSchema = v.strictObject({
 export const authorizeSchema = v.strictObject({
   version: v.literal(1),
   type: v.literal("login.operation.authorize"),
+  token: id,
+  attemptId: id,
+  operationId: id,
+});
+/**
+ * Tells the background, just before the first key press of a fill on a page's software
+ * keyboard, that keys are pressed from now on (ADR 0067). The background answers `true`
+ * while the operation is still the attempt's own and still authorized, and only then is a
+ * key pressed; only then may a document that replaces the page count as the page's own
+ * submission of the fill.
+ */
+export const keypadPressSchema = v.strictObject({
+  version: v.literal(1),
+  type: v.literal("login.keypad.press"),
   token: id,
   attemptId: id,
   operationId: id,
@@ -496,6 +547,12 @@ export const commandSchema = v.variant("type", [
      * answer reports them as `before`.
      */
     next: v.optional(inPlaceNextSchema),
+    /**
+     * With an advance where another layout of the recipe goes on along the same steps (ADR
+     * 0060): that layout's next step on the advance's path, measured as `next` is. The answer
+     * reports them as `siblingsBefore`, in this order.
+     */
+    siblings: v.optional(v.pipe(v.array(inPlaceNextSchema), v.maxLength(2))),
   }),
   v.strictObject({
     version: v.literal(1),
@@ -661,12 +718,23 @@ export const executionResultSchema = v.strictObject({
   documentId: id,
   mutation: v.picklist(["none", "possible"]),
   /**
-   * `value-mismatch`: a value does not fit its input, and nothing was filled.
+   * `value-mismatch`: a value does not fit its input, or a keypad that already shows its
+   * keys has no single key for a character of its value; nothing was filled or pressed
+   * (`mutation` `none`). A keypad that shows its keys only once its field is pressed, and
+   * then lacks one, ends as `structural-mismatch` with `keypad-key-missing`, as that press
+   * may have changed the page.
+   * `keypad-missing`: a keypad field's keypad is not on the page or not beside the field;
+   * `keypad-key-missing`: it showed no key, or a character of the value had no key or
+   * several, so no further key was pressed; `keypad-pressed`: the step stopped for any
+   * reason but `submitted` after a key press, so the field holds characters the person
+   * clears by reloading the page (ADR 0067).
    * `fill-rejected`: after a preparing fill the page marked a filled input invalid or
    * showed a new alert (ADR 0010), or while typing it kept a character out so the input
    * does not hold the value.
    * `submitted`: after a `totp` handler's code fill the page showed that it submits the
-   * code by itself (ADR 0027); nothing was clicked.
+   * code by itself (ADR 0027), or after a key press on a keypad the page moved to another
+   * path or took the field out of the document, perhaps submitting the characters so far
+   * (ADR 0067); nothing was clicked.
    * `captcha`: the page showed a CAPTCHA before a click, so the click was left to the
    * person (ADR 0029, S4); nothing was clicked.
    */
@@ -716,6 +784,9 @@ export const executionResultSchema = v.strictObject({
       "code-watch-failed",
       "form-off-origin",
       "form-destination-unchecked",
+      "keypad-missing",
+      "keypad-key-missing",
+      "keypad-pressed",
     ]),
   ),
   /**
@@ -728,6 +799,10 @@ export const executionResultSchema = v.strictObject({
    * first input, in the same task.
    */
   before: v.optional(v.pipe(v.array(targetStateSchema), v.maxLength(20))),
+  /** With the command's `siblings`: each one's targets as `before` measures `next`'s. */
+  siblingsBefore: v.optional(
+    v.pipe(v.array(v.pipe(v.array(targetStateSchema), v.maxLength(20))), v.maxLength(2)),
+  ),
 });
 export const awaitResultSchema = v.strictObject({
   ok: v.boolean(),
@@ -761,6 +836,11 @@ export const extractResultSchema = v.variant("ok", [
      * field: only `signed-in` completes the page (ADR 0029).
      */
     disabledLeftOut: v.optional(v.literal(true)),
+    /**
+     * The page shows a radio button, select or text area, or an ARIA widget for one, that
+     * is no part of a site search: an `optional` answer does not complete it (ADR 0065).
+     */
+    inputLeftOut: v.optional(v.literal(true)),
   }),
   v.strictObject({
     ok: v.literal(false),
@@ -774,11 +854,15 @@ export const entryHostsResultSchema = v.strictObject({ ok: v.literal(true), host
 /**
  * The answer to `login.entry.inspect`: how many elements the target names, and for exactly
  * one, why it may not be pressed apart from where it leads (`refusal`), its `href` and the
- * page's URL, each as the browser resolved it (ADR 0031).
+ * page's URL, each as the browser resolved it (ADR 0031). For a missing link, what the page
+ * shows instead, a sign-in input or a list of accounts by email, and the HTTP status of its
+ * load, for the entry's repair (ADR 0041).
  */
 export const entryInspectResultSchema = v.strictObject({
   ok: v.literal(true),
   state: v.picklist(["missing", "unique", "ambiguous"]),
+  shows: v.optional(v.picklist(["sign-in", "accounts"])),
+  status: v.optional(v.pipe(v.number(), v.integer(), v.minValue(100), v.maxValue(599))),
   refusal: v.optional(
     v.picklist(["not-link", "script-link", "hidden", "no-text", "new-window", "download"]),
   ),

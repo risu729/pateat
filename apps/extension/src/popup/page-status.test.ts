@@ -128,6 +128,7 @@ describe("pageStatusLines", () => {
     ["accounts", "the site's list of accounts"],
     ["entry", "the site's sign-in link"],
     ["continuation", "the rest of the site's sign-in"],
+    ["repair", "the site's changed sign-in page"],
   ] as const)("shows a request in flight for %s while the badge spins", (page, what) => {
     const generation = { outcome: "sent", ...(page ? { page } : {}) };
     expect(lines({ asking: true, generation })).toEqual([
@@ -256,6 +257,34 @@ describe("pageStatusLines", () => {
       ]);
     },
   );
+
+  it.each(["fill-rejected", "structural-mismatch", "cancelled"])(
+    "tells the person to reload a page whose keypad Pateat pressed before a %s stop (ADR 0067)",
+    (outcome) => {
+      const shown = lines({ login: { state: "blocked", outcome, cause: "keypad-pressed" } });
+      expect(shown.at(-1)).toEqual([
+        "login-keypad",
+        "warn",
+        "Pateat pressed keys on the page's software keyboard before it stopped. Reload the page before you enter the value.",
+      ]);
+      expect(
+        lines({ login: { state: "blocked", outcome, cause: "keypad-key-missing" } }).map(
+          ([id]) => id,
+        ),
+      ).not.toContain("login-keypad");
+    },
+  );
+
+  it("says why a keypad login stopped without claiming that nothing was pressed (ADR 0067)", () => {
+    const why = (cause: string) =>
+      lines({ login: { state: "blocked", outcome: "fill-rejected", cause } })[1]?.[2];
+    expect(why("keypad-pressed")).toBe(
+      "The login did not succeed: the page's software keyboard did not show a key Pateat pressed, so nothing more was pressed.",
+    );
+    expect(why("keypad-key-missing")).toBe(
+      "The login did not succeed: the page marked a filled input as invalid, so nothing was pressed.",
+    );
+  });
 
   it("names the outcome of a failed login without the recipe line", () => {
     expect(lines({ login: { state: "blocked", outcome: "credential-rejected" } }).slice(1)).toEqual(

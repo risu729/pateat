@@ -13,6 +13,13 @@ export const KEPT_RECIPE_REVISIONS = 10;
 export const RECIPE_IDLE_LIMIT_MS = 90 * 24 * 60 * 60 * 1000;
 /** Unused recipes one check revokes at most; the next check revokes the rest (ADR 0058). */
 export const MAX_IDLE_REVOCATIONS = 50;
+/**
+ * Problem lines an owner's devices may send in any 24 hours (ADR 0066). A device keeps at
+ * most 1,000 `warn` and `error` lines over 14 days (ADR 0019), and the `info` lines that
+ * say why Pateat did nothing add a few hundred a day, so a day's lines fit with room for a
+ * backlog after an outage; past it the device keeps its lines and sends them later.
+ */
+export const MAX_PROBLEM_LINES_PER_DAY = 2_000;
 
 /**
  * Refuses a request once `binding` has seen too many for the key this request maps to,

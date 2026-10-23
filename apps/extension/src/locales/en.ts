@@ -131,6 +131,8 @@ export const en = {
     "a value did not fit its input, so nothing was filled",
   "the page marked a filled input as invalid, so nothing was pressed":
     "the page marked a filled input as invalid, so nothing was pressed",
+  "the page's software keyboard did not show a key Pateat pressed, so nothing more was pressed":
+    "the page's software keyboard did not show a key Pateat pressed, so nothing more was pressed",
   "the page shows a different account from the one chosen":
     "the page shows a different account from the one chosen",
   "the page showed another account, so the login switched accounts":
@@ -185,6 +187,7 @@ export const en = {
   "the site's sign-in link": "the site's sign-in link",
   "the site's list of accounts": "the site's list of accounts",
   "the rest of the site's sign-in": "the rest of the site's sign-in",
+  "the site's changed sign-in page": "the site's changed sign-in page",
   "the site's sign-in page": "the site's sign-in page",
   "This site has a recipe for this page.": "This site has a recipe for this page.",
   "This site has a recipe, but none starts on this page.":
@@ -217,6 +220,8 @@ export const en = {
   "The result of the login is not known: {{why}}.":
     "The result of the login is not known: {{why}}.",
   "This recipe is not made again automatically.": "This recipe is not made again automatically.",
+  "Pateat pressed keys on the page's software keyboard before it stopped. Reload the page before you enter the value.":
+    "Pateat pressed keys on the page's software keyboard before it stopped. Reload the page before you enter the value.",
   "This page": "This page",
   "Open the detailed log": "Open the detailed log",
   matchingAccounts: "{{count}} accounts match this page.",
@@ -345,4 +350,7 @@ export const en = {
   "This page shows another account, so nothing was filled.":
     "This page shows another account, so nothing was filled.",
   "ID {{id}}": "ID {{id}}",
+  vaultsLocked_one: "{{count}} vault is locked, so its logins and passkeys wait.",
+  vaultsLocked_other: "{{count}} vaults are locked, so their logins and passkeys wait.",
+  "Unlock in settings": "Unlock in settings",
 } as const;

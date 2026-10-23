@@ -54,6 +54,8 @@ export function createServiceRuntime(options: {
   transport: Pick<ServiceTransport, "pair" | "revoke">;
   /** Whether Chrome currently lets the extension reach this origin. */
   hasSiteAccess: (origin: string) => Promise<boolean>;
+  /** Told once a new device's credential is stored; never changes the pairing. */
+  onPaired?: (connection: { origin: string; deviceId: string }) => void;
 }) {
   const { storage, transport } = options;
   const hasSiteAccess = (origin: string) => options.hasSiteAccess(origin).catch(() => false);
@@ -165,6 +167,11 @@ export function createServiceRuntime(options: {
           // Retried before the next request rather than losing a credential that exists.
           unsaved = connected;
           throw error;
+        }
+        try {
+          options.onPaired?.({ origin: connected.origin, deviceId: connected.deviceId });
+        } catch {
+          // Whoever listens never changes the pairing.
         }
         return ok(connected);
       }

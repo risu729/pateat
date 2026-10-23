@@ -1,4 +1,10 @@
 import { expect, test, type BrowserContext, type Page, type Worker } from "@playwright/test";
+import {
+  newLayoutKey,
+  toLoginLayout,
+  type LoginRecipe,
+  type LoginRecipeDocument,
+} from "../../packages/contracts/src/index";
 import { beginInput, settingsRequest, setupProbe, setupRequest } from "./connection-fixture";
 import { logs } from "./login-fixture";
 import { startLoginFixture } from "./login-server";
@@ -22,9 +28,9 @@ async function serveSite(context: BrowserContext, fixture: { origin: string }) {
   });
 }
 
-const target = (value: string) => ({ by: "id", value });
-/** The multi-page fixture flow, published the way a generated recipe is (ADR 0013). */
-const recipe = {
+const target = (value: string) => ({ by: "id" as const, value });
+/** The multi-page fixture flow as the one layout of the published recipe (ADR 0060). */
+const route: LoginRecipe = {
   version: 1,
   id: recipeId,
   revision: 1,
@@ -39,16 +45,34 @@ const recipe = {
         { slot: "branch", target: target("branch") },
         { slot: "account", target: target("account") },
       ],
+      effect: "prepare",
     },
     { kind: "assert", path: "/identity", target: target("next"), present: true },
     { kind: "click", path: "/identity", target: target("next"), purpose: "advance" },
     { kind: "wait", path: "/password", target: target("password"), present: true, timeoutMs: 3000 },
-    { kind: "fill", path: "/password", fields: [{ slot: "password", target: target("password") }] },
+    {
+      kind: "fill",
+      path: "/password",
+      fields: [{ slot: "password", target: target("password") }],
+      effect: "prepare",
+    },
     { kind: "click", path: "/password", target: target("login"), purpose: "submit" },
   ],
   completion: [{ target: target("authenticated") }],
   rejection: target("rejected"),
   maxSubmissions: 2,
+};
+/**
+ * The recipe published the way a generated one is stored (ADR 0013, ADR 0060): one layout,
+ * created now so the service never finds it idle.
+ */
+const createdAt = Date.now();
+const recipe: LoginRecipeDocument = {
+  version: 1,
+  id: recipeId,
+  revision: 1,
+  origin: site,
+  layouts: [toLoginLayout(route, { key: newLayoutKey(createdAt, []), createdAt })],
 };
 
 function storedRecipes(background: Worker) {
@@ -391,7 +415,7 @@ test("a page whose recipe was generated as a verification only watches, and logs
         const browser = await open();
         await serveSite(browser.context, fixture);
         await setupProbe(browser.page, { action: "configure", variant: "uri" });
-        const confirm = {
+        const confirmRoute: LoginRecipe = {
           version: 1,
           id: "synthetic-confirm",
           revision: 1,
@@ -403,6 +427,7 @@ test("a page whose recipe was generated as a verification only watches, and logs
               kind: "fill",
               path: "/confirm-transfer",
               fields: [{ slot: "password", target: target("confirm-password") }],
+              effect: "prepare",
             },
             {
               kind: "click",
@@ -413,6 +438,13 @@ test("a page whose recipe was generated as a verification only watches, and logs
           ],
           completion: [{ target: target("authenticated") }],
           maxSubmissions: 1,
+        };
+        const confirm: LoginRecipeDocument = {
+          version: 1,
+          id: confirmRoute.id,
+          revision: 1,
+          origin: site,
+          layouts: [toLoginLayout(confirmRoute, { key: newLayoutKey(createdAt, []), createdAt })],
         };
         const { options } = await prepare(browser, service, [confirm]);
 

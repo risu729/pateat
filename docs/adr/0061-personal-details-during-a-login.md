@@ -3,7 +3,7 @@
 Status: accepted by the owner on 2026-10-23 ([decided](#decided-by-the-owner) 6 to 11).
 Claude built it ahead of those decisions on best guesses, as the owner asked at 05:28
 UTC. The design was reviewed against the code by another AI before it was built.
-Deliveries 1, 3, 4, 5 and 7 are implemented; the others are not ([Delivery](#delivery)).
+Deliveries 1 to 5 and 7 are implemented; the others are not ([Delivery](#delivery)).
 Implements the
 [phase 2](../plan.md#phase-2-use-it-and-fix-what-comes-up) item on personal details
 asked for during a login. Amends [ADR 0027](0027-per-account-login-routes.md) (a fourth
@@ -12,6 +12,14 @@ handler kind, what the judge may name, and which pages are judged),
 item to the items that hold its details) and
 [ADR 0036](0036-passkey-after-the-identifier.md) (a second kind of page judged while it
 still shows the sign-in form).
+
+Amended on 2026-10-23 by [ADR 0060](0060-recipe-layouts.md) (recipe layouts, accepted
+by the owner at 11:41 UTC; merged with this ADR by Claude, local tests only): a `detail`
+handler is learned into the layout the login ran, or that chooser layout's branch, like
+any other handler. "The path has no `detail` handler yet" and "judged once per recipe
+revision, origin and path" hold per layout (and branch), a page beside the sign-in form
+included, and the service records which judge call made the handler, under the beside
+prompt version for such a page, as that layout's `handler:<i>` unit.
 
 Date: 2026-10-23
 
@@ -78,8 +86,7 @@ catalog ([feasibility note](../research/2026-10-12-card-security-code.md)).
    `manualDetails` stays empty.
 9. A page that shows the sign-in form again with a detail form beside it is judged
    (12:25 UTC, 「判定に送る」), amending ADR 0027's rule that a page showing a route
-   fill field is never judged ([below](#judging-a-page-beside-the-sign-in-form),
-   delivery 2).
+   fill field is never judged ([below](#judging-a-page-beside-the-sign-in-form)).
 10. A value split over several inputs is filled, a birth date in year, month and day
     selects and a card number, PIN or expiry date over several boxes included (12:26
     UTC, 「全部入れる」). Delivery 8 builds it.
@@ -286,11 +293,17 @@ Delivery 2 builds this.
 After an effect step, a page that still shows a route fill field on a route path is not
 judged today. It is judged when it also shows, in another form than every route fill
 field, a text, tel or number input that is no route fill field, with a button in that
-form. The request says so (`beside: true`). Like a stop's page
+form. Only a `password` login without a chooser or a stop sends it, from the tab's top
+document on the recipe's own origin, once its sign-in state is read and shows no failure
+beside the sign-in fields. The request says so (`beside: true`). Like a stop's page
 ([ADR 0036](0036-passkey-after-the-identifier.md)), it is judged under its own prompt
 version and instructions, and the service keeps only a `detail` handler from it: its
-other answers are kept as `unclear`. It is judged once per recipe revision, origin and
-path, as every page is.
+other answers, and a `challenge` that adds no `detail` handler, are kept and answered as
+`unclear`. It is judged once per recipe revision, origin and path, as every page is.
+
+A `detail` handler on a route path is not entered for the first time while the sign-in
+form there shows a failure beside its fields: the password was wrong, and the login ends
+`credential-rejected`.
 
 ### The link to the value
 

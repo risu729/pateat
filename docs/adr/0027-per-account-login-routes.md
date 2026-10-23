@@ -66,6 +66,14 @@ option B): the judge may also name a button that goes on to the password on a pa
 asks how to confirm the sign-in, stored as a third handler kind, `password`, entered
 only by a `password` login that has not filled its password, before other handlers
 shown with it, and only when its text names a password choice (implemented).
+Amended on 2026-10-23 by [ADR 0067](0067-software-keyboard-entry.md): a route step's
+fill on a page's software keyboard, followed on its path by its submit click, is taken
+as submitted by the page as a code is: while the fill runs, when the page moves to
+another path or takes the field out of the document after a key press; when a new
+document replaces it after the page told the background of its first key press, while
+the fill runs or once it went in and before the click is prepared, but not after a stop
+the fill answered; and after the fill and before the click, when the page moved to
+another path or shows a signed-in marker or the rejection without the button.
 
 Amended on 2026-10-18 by [ADR 0049](0049-start-at-a-later-step.md) (owner, 01:40 UTC,
 implemented): a later step a login may start at releases a watched login as its first
@@ -105,6 +113,10 @@ at each step, and a refused takeover logs why
 ([saved bindings that lack a slot](#amendment-2026-10-19-saved-bindings-that-lack-a-slot)),
 which amends [ADR 0013](0013-service-held-recipes-and-settings.md) (bindings are
 widened) and [ADR 0018](0018-recipe-generation-route.md) (the takeover); implemented.
+Amended on 2026-10-23 by [ADR 0065](0065-optional-pages-after-a-sign-in.md) (owner,
+12:27 UTC): a watched login's page judged `optional`, with no sign and no evidence,
+completes it as `signed-in` does once the password or a second factor was sent
+(implemented, local tests only).
 
 Date: 2026-10-11
 
@@ -451,7 +463,10 @@ new owner decision:
 - **Judging.** The judge request does not name the variant. The extension does not send
   a page that shows a fill field of any variant on a path of the route, and the service
   answers `not-judgeable` for a page that shows one on any path. The login paths the
-  judge receives are every variant's step paths and the handlers' paths.
+  judge receives are every variant's step paths and the handlers' paths. Amended by
+  [ADR 0061](0061-personal-details-during-a-login.md#judging-a-page-beside-the-sign-in-form)
+  (owner, 2026-10-23 12:25 UTC): a page that also shows a detail form beside the
+  sign-in form is judged, and the service keeps only a `detail` handler from it.
 - **Start detection.** A document watches the first step of every variant of each
   recipe for its origin. A start path is left out only when several recipes start
   there; several variants of one recipe on it are watched together, and any of them

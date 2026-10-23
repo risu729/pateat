@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import * as v from "valibot";
 import {
   createDefaultSettings,
+  detailLinkSchema,
+  detailSourceFieldSchema,
   DUMMY_VAULT_CATALOG,
   getItemEligibility,
   isSiteExcluded,
@@ -363,6 +365,95 @@ describe("strict settings schema", () => {
       },
     ])
       expect(() => parseLocalSettings(malformed)).toThrow();
+  });
+});
+
+describe("personal-detail links (ADR 0061)", () => {
+  const link = {
+    origin: "https://bank.example",
+    provider: "dummy",
+    userId: "demo-personal-account",
+    itemId: "primary",
+    detail: "birth-date",
+    source: { itemId: "identity", field: { custom: "生年月日" } },
+  };
+  const withLinks = (detailLinks: unknown[]) => ({ ...createDefaultSettings(), detailLinks });
+
+  it("keeps links to an identity's phone, a card's fields and custom fields by name", () => {
+    const links = [
+      link,
+      { ...link, detail: "phone-last-4", source: { itemId: "identity", field: "identity.phone" } },
+      { ...link, detail: "card-last-4", source: { itemId: "card", field: "card.number" } },
+      { ...link, detail: "card-code", source: { itemId: "card", field: "card.code" } },
+      // The same detail of another login item, or of the same item on another site.
+      { ...link, itemId: "secondary" },
+      { ...link, origin: "https://shop.example" },
+      {
+        ...link,
+        userId: "demo-family-account",
+        source: { itemId: "identity", field: { custom: "Birthday", position: 2, count: 2 } },
+      },
+    ];
+    expect(parseLocalSettings(withLinks(links)).detailLinks).toEqual(links);
+    // Settings saved before links existed have none.
+    expect(parseLocalSettings(createDefaultSettings())).not.toHaveProperty("detailLinks");
+  });
+
+  it("rejects two links for one login item, site and detail", () => {
+    expect(() =>
+      parseLocalSettings(
+        withLinks([link, { ...link, source: { itemId: "other", field: { custom: "DOB" } } }]),
+      ),
+    ).toThrow();
+  });
+
+  it.each([
+    ["an item name", { ...link, itemName: "Synthetic identity" }],
+    ["a value", { ...link, value: "1990-04-01" }],
+    ["a source item name", { ...link, source: { ...link.source, itemName: "Me" } }],
+    ["an unknown detail", { ...link, detail: "passport-number" }],
+    ["a page URL as the site", { ...link, origin: "https://bank.example/signin" }],
+    ["a login field as the source", { ...link, source: { itemId: "identity", field: "password" } }],
+    [
+      "an unknown built-in field",
+      { ...link, source: { itemId: "identity", field: "identity.ssn" } },
+    ],
+    ["no source item", { ...link, source: { field: "identity.phone" } }],
+  ])("rejects a link with %s", (_label, malformed) => {
+    expect(() => parseLocalSettings(withLinks([malformed]))).toThrow();
+    expect(v.is(detailLinkSchema, malformed)).toBe(false);
+  });
+
+  it("rejects more than 1000 links", () => {
+    const links = Array.from({ length: 1001 }, (_, index) => ({
+      ...link,
+      itemId: `item-${index}`,
+    }));
+    expect(() => parseLocalSettings(withLinks(links))).toThrow();
+    expect(parseLocalSettings(withLinks(links.slice(0, 1000))).detailLinks).toHaveLength(1000);
+  });
+
+  it("names a source field as a built-in detail field or a custom reference", () => {
+    for (const field of [
+      "identity.phone",
+      "card.number",
+      "card.code",
+      { custom: "生年月日" },
+      { custom: "Birthday", position: 1, count: 2 },
+    ])
+      expect(v.is(detailSourceFieldSchema, field)).toBe(true);
+    for (const field of [
+      "username",
+      "password",
+      "totp",
+      "login.password",
+      "identity.email",
+      { custom: "" },
+      { custom: "Birthday", position: 1 },
+      { custom: "Birthday", position: 3, count: 2 },
+      { custom: "Birthday", value: "1990-04-01" },
+    ])
+      expect(v.is(detailSourceFieldSchema, field)).toBe(false);
   });
 });
 

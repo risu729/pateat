@@ -1079,3 +1079,34 @@ test("a clicked section link stays current until the user scrolls", async () => 
     await page.viewport(414, 896);
   }
 });
+
+test("the vault timeout has its own section only with a device setting to show", async () => {
+  await mount();
+  const nav = page.getByRole("navigation", { name: "Sections" });
+  await expect.element(nav).toBeVisible();
+  expect(nav.getByText("Vault timeout").query()).toBeNull();
+  expect(document.querySelector("#vault-timeout")).toBeNull();
+  await cleanup();
+  const vaultTimeoutClient = {
+    read: vi.fn(async () => ({ timeout: 15 as const, action: "lock" as const })),
+    write: vi.fn(async () => undefined),
+  };
+  await render(
+    <QueryClientProvider client={createMetadataQueryClient()}>
+      <SettingsApp client={mockClient()} vaultTimeoutClient={vaultTimeoutClient} />
+    </QueryClientProvider>,
+  );
+  await expect
+    .element(page.getByRole("navigation", { name: "Sections" }).getByText("Vault timeout"))
+    .toBeVisible();
+  await expect
+    .element(page.getByRole("region", { name: "Vault timeout", exact: true }))
+    .toBeVisible();
+  await vi.waitFor(() =>
+    expect(
+      (document.querySelector("#vault-timeout-select") as HTMLSelectElement | null)?.value,
+    ).toBe("15"),
+  );
+  expect(vaultTimeoutClient.read).toHaveBeenCalled();
+  expect(vaultTimeoutClient.write).not.toHaveBeenCalled();
+});
