@@ -3,7 +3,7 @@
 Status: accepted by the owner on 2026-10-23 ([decided](#decided-by-the-owner) 6 to 11).
 Claude built it ahead of those decisions on best guesses, as the owner asked at 05:28
 UTC. The design was reviewed against the code by another AI before it was built.
-Deliveries 1 and 2 are implemented; the others are not ([Delivery](#delivery)).
+Deliveries 1, 2 and 3 are implemented; the others are not ([Delivery](#delivery)).
 Implements the
 [phase 2](../plan.md#phase-2-use-it-and-fix-what-comes-up) item on personal details
 asked for during a login. Amends [ADR 0027](0027-per-account-login-routes.md) (a fourth
@@ -94,8 +94,8 @@ make each value. A page that asks for anything else stays `challenge`.
 
 | `detail` | Read from | Filled as | Into |
 | --- | --- | --- | --- |
-| `birth-date` | a Text or Hidden custom field | the date in the input's `format` | a text, tel or number input |
-| `phone-last-4` | `identity.phone`, or a Text or Hidden custom field | its last four digits | a text, tel or number input |
+| `birth-date` | a Text or Hidden custom field named as one (below) | the date in the input's `format` | a text, tel or number input |
+| `phone-last-4` | `identity.phone`, or a Text or Hidden custom field named as one (below) | its last four digits | a text, tel or number input |
 | `card-last-4` | `card.number` | its last four digits | a text, tel or number input |
 | `card-code` | `card.code` | as it is, 3 or 4 digits | a password input, or a text or tel input with `maxlength` 3 or 4 |
 
@@ -226,18 +226,23 @@ When a `detail` handler shows and no link has a value for any of its inputs:
 1. The login ends `challenge`, as before, with `detail-unlinked` in the log. It is
    watched afterwards as such a login is ([ADR 0027](0027-per-account-login-routes.md)).
 2. Pateat lists candidates locally from the catalog, in the login item's vault account
-   and under the rules above: identity items for `phone-last-4`; Text or Hidden custom
+   and under the rules above: identity items, and Text or Hidden custom fields whose
+   name contains `phone`, `tel` or `電話`, for `phone-last-4`; Text or Hidden custom
    fields whose name reads as a birth date (contains `birth`, `dob`, `生年月日` or
    `誕生日`, in any case) for `birth-date`; card items for `card-last-4` and
-   `card-code`. An item whose name holds a run of three or more ASCII letters or digits
-   found in the page's host name, or which appears whole in the page's title, comes
-   first.
+   `card-code`. A link reads only such a field, so a link edited elsewhere never types
+   another custom field, such as a PIN, into the page. An item whose name holds a run of
+   three or more ASCII letters or digits found in the page's host name, or which appears
+   whole in the page's title, comes first.
 3. The popup's "This page" section shows what the page asks for and the candidates, the
    first one selected, for example "This page asks for your birth year and month." and
    "本人 › 生年月日", with **Fill**.
 4. **Fill** fills the input in the tab's current document, checking its choosing radio,
-   when that document is the login's and still shows the handler; it does not press the
-   button. The person checks the value and submits. The link is kept for that tab in
+   when that document is the login's, the tab's login is still the one that stopped
+   there, the site and the login item are still allowed, and the page still shows the
+   input writable and the button; it does not press the button. The person checks the
+   value and submits. One link is kept per handler: a second **Fill**, as after choosing
+   the other radio, replaces the first. The link is kept for that tab in
    session storage and saved to the owner's settings only when the watched login ends
    `authenticated`, as an account chosen in the popup is
    ([ADR 0023](0023-synced-vault-policy.md)); otherwise it is dropped.
@@ -249,16 +254,26 @@ The popup shows nothing more when there is no candidate; the person types the va
 
 A link whose fill the site refuses (the login ends `rejected`, or the handler's page
 shows again after its fill) is removed from the owner's settings, so the next login asks
-again instead of submitting the same value on a site that may lock the account.
+again instead of submitting the same value on a site that may lock the account. Like
+saving an account choice, the write waits for no other tab's login in progress: while
+one is, the link stays in the settings and the log says so (`detail-kept`), but the
+device uses it no more: it is kept in session storage as refused, and its removal is
+tried again each time a login ends. Choosing the same detail's field again in the popup
+lifts it.
 
 ### Logs
 
 `login.handler` gains the `detail` kind and the outcomes `detail-manual` (never used
 since card codes are filled; kept for a detail that a later owner decision stops
-filling), `detail-unlinked`, `detail-unreadable` (delivery 3; the linked value is not a
-date or has too few digits) and `detail-unavailable` (delivery 3; the linked item or
-field is missing or may not be used). The judge's log keeps `details` with each ID that
-is not a candidate replaced by `?`. Never a value or an item name.
+filling), `detail-unlinked`, `detail-unreadable` (the linked value is not a date or has
+too few digits) and `detail-unavailable` (the vault could not give the linked value at
+the fill); a login that meets either stops as a changed policy (`field-unavailable`).
+About links it gains `detail-saved` (a link filled from the popup was saved after the
+login was confirmed), `detail-not-saved` (it could not be written, as while another
+tab's login runs; it is dropped), `detail-forgotten` (a refused value's link was
+removed) and `detail-kept` (that removal could not be written now). The judge's log
+keeps `details` with each ID that is not a candidate replaced by `?`. Never a value or
+an item name.
 
 ## Delivery
 
@@ -275,6 +290,9 @@ is not a candidate replaced by `?`. Never a value or an item name.
 ## Not covered
 
 - An input disabled until its radio is chosen is not entered while disabled.
+- A value filled from the popup that the site refuses, when the person then types the
+  right one in the same document and the login succeeds, is saved; the next login
+  submits it once, and its refusal removes the link.
 - No icon or badge says that the popup has a proposal; the login's ending as
   `challenge` is what shows ([ADR 0038](0038-login-status-badge.md)).
 - Whether MUFG keeps the sidebar sign-in form shown behind the lightbox, and the order

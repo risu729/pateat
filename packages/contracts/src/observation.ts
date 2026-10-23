@@ -4,11 +4,9 @@ import {
   loginOriginSchema,
   loginStepSchema,
   sameLoginTarget,
-  type BirthDateFormat,
-  type LoginDetail,
   type LoginMarkerTarget,
 } from "./login";
-import { recipeSlotIdSchema } from "./settings";
+import { recipeSlotIdSchema, type BirthDateFormat, type LoginDetail } from "./settings";
 import * as v from "valibot";
 
 const identifier = v.pipe(

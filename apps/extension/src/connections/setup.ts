@@ -268,6 +268,7 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
           id: item.id,
           label: item.label,
           allowedOrigins: [],
+          ...(item.inactive ? { inactive: true as const } : {}),
           groupIds: item.groupIds,
           fields: item.fields.map(({ id, label, name, kind, linkedFieldId }) => ({
             id,

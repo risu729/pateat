@@ -57,6 +57,7 @@ import {
 import { observedPath } from "../observation/path";
 import { sendMessage } from "../messaging/protocol";
 import { acceptsSecret } from "./inputs";
+import { chooseFor } from "../page/choice-radio";
 import {
   commandSchema,
   destinationAnswerSchema,
@@ -731,6 +732,42 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     const parsed = v.safeParse(commandSchema, message);
     if (!parsed.success || parsed.output.token !== token) return false;
     const command = parsed.output;
+    if (command.type === "login.detail.fill") {
+      // The popup's fill of a personal detail (ADR 0061): one input, its radio first, and
+      // nothing pressed. The value never leaves this handler.
+      const { value } = command;
+      command.value = "";
+      void (async () => {
+        const found = matches(command.target);
+        const input = found.length === 1 ? found[0] : undefined;
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+        if (
+          cancelled ||
+          pagePath() !== command.path ||
+          !writable(input) ||
+          !acceptsSecret(input, command.secret) ||
+          inputValueMismatch(input, value) !== undefined ||
+          !setter
+        )
+          return { ok: false };
+        // The radio's click may change the input, so its checks run again.
+        if (
+          !chooseFor(input) ||
+          !isOnly(matches(command.target), input) ||
+          !writable(input) ||
+          !acceptsSecret(input, command.secret)
+        )
+          return { ok: false };
+        const stopped = await typeValue(input, value, setter, {
+          between: () =>
+            cancelled || pagePath() !== command.path || !writable(input)
+              ? "field-changed"
+              : undefined,
+        });
+        return { ok: stopped === undefined };
+      })().then(respond, () => respond({ ok: false }));
+      return true;
+    }
     if (command.type === "login.cancel") {
       cancelled = true;
       unwatch();
@@ -1168,7 +1205,10 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         // page shows nothing to compare with, so an account it shows after its fields is
         // compared too (`accountQuietMs`).
         const masked = command.values.some(
-          (entry) => entry.secret === "password" || entry.secret === "hidden",
+          (entry) =>
+            entry.secret === "password" ||
+            entry.secret === "hidden" ||
+            entry.secret === "card-code",
         );
         if (command.account) {
           const first = step.fields[0] ? matches(step.fields[0].target) : [];
@@ -1398,6 +1438,19 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                 if (stopped) return fail("cancelled", stopped);
               }
             } else if (step.effect === "prepare" || buttonless) {
+              // A `detail` handler's input is chosen by its radio button first (ADR 0061);
+              // the page's handlers for that click may change the form, so the checks run
+              // again.
+              if (
+                command.choose &&
+                (!chooseFor(input) ||
+                  cancelled ||
+                  pagePath() !== step.path ||
+                  !isOnly(matches(field.target), input) ||
+                  !writable(input) ||
+                  !acceptsSecret(input, value.secret))
+              )
+                return fail("cancelled", "field-changed");
               filled.add(input);
               // The code goes in now; the page's own reaction is measured from here. The
               // page may change between characters, so each one repeats the checks.

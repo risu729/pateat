@@ -304,6 +304,40 @@ export const en = {
     "Pateat: {{count}} accounts match this page. Click to choose one.",
   "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait up to 10 minutes and reload this page, to log in here.":
     "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait up to 10 minutes and reload this page, to log in here.",
+  "This page asks for {{detail}}.": "This page asks for {{detail}}.",
+  Fill: "Fill",
+  Remove: "Remove",
+  "Personal details Pateat fills on this site": "Personal details Pateat fills on this site",
+  "Filled from {{field}}": "Filled from {{field}}",
+  "Filled from {{field}} (not saved yet)": "Filled from {{field}} (not saved yet)",
+  "Remove the link for {{detail}}": "Remove the link for {{detail}}",
+  "Filling…": "Filling…",
+  "Filled. Check it and submit the form; Pateat saves this choice once you are signed in.":
+    "Filled. Check it and submit the form; Pateat saves this choice once you are signed in.",
+  "Nothing was filled. Reopen this popup and try again.":
+    "Nothing was filled. Reopen this popup and try again.",
+  "Removing…": "Removing…",
+  "Removed. Pateat no longer fills {{detail}} on this site.":
+    "Removed. Pateat no longer fills {{detail}} on this site.",
+  "This link was already removed.": "This link was already removed.",
+  "The link could not be removed. Reopen this popup and try again.":
+    "The link could not be removed. Reopen this popup and try again.",
+  "The link may not have been removed. Reopen this popup to see the links.":
+    "The link may not have been removed. Reopen this popup to see the links.",
+  "your birth year and month": "your birth year and month",
+  "your birth month and day": "your birth month and day",
+  "your birth date": "your birth date",
+  "the last 4 digits of your phone number": "the last 4 digits of your phone number",
+  "the last 4 digits of your card number": "the last 4 digits of your card number",
+  "your card's security code": "your card's security code",
+  "The page changed, so nothing was filled.": "The page changed, so nothing was filled.",
+  "This page no longer asks for it.": "This page no longer asks for it.",
+  "That field does not hold a value Pateat can use here.":
+    "That field does not hold a value Pateat can use here.",
+  "Pateat cannot read that field now. Unlock the vault and try again.":
+    "Pateat cannot read that field now. Unlock the vault and try again.",
+  "The page did not accept the value.": "The page did not accept the value.",
+  "ID {{id}}": "ID {{id}}",
   vaultsLocked_one: "{{count}} vault is locked, so its logins and passkeys wait.",
   vaultsLocked_other: "{{count}} vaults are locked, so their logins and passkeys wait.",
   "Unlock in settings": "Unlock in settings",

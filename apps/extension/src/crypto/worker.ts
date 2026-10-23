@@ -203,6 +203,9 @@ async function execute(command: HostCommand) {
           id: String(checked.data.id),
           label: vaultDisplayLabel(checked.data.name, String(checked.data.id)),
           type: checked.data.type as 1 | 2 | 3 | 4,
+          ...(checked.data.deletedDate || checked.data.archivedDate
+            ? { inactive: true as const }
+            : {}),
           groupIds: [
             ...new Set([
               ...(checked.data.folderId ? [String(checked.data.folderId)] : []),
