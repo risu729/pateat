@@ -118,7 +118,7 @@ export const loginLabelTargetSchema = v.strictObject({
  * matches them, or a link to a fragment of its own document that opens in the same tab
  * and downloads nothing (`<a href="#">`); fields never match. It names a `password`
  * handler's button, such as `<a href="#" aria-label="Select Password.">Select</a>` beside
- * another "Select" for a phone, or a route step's click on a login form's button (proposed
+ * another "Select" for a phone, or a route step's click on a login form's button (ADR 0048
  * amendment of 2026-10-23), such as an `<input type="submit">` without a `value` labelled
  * by the text beside it, when no `id`, `name`, `data-testid` or unique text names it; a
  * route step's click never presses a fragment link by it. Wait and assert steps, the
@@ -606,7 +606,7 @@ export const loginRecipeSchema = v.pipe(
     "A password handler's button is a route step target",
   ),
   // A control named by its accessible name is only ever a `password` handler's button
-  // (ADR 0048 amendment of 2026-10-19) or a route step's click (proposed amendment of
+  // (ADR 0048 amendment of 2026-10-19) or a route step's click (ADR 0048 amendment of
   // 2026-10-23), never another element the executor presses or checks.
   v.check(
     (recipe) =>
@@ -840,7 +840,7 @@ export const isLoginTarget = (target: LoginMarkerTarget): target is LoginTarget 
  * Whether a locator may name any route step's element, or a handler's other than a
  * `password` handler's button: neither a link's path (ADR 0029) nor an accessible name
  * (ADR 0048 amendment of 2026-10-19), which a route step's click alone may also use
- * (proposed amendment of 2026-10-23).
+ * (ADR 0048 amendment of 2026-10-23).
  */
 export const isStepTarget = (
   target: LoginMarkerTarget,

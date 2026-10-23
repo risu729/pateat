@@ -294,7 +294,7 @@ describe("controlName", () => {
     ]);
   });
 
-  it("reads a label hidden only by its own aria-hidden (proposed ADR 0048 amendment, 2026-10-23)", () => {
+  it("reads a label hidden only by its own aria-hidden (ADR 0048 amendment of 2026-10-23)", () => {
     document.body.innerHTML = `<input id="a" type="submit" aria-labelledby="t1">
       <span id="t1" aria-hidden="true">次に進む<span aria-hidden="true">spinner</span></span>
       <button id="b" aria-labelledby="t2" aria-label="Fallback"></button>

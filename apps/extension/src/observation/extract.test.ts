@@ -441,7 +441,7 @@ describe("extractLoginObservation", () => {
       { by: "text", value: "Sign in" },
     ]);
     // With no other locator the ID is still used, so the form stays complete; a button
-    // named by its accessible name takes that name first (proposed ADR 0048 amendment of
+    // named by its accessible name takes that name first (ADR 0048 amendment of
     // 2026-10-23).
     page(
       `<form><input id="mantine-ypxwydcwg"><input id="mantine-r5" type="password">
@@ -473,7 +473,7 @@ describe("extractLoginObservation", () => {
       { by: "text", value: "Sign in" },
     ]);
     // With no other locator the ID is still used, so the form stays complete; a button
-    // named by its accessible name takes that name first (proposed ADR 0048 amendment of
+    // named by its accessible name takes that name first (ADR 0048 amendment of
     // 2026-10-23).
     page(
       `<form><input id="mantine-4p5f7ku4o"><input id="mantine-7pri31duh" type="password">
@@ -1405,7 +1405,7 @@ describe("extractLoginObservation", () => {
       expect(gap(html, shadow), html).toEqual([false, expected]);
   });
 
-  it("names a login form's button by its accessible name when nothing else does (proposed ADR 0048 amendment, 2026-10-23)", () => {
+  it("names a login form's button by its accessible name when nothing else does (ADR 0048 amendment of 2026-10-23)", () => {
     // A submit input without a value, laid over the text that labels it (Amazon.co.jp,
     // 2026-10-23).
     const submit = (label: string, extra = "") =>

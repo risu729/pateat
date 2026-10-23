@@ -1150,7 +1150,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         } else {
           // A control named by its accessible name may be a link to a fragment of the page
           // only as a `password` handler's button (ADR 0048 amendment of 2026-10-19); a route
-          // step's click by that name presses a native button alone (proposed amendment of
+          // step's click by that name presses a native button alone (ADR 0048 amendment of
           // 2026-10-23).
           const named = step.target.by === "accessible-name";
           const fragment = named && command.passwordChoice === true;

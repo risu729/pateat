@@ -81,7 +81,7 @@ describe("an accessible-name locator (ADR 0048 amendments)", () => {
     { slot: "password", candidate: "password" },
   ];
 
-  it("names the plan's click (proposed amendment of 2026-10-23)", () => {
+  it("names the plan's click (ADR 0048 amendment of 2026-10-23)", () => {
     const result = validatePagePlan(page, slots, { fields, action });
     if (!result.ok) throw new Error(result.reason);
     expect(result.plan.steps.at(-1)).toEqual({

@@ -13,9 +13,9 @@ kind, what the judge may name, and the order of handlers shown together) and
 Amended on 2026-10-19 by the owner (01:26 UTC, option A1): the handler's button may be
 named by its accessible name, and the Context's "Password" and "Mobile" buttons are
 corrected ([amendment](#amendment-controls-told-apart-by-their-accessible-names)).
-A second amendment, proposed on 2026-10-23 and not yet accepted by the owner, lets a
-route step's click name a login form's button by its accessible name
-([proposed amendment](#proposed-amendment-a-login-forms-button-named-only-by-its-accessible-name)).
+Amended again on 2026-10-23 by the owner (11:52 UTC, option A): a route step's click
+may name a login form's button by its accessible name
+([amendment](#amendment-a-login-forms-button-named-only-by-its-accessible-name)).
 
 Date: 2026-10-18
 
@@ -344,11 +344,14 @@ chose, likewise unconfirmed:
 - **C. Keep it as is.** The login stops there with the yellow "!", and the owner presses
   "Select" and types the password.
 
-## Proposed amendment: a login form's button named only by its accessible name
+## Amendment: a login form's button named only by its accessible name
 
-Status: proposed on 2026-10-23 by Claude, not yet accepted by the owner. The owner said
-on 2026-10-23 at 05:28 UTC to go ahead with such fixes on an assumed decision and judge
-them afterwards; the pull request that brings it stays unmerged until the owner decides.
+Accepted by the owner on 2026-10-23 at 11:52 UTC, on a decision card that chose option
+A, 「採用 (#882 をマージ)」, over B (a new locator for the form's submit button) and C
+(keep it as is). Claude proposed it after the owner said on 2026-10-23 at 05:28 UTC to
+go ahead with such fixes on an assumed decision and judge them afterwards; another AI
+reviewed the design and the code before the owner was asked. Implemented (local tests
+and a live extraction of the page; not yet a real sign-in).
 
 ### Context
 
@@ -371,7 +374,7 @@ extension from reading the name at all. The official Bitwarden extension stores 
 locator; its auto-submit clicks the form's `[type="submit"]` element
 (`apps/browser/src/autofill/content/auto-submit-login.ts`).
 
-### Decision (proposed)
+### Decision
 
 1. **Where.** A route step's `click` (purpose `advance` or `submit`), in any password
    variant, may name its button by its accessible name. Wait and assert steps, the
@@ -405,7 +408,7 @@ locator; its auto-submit clicks the form's `[type="submit"]` element
 5. **The service** accepts such a recipe and such a plan's click; the generation
    instructions are unchanged, so no page is generated again because of this change.
 
-### Consequences (proposed)
+### Consequences
 
 - Amazon.co.jp's sign-in page is described as complete, and its identifier step can be
   generated with `{ "by": "accessible-name", "value": "次に進む" }` as its `advance`.

@@ -611,7 +611,7 @@ export function isNamedControl(element: Element): element is HTMLElement {
  * The accessible name an `{ by: "accessible-name" }` locator compares (ADR 0048 amendment
  * of 2026-10-19): for a shown {@link isNamedControl}, the rendered text of the elements
  * its `aria-labelledby` names, each read even when its own `aria-hidden` hides it from
- * assistive technology (proposed amendment of 2026-10-23), else its `aria-label`, the first that is not empty,
+ * assistive technology (ADR 0048 amendment of 2026-10-23), else its `aria-label`, the first that is not empty,
  * collapsed. A control that is not shown, or whose first name is longer than 120 code
  * units, has none; a later source is never tried in its place. Its visible text, an
  * image's `alt` and its `title` are not its name here.

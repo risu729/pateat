@@ -353,7 +353,7 @@ export function validatePagePlan(
   if (plan.fields.length === 0) return { ok: false, reason: "empty-plan" };
   // A link named by its path is only ever a signed-in marker (ADR 0029), and a button named
   // by its accessible name only a `password` handler's (ADR 0048) or the plan's click
-  // (proposed amendment of 2026-10-23), never a field or the account switch.
+  // (ADR 0048 amendment of 2026-10-23), never a field or the account switch.
   const candidates = new Map(
     observation.candidates.flatMap(({ target, ...candidate }) =>
       isLoginTarget(target) ? [[candidate.id, { ...candidate, target }] as const] : [],

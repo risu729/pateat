@@ -2280,10 +2280,9 @@ outside an `<a href>`) or a fragment link (below); other links, fields and other
 never count. Role and script buttons count anywhere on the page, not only inside a
 login form. The name is the rendered text of the elements its `aria-labelledby` names,
 else its `aria-label`, collapsed as button text is; one over 120 characters gives none.
-A labelling element's own `aria-hidden="true"` does not hide its text here (proposed,
-below).
+A labelling element's own `aria-hidden="true"` does not hide its text here (below).
 It is counted apart from a field's visible name. The contract refuses it everywhere
-else, apart from a route step's click (proposed, below): other route steps,
+else, apart from a route step's click (below): other route steps,
 `passkey` and `totp` handlers, signed-in markers and their `absent` elements, the
 rejection, an account switch, a passkey route, a sign-in entry and a list of accounts.
 For the handler, the extractor offers it only in a description sent to the judge, for a
@@ -2303,8 +2302,8 @@ describes it as a button. Everywhere else such a link stays a link (option A2, w
 would have counted it as a button on every page, was not chosen). UniSuper's choice of
 how to verify shows its two controls this way (2026-10-18).
 
-Proposed on 2026-10-23 and not yet accepted by the owner
-([ADR 0048's proposed amendment](adr/0048-password-method-button.md#proposed-amendment-a-login-forms-button-named-only-by-its-accessible-name)),
+Since the owner's decision of 2026-10-23 11:52 UTC
+([ADR 0048's second amendment](adr/0048-password-method-button.md#amendment-a-login-forms-button-named-only-by-its-accessible-name)),
 a route step's click may also name its button so: the extractor gives a login page's
 login-form native button (a `<button>`, or an `<input>` of type `submit`, `button` or
 `image`) that no `id`, `name`, `data-testid` or text locator names alone its

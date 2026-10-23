@@ -625,7 +625,7 @@ function passwordChoiceTarget(element: Element, index: LocatorIndex): LoginTarge
 
 /**
  * The accessible-name locator of a login form's native button that no other locator names
- * alone (proposed amendment of ADR 0048, 2026-10-23), such as an `<input type="submit">`
+ * alone (ADR 0048 amendment of 2026-10-23), such as an `<input type="submit">`
  * without a `value` labelled by the text it shows: its {@link controlName}, when exactly
  * one shown control of the page has that name, counted as the executor sees the page, it
  * holds no number and redaction leaves it unchanged, as a field's visible name (ADR 0037).
@@ -1364,7 +1364,7 @@ export function extractLoginObservation(
   // search form beside the login form names none.
   let unlocated = false;
   // A login form's native button that nothing else names alone is named by its accessible
-  // name, which a route step's click may press (proposed amendment of ADR 0048, 2026-10-23).
+  // name, which a route step's click may press (ADR 0048 amendment of 2026-10-23).
   const located = (
     entries: typeof required,
     { optional = false, near = false, names = false } = {},

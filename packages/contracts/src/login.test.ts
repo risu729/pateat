@@ -725,7 +725,7 @@ describe("second-factor page handlers (ADR 0027)", () => {
           );
       });
 
-      it("names a route step's click (proposed amendment of 2026-10-23)", () => {
+      it("names a route step's click (ADR 0048 amendment of 2026-10-23)", () => {
         const base = recipe();
         const next = { by: "accessible-name", value: "次に進む" } as const;
         const steps = base.steps.map((step, index) =>
