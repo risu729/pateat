@@ -33667,6 +33667,19 @@ describe("pausing automatic login of a site (ADR 0062)", () => {
     expect(fake.state.session[PAUSES]).toEqual(before);
   });
 
+  it("tells the popup a site's timed pause from the tab alone, without the page status", async () => {
+    const { h } = paused();
+    fake.state.openTabs = [1];
+    const state = () => h.login.handle({ version: 1, type: "login.pause.get", tabId: 1 }, popup);
+    expect(await state()).toEqual({ ok: true });
+    const { until } = (await setPause(h, true, 1, "10m")) as { ok: true; until: number };
+    expect(await state()).toEqual({ ok: true, until });
+    await setPause(h, false);
+    expect(await state()).toEqual({ ok: true });
+    fake.state.tabUrls[1] = "chrome://newtab/";
+    expect(await state()).toEqual({ ok: false, reason: "no-site" });
+  });
+
   it("has no site to pause on a page that is not a website", async () => {
     const { h } = paused();
     fake.state.tabUrls[1] = "chrome://newtab/";

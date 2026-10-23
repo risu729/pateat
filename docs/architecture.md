@@ -623,8 +623,9 @@ to reopen it a little later, while the worker finishes the search, and the saved
 shows by its saved labels. Under the header, a "This page" section
 (its status and log link shown unless the synced `popupPageSection` setting is `false`,
 set by the settings page's **Show "This page" in the popup** checkbox under the Theme
-select, while the personal details a page asks for still show; the account switch and a
-timed pause read the status, so they are not offered while it is hidden;
+select, while the personal details a page asks for and the pause row, which then asks
+for the site's pause alone with `login.pause.get`, still show and the account switch is
+hidden with the section;
 [ADR 0038](adr/0038-login-status-badge.md#popup) and its 2026-10-23 amendment;
 `apps/extension/src/popup/page-status.tsx`) asks the worker every second with
 `login.status.get` and says whether the site has a recipe that starts on the page (a

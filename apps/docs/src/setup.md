@@ -165,7 +165,7 @@ describes; without either, the service still keeps the description it received.
 
 The toolbar popup shows what Pateat did on the current page, unless you uncheck
 **Show "This page" in the popup** on the settings page, which also hides
-**Switch account** and the timed pauses. It also lets you choose the
+**Switch account**; the pause stays. It also lets you choose the
 account to log in with when several match, pause automatic login on the site for
 **10 minutes**, **1 hour** or **Until turned back on** (**Resume** ends the pause), turn
 **Ask for the master password** on for a site, and, when a page asks for a personal

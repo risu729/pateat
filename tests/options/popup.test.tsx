@@ -80,6 +80,7 @@ function noChoice() {
     status: vi.fn<ChoiceClient["status"]>().mockResolvedValue({ ok: false, reason: "no-page" }),
     switchTo: vi.fn<ChoiceClient["switchTo"]>().mockResolvedValue({ ok: true }),
     pause: vi.fn<ChoiceClient["pause"]>().mockResolvedValue({ ok: true }),
+    pauseState: vi.fn<ChoiceClient["pauseState"]>().mockResolvedValue({ ok: true }),
     reprompt: vi.fn<ChoiceClient["reprompt"]>(),
   };
 }
@@ -1782,6 +1783,47 @@ test("a site Pateat logs in to by itself can be paused for 10 minutes or an hour
   };
   await pauseFor("10 minutes", "10m", "for 10 minutes");
   await pauseFor("1 hour", "1h", "for an hour");
+});
+
+test("settings that hide the page section keep the pause row, read from the pause alone (ADR 0062)", async () => {
+  const hidden = { ...createDefaultSettings(), popupPageSection: false };
+  const { client, current } = store(saved(0, hidden));
+  const choices = onPage({
+    recipe: "page",
+    used: { connectionId: "demo-personal", itemId: "primary" },
+  });
+  let until = 0;
+  choices.pause.mockImplementation(async (_tabId, change) => {
+    until = change.paused ? Date.now() + 10 * 60_000 : 0;
+    choices.pauseState.mockResolvedValue(change.paused ? { ok: true, until } : { ok: true });
+    return change.paused ? { ok: true, until } : { ok: true };
+  });
+  await mount(client, "https://bank.example/home", choices);
+  const row = page.getByRole("group", { name: "Pause automatic login" });
+  await expect.element(row).toBeVisible();
+  await Promise.all(
+    ["10 minutes", "1 hour", "Until turned back on"].map((length) =>
+      expect.element(row.getByRole("button", { name: length })).toBeVisible(),
+    ),
+  );
+  // Switch account belongs to the hidden section, which reads the page status.
+  expect(page.getByRole("heading", { name: "Switch account" }).query()).toBeNull();
+  await userEvent.click(row.getByRole("button", { name: "10 minutes" }));
+  expect(choices.pause).toHaveBeenLastCalledWith(7, { paused: true, length: "10m" });
+  const clock = new Date(until).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  await expect.element(page.getByText(`Paused until ${clock}`, { exact: true })).toBeVisible();
+  await userEvent.click(page.getByRole("button", { name: "Resume" }));
+  expect(choices.pause).toHaveBeenLastCalledWith(7, { paused: false });
+  await expect.element(page.getByText("Automatic login on this site resumed.")).toBeVisible();
+  await userEvent.click(row.getByRole("button", { name: "Until turned back on" }));
+  await expect
+    .element(page.getByText("Paused until turned back on", { exact: true }))
+    .toBeVisible();
+  expect(current().snapshot.settings.excludedSites).toEqual([
+    { hostname: "bank.example", includeSubdomains: true },
+  ]);
+  expect(choices.pauseState).toHaveBeenCalledWith(7);
+  expect(choices.status).not.toHaveBeenCalled();
 });
 
 test("no pause is offered where nothing matches and the site has no recipe", async () => {

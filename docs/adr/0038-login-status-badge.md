@@ -161,8 +161,9 @@ and does not ask the worker for the page's status; the badge is unchanged. The p
 details a page asks for ([ADR 0061](0061-personal-details-during-a-login.md)) are
 something to do on the page rather than its status, so they still show under the "This
 page" heading. The account switch ([ADR 0063](0063-switch-accounts-from-the-popup.md))
-and a timed pause ([ADR 0062](0062-log-in-again-after-a-logout.md)) read that status, so
-they are not offered while it is hidden; a pause rule's Resume still is. A document
-without the field shows the section. The official extension keeps its popup display
-options on each device
+belongs to the section and is hidden with it. The pause row
+([ADR 0062](0062-log-in-again-after-a-logout.md)) stays: it needs only the tab's site
+and its pause, which the popup asks for alone (`login.pause.get`), so all three lengths
+and Resume are offered. A document without the field shows the section. The official
+extension keeps its popup display options on each device
 ([Bitwarden differences](../bitwarden-differences.md#popup-display)).

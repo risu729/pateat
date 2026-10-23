@@ -207,6 +207,7 @@ import {
   askReasonSchema,
   choiceRequestSchema,
   pauseRequestSchema,
+  pauseStateRequestSchema,
   pickRequestSchema,
   repromptRequestSchema,
   statusRequestSchema,
@@ -3713,6 +3714,20 @@ export function createLoginRuntime(
    * and frames of the site in other tabs, to announce again, so they log in at once.
    * Nothing goes to the service.
    */
+  /**
+   * When the timed pause of the tab's site ends, for the popup's pause row (ADR 0062): read
+   * from the tab's URL and window kind alone, as the row shows while the page section and
+   * its status are hidden.
+   */
+  async function pauseStateFor(tabId: number): Promise<PauseResponse> {
+    await sessionLoaded;
+    const tab = await browser.tabs.get(tabId).catch(() => undefined);
+    const url = tab?.url;
+    if (!url || pauseSite(url) === undefined) return { ok: false, reason: "no-site" };
+    const till = await pausedUntil({ url, incognito: tab.incognito === true });
+    if (till === "unreadable") return { ok: false, reason: "storage-unavailable" };
+    return till === undefined ? { ok: true } : { ok: true, until: till };
+  }
   async function pauseFor(tabId: number, length: PauseLength | undefined): Promise<PauseResponse> {
     const paused = length !== undefined;
     await sessionLoaded;
@@ -14461,6 +14476,8 @@ export function createLoginRuntime(
           pausing.output.tabId,
           pausing.output.paused ? pausing.output.length : undefined,
         );
+      const pauseState = v.safeParse(pauseStateRequestSchema, message);
+      if (pauseState.success) return pauseStateFor(pauseState.output.tabId);
       const asked = v.safeParse(statusRequestSchema, message);
       if (asked.success) return popupStatus(asked.output.tabId);
       const pick = v.safeParse(pickRequestSchema, message);

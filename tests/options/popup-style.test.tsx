@@ -76,6 +76,7 @@ test("long hostnames and usernames wrap inside the 360px popup", async () => {
     }),
     pick: vi.fn<ChoiceClient["pick"]>(),
     pause: vi.fn<ChoiceClient["pause"]>(),
+    pauseState: vi.fn<ChoiceClient["pauseState"]>(),
     status: vi
       .fn<ChoiceClient["status"]>()
       .mockResolvedValue({ ok: true, origin: ORIGIN, recipe: "page" }),
@@ -139,6 +140,7 @@ test("the page section's long log codes wrap inside the 360px popup", async () =
     get: vi.fn<ChoiceClient["get"]>().mockResolvedValue({ ok: false, reason: "no-choice" }),
     pick: vi.fn<ChoiceClient["pick"]>(),
     pause: vi.fn<ChoiceClient["pause"]>(),
+    pauseState: vi.fn<ChoiceClient["pauseState"]>(),
     status: vi.fn<ChoiceClient["status"]>().mockResolvedValue({
       ok: true,
       origin: ORIGIN,
@@ -241,6 +243,7 @@ test("long vault labels of a page's personal details wrap inside the 360px popup
     status: vi.fn<ChoiceClient["status"]>().mockResolvedValue({ ok: false, reason: "no-page" }),
     switchTo: vi.fn<ChoiceClient["switchTo"]>(),
     pause: vi.fn<ChoiceClient["pause"]>(),
+    pauseState: vi.fn<ChoiceClient["pauseState"]>(),
     reprompt: vi.fn<ChoiceClient["reprompt"]>(),
   };
   const source = {
@@ -330,6 +333,7 @@ test("forced colors keep the selected account visible", async () => {
     status: vi.fn<ChoiceClient["status"]>().mockResolvedValue({ ok: false, reason: "no-page" }),
     switchTo: vi.fn<ChoiceClient["switchTo"]>(),
     pause: vi.fn<ChoiceClient["pause"]>(),
+    pauseState: vi.fn<ChoiceClient["pauseState"]>(),
     reprompt: vi.fn<ChoiceClient["reprompt"]>(),
   };
   await render(

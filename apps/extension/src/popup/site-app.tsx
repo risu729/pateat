@@ -633,8 +633,8 @@ export function SiteApp({
   // The settings may hide the section; it waits for them so a hidden one never flashes.
   const pageSectionShown = saved !== undefined && popupPageSectionShown(saved.snapshot.settings);
   // What Pateat did on the page (ADR 0038), read again while the popup is open and shown.
-  // While the settings hide the section it is not asked for, so the account switch and a
-  // timed pause (ADR 0062, ADR 0063), which read it, are not offered either.
+  // While the settings hide the section it is not asked for, so the account switch (ADR
+  // 0063), part of the section, is not offered either.
   const pageStatus = useQuery({
     // Keyed by the choice, so a status read before the section was hidden never shows when
     // it is shown again.
@@ -645,6 +645,25 @@ export function SiteApp({
     staleTime: 0,
     gcTime: 0,
   });
+  // The site's timed pause (ADR 0062) while the page section is hidden: the pause row needs
+  // only the tab's site and its pause, never the page's status.
+  const pauseState = useQuery({
+    queryKey: ["popup", "pause-state", tabId],
+    queryFn: () => choices.pauseState(tabId!),
+    enabled: saved !== undefined && !pageSectionShown && tabId !== undefined && !!origin,
+    refetchInterval: 1000,
+    staleTime: 0,
+    gcTime: 0,
+  });
+  /** Reads the pause again from where the popup shows it: the page status, or the pause alone. */
+  const refreshPause = () => (pageSectionShown ? pageStatus.refetch() : pauseState.refetch());
+  const timedPause = pageSectionShown
+    ? pageStatus.data?.ok && pageStatus.data.origin === origin
+      ? pageStatus.data.pause?.until
+      : undefined
+    : pauseState.data?.ok
+      ? pauseState.data.until
+      : undefined;
   // The personal details the page asks for and the site's links (ADR 0061), read again
   // while the popup is open, since the login may stop at the page after it opened.
   const pageDetails = useQuery({
@@ -831,7 +850,7 @@ export function SiteApp({
       // The page section follows the switch from here.
       if (response.ok) setNotice({ tone: "success" });
       else say((translate) => switchRefusal(response.reason, selected.name, translate), "error");
-      await pageStatus.refetch();
+      await refreshPause();
     } catch {
       say(
         (translate) =>
@@ -858,7 +877,7 @@ export function SiteApp({
           (translate) => translate("Automatic login on this site is paused until turned back on."),
         ))
       )
-        void pageStatus.refetch();
+        void refreshPause();
       return;
     }
     // Resume removes the site's own rule first; a pause of a length then ends too.
@@ -867,8 +886,8 @@ export function SiteApp({
         (value) => rules.resume(value),
         (translate) => translate("Automatic login on this site resumed."),
       );
-      if (!removed || !pageStatus.data?.ok || pageStatus.data.pause === undefined) {
-        void pageStatus.refetch();
+      if (!removed || timedPause === undefined) {
+        void refreshPause();
         return;
       }
     }
@@ -888,7 +907,7 @@ export function SiteApp({
               : translate("Automatic login on this site resumed."),
           "success",
         );
-        await pageStatus.refetch();
+        await refreshPause();
         if (choice.isEnabled) void choice.refetch();
       } else
         say(
@@ -1289,10 +1308,16 @@ export function SiteApp({
         ? { kind: "shared", rules: rules.shared }
         : rules.rules.length
           ? { kind: "rule" }
-          : status?.pause
-            ? { kind: "until", until: status.pause.until }
+          : timedPause !== undefined
+            ? { kind: "until", until: timedPause }
             : { kind: "running" };
-    if (pauseShown(status, Boolean(found?.accounts.length), inPrivate || rules.rules.length > 0))
+    // With the page section hidden, any tab with a site to pause shows the row.
+    const ruled = inPrivate || rules.rules.length > 0;
+    if (
+      pageSectionShown
+        ? pauseShown(status, Boolean(found?.accounts.length), ruled)
+        : ruled || pauseState.data?.ok === true
+    )
       pauseControl = (
         <PauseControl
           pause={pause}

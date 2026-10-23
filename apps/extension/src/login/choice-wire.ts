@@ -392,6 +392,15 @@ export const pauseRequestSchema = v.variant("paused", [
     paused: v.literal(false),
   }),
 ]);
+/**
+ * The popup asks whether the tab's site has a timed pause (ADR 0062), as the page status
+ * says, also while the settings hide the page section and its status is never asked for.
+ */
+export const pauseStateRequestSchema = v.strictObject({
+  version: v.literal(1),
+  type: v.literal("login.pause.get"),
+  tabId,
+});
 /** What the popup asks for: a pause of a chosen length, or its end. */
 export type PauseChange = { paused: true; length: PauseLength } | { paused: false };
 export const pauseResponseSchema = v.variant("ok", [
@@ -418,6 +427,8 @@ export interface ChoiceClient {
   switchTo(request: SwitchRequest): Promise<SwitchResponse>;
   /** Pauses automatic login of the tab's site, or resumes it (ADR 0062). */
   pause(tabId: number, change: PauseChange): Promise<PauseResponse>;
+  /** When the tab's site's timed pause ends, if it has one (ADR 0062). */
+  pauseState(tabId: number): Promise<PauseResponse>;
   /** Opens the master password window again for the tab's waiting login. */
   reprompt(tabId: number): Promise<RepromptResponse>;
 }
@@ -449,6 +460,8 @@ export function createChoiceClient(send: (message: unknown) => Promise<unknown>)
         pauseResponseSchema,
         await send({ version: 1, type: "login.pause.set", tabId: tab, ...change }),
       ),
+    pauseState: async (tab) =>
+      v.parse(pauseResponseSchema, await send({ version: 1, type: "login.pause.get", tabId: tab })),
     reprompt: async (tab) =>
       v.parse(
         repromptResponseSchema,
