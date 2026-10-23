@@ -3,7 +3,7 @@
 
 import { gap } from "./enter-value";
 import { focusElement } from "./focus";
-import { keypadKeys, keysFor, pressable } from "./keypad";
+import { keyLabel, keypadCovers, keypadOpen, keysFor, pressable } from "./keypad";
 import { pressElement } from "./script-url-click";
 
 /** How long a keypad that opens when its field is pressed may take to show its keys. */
@@ -35,8 +35,11 @@ const valueProperty = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype
  * hold one more character, masked or not, else the typing stops as `refused`: a keypad
  * that ignored the press, as one that checks `isTrusted` would, or that keeps the value
  * elsewhere, is never submitted with a value Pateat cannot see. Nothing is ever pressed
- * again after a stop. `between` runs after each wait, as `typeValue`'s does. Resolves to the
- * cause when the typing stopped, else `undefined`.
+ * again after a stop. Each press stops before its click when the key no longer shows its
+ * character or cannot be pressed, as a keypad that relabels its keys on `pointerdown`.
+ * `between` runs after each wait, as `typeValue`'s does, and `onPress` after each press
+ * that reached its key's `pointerdown`. Resolves to the cause when the typing stopped,
+ * else `undefined`.
  */
 export async function typeOnKeypad<Cause extends string>(
   input: HTMLInputElement,
@@ -44,13 +47,18 @@ export async function typeOnKeypad<Cause extends string>(
   container: Element,
   {
     between,
+    onPress,
     openMs = KEYPAD_OPEN_MS,
-  }: { between?: (() => Cause | undefined) | undefined; openMs?: number } = {},
+  }: {
+    between?: (() => Cause | undefined) | undefined;
+    onPress?: () => void;
+    openMs?: number;
+  } = {},
 ): Promise<Cause | KeypadStop | undefined> {
   const current = () => (valueProperty?.get ? valueProperty.get.call(input) : input.value);
   if (current() !== "") return "refused";
   const characters = [...value];
-  const open = () => keypadKeys(container).some(pressable);
+  const open = () => keypadOpen(container);
   focusElement(input);
   if (!open()) {
     const pressed = await pressElement(input, () => between?.() === undefined);
@@ -66,13 +74,18 @@ export async function typeOnKeypad<Cause extends string>(
     }
     if (!open()) return "keypad-closed";
   }
-  if (characters.some((character) => keysFor(container, character).length !== 1))
-    return "key-missing";
+  if (!keypadCovers(container, value)) return "key-missing";
   for (const [index, character] of characters.entries()) {
     const keys = keysFor(container, character);
     if (keys.length !== 1) return "key-missing";
+    const key = keys[0]!;
     // eslint-disable-next-line no-await-in-loop
-    const pressed = await pressElement(keys[0]!, () => between?.() === undefined);
+    const pressed = await pressElement(
+      key,
+      () => between?.() === undefined && keyLabel(key) === character && pressable(key),
+    );
+    // A press stopped after `pointerdown` may have typed already.
+    if (pressed !== "missed") onPress?.();
     const cause = between?.();
     if (cause) return cause;
     if (pressed !== "clicked") return "refused";

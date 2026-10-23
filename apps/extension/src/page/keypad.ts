@@ -96,25 +96,73 @@ export function pressable(key: HTMLElement): boolean {
   );
 }
 
-/** The keys in `container` a person can press now that type `character`. */
+/**
+ * The keys in `container` a person can press now that type `character`. Only key labels
+ * are folded: a value's own full-width character, such as `Ａ` in a stored password, is
+ * another character than the `A` a key types, so it has no key.
+ */
 export function keysFor(container: Element, character: string): HTMLElement[] {
-  const wanted = widthFolded(character);
-  return keypadKeys(container).filter((key) => keyLabel(key) === wanted && pressable(key));
+  if (widthFolded(character) !== character) return [];
+  return keypadKeys(container).filter((key) => keyLabel(key) === character && pressable(key));
 }
+
+/** Whether the keypad in `container` shows a key a person can press now. */
+export function keypadOpen(container: Element): boolean {
+  return keypadKeys(container).some(pressable);
+}
+
+/** Whether every character of `value` has exactly one key in `container` a person can press now. */
+export function keypadCovers(container: Element, value: string): boolean {
+  return [...value].every((character) => keysFor(container, character).length === 1);
+}
+
+const keypadDigits = [..."0123456789"];
 
 /**
  * The page's keypad, for the observation: the nearest element that holds every key of the
- * document, when there are at least {@link KEYPAD_MIN_KEYS} and that element is neither the
- * body nor the root. A single-character control elsewhere on the page, such as a "?" help
- * button, therefore makes the page have no keypad, which leaves it to the person as before.
+ * document, when there are at least {@link KEYPAD_MIN_KEYS}, they include a key for each
+ * of the ten digits, and that element is neither the body nor the root. Requiring every
+ * digit leaves out a date picker (`1` to `31`), pagination and an `A`-`Z` index of links.
+ * A single-character control elsewhere on the page, such as a "?" help button, makes the
+ * page have no keypad, which leaves it to the person as before.
  */
 export function findKeypad(document: Document): Element | undefined {
   const keys = keypadKeys(document);
   if (keys.length < KEYPAD_MIN_KEYS) return undefined;
+  const labels = new Set(keys.map(keyLabel));
+  if (!keypadDigits.every((digit) => labels.has(digit))) return undefined;
   let container = keys[0]!.parentElement;
   while (container && !keys.every((key) => container!.contains(key)))
     container = container.parentElement;
   return container && container !== document.body && container !== document.documentElement
     ? container
     : undefined;
+}
+
+/**
+ * Whether the keypad in `container` belongs to `field`: the field's form holds it, or the
+ * nearest element that holds both the field and the keypad is neither the body nor the
+ * root, as a keypad drawn beside its form in one login box.
+ */
+export function besideKeypad(container: Element, field: HTMLInputElement): boolean {
+  const { body, documentElement } = field.ownerDocument;
+  let common: Element | null = field.form ?? field;
+  while (common && !common.contains(container)) common = common.parentElement;
+  return common !== null && common !== body && common !== documentElement;
+}
+
+/**
+ * Whether `field` is entered on the page's keypad in `container` (`findKeypad`): an
+ * enabled, empty read-only input beside it (`besideKeypad`). A read-only field that holds
+ * a value, as an email address shown again or a picked date, is not; whether it shows is
+ * the caller's check.
+ */
+export function keypadField(field: HTMLInputElement, container: Element | undefined): boolean {
+  return (
+    container !== undefined &&
+    field.readOnly &&
+    !field.disabled &&
+    field.value === "" &&
+    besideKeypad(container, field)
+  );
 }

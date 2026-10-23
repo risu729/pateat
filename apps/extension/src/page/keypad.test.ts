@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { findKeypad, keyLabel, keypadKeys, keysFor } from "./keypad";
+import {
+  besideKeypad,
+  findKeypad,
+  keyLabel,
+  keypadCovers,
+  keypadField,
+  keypadKeys,
+  keysFor,
+} from "./keypad";
 import { typeOnKeypad } from "./keypad-typing";
 
 afterEach(() => {
@@ -20,7 +28,8 @@ function keypadPage({
   characters = digits,
   open = true,
   mask = true,
-}: { characters?: readonly string[]; open?: boolean; mask?: boolean } = {}) {
+  perPress = 1,
+}: { characters?: readonly string[]; open?: boolean; mask?: boolean; perPress?: number } = {}) {
   document.body.innerHTML = `<form><input id="pin" type="password" readonly>${pad(characters, open ? "" : "hidden")}</form>`;
   const input = document.querySelector<HTMLInputElement>("#pin")!;
   const keypad = document.querySelector<HTMLElement>("#pad")!;
@@ -37,7 +46,7 @@ function keypadPage({
     if (!key || key !== armed) return;
     armed = null;
     typed.push(key.textContent!);
-    if (mask) input.value = "*".repeat(typed.length);
+    if (mask) input.value = "*".repeat(typed.length * perPress);
     // Shuffle by rotating the keys, so each character moves to another key.
     keypad.append(keypad.firstElementChild!);
   });
@@ -99,8 +108,20 @@ describe("keypadKeys and keysFor", () => {
     expect(keysFor(keypad, "3")).toEqual([]);
     // Two keys for one character: the caller refuses it.
     expect(keysFor(keypad, "4")).toHaveLength(2);
-    // Case is kept, and a full-width character asks for the same key.
-    expect(keysFor(keypad, "１")).toHaveLength(1);
+    // Only the key's label is folded: a full-width character of the value has no key.
+    expect(keysFor(keypad, "１")).toEqual([]);
+    expect(keypadCovers(keypad, "1")).toBe(true);
+    expect(keypadCovers(keypad, "14")).toBe(false);
+  });
+
+  it("folds a key's full-width label but never the value", () => {
+    document.body.innerHTML = `<div id="pad"><input type="button" value="Ａ"><input type="button" value="１"></div>`;
+    const keypad = document.getElementById("pad")!;
+    expect(keysFor(keypad, "A")).toHaveLength(1);
+    expect(keysFor(keypad, "1")).toHaveLength(1);
+    expect(keysFor(keypad, "Ａ")).toEqual([]);
+    expect(keypadCovers(keypad, "A1")).toBe(true);
+    expect(keypadCovers(keypad, "Ａ1")).toBe(false);
   });
 });
 
@@ -119,6 +140,47 @@ describe("findKeypad", () => {
     document.body.innerHTML = `${pad(digits)}<button>?</button>`;
     expect(findKeypad(document)).toBeUndefined();
   });
+
+  it("finds none without a key for each of the ten digits: a date picker, pages or an A-Z index", () => {
+    const days = Array.from({ length: 31 }, (_, day) => String(day + 1));
+    const letters = [..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"];
+    for (const keys of [days, letters, [...digits.slice(1), ...letters]]) {
+      document.body.innerHTML = `<main>${pad(keys)}</main>`;
+      expect(findKeypad(document), keys.join("")).toBeUndefined();
+    }
+    document.body.innerHTML = `<main>${pad([...letters, ...digits])}</main>`;
+    expect(findKeypad(document)).toBe(document.getElementById("pad"));
+  });
+});
+
+describe("besideKeypad and keypadField", () => {
+  it("takes a keypad in the field's form or in one box with it, never one only the body holds", () => {
+    document.body.innerHTML = `<main><section><form><input id="in-form" type="password" readonly>${pad(digits)}</form></section></main>`;
+    const keypad = document.getElementById("pad")!;
+    const field = () => document.querySelector<HTMLInputElement>("input")!;
+    expect(besideKeypad(keypad, field())).toBe(true);
+    document.body.innerHTML = `<main><form><input type="password" readonly></form>${pad(digits)}</main>`;
+    expect(besideKeypad(document.getElementById("pad")!, field())).toBe(true);
+    document.body.innerHTML = `<form><input type="password" readonly></form>${pad(digits)}`;
+    expect(besideKeypad(document.getElementById("pad")!, field())).toBe(false);
+  });
+
+  it("is an empty, enabled read-only field beside the keypad only", () => {
+    document.body.innerHTML = `<form><input id="pin" type="password" readonly>
+      <input id="email" readonly value="me@example.com"><input id="date" type="text" readonly value="2026-10-23">
+      <input id="off" type="password" readonly disabled><input id="open" type="password">${pad(digits)}</form>`;
+    const keypad = findKeypad(document);
+    const field = (id: string) =>
+      keypadField(document.querySelector<HTMLInputElement>(`#${id}`)!, keypad);
+    expect(["pin", "email", "date", "off", "open"].map(field)).toEqual([
+      true,
+      false,
+      false,
+      false,
+      false,
+    ]);
+    expect(keypadField(document.querySelector<HTMLInputElement>("#pin")!, undefined)).toBe(false);
+  });
 });
 
 describe("typeOnKeypad", () => {
@@ -128,6 +190,15 @@ describe("typeOnKeypad", () => {
     await expect(typeOnKeypad(input, "4071", keypad)).resolves.toBeUndefined();
     expect(typed).toEqual(["4", "0", "7", "1"]);
     expect(input.value).toBe("****");
+  });
+
+  it("presses nothing for a full-width character of the value, though the keys show full-width labels", async () => {
+    const { input, typed } = keypadPage({ characters: [..."０１２３４５６７８９"] });
+    const keypad = document.getElementById("pad")!;
+    await expect(typeOnKeypad(input, "1２", keypad)).resolves.toBe("key-missing");
+    expect(typed).toEqual([]);
+    await expect(typeOnKeypad(input, "12", keypad)).resolves.toBeUndefined();
+    expect(typed).toEqual(["１", "２"]);
   });
 
   it("presses nothing when a character has no key, or the field already holds characters", async () => {
@@ -156,6 +227,38 @@ describe("typeOnKeypad", () => {
     expect(typed).toEqual(["1"]);
   });
 
+  it("stops after the first press when the field grows by more than one character", async () => {
+    const { input, typed } = keypadPage({ perPress: 2 });
+    await expect(typeOnKeypad(input, "123", document.getElementById("pad")!)).resolves.toBe(
+      "refused",
+    );
+    expect(typed).toEqual(["1"]);
+  });
+
+  it("never clicks a key the page relabels as it is pressed", async () => {
+    const { input, keypad, typed } = keypadPage();
+    // On `mousedown`, the key for 1 shows 9 instead and 9's key shows 1.
+    keypad.addEventListener("mousedown", (event) => {
+      const key = (event.target as Element).closest(".key");
+      if (key?.textContent !== "1") return;
+      const other = [...keypad.querySelectorAll(".key")].find((each) => each.textContent === "9")!;
+      key.textContent = "9";
+      other.textContent = "1";
+    });
+    let presses = 0;
+    await expect(
+      typeOnKeypad(input, "12", keypad, {
+        onPress: () => {
+          presses += 1;
+        },
+      }),
+    ).resolves.toBe("refused");
+    expect(typed).toEqual([]);
+    expect(input.value).toBe("");
+    // The press reached `pointerdown`, so the caller counts it as one that may have typed.
+    expect(presses).toBe(1);
+  });
+
   it("stops when a keypad never opens", async () => {
     document.body.innerHTML = `<input id="pin" type="password" readonly>${pad(digits, "hidden")}`;
     const input = document.querySelector<HTMLInputElement>("#pin")!;
@@ -164,13 +267,17 @@ describe("typeOnKeypad", () => {
     ).resolves.toBe("keypad-closed");
   });
 
-  it("stops with the caller's cause between presses", async () => {
+  it("stops with the caller's cause between presses, and reports each press made", async () => {
     const { input, typed } = keypadPage();
-    let calls = 0;
+    let presses = 0;
     const stopped = await typeOnKeypad(input, "123", document.getElementById("pad")!, {
-      between: () => (++calls > 2 ? "page-changed" : undefined),
+      between: () => (typed.length === 1 ? "page-changed" : undefined),
+      onPress: () => {
+        presses += 1;
+      },
     });
     expect(stopped).toBe("page-changed");
-    expect(typed.length).toBeLessThan(3);
+    expect(typed).toEqual(["1"]);
+    expect(presses).toBe(1);
   });
 });

@@ -1,5 +1,6 @@
 import { latinWord } from "./account-list";
 import { visible } from "./code-submission";
+import { findKeypad, keypadField } from "./keypad";
 import { autocompleteTokens } from "./targets";
 import { collapseText, readBehindModal, renderedText } from "./text";
 
@@ -14,6 +15,11 @@ export interface SubmittedPage {
   /** Those of `fields` already marked invalid. */
   readonly invalid: ReadonlySet<HTMLInputElement>;
   readonly alerts: ReadonlySet<string>;
+  /**
+   * Those of `fields` entered on the page's software keyboard, which stay read-only
+   * (proposed ADR 0067).
+   */
+  readonly keyed: ReadonlySet<HTMLInputElement>;
 }
 
 /** The page signs the content script can read (ADR 0029). */
@@ -91,6 +97,12 @@ function writableInput(element: Element): element is HTMLInputElement {
     !element.readOnly
   );
 }
+/**
+ * A sign-in input that still counts: shown, enabled and writable, or read-only when it is
+ * one of `keyed`, entered on the page's software keyboard (proposed ADR 0067).
+ */
+const signInInput = (input: HTMLInputElement, keyed: ReadonlySet<HTMLInputElement>) =>
+  keyed.has(input) ? visible(input) && !input.disabled : writableInput(input);
 const ariaInvalid = (input: HTMLInputElement) =>
   input.getAttribute("aria-invalid")?.trim().toLowerCase() === "true";
 
@@ -255,29 +267,39 @@ function alertMiss(document: Document, fields: readonly HTMLInputElement[]): Ale
 
 /**
  * The marks and alerts the page shows now, taken just before an effect step with its
- * sign-in inputs.
+ * sign-in inputs, of which `keyed` were entered on the page's software keyboard.
  */
 export function submittedPage(
   document: Document,
   fields: readonly HTMLInputElement[],
+  keyed: ReadonlySet<HTMLInputElement> = new Set(),
 ): SubmittedPage {
   return {
     fields,
     invalid: new Set(fields.filter(ariaInvalid)),
     alerts: alertTexts(document, fields),
+    keyed,
   };
 }
 
 /**
  * S2: a shown password input, except one for a new password and those of a form with two
  * or more shown password inputs (a password change or a registration), where the current
- * password must never go. Inputs outside any form count as one form.
+ * password must never go. Inputs outside any form count as one form. A read-only password
+ * input counts when it is entered on the page's software keyboard (`keypadField`,
+ * proposed ADR 0067), as a PIN page shown again after a wrong PIN.
  */
 function showsPassword(document: Document): boolean {
+  // The keypad is looked for once, and only for a read-only password input.
+  let keypad: { container: Element | undefined } | undefined;
+  const keyed = (input: HTMLInputElement) => {
+    keypad ??= { container: findKeypad(document) };
+    return visible(input) && keypadField(input, keypad.container);
+  };
   const passwords = [...document.querySelectorAll("input")].filter(
     (input) =>
       (input.type === "password" || autocompleteTokens(input).includes("current-password")) &&
-      writableInput(input),
+      (writableInput(input) || keyed(input)),
   );
   return passwords.some(
     (input) =>
@@ -380,24 +402,33 @@ function showsUsername(document: Document, username: string): boolean {
  * document showed at the effect step, when the step ran in it. `reshown` are the recipe's
  * sign-in inputs a new document after the submission shows, when the sign-in form came
  * back in one: with no earlier reading to compare with, any mark on them and any text of
- * an alert next to them count (owner, 2026-10-12 22:03 UTC). Without either, F1 and F2
- * are not read.
+ * an alert next to them count (owner, 2026-10-12 22:03 UTC); `keyed` are those of them
+ * entered on the page's software keyboard. Without either, F1 and F2 are not read.
  */
 export function pageSigns(
   document: Document,
   {
     submitted,
     reshown,
+    keyed = new Set(),
     username,
-  }: { submitted?: SubmittedPage; reshown?: readonly HTMLInputElement[]; username?: string } = {},
+  }: {
+    submitted?: SubmittedPage;
+    reshown?: readonly HTMLInputElement[];
+    keyed?: ReadonlySet<HTMLInputElement>;
+    username?: string;
+  } = {},
 ): PageSigns {
   // A sign-in input of the step newly marked invalid, or of the re-shown form marked so.
   const invalid =
     reshown !== undefined
-      ? reshown.some((input) => ariaInvalid(input) && writableInput(input))
+      ? reshown.some((input) => ariaInvalid(input) && signInInput(input, keyed))
       : submitted !== undefined &&
         submitted.fields.some(
-          (input) => ariaInvalid(input) && !submitted.invalid.has(input) && writableInput(input),
+          (input) =>
+            ariaInvalid(input) &&
+            !submitted.invalid.has(input) &&
+            signInInput(input, submitted.keyed),
         );
   const alert =
     reshown !== undefined

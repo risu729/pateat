@@ -19,7 +19,7 @@ import * as v from "valibot";
 import { acceptsSecret, shortNumericInput } from "../login/inputs";
 import type { observationGaps } from "../login/wire";
 import { splitCodeInputs } from "../page/code-submission";
-import { findKeypad, keypadKeys } from "../page/keypad";
+import { findKeypad, keypadField, keypadKeys } from "../page/keypad";
 import { autocompleteTokens, findTargets, linkPath, namedControls } from "../page/targets";
 import { observedPath, redactsPath, tokenSegment } from "./path";
 import {
@@ -1093,12 +1093,18 @@ const actionControl = (element: HTMLElement) =>
   (element instanceof HTMLInputElement && actionTypes.has(element.type)) ||
   isScriptButton(element);
 
+/** The page's software keyboard (proposed ADR 0067) and its locator. */
+interface Keypad {
+  readonly container: Element;
+  readonly target: LoginKeypadTarget;
+}
+
 /**
  * Describes one element. With `keypad`, the page's software keyboard (proposed ADR 0067),
- * a visible enabled read-only field is a fill candidate entered on that keypad instead of
- * a field that cannot be filled.
+ * a visible, enabled, empty read-only field beside it (`keypadField`) is a fill candidate
+ * entered on that keypad instead of a field that cannot be filled.
  */
-function describe(element: Element, keypad?: LoginKeypadTarget): Found | undefined {
+function describe(element: Element, keypad?: Keypad): Found | undefined {
   if (!(element instanceof HTMLElement)) return undefined;
   // An action control the page keeps `inert` itself until its fields are filled stays a
   // candidate, as a disabled one does (`readOwnInert`, #853).
@@ -1107,7 +1113,7 @@ function describe(element: Element, keypad?: LoginKeypadTarget): Found | undefin
     : presence(element);
   let keyed = false;
   if (element instanceof HTMLInputElement && fillTypes[element.type] && present !== "absent") {
-    keyed = keypad !== undefined && present === "visible" && element.readOnly && !element.disabled;
+    keyed = keypad !== undefined && present === "visible" && keypadField(element, keypad.container);
     if (!keyed && (present === "faint" || element.readOnly || element.disabled))
       return { kind: "unsupported", form: element.form, field: element, element };
   } else if (present !== "visible") return undefined;
@@ -1133,7 +1139,7 @@ function describe(element: Element, keypad?: LoginKeypadTarget): Found | undefin
           ...(description ? { description } : {}),
           ...(hint ? { autocomplete: hint } : {}),
           ...constraints(element, fillRole),
-          ...(keyed && keypad ? { keypad } : {}),
+          ...(keyed && keypad ? { keypad: keypad.target } : {}),
         },
       };
     }
@@ -1269,7 +1275,7 @@ function leftOutInputs(document: Document): boolean {
 }
 
 /** Every element the page shows that `describe` accepts, in document order. */
-const describeAll = (document: Document, keypad?: LoginKeypadTarget) =>
+const describeAll = (document: Document, keypad?: Keypad) =>
   [...document.querySelectorAll(observed)]
     .map((element) => describe(element, keypad))
     .filter((entry) => entry !== undefined);
@@ -1469,8 +1475,9 @@ export function extractLoginObservation(
   // A page's software keyboard (proposed ADR 0067): its read-only fields are described
   // with its locator, and its keys are left out, as no step presses one by name.
   const container = findKeypad(document);
-  const keypad = container && keypadTarget(container, index, tokens);
-  const keys = new Set<Element>(container && keypad ? keypadKeys(container) : []);
+  const keypadLocator = container && keypadTarget(container, index, tokens);
+  const keypad = container && keypadLocator ? { container, target: keypadLocator } : undefined;
+  const keys = new Set<Element>(keypad ? keypadKeys(keypad.container) : []);
   // A field both faint and disabled takes input from no one, neither the person nor a
   // widget drawn over it, so a login page leaves it out as a decoy; Bitwarden never picks
   // a disabled field as the username or password field either. The signed-in page still

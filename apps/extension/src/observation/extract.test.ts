@@ -1761,16 +1761,26 @@ describe("extractLoginObservation", () => {
       ["go", undefined],
     ]);
     // Without a keypad, or without a locator for it or an ancestor below the body, a
-    // read-only field is still unfillable.
+    // read-only field is still unfillable. So is one that holds a value, as a date or an
+    // email address shown again, and a keypad without every digit is no keypad.
     for (const html of [
       `<input id="pin" type="password" readonly><div id="pad">${keys("012345678")}</div>`,
+      `<input id="pin" type="password" readonly><div id="pad">${keys("ABCDEFGHIJKLMNOPQRSTUVWXYZ")}</div>`,
       `<input id="pin" type="password" readonly><div>${keys("0123456789")}</div>`,
       `<input id="pin" type="password" readonly disabled><div id="pad">${keys("0123456789")}</div>`,
+      `<input id="day" readonly value="2026-10-23"><input id="pin" type="password" readonly><div id="pad">${keys("0123456789")}</div>`,
     ]) {
       page(`<form>${html}<button id="go" type="button">Log in</button></form>`);
       const result = extractLoginObservation();
       expect(result.ok && result.observation.complete, html).toBe(false);
     }
+    // A keypad that shares no box with the field but the body belongs to something else.
+    page(
+      `<form><input id="pin" type="password" readonly><button id="go" type="button">Log in</button></form>
+      <div id="pad">${keys("0123456789")}</div>`,
+    );
+    const apart = extractLoginObservation();
+    expect(apart.ok && apart.observation.complete).toBe(false);
   });
 
   it("leaves out a field the continued recipe already fills when it is read-only or disabled", () => {

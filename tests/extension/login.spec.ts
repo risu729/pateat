@@ -766,24 +766,119 @@ test("types a read-only password on the page's shuffled software keyboard, one p
   }
 });
 
-test("a software keyboard without a key for a character of the value gets no press and no submission (proposed ADR 0067)", async () => {
+test("a software keyboard that does not fit the value gets no press and no submission (proposed ADR 0067)", async () => {
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, _worker, id) => {
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin);
+      // Debug logging records why each step stopped.
+      const diagnostics = await context.newPage();
+      await diagnostics.goto(`chrome-extension://${id}/diagnostics.html`);
+      expect(
+        await send(diagnostics, { version: 1, type: "diagnostics.logs.debug", enabled: true }),
+      ).toMatchObject({ ok: true });
+      const status = async () =>
+        JSON.stringify(await send(options, { version: 1, type: "login.probe.status" }));
+      // An open keypad without a key for "!", and an input shorter than the value, are
+      // refused before anything is pressed; a keypad that opens on the field's press is
+      // checked once open, after that press. One tab at a time, since the origin's attempt
+      // holds its tab until it closes.
+      /* eslint-disable no-await-in-loop */
+      for (const [query, outcome] of [
+        ["?missing=!&open=1", "value-mismatch"],
+        ["?maxlength=8", "value-mismatch"],
+        ["?missing=!", "structural-mismatch"],
+      ] as const) {
+        const page = await context.newPage();
+        await page.goto(`${fixture.origin}/keypad${query}`);
+        await expect.poll(status).toContain(`"outcome":"${outcome}"`);
+        // Cover the click the attempt would have made next.
+        await page.waitForTimeout(500);
+        expect(
+          await page.evaluate(() => Number(sessionStorage.getItem("keypadPresses"))),
+          query,
+        ).toBe(0);
+        await expect(page.locator("#password")).toHaveValue("");
+        expect(await clicks(page), query).toBe(0);
+        await page.close();
+        await expect.poll(status).not.toContain(`"outcome":"${outcome}"`);
+      }
+      /* eslint-enable no-await-in-loop */
+      // The log names the missing key, never which one.
+      const logs = JSON.stringify(
+        await send(diagnostics, {
+          version: 1,
+          type: "diagnostics.logs.export",
+          includeSites: false,
+        }),
+      );
+      expect(logs).toContain("keypad-key-missing");
+      expect(logs).not.toContain("Pateat-synthetic-only!");
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("a software keyboard that submits by itself partway is never typed on again (proposed ADR 0067)", async () => {
   const fixture = await startLoginFixture();
   try {
     await withLoginExtension(async (context, _worker, id) => {
       const options = await context.newPage();
       await configure(options, id, fixture.origin);
       const page = await context.newPage();
-      await page.goto(`${fixture.origin}/keypad?missing=!`);
+      await page.goto(`${fixture.origin}/keypad?submit-at=4`);
+      await expect(page.locator("#rejected")).toBeVisible();
+      // The page's own submission may be a submission, never a cancellation: the login is
+      // held for its result, as after an unknown fill, instead of starting again.
       await expect
-        .poll(async () =>
-          JSON.stringify(await send(options, { version: 1, type: "login.probe.status" })),
-        )
-        .toContain("keypad-key-missing");
-      // Cover the click the attempt would have made next.
-      await page.waitForTimeout(500);
-      expect(await page.evaluate(() => Number(sessionStorage.getItem("keypadPresses")))).toBe(0);
-      await expect(page.locator("#password")).toHaveValue("");
-      expect(await clicks(page)).toBe(0);
+        .poll(async () => await send(options, { version: 1, type: "login.probe.status" }))
+        .toMatchObject({
+          attempts: [
+            {
+              state: "reconciling",
+              outcome: "structural-mismatch",
+              operationKind: "fill",
+              mutationIntent: true,
+            },
+          ],
+        });
+      // Cover several announcements: the page is never typed on or submitted again.
+      await page.waitForTimeout(1500);
+      expect(
+        await page.evaluate(() => ({
+          presses: Number(sessionStorage.getItem("keypadPresses")),
+          submitClicks: Number(sessionStorage.getItem("submitClicks") || 0),
+        })),
+      ).toEqual({ presses: 4, submitClicks: 1 });
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("a software keyboard login the page answers only by marking the input invalid is rejected (proposed ADR 0067, ADR 0029)", async () => {
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, _worker, id) => {
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin);
+      const page = await context.newPage();
+      await page.goto(`${fixture.origin}/keypad?reject=invalid`);
+      await expect(page.locator("#password")).toHaveAttribute("aria-invalid", "true");
+      // The read-only input Pateat typed on counts as the step's sign-in input (F1), so the
+      // login is released as rejected and is not typed again (ADR 0021 D).
+      await expect
+        .poll(async () => await send(options, { version: 1, type: "login.probe.status" }))
+        .toMatchObject({ attempts: [], asks: ["rejected"] });
+      await page.waitForTimeout(1500);
+      expect(
+        await page.evaluate(() => ({
+          presses: Number(sessionStorage.getItem("keypadPresses")),
+          submitClicks: Number(sessionStorage.getItem("submitClicks") || 0),
+        })),
+      ).toEqual({ presses: [..."Pateat-synthetic-only!"].length, submitClicks: 1 });
     });
   } finally {
     await fixture.close();

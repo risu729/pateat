@@ -20,7 +20,7 @@ import {
 } from "../page/target-state";
 import { answerInput, identifierInput } from "../page/identifier-field";
 import { showsAmount } from "../page/amount";
-import { findKeypad } from "../page/keypad";
+import { besideKeypad, findKeypad, keypadCovers, keypadField, keypadOpen } from "../page/keypad";
 import { typeOnKeypad } from "../page/keypad-typing";
 import {
   CODE_SETTLE_MS,
@@ -146,11 +146,14 @@ function ready(readiness: LoginReadiness): boolean {
  * (`findKeypad`, proposed ADR 0067).
  */
 function showsSignIn(): boolean {
-  let keypad: boolean | undefined;
+  // The keypad is looked for once, and only for a read-only password input.
+  let keypad: { container: Element | undefined } | undefined;
   return [...document.querySelectorAll("input")].some((input) => {
     const tokens = autocompleteTokens(input);
-    if (input.type === "password" && !writable(input) && keyable(input))
-      return (keypad ??= findKeypad(document) !== undefined);
+    if (input.type === "password" && !writable(input) && keyable(input)) {
+      keypad ??= { container: findKeypad(document) };
+      return keypadField(input, keypad.container);
+    }
     return (
       (input.type === "password" ||
         tokens.includes("username") ||
@@ -998,10 +1001,17 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     if (command.type === "login.state") {
       const username = command.account?.username;
       if (command.account) command.account.username = "";
-      // The sign-in form shown again in a new document: its inputs each target names alone.
+      // The sign-in form shown again in a new document: its inputs each target names alone,
+      // read-only ones when entered on the page's keypad (proposed ADR 0067).
+      const keypad = command.fields ? findKeypad(document) : undefined;
+      const keyed = new Set<HTMLInputElement>();
       const reshown = command.fields?.flatMap((target) => {
         const found = matches(target);
-        return found.length === 1 && writable(found[0]) ? [found[0]] : [];
+        if (found.length !== 1) return [];
+        if (writable(found[0])) return [found[0]];
+        if (!keyable(found[0]) || !keypadField(found[0], keypad)) return [];
+        keyed.add(found[0]);
+        return [found[0]];
       });
       respond(
         cancelled
@@ -1009,7 +1019,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           : {
               ok: true,
               signs: pageSigns(document, {
-                ...(reshown ? { reshown } : submitted ? { submitted } : {}),
+                ...(reshown ? { reshown, keyed } : submitted ? { submitted } : {}),
                 ...(username === undefined ? {} : { username }),
               }),
               loaded: document.readyState === "complete",
@@ -1252,10 +1262,12 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         if (inputs.some((input, index) => !usable(input, index)))
           return fail("structural-mismatch", "target-missing");
         // Each keypad's container, which holds the keys, shown or not yet.
-        const keypads = step.fields.map((field) => {
+        const keypads = step.fields.map((field, index) => {
           if (!field.keypad) return undefined;
           const found = findTargets(document, field.keypad, { hidden: true });
-          return found.length === 1 ? found[0] : null;
+          return found.length === 1 && besideKeypad(found[0]!, inputs[index] as HTMLInputElement)
+            ? found[0]
+            : null;
         });
         if (keypads.includes(null)) return fail("structural-mismatch", "keypad-missing");
         // A split code's digits and an effectful fill's event never go through a keypad.
@@ -1352,6 +1364,17 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           )
         )
           return fail("value-mismatch");
+        // A keypad that already shows its keys must show exactly one for each character of
+        // its value before anything is typed, in any field (proposed ADR 0067). One that
+        // opens when its field is pressed is checked once it opens.
+        if (
+          step.fields.some((field, index) => {
+            const keypad = keypads[index];
+            const value = command.values.find((entry) => entry.slot === field.slot)!.value;
+            return keypad && keypadOpen(keypad) && !keypadCovers(keypad, value);
+          })
+        )
+          return fail("value-mismatch", "keypad-key-missing");
         const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
         if (!setter) return fail("structural-mismatch", "unsupported-input");
         // Messages already shown are not the page's answer to this fill.
@@ -1466,8 +1489,12 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
               // never followed by another press.
               filled.add(input);
               const keypad = keypads[index];
+              let pressed = false;
               // eslint-disable-next-line no-await-in-loop
               const stopped = await typeOnKeypad(input, value.value, keypad, {
+                onPress: () => {
+                  pressed = true;
+                },
                 between: () => {
                   if (cancelled) return "document-cancelled";
                   if (pagePath() !== step.path) return "page-changed";
@@ -1484,8 +1511,16 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                 },
               });
               if (stopped === "refused") return fail("fill-rejected");
+              // No key was pressed: the value does not fit the keypad.
+              if (stopped === "key-missing" && !pressed)
+                return fail("value-mismatch", "keypad-key-missing");
               if (stopped === "key-missing" || stopped === "keypad-closed")
                 return fail("structural-mismatch", "keypad-key-missing");
+              // A page that moved or changed the form after a press may have taken the
+              // characters so far as the whole value and submitted them, as a PIN pad that
+              // submits at its fourth digit: never a cancellation that could type again.
+              if (pressed && (stopped === "page-changed" || stopped === "field-changed"))
+                return fail("submitted");
               if (stopped) return fail("cancelled", stopped);
             } else if (step.effect === "prepare" || buttonless) {
               // A `detail` handler's input is chosen by its radio button first (ADR 0061);
@@ -1623,13 +1658,18 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         // The next fills are checked against the next click.
         filled = new WeakSet();
         shownBefore = undefined;
+        // A keypad field Pateat filled is read-only, and still a sign-in input of the form
+        // (proposed ADR 0067).
+        const keyed = new Set(
+          formInputs.filter((input) => !writable(input) && fills.has(input) && keyable(input)),
+        );
+        const signIn = (input: HTMLInputElement) => writable(input) || keyed.has(input);
         // The page changed the form under the fill: never send it without its values.
         if (
           unreadyForm(formInputs, {
             filled: (input) => fills.has(input),
             shownBefore: (input) => passwordsBefore?.has(input) === true,
-            // A keypad field Pateat filled is read-only, and still must not be emptied.
-            writable: (input) => writable(input) || (fills.has(input) && keyable(input)),
+            writable: signIn,
             submit: step.purpose === "submit",
           })
         )
@@ -1637,7 +1677,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         // An advance's next step is measured in this task, just before the click, and so
         // is what the page shows before it (ADR 0029).
         measureNext();
-        submitted = submittedPage(document, formInputs.filter(writable));
+        submitted = submittedPage(document, formInputs.filter(signIn), keyed);
         // A CAPTCHA the page shows and that has not passed is left to the person, who
         // presses the button after solving it; the background reads the page as after a
         // click (ADR 0029, S4).
