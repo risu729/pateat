@@ -148,7 +148,8 @@ then answered 04:51 and 04:54 UTC):
     other-account check does; neither it nor the page text leaves the device. The body
     is excluded because "we sent a link to x@y" or "account locked" pages show it too.
     The username must be a whole word; as ADR 0028 names do, one with a Latin letter
-    may touch kana or kanji at a Latin or digit edge (`taro_yさん`). An all-digit one,
+    may touch a letter of another script, such as kana or kanji, at a Latin or digit
+    edge (`taro_yさん`). An all-digit one,
     such as a member number, may touch kana or kanji only with 8 digits or more
     (`会員番号12345678さん`); a shorter one there (`会員番号12345さん`, `2026年10月`,
     `残り123件`) is no evidence, so the page goes to the judge (owner, 2026-10-23).

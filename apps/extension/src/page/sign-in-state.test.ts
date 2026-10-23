@@ -456,6 +456,8 @@ describe("pageSigns", () => {
     expect(shows("<nav>会員番号12345678</nav>", "12345678")).toBe(true);
     expect(shows("<nav>会員番号1234567</nav>", "1234567")).toBe(false);
     expect(shows("<nav>カード12345678</nav>", "12345678")).toBe(true);
+    expect(shows("<nav>メンバー12345678さん</nav>", "12345678")).toBe(true);
+    expect(shows("<nav>ﾒﾝﾊﾞｰ12345678</nav>", "12345678")).toBe(true);
     expect(shows("<nav>カード1234567</nav>", "1234567")).toBe(false);
     expect(shows("<nav>12345678さん</nav>", "12345678")).toBe(true);
     expect(shows("<nav>1234567さん</nav>", "1234567")).toBe(false);

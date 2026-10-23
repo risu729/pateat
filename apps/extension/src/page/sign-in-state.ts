@@ -334,7 +334,7 @@ export function showsCaptcha(document: Document): boolean {
  * E2: the username, ignoring case, as a whole word of the header or navigation text,
  * read behind an open modal dialog too, as the signed-in page's description is. As in
  * ADR 0028, a username with a Latin letter whose edge is a Latin letter or digit may
- * touch kana or kanji there (`taro_yさん`). An all-digit one may touch kana or kanji only
+ * touch a letter of another script, such as kana or kanji, there (`taro_yさん`). An all-digit one may touch kana or kanji only
  * with {@link memberNumberMinDigits} digits or more, and no other letter.
  */
 function showsUsername(document: Document, username: string): boolean {
@@ -359,7 +359,8 @@ function showsUsername(document: Document, username: string): boolean {
   const blockedAfter =
     latin && latinWord.test(name.at(-1)!) ? /[\p{Script=Latin}\p{N}_@-]/u : /[\p{L}\p{N}_@-]/u;
   const memberNumber = /^\p{Nd}+$/u.test(name) && [...name].length >= memberNumberMinDigits;
-  const kanaOrKanji = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u;
+  // Script extensions also cover ー and 〆, which `メンバー` and `〆切` use.
+  const kanaOrKanji = /[\p{scx=Han}\p{scx=Hiragana}\p{scx=Katakana}]/u;
   const blocks = (blocked: RegExp, edge: string) =>
     blocked.test(edge) && !(memberNumber && kanaOrKanji.test(edge));
   return texts.some((raw) => {
