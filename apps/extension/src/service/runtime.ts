@@ -26,11 +26,20 @@ const recordSchema = v.strictObject({
   rejected: v.optional(v.literal(true)),
   /** Recipes outgrew the local cache or settings their limits; cleared by a complete sync. */
   cacheFull: v.optional(v.literal(true)),
+  /**
+   * A settings sync has completed since this pairing; until then no vault item is used
+   * (ADR 0023), so a reinstall never runs on settings it has not merged yet.
+   */
+  settingsSynced: v.optional(v.literal(true)),
 });
 type ServiceRecord = v.InferOutput<typeof recordSchema>;
 
 /** A sync outcome kept on the connected record for the settings page. */
-export type RecipeSyncRecord = { syncedAt: number } | { rejected: true } | { cacheFull: true };
+export type RecipeSyncRecord =
+  | { syncedAt: number }
+  | { rejected: true }
+  | { cacheFull: true }
+  | { settingsSynced: true };
 
 /** What the background sync needs; never sent to the options page. */
 export type ServiceConnection = {
@@ -38,6 +47,8 @@ export type ServiceConnection = {
   deviceId: string;
   credential: string;
   rejected: boolean;
+  /** A settings sync has completed since pairing (ADR 0023). */
+  settingsSynced?: true;
 };
 
 export interface ServiceStorage {
@@ -263,8 +274,24 @@ export function createServiceRuntime(options: {
             deviceId: record.deviceId,
             credential: record.credential,
             rejected: record.rejected === true,
+            ...(record.settingsSynced ? { settingsSynced: true as const } : {}),
           }
         : undefined;
+    },
+    /**
+     * Whether this device must not use vault items yet: it is paired and has not completed
+     * a settings sync since (ADR 0023). A record that cannot be read counts as waiting. A
+     * device that was never paired is unaffected.
+     */
+    async settingsSyncPending(): Promise<boolean> {
+      // A new pairing whose credential write failed has not synced either.
+      if (unsaved) return true;
+      try {
+        const record = await load();
+        return record !== undefined && !record.settingsSynced;
+      } catch {
+        return true;
+      }
     },
     /**
      * Records a sync outcome for the device that ran it. A record replaced meanwhile,

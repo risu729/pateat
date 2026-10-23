@@ -377,6 +377,10 @@ export const en = {
     "Pateat: the vault is being updated, so this site's accounts were not counted.",
   "Pateat: a login or a page check was using the vault, so this site's accounts were not counted yet.":
     "Pateat: a login or a page check was using the vault, so this site's accounts were not counted yet.",
+  "Pateat: this device has not finished its first settings sync with the sync service, so this site's accounts were not counted.":
+    "Pateat: this device has not finished its first settings sync with the sync service, so this site's accounts were not counted.",
+  "Pateat: saved settings name a vault's account on another server, so this site's accounts were not counted.":
+    "Pateat: saved settings name a vault's account on another server, so this site's accounts were not counted.",
   "{{first}} {{next}}": "{{first}} {{next}}",
   "Pateat: asking the AI…": "Pateat: asking the AI…",
   "Pateat: the site did not accept the last login in this tab. Click to choose an account.":

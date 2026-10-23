@@ -28,8 +28,14 @@ import {
   toChange,
   writeRecipe,
 } from "../recipe-store";
-import { generateEntry, generateRecipe, judgeCompletion, samplePage } from "../recipes/generate";
-import { generateLogout } from "../recipes/logout";
+import {
+  generateEntry,
+  generateLogout,
+  generateRecipe,
+  judgeCompletion,
+  samplePage,
+} from "@pateat/generation";
+import { d1Backend } from "../recipes/backend";
 import { jsonBody, requireJsonBody, validate } from "../validation";
 
 const recipeParam = validate("param", v.strictObject({ recipeId: syncRecipeIdSchema }));
@@ -95,17 +101,19 @@ export const recipeRoutes = new Hono<ApiEnv>()
   .post("/generate", requireJsonBody, jsonBody(generationRequestSchema), async (c) => {
     const request = c.req.valid("json");
     // A request without slots asks for a page's sign-in entry (ADR 0031).
+    const backend = d1Backend(c.env, c.get("scope"), c.get("trace"));
     const result =
       "slots" in request
-        ? await generateRecipe(c.env, c.get("scope"), request, c.get("trace"))
-        : await generateEntry(c.env, c.get("scope"), request, c.get("trace"));
+        ? await generateRecipe(backend, request)
+        : await generateEntry(backend, request);
     return result ? c.json(result) : apiError(c, 400, { error: "bad_request" });
   })
   // An account switch's signed-in page (ADR 0063), under the generation route's device
   // authentication, request limit, owner lock, retry window and spend stops. Registered
   // before `/:recipeId` routes; answers are 200 with a status.
   .post("/logout", requireJsonBody, jsonBody(logoutGenerationRequestSchema), async (c) => {
-    const result = await generateLogout(c.env, c.get("scope"), c.req.valid("json"), c.get("trace"));
+    const backend = d1Backend(c.env, c.get("scope"), c.get("trace"));
+    const result = await generateLogout(backend, c.req.valid("json"));
     return result ? c.json(result) : apiError(c, 400, { error: "bad_request" });
   })
   .post(
@@ -116,11 +124,9 @@ export const recipeRoutes = new Hono<ApiEnv>()
     async (c) => {
       const { recipeId } = c.req.valid("param");
       const result = await judgeCompletion(
-        c.env,
-        c.get("scope"),
+        d1Backend(c.env, c.get("scope"), c.get("trace")),
         recipeId,
         c.req.valid("json"),
-        c.get("trace"),
       );
       if (result === undefined) return apiError(c, 404, { error: "not_found" });
       if (result === null) return apiError(c, 400, { error: "bad_request" });
@@ -324,11 +330,9 @@ export const recipeRoutes = new Hono<ApiEnv>()
     async (c) => {
       const { recipeId } = c.req.valid("param");
       const result = await samplePage(
-        c.env,
-        c.get("scope"),
+        d1Backend(c.env, c.get("scope"), c.get("trace")),
         recipeId,
         c.req.valid("json"),
-        c.get("trace"),
       );
       if (result === undefined) return apiError(c, 404, { error: "not_found" });
       if (result === null) return apiError(c, 400, { error: "bad_request" });

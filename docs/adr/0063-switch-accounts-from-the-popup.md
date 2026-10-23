@@ -177,5 +177,6 @@ logout would otherwise return to the default account without the person noticing
 - After a one-time pick the site asks on every login page until the browser closes or a
   default is set, which may be more often than a person expects.
 - A switch on a site whose logout passes through another site that Pateat reads, or
-  whose logout control is inside a closed shadow root or a cross-origin frame, fails
-  with a message in the popup.
+  whose logout control is inside a cross-origin frame, fails with a message in the
+  popup. Controls inside open and closed shadow roots are read as part of the page, as
+  a login page's are ([ADR 0070](0070-shadow-roots-as-page-content.md)).

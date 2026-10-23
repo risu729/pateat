@@ -15,6 +15,9 @@ export const SETTINGS_QUERY_KEY = ["settings"] as const;
 /** The document a first write starts from; the service never holds vault connections. */
 const EMPTY_SETTINGS: LocalSettings = {
   connections: [],
+  accountPolicies: [],
+  itemPolicies: [],
+  customFieldReviews: [],
   excludedSites: [],
   passkeyBrowserSites: [],
   repromptSites: [],

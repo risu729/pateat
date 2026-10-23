@@ -325,6 +325,28 @@ describe("settings sync", () => {
     });
   });
 
+  it("keeps the popup's hidden page status in the profile and drops a shown one", async () => {
+    const device = await enrollOwner();
+    const hidden = { ...settings(), popupPageSection: false };
+    const saved = await put(device, "/v1/settings", {
+      version: 1,
+      expectedRevision: 0,
+      settings: hidden,
+    });
+    expect(await saved.json()).toMatchObject({ revision: 1, settings: hidden });
+    expect(await (await api(device, "/v1/settings")).json()).toMatchObject({ settings: hidden });
+    // Shown is the default, so it is stored as no field at all.
+    const shown = await put(device, "/v1/settings", {
+      version: 1,
+      expectedRevision: 1,
+      settings: { ...settings(), popupPageSection: true },
+    });
+    expect(shown.status).toBe(200);
+    const read = (await (await api(device, "/v1/settings")).json()) as { settings: LocalSettings };
+    expect(read.settings).toEqual(settings());
+    expect(read.settings).not.toHaveProperty("popupPageSection");
+  });
+
   it("never lets a stale device overwrite a newer restriction", async () => {
     const laptop = await enrollOwner();
     const desktop = await addDevice(laptop.ownerId);
@@ -453,6 +475,35 @@ describe("settings sync", () => {
     )
       .bind(device.ownerId, JSON.stringify({ synthetic: "corrupt" }), device.deviceId)
       .run();
+    const response = await api(device, "/v1/settings");
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "internal_error" });
+  });
+
+  it("fails closed when a stored document's policy list is over its limit", async () => {
+    const device = await enrollOwner();
+    const over = {
+      ...settings(),
+      accountPolicies: Array.from({ length: 101 }, (_, index) => ({
+        provider: "bitwarden",
+        server: "cloud-us",
+        userId: `user-${index}`,
+        accountName: "Vault",
+        enabled: true,
+        selection: { mode: "all" },
+      })),
+    };
+    // The lists are profile parts (ADR 0024), kept in the device's Default profile.
+    await env.DB.batch([
+      env.DB.prepare(
+        "INSERT INTO settings (owner_id, revision, document, updated_at, updated_by_device_id) VALUES (?, 1, ?, 0, ?)",
+      ).bind(device.ownerId, JSON.stringify({ bindings: [] }), device.deviceId),
+      env.DB.prepare("UPDATE profiles SET document = ? WHERE owner_id = ? AND id = ?").bind(
+        JSON.stringify(over),
+        device.ownerId,
+        device.ownerId,
+      ),
+    ]);
     const response = await api(device, "/v1/settings");
     expect(response.status).toBe(500);
     expect(await response.json()).toEqual({ error: "internal_error" });

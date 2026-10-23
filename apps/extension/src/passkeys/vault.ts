@@ -1,4 +1,5 @@
 import {
+  connectionUse,
   getItemEligibility,
   isSupportedSite,
   itemAsksForMasterPassword,
@@ -93,8 +94,18 @@ export async function findVaultPasskeys(input: {
   let answered = !only;
   for (const connection of catalog.connections) {
     if (only && connection.id !== only.connectionId) continue;
-    const configured = settings.connections.find((entry) => entry.connectionId === connection.id);
-    if (!configured?.enabled) continue;
+    // A paired device waits for its first settings sync before searching any vault.
+    if (catalog.settingsSyncPending) {
+      complete = false;
+      continue;
+    }
+    const use = connectionUse(settings, catalog, connection.id);
+    if (use === "disabled") continue;
+    // Its synced exclusions may be meant for this account, or its account is unknown.
+    if (use === "account-ambiguous" || use === "vault-unavailable") {
+      complete = false;
+      continue;
+    }
     if (
       !connection.snapshotId ||
       (connection.state !== "ready" && connection.state !== "review-required")
@@ -281,7 +292,7 @@ export function createVaultPasskeySource(
       // read.
       const metadata = await connections.settings.read().catch(() => undefined);
       if (!metadata || !isSupportedSite(origin)) return undefined;
-      if (!metadata.settings.connections.some((entry) => entry.enabled))
+      if (!metadata.settings.accountPolicies.some((entry) => entry.enabled))
         return { candidates: [], complete: true };
       const saved = await read();
       if (!saved) return undefined;
@@ -368,6 +379,7 @@ export async function rememberVaultPasskey(input: {
   const entry = {
     origin,
     provider: connection.provider,
+    server: connection.server,
     userId: connection.userId,
     itemId: candidate.itemId,
     ...(item ? { itemName: item.label.slice(0, 200) } : {}),
@@ -379,6 +391,7 @@ export async function rememberVaultPasskey(input: {
   const current = settings.siteDefaults.find((site) => site.origin === origin);
   if (
     current?.provider === entry.provider &&
+    current.server === entry.server &&
     current.userId === entry.userId &&
     current.itemId === entry.itemId
   )

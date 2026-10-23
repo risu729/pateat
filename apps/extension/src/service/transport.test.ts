@@ -504,6 +504,9 @@ describe("recipe changes", () => {
 describe("settings", () => {
   const document = {
     connections: [],
+    accountPolicies: [],
+    itemPolicies: [],
+    customFieldReviews: [],
     excludedSites: [],
     repromptSites: [],
     passkeyBrowserSites: [],
@@ -609,6 +612,9 @@ function edgeRateLimitPage() {
 describe("rate limits on device-credential routes", () => {
   const document = {
     connections: [],
+    accountPolicies: [],
+    itemPolicies: [],
+    customFieldReviews: [],
     excludedSites: [],
     passkeyBrowserSites: [],
     repromptSites: [],

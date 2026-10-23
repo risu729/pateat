@@ -1548,6 +1548,9 @@ describe("unhandled errors", () => {
         revision: 1,
         settings: {
           connections: [],
+          accountPolicies: [],
+          itemPolicies: [],
+          customFieldReviews: [],
           excludedSites: [],
           passkeyBrowserSites: [],
           repromptSites: [],
@@ -1601,14 +1604,7 @@ describe("unhandled errors", () => {
       build: { version: "0.1.0", revision: "1c42ad3" },
       settings: async () => ({
         revision: 7,
-        settings: {
-          connections: [],
-          excludedSites: [],
-          passkeyBrowserSites: [],
-          repromptSites: [],
-          siteDefaults: [],
-          bindings: [],
-        },
+        settings: createDefaultSettings({ connections: [] }),
       }),
       recipeCache: async () => ({ recipes: [{ origin: recipeOrigin }] }),
       connections: async () => ({ ok: true, kind: "status", connections: [] }),
@@ -1658,14 +1654,7 @@ describe("unhandled errors", () => {
       build: { version: "0.1.0", revision: "1c42ad3" },
       settings: async () => ({
         revision: 7,
-        settings: {
-          connections: [],
-          excludedSites: [],
-          passkeyBrowserSites: [],
-          repromptSites: [],
-          siteDefaults: [],
-          bindings: [],
-        },
+        settings: createDefaultSettings({ connections: [] }),
       }),
       recipeCache: async () => ({ recipes: [{ origin: recipeOrigin }] }),
       connections: async () => ({ ok: true, kind: "status", connections: [] }),
@@ -1719,6 +1708,9 @@ describe("unhandled errors", () => {
         revision: 7,
         settings: {
           connections: [],
+          accountPolicies: [],
+          itemPolicies: [],
+          customFieldReviews: [],
           excludedSites: [],
           passkeyBrowserSites: [],
           repromptSites: [],
@@ -2188,6 +2180,9 @@ describe("unhandled errors", () => {
         revision: 1,
         settings: {
           connections: [],
+          accountPolicies: [],
+          itemPolicies: [],
+          customFieldReviews: [],
           excludedSites: [],
           passkeyBrowserSites: [],
           repromptSites: [],
@@ -2760,17 +2755,7 @@ describe("unhandled errors", () => {
     const recipeOrigin = "https://login.example";
     const log = createDiagnosticsLog({
       build: { version: "0.1.0", revision: "1c42ad3" },
-      settings: async () => ({
-        revision: 1,
-        settings: {
-          connections: [],
-          excludedSites: [],
-          repromptSites: [],
-          passkeyBrowserSites: [],
-          siteDefaults: [],
-          bindings: [],
-        },
-      }),
+      settings: async () => ({ revision: 1, settings: createDefaultSettings({ connections: [] }) }),
       recipeCache: async () => ({ recipes: [{ origin: recipeOrigin }] }),
       connections: async () => ({ ok: true, kind: "status", connections: [] }),
       databaseName: `log-test-${crypto.randomUUID()}`,

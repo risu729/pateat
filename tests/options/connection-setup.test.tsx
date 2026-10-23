@@ -1104,6 +1104,8 @@ test.each([
             id: "synthetic",
             label: "Synthetic vault",
             provider: "bitwarden",
+            server: "cloud-us",
+            userId: "synthetic-user",
             groups: [],
             snapshotId: snapshot,
             quarantinedItemIds: ["affected"],
@@ -1190,6 +1192,123 @@ test.each([
     }
   },
 );
+
+test("an item older here than its review record asks for a vault sync instead of a review", async () => {
+  const client = mockClient();
+  const snapshot = crypto.randomUUID();
+  const custom = (index: number) => ({
+    id: `custom.${snapshot}.${index}`,
+    label: "Recovery code",
+    name: "Recovery code",
+    kind: "hidden" as const,
+  });
+  const accepted: Extract<SettingsResponse, { ok: true }> = {
+    version: 1,
+    ok: true,
+    snapshot: { version: 1, revision: 3, settings: createDefaultSettings() },
+    catalog: {
+      connections: [
+        {
+          id: "synthetic",
+          label: "Synthetic vault",
+          provider: "bitwarden",
+          server: "cloud-us",
+          userId: "synthetic-user",
+          groups: [],
+          snapshotId: snapshot,
+          quarantinedItemIds: ["stale", "changed"],
+          staleItemIds: ["stale"],
+          items: [
+            {
+              id: "stale",
+              label: "Stale login",
+              allowedOrigins: [],
+              groupIds: [],
+              fields: [custom(0)],
+            },
+            {
+              id: "changed",
+              label: "Changed login",
+              allowedOrigins: [],
+              groupIds: [],
+              fields: [custom(1)],
+            },
+          ],
+        },
+      ],
+    },
+  };
+  await render(
+    <QueryClientProvider client={createMetadataQueryClient()}>
+      <BitwardenSetup
+        client={client}
+        onCatalogChanged={vi.fn()}
+        acceptedSettings={accepted}
+        reviewBlocked={false}
+      />
+    </QueryClientProvider>,
+  );
+  await expect
+    .element(
+      page.getByText(
+        "Stale login was reviewed on another device against a newer copy of this vault. Sync this vault; if it is still older afterwards, review it here.",
+        { exact: true },
+      ),
+    )
+    .toBeVisible();
+  // The stale item offers no review form: approving an older copy could undo the newer review.
+  await expect
+    .element(page.getByRole("button", { name: "Stale login: Save reviewed field exclusions" }))
+    .not.toBeInTheDocument();
+  await expect
+    .element(page.getByRole("checkbox", { name: /^Stale login: Review exclude/ }))
+    .not.toBeInTheDocument();
+  // An item that only changed is still reviewed here.
+  await expect
+    .element(page.getByRole("button", { name: "Changed login: Save reviewed field exclusions" }))
+    .toBeVisible();
+  await expect
+    .element(page.getByText(/^Changed login was reviewed on another device/))
+    .not.toBeInTheDocument();
+});
+
+test("a paired device that has not synced settings yet says no vault item is used", async () => {
+  const connection = mockClient();
+  const response = (pending: boolean): Extract<SettingsResponse, { ok: true }> => ({
+    version: 1,
+    ok: true,
+    snapshot: { version: 1, revision: 0, settings: createDefaultSettings() },
+    catalog: {
+      ...structuredClone(DUMMY_VAULT_CATALOG),
+      ...(pending ? { settingsSyncPending: true as const } : {}),
+    },
+  });
+  const settings = {
+    getSettings: vi.fn<SettingsClient["getSettings"]>().mockResolvedValue(response(true)),
+    saveSettings: vi.fn<SettingsClient["saveSettings"]>(),
+    findSiteAccounts: vi.fn<SettingsClient["findSiteAccounts"]>().mockResolvedValue({
+      version: 1,
+      ok: false,
+      reason: "unavailable",
+    }),
+  };
+  await render(
+    <QueryClientProvider client={createMetadataQueryClient()}>
+      <SettingsApp client={settings} connectionClient={connection} />
+    </QueryClientProvider>,
+  );
+  const warning = page.getByText(
+    "Pateat uses no vault item until this device completes its first settings sync with the sync service.",
+    { exact: true },
+  );
+  await expect.element(page.getByText("Saved settings loaded (revision 0).")).toBeVisible();
+  await expect.element(warning).toBeVisible();
+  // Once the first settings sync completed, the catalog no longer carries the flag.
+  settings.getSettings.mockResolvedValue(response(false));
+  await page.getByRole("button", { name: "Reload saved settings", exact: true }).click();
+  await expect.element(page.getByText("Saved settings loaded (revision 0).")).toBeVisible();
+  await expect.element(warning).not.toBeInTheDocument();
+});
 
 test("sync sign-in is shown separately from automatic unlock and forgetting it is local", async () => {
   const client = mockClient();
@@ -1319,7 +1438,7 @@ test("deleting a connection needs an explicit confirmation and then removes it f
   await expect
     .element(dialog)
     .toHaveAccessibleDescription(
-      "This removes the connection, its local vault copy, unlock key and sync sign-in from this device. It does not sign out other sessions, and saved settings that refer to it will show it as unavailable.",
+      "This removes the connection, its local vault copy, unlock key and sync sign-in from this device. It does not sign out other sessions, and the synced settings of its account stay for other devices and a later connection.",
     );
   // Close composes the repo's Button, including its ref and keyboard focus.
   const keep = dialog.getByRole("button", { name: "Keep connection", exact: true });
@@ -2008,6 +2127,8 @@ test("each connection's row holds its vault access, which waits for saved settin
         id: "synthetic",
         label: "Synthetic vault",
         provider: "bitwarden",
+        server: "cloud-us",
+        userId: "synthetic-user",
         groups: [],
         items: [
           {
@@ -2023,8 +2144,15 @@ test("each connection's row holds its vault access, which waits for saved settin
   } satisfies Extract<SettingsResponse, { ok: true }>["catalog"];
   function saved(revision: number): Extract<SettingsResponse, { ok: true }> {
     const settings = createDefaultSettings(catalog);
-    // An entry for a connection this device no longer has keeps a place on the page.
-    settings.connections.push({ ...settings.connections[0]!, connectionId: "gone" });
+    // Another account's synced policy has no row here: rows come from this device's vaults.
+    settings.accountPolicies.push({
+      provider: "bitwarden",
+      server: "cloud-us",
+      userId: "other-user",
+      accountName: "Other device vault",
+      enabled: true,
+      selection: { mode: "all" },
+    });
     return { version: 1, ok: true, snapshot: { version: 1, revision, settings }, catalog };
   }
   const settings = {
@@ -2051,17 +2179,36 @@ test("each connection's row holds its vault access, which waits for saved settin
   const use = page.getByRole("switch", { name: "Synthetic vault: Use this vault", exact: true });
   await expect.element(use).not.toBeChecked();
   expect(document.getElementById("bitwarden-connections")?.contains(use.element())).toBe(true);
-  await expect.element(page.getByText("Unavailable connection", { exact: true })).toBeVisible();
-  await expect.element(page.getByText("gone. Its saved settings are kept.")).toBeVisible();
+  await expect
+    .element(page.getByText("Unavailable connection", { exact: true }))
+    .not.toBeInTheDocument();
+  await expect.element(page.getByText("Other device vault")).not.toBeInTheDocument();
   // There is no separate vault access section.
   await expect.element(page.getByRole("heading", { name: "Vault access" })).not.toBeInTheDocument();
 
   await use.click();
   await expect.element(page.getByText("Settings saved (revision 1).")).toBeVisible();
-  expect(settings.saveSettings.mock.calls[0]?.[0].settings.connections[0]).toMatchObject({
-    connectionId: "synthetic",
-    enabled: true,
-  });
+  // The switch writes the account's synced policy, keyed by provider, server and user ID.
+  const written = settings.saveSettings.mock.calls[0]?.[0].settings;
+  expect(written?.accountPolicies).toEqual([
+    {
+      provider: "bitwarden",
+      server: "cloud-us",
+      userId: "other-user",
+      accountName: "Other device vault",
+      enabled: true,
+      selection: { mode: "all" },
+    },
+    {
+      provider: "bitwarden",
+      server: "cloud-us",
+      userId: "synthetic-user",
+      accountName: "Synthetic vault",
+      enabled: true,
+      selection: { mode: "all" },
+    },
+  ]);
+  expect(written?.connections).toEqual([]);
   const read = held<SettingsResponse>();
   settings.getSettings.mockReturnValue(read.promise);
   await page.getByRole("button", { name: "Reload saved settings", exact: true }).click();

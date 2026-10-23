@@ -10,7 +10,11 @@ later work at acceptance, are implemented as
 page's reason for a save that met a revision conflict, also later work at acceptance, is
 implemented as [Settings saves after a sync](#settings-saves-after-a-sync) describes;
 the owner chose on 2026-10-23 that a conflict only background work caused is retried
-once by itself, and the other details were chosen by an agent. Amended on 2026-10-12 by
+once by itself, and the other details were chosen by an agent. Recording the evidence
+of items found equal in the synced review record of
+[ADR 0023](0023-synced-vault-policy.md), also later work, is implemented: adopting a
+sync moves a record to the new evidence when its old evidence matched and both sessions
+found the custom fields equal. Amended on 2026-10-12 by
 [ADR 0034](0034-answer-page-passkey-requests.md): a conditional passkey request waiting
 for a login is not a request being handled; the hold covers it only while it reads the
 vault and signs. Amended on 2026-10-23 by
@@ -252,8 +256,6 @@ unlock fetches it.
 
 ## Later work
 
-- Record the evidence of items found equal as reviewed in the synced record of
-  [ADR 0023](0023-synced-vault-policy.md), once that record is implemented.
 - Show items awaiting review on the toolbar icon.
 
 ## Alternatives and consequences

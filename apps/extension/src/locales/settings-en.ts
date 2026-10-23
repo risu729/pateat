@@ -18,6 +18,7 @@ export const settingsEn = {
   "settings were saved in another window or the toolbar popup":
     "settings were saved in another window or the toolbar popup",
   "a Bitwarden vault was added": "a Bitwarden vault was added",
+  "a Bitwarden vault was removed": "a Bitwarden vault was removed",
   "a Bitwarden vault was synced after a sign-in or Sync":
     "a Bitwarden vault was synced after a sign-in or Sync",
   "a Bitwarden vault was synced automatically": "a Bitwarden vault was synced automatically",
@@ -66,12 +67,15 @@ export const settingsEn = {
   Sections: "Sections",
   Diagnostics: "Diagnostics",
   "Other saved vault settings": "Other saved vault settings",
+  "Pateat uses no vault item until this device completes its first settings sync with the sync service.":
+    "Pateat uses no vault item until this device completes its first settings sync with the sync service.",
   "Local settings": "Local settings",
   "This preview cannot collect credentials, connect to Bitwarden or an AI service, fill forms, or sign passkey requests.":
     "This preview cannot collect credentials, connect to Bitwarden or an AI service, fill forms, or sign passkey requests.",
   "Licenses and source": "Licenses and source",
   "GPL-3.0-only, no warranty": "GPL-3.0-only, no warranty",
   Theme: "Theme",
+  'Show "This page" in the popup': 'Show "This page" in the popup',
   Light: "Light",
   Dark: "Dark",
   "Stored settings are invalid. They were not replaced.":

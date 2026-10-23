@@ -299,6 +299,7 @@ test("forced colors keep the selected account visible", async () => {
   settings.siteDefaults.push({
     origin: ORIGIN,
     provider: "dummy",
+    server: "cloud-us",
     userId: "demo-work-account",
     itemId: "primary",
     itemName: "Demo team account",

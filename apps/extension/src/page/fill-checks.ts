@@ -1,4 +1,5 @@
 import { valueMismatch, type ValueMismatch } from "@pateat/contracts";
+import { containsAcross, formOf, queryAll } from "./shadow";
 
 // The executor's local fill checks (ADR 0010). They read only the page and the values
 // already in the content script; nothing they see, including alert text that may echo
@@ -57,7 +58,7 @@ function feedbackTexts(
   regions: "all" | "alert" = "all",
 ): Set<string> {
   const root = inputs[0]?.ownerDocument ?? document;
-  const form = inputs[0]?.form;
+  const form = inputs[0] && formOf(inputs[0]);
   const named = new Set(
     inputs.flatMap((input) =>
       ["aria-describedby", "aria-errormessage"].flatMap((name) =>
@@ -66,9 +67,9 @@ function feedbackTexts(
     ),
   );
   const shown = [
-    ...root.querySelectorAll(alertSelector),
-    ...(regions === "alert" ? [] : [...root.querySelectorAll(statusSelector)]).filter(
-      (element) => form?.contains(element) || named.has(element.id),
+    ...queryAll(root, alertSelector),
+    ...(regions === "alert" ? [] : queryAll(root, statusSelector)).filter(
+      (element) => (form && containsAcross(form, element)) || named.has(element.id),
     ),
   ];
   const texts = new Set<string>();
@@ -77,7 +78,7 @@ function feedbackTexts(
     // visibility toggle; visually hidden announcements still count as rendered.
     if (
       !(element instanceof HTMLElement) ||
-      inputs.some((input) => element.contains(input)) ||
+      inputs.some((input) => containsAcross(element, input)) ||
       !element.checkVisibility({ visibilityProperty: true })
     )
       continue;

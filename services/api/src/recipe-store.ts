@@ -24,16 +24,21 @@ import {
 } from "drizzle-orm";
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
 import * as v from "valibot";
-import type { ServedModel } from "./claude/calls";
 import {
   owners,
   recipeHeads,
   recipeLayoutUses,
   recipeRevisions,
   recipeUnitSources,
-  type RecipeUnitOrigin,
 } from "./db/schema";
-import { documentUnits, LIST_UNIT, namedUnits, pageUnit, type RecipeUnit } from "./recipe-units";
+import {
+  documentUnits,
+  LIST_UNIT,
+  namedUnits,
+  pageUnit,
+  type RecipeUnit,
+  type UnitSources,
+} from "@pateat/generation";
 import {
   KEPT_RECIPE_REVISIONS,
   MAX_ACTIVE_RECIPES,
@@ -170,20 +175,6 @@ export async function hasRecipeRoom(db: D1Database, ownerId: string): Promise<bo
     .where(eq(owners.id, ownerId));
   return (row?.count ?? 0) < MAX_ACTIVE_RECIPES;
 }
-
-/**
- * What a recipe write records of its units (ADR 0060, generation provenance): the units a
- * call made and the call, or a device's whole document, which names no call.
- */
-export type UnitSources =
-  | {
-      origin: Extract<RecipeUnitOrigin, "generated" | "judged">;
-      units: readonly RecipeUnit[];
-      served: ServedModel;
-      promptVersion: string;
-      logId: string | undefined;
-    }
-  | { origin: "device" };
 
 /**
  * Writes the next revision of one recipe when `expectedRevision` is still its head.

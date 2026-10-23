@@ -1,6 +1,7 @@
 // The controls of an account switch's logout (ADR 0063), read in the page: which control
 // logs out by its words, so the page goes to the model only when that is unclear, and the
-// menu items and icon-only controls a logout recipe may name.
+// menu items and icon-only controls a logout recipe may name. Shadow trees are read as
+// part of the page, as a login page's are (ADR 0070).
 import {
   logoutRisk,
   safeLogoutName,
@@ -8,6 +9,7 @@ import {
   type LogoutPurpose,
 } from "@pateat/contracts";
 import { setsPointer } from "./account-list";
+import { closestAcross, containsAcross, queryAll } from "./shadow";
 import { findTargets } from "./targets";
 import { collapseText, isButton, isScriptButton, renderedText, shown } from "./text";
 
@@ -143,7 +145,7 @@ const layers = `${openMenus}, dialog, [role='dialog' i], [role='alertdialog' i],
  * confirmation, is told from one that did nothing.
  */
 export function shownLayers(document: Document): number {
-  return [...document.querySelectorAll(layers)].filter((element) => shown(element)).length;
+  return queryAll(document, layers).filter((element) => shown(element)).length;
 }
 
 /**
@@ -154,19 +156,17 @@ export function shownLayers(document: Document): number {
  * model instead. Of a control inside another that says the same, the inner one counts.
  */
 export function localLogoutControl(document: Document): HTMLElement | "none" | "ambiguous" {
-  const found = [...document.querySelectorAll(controlSelector)].filter(
-    (element): element is HTMLElement => {
-      if (!isControl(element) || !shown(element)) return false;
-      const read = ownNames(element).map(logoutName);
-      return (
-        read.includes("logout") &&
-        read.every((name) => name === "logout" || !name) &&
-        safeLogoutControl(element, "logout")
-      );
-    },
-  );
+  const found = queryAll(document, controlSelector).filter((element): element is HTMLElement => {
+    if (!isControl(element) || !shown(element)) return false;
+    const read = ownNames(element).map(logoutName);
+    return (
+      read.includes("logout") &&
+      read.every((name) => name === "logout" || !name) &&
+      safeLogoutControl(element, "logout")
+    );
+  });
   const innermost = found.filter((element) =>
-    found.every((other) => other === element || !element.contains(other)),
+    found.every((other) => other === element || !containsAcross(element, other)),
   );
   if (innermost.length === 0) return "none";
   return innermost.length === 1 ? innermost[0]! : "ambiguous";
@@ -184,7 +184,7 @@ export function isMenuItem(element: Element): element is HTMLElement {
     !isScriptButton(element) &&
     !(element instanceof HTMLAnchorElement) &&
     !(element instanceof HTMLInputElement) &&
-    element.closest("a[href]") === null
+    closestAcross(element, "a[href]") === null
   );
 }
 
@@ -231,12 +231,12 @@ export function logoutControlName(element: Element): string | undefined {
  */
 export function findLogoutTargets(document: Document, target: LoginMarkerTarget): Element[] {
   if (target.by === "accessible-name")
-    return [...document.querySelectorAll("button, input, a, [role], [aria-label], [title]")].filter(
+    return queryAll(document, "button, input, a, [role], [aria-label], [title]").filter(
       (element) => logoutControlName(element) === target.value,
     );
   const found = findTargets(document, target, { links: true });
   if (found.length || target.by !== "text") return found;
-  return [...document.querySelectorAll("[role]")].filter(
+  return queryAll(document, "[role]").filter(
     (element) => isMenuItem(element) && menuItemText(element) === target.value,
   );
 }

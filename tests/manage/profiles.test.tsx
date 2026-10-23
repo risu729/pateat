@@ -14,6 +14,9 @@ const state = (profileId: string, hostname: string): SyncSettingsState => ({
   revision: 3,
   settings: {
     connections: [],
+    accountPolicies: [],
+    itemPolicies: [],
+    customFieldReviews: [],
     excludedSites: [{ hostname, includeSubdomains: false }],
     repromptSites: [],
     passkeyBrowserSites: [],

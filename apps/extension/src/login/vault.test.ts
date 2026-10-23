@@ -19,6 +19,7 @@ function connection(overrides: Partial<VaultConnectionMetadata> = {}): VaultConn
     id: connectionId,
     label: "Synthetic vault",
     provider: "bitwarden",
+    server: "cloud-us",
     snapshotId,
     groups: [],
     items: [],

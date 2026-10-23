@@ -170,10 +170,12 @@ paired, logins use only the service's recipes.
 
 ### Running without the service (later pull requests)
 
-- **Generation on the device**: unpaired, the device runs the same checks and builds
-  the same model input with code shared with the service, and keeps its recipes in its
-  own store. Without a key no recipe is made, and recipes already on the device still
-  run. There is no editor for recipes or bindings.
+- **Generation on the device**: unpaired, the device runs the same checks and builds the
+  same model input with code shared with the service, and keeps its recipes in its own
+  store. The routes now live in `@pateat/generation` (`packages/generation`) and run
+  against a `GenerationBackend`; the service's is `d1Backend`, and the device's comes
+  with this part. Without a key no recipe is made, and recipes already on the device
+  still run. There is no editor for recipes or bindings.
 - **Export and import** (12:49 UTC): a file can carry everything pairing shares
   (settings, recipes and bindings) to another device, never vault data, the sync
   service's sign-in or the AI key. How this meets settings profiles is decided when

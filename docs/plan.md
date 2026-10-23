@@ -458,8 +458,9 @@ than in this repository.
   - Done: the popup's "This page" section from ADR 0038 says whether the site has a
     recipe for the page, what the AI last answered for the tab or why the page was not
     sent, and whether the tab's last login is running, signed in, or why it did not
-    start or succeed, with a link to the diagnostics page. It is always shown; a setting
-    to hide it comes later.
+    start or succeed, with a link to the diagnostics page. The settings page's synced
+    **Show "This page" in the popup** checkbox hides it and its log link (owner,
+    2026-10-23 12:47 UTC; ADR 0038's amendment).
   - Confirmed in installed Chrome on main f5df675 (reloaded 2026-10-13 22:26 UTC): on
     Netflix, whose only item has neither a password nor a passkey, the badge showed a
     red `!` titled `no-route: password-empty:no-passkey` and the "This page" lines; on
@@ -575,6 +576,13 @@ than in this repository.
   - A vault item edit picked up by the automatic sync
     ([#222](https://github.com/risu729/pateat/pull/222),
     [#224](https://github.com/risu729/pateat/pull/224)).
+  - Added on 2026-10-23, not moved by the owner: synced vault policy
+    ([ADR 0023](adr/0023-synced-vault-policy.md)), implemented and tested with
+    synthetic vaults and an in-memory service only. On the deployed service, with the
+    owner's real vault: a device's first settings sync after the update, item
+    selection and a custom-field exclusion made on one device applying on a second,
+    and a custom-field edit in Bitwarden making the item wait for review on the
+    settings page until it is reviewed.
   - Added on 2026-10-13, not moved by the owner: a security-key second factor behind a
     button labelled only "Verify", as on Oracle Cloud. Confirmed in the owner's Chrome
     on `8b60ff2` (2026-10-13 06:48 UTC), after the Oracle recipe was revoked: the judge
@@ -1087,9 +1095,14 @@ Once the fixes have settled:
 - The docs website (VitePress 2, see
   [decisions still requiring evidence](#decisions-still-requiring-evidence)) with
   user-facing pages for installation, setup and permissions, plus the M6 operational
-  docs. The [operations runbook](operations.md) now documents current retry/revert
-  procedures and the unverified D1 restore and rollback-automation boundaries; this
-  does not complete installed-Chrome or disaster-recovery acceptance.
+  docs. Started: [`apps/docs`](development.md#docs-website) builds in CI with English
+  pages for installation, setup, permissions and a draft privacy policy with the Chrome
+  Web Store Limited Use statement. Still to do: deploying it (a public assets-only
+  Worker with per-PR previews, owner 2026-10-23), the M6 operational docs, the Japanese
+  pages, and updating the installation page once releases exist. The
+  [operations runbook](operations.md) now documents current retry/revert procedures and
+  the unverified D1 restore and rollback-automation boundaries; this does not complete
+  installed-Chrome or disaster-recovery acceptance.
 - A mode without the service, designed with the owner on 2026-10-23
   ([ADR 0040](adr/0040-running-without-the-service.md)): a device may hold its own
   Anthropic API key and call the model itself, also while paired, where the service only
@@ -1134,7 +1147,8 @@ Once the fixes have settled:
   developer account and will also publish there if the store's policies allow it
   (2026-10-11). The owner accepted on 2026-10-11 (18:36 UTC) that a store item gets a
   store-assigned extension ID, so devices pair again, and that the store requires a
-  privacy policy and a Limited Use statement. Risk: the
+  privacy policy and a Limited Use statement; drafts of both are on the docs website's
+  privacy page (`apps/docs/src/privacy.md`), not reviewed by the owner yet. Risk: the
   [MV3 code rules](https://developer.chrome.com/docs/webstore/program-policies/mv3-requirements)
   forbid "building an interpreter to run complex commands fetched from a remote source,
   even if those commands are fetched as data". A reviewer may count service-held recipes
@@ -1333,10 +1347,12 @@ items the owner mentioned and gates still open on 2026-10-11.
     [phase 2](#phase-2-use-it-and-fix-what-comes-up); deliveries 2 to 4 (the settings
     and fill-only `sign-in`, filling `confirm` pages, personal details) are here.
 - The items under [later work](#initial-delivery-and-later-scope) and the ADRs' later
-  sections, including synced vault policy ([ADR 0023](adr/0023-synced-vault-policy.md)),
-  profile inheritance ([ADR 0076](adr/0076-settings-profiles-delivered.md)), the ADR
-  0025 later work and the ADR 0027 cases it does not handle. Generation for passkey-only
-  start pages moved to [phase 2](#phase-2-use-it-and-fix-what-comes-up) on 2026-10-19.
+  sections, including the toolbar popup's part of synced vault policy (reporting items
+  that wait for review, and binding review;
+  [ADR 0023](adr/0023-synced-vault-policy.md)), profile inheritance
+  ([ADR 0076](adr/0076-settings-profiles-delivered.md)), the ADR 0025 later work and the
+  ADR 0027 cases it does not handle. Generation for passkey-only start pages moved to
+  [phase 2](#phase-2-use-it-and-fix-what-comes-up) on 2026-10-19.
 - Real-account checks of individual Bitwarden two-step methods, other KDFs, V2 keys and
   organization items. The owner moved them after the public release on 2026-10-11
   (18:35 UTC), since few users are expected to need them; each needs the owner's
@@ -1801,6 +1817,12 @@ Protected snapshot bindings survive even a review choosing no exclusions. Generi
 cannot clear unresolved exclusions or that binding history. Separate cache/settings
 stores detect mismatched state after interruption; they do not provide one atomic
 combined commit. Catalog bounds are validated before unlock-key export and cache commit.
+Since 2026-10-23 ([ADR 0023](adr/0023-synced-vault-policy.md)) the snapshot-scoped
+references and `fieldPolicies` are gone: custom fields are excluded by name, position
+and count in synced `itemPolicies`, and a synced `customFieldReviews` record keeps the
+encrypted custom-field evidence and revision date of the last review. An item whose
+evidence differs waits for review on the settings page, or for its vault to sync when
+its revision date is older than the record's.
 
 The settings page can delete a connection locally, as
 [Development](development.md#manual-bitwarden-setup-preview) describes. Unit, options
@@ -2135,8 +2157,12 @@ in-memory storage; sync against the deployed service has no recorded check yet.
 
 The fifth slice syncs the device-independent settings in the same run, after recipes:
 site exclusions, site defaults that name a provider account and item, and account
-bindings. Vault connections, item selection and field exclusions stay on the device; the
-service document always has an empty `connections` list. The background reads
+bindings. Vault connections stay on the device; the service document always has an
+empty `connections` list. Since 2026-10-15 the same run also syncs `accountPolicies`,
+`itemPolicies` (merged per provider account and item) and `customFieldReviews`, keyed by
+provider, server and user ID ([ADR 0023](adr/0023-synced-vault-policy.md)); the dummy
+provider's entries stay local, and no vault item is used before a device's first
+settings sync. The background reads
 `GET /v1/settings` and merges three copies per entry (exclusions by hostname, defaults
 by origin, bindings by recipe, origin and account): the last agreed base, stored under
 `pateat.sync-settings.v1`, the local settings and the service's. A side that changed an
@@ -2202,10 +2228,11 @@ tests cover it.
   page while signed in to Access finished in one click with "This device is paired.",
   and `/manage` listed the new device "risu-thinkpad Chrome" as paired at 14:00 UTC
   (check step 2). Step 3 (signed out) and the cookie settings are not recorded yet.
-- Settings that use device-local connection IDs, such as item selection and field
-  exclusions, are not synced yet.
-  [ADR 0023](adr/0023-synced-vault-policy.md) decides their synced form and custom-field
-  review; it is not implemented.
+- Done on 2026-10-23, except the popup's part: item selection, field exclusions and
+  custom-field review are synced per provider account
+  ([ADR 0023](adr/0023-synced-vault-policy.md) and its implementation notes, which the
+  owner approved on 2026-10-23). Not checked against the deployed service or a real
+  vault yet (see [phase 2](#phase-2-use-it-and-fix-what-comes-up)).
 - Done: the [owner web UI](architecture.md#owner-web-ui) serves its React app, assets
   and JSON API behind Access, with the devices, sites, account bindings and recipes
   pages. Settings edits and recipe revocations there use the same revision checks as
@@ -3105,43 +3132,47 @@ element is shown (fields, buttons and their text,
 lists of accounts, sign-in entries and the signed-in page). An input at opacity 0 with
 no such animation stays transparent, as does one under an animation that holds the
 opacity at 0 for the rest of its iteration (a fade-out that then holds, a carousel's
-slide hidden until its next cycle) or finished at 0. Labels come from
-`aria-labelledby`, `aria-label`, `<label>`, the text next to a field (the preceding
-table cell, `<dt>` or sibling, at most three levels up, never across another control or
-its label), then `title`; image `alt` names buttons, including `<input type="image">`. A
-text, email, tel, number or password field also gets a `description`: the rendered text
-of the elements its `aria-describedby` names, such as `半角数字3桁` under a branch
-number field, left out when it equals the label. Error messages can echo what the user
-typed, so a field marked `aria-invalid="true"` gets no description, and neither an
-element the field's `aria-errormessage` names nor the text of an alert, status or other
-live region, around the description or inside it, ever counts. An error message with
-none of these marks is still read. The description reaches the generation, finite-choice
-and completion roles as untrusted page text, like labels. The owner chose on 2026-10-12
-to add only this now and to consider the rest only if field or button mapping gets worse
-on real pages. Not observed today: text after a field that no `aria-describedby` names
-(a hint printed under an input), a second label source once one is found (the text next
-to a field when a `<label>` exists), text around a button (a line above a passkey
-button, or which `h1`-`h3` heading a button sits under) and a button's
-`aria-describedby`, the `pattern` attribute, and whether a button is disabled. Whatever
-the model saw, the executor still checks a field's `maxlength` and `minlength` before it
-fills and the browser's validation, `pattern` included, before it clicks. Text is
-redacted as [architecture](architecture.md#declarative-recipes-and-ai) describes. Each
-target is the first of `id`, `name` and `data-testid` that matches exactly one element,
-as the executor resolves it, skipping an `id` React's `useId` generated and trying one
-holding a random-looking run or Mantine's `mantine-` prefix (2026-10-13) last, and for
-an input without one, its first `autocomplete` token that is `username`, `email`,
+slide hidden until its next cycle) or finished at 0. Labels come from `aria-labelledby`,
+`aria-label`, `<label>`, the text next to a field (the preceding table cell, `<dt>` or
+sibling, at most three levels up, never across another control or its label), then
+`title`; image `alt` names buttons, including `<input type="image">`. A text, email,
+tel, number or password field also gets a `description`: the rendered text of the
+elements its `aria-describedby` names, such as `半角数字3桁` under a branch number
+field, left out when it equals the label. Error messages can echo what the user typed,
+so a field marked `aria-invalid="true"` gets no description, and neither an element the
+field's `aria-errormessage` names nor the text of an alert, status or other live region,
+around the description or inside it, ever counts. An error message with none of these
+marks is still read. The description reaches the generation, finite-choice and
+completion roles as untrusted page text, like labels. The owner chose on 2026-10-12 to
+add only this now and to consider the rest only if field or button mapping gets worse on
+real pages. Not observed today: text after a field that no `aria-describedby` names (a
+hint printed under an input), a second label source once one is found (the text next to
+a field when a `<label>` exists), text around a button (a line above a passkey button,
+or which `h1`-`h3` heading a button sits under) and a button's `aria-describedby`, the
+`pattern` attribute, and whether a button is disabled. Whatever the model saw, the
+executor still checks a field's `maxlength` and `minlength` before it fills and the
+browser's validation, `pattern` included, before it clicks. Text is redacted as
+[architecture](architecture.md#declarative-recipes-and-ai) describes. Each target is the
+first of `id`, `name` and `data-testid` that matches exactly one element, as the
+executor resolves it, skipping an `id` React's `useId` generated and trying one holding
+a random-looking run or Mantine's `mantine-` prefix (2026-10-13) last, and for an input
+without one, its first `autocomplete` token that is `username`, `email`,
 `current-password`, `one-time-code` or `webauthn` and that no other input carries, then
 its visible name when no other shown fillable input has it, then its `name` when it is
 the one shown element with that name in a form with a shown password input not marked
 `new-password` ([ADR 0072](adr/0072-field-name-in-the-sign-in-form.md)), before such an
 `id` ([ADR 0037](adr/0037-fields-by-visible-name.md)); a button without one gets a text
 locator when its text matches exactly one button and redaction leaves it unchanged, and
-a script link when its text matches no button and exactly one script link. In a login
-form, a field, button or required checkbox without a target (a checkbox is context
-only, so one without `required` or `aria-required="true"` and without a target is left
-out, 2026-10-23, as Stripe's and 1Password's "Remember me"), a control the executor
-cannot act on (a select, radio, text area, another input type, or a read-only, disabled,
-transparent or tiny field) or a control in a shadow root makes the observation
+a script link when its text matches no button and exactly one script link. The page
+includes every shadow root, open or closed, as the official Bitwarden extension reads it
+([ADR 0070](adr/0070-shadow-roots-as-page-content.md)): a shadow tree's fields, buttons
+and text are described, counted for the locators and found by the executor as the
+document's own, and a control in a component's shadow tree belongs to the form that
+holds the component. In a login form, a field, button or required checkbox without a
+target (a checkbox is context only, so one without `required` or `aria-required="true"`
+and without a target is left out, 2026-10-23, as Stripe's and 1Password's "Remember
+me"), or a control the executor cannot act on (a select, radio, text area, another input
+type, or a read-only, disabled, transparent or tiny field) makes the observation
 incomplete, as do more than 48 candidates, so inference rejects it; a page without a
 field, or where nothing in a login form can be located or acted on, is refused. The
 login forms are
@@ -3158,13 +3189,11 @@ controls are those outside every form; since 2026-10-23 a control the executor c
 act on that is not a field counts there only inside the fields' area, their nearest
 common ancestor (a lone field itself) and up to four levels above it (never the body or
 the root element), so a language picker in a page footer without footer markup, as on
-dアカウント's login page
-(`cfg.smt.docomo.ne.jp`, read in cloud Chromium on main `381116f`), no longer makes the
-page incomplete (agent fix, local tests only; not checked in the owner's Chrome). A
-field in any open shadow root marks it incomplete too, as it
-may be the real login. Links are context only: the plan check accepts only a button as
-the page action. Known limits: a read-only username shown again on a password step makes
-that step incomplete, and honeypot inputs moved to the right or clipped by
+dアカウント's login page (`cfg.smt.docomo.ne.jp`, read in cloud Chromium on main
+`381116f`), no longer makes the page incomplete (agent fix, local tests only; not
+checked in the owner's Chrome). Links are context only: the plan check accepts only a
+button as the page action. Known limits: a read-only username shown again on a password
+step makes that step incomplete, and honeypot inputs moved to the right or clipped by
 `overflow: hidden` stay candidates. `extractSignedInObservation` describes the page
 after a generated recipe's final submission the same way, but over the whole page: every
 field, then buttons and links up to 48 candidates, listed in document order. A field it
@@ -3512,7 +3541,7 @@ support for every site or vault format. Keep observed limitations explicit.
 - Per [ADR 0013](adr/0013-service-held-recipes-and-settings.md), decide how to choose
   among several URI-matched items. How synced field exclusions move to
   device-independent references, and where custom-field review happens, are decided in
-  [ADR 0023](adr/0023-synced-vault-policy.md).
+  [ADR 0023](adr/0023-synced-vault-policy.md) and implemented since 2026-10-23.
 - Pairing and device credential lifetime (90 days unused, renewed on use; see
   [service sync progress](#service-sync-progress)) are settled, and a lost
   device is replaced by pairing a new one, since the service holds settings and recipes
@@ -3556,13 +3585,14 @@ and E2EE sync require their own interoperability/recovery evidence.
 
 Extension releases on GitHub Releases, with their continuous delivery, are planned for
 [phase 3](#phase-3-public-release), with the Chrome Web Store if its policies allow;
-public recipe sharing and hosted
-browser installation are outside the plan. A simple docs website comes in phase 3 and is
-not a phase 1 gate. The owner chose VitePress for it on
-2026-10-11, as risu729/biwa uses, so biwa's Bun and mise build, assets-only Cloudflare
-Worker and per-PR previews can be reused. The owner chose VitePress 2 even before its
-stable release (on 2026-10-11 the npm `next` tag was 2.0.0-alpha.20, as biwa uses), and
-nothing is installed before the site is built. Starlight and Docusaurus were the
+public recipe sharing and hosted browser installation are outside the plan. A simple
+docs website comes in phase 3 and is not a phase 1 gate. The owner chose VitePress for
+it on 2026-10-11, as risu729/biwa uses, so biwa's Bun and mise build, assets-only
+Cloudflare Worker and per-PR previews can be reused. The owner chose VitePress 2 even
+before its stable release (on 2026-10-11 the npm `next` tag was 2.0.0-alpha.20, as biwa
+uses), and nothing was installed before the site was built; `apps/docs` pins
+2.0.0-alpha.20, still the `next` tag on 2026-10-15. Starlight and Docusaurus were the
 alternatives. The docs/ pages are written for development, so user-facing pages
-(installation, setup, permissions) are still to be written for the site. Extension build
-and automated tests remain in CI scope. Native helpers are not required by the product.
+(installation, setup, permissions) are written for the site in `apps/docs/src`.
+Extension build and automated tests remain in CI scope. Native helpers are not required
+by the product.

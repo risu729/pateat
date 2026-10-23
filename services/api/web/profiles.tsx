@@ -173,7 +173,7 @@ export function ProfilesPage({ client }: { client: ManageClient }) {
                   <>
                     <RowMain
                       title={`Delete ${profile.name}?`}
-                      sub="Its site exclusions, sites that ask for the master password and saved accounts are deleted. Account bindings stay."
+                      sub="Its site settings and saved accounts are deleted from the service. Account bindings stay."
                     />
                     <Button
                       variant="danger"

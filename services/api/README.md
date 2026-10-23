@@ -195,10 +195,12 @@ check is logged and the request goes on.
 `recipe_unit_sources` records which call made each unit of an active recipe
 ([ADR 0060](../../docs/adr/0060-recipe-layouts.md#generation-provenance)): service-only,
 never synced and never in the document. A unit is named within its layout (`layout`,
-null for an entry recipe) by `page:<n>` (the page whose steps start at index `n`),
-`handler:<i>` and `marker:<i>` (by index, as the judge only appends them), `list` (a
-chooser layout's buttons), `account/…` or `other/…` (a chooser branch's units) or
-`entry`; `src/recipe-units.ts` defines them and each unit's content. A row holds the
+null for an entry or logout recipe) by `page:<n>` (the page whose steps start at index
+`n`), `handler:<i>` and `marker:<i>` (by index, as the judge only appends them), `list`
+(a chooser layout's buttons), `account/…` or `other/…` (a chooser branch's units),
+`entry` or `logout` (a logout recipe's clicks,
+[ADR 0063](../../docs/adr/0063-switch-accounts-from-the-popup.md));
+`packages/generation/src/units.ts` defines them and each unit's content. A row holds the
 unit's `digest` (32 hex digits of the SHA-256 of that content as canonical JSON), the
 recipe `revision` whose write recorded it, its `origin` (`generated`, `judged` or
 `device`), the model that answered (`provider`, `model`, `effort`, `speed`, from the
@@ -253,15 +255,19 @@ values and the saved identifiers.
 ## Recipe generation
 
 [ADR 0018](../../docs/adr/0018-recipe-generation-route.md) routes, in
-`src/recipes/generate.ts`. Both answer 200 with a `status`: `recipe` or `signed-in`
-with the stored change, `abstained`, `rejected`, `challenge` or `unclear`, `failed` with
-a code, or `unavailable` with a reason when no model was called. A generation that fails
-`invalid-output` because a check refused the model's output also names it as
-`rejection`, in codes only: `{ check: "json" }` for output that was not JSON,
-`{ check: "schema", issue, path }` for the first issue of the output format (such as
-`max-length` at `result.alternatives`; `unknown-key` where the model added a key, with
-the path ending before it), or `{ check: "plan", reason }` with the plan check's code
-(such as `incompatible-role`).
+`packages/generation/src/generate.ts` (`@pateat/generation`, with an account switch's
+logout route in `logout.ts`), which runs against D1
+through `src/recipes/backend.ts` and, for a device that holds its own key, will run
+against that device's storage
+([ADR 0040](../../docs/adr/0040-running-without-the-service.md)). Both answer 200 with a
+`status`: `recipe` or `signed-in` with the stored change, `abstained`, `rejected`,
+`challenge` or `unclear`, `failed` with a code, or `unavailable` with a reason when no
+model was called. A generation that fails `invalid-output` because a check refused the
+model's output also names it as `rejection`, in codes only: `{ check: "json" }` for
+output that was not JSON, `{ check: "schema", issue, path }` for the first issue of the
+output format (such as `max-length` at `result.alternatives`; `unknown-key` where the
+model added a key, with the path ending before it), or `{ check: "plan", reason }` with
+the plan check's code (such as `incompatible-role`).
 
 - `POST /v1/recipes/generate` takes
   `{ version: 1, observation, slots, base?, branch?, signedIn? }`. Each origin and start

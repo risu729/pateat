@@ -70,6 +70,7 @@ describe("createLoginSites", () => {
       settings.siteDefaults = ["http://router.example", "https://login.example"].map((origin) => ({
         origin,
         provider: "dummy",
+        server: "cloud-us",
         userId: "user",
         itemId: "item",
       }));

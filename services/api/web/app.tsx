@@ -13,6 +13,7 @@ import { RequestLogPage } from "./request-log";
 import { SitePage } from "./site";
 import { siteOrigin, SitesPage } from "./sites";
 import { ThemeSelect } from "./theme-select";
+import { VaultsPage } from "./vaults";
 
 const revision = PATEAT_BUILD_REVISION;
 const isCommit = /^[0-9a-f]{40}$/.test(revision);
@@ -28,6 +29,7 @@ const licenseUrl = `https://github.com/risu729/pateat/blob/${sourceRef}/LICENSE-
 const PAGES = [
   { path: "/manage/dashboard", title: "Dashboard", Page: DashboardPage },
   { path: "/manage/sites", title: "Sites", Page: SitesPage },
+  { path: "/manage/vaults", title: "Vaults", Page: VaultsPage },
   { path: "/manage/profiles", title: "Profiles", Page: ProfilesPage },
   { path: "/manage", title: "Devices", Page: DevicesPage },
   { path: "/manage/claude", title: "Claude", Page: ClaudePage },
@@ -44,14 +46,16 @@ export function ManageApp({ client, path }: { client: ManageClient; path: string
   const current = PAGES.find((page) => page.path === (site ? "/manage/sites" : path));
   const title = site ?? current?.title;
   const editsSites = Boolean(site) || current?.path === "/manage/sites";
+  // Sites and Vaults show one profile's settings; Vaults only lists them.
+  const usesProfile = editsSites || current?.path === "/manage/vaults";
   const profiles = useQuery({
     queryKey: PROFILES_QUERY_KEY,
     queryFn: () => client.profiles(),
-    enabled: editsSites,
+    enabled: usesProfile,
   });
   const list = profiles.data?.profiles ?? [];
   // A choice of a deleted profile, or one from another account, is no choice.
-  const profileId = !editsSites
+  const profileId = !usesProfile
     ? undefined
     : list.some((profile) => profile.id === chosen)
       ? chosen
@@ -84,7 +88,7 @@ export function ManageApp({ client, path }: { client: ManageClient; path: string
           </ul>
         </nav>
       </header>
-      {editsSites && list.length > 1 && (
+      {usesProfile && list.length > 1 && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-border bg-surface px-4 py-3">
           <label htmlFor="settings-profile" className="text-sm font-semibold">
             Settings profile
@@ -111,7 +115,9 @@ export function ManageApp({ client, path }: { client: ManageClient; path: string
             ))}
           </select>
           <span id="settings-profile-hint" className="text-[13px]/5 text-ink-muted">
-            Exclusions and saved accounts below belong to this profile; bindings are shared.{" "}
+            {editsSites
+              ? "Exclusions and saved accounts below belong to this profile; bindings are shared."
+              : "The vault settings below belong to this profile."}{" "}
             <a className={linkClasses} href="/manage/profiles">
               Manage profiles
             </a>
@@ -119,12 +125,14 @@ export function ManageApp({ client, path }: { client: ManageClient; path: string
         </div>
       )}
       <main key={profileId}>
-        {editsSites && profiles.isPending ? (
+        {usesProfile && profiles.isPending ? (
           <output>Loading settings profiles…</output>
-        ) : editsSites && profiles.isError ? (
+        ) : usesProfile && profiles.isError ? (
           <p role="alert">{describeError(profiles.error)}</p>
-        ) : editsSites && list.length > 1 && !profileId ? (
-          <p>Choose the settings profile to edit.</p>
+        ) : usesProfile && list.length > 1 && !profileId ? (
+          <p>
+            {editsSites ? "Choose the settings profile to edit." : "Choose a settings profile."}
+          </p>
         ) : site ? (
           <SitePage client={client} origin={site} />
         ) : current ? (

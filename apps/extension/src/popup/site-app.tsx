@@ -4,6 +4,7 @@ import { i18n } from "../i18n";
 import {
   normalizeHostname,
   parseSiteUrl,
+  popupPageSectionShown,
   siteDefaultConnection,
   type LocalSettings,
   type LoginDetail,
@@ -629,11 +630,17 @@ export function SiteApp({
     staleTime: 0,
     gcTime: 0,
   });
-  // What Pateat did on the page (ADR 0038), read again while the popup is open.
+  // The settings may hide the section; it waits for them so a hidden one never flashes.
+  const pageSectionShown = saved !== undefined && popupPageSectionShown(saved.snapshot.settings);
+  // What Pateat did on the page (ADR 0038), read again while the popup is open and shown.
+  // While the settings hide the section it is not asked for, so the account switch and a
+  // timed pause (ADR 0062, ADR 0063), which read it, are not offered either.
   const pageStatus = useQuery({
-    queryKey: ["popup", "page-status", tabId],
+    // Keyed by the choice, so a status read before the section was hidden never shows when
+    // it is shown again.
+    queryKey: ["popup", "page-status", tabId, pageSectionShown],
     queryFn: () => choices.status(tabId!),
-    enabled: tabId !== undefined && origin !== undefined,
+    enabled: pageSectionShown && tabId !== undefined && origin !== undefined,
     refetchInterval: 1000,
     staleTime: 0,
     gcTime: 0,
@@ -648,14 +655,20 @@ export function SiteApp({
     staleTime: 0,
     gcTime: 0,
   });
-  // Only the connections and each vault's sync, state and quarantine decide the matches, so
-  // saving a default or a pause keeps the listed accounts instead of listing them again.
+  // Only the vault policies and each vault's sync, state and quarantine decide the matches,
+  // so saving a default or a pause keeps the listed accounts instead of listing them again.
   const accounts = useQuery({
     queryKey: [
       "popup",
       "site-accounts",
       origin,
-      saved && JSON.stringify(saved.snapshot.settings.connections),
+      saved &&
+        JSON.stringify([
+          saved.snapshot.settings.accountPolicies,
+          saved.snapshot.settings.itemPolicies,
+          saved.snapshot.settings.customFieldReviews,
+        ]),
+      saved?.catalog.settingsSyncPending ?? false,
       saved?.catalog.connections.map((entry) => [
         entry.snapshotId ?? null,
         entry.state ?? null,
@@ -1136,6 +1149,7 @@ export function SiteApp({
       const entry = {
         origin,
         provider: selected.provider,
+        server: selected.server,
         userId: selected.userId,
         itemId: selected.itemId,
         itemName: selected.itemName,
@@ -1186,7 +1200,9 @@ export function SiteApp({
     );
 
     const status =
-      pageStatus.data?.ok && pageStatus.data.origin === origin ? pageStatus.data : undefined;
+      pageSectionShown && pageStatus.data?.ok && pageStatus.data.origin === origin
+        ? pageStatus.data
+        : undefined;
     const usedValue = status?.used
       ? JSON.stringify([status.used.connectionId, status.used.itemId])
       : undefined;
@@ -1309,7 +1325,7 @@ export function SiteApp({
           <PageStatusSection
             status={status}
             inPrivate={inPrivate}
-            onOpenDiagnostics={() => host.openDiagnostics()}
+            onOpenDiagnostics={pageSectionShown ? () => host.openDiagnostics() : undefined}
           >
             {detailSection}
           </PageStatusSection>

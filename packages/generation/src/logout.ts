@@ -16,15 +16,7 @@ import {
   logoutPromptVersion,
   outputRejection,
 } from "@pateat/inference";
-import type { DeviceScope } from "../auth";
-import {
-  callClaude,
-  keepLogRevision,
-  type RequestTrace,
-  type UnsentRequest,
-} from "../claude/calls";
-import { hasRecipeByteRoom, hasRecipeRoom, readHead, writeRecipe } from "../recipe-store";
-import { LOGOUT_UNIT } from "../recipe-units";
+import type { GenerationBackend, UnsentRequest } from "./backend";
 import {
   active,
   answerUnsent,
@@ -35,9 +27,9 @@ import {
   modelCall,
   roleConfig,
   unavailable,
-  type GenerationEnv,
   type UnsentAnswer,
 } from "./generate";
+import { LOGOUT_UNIT } from "./units";
 
 // The logout route of an account switch (ADR 0063): a signed-in page of the tab the switch
 // runs in, one round at a time, answered with the click that signs out, opens the menu
@@ -77,10 +69,8 @@ const logoutAbstentions = new Set<string>([
  * `local`'s click; a `signed-out` answer and an abstention store nothing.
  */
 export async function generateLogout(
-  env: GenerationEnv,
-  scope: DeviceScope,
+  backend: GenerationBackend,
   request: LogoutGenerationRequest,
-  trace: RequestTrace,
 ): Promise<LogoutGenerationResult | undefined> {
   const { observation, base, local } = request;
   const { origin, path } = observation;
@@ -93,7 +83,7 @@ export async function generateLogout(
     return undefined;
   const recipeId = base?.recipeId ?? (await generatedLogoutRecipeId(origin, local?.path ?? path));
   if (!isGeneratedRecipeId(recipeId)) return undefined;
-  const headAtStart = await readHead(env.DB, scope.ownerId, recipeId);
+  const headAtStart = await backend.readHead(recipeId);
   // What the request log keeps of the request, sent or not (ADR 0012).
   const logged = {
     role: "generate",
@@ -110,7 +100,7 @@ export async function generateLogout(
     },
   } satisfies UnsentRequest;
   const unsent = (answer: Extract<LogoutGenerationResult, UnsentAnswer>) =>
-    answerUnsent(env, scope.ownerId, logged, answer, trace);
+    answerUnsent(backend, logged, answer);
   if (!observation.complete) return unsent(failed("incomplete-observation"));
 
   /** Whether a stored recipe is the logout recipe generated under this ID for this origin. */
@@ -120,8 +110,8 @@ export async function generateLogout(
     recipe.id === recipeId &&
     (await generatedLogoutRecipeId(origin, recipe.logout.path)) === recipeId;
   const room = async () =>
-    (await hasRecipeRoom(env.DB, scope.ownerId)) &&
-    (await hasRecipeByteRoom(env.DB, scope.ownerId, MIN_GENERATION_RECIPE_ROOM_BYTES));
+    (await backend.hasRecipeRoom()) &&
+    (await backend.hasRecipeByteRoom(MIN_GENERATION_RECIPE_ROOM_BYTES));
   const stored = (change: SyncRecipeChange & { state: "active" }) =>
     "logout" in change.recipe
       ? ({ version: 1, status: "recipe", change: { ...change, recipe: change.recipe } } as const)
@@ -148,7 +138,7 @@ export async function generateLogout(
     if (!current) return { answer: unavailable("recipe-conflict") };
     // Another device already appended a page after this base: use that.
     if (current.revision !== base.revision) return { answer: stored(current) };
-    if (!(await hasRecipeByteRoom(env.DB, scope.ownerId, MIN_GENERATION_RECIPE_ROOM_BYTES)))
+    if (!(await backend.hasRecipeByteRoom(MIN_GENERATION_RECIPE_ROOM_BYTES)))
       return { answer: unavailable("recipe-limit") };
     return "logout" in current.recipe
       ? { base: current.recipe, revision: current.revision }
@@ -159,23 +149,19 @@ export async function generateLogout(
   const baseRevision = before.revision;
   let raced: Extract<LogoutGenerationResult, { status: "recipe" | "unavailable" }> | undefined;
 
-  const call = await callClaude(env, scope.ownerId, trace, {
+  const call = await backend.call({
     ...logged,
     device: request.deviceModel,
     recipe: { ...logged.recipe, baseRevision },
-    ...attemptWindow(
-      scope.ownerId,
-      { recipeId, branch: "", origin, path, baseRevision },
-      async () => {
-        // Another device may have stored this page while this request waited for the lock.
-        const latest = await decide(await readHead(env.DB, scope.ownerId, recipeId));
-        if ("answer" in latest) {
-          raced = latest.answer;
-          return "recipe-conflict";
-        }
-        return latest.revision !== baseRevision ? "recipe-conflict" : undefined;
-      },
-    ),
+    ...attemptWindow(backend, { recipeId, branch: "", origin, path, baseRevision }, async () => {
+      // Another device may have stored this page while this request waited for the lock.
+      const latest = await decide(await backend.readHead(recipeId));
+      if ("answer" in latest) {
+        raced = latest.answer;
+        return "recipe-conflict";
+      }
+      return latest.revision !== baseRevision ? "recipe-conflict" : undefined;
+    }),
     invoke: (model) => createLogoutGenerator({ model, ...roleConfig })({ observation }),
     logValue: (value) =>
       value.decision === "logout"
@@ -227,12 +213,9 @@ export async function generateLogout(
     answer,
   );
   if (!built.ok) return failed("recipe-invalid");
-  const written = await writeRecipe(
-    env.DB,
-    scope.ownerId,
+  const written = await backend.writeRecipe(
     recipeId,
     { version: 1, state: "active", expectedRevision: baseRevision, recipe: built.recipe },
-    scope.deviceId,
     {
       sources: {
         origin: "generated",
@@ -249,7 +232,7 @@ export async function generateLogout(
     const lost = await decide(written.current);
     return "answer" in lost ? lost.answer : unavailable("recipe-conflict");
   }
-  await keepLogRevision(env.DB, scope.ownerId, call.logId, written.change.revision);
+  await backend.keepLogRevision(call.logId, written.change.revision);
   const change = active(written.change);
   return change ? stored(change) : unavailable("recipe-conflict");
 }

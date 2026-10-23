@@ -14,11 +14,16 @@ import { hasProfile } from "./profile-store";
  * rules do, so it is a profile part too; absent while off.
  */
 export const profileDocument = (document: LocalSettings) => ({
+  accountPolicies: document.accountPolicies,
+  itemPolicies: document.itemPolicies,
+  customFieldReviews: document.customFieldReviews,
   excludedSites: document.excludedSites,
   repromptSites: document.repromptSites,
   passkeyBrowserSites: document.passkeyBrowserSites,
   siteDefaults: document.siteDefaults,
   ...(document.loginInPrivateWindows ? { loginInPrivateWindows: true as const } : {}),
+  // Kept only while it hides the popup's page status; absent means shown.
+  ...(document.popupPageSection === false && { popupPageSection: false }),
 });
 
 /**
@@ -39,9 +44,15 @@ export async function readSettings(
     .first<{ revision: number | null; shared: string | null; document: string | null }>();
   if (!row) throw new Error("profile-not-found");
   const shared = row.shared ? JSON.parse(row.shared) : { bindings: [] };
-  const profile = row.document
-    ? JSON.parse(row.document)
-    : { excludedSites: [], repromptSites: [], passkeyBrowserSites: [], siteDefaults: [] };
+  const profile = {
+    accountPolicies: [],
+    itemPolicies: [],
+    customFieldReviews: [],
+    excludedSites: [],
+    repromptSites: [],
+    siteDefaults: [],
+    ...(row.document ? JSON.parse(row.document) : {}),
+  };
   return v.parse(syncSettingsStateSchema, {
     version: 1,
     profileId,

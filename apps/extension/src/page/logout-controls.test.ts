@@ -154,6 +154,22 @@ describe("logout click locators", () => {
     expect(safeLogoutControl(byId("menu"), "logout")).toBe(false);
   });
 
+  it("reads controls and menus inside shadow roots as part of the page (ADR 0070)", () => {
+    page(`<app-header></app-header>`);
+    const root = document.querySelector("app-header")!.attachShadow({ mode: "open" });
+    root.innerHTML = `
+      <button type="button" aria-label="Account menu"><svg></svg></button>
+      <div role="menu"><span role="menuitem">Sign out</span></div>`;
+    expect(localLogoutControl(document)).toBe(root.querySelector("[role='menuitem']"));
+    expect(findLogoutTargets(document, { by: "text", value: "Sign out" })).toEqual([
+      root.querySelector("[role='menuitem']"),
+    ]);
+    expect(findLogoutTargets(document, { by: "accessible-name", value: "Account menu" })).toEqual([
+      root.querySelector("button"),
+    ]);
+    expect(shownLayers(document)).toBe(1);
+  });
+
   it("counts the dialogs and menus the page shows", () => {
     page(`<div role="menu" hidden></div><div role="dialog" aria-modal="true">Sure?</div>`);
     expect(shownLayers(document)).toBe(1);

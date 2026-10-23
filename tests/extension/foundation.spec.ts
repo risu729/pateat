@@ -709,6 +709,7 @@ test("local policies and account defaults survive a browser restart", async () =
           {
             origin: "https://bank.example",
             provider: "dummy",
+            server: "cloud-us",
             userId: "demo-personal-account",
             itemId: "primary",
             itemName: "Demo primary account",

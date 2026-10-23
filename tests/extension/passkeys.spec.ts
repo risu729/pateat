@@ -20,7 +20,14 @@ import {
 import { PROBE_PASSKEY } from "../../apps/extension/src/passkeys/probe";
 import { fidoPrivateKey } from "../../packages/bitwarden/src/__fixtures__/crypto";
 import { sendToBackground } from "./background-message";
-import { beginInput, settingsRequest, setupProbe, setupRequest } from "./connection-fixture";
+import {
+  beginInput,
+  catalogAccount,
+  settingsRequest,
+  setupProbe,
+  setupRequest,
+  useOnly,
+} from "./connection-fixture";
 import { withLoginExtension } from "./login-fixture";
 import { passkeyPageHtml, startPasskeyRelyingParty as startRelyingParty } from "./passkey-server";
 import { withVaultProfile } from "./vault-fixture";
@@ -891,9 +898,7 @@ test("a passkey stored in the synthetic Bitwarden vault signs inside the crypto 
     // The probe build's demo connections hold no snapshot, so they would count as unsearched
     // and block a single match. The owner turning them off leaves only the synthetic account.
     const initial = await settingsRequest(options);
-    const enabled = initial.snapshot.settings;
-    for (const entry of enabled.connections)
-      entry.enabled = entry.connectionId === accepted.connectionId;
+    const enabled = useOnly(initial.snapshot.settings, initial.catalog, accepted.connectionId);
     await settingsRequest(options, {
       version: 1,
       type: "settings.save",
@@ -942,12 +947,16 @@ test("a passkey stored in the synthetic Bitwarden vault signs inside the crypto 
     // Excluding the item in Pateat's settings leaves the request to the browser.
     const saved = await settingsRequest(options);
     const settings = saved.snapshot.settings;
-    const connection = settings.connections.find(
-      (entry) => entry.connectionId === accepted.connectionId,
-    )!;
-    const itemId = saved.catalog.connections.find((entry) => entry.id === accepted.connectionId)!
-      .items[0]!.id;
-    connection.excludedItemIds = [itemId];
+    const item = saved.catalog.connections.find((entry) => entry.id === accepted.connectionId)!
+      .items[0]!;
+    settings.itemPolicies.push({
+      ...catalogAccount(saved.catalog, accepted.connectionId),
+      itemId: item.id,
+      itemName: item.label,
+      selected: false,
+      excluded: true,
+      excludedFields: [],
+    });
     await settingsRequest(options, {
       version: 1,
       type: "settings.save",

@@ -11,8 +11,7 @@ import { createDeviceToken, hashDeviceToken } from "../src/auth";
 import { saveWifCredential } from "../src/claude/credentials";
 import { revokeUnusedRecipes } from "../src/recipe-store";
 import { RECIPE_IDLE_LIMIT_MS } from "../src/limits";
-import { generatedRecipeId } from "../src/recipes/generate";
-import { generatedLogoutRecipeId } from "../src/recipes/logout";
+import { generatedLogoutRecipeId, generatedRecipeId } from "@pateat/generation";
 
 // ADR 0063: an account switch's signed-in pages, sent to find the control that signs out.
 // Synthetic owners, devices and pages only; Anthropic's endpoints are answered locally.

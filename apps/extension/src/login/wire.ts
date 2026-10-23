@@ -888,8 +888,6 @@ export const awaitResultSchema = v.strictObject({
 });
 /** Why an observation is incomplete; see `ObservationGap`. Value-free codes only. */
 export const observationGaps = [
-  "shadow-field",
-  "shadow-control",
   "unfillable-field",
   "unsupported-control",
   "unlocated-field",

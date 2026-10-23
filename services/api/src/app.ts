@@ -99,6 +99,8 @@ export const app = new Hono<ApiEnv>()
   // One site's page, for the origin `<scheme>://<host>`; the app checks the host.
   .get("/manage/sites/:scheme{https?}/:host", requireAccess, appPage)
   .all("/manage/sites/:scheme{https?}/:host", methodNotAllowed("GET"))
+  .get("/manage/vaults", requireAccess, appPage)
+  .all("/manage/vaults", methodNotAllowed("GET"))
   // Editing any profile from the extension's settings page (ADR 0076). Only the host-wide
   // Access application's audience is accepted, which requires WARP, never the pairing
   // one (ADR 0030), and only from an extension the pairing allowlist names. A device

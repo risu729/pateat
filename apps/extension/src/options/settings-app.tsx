@@ -3,7 +3,7 @@ import { i18n } from "../i18n";
 import {
   conflictCauses,
   localSettingsSchema,
-  type ConnectionSettings,
+  popupPageSectionShown,
   type LocalSettings,
   type SettingsConflictCause,
   type SettingsResponse,
@@ -19,10 +19,11 @@ import {
   Link,
   Shield,
   Timer,
+  TriangleAlert,
   Vault,
   type LucideIcon,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import * as v from "valibot";
 import { Logo } from "../logo";
 import { Button } from "./button";
@@ -45,6 +46,9 @@ import { Panel, StatusLines, type LocalizedMessage } from "./ui";
 type AcceptedSettings = Extract<SettingsResponse, { ok: true }>;
 const emptySettings: LocalSettings = {
   connections: [],
+  accountPolicies: [],
+  itemPolicies: [],
+  customFieldReviews: [],
   excludedSites: [],
   passkeyBrowserSites: [],
   repromptSites: [],
@@ -85,6 +89,9 @@ export function SettingsApp({
   // The edits not yet in a saved revision, oldest first, so they can be applied again to a
   // revision that only background work wrote (ADR 0025).
   const unsavedEdits = useRef<((value: LocalSettings) => void)[]>([]);
+  // The vault snapshots the oldest unsaved edit was made against; a rebase keeps them, so
+  // a save never vouches for custom fields the page did not show (ADR 0023).
+  const draftSnapshots = useRef<{ connectionId: string; snapshotId: string }[]>([]);
   // Set once a conflict's edits were applied to the newer revision, so the next save runs
   // even with no new edit; `retried` allows that once until a save or reload succeeds.
   const rebased = useRef(false);
@@ -143,6 +150,7 @@ export function SettingsApp({
           type: "settings.save",
           expectedRevision: previous.snapshot.revision,
           settings: structuredClone(value),
+          shownSnapshots: draftSnapshots.current,
         });
         if (epoch !== catalogGeneration.current) {
           setSaveBlocked(true);
@@ -280,10 +288,13 @@ export function SettingsApp({
     // Field updates, not reset: a reset leaves the form untouched, and the new accepted
     // defaults would then replace the rebased draft on the next render.
     form.setFieldValue("connections", value.connections);
+    form.setFieldValue("accountPolicies", value.accountPolicies);
+    form.setFieldValue("itemPolicies", value.itemPolicies);
     form.setFieldValue("excludedSites", value.excludedSites);
     form.setFieldValue("repromptSites", value.repromptSites);
     form.setFieldValue("siteDefaults", value.siteDefaults);
     form.setFieldValue("bindings", value.bindings);
+    form.setFieldValue("popupPageSection", value.popupPageSection);
     rebased.current = true;
     return "rebased";
   }
@@ -298,6 +309,7 @@ export function SettingsApp({
     setAccepted(next);
     form.reset(structuredClone(next.snapshot.settings));
     unsavedEdits.current = [];
+    draftSnapshots.current = [];
     retried.current = false;
     setDirty(false);
     dirtyRef.current = false;
@@ -347,13 +359,22 @@ export function SettingsApp({
     if (operation.current === "load" || !acceptedRef.current) return false;
     const next = structuredClone(form.state.values);
     update(next);
+    if (!unsavedEdits.current.length)
+      draftSnapshots.current = acceptedRef.current.catalog.connections.flatMap((connection) =>
+        connection.snapshotId === undefined
+          ? []
+          : [{ connectionId: connection.id, snapshotId: connection.snapshotId }],
+      );
     unsavedEdits.current.push(update);
     form.setFieldValue("connections", next.connections);
+    form.setFieldValue("accountPolicies", next.accountPolicies);
+    form.setFieldValue("itemPolicies", next.itemPolicies);
     form.setFieldValue("excludedSites", next.excludedSites);
     form.setFieldValue("passkeyBrowserSites", next.passkeyBrowserSites);
     form.setFieldValue("repromptSites", next.repromptSites);
     form.setFieldValue("siteDefaults", next.siteDefaults);
     form.setFieldValue("loginInPrivateWindows", next.loginInPrivateWindows);
+    form.setFieldValue("popupPageSection", next.popupPageSection);
     edits.current += 1;
     setDirty(true);
     dirtyRef.current = true;
@@ -473,11 +494,6 @@ export function SettingsApp({
     }
     void reload();
   }
-  const changeConnection = (id: string, update: (value: ConnectionSettings) => void) =>
-    edit((value) => {
-      const connection = value.connections.find((entry) => entry.connectionId === id);
-      if (connection) update(connection);
-    });
   const exclusionsWin = (
     <StatusLines
       muted
@@ -537,7 +553,28 @@ export function SettingsApp({
         )}
       </output>
       <div className="flex flex-wrap items-start gap-8">
-        <SectionNav sections={sections} />
+        <SectionNav
+          sections={sections}
+          display={
+            <label className="checkbox-row m-0 text-sm">
+              <input
+                id="popup-page-section"
+                type="checkbox"
+                checked={popupPageSectionShown(draft)}
+                disabled={busy || !accepted}
+                onChange={(event) => {
+                  const shown = event.target.checked;
+                  // Stored only when hidden, as in the synced document.
+                  edit((value) => {
+                    if (shown) delete value.popupPageSection;
+                    else value.popupPageSection = false;
+                  });
+                }}
+              />
+              {t('Show "This page" in the popup')}
+            </label>
+          }
+        />
         <main className="flex min-w-0 flex-[999_1_560px] flex-col gap-6">
           {!connectionClient && (
             <StatusLines
@@ -553,6 +590,19 @@ export function SettingsApp({
               ]}
             />
           )}
+          {accepted?.catalog.settingsSyncPending && (
+            <StatusLines
+              lines={[
+                {
+                  tone: "warn",
+                  icon: TriangleAlert,
+                  text: t(
+                    "Pateat uses no vault item until this device completes its first settings sync with the sync service.",
+                  ),
+                },
+              ]}
+            />
+          )}
           {connectionClient && (
             <BitwardenSetup
               client={connectionClient}
@@ -561,16 +611,16 @@ export function SettingsApp({
               reviewBlocked={dirty || busy || saveBlocked}
               unsavedChanges={dirty}
               renderAccess={(id) => {
-                const connection = draft.connections.find((entry) => entry.connectionId === id);
                 const metadata = accepted?.catalog.connections.find((entry) => entry.id === id);
                 return (
-                  connection &&
+                  accepted &&
                   metadata && (
                     <VaultAccess
-                      connection={connection}
+                      draft={draft}
+                      catalog={accepted.catalog}
                       metadata={metadata}
-                      disabled={busy || !accepted}
-                      edit={(update) => changeConnection(id, update)}
+                      disabled={busy}
+                      edit={edit}
                     />
                   )
                 );
@@ -584,12 +634,12 @@ export function SettingsApp({
                     >
                       <legend className="visually-hidden">{t("Other saved vault settings")}</legend>
                       <VaultRows
-                        ids={draft.connections
-                          .map((entry) => entry.connectionId)
+                        ids={accepted.catalog.connections
+                          .map((entry) => entry.id)
                           .filter((id) => !listed.includes(id))}
                         draft={draft}
                         catalog={accepted.catalog}
-                        change={changeConnection}
+                        edit={edit}
                       />
                     </fieldset>
                   )}
@@ -609,10 +659,10 @@ export function SettingsApp({
               <Panel id="demo-vaults" headingId="connections-heading" title={t("Demo vaults")}>
                 {accepted ? (
                   <VaultRows
-                    ids={draft.connections.map((entry) => entry.connectionId)}
+                    ids={accepted.catalog.connections.map((entry) => entry.id)}
                     draft={draft}
                     catalog={accepted.catalog}
-                    change={changeConnection}
+                    edit={edit}
                   />
                 ) : (
                   <ul id="connections" className="hidden" />
@@ -653,8 +703,11 @@ type NavSection = { id: string; label: string; icon: LucideIcon };
 const navLinkClass =
   "flex min-h-10 items-center gap-2.5 rounded-lg px-3 text-sm font-medium text-ink no-underline hover:bg-surface aria-[current]:bg-surface aria-[current]:font-[650] aria-[current]:text-accent-ink aria-[current]:shadow-[inset_0_0_0_1px_var(--border)]";
 
-/** The page's sections, the diagnostics page and the theme; the section in view is marked. */
-function SectionNav({ sections }: { sections: NavSection[] }) {
+/**
+ * The page's sections, the diagnostics page, the theme, the popup's display choice and the
+ * language; the section in view is marked.
+ */
+function SectionNav({ sections, display }: { sections: NavSection[]; display: ReactNode }) {
   const { t } = useTranslation(undefined, { i18n });
   const [current, setCurrent] = useState(sections[0]?.id);
   const ids = sections.map((section) => section.id).join(" ");
@@ -735,8 +788,9 @@ function SectionNav({ sections }: { sections: NavSection[] }) {
           </a>
         </li>
       </ul>
-      <div className="px-3">
+      <div className="flex flex-col gap-4 px-3">
         <ThemeSelect />
+        {display}
         <LanguageSelect />
       </div>
     </nav>
