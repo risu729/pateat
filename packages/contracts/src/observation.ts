@@ -253,8 +253,9 @@ export const loginObservationSchema = v.pipe(
       ),
     "Autocomplete and label locators apply only to fields",
   ),
-  // Only a signed-in page's description offers one, for a button that may go on to the
-  // password (ADR 0048 amendment of 2026-10-19).
+  // A signed-in page's description offers one for a button that may go on to the password
+  // (ADR 0048 amendment of 2026-10-19), and a login page's for a login form's button that
+  // nothing else names alone (proposed amendment of 2026-10-23).
   v.check(
     (observation) =>
       observation.candidates.every(

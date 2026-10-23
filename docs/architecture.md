@@ -2087,9 +2087,9 @@ A step names its element with an allowlisted locator, never CSS: an `id` or `nam
 ASCII except whitespace and control characters, as in `ctl00$Main$txtUserId` or
 `user[login]`), a `data-testid` (`[A-Za-z0-9_.:-]`), an `<input>`'s `autocomplete`
 token, a fillable input's visible name
-([ADR 0037](adr/0037-fields-by-visible-name.md), below), a `password` handler's
-button's accessible name (ADR 0048's amendment, below), or, for a click or a state
-check only, a button's text:
+([ADR 0037](adr/0037-fields-by-visible-name.md), below), a `password` handler's or a
+route click's button's accessible name (ADR 0048's amendments, below), or, for a click
+or a state check only, a button's text:
 `{ "by": "text", "value": "ログイン" }` names the `<button>` whose rendered text (or,
 without any, its images' `alt`), the `<input type="submit|button">` whose value, or the
 `<input type="image">` whose `alt` equals the value after whitespace is collapsed (owner
@@ -2300,6 +2300,18 @@ the click count such a link as a button; the extractor tries the name first for 
 describes it as a button. Everywhere else such a link stays a link (option A2, which
 would have counted it as a button on every page, was not chosen). UniSuper's choice of
 how to verify shows its two controls this way (2026-10-18).
+
+Proposed on 2026-10-23 and not yet accepted by the owner
+([ADR 0048's proposed amendment](adr/0048-password-method-button.md#proposed-amendment-a-login-forms-button-named-only-by-its-accessible-name)),
+a route step's click may also name its button so: the extractor gives a login page's
+login-form native button (a `<button>`, or an `<input>` of type `submit`, `button` or
+`image`) that no `id`, `name`, `data-testid` or text locator names alone its
+accessible name, under the same uniqueness, number and redaction rules but without the
+password word check, before an `id` another load may change, and the click by it
+presses only a native button, never a script button or a fragment link. Amazon.co.jp's
+sign-in submit, an `<input type="submit">` without a `value` labelled by an
+`aria-hidden` 「次に進む」 beside it, is named this way: the text of an element that
+`aria-labelledby` names is read even when its own `aria-hidden="true"` hides it.
 
 A text locator is stored in the recipe, unlike observation labels, which only reach
 inference. Redaction keeps email addresses and long numbers out of it, but a button such

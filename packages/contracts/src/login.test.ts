@@ -725,17 +725,27 @@ describe("second-factor page handlers (ADR 0027)", () => {
           );
       });
 
+      it("names a route step's click (proposed amendment of 2026-10-23)", () => {
+        const base = recipe();
+        const next = { by: "accessible-name", value: "次に進む" } as const;
+        const steps = base.steps.map((step, index) =>
+          index === 1 ? { ...step, target: next } : step,
+        );
+        expect(parseLoginRecipe({ ...base, steps }).steps[1]).toEqual({
+          kind: "click",
+          path: "/identity",
+          target: next,
+          purpose: "advance",
+        });
+      });
+
       it("names no other element of a recipe", () => {
         const base = recipe();
-        const steps = base.steps.map((step, index) =>
-          index === 1 ? { ...step, target: named } : step,
-        );
         const withPasskey = {
           ...base,
           passkey: { path: "/identity", target: named },
         };
         for (const value of [
-          { ...base, steps },
           withPasskey,
           { ...base, completion: [{ target: named }] },
           { ...base, completion: [{ target: { by: "id", value: "out" } }, { target: named }] },
