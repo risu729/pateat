@@ -3489,20 +3489,9 @@ describe("problem lines (ADR 0066)", () => {
       fillOnly: true,
       name: "TypeError",
     });
-    log.login({
-      type: "judge",
-      tabId: 3,
-      origin: site.origin,
-      recipeId: "gen-0123",
-      recipeRevision: 2,
-      route: "password",
-      verdict: "retry",
-      reason: "failed",
-      fillOnly: true,
-    });
     // The same warning of a login that is not fill-only leaves.
     log.login(attempt);
-    await vi.waitFor(async () => expect(await logger.entries()).toHaveLength(7));
+    await vi.waitFor(async () => expect(await logger.entries()).toHaveLength(6));
     const entries = await logger.entries();
     expect(entries.map(({ level, event }) => `${level} ${event}`)).toEqual([
       "warn passkey.request",
@@ -3510,13 +3499,11 @@ describe("problem lines (ADR 0066)", () => {
       "warn login.attempt",
       "warn login.attempt",
       "warn login.exception",
-      "warn recipe.judge",
       "warn login.attempt",
     ]);
     // The local log keeps the mark that keeps them local.
-    for (const entry of entries.slice(2, 6)) expect(entry.fields["fillOnly"]).toBe(true);
+    for (const entry of entries.slice(2, 5)) expect(entry.fields["fillOnly"]).toBe(true);
     expect(entries.map((entry) => sentToService(entry))).toEqual([
-      false,
       false,
       false,
       false,
@@ -3525,7 +3512,6 @@ describe("problem lines (ADR 0066)", () => {
       true,
     ]);
     expect(entries.map(problemLine).map((line) => line?.event)).toEqual([
-      undefined,
       undefined,
       undefined,
       undefined,

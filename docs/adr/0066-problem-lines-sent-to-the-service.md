@@ -54,8 +54,10 @@ condition that no value leaves.
   entries never leave. Passkey reports (`passkey.request`, `passkey.create`) and
   fill-only logins stay local, at any level: the events are `LOCAL_ONLY_EVENTS` in
   `packages/contracts/src/problems.ts`, and every line of a fill-only login that may be
-  a `warn` (`login.attempt`, `login.exception`, `recipe.judge`), and its `login.start`,
-  carries the local log's `fillOnly` flag (`LOCAL_ONLY_FLAG`). Neither is in
+  a `warn` (`login.attempt`, `login.exception`), and its `login.start`, carries the
+  local log's `fillOnly` flag (`LOCAL_ONLY_FLAG`). Such a login writes no `recipe.judge`
+  line: it never takes a step with an effect, and the attempt contract refuses it a
+  judgement at its stop. Neither is in
   `PROBLEM_EVENT_FIELDS`, so the service refuses them too. The tab's asking after the
   fill (`login.refused` `logged-out`) is not the login's line and still leaves.
 - What leaves (`problemLine` in `apps/extension/src/diagnostics/log.ts`): the event,

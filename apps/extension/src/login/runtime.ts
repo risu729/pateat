@@ -2133,8 +2133,6 @@ export type LoginReport = (
       reason?: string;
       /** For a returned revision: whether this login took it over. */
       takenOver?: boolean;
-      /** As for `attempt`: a fill-only login after a logout (ADR 0021 D, ADR 0066). */
-      fillOnly?: true;
       /** A page of a watched login, judged from the watch's own pages (ADR 0027). */
       watched?: true;
       /**
@@ -2508,9 +2506,6 @@ export function createLoginRuntime(
       // A report must never change the answer.
     }
   };
-  /** A fill-only login's mark, which keeps its log lines on the device (ADR 0066). */
-  const fillOnlyMark = (metadata: LoginAttemptMetadata) =>
-    metadata.fillOnly ? { fillOnly: true as const } : {};
   const reportAttempt = (
     metadata: LoginAttemptMetadata,
     recipe: LoginRecipe | undefined,
@@ -7087,7 +7082,6 @@ export function createLoginRuntime(
       route: run.metadata.route,
       verdict: "not-sent",
       reason,
-      ...fillOnlyMark(run.metadata),
       ...(run.metadata.watch ? { watched: true as const } : {}),
     });
     return false;
@@ -7446,7 +7440,6 @@ export function createLoginRuntime(
         route: metadata.route,
         verdict,
         ...detail,
-        ...fillOnlyMark(run.metadata),
         ...(watchedPage ? { watched: true as const } : {}),
         ...(disabledLeftOut ? { disabledLeftOut: true as const } : {}),
         ...(beside ? { beside: true as const } : {}),
@@ -8462,7 +8455,7 @@ export function createLoginRuntime(
             state: run.metadata.state,
             stepIndex: run.metadata.stepIndex,
             ...(unsubmitted(run.metadata) ? { unsubmitted: true as const } : {}),
-            ...fillOnlyMark(run.metadata),
+            ...(run.metadata.fillOnly ? { fillOnly: true as const } : {}),
             name: error instanceof Error ? error.name : typeof error,
             ...(error instanceof Error ? { message: error.message } : {}),
             ...(error instanceof Error && error.stack ? { stack: error.stack } : {}),
@@ -14083,7 +14076,6 @@ export function createLoginRuntime(
         route: record.route,
         verdict,
         ...(reason ? { reason } : {}),
-        ...fillOnlyMark(record),
         moved: true,
         ...(disabledLeftOut ? { disabledLeftOut: true as const } : {}),
         ...timed,
@@ -15067,7 +15059,6 @@ export function createLoginRuntime(
         route: run.metadata.route,
         verdict: "not-sent",
         reason,
-        ...fillOnlyMark(run.metadata),
         stop: "password",
       });
       return false;
@@ -15111,7 +15102,6 @@ export function createLoginRuntime(
         route: "password",
         verdict,
         ...detail,
-        ...fillOnlyMark(run.metadata),
         ...(disabledLeftOut ? { disabledLeftOut: true as const } : {}),
         stop: "password",
         ...timed,

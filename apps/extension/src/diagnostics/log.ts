@@ -434,7 +434,6 @@ export const LOG_EVENTS = {
       verdict: "code",
       reason: "code",
       takenOver: "flag",
-      fillOnly: "flag",
       watched: "flag",
       completed: "flag",
       disabledLeftOut: "flag",

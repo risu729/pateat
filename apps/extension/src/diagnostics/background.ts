@@ -610,7 +610,6 @@ export function createDiagnosticsLog(options: {
             verdict: report.verdict,
             reason: report.reason,
             takenOver: report.takenOver,
-            fillOnly: report.fillOnly,
             watched: report.watched,
             completed: report.completed,
             disabledLeftOut: report.disabledLeftOut,
