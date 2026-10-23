@@ -1849,10 +1849,12 @@ re-encrypted. After a page with a recipe finds no matching item, a check runs at
 every ten seconds and reconnects only the refused document once it applied a new
 snapshot; unit tests cover the gate, the window and the reconnect target, and
 `tests/extension/login-service.spec.ts` logs in on a routed site once the item's URI
-arrives through that check. A settings save that meets a revision conflict names what
-wrote the newer revisions, such as an automatic sync
-([ADR 0025](adr/0025-automatic-vault-sync.md#settings-saves-after-a-sync)); unit tests
-cover the recorded causes and the conflict answer, and a component test the status line.
+arrives through that check. A settings save that meets a revision conflict only
+background work caused, such as an automatic sync, is saved again once on the newest
+revision; any other conflict names what wrote the newer revisions
+([ADR 0025](adr/0025-automatic-vault-sync.md#settings-saves-after-a-sync)). Unit tests
+cover the recorded causes and the conflict answer, and component tests the retry and the
+status line.
 Automatic sync is not yet verified in installed Chrome or against a real account.
 
 On 2026-10-12 the owner's installed Chrome reported `reauthentication-required` about

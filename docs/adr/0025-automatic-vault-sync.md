@@ -9,10 +9,11 @@ later work at acceptance, are implemented as
 [Protected items after a sync](#protected-items-after-a-sync) describe. The settings
 page's reason for a save that met a revision conflict, also later work at acceptance, is
 implemented as [Settings saves after a sync](#settings-saves-after-a-sync) describes;
-its details were chosen by an agent and are not confirmed by the owner. Amended on
-2026-10-12 by [ADR 0034](0034-answer-page-passkey-requests.md): a conditional passkey
-request waiting for a login is not a request being handled; the hold covers it only
-while it reads the vault and signs.
+the owner chose on 2026-10-23 that a conflict only background work caused is retried
+once by itself, and the other details were chosen by an agent. Amended on 2026-10-12 by
+[ADR 0034](0034-answer-page-passkey-requests.md): a conditional passkey request waiting
+for a login is not a request being handled; the hold covers it only while it reads the
+vault and signs.
 
 Date: 2026-10-11
 
@@ -196,10 +197,21 @@ and no setting value:
 The store writes the entry itself, so a background mutation cannot drop or rewrite it. A
 `revision-conflict` answer lists the distinct causes of the revisions after the expected
 one, oldest first, with `unknown` first when some of them are older than the list keeps
-or the store is behind the expected revision. The settings page names each cause in its
-status line, as in "Saved settings changed before this save: a Bitwarden vault was
-synced automatically.", and still keeps the draft and asks for a reload. The toolbar
-popup already reloads after a conflict and is unchanged.
+or the store is behind the expected revision.
+
+When every listed cause is a background one, anything but `settings-save` and `unknown`,
+the owner did nothing to cause the conflict, so the settings page retries by itself: it
+reads the newest revision, applies the draft's unsaved edits to it in order, and saves
+once more against that revision. The edits are the page's own changes, such as an added
+site or a vault's item selection, so they replay on top of what the background wrote.
+Every write still goes through the store's revision check. The page shows the reason
+only when the retry also conflicts, when another settings page or the toolbar popup
+saved, or when a cause is unrecorded. It names each cause in its status line, as in
+"Saved settings changed before this save: a Bitwarden vault was synced automatically.",
+keeps the draft and asks for a reload. The owner rejected two other options: always
+asking for a reload, which is noise when the owner did nothing wrong, and reloading by
+itself, which discards the draft. The toolbar popup already reloads after a conflict and
+is unchanged.
 
 ### Differences from the official extension
 

@@ -350,7 +350,8 @@ export function SettingsApp({
   }
   /**
    * Saves the draft until it has no unsaved edit. A failed or unknown outcome stops here and is
-   * never retried; a blocked draft waits for an explicit reload.
+   * never retried, except once after a conflict only background work caused (`rebase`); a
+   * blocked draft waits for an explicit reload.
    */
   async function save() {
     if (operation.current) return;

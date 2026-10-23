@@ -996,10 +996,13 @@ saved as soon as it is made; there is no separate save button (owner decision,
 run one at a time, and an edit made while one runs is saved on top of its result. Each
 saved change applies at once, so it also cancels logins and passkey requests started
 under the previous settings. Queries never refetch on focus/reconnect and neither reads
-nor saves automatically retry: after an invalid draft the next change saves again, and
-after a blocking failure later edits stay in the unsaved draft. Only an explicit
-successful reload replaces edits after a failed save or revision conflict; a conflict's
-status line names what wrote the newer revisions, such as an automatic vault sync
+nor saves automatically retry, apart from the one conflict retry below: after an invalid
+draft the next change saves again, and after a blocking failure later edits stay in the
+unsaved draft. Only an explicit successful reload replaces edits after a failed save or
+revision conflict. The one exception is a conflict that only background work caused,
+such as an automatic vault sync: the page applies its unsaved edits to the newest
+revision and saves once more. Otherwise the conflict's status line names what wrote the
+newer revisions
 ([ADR 0025](adr/0025-automatic-vault-sync.md#settings-saves-after-a-sync)). A failed or
 ambiguous save retains the draft, and an unknown outcome blocks saving until reload. The
 background worker remains the settings authority and validates both messages and
