@@ -724,9 +724,10 @@ rewrites each stored recipe's `completion` into the list of signed-in markers of
 [ADR 0029](adr/0029-local-sign-in-state.md), so the owner's recipes keep working
 without being generated again.
 
-Proposed exception, awaiting the owner's answer: settings stored before the synced
-`passkeyBrowserSites` list existed read it as an empty list, in the service and in the
-extension's local snapshot ([ADR 0007](adr/0007-existing-passkey-assertions.md)).
+A second exception, chosen by the owner on 2026-10-23 at 21:13 UTC: settings stored
+before the synced `passkeyBrowserSites` list existed read it as an empty list, in the
+service and in the extension's local snapshot
+([ADR 0007](adr/0007-existing-passkey-assertions.md)).
 
 ## Platform features
 

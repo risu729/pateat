@@ -446,9 +446,9 @@ settings page only needs to remove it, not add it.
   `excludedSites` (the agent's assignment, not confirmed by the owner); with one
   profile it syncs to every paired device.
 - Settings stored before the list existed read it as empty, in the service and in the
-  extension (a proposed exception to
+  extension (an exception to
   [compatibility before release](../development.md#compatibility-before-release),
-  awaiting the owner's answer).
+  chosen by the owner on 2026-10-23 at 21:13 UTC).
 
 Differences from Bitwarden are listed in
 [Differences from Bitwarden](../bitwarden-differences.md#passkeys). The earlier
