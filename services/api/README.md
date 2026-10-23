@@ -409,16 +409,18 @@ attempt key is the generated recipe ID, the path and the revision being continue
 a first page, the tombstone's revision for a revoked recipe generated again), so two
 recipes of one origin that lead to the same page do not block each other. A request that
 passes every check is an attempt, including one the role then refuses locally for its
-size, which would be refused again. Each call first reserves its upper bound (64 KiB of
-input as tokens plus 1,024 output tokens at the ADR 0014 rates, about $0.28) and then
-corrects it from reported usage; usage the provider does not report keeps the
-reservation. The `inference_log` row stores the provider and model, the role's prompt
-version (`prompt_version`: the first 12 hex digits of the SHA-256 of its instructions, a
-newline and its response format's JSON Schema, computed once per set of instructions:
-the generate role has one for a form, one for an entry request and one for a list of
-accounts, whose instructions add one list line), the instructions
-and input as sent, the structured result, the outcome code, usage and estimated cost.
-Since 2026-10-18
+size, which would be refused again. A request Claude Opus 5.5 refuses is sent once more
+to Claude Sonnet 5.5 at effort `low` under the same lock, unless the refused call
+reached a spend stop, and each of the two calls is reserved, charged and logged on its
+own (ADR 0014). Each call first reserves its upper bound (64 KiB of input as tokens plus
+1,024 output tokens at its model's rates, about $0.28 for Opus 5.5) and then corrects it
+from reported usage; usage the provider does not report keeps the reservation. The
+`inference_log` row stores the provider and model, the role's prompt version
+(`prompt_version`: the first 12 hex digits of the SHA-256 of its instructions, a newline
+and its response format's JSON Schema, computed once per set of instructions: the
+generate role has one for a form, one for an entry request and one for a list of
+accounts, whose instructions add one list line), the instructions and input as sent, the
+structured result, the outcome code, usage and estimated cost. Since 2026-10-18
 ([ADR 0012](../../docs/adr/0012-inference-request-log.md#amendment-2026-10-18-rows-for-a-real-page-corpus))
 it also records the recipe the call is for (`recipe_id`, `branch`, empty without one),
 `base_revision` (the head revision when the call was made: 0 for none, the tombstone's

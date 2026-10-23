@@ -34,9 +34,16 @@ monthly Claude API credit and chose the model. The offline harness in
 - The default monthly spending limit is $100 against the $200 credit, leaving room
   for the overshoot ADR 0003 allows from in-flight and concurrent requests. The owner
   first set $150 and lowered it to $100 on 2026-10-11.
-- Anthropic's server-side `fallbacks` parameter is not used. A refusal, overload or
-  other failure of the configured model ends as `refused` or an error, with no
-  automatic switch to another model, as ADR 0003 requires.
+- Anthropic's server-side `fallbacks` parameter is not used. An overload or other
+  failure of the configured model ends as an error, with no automatic switch to another
+  model, as ADR 0003 requires. A refusal is the one exception (owner, 2026-10-23 11:04
+  UTC): the service asks `claude-sonnet-5-5` at effort `low` the same request once, as a
+  call of its own with its own spend reservation at Sonnet's rates ($2/$10 per million)
+  and its own request log row, unless the refused call reached a spend stop. Sonnet's
+  refusal ends the request as `refused`; no third model is asked. The service retries
+  rather than sending `fallbacks`, since Anthropic's server-side fallback does not retry
+  every refusal category, such as the `reasoning_extraction` refusals Opus 5.5 gave in
+  the 2026-10-23 comparison.
 - Jev and Clef are not required. The finite-choice role has no provider for now; its
   adapter contract stays, and those models may be evaluated later against the same
   corpus. On 2026-10-11 the owner chose to implement the role with Clef in
