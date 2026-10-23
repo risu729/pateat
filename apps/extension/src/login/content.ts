@@ -742,21 +742,21 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                 : command.page === "entry"
                   ? extractEntryObservation(document, (url) => onSite.has(url.hostname))
                   : extractSignedInObservation();
+        // A page described without a field says why, for the log (ADR 0019).
+        if (
+          command.page !== "entry" &&
+          command.page !== "signed-in" &&
+          (result as { reason?: unknown }).reason === "no-candidates"
+        )
+          result = {
+            ok: false,
+            reason: "no-candidates",
+            detail: fieldsMissDetail(document).slice(0, 64),
+          };
       } catch {
         // A page the extractor cannot read still gets an answer the log can name.
         result = { ok: false, reason: "extract-error" };
       }
-      // A page described without a field says why, for the log (ADR 0019).
-      if (
-        command.page !== "entry" &&
-        command.page !== "signed-in" &&
-        (result as { reason?: unknown }).reason === "no-candidates"
-      )
-        result = {
-          ok: false,
-          reason: "no-candidates",
-          detail: fieldsMissDetail(document).slice(0, 64),
-        };
       respond(result);
       return false;
     }

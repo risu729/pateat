@@ -5655,8 +5655,10 @@ export function createLoginRuntime(
       );
       // The content script's refusal, such as `no-locator` or `extract-error`, as for a
       // first page; `extract-failed` for an answer that fails its check or never came.
-      if (extracted.success && !extracted.output.ok) missing = extracted.output.reason;
-      else if (extracted.success && extracted.output.ok) {
+      if (extracted.success && !extracted.output.ok) {
+        missing = extracted.output.reason;
+        if (extracted.output.detail) detail = logCode(extracted.output.detail);
+      } else if (extracted.success && extracted.output.ok) {
         const accepted = acceptedObservation(extracted.output, {
           origin: run.live.document.origin,
           path: observed.path,
