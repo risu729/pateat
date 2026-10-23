@@ -1,9 +1,11 @@
 import { useTranslation } from "react-i18next";
 import { i18n } from "../i18n";
 import {
+  conflictCauses,
   localSettingsSchema,
   type ConnectionSettings,
   type LocalSettings,
+  type SettingsConflictCause,
   type SettingsResponse,
 } from "@pateat/contracts";
 import { useForm, useSelector } from "@tanstack/react-form";
@@ -18,6 +20,7 @@ import { VaultAccess, VaultRows } from "./connections";
 import { SitePolicy } from "./site-policy";
 import { BitwardenSetup } from "./bitwarden-setup";
 import type { ConnectionClient } from "./connection-client";
+import { backgroundOnlyConflict, saveConflictMessage } from "./save-conflict";
 import type { ServiceClient } from "./service-client";
 import { ServiceConnection } from "./service-connection";
 import { LanguageSelect } from "./language-select";
@@ -57,6 +60,13 @@ export function SettingsApp({
   const dirtyRef = useRef(false);
   // Each edit counts, so a save that finishes after a later edit keeps that edit and saves again.
   const edits = useRef(0);
+  // The edits not yet in a saved revision, oldest first, so they can be applied again to a
+  // revision that only background work wrote (ADR 0025).
+  const unsavedEdits = useRef<((value: LocalSettings) => void)[]>([]);
+  // Set once a conflict's edits were applied to the newer revision, so the next save runs
+  // even with no new edit; `retried` allows that once until a save or reload succeeds.
+  const rebased = useRef(false);
+  const retried = useRef(false);
   const submittedEdits = useRef(0);
   const submittedCatalog = useRef(0);
   const lastSaveSucceeded = useRef(false);
@@ -102,6 +112,7 @@ export function SettingsApp({
         return;
       }
       const submitted = submittedEdits.current;
+      const submittedUnsaved = unsavedEdits.current.length;
       // The catalog this draft was edited against, read before the save request yields.
       const epoch = submittedCatalog.current;
       try {
@@ -120,15 +131,34 @@ export function SettingsApp({
           );
           return;
         }
+        let causes = !result.ok ? result.error.causes : undefined;
+        if (
+          !result.ok &&
+          result.error.code === "revision-conflict" &&
+          !retried.current &&
+          backgroundOnlyConflict(causes)
+        ) {
+          retried.current = true;
+          const rebaseResult = await rebase(epoch, previous.snapshot.revision);
+          if (rebaseResult === "rebased") return;
+          if (epoch !== catalogGeneration.current) {
+            setSaveBlocked(true);
+            setMessage((translate) =>
+              translate(
+                "Vault metadata changed while settings were being saved. Your draft has been preserved. Reload saved settings before saving again. Reloading discards the draft.",
+              ),
+            );
+            return;
+          }
+          if (rebaseResult) causes = rebaseResult;
+        }
         if (!result.ok) {
           const blocked =
             result.error.code !== "invalid-settings" && result.error.code !== "invalid-request";
           setSaveBlocked(blocked);
           setMessage((translate) =>
             result.error.code === "revision-conflict"
-              ? translate(
-                  "Settings changed in another window. Your unsaved draft has been preserved. Reload saved settings to review the latest version before saving. Reloading discards the draft.",
-                )
+              ? saveConflictMessage(causes)(translate)
               : translate(
                   blocked
                     ? "{{error}} Your unsaved draft has been preserved. Reload saved settings to retry. Reloading discards the draft."
@@ -140,6 +170,8 @@ export function SettingsApp({
         }
         queryClient.setQueryData(SETTINGS_QUERY_KEY, result);
         lastSaveSucceeded.current = true;
+        retried.current = false;
+        unsavedEdits.current.splice(0, submittedUnsaved);
         if (submitted === edits.current) {
           accept(
             result,
@@ -166,6 +198,48 @@ export function SettingsApp({
     },
   });
   const draft = useSelector(form.store, (state) => state.values);
+  /**
+   * Applies the unsaved edits to the newest saved revision after a conflict that only
+   * background work caused, such as an automatic vault sync, so the save runs once more
+   * against it (ADR 0025). When the newest revision was also written by another page, or
+   * by a cause no longer recorded, it answers every cause since `expected` instead, and
+   * undefined when the newest revision cannot be read for the catalog the draft was edited
+   * against.
+   */
+  async function rebase(
+    epoch: number,
+    expected: number,
+  ): Promise<"rebased" | SettingsConflictCause[] | undefined> {
+    let fresh: SettingsResponse;
+    try {
+      fresh = await queryClient.fetchQuery({
+        queryKey: SETTINGS_QUERY_KEY,
+        queryFn: () => client.getSettings(),
+        staleTime: 0,
+        retry: false,
+      });
+    } catch {
+      return undefined;
+    }
+    if (!fresh.ok || epoch !== catalogGeneration.current) return undefined;
+    // Another page may have saved after the conflict was answered.
+    const since = conflictCauses(fresh.snapshot, expected);
+    if (!backgroundOnlyConflict(since)) return since;
+    // Edits made while the newest revision was read are in the list too.
+    const next = structuredClone(fresh);
+    const value = structuredClone(next.snapshot.settings);
+    for (const update of unsavedEdits.current) update(value);
+    acceptedRef.current = next;
+    setAccepted(next);
+    // Field updates, not reset: a reset leaves the form untouched, and the new accepted
+    // defaults would then replace the rebased draft on the next render.
+    form.setFieldValue("connections", value.connections);
+    form.setFieldValue("excludedSites", value.excludedSites);
+    form.setFieldValue("siteDefaults", value.siteDefaults);
+    form.setFieldValue("bindings", value.bindings);
+    rebased.current = true;
+    return "rebased";
+  }
   function accept(
     result: AcceptedSettings,
     statusMessage: LocalizedMessage,
@@ -176,6 +250,8 @@ export function SettingsApp({
     acceptedRef.current = next;
     setAccepted(next);
     form.reset(structuredClone(next.snapshot.settings));
+    unsavedEdits.current = [];
+    retried.current = false;
     setDirty(false);
     dirtyRef.current = false;
     setSaveBlocked(false);
@@ -229,6 +305,7 @@ export function SettingsApp({
     if (operation.current === "load" || !acceptedRef.current) return false;
     const next = structuredClone(form.state.values);
     update(next);
+    unsavedEdits.current.push(update);
     form.setFieldValue("connections", next.connections);
     form.setFieldValue("excludedSites", next.excludedSites);
     form.setFieldValue("passkeyBrowserSites", next.passkeyBrowserSites);
@@ -297,7 +374,8 @@ export function SettingsApp({
   }
   /**
    * Saves the draft until it has no unsaved edit. A failed or unknown outcome stops here and is
-   * never retried; a blocked draft waits for an explicit reload.
+   * never retried, except once after a conflict only background work caused (`rebase`); a
+   * blocked draft waits for an explicit reload.
    */
   async function save() {
     if (operation.current) return;
@@ -308,6 +386,7 @@ export function SettingsApp({
         submittedEdits.current = edits.current;
         submittedCatalog.current = catalogGeneration.current;
         lastSaveSucceeded.current = false;
+        rebased.current = false;
         setMessage((translate) => translate("Saving local settings…"));
         // Sequential: each save expects the revision the previous one produced.
         // eslint-disable-next-line no-await-in-loop
@@ -315,6 +394,7 @@ export function SettingsApp({
         // A failure is never retried as is; an edit made meanwhile is a new draft to save.
         if (
           !lastSaveSucceeded.current &&
+          !rebased.current &&
           (saveBlockedRef.current || submittedEdits.current === edits.current)
         )
           break;

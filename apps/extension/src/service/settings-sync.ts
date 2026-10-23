@@ -8,6 +8,7 @@ import {
   siteDefaultConnection,
   siteDefaultSchema,
   type LocalSettings,
+  type SettingsChangeCause,
   type SettingsSnapshot,
   type SyncSettingsState,
   type VaultCatalog,
@@ -246,6 +247,7 @@ export function createSettingsSync(options: {
     read(): Promise<SettingsSnapshot>;
     update(
       expectedRevision: number | undefined,
+      cause: SettingsChangeCause,
       mutate: (snapshot: SettingsSnapshot) => SettingsSnapshot,
     ): Promise<SettingsSnapshot>;
   };
@@ -382,7 +384,7 @@ export function createSettingsSync(options: {
         if (stale()) return "busy";
         try {
           // oxlint-disable-next-line no-await-in-loop -- the write must follow the merge
-          await settings.update(local.revision, (snapshot) => ({
+          await settings.update(local.revision, "service-sync", (snapshot) => ({
             ...snapshot,
             settings: v.parse(localSettingsSchema, applySynced(snapshot.settings, merged)),
           }));

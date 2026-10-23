@@ -8,8 +8,21 @@ export const settingsEn = {
   "Saved settings loaded. Revision {{revision}}": "Saved settings loaded. Revision {{revision}}",
   "Vault metadata changed while settings were being saved. Your draft has been preserved. Reload saved settings before saving again. Reloading discards the draft.":
     "Vault metadata changed while settings were being saved. Your draft has been preserved. Reload saved settings before saving again. Reloading discards the draft.",
-  "Settings changed in another window. Your unsaved draft has been preserved. Reload saved settings to review the latest version before saving. Reloading discards the draft.":
-    "Settings changed in another window. Your unsaved draft has been preserved. Reload saved settings to review the latest version before saving. Reloading discards the draft.",
+  "Saved settings changed before this save: {{reasons}}. Your unsaved draft has been preserved. Reload saved settings to review the latest version before saving. Reloading discards the draft.":
+    "Saved settings changed before this save: {{reasons}}. Your unsaved draft has been preserved. Reload saved settings to review the latest version before saving. Reloading discards the draft.",
+  "settings were saved in another window or the toolbar popup":
+    "settings were saved in another window or the toolbar popup",
+  "a Bitwarden vault was added": "a Bitwarden vault was added",
+  "a Bitwarden vault was synced after a sign-in or Sync":
+    "a Bitwarden vault was synced after a sign-in or Sync",
+  "a Bitwarden vault was synced automatically": "a Bitwarden vault was synced automatically",
+  "custom fields were reviewed": "custom fields were reviewed",
+  "settings were merged with the Pateat sync service":
+    "settings were merged with the Pateat sync service",
+  "an account used to sign in on a site was saved for that site":
+    "an account used to sign in on a site was saved for that site",
+  "settings changed for a reason no longer recorded":
+    "settings changed for a reason no longer recorded",
   "{{error}} Your unsaved draft has been preserved.":
     "{{error}} Your unsaved draft has been preserved.",
   "{{error}} Your unsaved draft has been preserved. Reload saved settings to retry. Reloading discards the draft.":
@@ -50,8 +63,7 @@ export const settingsEn = {
   "Stored settings are invalid. They were not replaced.":
     "Stored settings are invalid. They were not replaced.",
   "Local settings storage is unavailable.": "Local settings storage is unavailable.",
-  "Settings changed in another window. Reload before saving.":
-    "Settings changed in another window. Reload before saving.",
+  "Saved settings changed. Reload before saving.": "Saved settings changed. Reload before saving.",
   "The settings revision cannot be advanced.": "The settings revision cannot be advanced.",
   "The protected exclusions exceed the supported settings limits.":
     "The protected exclusions exceed the supported settings limits.",

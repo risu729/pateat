@@ -112,6 +112,7 @@ export default defineBackground(() => {
     // A sync or a restore serves its snapshot only after the record write notified.
     onVaultOpened: () => void siteCounter.refresh(),
     onSync: diagnosticsLog.vaultSync,
+    onSignIn: diagnosticsLog.vaultSignIn,
     onRefresh: diagnosticsLog.vaultRefresh,
   });
   // The manifest default is the locked icon; a running worker switches it.

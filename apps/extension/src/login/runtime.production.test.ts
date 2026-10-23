@@ -9,6 +9,7 @@ import {
   type LocalSettings,
   type SavedLoginBinding,
   type SettingsResponse,
+  type SettingsChangeCause,
   type SettingsSnapshot,
   type LoginChooserRecipe,
   type LoginEntryRecipe,
@@ -467,6 +468,7 @@ function harness(
     update: vi.fn(
       async (
         expected: number | undefined,
+        _cause: SettingsChangeCause,
         mutate: (value: SettingsSnapshot) => SettingsSnapshot,
       ) => {
         if (expected !== undefined && expected !== snapshot.revision)
@@ -4010,6 +4012,7 @@ describe("production login document admission", () => {
         fieldId: "login.password",
       });
       expect(h.store.update.mock.calls[0]![0]).toBe(1);
+      expect(h.store.update.mock.calls[0]![1]).toBe("account-choice");
       // The saved default names the provider account, not this device's connection, and
       // keeps the connection's label for display.
       expect(h.settings.settings.siteDefaults).toEqual([
@@ -7799,6 +7802,22 @@ describe("production login document admission", () => {
         ]);
       });
 
+      it("sends a list without slots or value shapes (owner 2026-10-23 11:48 UTC)", async () => {
+        // The item offers a custom Text field, which a form would be sent with.
+        const { service, h } = setup({ custom: [{ name: "支店番号", kind: "text" }] });
+        expect(await h.hello({}, false)).toMatchObject({ generate: true });
+        expect(await listHello(h)).toEqual({ ok: false, reason: "generating" });
+        await vi.waitFor(() => expect(service.generate).toHaveBeenCalledOnce());
+        const [request] = service.generate.mock.calls[0]!;
+        expect(request.slots).toEqual([]);
+        expect(JSON.stringify(request)).not.toContain("valueShape");
+        expect(JSON.stringify(request)).not.toContain("支店番号");
+        // Only the username is read, to compare and hide it; no custom field for its shape.
+        expect(new Set(h.fields.mock.calls.map(([read]) => read.fieldId))).toEqual(
+          new Set(["login.username"]),
+        );
+      });
+
       it("sends a list by email for a username that is not one only with a control for another account", async () => {
         const { service, h, generations } = setup();
         h.fields.mockImplementation(async ({ fieldId }) =>
@@ -8244,6 +8263,59 @@ describe("production login document admission", () => {
           expect(generations()).not.toContainEqual(expect.objectContaining({ outcome: "skipped" }));
         });
 
+        // x.com's sign-in, offered while it loaded, showed its form by the time it was read
+        // (2026-10-23).
+        for (const [offered, announce] of [
+          ["passkey button", (h: ReturnType<typeof harness>) => passkeyListHello(h, ["Help"])],
+          ["list of accounts", (h: ReturnType<typeof harness>) => listHello(h, ["@risu729"])],
+        ] as const)
+          it(`sends a page offered as a ${offered} that shows a sign-in form by then as a sign-in page`, async () => {
+            const passkeyItems = vi.fn(async () => [{ connectionId, itemId }]);
+            const { service, h, generations } = named({ passkeyItems });
+            fake.state.extracted = { login: loginPage };
+            expect(await h.hello({}, false)).toMatchObject({ generate: true });
+            expect(await announce(h)).toEqual({ ok: false, reason: "generating" });
+            await vi.waitFor(() => expect(service.generate).toHaveBeenCalledOnce());
+            const request = service.generate.mock.calls[0]![0];
+            expect(request).not.toHaveProperty("passkeyOnly");
+            expect(request.observation).toEqual(loginPage.observation);
+            expect(request.slots.map((slot) => slot.id)).toContain("password");
+            expect(extracted()).toEqual([
+              expect.objectContaining({
+                page: offered === "passkey button" ? "passkey" : "accounts",
+              }),
+              expect.objectContaining({ page: "login" }),
+            ]);
+            // Sent as a recipe's first page, with its signed-in hint and no `page`.
+            expect(generations()).toContainEqual({
+              type: "generation",
+              tabId: 1,
+              origin,
+              outcome: "sent",
+              signedIn: false,
+            });
+          });
+
+        it("never sends a page offered as a passkey button whose only field is no sign-in input", async () => {
+          vi.useFakeTimers({ toFake: ["setTimeout"], shouldAdvanceTime: true });
+          onTestFinished(() => void vi.useRealTimers());
+          const passkeyItems = vi.fn(async () => [{ connectionId, itemId }]);
+          const { service, h, generations } = named({ passkeyItems });
+          // A search box rendered after the offer: its description would be accepted.
+          fake.state.extracted = { login: loginPage };
+          fake.state.entry.check = { ok: true, signIn: false, start: false, signUp: false };
+          expect(await h.hello({}, false)).toMatchObject({ generate: true });
+          expect(await passkeyListHello(h, ["Help"])).toEqual({ ok: false, reason: "generating" });
+          await vi.advanceTimersByTimeAsync(10_000);
+          await vi.waitFor(() =>
+            expect(generations()).toEqual([
+              { type: "generation", tabId: 1, origin, outcome: "skipped", reason: "no-candidates" },
+            ]),
+          );
+          expect(service.generate).not.toHaveBeenCalled();
+          expect(extracted()).not.toContainEqual(expect.objectContaining({ page: "login" }));
+        });
+
         it("handles the list as without the button for an item without a passkey", async () => {
           const passkeyItems = vi.fn(async () => []);
           const { service, h, generations } = named({ passkeyItems });
@@ -8528,6 +8600,7 @@ describe("production login document admission", () => {
           overrides?: Partial<LocalSettings>;
           uris?: LiveUriMatcher;
           passkeyItems?: (origin: string) => Promise<readonly PasskeyItem[]>;
+          otherUsername?: boolean;
         } = {},
       ) => {
         fake.state.extracted = { entry: entryPage };
@@ -8539,6 +8612,7 @@ describe("production login document admission", () => {
             allowedOrigins: [],
             uris: options.uris ?? uris,
             username: true,
+            ...(options.otherUsername ? { otherUsername: true } : {}),
             custom: [],
             generation: service,
             report,
@@ -8600,12 +8674,147 @@ describe("production login document admission", () => {
             expect.any(Function),
           );
           expect(service.generate).not.toHaveBeenCalled();
-          // Nothing of the vault is read for the page.
-          expect(h.fields).not.toHaveBeenCalled();
+          // Only the matching item's username is read, to hide it (owner 2026-10-23 11:48 UTC).
+          expect(h.fields.mock.calls.map(([request]) => request.fieldId)).toEqual([
+            "login.username",
+          ]);
           expect(reports("generation")).toEqual([
             { type: "generation", tabId: 1, origin, outcome: "sent", page: "entry" },
             { type: "generation", tabId: 1, origin, outcome: "recipe", page: "entry" },
           ]);
+        });
+
+        describe("the matching items' usernames (owner 2026-10-23 11:48 UTC)", () => {
+          const both = async () => ({
+            ok: true as const,
+            data: uriMatch({
+              candidates: [itemId, otherItemId].map((id) => ({
+                itemId: id,
+                matches: [{ uriIndex: 0, match: 0 }],
+              })),
+            }),
+          });
+          /** Synthetic usernames of the two matching items; other fields read as before. */
+          const usernames = (
+            h: ReturnType<typeof harness>,
+            values: Record<string, string | Error>,
+          ) =>
+            h.fields.mockImplementation(async ({ account, fieldId }) => {
+              if (fieldId !== "login.username") return "synthetic-secret";
+              const value = values[account.itemId];
+              if (value instanceof Error) throw value;
+              return value;
+            });
+          const greeting = (path = "/") => ({
+            ok: true,
+            observation: {
+              ...page(path, [
+                {
+                  id: "c1",
+                  role: "link",
+                  target: { by: "text", value: "Not taro.yamada?" },
+                  label: "Not taro.yamada?",
+                },
+                {
+                  id: "c2",
+                  role: "link",
+                  target: { by: "text", value: "Login" },
+                  label: "Log in again, Taro.Yamada",
+                },
+              ]).observation,
+              title: "taro.yamada - Example",
+              headings: ["Welcome back, @TARO.YAMADA"],
+            },
+          });
+
+          it("hides them from the page sent, and sends no slot", async () => {
+            const { service, h } = setup({ uris: both, otherUsername: true });
+            usernames(h, { [itemId]: "taro.yamada", [otherItemId]: "hanako" });
+            fake.state.extracted = { entry: greeting() };
+            expect(await h.hello({}, false)).toMatchObject({ entry: true });
+            expect(await entryHello(h)).toEqual({ ok: false, reason: "generating" });
+            await vi.waitFor(() => expect(service.generateEntry).toHaveBeenCalledOnce());
+            const [request] = service.generateEntry.mock.calls[0]!;
+            expect(request).toEqual({
+              version: 1,
+              observation: {
+                ...greeting().observation,
+                // A link whose locator holds a username is left out; its label is hidden.
+                candidates: [
+                  {
+                    id: "c2",
+                    role: "link",
+                    target: { by: "text", value: "Login" },
+                    label: "Log in again, [account]",
+                  },
+                ],
+                title: "[account] - Example",
+                headings: ["Welcome back, [account]"],
+              },
+            });
+            expect(JSON.stringify(service.generateEntry.mock.calls).toLowerCase()).not.toContain(
+              "taro",
+            );
+            // Each matching item's username is read once, and nothing else of the vault.
+            expect(
+              h.fields.mock.calls.map(([read]) => [read.account.itemId, read.fieldId]),
+            ).toEqual([
+              [itemId, "login.username"],
+              [otherItemId, "login.username"],
+            ]);
+          });
+
+          it.each([
+            ["a username that cannot be read", "username-unread", "/", new Error("locked")],
+            ["a username in the path", "username-shown", "/taro.yamada", "hanako"],
+          ] as const)("sends no page with %s", async (_label, reason, path, other) => {
+            fake.state.pageUrl = `${origin}${path}?return_to=%2Fbookmarks`;
+            const { service, h, reports } = setup({ uris: both, otherUsername: true });
+            usernames(h, { [itemId]: "taro.yamada", [otherItemId]: other });
+            fake.state.extracted = { entry: greeting(path) };
+            expect(await h.hello({}, false)).toMatchObject({ entry: true });
+            expect(await entryHello(h)).toEqual({ ok: false, reason: "generating" });
+            await vi.waitFor(() =>
+              expect(reports("generation")).toEqual([
+                { type: "generation", tabId: 1, origin, outcome: "skipped", reason, page: "entry" },
+              ]),
+            );
+            expect(service.generateEntry).not.toHaveBeenCalled();
+            expect(JSON.stringify(reports("generation")).toLowerCase()).not.toContain("taro");
+          });
+
+          it("sends no page whose only link names a username", async () => {
+            const { service, h, reports } = setup();
+            usernames(h, { [itemId]: "taro.yamada" });
+            fake.state.extracted = {
+              entry: {
+                ok: true,
+                observation: {
+                  ...page("/", [
+                    { id: "c1", role: "button", target: { by: "text", value: "Menu" } },
+                    {
+                      id: "c2",
+                      role: "link",
+                      target: { by: "text", value: "taro.yamada" },
+                      label: "taro.yamada",
+                    },
+                  ]).observation,
+                },
+              },
+            };
+            expect(await h.hello({}, false)).toMatchObject({ entry: true });
+            await entryHello(h);
+            await vi.waitFor(() =>
+              expect(reports("generation")).toEqual([
+                expect.objectContaining({
+                  outcome: "skipped",
+                  reason: "no-entry-link",
+                  page: "entry",
+                }),
+              ]),
+            );
+            expect(service.generateEntry).not.toHaveBeenCalled();
+          });
         });
 
         describe("beside a passkey button (ADR 0053, owner 2026-10-19 22:44 UTC)", () => {
@@ -8774,6 +8983,8 @@ describe("production login document admission", () => {
           expect(readiness).not.toHaveProperty("entry");
           expect(await entryHello(h)).toMatchObject({ ok: false, reason: "recipe-not-found" });
           expect(service.generateEntry).not.toHaveBeenCalled();
+          // A refused page reads nothing of the vault, not even a username to hide.
+          expect(h.fields).not.toHaveBeenCalled();
           expect(reports("generation")).toEqual([
             {
               type: "generation",
@@ -8803,6 +9014,7 @@ describe("production login document admission", () => {
           expect(await h.hello({}, false)).toMatchObject({ entry: true });
           expect(await entryHello(h)).toMatchObject({ ok: false, reason: "recipe-not-found" });
           expect(service.generateEntry).not.toHaveBeenCalled();
+          expect(h.fields).not.toHaveBeenCalled();
           expect(reports("generation")).toEqual([
             expect.objectContaining({ outcome: "skipped", reason, page: "entry" }),
           ]);
@@ -8816,6 +9028,7 @@ describe("production login document admission", () => {
           expect(await h.hello({}, false)).toMatchObject({ entry: true });
           await entryHello(h);
           expect(service.generateEntry).not.toHaveBeenCalled();
+          expect(h.fields).not.toHaveBeenCalled();
           expect(reports("generation")).toEqual([
             expect.objectContaining({ outcome: "skipped", reason: "logged-out" }),
           ]);
@@ -8832,6 +9045,7 @@ describe("production login document admission", () => {
           });
           await entryHello(h, { documentId: "after-sign-in" });
           expect(service.generateEntry).not.toHaveBeenCalled();
+          expect(h.fields).not.toHaveBeenCalled();
           expect(reports("generation")).toEqual([
             expect.objectContaining({ outcome: "skipped", reason: "after-sign-in" }),
           ]);
@@ -20447,7 +20661,7 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
       const service = generation(async () => {
         h.recipes.recipe.mockResolvedValue(next);
         // A settings save lands while the model answers.
-        await h.store.update(undefined, (snapshot) => snapshot);
+        await h.store.update(undefined, "settings-save", (snapshot) => snapshot);
         return { outcome: "recipe", recipe: next };
       });
       h = start(service);

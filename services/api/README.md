@@ -42,7 +42,7 @@ checks reports `token` alone. Parse it by metric name, as Cloudflare may add ent
 | `DELETE /v1/device` | Revoke the calling device's own credential |
 | `POST /pair` | Create a device for the signed-in owner from an allowed extension; 201 with the credential, once |
 | `GET /pair/signed-in` | The page the extension opens when pairing needs a sign-in; it asks the user to go back to Pateat's settings |
-| `GET /manage/dashboard`, `/manage`, `/manage/sites`, `/manage/sites/:scheme/:host`, `/manage/request-log` | Owner web UI (React app): the dashboard of login and request speed, counts, spend and failures; devices; the sites list with excluded sites, unreadable and revoked recipes; one origin's default account, recipes and bindings; the request log with Delete all |
+| `GET /manage/dashboard`, `/manage`, `/manage/sites`, `/manage/sites/:scheme/:host`, `/manage/models`, `/manage/request-log` | Owner web UI (React app): the dashboard of login and request speed, counts, spend and failures; devices; the sites list with excluded sites, unreadable and revoked recipes; one origin's default account, recipes and bindings; each role's models; the request log with Delete all |
 | `GET /manage/assets/*` | The web UI's built script, styles and notices |
 | `GET /manage/api/dashboard?range=24h\|7d\|30d` | The dashboard's aggregates over the range ending now (default `7d`; another value is 400 `bad_request`), computed in the Worker from only the owner's rows: login time (total less the person's) of the signed-in login records, apart for those that waited on the service, with the median of each part (network, the rest of the service, waiting for the site, the rest, and the person apart) and per site and extension build; model, token, pre-model and server times per role, site and build (of requests that called the model; a request answered without a call counts only as a request and, unless its outcome is `recipe`, a failure; a signed-in page sample, outcome `sampled`, is left out), the median login and model time per UTC day (null on a day without one), the 10 slowest requests, counts, every login's result with how many signed in (in total and per day), the first-login result codes apart, tokens, this UTC day's and month's spend with the limits, active recipes, recipes generated, and failures by code with their latest 20; every set of durations has `n`, and below 20 its values instead of a p90 |
 | `GET /manage/api/devices` | The owner's devices with their last use, newest first |
@@ -51,6 +51,8 @@ checks reports `token` alone. Parse it by metric name, as Cloudflare may add ent
 | `PUT /manage/api/settings` | Replace them like `PUT /v1/settings`; `connections` must be empty and the document at most 120 KiB |
 | `GET /manage/api/recipes` | Every recipe head with its document, most recently changed first; active heads whose document no longer validates are listed apart in `unreadable` |
 | `POST /manage/api/recipes/:recipeId/revoke` | Revoke one recipe if `expectedRevision` is its head; otherwise 409 with the current head |
+| `GET /manage/api/models` | The owner's model choices per role (`config`, the defaults while `saved` is false) and the models they may name (`models`): from the Models API with the owner's credential (`catalog: "models-api"`), else the pricing page (`"pricing"`), each with its efforts, rates and fast mode state (`none`, `available`, `failing`) |
+| `PUT /manage/api/models` | Save `{ version: 1, config }`; a choice the list does not offer (a model, effort or speed, or fast mode while failing) answers 400 `model_unavailable` |
 | `GET /manage/api/request-log` | How many request log rows (`entries`), login result codes (`outcomes`) and login records (`logins`) the owner has, and the oldest one's time (`oldestAt`, null when none) |
 | `DELETE /manage/api/request-log` | Delete every request log row, login result code and login record of the owner, and nothing else; answers how many (`deleted`, `outcomes`, `logins`) |
 | `GET /manage/claude` | Access page showing the Console values and the owner's WIF identifiers |
@@ -75,9 +77,12 @@ application exempts `/v1/*`, `/health`, `/.well-known/openid-configuration` and
 `/.well-known/jwks.json`, which clients call without an Access login. For `/pair` and
 `/manage`, the Worker verifies the `Cf-Access-Jwt-Assertion` itself against the team's
 keys, the `ACCESS_TEAM_DOMAIN` issuer and the `ACCESS_AUD` audience. Without both
-secrets those routes answer 503. `POST /pair` and `GET /pair/signed-in` also accept the
-`ACCESS_PAIR_AUD` audience of the "pateat pair" Access application, which admits
-browsers without WARP to pairing only
+secrets those routes answer 503. When the team's signing keys cannot be fetched (an
+error, an answer that is not a key set, or no answer within five seconds), owner pages
+answer 503 asking to try again later and the JSON routes 503 `access_keys_unavailable`,
+not a refused sign-in.
+`POST /pair` and `GET /pair/signed-in` also accept the `ACCESS_PAIR_AUD` audience of the
+"pateat pair" Access application, which admits browsers without WARP to pairing only
 ([ADR 0030](../../docs/adr/0030-pairing-without-warp.md)). An empty value turns it off
 only while that application does not exist. The owner is found by token issuer and
 subject, never by email. The
@@ -110,6 +115,7 @@ with host access skip CORS. Errors are `{ "error": code }`:
 | 429 | `rate_limited` | Too many pairings by this identity, with `Retry-After: 60` |
 | 500 | `internal_error` | An unexpected failure |
 | 503 | `access_unavailable` | The Access secrets are missing or invalid |
+| 503 | `access_keys_unavailable` | Access's signing keys could not be fetched; try again later |
 | 503 | `pairing_unavailable` | `PAIRING_EXTENSION_IDS` is missing, empty or malformed |
 
 Without an Access session, Access itself redirects to its login or answers with its own
@@ -123,11 +129,12 @@ assets, all with a Content Security Policy that allows only this origin's script
 framing. `/manage/api` answers with JSON and its contracts are in
 `packages/contracts/src/manage.ts`; failures are `unauthorized` (no token), `forbidden`
 (a token that fails verification, or a state-changing request without this origin's
-`Origin`) and `access_unavailable` (no Access configuration). An identity that never
-approved a pairing has no owner and sees no data; its settings requests answer 404
-`not_paired`. Settings and recipe revisions written here record no device as their
-writer. The bundle includes GPL-3.0-only `packages/contracts` code; each page links its
-source and the GPL text at the built commit, and the third-party notices served with it
+`Origin`), `access_unavailable` (no Access configuration) and `access_keys_unavailable`
+(Access's signing keys could not be fetched). An identity that never approved a pairing
+has no owner and sees no data; its settings requests answer 404 `not_paired`. Settings
+and recipe revisions written here record no device as their writer. The bundle includes
+GPL-3.0-only `packages/contracts` code; each page links its source and the GPL text at
+the built commit, and the third-party notices served with it
 (`public/manage/assets/notices.md` and the build's `licenses.md`).
 
 Recipe revisions are immutable. A write claims the head with a conditional statement and
@@ -270,7 +277,11 @@ the path ending before it), or `{ check: "plan", reason }` with the plan check's
   button. A recipe's first page that lists no accounts, and only it, carries `signedIn`
   (400 otherwise): the device's hint that the page shows the person signed in
   ([ADR 0035](../../docs/adr/0035-page-kinds-per-site.md)), sent to the model with the
-  page. Every plan answers `pageKind` (`sign-in`, `confirm` or `unclear`) and
+  page. A page that lists accounts has `slots: []`, and only such a page or a
+  passkey-only one may (400 otherwise): no slot, field name or value shape goes with a
+  list, whose instructions say so
+  ([ADR 0028](../../docs/adr/0028-account-chooser-login-pages.md#amendment-2026-10-23-sent-without-slots)).
+  Every plan answers `pageKind` (`sign-in`, `confirm` or `unclear`) and
   `irreversible` (`yes`, `no` or `unclear`, for evaluation only). The recipe stores its
   first page's `pageKind`: a continuation keeps the recipe's, and a chooser branch's
   pages are `sign-in` whatever the model answers. `irreversible` is never stored on a
@@ -392,7 +403,7 @@ recipe judged 20 times since the start of the UTC day answers `judgement-limit`.
 of another judge prompt version does not answer a repeat, so a changed prompt judges the
 page again, as one that can now name a handler an earlier prompt could not. A change to
 the local checks that keep a handler alone does not; it needs a prompt change to reach
-pages already judged. The row is written with the spend reservation, so a request the
+pages already judged. The row is written before the first model call, so a request the
 role then refuses locally still uses it. A stop's row is kept as `challenge` or
 undecided, so it answers only later stops' pages, and a stop's judgement counts toward
 the 20 a day. Rows of older revisions or of judge prompt versions other than the two
@@ -409,13 +420,17 @@ attempt key is the generated recipe ID, the path and the revision being continue
 a first page, the tombstone's revision for a revoked recipe generated again), so two
 recipes of one origin that lead to the same page do not block each other. A request that
 passes every check is an attempt, including one the role then refuses locally for its
-size, which would be refused again. A request Claude Opus 5.5 refuses is sent once more
-to Claude Sonnet 5.5 at effort `low` under the same lock, unless the refused call
-reached a spend stop, and each of the two calls is reserved, charged and logged on its
-own (ADR 0014). Each call first reserves its upper bound (64 KiB of input as tokens plus
-1,024 output tokens at its model's rates, about $0.28 for Opus 5.5) and then corrects it
-from reported usage; usage the provider does not report keeps the reservation. The
-`inference_log` row stores the provider and model, the role's prompt version
+size, which would be refused again. Each role asks the owner's model choices in order
+(`src/claude/models.ts`, saved in `inference_model_configs` from `/manage/models`, ADR
+0014; by default Claude Opus 5.5 then Claude Sonnet 5.5, both at effort `low`): a
+refusal asks the next choice, a fast mode call that fails `rate-limited`,
+`provider-error` or `timeout` asks the same model at the standard speed, and any other
+failure ends the request. Every call runs under the same lock, checks the spend stops
+first, and is charged and logged on its own. Nothing is reserved: a call is charged
+after it returns from reported usage, or at its upper bound (64 KiB of input as tokens
+plus 1,024 output tokens at its rates, about $0.28 for Opus 5.5) when usage is unknown.
+The `inference_log` row stores the provider, model, `effort` and `speed`, the role's
+prompt version
 (`prompt_version`: the first 12 hex digits of the SHA-256 of its instructions, a newline
 and its response format's JSON Schema, computed once per set of instructions: the
 generate role has one for a form, one for an entry request and one for a list of
@@ -437,8 +452,9 @@ the row's ID, and once the answer's recipe write succeeds `keepLogRevision` sets
 logged as `Inference log revision not kept` and never fails the request. Since the
 [timings amendment](../../docs/adr/0012-inference-request-log.md#amendment-2026-10-18-request-timings),
 `pre_model_ms` (from the Worker receiving the request to just before the model call:
-authentication, the request limit, the route's reads, the lock and checks, the
-credential and the reservation), `token_ms` (resolving the credential: its D1 read,
+authentication, the request limit, the route's reads, the lock and checks, the model
+configuration and the credential; a later call of the same request includes the calls
+before it), `token_ms` (resolving the credential: its D1 read,
 signing the assertion and the token exchange, new on every call) and `model_ms` (the
 model call and its output checks) are written with the row. `server_ms` (to the
 response, the recipe write included) is set on every logged row, also one answered

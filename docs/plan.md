@@ -61,6 +61,11 @@ changes and security changes they bring still need the owner's approval one by o
 [ADR 0053](adr/0053-passkey-only-generation.md) through
 [#805](https://github.com/risu729/pateat/pull/805); the other four are still open.
 
+Accessibility work has lower priority from 2026-10-23 (owner, 12:57 UTC,
+「一旦アクセシビリティの優先度は下げる」): accessibility work not yet started waits
+behind the rest of its phase, while accessibility pull requests that already exist
+continue as before (12:58 UTC).
+
 ### Phase 1: usable
 
 Done when each kind of login page below works on the real site named for it, in the
@@ -363,8 +368,8 @@ than in this repository.
     entries without a connection row (the demo vaults, a connection this device no
     longer has) are listed under the rows, and the demo preview lists its vaults in a
     Demo vaults panel.
-  - Approved: `lucide-react` for icons in the polish (owner, 2026-10-12 20:53 UTC); the
-    first PR that uses it adds it.
+  - Done: `lucide-react` for icons in the polish (owner, 2026-10-12 20:53 UTC), used by
+    the extension's pages and `/manage`.
   - Done: the settings page marks Bitwarden (its section in the menu and each connection
     row) with the `lucide-react` `Shield` icon (owner, 2026-10-13 15:02 UTC). The owner
     asked for Bitwarden's own logo, but Bitwarden's
@@ -1567,11 +1572,23 @@ account ID. These are what synced, name-based bindings need
 Disposing a snapshot prevents later resolution. The host must still enforce
 destination policy and invalidate stale operations.
 
-OTPAuth supplies local standard TOTP and Steam generation. Supported inputs are
-canonical Base32 and explicit TOTP URI parameters; unsupported algorithms and
-HOTP are explicit errors. OTP seeds are not field values or inference inputs.
-Independent RFC 6238 and pinned upstream answers, clock boundaries and the
-packaged MV3 probe are the verification gates for this slice.
+OTPAuth supplies the HMAC-based one-time password; `generateLocalTotp` in
+`packages/bitwarden/src/totp.ts` reads the key exactly as the official SDK's
+`Totp::from_str` and `decode_b32` do
+([sdk-internal `totp.rs`](https://github.com/bitwarden/sdk-internal/blob/main/crates/bitwarden-vault/src/totp.rs)),
+so Pateat fills the code the person sees in Bitwarden (owner, 2026-10-23: full parity).
+The whole key is lower-cased first. In an `otpauth://` URI the host is ignored, so
+`otpauth://hotp/…` is read as TOTP; the last of repeated parameters wins; unknown
+parameters (`image`, `counter`, `encoder`, …) are ignored; an unknown `algorithm` falls
+back to SHA1; `digits` is clamped to 0–10 (10 digits use the SDK's wrapped `u32`
+modulus); `period` is at least 1; a `digits` or `period` that is not a `u32` takes the
+default. `steam://` gives a five-character Steam code. Any character outside the Base32
+alphabet, `=` included, is skipped, and the bits after the last whole byte are dropped,
+so a short secret gives an empty key, which still yields a code. Only an empty key, an
+`otpauth://` URI that does not parse or has no `secret`, and a key over 8,192 characters
+(a memory bound) give `invalid-totp`. OTP seeds are not field values or
+inference inputs. Independent RFC 6238 and pinned upstream answers, clock boundaries and
+the packaged MV3 probe are the verification gates for this slice.
 
 Connection setup, cache adoption and custom-field exclusion rebinding are now
 integrated, as described below. The remaining M3 integration gaps are listed after
@@ -1849,8 +1866,13 @@ re-encrypted. After a page with a recipe finds no matching item, a check runs at
 every ten seconds and reconnects only the refused document once it applied a new
 snapshot; unit tests cover the gate, the window and the reconnect target, and
 `tests/extension/login-service.spec.ts` logs in on a routed site once the item's URI
-arrives through that check. Automatic sync is not yet verified in installed Chrome or
-against a real account.
+arrives through that check. A settings save that meets a revision conflict only
+background work caused, such as an automatic sync, is saved again once on the newest
+revision; any other conflict names what wrote the newer revisions
+([ADR 0025](adr/0025-automatic-vault-sync.md#settings-saves-after-a-sync)). Unit tests
+cover the recorded causes and the conflict answer, and component tests the retry and the
+status line.
+Automatic sync is not yet verified in installed Chrome or against a real account.
 
 On 2026-10-12 the owner's installed Chrome reported `reauthentication-required` about
 five minutes after an extension update, after hourly refreshes had worked since the
@@ -1912,9 +1934,10 @@ removed `/enroll` and `/redeem` routes and cross-owner revocation. The typed-cod
 a D1 migration drops the table.
 
 The extension side of pairing is the third slice. The settings page has an optional sync
-service panel: it accepts only an exact HTTPS origin and a device name that passes the
-shared label schema. **Pair this device** asks Chrome for site access to the service
-host inside the click, then asks the background to pair. The background service worker
+service panel: it accepts only an exact HTTPS origin, dropping a trailing slash and a
+host's trailing dot, and a device name that passes the shared label schema. **Pair this
+device** asks Chrome for site access to the service host inside the click, then asks the
+background to pair. The background service worker
 sends one `POST /pair` with the browser's cookies, unfollowed redirects and
 `X-Requested-With: XMLHttpRequest`, and writes the credential straight into trusted
 extension storage; it never crosses the runtime message boundary. An Access redirect,
@@ -1971,30 +1994,33 @@ The fourth slice syncs recipes into a last-known-good cache that the login execu
 reads. The background pulls `GET /v1/recipes` pages from the stored cursor with the
 paired device's credential, applies active and revoked changes, and writes the cursor
 and recipes together, so a failed page or write leaves the previous consistent copy. It
-reads at most 50 pages per sync, plus one blocked-page retry after an overflow walk,
-and refuses a page that moves the cursor backwards or
-does not advance it. The cache belongs to one paired device: a new pairing starts from
-an empty cache, nothing is served while no device is paired or the pairing cannot be
-read, and disconnecting or forgetting an unreadable pairing clears it. Sync runs right
-after pairing completes, also when another device's sync is still running, and in the
-background when the worker starts, a lookup arrives or the settings page is open and the
-last attempt is more than five minutes old. The attempt time is stored, so a worker
-restart does not sync again sooner, and a 429 postpones background syncs, but not the
-one after pairing, for 15 minutes. A lookup does not wait for the network or for pairing
-and disconnect requests. The serialized cache is limited to 2 MiB of the extension's 10
-MB `storage.local` quota, which it shares with settings, login attempts and other
-extension state (the vault cache is in IndexedDB); a page that would exceed it is not
-fully applied. Sync walks later current heads within the shared 50-page budget,
-saving revocations and newer non-growing updates to already cached recipes with
-the old applied cursor. A separate device-bound checkpoint resumes lookahead
-across syncs and worker restarts, including freeing changes beyond the first
-50 pages, without adding bytes to the capped recipe cache. Safe cache writes
-precede checkpoint advancement. One additional fresh request retries the
-blocked page from the applied cursor; pending active changes wait until their
-entire page fits. The settled current-head feed can therefore recover when its
-active documents fit the service cap, while storage and transport failures
-retain earlier durable reductions. Disconnect clearing waits for pending
-writes and removes both records
+reads at most 50 pages per sync, plus one blocked-page retry after an overflow walk, and
+refuses a page that moves the cursor backwards or does not advance it. The cache belongs
+to one paired device: a new pairing starts from an empty cache, nothing is served while
+no device is paired or the pairing cannot be read, and disconnecting or forgetting an
+unreadable pairing clears it. Sync runs right after pairing completes, also when another
+device's sync is still running, and in the background when the worker starts, a lookup
+arrives (each page Pateat runs on looks up its recipe) or the settings page loads, and
+the last attempt is more than five minutes old; the open settings page asks again every
+10 seconds only until the first sync finishes or the device is rejected or its cache is
+full. Saving settings or an account choice
+syncs at once, whatever the schedule. The attempt time is stored, so a worker restart
+does not sync again sooner, and a 429, also an edge rate-limit page that is not JSON,
+postpones background syncs, but not the one after pairing, for 15 minutes. A clock set
+back before the last attempt makes a sync due at once, also within one worker. A lookup
+does not wait for the network or for pairing and disconnect requests. The serialized
+cache is limited to 2 MiB of the extension's 10 MB `storage.local` quota, which it
+shares with settings, login attempts and other extension state (the vault cache is in
+IndexedDB); a page that would exceed it is not fully applied. Sync walks later current
+heads within the shared 50-page budget, saving revocations and newer non-growing updates
+to already cached recipes with the old applied cursor. A separate device-bound
+checkpoint resumes lookahead across syncs and worker restarts, including freeing changes
+beyond the first 50 pages, without adding bytes to the capped recipe cache. Safe cache
+writes precede checkpoint advancement. One additional fresh request retries the blocked
+page from the applied cursor; pending active changes wait until their entire page fits.
+The settled current-head feed can therefore recover when its active documents fit the
+service cap, while storage and transport failures retain earlier durable reductions.
+Disconnect clearing waits for pending writes and removes both records
 ([ADR 0013 amendment](adr/0013-service-held-recipes-and-settings.md#amendment-durable-recovery-under-cache-pressure-2026-10-14)).
 How many recipes the cache holds and the implemented service cap are under
 [service limits](architecture.md#service-limits). A 401 marks the device as
@@ -2876,6 +2902,15 @@ in cloud Chromium (main `b803056`) generation then planned 会員ID, パスワ�
 ログイン, and the check accepted it. The Japanese set now has 108 cases (15 abstain, 11
 passkey buttons, 27 `advance`) and the English set 45 (5 abstain, 3 passkey buttons, 13
 `advance`); the heuristic scores 0.73 (18 false submits) and 0.64 (7).
+
+A third pass (main `74d5b3c`) added livedoor, FC2, GMO Coin, Seven Bank, Sakura Internet
+and bitFlyer Lightning. Since #901 the probe runs the main frame in a world of its own,
+as the content script does, so Seven Bank observes (an ID field labelled only by its
+example, an unlabelled password field and a ログオン button among a dozen others);
+American Express now stops at a real extractor gap (`unsupported-control`). Sakura
+Internet is now included, as the plan check accepts its button beside the form. The
+Japanese set now has 113 cases and the English set 46; the heuristic scores 0.73 (19
+false submits) and 0.65 (7).
 
 The same import measured the extractor on real markup (2026-10-11, main `9cf8356`). Of
 the 241 pages with an annotated login form, 6 gave no observation and 109 an incomplete

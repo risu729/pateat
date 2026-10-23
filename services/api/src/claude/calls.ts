@@ -6,8 +6,7 @@ import {
   type RecipeGenerationResult,
 } from "@pateat/contracts";
 import {
-  claudeGeneration,
-  claudeRefusalFallback,
+  claudeModelRates,
   claudeWorstCaseRates,
   createClaudeGenerationModel,
   estimateClaudeCostUsd,
@@ -32,6 +31,7 @@ import {
   type inferenceLogRecipePages,
 } from "../db/schema";
 import { resolveClaudeCredential } from "./credentials";
+import { fastFailingModels, readModelConfig, roleChoices, type RoleChoice } from "./models";
 import { newId } from "@pateat/contracts/ids";
 
 // Every Claude call the service makes goes through here (ADR 0018): one call at a time
@@ -51,7 +51,10 @@ export const CLAUDE_CALL_LIMITS = {
   monthlyMicroUsd: 100_000_000,
   /** $5 a day (UTC), counting generation and judgement alike (owner decision, 2026-10-11). */
   dailyMicroUsd: 5_000_000,
-  /** Longer than the token exchange and the model timeout together. */
+  /**
+   * Longer than the token exchange and the most calls one request makes in turn: up to
+   * three choices, each fast then standard, at the 10 s model timeout.
+   */
   lockMs: 90_000,
   /** Every request log row and login result code, for evaluation (owner decision, 2026-10-18). */
   logRetentionMs: INFERENCE_LOG_RETENTION_MS,
@@ -65,11 +68,10 @@ export const CLAUDE_CALL_LIMITS = {
 };
 
 /**
- * Charged before each call at its model's rates and corrected afterwards, so a request
- * that never finishes still counts. Usage the provider does not report keeps this upper
- * bound: a request holds at most `maxInputBytes` tokens.
+ * What a call is charged when the provider reports no usage: its upper bound at its
+ * model's rates, since a request holds at most `maxInputBytes` tokens (ADR 0003).
  */
-const reservedMicroUsd = ({ rates }: ClaudeModelChoice) => {
+const worstCaseMicroUsd = ({ rates }: ClaudeModelChoice) => {
   const { input, output } = claudeWorstCaseRates(rates, ROLE_LIMITS.maxInputBytes);
   return ROLE_LIMITS.maxInputBytes * input + MAX_OUTPUT_TOKENS * output;
 };
@@ -98,8 +100,8 @@ export type ClaudeCall<T> = {
   recipe: { recipeId: string; branch: string; baseRevision: number; page?: RecipePage };
   /** Checked under the owner's lock, before credentials are resolved. */
   gate?: (db: Db, now: number) => Promise<GenerationUnavailableReason | undefined>;
-  /** Written together with the spend reservation, once a call is certain. */
-  reserved?: (db: Db, now: number) => BatchItem<"sqlite">[];
+  /** Written once a call is certain, before the first model call. */
+  beforeSend?: (db: Db, now: number) => BatchItem<"sqlite">[];
   invoke: (model: ClaudeModel) => Promise<InferenceOutcome<T>>;
   /** The structured result to log for an `ok` outcome. */
   logValue: (value: T) => unknown;
@@ -138,7 +140,17 @@ export type ClaudeCallResult<T> =
       outcome: InferenceOutcome<T>;
       logId?: string;
       timings: ClaudeCallTimings;
+      /** The model that gave `outcome`: the last one asked. */
+      served: ServedModel;
     };
+
+/** The model a call asked, as the request log keeps it, for the route that made the call. */
+export type ServedModel = {
+  provider: "anthropic";
+  model: string;
+  effort: RoleChoice["effort"];
+  speed: RoleChoice["speed"];
+};
 
 /**
  * One request's timing: when the Worker received it, the call `callClaude` made for it,
@@ -149,6 +161,11 @@ export type ClaudeCallResult<T> =
  */
 export type RequestTrace = {
   startedAt: number;
+  /**
+   * Keeps a promise running after the response or a client disconnect (the request's
+   * `waitUntil`), so a call already sent is still charged and logged.
+   */
+  waitUntil?: (promise: Promise<unknown>) => void;
   call?: ClaudeCallResult<unknown>;
   logId?: string;
 };
@@ -396,6 +413,8 @@ export async function logPageSample(
           role: sql`${sample.role}`.as("role"),
           provider: sql`NULL`.as("provider"),
           modelId: sql`NULL`.as("model_id"),
+          effort: sql`NULL`.as("effort"),
+          speed: sql`NULL`.as("speed"),
           promptVersion: sql`${sample.promptVersion}`.as("prompt_version"),
           origin: sql`${sample.origin}`.as("origin"),
           path: sql`${sample.path}`.as("path"),
@@ -495,7 +514,7 @@ function loggedResult<T>(call: ClaudeCall<T>, outcome: InferenceOutcome<T>): unk
 
 /**
  * Makes one role call for the authenticated owner and records its result on `trace`.
- * `ownerId` must come from the request scope. Nothing is reserved, logged or sent unless
+ * `ownerId` must come from the request scope. Nothing is charged, logged or sent unless
  * every check passes; the route logs a call that was not sent with the answer it gives
  * (`logUnsent`).
  */
@@ -505,11 +524,34 @@ export async function callClaude<T>(
   trace: RequestTrace,
   call: ClaudeCall<T>,
 ): Promise<ClaudeCallResult<T>> {
-  const result = await runCall(env, ownerId, call, trace.startedAt);
+  // A client that disconnects mid-call must not end the Worker before the call is charged
+  // (ADR 0014): nothing is reserved before it.
+  const running = runCall(env, ownerId, call, trace.startedAt);
+  trace.waitUntil?.(running);
+  const result = await running;
   trace.call = result;
   if (result.status === "called" && result.logId !== undefined) trace.logId = result.logId;
   return result;
 }
+
+type Called<T> = Extract<ClaudeCallResult<T>, { status: "called" }>;
+
+/** The failures after which fast mode asks the same model at the standard speed. */
+const FAST_RETRY = new Set(["rate-limited", "provider-error", "timeout"]);
+
+/** A choice's calls in order: fast mode is followed by the same model at the standard speed. */
+function attempts(choice: RoleChoice): RoleChoice[] {
+  if (choice.speed !== "fast") return [choice];
+  const rates = claudeModelRates(choice.modelId);
+  return rates === undefined ? [choice] : [choice, { ...choice, rates, speed: "standard" }];
+}
+
+const servedModel = (choice: RoleChoice): ServedModel => ({
+  provider: "anthropic",
+  model: choice.modelId,
+  effort: choice.effort,
+  speed: choice.speed,
+});
 
 async function runCall<T>(
   env: CallEnv,
@@ -531,27 +573,51 @@ async function runCall<T>(
     if (credential.status !== "ready")
       return { status: "unavailable", reason: credentialUnavailable[credential.status], tokenMs };
 
-    const send = (choice: ClaudeModelChoice, reserved: BatchItem<"sqlite">[], ms: number) =>
-      sendCall(db, ownerId, call, { choice, credential: credential.credential }, reserved, {
-        startedAt,
-        tokenMs: ms,
-      });
-    const first = await send(claudeGeneration, call.reserved?.(db, Date.now()) ?? [], tokenMs);
-    // A refusal is asked once more of `claudeRefusalFallback`, within the spend stops; its
-    // own refusal ends the request (owner decision, 2026-10-23 11:04 UTC).
-    if (
-      first.outcome.status !== "failed" ||
-      first.outcome.error !== "refused" ||
-      (await limitReached(db, ownerId, Date.now()))
-    )
-      return { status: "called", ...first };
-    // The second row's time before the model includes the first call; it ran no exchange.
-    const second = await send(claudeRefusalFallback, [], 0);
-    return {
-      status: "called",
-      ...second,
-      timings: { ...first.timings, modelMs: first.timings.modelMs + second.timings.modelMs },
-    };
+    const [{ config }, fastFailing] = await Promise.all([
+      readModelConfig(env.DB, ownerId),
+      fastFailingModels(env.DB, ownerId, Date.now()),
+    ]);
+    const choices = roleChoices(config, call.role, fastFailing);
+    const before = call.beforeSend?.(db, Date.now()) ?? [];
+    if (before.length > 0) await db.batch(before as [BatchItem<"sqlite">]);
+
+    // The role's choices in order (owner decision, 2026-10-23 11:31 UTC): a refusal asks
+    // the next choice; fast mode that failed asks the same model at the standard speed; any
+    // other failure ends the request. Each call first checks the spend stops. The calls
+    // depend on each other's outcome, so they run in turn.
+    let last: Called<T> | undefined;
+    for (const attempt of choices.flatMap(attempts)) {
+      if (last !== undefined) {
+        const { outcome, served } = last;
+        if (outcome.status !== "failed") break;
+        const sameModel = attempt.modelId === served.model;
+        // A refusal skips the same model at the standard speed and asks the next choice.
+        if (outcome.error === "refused" && sameModel) continue;
+        const retry =
+          outcome.error === "refused" ||
+          (served.speed === "fast" && sameModel && FAST_RETRY.has(outcome.error));
+        // oxlint-disable-next-line no-await-in-loop
+        if (!retry || (await limitReached(db, ownerId, Date.now()))) break;
+      }
+      // Later calls' time before the model includes the calls before; they run no exchange.
+      // oxlint-disable-next-line no-await-in-loop
+      const sent = await sendCall(
+        db,
+        ownerId,
+        call,
+        { choice: attempt, credential: credential.credential },
+        { startedAt, tokenMs: last === undefined ? tokenMs : 0 },
+      );
+      last = {
+        status: "called",
+        ...sent,
+        timings: last
+          ? { ...last.timings, modelMs: last.timings.modelMs + sent.timings.modelMs }
+          : sent.timings,
+        served: servedModel(attempt),
+      };
+    }
+    return last!;
   } finally {
     await db
       .delete(inferenceLocks)
@@ -560,35 +626,30 @@ async function runCall<T>(
 }
 
 /**
- * Sends one model call for `runCall`, under its lock: reserves the call's upper bound at
- * its model's rates with `reserved`, corrects it from reported usage, and logs the call.
- * A request the role refused locally was never sent, so it gets no log row here: its route
- * logs it (ADR 0012).
+ * Sends one model call for `runCall`, under its lock, then charges it to the spend stops
+ * from reported usage at its model's rates (the worst case when usage is unknown) and logs
+ * it. Nothing is reserved before the call (owner, 2026-10-23 11:31 and 12:16 UTC): with
+ * one call at a time per owner, a stop is overshot by at most the call that crossed it.
+ * `callClaude` keeps the calls running past a client disconnect so each is charged. A request the role refused locally was
+ * never sent, so it gets no log row here: its route logs it (ADR 0012).
  */
 async function sendCall<T>(
   db: Db,
   ownerId: string,
   call: ClaudeCall<T>,
-  model: { choice: ClaudeModelChoice; credential: ClaudeCredential },
-  reserved: BatchItem<"sqlite">[],
+  model: { choice: RoleChoice; credential: ClaudeCredential },
   time: { startedAt: number; tokenMs: number },
 ): Promise<{ outcome: InferenceOutcome<T>; logId?: string; timings: ClaudeCallTimings }> {
   const { choice } = model;
-  const reservation = reservedMicroUsd(choice);
-  const now = Date.now();
-  const [month, day] = periods(now);
-  await db.batch([
-    addSpend(db, ownerId, month, 1, reservation),
-    addSpend(db, ownerId, day, 1, reservation),
-    ...reserved,
-  ]);
+  // The periods the call started in, even when it ends on the next UTC day.
+  const [month, day] = periods(Date.now());
 
   let outcome: InferenceOutcome<T>;
   const modelStart = Date.now();
   try {
     outcome = await call.invoke(createClaudeGenerationModel({ ...model.credential, choice }));
   } catch {
-    // The roles return their errors; this only guards the reservation's correction.
+    // The roles return their errors; this only guards the spend and the log row.
     outcome = { status: "failed", error: "provider-error", calls: 1, usage: unknownUsage };
   }
   // Date.now() advances across I/O on Workers, which is all these spans wait on.
@@ -598,22 +659,12 @@ async function sendCall<T>(
     modelMs: Date.now() - modelStart,
   };
   const estimate = estimateClaudeCostUsd(outcome.usage, choice.rates);
+  if (outcome.calls === 0) return { outcome, timings };
   const micro =
-    outcome.calls === 0
-      ? 0
-      : estimate === undefined
-        ? reservation * outcome.calls
-        : Math.ceil(estimate * 1_000_000);
+    estimate === undefined
+      ? worstCaseMicroUsd(choice) * outcome.calls
+      : Math.ceil(estimate * 1_000_000);
   const finished = Date.now();
-  const corrections = [
-    // The reservation's own periods, even when the call ended on the next UTC day.
-    addSpend(db, ownerId, month, outcome.calls - 1, micro - reservation),
-    addSpend(db, ownerId, day, outcome.calls - 1, micro - reservation),
-  ] as const;
-  if (outcome.calls === 0) {
-    await db.batch(corrections);
-    return { outcome, timings };
-  }
   // Codes only, for the Worker's own logs; the request log row holds the rest.
   const rejection = outcome.status === "failed" ? outputRejection(outcome) : undefined;
   if (rejection)
@@ -625,13 +676,16 @@ async function sendCall<T>(
   const logId = newId();
   const { recipeId, branch, baseRevision, page } = call.recipe;
   await db.batch([
-    ...corrections,
+    addSpend(db, ownerId, month, outcome.calls, micro),
+    addSpend(db, ownerId, day, outcome.calls, micro),
     db.insert(inferenceLog).values({
       id: logId,
       ownerId,
       role: call.role,
       provider: "anthropic",
       modelId: choice.modelId,
+      effort: choice.effort,
+      speed: choice.speed,
       promptVersion: call.promptVersion,
       origin: call.origin,
       path: call.path,

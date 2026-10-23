@@ -14,15 +14,17 @@ export const serviceOriginSchema = v.pipe(
     return (
       url?.protocol === "https:" &&
       url.origin === value &&
-      normalizeHostname(url.hostname) !== undefined
+      // A trailing dot names another host to the browser, with its own cookies.
+      normalizeHostname(url.hostname) === url.hostname
     );
   }, "Use an exact HTTPS origin"),
 );
 
-/** Parses what a person types, accepting a trailing slash. */
+/** Parses what a person types, accepting a trailing slash and a host's trailing dot. */
 export function normalizeServiceOrigin(input: string): string | undefined {
   const url = parseSiteUrl(input.trim());
   if (!url || url.pathname !== "/" || url.search || url.hash) return undefined;
+  url.hostname = url.hostname.replace(/\.$/u, "");
   return v.safeParse(serviceOriginSchema, url.origin).success ? url.origin : undefined;
 }
 
@@ -78,6 +80,8 @@ export const serviceErrorCodeSchema = v.picklist([
   "extension-not-allowed",
   /** The service has no pairing configuration. */
   "pairing-unavailable",
+  /** The service could not fetch the keys it checks sign-ins with; try again later. */
+  "access-keys-unavailable",
 ]);
 
 export const serviceResponseSchema = v.variant("ok", [

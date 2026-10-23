@@ -90,6 +90,7 @@ it.each([
   },
   { ok: false, error: { code: "provider leaked synthetic-secret-password" } },
   { ok: true, kind: "mfa-required", flowId: crypto.randomUUID(), providers: [5] },
+  { ok: true, kind: "mfa-required", flowId: crypto.randomUUID(), providers: [0], expiresAt: -1 },
 ])(
   "closes the private channel rather than exposing malformed metadata reply %#",
   async (result) => {

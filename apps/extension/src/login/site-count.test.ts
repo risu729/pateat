@@ -1,5 +1,5 @@
 import type { LocalVaultMetadata } from "@pateat/bitwarden";
-import type { SettingsSnapshot, VaultCatalog } from "@pateat/contracts";
+import type { SettingsChangeCause, SettingsSnapshot, VaultCatalog } from "@pateat/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { UriCandidates } from "../crypto/wire";
 import { vaultFailure, type VaultResult } from "../vault/record";
@@ -632,18 +632,21 @@ describe("createSiteCounter", () => {
       update: vi.fn(
         async (
           _revision: number | undefined,
+          _cause: SettingsChangeCause,
           _mutate: (current: SettingsSnapshot) => SettingsSnapshot,
         ) => snapshot,
       ),
     };
     const wrapped = recountingSettings(base, saved);
     expect(await wrapped.read()).toBe(snapshot);
-    await expect(wrapped.update(1, (current) => current)).resolves.toBe(snapshot);
-    expect(base.update).toHaveBeenCalledWith(1, expect.any(Function));
+    await expect(wrapped.update(1, "account-choice", (current) => current)).resolves.toBe(snapshot);
+    expect(base.update).toHaveBeenCalledWith(1, "account-choice", expect.any(Function));
     expect(saved).toHaveBeenCalledTimes(1);
     // A refused update is no save.
     base.update.mockRejectedValueOnce(new Error("revision"));
-    await expect(wrapped.update(1, (current) => current)).rejects.toThrow("revision");
+    await expect(wrapped.update(1, "account-choice", (current) => current)).rejects.toThrow(
+      "revision",
+    );
     expect(saved).toHaveBeenCalledTimes(1);
   });
 

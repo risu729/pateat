@@ -12,6 +12,9 @@ describe("service origin", () => {
     ["https://pateat.example.com", "https://pateat.example.com"],
     ["  https://pateat.example.com/  ", "https://pateat.example.com"],
     ["https://PATEAT.example.com:8443/", "https://pateat.example.com:8443"],
+    // The browser keeps a trailing dot as another host, whose cookies differ.
+    ["https://pateat.example.com./", "https://pateat.example.com"],
+    ["https://pateat.example.com.:8443", "https://pateat.example.com:8443"],
   ])("normalizes %j", (input, expected) => {
     expect(normalizeServiceOrigin(input)).toBe(expected);
   });
@@ -33,6 +36,7 @@ describe("service origin", () => {
     expect(v.safeParse(serviceOriginSchema, "https://pateat.example.com").success).toBe(true);
     expect(v.safeParse(serviceOriginSchema, "https://pateat.example.com/").success).toBe(false);
     expect(v.safeParse(serviceOriginSchema, "http://pateat.example.com").success).toBe(false);
+    expect(v.safeParse(serviceOriginSchema, "https://pateat.example.com.").success).toBe(false);
   });
 });
 

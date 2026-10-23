@@ -8896,6 +8896,535 @@
         "action": "c3",
         "purpose": "submit"
       }
+    },
+    {
+      "id": "ja-livedoor",
+      "source": {
+        "dataset": "japanese",
+        "url": "https://member.livedoor.com/login/",
+        "observed": "2026-10-23",
+        "commit": "74d5b3c"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://member.livedoor.com",
+        "path": "/login/",
+        "language": "ja",
+        "title": "livedoor ログイン",
+        "headings": ["PR"],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "livedoor_id"
+            },
+            "label": "livedoor ID :",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "password"
+            },
+            "label": "パスワード :",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "checkbox",
+            "target": {
+              "by": "id",
+              "value": "check_auto_login"
+            },
+            "label": "自動ログイン設定を有効にする",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "ID・パスワードを忘れた方"
+            },
+            "label": "ID・パスワードを忘れた方",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "ヘルプ"
+            },
+            "label": "ヘルプ",
+            "group": "f1"
+          },
+          {
+            "id": "c6",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "submit"
+            },
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c6",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "ja-fc2",
+      "source": {
+        "dataset": "japanese",
+        "url": "https://fc2.com/login.php",
+        "observed": "2026-10-23",
+        "commit": "74d5b3c"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://fc2.com",
+        "path": "/login.php",
+        "language": "ja",
+        "title": "ログイン FC2 - 無料ホームページ アクセス解析 ブログ レンタルサーバー SEO 対策 等 -",
+        "headings": [
+          "FC2 total Web Solutions",
+          "FC2IDへログインします。ログイン情報を入力し[ログイン]ボタンをクリックしてください。"
+        ],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "email"
+            },
+            "label": "登録メールアドレス：",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "pass"
+            },
+            "label": "パスワード：",
+            "group": "f1",
+            "maxLength": 16
+          },
+          {
+            "id": "c3",
+            "role": "button",
+            "target": {
+              "by": "name",
+              "value": "image"
+            },
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "checkbox",
+            "target": {
+              "by": "id",
+              "value": "keep_login"
+            },
+            "label": "ログイン状態を維持",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "メールアドレス／パスワードを忘れた？"
+            },
+            "label": "メールアドレス／パスワードを忘れた？",
+            "group": "f1"
+          },
+          {
+            "id": "c6",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "ログインできない"
+            },
+            "label": "ログインできない",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c3",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "ja-gmo-coin",
+      "source": {
+        "dataset": "japanese",
+        "url": "https://coin.z.com/jp/member/login",
+        "observed": "2026-10-23",
+        "commit": "74d5b3c"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://coin.z.com",
+        "path": "/jp/member/login",
+        "language": "ja",
+        "title": "ログイン | GMOコイン",
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "name",
+              "value": "login_id"
+            },
+            "placeholder": "メールアドレス",
+            "autocomplete": "email",
+            "group": "f1",
+            "maxLength": 256
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "name",
+              "value": "password"
+            },
+            "placeholder": "パスワード",
+            "autocomplete": "current-password",
+            "group": "f1",
+            "maxLength": 256
+          },
+          {
+            "id": "c3",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "ログイン"
+            },
+            "label": "ログイン",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "パスワードを忘れた場合"
+            },
+            "label": "パスワードを忘れた場合",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "パスワードがロックされた場合"
+            },
+            "label": "パスワードがロックされた場合",
+            "group": "f1"
+          },
+          {
+            "id": "c6",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "メールアドレスの変更"
+            },
+            "label": "メールアドレスの変更",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c3",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "ja-sevenbank",
+      "source": {
+        "dataset": "japanese",
+        "url": "https://ib.sevenbank.co.jp/IB/IB_U_CO_002/IB_U_CO_002_100.aspx",
+        "observed": "2026-10-23",
+        "commit": "74d5b3c"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://ib.sevenbank.co.jp",
+        "path": "/IB/IB_U_CO_002/IB_U_CO_002_100.aspx",
+        "language": "ja",
+        "title": "ログオン｜セブン銀行ダイレクトバンキング",
+        "headings": ["ログオン"],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "mpheader_linkHelpQa2"
+            },
+            "label": "ヘルプ・Q&A ▼",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "cphBizConf_btnLanguageEn"
+            },
+            "label": "English",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "cphBizConf_lnkSecurityWarning"
+            },
+            "label": "「saat netizen（サート・ネチズン）」",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "cphBizConf_lnkAppCertificationMustSettingImg"
+            },
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "cphBizConf_txtLogonId"
+            },
+            "label": "例：abc123",
+            "placeholder": "例：abc123",
+            "autocomplete": "off",
+            "group": "f1",
+            "maxLength": 32
+          },
+          {
+            "id": "c6",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "cphBizConf_btnLogonIdKeybd"
+            },
+            "label": "ソフトウェアキーボードで入力",
+            "group": "f1"
+          },
+          {
+            "id": "c7",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "cphBizConf_lnkLogonIdForget"
+            },
+            "label": "ログオンIDを忘れた方",
+            "group": "f1"
+          },
+          {
+            "id": "c8",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "cphBizConf_txtLogonPw"
+            },
+            "autocomplete": "off",
+            "group": "f1",
+            "maxLength": 32
+          },
+          {
+            "id": "c9",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "cphBizConf_btnLogonPwKeybd"
+            },
+            "label": "ソフトウェアキーボードで入力",
+            "group": "f1"
+          },
+          {
+            "id": "c10",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "cphBizConf_lnkLogonPwForget"
+            },
+            "label": "ログオンパスワードを忘れた方(失効となった方)",
+            "group": "f1"
+          },
+          {
+            "id": "c11",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "cphBizConf_btnLogon"
+            },
+            "label": "ログオン",
+            "group": "f1"
+          },
+          {
+            "id": "c12",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "cphBizConf_lnkLogonNotFinishServiceAf"
+            },
+            "group": "f1"
+          },
+          {
+            "id": "c13",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "cphBizConf_lnkCookieSet"
+            },
+            "label": "Cookieの設定方法",
+            "group": "f1"
+          },
+          {
+            "id": "c14",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "cphBizConf_lnkDrctBakSrv"
+            },
+            "label": "ダイレクトバンキングサービスとは",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c5",
+          "password": "c8"
+        },
+        "action": "c11",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "ja-sakura",
+      "source": {
+        "dataset": "japanese",
+        "url": "https://secure.sakura.ad.jp/auth/login",
+        "observed": "2026-10-23",
+        "commit": "74d5b3c"
+      },
+      "slots": "login",
+      "observation": {
+        "version": 1,
+        "origin": "https://secure.sakura.ad.jp",
+        "path": "/auth/login",
+        "language": "ja",
+        "title": "会員認証｜さくらインターネット",
+        "headings": ["さくらインターネット 会員認証"],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "member-auth-membercd"
+            },
+            "label": "会員ID",
+            "placeholder": "例: nnn[number]",
+            "autocomplete": "off",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "会員IDをお忘れの方"
+            },
+            "label": "会員IDをお忘れの方",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "member-auth-password"
+            },
+            "label": "パスワード",
+            "autocomplete": "off",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "パスワード発行・再発行"
+            },
+            "label": "パスワード発行・再発行",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "btn-login"
+            },
+            "label": "ログイン"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c3"
+        },
+        "action": "c5",
+        "purpose": "submit"
+      }
     }
   ]
 }

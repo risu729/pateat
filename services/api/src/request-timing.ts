@@ -11,7 +11,10 @@ import { keepServerTime, type RequestTrace } from "./claude/calls";
  * model call. The row is updated after the response is sent, so it never delays it.
  */
 export const traceRequest = createMiddleware<ApiEnv>(async (c, next) => {
-  const trace: RequestTrace = { startedAt: Date.now() };
+  const trace: RequestTrace = {
+    startedAt: Date.now(),
+    waitUntil: (promise) => c.executionCtx.waitUntil(promise),
+  };
   c.set("trace", trace);
   await next();
   const serverMs = Date.now() - trace.startedAt;

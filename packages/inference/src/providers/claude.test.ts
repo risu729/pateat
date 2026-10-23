@@ -5,7 +5,6 @@ import {
   claudeGeneration,
   claudeModelRates,
   claudeRefusalCategory,
-  claudeRefusalFallback,
   claudeWorstCaseRates,
   createClaudeGenerationModel,
   estimateClaudeCostUsd,
@@ -194,7 +193,7 @@ describe("Claude generation adapter", () => {
 
   it("prices the service's models from the committed pricing page", () => {
     expect(claudeGeneration.rates).toEqual({ input: 4, output: 20 });
-    expect(claudeRefusalFallback.rates).toEqual({ input: 2, output: 10 });
+    expect(claudeModelRates("claude-sonnet-5-5")).toEqual({ input: 2, output: 10 });
     expect(claudeModelRates("claude-opus-5-5", "fast")).toEqual({ input: 8, output: 40 });
     expect(claudeModelRates("claude-sonnet-5-5", "fast")).toBeUndefined();
     expect(claudeModelRates("claude-opus-9")).toBeUndefined();
