@@ -29,6 +29,7 @@ export const OWNER_TABLES = [
   "recipe_layout_uses",
   "recipe_revisions",
   "recipe_heads",
+  "recipe_repairs",
   "settings",
   "generation_attempts",
   "page_judgements",

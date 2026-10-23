@@ -14,8 +14,10 @@ generated again).
 Amended on 2026-10-23 by [ADR 0060](0060-recipe-layouts.md) (accepted by the owner on
 2026-10-23 at 11:41 UTC; implemented on a branch, local tests only): part B counts use
 per layout of a recipe
-([Amendment: use per layout](#amendment-2026-10-23-use-per-layout)). Part A is unchanged
-here; the proposal to repair instead of revoking waits for the repair work.
+([Amendment: use per layout](#amendment-2026-10-23-use-per-layout)). Part A is amended
+by [ADR 0041](0041-repair-stale-recipes.md) (accepted by the owner on 2026-10-23), which
+repairs the recipe instead of revoking it
+([Amendment: repair instead of revoke](#amendment-2026-10-23-repair-instead-of-revoke)).
 
 Date: 2026-10-19
 
@@ -128,6 +130,19 @@ an idle recipe removes a layout unused for 90 days, as a new revision without it
 another layout of the recipe is used; such a removal, like a removal of one layout on
 `/manage`, is no use of the recipe. When every layout is idle, the recipe is revoked as
 above.
+
+### Amendment 2026-10-23: repair instead of revoke
+
+Accepted with [ADR 0041](0041-repair-stale-recipes.md) on 2026-10-23.
+Part A no longer revokes the recipe: the device sends its start page for repair, which
+adds the route the item needs to a layout, or adds a layout, and keeps what the recipe
+learned. A newer revision pulled from the service is tried first, without a model call.
+The claim in `pateat.recipe-replacements.v1` bounds it to once per recipe, device and
+missing route (`passkey` or `password`) in 3 days, so at most two claims per recipe
+(owner, 2026-10-23 12:53 and 12:54 UTC: 30 days was too long, and one account's gap must
+not block another's). It is given back when the request never reached the model. The log
+event is `recipe.unfit`, and the request itself is `recipe.generate` with page `repair`.
+The Delivery section below describes part A before this amendment.
 
 ## Consequences
 

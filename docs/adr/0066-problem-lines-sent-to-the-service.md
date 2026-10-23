@@ -77,16 +77,17 @@ condition that no value leaves.
   login's page where a recipe starts but its first step is missing (`login.refused`
   `not-started` with `first-step-missing`); a page sent for generation and not read as
   signed in (`recipe.generate` `abstained`, `unavailable`, `failed`, or `skipped` as
-  `sending` or `sent`); and a recipe revoked at a new login's first page
-  (`recipe.revoke`). Everything else sends no path: a watched, settled, reconciling or
-  awaited login, one blocked by a challenge, an ended watch, a cancel, a move to another
-  origin, a rejected or unknown submit or a handler step; every other refusal, as one of
-  a resumed login may come from its page after a submit; generation skipped on another
-  page, as after a sign-in, while signed in elsewhere or when a username shows; every
-  other event; and any event, outcome or reason added to the log later until it is
-  listed. The log cannot read the vault, so unlike an observation a plain username in
-  the path of a configured site's page before a submit (a sign-in page under
-  `/u/<name>/login`) still leaves.
+  `sending` or `sent`); and a recipe the chosen item cannot run at a new login's first
+  page (`recipe.unfit`, which replaced `recipe.revoke` with
+  [ADR 0041](0041-repair-stale-recipes.md)). Everything else sends no path: a watched,
+  settled, reconciling or awaited login, one blocked by a challenge, an ended watch, a
+  cancel, a move to another origin, a rejected or unknown submit or a handler step;
+  every other refusal, as one of a resumed login may come from its page after a submit;
+  generation skipped on another page, as after a sign-in, while signed in elsewhere or
+  when a username shows; every other event; and any event, outcome or reason added to
+  the log later until it is listed. The log cannot read the vault, so unlike an
+  observation a plain username in the path of a configured site's page before a submit
+  (a sign-in page under `/u/<name>/login`) still leaves.
 - Origins of sites not set up stay pseudonyms the service cannot reverse. Exception
   messages stay limited to Pateat's own error codes; a value the log cut leaves out.
   Each entry records the build that wrote it, and a request carries only one build's

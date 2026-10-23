@@ -127,6 +127,77 @@ describe("recipe generation contracts", () => {
     ).toBe(false);
   });
 
+  it("accepts a repair of a recipe's start page, a form or a list, never with a base (ADR 0041)", () => {
+    const repair = { recipeId: "gen-1", revision: 3 };
+    // A start page is a recipe's first page and carries the signed-in hint (ADR 0035).
+    expect(
+      v.is(recipeGenerationRequestSchema, {
+        version: 1,
+        observation,
+        slots,
+        repair,
+        signedIn: false,
+      }),
+    ).toBe(true);
+    // A later step's page names the layout and the step that did not show.
+    expect(
+      v.is(recipeGenerationRequestSchema, {
+        version: 1,
+        observation,
+        slots,
+        repair: { ...repair, layout: "1760000000000", step: 2 },
+      }),
+    ).toBe(true);
+    for (const invalid of [
+      {
+        version: 1,
+        observation,
+        slots,
+        repair: { recipeId: "gen-1", revision: 0 },
+        signedIn: false,
+      },
+      { version: 1, observation, slots, repair: { ...repair, layout: "1760000000000" } },
+      { version: 1, observation, slots, repair: { ...repair, step: 2 }, signedIn: false },
+      { version: 1, observation, slots, repair, base: repair, branch: "1760000000000" },
+      { version: 1, observation, slots, repair },
+      {
+        version: 1,
+        observation,
+        slots,
+        repair: { ...repair, layout: "1760000000000", step: 2 },
+        signedIn: false,
+      },
+      {
+        version: 1,
+        observation: { ...observation, accounts: ["Taro"] },
+        slots: [],
+        repair: { ...repair, layout: "1760000000000", step: 2 },
+      },
+    ])
+      expect(v.is(recipeGenerationRequestSchema, invalid)).toBe(false);
+    // A start page that lists accounts, as a chooser's list, carries no hint (ADR 0035).
+    expect(
+      v.is(recipeGenerationRequestSchema, {
+        version: 1,
+        observation: { ...observation, accounts: ["Taro"] },
+        slots: [],
+        repair,
+      }),
+    ).toBe(true);
+    // An entry page names the entry recipe it repairs.
+    const entryPage = observation;
+    expect(v.is(entryGenerationRequestSchema, { version: 1, observation: entryPage, repair })).toBe(
+      true,
+    );
+    expect(
+      v.is(entryGenerationRequestSchema, {
+        version: 1,
+        observation: entryPage,
+        repair: { ...repair, layout: "1760000000000" },
+      }),
+    ).toBe(false);
+  });
+
   it("answers a chooser recipe for an account list or one of its branches (ADR 0028)", () => {
     const chooser = {
       version: 1,

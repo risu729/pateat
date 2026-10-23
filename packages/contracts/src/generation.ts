@@ -14,6 +14,7 @@ import {
   loginRouteSchema,
   parseRecipeBranch,
   recipeBranchSchema,
+  recipeLayoutKeySchema,
   storedRecipeSlots,
 } from "./login";
 import { shownQuestionSchema } from "./settings";
@@ -111,6 +112,10 @@ export const generationUnavailableReasonSchema = v.picklist([
   "recipe-conflict",
   /** The owner's recipe count or bytes would exceed the service limit. */
   "recipe-limit",
+  /**
+   * This device already asked to repair the recipe this UTC day (ADR 0041).
+   */
+  "repair-limit",
 ]);
 export const generationFailureSchema = v.picklist([
   "incomplete-observation",
@@ -152,7 +157,10 @@ export const generationOutputRejectionSchema = v.variant("check", [
  * `POST /v1/recipes/generate`: one page; `base` continues a recipe after an advance, and
  * `branch` names the layout it continues (ADR 0060). With a chooser branch in `branch`,
  * `base` is a chooser recipe (ADR 0028) and the page is the next one of that branch: its
- * first page, after the click on the list, or a later one.
+ * first page, after the click on the list, or a later one. With `repair`, the page is a
+ * page of that recipe revision whose elements no longer match it, sent to add a layout for
+ * it (ADR 0041): its start page, a form or a list of accounts whatever the recipe's kind,
+ * or with `layout` and `step` the page where that layout's step did not show.
  */
 export const recipeGenerationRequestSchema = v.pipe(
   v.strictObject({
@@ -167,15 +175,32 @@ export const recipeGenerationRequestSchema = v.pipe(
      * recipes or the username of a matching vault item shows in the page's header or
      * navigation (ADR 0029's E1 and E2). Only the flag leaves the device, never the page
      * text or username. Sent with a recipe's first page that is no list of accounts, the
-     * only pages whose kind the model answers for the recipe: a continuation keeps its
-     * first page's kind, and a list of accounts is always `sign-in`.
+     * only pages whose kind the model answers for the recipe: a continuation, or a later
+     * step's repair, keeps its first page's kind, and a list of accounts is always
+     * `sign-in`.
      */
     signedIn: v.optional(v.boolean()),
+    repair: v.optional(
+      v.pipe(
+        v.strictObject({
+          recipeId: syncRecipeIdSchema,
+          revision: writtenRevision,
+          layout: v.optional(recipeLayoutKeySchema),
+          step: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(31))),
+        }),
+        v.check(
+          (repair) => (repair.layout === undefined) === (repair.step === undefined),
+          "A later step's repair names its layout and step",
+        ),
+      ),
+    ),
   }),
   v.check(
     (request) =>
       (request.signedIn !== undefined) ===
-      (request.base === undefined && request.observation.accounts === undefined),
+      (request.base === undefined &&
+        request.observation.accounts === undefined &&
+        request.repair?.layout === undefined),
     "A recipe's first page that lists no accounts, and only it, carries signedIn",
   ),
   // A list of accounts (ADR 0028) is sent without slots or value shapes, since nothing of
@@ -205,6 +230,14 @@ export const recipeGenerationRequestSchema = v.pipe(
     (request) => (request.branch === undefined) === (request.base === undefined),
     "A base names the layout it continues, and a layout needs a base",
   ),
+  v.check(
+    (request) =>
+      !request.repair ||
+      (request.base === undefined &&
+        !request.passkeyOnly &&
+        (request.observation.accounts === undefined || request.repair.layout === undefined)),
+    "A repair is a form's page or a start page's list of accounts, without a base",
+  ),
 );
 /**
  * Whether an observation can be sent without slots, as a page's sign-in entry (ADR 0031):
@@ -220,11 +253,16 @@ export const isEntryObservation = (observation: LoginObservation) =>
  * `POST /v1/recipes/generate` without `slots`: an entry request (ADR 0031), a page without
  * a login form whose answer names the link that opens the site's login page. No slot is
  * offered, so the page shows no field to fill, and it never continues a recipe (`base`,
- * `branch`). Every other request has `slots`, empty only for a passkey-only page or a list
- * of accounts.
+ * `branch`). With `repair`, the page is the entry page of that recipe revision whose link
+ * no longer shows (ADR 0041). Every other request has `slots`, empty only for a
+ * passkey-only page or a list of accounts.
  */
 export const entryGenerationRequestSchema = v.pipe(
-  v.strictObject({ version: v.literal(1), observation: loginObservationSchema }),
+  v.strictObject({
+    version: v.literal(1),
+    observation: loginObservationSchema,
+    repair: v.optional(v.strictObject({ recipeId: syncRecipeIdSchema, revision: writtenRevision })),
+  }),
   v.check(
     (request) => isEntryObservation(request.observation),
     "An entry request's page shows no field and lists no accounts",
