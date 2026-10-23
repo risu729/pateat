@@ -54,7 +54,7 @@ export const loginAutocompleteTokens = [
   "webauthn",
 ] as const;
 /**
- * An attribute locator: the element whose `id`, `name` or `data-testid` equals the
+ * An attribute locator: the element whose `id`, `name`, `data-testid` or `data-test` equals the
  * value, or the `<input>` whose `autocomplete` attribute holds the token among its
  * whitespace-separated tokens, ignoring case (for fields with no `id` or `name`, such as
  * `autocomplete="username webauthn"`). `id` and `name` take any ASCII except whitespace
@@ -67,8 +67,10 @@ export const loginAttributeTargetSchema = v.variant("by", [
     by: v.picklist(["id", "name"]),
     value: v.pipe(v.string(), v.minLength(1), v.maxLength(120), v.regex(/^[\x21-\x7e]+$/u)),
   }),
+  // `data-test` is the test attribute some pages use instead (Duolingo's sign-in
+  // submit, 2026-10-23; ADR 0071).
   v.strictObject({
-    by: v.literal("test-id"),
+    by: v.picklist(["test-id", "data-test"]),
     value: v.pipe(v.string(), v.minLength(1), v.maxLength(120), v.regex(/^[a-zA-Z0-9_.:-]+$/)),
   }),
   v.strictObject({ by: v.literal("autocomplete"), value: v.picklist(loginAutocompleteTokens) }),
@@ -126,10 +128,25 @@ export const loginAccessibleNameTargetSchema = v.strictObject({
   by: v.literal("accessible-name"),
   value: loginTextTargetSchema.entries.value,
 });
-/** A locator a fill names its field by: an attribute one, or the field's visible name. */
+/**
+ * A field locator by its `name` within the sign-in form (ADR 0072): the one shown
+ * element whose `name` equals the value and whose form also holds a shown password input
+ * not marked `new-password`, as the account field beside Hacker News's password, whose
+ * create-account form below shares the names `acct` and `pw`. It names fields only, for a
+ * field that no other locator names alone.
+ */
+export const loginPasswordFormNameTargetSchema = v.strictObject({
+  by: v.literal("password-form-name"),
+  value: loginAttributeTargetSchema.options[0].entries.value,
+});
+/**
+ * A locator a fill names its field by: an attribute one, the field's visible name, or its
+ * name within the sign-in form.
+ */
 export const loginFieldTargetSchema = v.variant("by", [
   ...loginAttributeTargetSchema.options,
   loginLabelTargetSchema,
+  loginPasswordFormNameTargetSchema,
 ]);
 /**
  * An allowlisted element locator; recipes cannot supply CSS, code, URLs or values. A recipe
@@ -140,6 +157,7 @@ export const loginTargetSchema = v.variant("by", [
   loginTextTargetSchema,
   loginLabelTargetSchema,
   loginAccessibleNameTargetSchema,
+  loginPasswordFormNameTargetSchema,
 ]);
 /**
  * A signed-in marker's link locator (ADR 0029): the one `<a href>` link to the page's own
@@ -184,12 +202,26 @@ export const loginStepSchema = v.variant("kind", [
       "Effectful fill requires one field and one trigger event",
     ),
   ),
-  v.strictObject({
-    kind: v.literal("click"),
-    path,
-    target: loginTargetSchema,
-    purpose: v.picklist(["advance", "submit"]),
-  }),
+  v.pipe(
+    v.strictObject({
+      kind: v.literal("click"),
+      path,
+      target: loginTargetSchema,
+      purpose: v.picklist(["advance", "submit"]),
+      /**
+       * For a form that shows no button to press (ADR 0064): the target is the field the
+       * fill just before typed last, and the step submits that field's form as pressing
+       * Enter there does instead of clicking anything.
+       */
+      press: v.optional(v.literal("enter")),
+    }),
+    v.check(
+      (step) =>
+        step.press === undefined ||
+        (step.target.by !== "text" && step.target.by !== "accessible-name"),
+      "Enter is pressed in a field",
+    ),
+  ),
   v.strictObject({
     kind: v.literal("wait"),
     path,
@@ -245,7 +277,29 @@ const recipeSlotList = v.pipe(
   v.maxLength(20),
   v.check(unique, "Duplicate recipe slots"),
 );
-const routeStepList = v.pipe(v.array(loginStepSchema), v.minLength(1), v.maxLength(32));
+const routeStepList = v.pipe(
+  v.array(loginStepSchema),
+  v.minLength(1),
+  v.maxLength(32),
+  // Enter goes into the field the fill just before typed last, never a code (ADR 0064).
+  v.check(
+    (steps) =>
+      steps.every((step, index) => {
+        if (step.kind !== "click" || step.press === undefined) return true;
+        const before = steps[index - 1];
+        const last = before?.kind === "fill" ? before.fields.at(-1) : undefined;
+        return (
+          before?.kind === "fill" &&
+          before.effect === "prepare" &&
+          before.path === step.path &&
+          last !== undefined &&
+          last.slot !== TOTP_HANDLER_SLOT &&
+          sameLoginTarget(last.target, step.target)
+        );
+      }),
+    "Enter is pressed only in the field the fill before typed last",
+  ),
+);
 /** At most 3 alternatives, so a password route has at most 4 variants (ADR 0027). */
 export const MAX_PASSWORD_ALTERNATIVES = 3;
 /** A recipe learns at most four signed-in markers (ADR 0029). */
@@ -535,6 +589,8 @@ export const loginRecipeSchema = v.pipe(
     "Too many result elements to observe with a step",
   ),
   // The switch is clicked instead of signing in, so it must not be a step's own button.
+  // A marker proves the sign-in wherever it shows (ADR 0029), so a login page that shows
+  // the switch must not read as signed in either.
   v.check((recipe) => {
     if (!recipe.accountSwitch) return true;
     const key = targetKey(recipe.accountSwitch);
@@ -544,8 +600,9 @@ export const loginRecipeSchema = v.pipe(
       ),
       ...(recipe.handlers ?? []).flatMap(handlerTargets),
       ...(recipe.rejection ? [recipe.rejection] : []),
+      ...(recipe.completion ?? []).map((marker) => marker.target),
     ].some((target) => targetKey(target) === key);
-  }, "Account switch target is a step or rejection target"),
+  }, "Account switch target is a step, rejection or completion marker target"),
   // The markers and the rejection are checked after every step, on any path, so a
   // variant's own element must never prove or refuse the sign-in. A marker proves it
   // wherever it shows (ADR 0029), so even a single variant's step never uses one; its
@@ -710,6 +767,20 @@ const chooserTargetSchema = v.variant("by", [
   loginAttributeTargetSchema.options[1],
   loginTextTargetSchema,
 ]);
+/** A chooser recipe's members, before the checks that relate them. */
+const chooserRecipeEntriesSchema = v.strictObject({
+  version: v.literal(1),
+  id: identifier,
+  revision,
+  origin: loginOriginSchema,
+  chooser: v.strictObject({
+    path,
+    other: v.optional(chooserTargetSchema),
+    continue: v.optional(chooserTargetSchema),
+    afterAccount: v.optional(loginRecipeSchema),
+    afterOther: v.optional(loginRecipeSchema),
+  }),
+});
 /**
  * A recipe that starts on a page listing accounts to choose from (ADR 0028), such as
  * Cloudflare's saved profiles: `chooser.path` is where the list shows. `other` is the
@@ -723,22 +794,14 @@ const chooserTargetSchema = v.variant("by", [
  * ID, origin and revision. A branch is absent until a login takes it and its page is
  * generated as an ADR 0018 continuation.
  *
- * A login on the list runs `chooserRoute` for what it clicks there.
+ * A login on the list runs `chooserRoute` for what it clicks there, so a branch is held
+ * only when that route is a recipe for every click that leads to it. With the click on
+ * the list in front, a branch has at most 31 steps, at most 7 of them clicks or fills
+ * that advance or submit, nothing that proves or hands off the sign-in on the button it
+ * clicks there, and no `passkeyOnly`; `chooserRoute` decides each case.
  */
 export const loginChooserRecipeSchema = v.pipe(
-  v.strictObject({
-    version: v.literal(1),
-    id: identifier,
-    revision,
-    origin: loginOriginSchema,
-    chooser: v.strictObject({
-      path,
-      other: v.optional(chooserTargetSchema),
-      continue: v.optional(chooserTargetSchema),
-      afterAccount: v.optional(loginRecipeSchema),
-      afterOther: v.optional(loginRecipeSchema),
-    }),
-  }),
+  chooserRecipeEntriesSchema,
   v.check(
     ({ id, revision: current, origin, chooser }) =>
       [chooser.afterAccount, chooser.afterOther].every(
@@ -757,6 +820,12 @@ export const loginChooserRecipeSchema = v.pipe(
   v.check(
     ({ chooser }) => !chooser.afterOther || chooser.other !== undefined,
     "A chooser has an other-account branch only with its button",
+  ),
+  // A branch runs only as `chooserRoute` builds it, so every click that leads to it must
+  // make a recipe of it.
+  v.check(
+    (recipe) => chooserClicks(recipe).every((click) => chooserRoute(recipe, click) !== undefined),
+    "A chooser branch cannot run after the click that leads to it",
   ),
 );
 /**
@@ -865,7 +934,9 @@ export function loginStepEffect(step: LoginStep): LoginEffect | undefined {
 }
 export type LoginRecipe = v.InferOutput<typeof loginRecipeSchema>;
 export type LoginEntryRecipe = v.InferOutput<typeof loginEntryRecipeSchema>;
-export type LoginChooserRecipe = v.InferOutput<typeof loginChooserRecipeSchema>;
+// Inferred from the members alone: the schema's own checks build `chooserRoute`, which
+// takes this type. Its checks change no member's type.
+export type LoginChooserRecipe = v.InferOutput<typeof chooserRecipeEntriesSchema>;
 export type StoredLoginRecipe = v.InferOutput<typeof storedLoginRecipeSchema>;
 /** Whether a stored recipe has a login route: its own `steps`. */
 export const isLoginRouteRecipe = (recipe: StoredLoginRecipe): recipe is LoginRecipe =>
@@ -1007,6 +1078,20 @@ export function chooserRoute(
     maxSubmissions: Math.min(8, (branch?.maxSubmissions ?? 0) + 1),
   });
   return parsed.success ? parsed.output : undefined;
+}
+/**
+ * The clicks a login can take on a chooser's list, each with its `chooserRoute`: an
+ * account's entry, the `continue` and `other` buttons the chooser has, and `other-shown`
+ * once its `other` branch starts on the list's path.
+ */
+function chooserClicks(recipe: LoginChooserRecipe): ChooserClick[] {
+  const { chooser } = recipe;
+  return [
+    "entry",
+    ...(chooser.continue ? (["continue"] as const) : []),
+    ...(chooser.other ? (["other"] as const) : []),
+    ...(chooser.afterOther?.steps[0]!.path === chooser.path ? (["other-shown"] as const) : []),
+  ];
 }
 /** The slots a stored recipe's routes fill: none for an entry, its branches' for a chooser. */
 export function storedRecipeSlots(recipe: StoredLoginRecipe): string[] {

@@ -386,9 +386,13 @@ export async function startLoginFixture(
       // `?again` opens /identifier/again instead, which shows the identifier form again
       // with an unknown-account error, as a site that did not know the account. `?email`
       // marks the account input for an email address and `?login` names it only `login`,
-      // without `autocomplete` and with a label that names no identifier (ADR 0016). Only
-      // these known flags are read, and the query is never written into the page.
+      // without `autocomplete` and with a label that names no identifier (ADR 0016).
+      // `?no-button` shows no Next button until the account input has a value, as x.com's
+      // sign-in does, and only beside a "Use phone" trap: Pressing Enter submits the form
+      // (ADR 0064). Only these known flags are read, and the query is never written into
+      // the page.
       const again = fixtureUrl.searchParams.has("again");
+      const noButton = fixtureUrl.searchParams.has("no-button");
       const account = fixtureUrl.searchParams.has("email")
         ? '<input id="account" autocomplete="email">'
         : fixtureUrl.searchParams.has("login")
@@ -396,12 +400,25 @@ export async function startLoginFixture(
           : '<input id="account" autocomplete="username">';
       response.end(
         html(
-          `<h1>Synthetic identifier page</h1>${path === "/identifier/again" ? '<p id="account-error">Unknown account</p>' : ""}<form><label>${fixtureUrl.searchParams.has("login") ? "Your handle" : "Username"}${account}</label><button id="next" type="button">Next</button></form>`,
-          `document.getElementById('next').addEventListener('click', () => {
+          `<h1>Synthetic identifier page</h1>${path === "/identifier/again" ? '<p id="account-error">Unknown account</p>' : ""}<form>${noButton ? '<button id="phone" type="button">Use phone</button>' : ""}<label>${fixtureUrl.searchParams.has("login") ? "Your handle" : "Username"}${account}</label>${noButton ? '<div id="next-placeholder">Next</div>' : '<button id="next" type="button">Next</button>'}</form>`,
+          `function next(event) {
+          event?.preventDefault();
           sessionStorage.setItem('identityClicks', String(Number(sessionStorage.getItem('identityClicks') || 0) + 1));
           sessionStorage.setItem('identityMatched', String(document.getElementById('account').value === ${JSON.stringify(accountName)}));
           location.href = ${again || path === "/identifier/again" ? "'/identifier/again'" : "'/identifier/password'"};
-        });`,
+        }
+        ${
+          noButton
+            ? `document.getElementById('phone').addEventListener('click', () => {
+          sessionStorage.setItem('phoneClicks', String(Number(sessionStorage.getItem('phoneClicks') || 0) + 1));
+        });
+        document.getElementById('account').addEventListener('input', (event) => {
+          if (!event.target.value || document.getElementById('next')) return;
+          document.getElementById('next-placeholder').replaceWith(Object.assign(document.createElement('button'), { id: 'next', type: 'submit', textContent: 'Next' }));
+        });
+        document.querySelector('form').addEventListener('submit', next);`
+            : "document.getElementById('next').addEventListener('click', next);"
+        }`,
         ),
       );
     } else if (path === "/identifier/password") {
@@ -604,6 +621,9 @@ export async function startLoginFixture(
       const shown = fixtureUrl.searchParams.get("shown");
       const switchTo = fixtureUrl.searchParams.get("switch");
       const masked = /^[A-Za-z0-9@.*]+$/u;
+      // `?shown-late` shows the account only after a loading text changes for 1.6 s, as
+      // Duolingo's remembered account shows after its password field (2026-10-23).
+      const shownLate = fixtureUrl.searchParams.get("shown-late");
       // `?maxlength` limits the password input, such as below the synthetic password.
       const maxLength = fixtureUrl.searchParams.get("maxlength");
       // `?form` puts the login in a form: `same-origin` posts to this page with its submit
@@ -633,7 +653,7 @@ export async function startLoginFixture(
         html(
           `<h1>Synthetic single-page login</h1>${
             shown !== null && masked.test(shown) ? `<p>Signed in as ${shown}</p>` : ""
-          }${
+          }${shownLate !== null && masked.test(shownLate) ? `<p id="account" data-shown="Signed in as ${shownLate}">Loading</p>` : ""}${
             // `switch` names the account the "Use another account" link shows next;
             // `switch-submit` makes it the submit button of its own form instead.
             switchTo === null || !masked.test(switchTo)
@@ -688,6 +708,11 @@ export async function startLoginFixture(
                 "document.getElementById('password').addEventListener('change', (event) => { event.target.value = ''; document.getElementById('security').hidden = false; });",
             }[fixtureUrl.searchParams.get("reject-fill") ?? ""] ?? ""
           }
+          ${
+            shownLate !== null && masked.test(shownLate)
+              ? `{ let ticks = 0; const loading = setInterval(() => { ticks += 1; document.getElementById('account').textContent = 'Loading' + '.'.repeat(ticks % 4); if (ticks === 8) { clearInterval(loading); document.getElementById('account').textContent = document.getElementById('account').dataset.shown; } }, 200); }`
+              : ""
+          }
           ${form === null || form === "script" ? "" : "document.getElementById('login').form?.addEventListener('submit', (event) => event.preventDefault());"}
           document.getElementById('login').addEventListener('click', () => {
           sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
@@ -716,6 +741,42 @@ export async function startLoginFixture(
           document.body.insertAdjacentHTML('beforeend', sessionStorage.getItem('passwordMatched') === 'true' ? '<p id="authenticated">Authenticated</p>' : '<p id="rejected">Credentials rejected</p>');
           updateFixtureStatus();
         }));`,
+        ),
+      );
+    } else if (path === "/enter-submit") {
+      // A form that shows no button to press (ADR 0064). `?late` adds a submit button once
+      // the password has a value, as x.com's sign-in does; `?shown` shows a "Sign up"
+      // submit button from the start, and `?image` a "Sign up" image input, which Enter
+      // would press and Pateat never does.
+      const variant = fixtureUrl.searchParams.has("late")
+        ? "late"
+        : fixtureUrl.searchParams.has("shown")
+          ? "shown"
+          : fixtureUrl.searchParams.has("image")
+            ? "image"
+            : "none";
+      response.end(
+        html(
+          `<h1>Synthetic form without a button</h1><form>${variant === "shown" ? '<button id="sign-up" type="submit">Sign up</button>' : variant === "image" ? '<input id="sign-up" type="image" src="data:," alt="Sign up" width="60" height="20">' : ""}<label>Password<input id="password" type="password"></label></form>`,
+          `const form = document.querySelector('form');
+          const count = (key) => sessionStorage.setItem(key, String(Number(sessionStorage.getItem(key) || 0) + 1));
+          ${
+            variant === "late"
+              ? `document.getElementById('password').addEventListener('input', () => {
+            if (document.getElementById('login')) return;
+            form.append(Object.assign(document.createElement('button'), { id: 'login', type: 'submit', textContent: 'Log in' }));
+            document.getElementById('login').addEventListener('click', () => count('buttonClicks'));
+          });`
+              : ""
+          }
+          form.addEventListener('submit', (event) => {
+            event.preventDefault();
+            count('submitClicks');
+            if (event.submitter?.id === 'sign-up') count('signUpClicks');
+            sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === ${JSON.stringify(password)}));
+            document.body.insertAdjacentHTML('beforeend', sessionStorage.getItem('passwordMatched') === 'true' ? '<p id="authenticated">Authenticated</p>' : '<p id="rejected">Credentials rejected</p>');
+            updateFixtureStatus();
+          });`,
         ),
       );
     } else if (path === "/delayed") {
@@ -879,6 +940,19 @@ export async function startLoginFixture(
       response.end(
         html(
           '<h1>Synthetic ambiguous login</h1><input name="password" type="password"><input name="password" type="password"><button id="login" type="button">Log in</button>',
+        ),
+      );
+    } else if (path === "/shared-input") {
+      // One input that both of the recipe's locators name (its ID and its name): filling
+      // both slots would leave only the second value in it, which the page rejects.
+      response.end(
+        html(
+          '<h1>Synthetic shared input</h1><main id="app"><form><label>Password<input id="account" name="password" type="password"></label><button id="login" type="button">Log in</button></form></main>',
+          `document.getElementById('login').addEventListener('click', () => {
+          sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
+          document.getElementById('app').innerHTML = '<p id="rejected">Wrong account or password</p>';
+          updateFixtureStatus();
+        });`,
         ),
       );
     } else if (path === "/authenticated") {

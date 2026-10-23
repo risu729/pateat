@@ -95,10 +95,14 @@ test("validates the device name with the shared label rules", async () => {
   await name.fill("   ");
   await page.getByRole("button", { name: "Pair this device", exact: true }).click();
   await expect.element(page.getByRole("alert").getByText("Enter a device name.")).toBeVisible();
+  // A zero-width space alone shows as an empty name.
+  await name.fill("\u200b");
+  await page.getByRole("button", { name: "Pair this device", exact: true }).click();
+  await expect.element(page.getByRole("alert").getByText("Enter a device name.")).toBeVisible();
   await name.fill("Tab\tname");
   await page.getByRole("button", { name: "Pair this device", exact: true }).click();
   await expect
-    .element(page.getByRole("alert").getByText(/without control characters/))
+    .element(page.getByRole("alert").getByText(/without control characters, line breaks/))
     .toBeVisible();
   expect(client.requestSiteAccess).not.toHaveBeenCalled();
   expect(client.pair).not.toHaveBeenCalled();
@@ -214,6 +218,7 @@ test.each([
   ["sign-in-rejected", /did not accept your sign-in/],
   ["extension-not-allowed", /does not accept this build of Pateat.*PAIRING_EXTENSION_IDS/],
   ["pairing-unavailable", /Pairing is not configured on this service/],
+  ["access-keys-unavailable", /could not check your sign-in/],
   ["unreachable", /could not be reached/],
   ["rate-limited", /slow down/],
   ["unexpected-response", /unexpected answer/],

@@ -418,6 +418,11 @@ Probe-only interruption controls pause after durable intent but before delivery,
 or after execution but before acknowledgement. Only validated messages from the
 extension settings page can configure these controls; web pages cannot. Worker
 restart tests reconcile the retained intent without repeating a fill or click.
+The probe's login configuration can also shorten the 10-second wait for a step's
+elements and an advance's confirmation (`stepWaitMs`), so a test runs past that wait
+by waiting for its result instead of sitting it out; the production build always waits
+the full time. The probe's login status also counts the observations of each document's
+page that a login got back, so a test can wait until a held page was checked again.
 The probe has no real-provider adapter. Its fixed localhost recipes and
 setup messages are excluded from the production build. Chrome use may not be
 able to operate another extension's settings page; manual setup is a supported
@@ -991,9 +996,14 @@ saved as soon as it is made; there is no separate save button (owner decision,
 run one at a time, and an edit made while one runs is saved on top of its result. Each
 saved change applies at once, so it also cancels logins and passkey requests started
 under the previous settings. Queries never refetch on focus/reconnect and neither reads
-nor saves automatically retry: after an invalid draft the next change saves again, and
-after a blocking failure later edits stay in the unsaved draft. Only an explicit
-successful reload replaces edits after a failed save or revision conflict. A failed or
+nor saves automatically retry, apart from the one conflict retry below: after an invalid
+draft the next change saves again, and after a blocking failure later edits stay in the
+unsaved draft. Only an explicit successful reload replaces edits after a failed save or
+revision conflict. The one exception is a conflict that only background work caused,
+such as an automatic vault sync: the page applies its unsaved edits to the newest
+revision and saves once more. Otherwise the conflict's status line names what wrote the
+newer revisions
+([ADR 0025](adr/0025-automatic-vault-sync.md#settings-saves-after-a-sync)). A failed or
 ambiguous save retains the draft, and an unknown outcome blocks saving until reload. The
 background worker remains the settings authority and validates both messages and
 senders; the UI migration does not change storage permissions. Component tests use a

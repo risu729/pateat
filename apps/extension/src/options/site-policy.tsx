@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next";
+import { i18n } from "../i18n";
 import {
   getItemEligibility,
   isSiteExcluded,
@@ -29,13 +31,19 @@ import {
 } from "./ui";
 
 type ExcludedSite = LocalSettings["excludedSites"][number];
+/**
+ * An HTTP(S) origin with nothing after the host and port, as its canonical `URL.origin`:
+ * the scheme and host in lowercase, a Unicode host in punycode, and no default port.
+ */
 const originSchema = v.pipe(
   v.string(),
+  v.trim(),
   v.check((value) => {
-    const origin = value.trim();
-    const url = parseSiteUrl(origin);
-    return Boolean(url && url.origin === origin && normalizeHostname(url.hostname));
+    const url = parseSiteUrl(value);
+    const rest = value.slice(value.indexOf("//") + 2);
+    return Boolean(url && !/[/?#]/.test(rest) && normalizeHostname(url.hostname));
   }, "Enter an exact HTTP(S) origin without a path or trailing slash."),
+  v.transform((value) => new URL(value).origin),
 );
 
 function unavailableReason(reason: string): string {
@@ -53,7 +61,9 @@ function unavailableReason(reason: string): string {
     "item-not-selected": "This account is outside the selected groups and items.",
     "fields-excluded": "All fields in this account are excluded.",
   };
-  return descriptions[reason] ?? "This account is unavailable.";
+  return Object.hasOwn(descriptions, reason)
+    ? (descriptions[reason] ?? "This account is unavailable.")
+    : "This account is unavailable.";
 }
 
 type SiteAccountOption = {
@@ -184,7 +194,9 @@ function replaceDefault(settings: LocalSettings, origin: string, value?: SiteDef
 }
 
 function ruleName(rule: ExcludedSite): string {
-  return rule.includeSubdomains ? `${rule.hostname} and subdomains` : rule.hostname;
+  return rule.includeSubdomains
+    ? i18n.t("{{hostname}} and subdomains", { hostname: rule.hostname })
+    : rule.hostname;
 }
 
 /** The hostname an exclusion rule names for an origin, without a trailing dot. */
@@ -254,6 +266,7 @@ function DefaultAccountEditor({
   current: string;
   save: (value: string) => string | undefined;
 }) {
+  const { t } = useTranslation(undefined, { i18n });
   const [choice, setChoice] = useState<string>();
   const [error, setError] = useState("");
   // A choice the list no longer offers falls back to the saved value.
@@ -263,7 +276,7 @@ function DefaultAccountEditor({
   return (
     <>
       <label className="contents">
-        <span className="visually-hidden">Default account for {origin}</span>
+        <span className="visually-hidden">{t("Default account for {{origin}}", { origin })}</span>
         <select
           className={`${controlClass} max-w-[18.75rem] flex-[1_1_220px]`}
           value={shown}
@@ -283,7 +296,7 @@ function DefaultAccountEditor({
       <Button
         type="button"
         variant="outline"
-        aria-label={`Save default for ${origin}`}
+        aria-label={t("Save default for {{origin}}", { origin })}
         disabled={shown === current}
         onClick={() => {
           const failure = save(shown);
@@ -291,11 +304,11 @@ function DefaultAccountEditor({
           if (!failure) setChoice(undefined);
         }}
       >
-        Save
+        {t("Save")}
       </Button>
       {error && (
         <p id={errorId} className="validation-error m-0 basis-full text-right" role="alert">
-          {error}
+          {t(error)}
         </p>
       )}
     </>
@@ -314,8 +327,11 @@ export function SitePolicy({
   /** Asks the background which saved-settings items match an origin. */
   findSiteAccounts: (origin: string, settings: LocalSettings) => Promise<SiteAccountsResponse>;
 }) {
+  const { t } = useTranslation(undefined, { i18n });
   const originInput = useRef<HTMLInputElement>(null);
+  const accountSelect = useRef<HTMLSelectElement>(null);
   const [siteError, setSiteError] = useState("");
+  const [accountError, setAccountError] = useState("");
   const [showAllAccounts, setShowAllAccounts] = useState(false);
   const siteForm = useForm({
     defaultValues: { origin: "", account: "", includeSubdomains: false },
@@ -326,10 +342,11 @@ export function SitePolicy({
         return;
       }
       if (accountsPending) {
-        setSiteError(WAIT_FOR_ACCOUNTS);
+        setSiteError("");
+        setAccountError(WAIT_FOR_ACCOUNTS);
         return;
       }
-      const origin = validated.output.trim();
+      const origin = validated.output;
       // Only an item listed for the origin entered can be chosen.
       const selected =
         found?.origin === origin
@@ -337,17 +354,25 @@ export function SitePolicy({
           : undefined;
       const next = defaultFor(origin, selected, catalog);
       if (!next.ok) {
-        fail(next.message);
+        // The origin is valid; the error belongs to the account select.
+        setSiteError("");
+        setAccountError(next.message);
+        const select = accountSelect.current;
+        if (select && !select.disabled) select.focus();
+        else originInput.current?.focus();
         return;
       }
       if (!edit((settings) => replaceDefault(settings, origin, next.value))) return;
       siteForm.setFieldValue("origin", "");
+      siteForm.setFieldValue("account", "");
       setSiteError("");
+      setAccountError("");
       originInput.current?.focus();
     },
   });
   function fail(message: string) {
     setSiteError(message);
+    setAccountError("");
     originInput.current?.focus();
   }
   function excludeEntered() {
@@ -369,11 +394,13 @@ export function SitePolicy({
     if (!added) return;
     siteForm.reset();
     setSiteError("");
+    setAccountError("");
     originInput.current?.focus();
   }
 
   const enteredOrigin = useSelector(siteForm.store, (state) => state.values.origin.trim());
-  const accountOrigin = v.is(originSchema, enteredOrigin) ? enteredOrigin : undefined;
+  const parsedOrigin = v.safeParse(originSchema, enteredOrigin);
+  const accountOrigin = parsedOrigin.success ? parsedOrigin.output : undefined;
   // Each search queries every live vault, so wait until typing pauses.
   const [queriedOrigin, setQueriedOrigin] = useState<string>();
   useEffect(() => {
@@ -415,7 +442,7 @@ export function SitePolicy({
   const accountsPending =
     accountOrigin !== undefined && (queriedOrigin !== accountOrigin || accounts.isPending);
   // The wait message no longer applies once the accounts are listed.
-  const siteMessage = siteError === WAIT_FOR_ACCOUNTS && !accountsPending ? "" : siteError;
+  const accountMessage = accountError === WAIT_FOR_ACCOUNTS && !accountsPending ? "" : accountError;
   const found =
     !accountsPending && accounts.data?.ok && accounts.data.origin === accountOrigin
       ? accounts.data
@@ -428,19 +455,20 @@ export function SitePolicy({
     : (accountOptions[0]?.value ?? "");
   let accountNote: string;
   if (accountOrigin === undefined)
-    accountNote = "Enter an origin to list the accounts that match it.";
-  else if (accountsPending) accountNote = "Finding the vault items that match this origin…";
+    accountNote = t("Enter an origin to list the accounts that match it.");
+  else if (accountsPending) accountNote = t("Finding the vault items that match this origin…");
   else if (accounts.isError || (accounts.data && !accounts.data.ok))
     accountNote =
       accounts.data && !accounts.data.ok && accounts.data.reason === "site-excluded"
-        ? "This site is excluded."
-        : "The matching accounts could not be listed.";
+        ? t("This site is excluded.")
+        : t("The matching accounts could not be listed.");
   else if (!matchedCount)
-    accountNote =
-      "No vault item matches this origin. Add the site's URI or passkey to the item in your vault, then sync.";
-  else accountNote = `${matchedCount} matching ${matchedCount === 1 ? "item" : "items"}.`;
+    accountNote = t(
+      "No vault item matches this origin. Add the site's URI or passkey to the item in your vault, then sync.",
+    );
+  else accountNote = t("matchingItems", { count: matchedCount });
   if (found && !found.complete)
-    accountNote += " Some vaults or items could not be checked, so this list may be incomplete.";
+    accountNote += t(" Some vaults or items could not be checked, so this list may be incomplete.");
 
   /** An origin row: its default account, editable in place, and a way to exclude its host. */
   function originRow(selected: SiteDefault) {
@@ -463,40 +491,56 @@ export function SitePolicy({
     let line: { tone: Tone; icon: LucideIcon; text: string } | undefined;
     if (resolved.ok) line = undefined;
     else if (!liveItem || resolved.reason !== "item-origin-mismatch")
-      line = { tone: "warn", icon: TriangleAlert, text: unavailableReason(resolved.reason) };
+      line = { tone: "warn", icon: TriangleAlert, text: t(unavailableReason(resolved.reason)) };
     else if (match)
       line = {
         tone: "ok",
         icon: CircleCheck,
-        text: `Matches this origin by ${matchedBy({ uri: match.uri, passkey: match.passkey })}; checked again on each login`,
+        text: t("Matches this origin by {{method}}; checked again on each login", {
+          method: t(matchedBy({ uri: match.uri, passkey: match.passkey })),
+        }),
       };
     else if (matches?.complete && !connection?.quarantinedItemIds?.includes(selected.itemId))
       line = {
         tone: "warn",
         icon: TriangleAlert,
-        text: "No URI rule or passkey of this item matches this origin; a URI rule on a longer path is checked on each login",
+        text: t(
+          "No URI rule or passkey of this item matches this origin; a URI rule on a longer path is checked on each login",
+        ),
       };
     else
       line = {
         tone: "idle",
         icon: Info,
-        text: "Whether it matches the page is checked against the vault's URI rules or passkeys on each login",
+        text: t(
+          "Whether it matches the page is checked against the vault's URI rules or passkeys on each login",
+        ),
       };
     const unavailable = !resolved.ok && (!liveItem || resolved.reason !== "item-origin-mismatch");
     const current = connection && item ? JSON.stringify([connection.id, item.id]) : SAVED_ELSEWHERE;
     const offered = siteAccountOptions(catalog, matches, false, draft);
-    const currentText = `${item?.label ?? selected.itemName ?? selected.itemId}${match?.username ? ` · ${match.username}` : ""} in ${
-      connection?.label ?? selected.accountName ?? `account ${selected.userId}`
-    }${!connection ? " (not available here)" : unavailable ? " (unavailable)" : ""}`;
+    const currentText = t("{{item}} in {{account}}{{availability}}", {
+      item: `${item?.label ?? selected.itemName ?? selected.itemId}${match?.username ? ` · ${match.username}` : ""}`,
+      account:
+        connection?.label ?? selected.accountName ?? t("account {{id}}", { id: selected.userId }),
+      availability: !connection
+        ? t(" (not available here)")
+        : unavailable
+          ? t(" (unavailable)")
+          : "",
+    });
     const options = [
       ...(offered.some((entry) => entry.value === current)
         ? []
         : [{ value: current, text: currentText }]),
       ...offered.map((entry) => ({
         value: entry.value,
-        text: entry.value === current ? currentText : `${entry.label} in ${entry.connectionLabel}`,
+        text:
+          entry.value === current
+            ? currentText
+            : t("{{item}} in {{account}}", { item: entry.label, account: entry.connectionLabel }),
       })),
-      { value: NO_DEFAULT, text: "No default" },
+      { value: NO_DEFAULT, text: t("No default") },
     ];
     const hostname = hostOf(origin);
     return (
@@ -530,7 +574,7 @@ export function SitePolicy({
             <Button
               type="button"
               variant="outline"
-              aria-label={`Exclude ${origin}, all schemes and ports`}
+              aria-label={t("Exclude {{origin}}, all schemes and ports", { origin })}
               onClick={() => {
                 edit((settings) => {
                   settings.excludedSites = settings.excludedSites.filter(
@@ -542,7 +586,7 @@ export function SitePolicy({
               }}
             >
               <Ban aria-hidden size={16} strokeWidth={2} />
-              Exclude
+              {t("Exclude")}
             </Button>
           </>
         }
@@ -562,7 +606,7 @@ export function SitePolicy({
         title={name}
         badges={
           <Badge muted icon={Ban}>
-            Excluded
+            {t("Excluded")}
           </Badge>
         }
         lines={kept.map((entry) => (
@@ -573,20 +617,22 @@ export function SitePolicy({
                 {
                   tone: "idle",
                   icon: Info,
-                  text: `Default for ${entry.origin} kept, unused while excluded`,
+                  text: t("Default for {{origin}} kept, unused while excluded", {
+                    origin: entry.origin,
+                  }),
                 },
               ]}
             />
             <Button
               type="button"
               variant="ghost"
-              aria-label={`Remove default for ${entry.origin}`}
+              aria-label={t("Remove default for {{origin}}", { origin: entry.origin })}
               onClick={() => {
                 if (edit((settings) => replaceDefault(settings, entry.origin)))
                   originInput.current?.focus();
               }}
             >
-              Remove default
+              {t("Remove default")}
             </Button>
           </div>
         ))}
@@ -594,7 +640,7 @@ export function SitePolicy({
           <Button
             type="button"
             variant="outline"
-            aria-label={`Allow ${name}`}
+            aria-label={t("Allow {{name}}", { name })}
             onClick={() => {
               edit((settings) => {
                 settings.excludedSites = settings.excludedSites.filter(
@@ -604,7 +650,7 @@ export function SitePolicy({
               originInput.current?.focus();
             }}
           >
-            Allow
+            {t("Allow")}
           </Button>
         }
       />
@@ -631,12 +677,12 @@ export function SitePolicy({
   );
 
   return (
-    <Panel id="sites" headingId="sites-heading" title="Sites">
+    <Panel id="sites" headingId="sites-heading" title={t("Sites")}>
       <RowList id="site-list">{rows.map((entry) => entry.row())}</RowList>
       {!rows.length && (
         <StatusLines
           muted
-          lines={[{ tone: "idle", icon: Info, text: "No excluded sites or default accounts" }]}
+          lines={[{ tone: "idle", icon: Info, text: t("No excluded sites or default accounts") }]}
         />
       )}
       <form
@@ -651,7 +697,7 @@ export function SitePolicy({
           <siteForm.Field name="origin">
             {(field) => (
               <label className={`${fieldClass} flex-[1_1_260px]`}>
-                Origin
+                {t("Origin")}
                 <input
                   ref={originInput}
                   id="site-origin"
@@ -659,13 +705,14 @@ export function SitePolicy({
                   type="text"
                   placeholder="https://bank.example"
                   autoComplete="off"
-                  aria-describedby={siteMessage ? "site-error" : undefined}
-                  aria-invalid={Boolean(siteMessage)}
+                  aria-describedby={siteError ? "site-error" : undefined}
+                  aria-invalid={Boolean(siteError)}
                   value={field.state.value}
                   onBlur={field.handleBlur}
                   onChange={(event) => {
                     field.handleChange(event.target.value);
                     setSiteError("");
+                    setAccountError("");
                   }}
                 />
               </label>
@@ -675,15 +722,24 @@ export function SitePolicy({
             {(field) => (
               <div className="flex flex-[1_1_220px] flex-col gap-1.5">
                 <label className={fieldClass}>
-                  Default account
+                  {t("Default account")}
                   <select
+                    ref={accountSelect}
                     id="default-account"
                     className={controlClass}
-                    aria-describedby="default-account-note"
+                    aria-describedby={
+                      accountMessage
+                        ? "default-account-error default-account-note"
+                        : "default-account-note"
+                    }
+                    aria-invalid={Boolean(accountMessage)}
                     disabled={!accountOptions.length}
                     value={shownAccount}
                     onBlur={field.handleBlur}
-                    onChange={(event) => field.handleChange(event.target.value)}
+                    onChange={(event) => {
+                      field.handleChange(event.target.value);
+                      setAccountError("");
+                    }}
                   >
                     {catalog.connections.map((connection) => {
                       const options = accountOptions.filter(
@@ -693,7 +749,10 @@ export function SitePolicy({
                         <optgroup key={connection.id} label={connection.label}>
                           {options.map((option) => (
                             <option key={option.itemId} value={option.value}>
-                              {option.label} ({matchedBy(option)})
+                              {t("{{item}} ({{method}})", {
+                                item: option.label,
+                                method: t(matchedBy(option)),
+                              })}
                             </option>
                           ))}
                         </optgroup>
@@ -718,9 +777,12 @@ export function SitePolicy({
               id="default-account-all"
               type="checkbox"
               checked={showAllAccounts}
-              onChange={(event) => setShowAllAccounts(event.target.checked)}
+              onChange={(event) => {
+                setShowAllAccounts(event.target.checked);
+                setAccountError("");
+              }}
             />
-            Also list items that do not match
+            {t("Also list items that do not match")}
           </label>
           <siteForm.Field name="includeSubdomains">
             {(field) => (
@@ -731,31 +793,40 @@ export function SitePolicy({
                   checked={field.state.value}
                   onChange={(event) => field.handleChange(event.target.checked)}
                 />
-                Exclude subdomains too
+                {t("Exclude subdomains too")}
               </label>
             )}
           </siteForm.Field>
         </div>
-        {siteMessage && (
+        {siteError && (
           <p id="site-error" className="validation-error m-0" role="alert">
-            {siteMessage}
+            {t(siteError)}
+          </p>
+        )}
+        {accountMessage && (
+          <p id="default-account-error" className="validation-error m-0" role="alert">
+            {t(accountMessage)}
           </p>
         )}
         <div className="flex flex-wrap gap-2">
           <Button id="add-default" type="submit">
-            Save default
+            {t("Save default")}
           </Button>
           <Button id="add-site" type="button" variant="outline" onClick={excludeEntered}>
             <Ban aria-hidden size={16} strokeWidth={2} />
-            Exclude site
+            {t("Exclude site")}
           </Button>
         </div>
       </form>
       <StatusLines
         muted
         lines={[
-          { tone: "idle", icon: Ban, text: "Excluding a site covers every scheme and port" },
-          { tone: "idle", icon: Clock, text: "A default account takes effect at the next login" },
+          { tone: "idle", icon: Ban, text: t("Excluding a site covers every scheme and port") },
+          {
+            tone: "idle",
+            icon: Clock,
+            text: t("A default account takes effect at the next login"),
+          },
         ]}
       />
     </Panel>

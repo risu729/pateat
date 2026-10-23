@@ -100,12 +100,43 @@ Pateat's rule is in [Background execution](architecture.md#background-execution)
   unparsable values are refused. Injected markup on an admitted page, such as a dangling
   `<form action="https://attacker.example/">` or a `<base href>`, would otherwise
   receive the username and password.
+- A form that shows no button (ADR 0064) is submitted by Enter in its last field: Pateat
+  clicks the form's default button, its first submit button in tree order among the
+  form's controls, or calls `requestSubmit()` when it has none. The official auto-submit
+  (only under the automatic app login policy) instead clicks the first submit button in
+  the form's subtree whose words match its login button names, then a plain button so
+  named, then calls `requestSubmit()`, walks up from the last field when there is no
+  form, and never checks `disabled`
+  ([auto-submit-login.ts](https://github.com/bitwarden/clients/blob/abccf1e342dccba06a3cc635cd4c706defa64a32/apps/browser/src/autofill/content/auto-submit-login.ts#L111-L240)).
+  Pateat reads no button words (ADR 0033; the generation role judges the buttons it
+  saw), needs a `<form>`, and presses no default button that is disabled, associated
+  with the form only through `form=`, or already shown when the fill began, which the
+  generation role saw and did not name; the destination is checked as for a click.
 - A `javascript:` form action is allowed for fill and click (owner's decision,
   2026-10-18 04:19 UTC), as the official clients fill such a form like any other (their
   action handling above has no case for it). Chrome refuses to run the `javascript:` URL
   itself when the content script's click submits the form (the isolated world's
   `script-src 'self'`), so only forms whose own handlers sign in work;
   `action="javascript:doLogin()"` does not.
+
+## Submit button outside the form
+
+Official code is pinned at
+[`abccf1e`](https://github.com/bitwarden/clients/tree/abccf1e342dccba06a3cc635cd4c706defa64a32).
+Pateat's rule is `besideForm` in `packages/inference/src/plan.ts`
+([plan](plan.md#ai-evaluation-harness-progress)).
+
+- For filled fields inside a form, the official auto-submit looks for a login button
+  only inside that form and otherwise calls the form's `requestSubmit()`
+  ([auto-submit-login.ts](https://github.com/bitwarden/clients/blob/abccf1e342dccba06a3cc635cd4c706defa64a32/apps/browser/src/autofill/content/auto-submit-login.ts#L133-L142)).
+  Pateat's generated recipe may click a button outside the form (owner's choice,
+  2026-10-23 11:47 UTC). It does so only when every filled field is in that
+  one form, that form holds the page's only password field and has no button the page's
+  description lists (a script or icon button without a locator is not listed), no field
+  outside every form is on the page, and the button is the only one outside every form
+  and names no passkey, so it is the one the extractor keeps beside that form. Sakura
+  Internet's login button is a script `type="button"` just after its form: submitting
+  the form would post nothing the page handles.
 
 ## Frames
 
@@ -145,6 +176,18 @@ Pateat's rule is in [Background execution](architecture.md#background-execution)
   ([ADR 0052](adr/0052-immediate-ui-stored-passkeys.md); owner's decision, 2026-10-19
   at 22:42 UTC).
 
+## Decrypted items in memory
+
+- While a vault is unlocked, the official clients keep every decrypted item in memory
+  state (decrypted again after each change), removed on lock or logout
+  ([ciphers.state.ts](https://github.com/bitwarden/clients/blob/8246ae9c9a484a0a69f8b27203034555fb872523/libs/common/src/vault/services/key-state/ciphers.state.ts#L22-L29),
+  [cipher.service.ts](https://github.com/bitwarden/clients/blob/8246ae9c9a484a0a69f8b27203034555fb872523/libs/common/src/vault/services/cipher.service.ts#L239-L258)).
+  Pateat's crypto Worker keeps no decrypted item between requests: each field listing
+  or resolution decrypts its one item with the SDK and disposes it before replying
+  ([vault adapter](architecture.md#vault-adapter); owner's decision 2026-10-23, which
+  chose this over a copy narrowed to the allowed fields). It costs one SDK decryption
+  per request; a login reads only a few fields.
+
 ## Self-hosted server address
 
 - The official clients accept any `http://` or `https://` server URL and add `https://`
@@ -161,6 +204,23 @@ Pateat's rule is in [Background execution](architecture.md#background-execution)
   extension CSP cannot name (`http://localhost` reaches a server listening on `::1`;
   leaving it out is the agent's narrowing, not confirmed by the owner).
 
+## Connections and key derivation
+
+- The official browser extension lets at most 5 accounts be logged in at once
+  (`ACCOUNT_LIMIT = 5`,
+  [account-switcher.service.ts](https://github.com/bitwarden/clients/blob/dd4d85816be0bed40c92d0890d6e7f1a497a85e8/apps/browser/src/auth/popup/account-switching/services/account-switcher.service.ts#L47-L74))
+  and then offers no "Add account". Pateat does not cap connections; with more than 5,
+  the options page warns that the official extension allows 5 accounts and that each
+  unlocked vault uses more memory (`BITWARDEN_ACCOUNT_LIMIT` in
+  `apps/extension/src/options/bitwarden-setup.tsx`, owner's choice 2026-10-23 at 12:31
+  UTC). Each connection with an open vault keeps its own Worker with the SDK.
+- The official clients run a key derivation without a time limit. Pateat runs it in a
+  Worker it stops after 30 seconds, or 60 seconds for Argon2id (`ARGON2ID_JOB_BUDGET_MS`
+  in `apps/extension/src/crypto/wire.ts`, owner's choice 2026-10-23), so a stuck Worker
+  is reclaimed. It accepts the whole Argon2id range the official clients allow, memory
+  16–1024 MiB
+  ([kdf-config.ts](https://github.com/bitwarden/clients/blob/dd4d85816be0bed40c92d0890d6e7f1a497a85e8/libs/legacy-crypto/src/models/kdf-config.ts#L71-L73)).
+
 ## Email two-step codes
 
 - Both send one code when email becomes the chosen method and another on "Resend code"
@@ -172,7 +232,29 @@ Pateat's rule is in [Background execution](architecture.md#background-execution)
   ([two-factor-auth-email.component.ts](https://github.com/bitwarden/clients/blob/86f41566aebe5a024796df8abfb3d4d89ec509c1/libs/auth/src/angular/two-factor-auth/child-components/two-factor-auth-email/two-factor-auth-email.component.ts#L121-L167)).
   Pateat shows that the server is limiting code emails, that it cannot send them, that
   it refused, or that the request failed.
-- A rejected code ends Pateat's sign-in, as it did before email codes were sent, so the
-  next attempt starts a new sign-in and sends a new code; the official page shows
-  "invalid verification code" and keeps the sign-in for another try
-  ([two-factor-auth.component.ts](https://github.com/bitwarden/clients/blob/86f41566aebe5a024796df8abfb3d4d89ec509c1/libs/auth/src/angular/two-factor-auth/two-factor-auth.component.ts#L338-L353)).
+
+## Two-step sign-in timeout
+
+Pateat's side is the settings page's Bitwarden panel
+([Architecture](architecture.md#unsupported-bitwarden-sign-in-cases)). Official code is
+pinned at
+[`86f4156`](https://github.com/bitwarden/clients/tree/86f41566aebe5a024796df8abfb3d4d89ec509c1).
+
+- Both end a sign-in that waits for a two-step or new-device code after 5 minutes,
+  counted once; a refused code keeps the same end in both. The official clients start
+  the 5 minutes when the password grant answers with a challenge
+  ([login-strategy.service.ts](https://github.com/bitwarden/clients/blob/86f41566aebe5a024796df8abfb3d4d89ec509c1/libs/auth/src/common/services/login-strategies/login-strategy.service.ts#L194-L200));
+  Pateat starts them at the press of Connect or Sign in and sync, before the prelogin,
+  the password derivation and the grant, so its wait is shorter by those seconds.
+- The official two-step page shows no end time
+  ([two-factor-auth.component.ts](https://github.com/bitwarden/clients/blob/86f41566aebe5a024796df8abfb3d4d89ec509c1/libs/auth/src/angular/two-factor-auth/two-factor-auth.component.ts#L270-L285));
+  Pateat's code screen says "Enter the code by 8:26 PM", because a person who leaves to
+  fetch an email code otherwise cannot tell that the sign-in will end.
+- When the time is up, the official extension opens a separate "Authentication timeout"
+  page that says "The authentication session timed out. Please restart the login
+  process." with a Log in button
+  ([authentication-timeout.component.ts](https://github.com/bitwarden/clients/blob/86f41566aebe5a024796df8abfb3d4d89ec509c1/libs/angular/src/auth/components/authentication-timeout.component.ts#L18-L25),
+  [messages.json](https://github.com/bitwarden/clients/blob/86f41566aebe5a024796df8abfb3d4d89ec509c1/apps/browser/src/_locales/en/messages.json#L1901-L1906)).
+  Pateat keeps the sign-in form, where the master password goes, and says next to it
+  when the sign-in timed out, or that it ended early because Pateat's background
+  stopped, since its waiting sign-in lives in a service worker Chrome can stop.

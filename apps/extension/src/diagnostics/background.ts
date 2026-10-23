@@ -2,6 +2,7 @@
 import type { LocalSettings } from "@pateat/contracts";
 import * as v from "valibot";
 import type { VaultSyncOutcome } from "../connections/auto-sync";
+import type { SignInStep } from "../connections/runtime";
 import type { RefreshReport } from "../connections/sessions";
 import type { SetupReply } from "../connections/types";
 import type { LoginReport } from "../login/runtime";
@@ -207,6 +208,28 @@ export function createDiagnosticsLog(options: {
         },
         { level: reply.ok || outcome === "cancelled" ? "info" : "warn" },
       );
+    },
+    /**
+     * A settings-page sign-in step: its result kind, `code-refused` for a code the server
+     * refused while the sign-in still waits, an email send's result or the error code. An
+     * expired sign-in or a cancel is info; other failures are warnings.
+     */
+    vaultSignIn(step: SignInStep, reply: SetupReply) {
+      const refused =
+        reply.ok &&
+        ((reply.kind === "mfa-required" && reply.invalidCode) ||
+          (reply.kind === "new-device-verification-required" && reply.invalidOtp));
+      const outcome = !reply.ok
+        ? reply.error.code
+        : refused
+          ? "code-refused"
+          : reply.kind === "email-code"
+            ? reply.result
+            : reply.kind;
+      const failed = reply.ok
+        ? reply.kind === "email-code" && reply.result !== "sent"
+        : outcome !== "cancelled" && outcome !== "setup-expired";
+      void logger.log("vault.sign-in", { step, outcome }, { level: failed ? "warn" : "info" });
     },
     /**
      * An automatic vault check (ADR 0025): debug when nothing changed, info when a sync was

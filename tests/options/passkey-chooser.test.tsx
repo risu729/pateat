@@ -17,7 +17,8 @@ function view(overrides: Partial<ChooserView> = {}): ChooserView {
     entries: [
       { item: "Example", userName: "synthetic-user-1", account: "Probe", preferred: true },
       { item: "Example (work)", userName: "synthetic-user-2", account: "Probe" },
-      { item: "Unnamed item" },
+      // A vault item without a name; the picker names it in the UI language.
+      {},
     ],
     replacesDefault: false,
     again: false,

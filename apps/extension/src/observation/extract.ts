@@ -143,7 +143,7 @@ const ignoredTypes = new Set(["hidden", "reset"]);
 const controls = "input:not([type='hidden']), select, textarea, button";
 const fields = "input:not([type='hidden']), select, textarea";
 /** Every element `describe` may accept, script buttons included. */
-const observed = "input, select, textarea, button, a[href], a[onclick], [role]";
+const observed = "input, select, textarea, button, a, [role]";
 /** Fillable inputs only; consent banners in shadow roots often hold checkboxes. */
 const shadowFields = Object.keys(fillTypes)
   .map((type) => `input[type='${type}' i]`)
@@ -153,6 +153,7 @@ const locators = [
   ["id", "id"],
   ["name", "name"],
   ["test-id", "data-testid"],
+  ["data-test", "data-test"],
 ] as const;
 /**
  * An ID React's `useId` generated (`:r1:`, `«r1»`, `_r_1_`, a hydrated `:R1aH1:`, also
@@ -327,7 +328,7 @@ function locatorIndex(document: Document): LocatorIndex {
     const counts = index.get(key)!;
     counts.set(value, (counts.get(value) ?? 0) + 1);
   };
-  for (const element of document.querySelectorAll("[id], [name], [data-testid]"))
+  for (const element of document.querySelectorAll("[id], [name], [data-testid], [data-test]"))
     for (const [, attribute] of locators) {
       const value = element.getAttribute(attribute);
       if (value !== null) count(attribute, value);
@@ -551,18 +552,20 @@ function contentTarget(
       if (!v.is(loginTargetSchema, target)) continue;
       if (namesOnly(element, target, index.get("autocomplete")!.get(value), hidden)) return target;
     }
-    const name = labels ? fieldName(element) : undefined;
+    if (!labels) return undefined;
+    const name = fieldName(element);
     // A name holding a number may change as the person types, such as a counter "0/20",
     // unless it numbers an input of a split code.
     if (
-      name === undefined ||
-      observedText(name) !== name ||
-      index.get("label")!.get(name) !== 1 ||
-      (/\p{Number}/u.test(name) && !numbersCodeDigit(element, name))
-    )
-      return undefined;
-    const target = { by: "label" as const, value: name };
-    return v.is(loginTargetSchema, target) ? target : undefined;
+      name !== undefined &&
+      observedText(name) === name &&
+      index.get("label")!.get(name) === 1 &&
+      (!/\p{Number}/u.test(name) || numbersCodeDigit(element, name))
+    ) {
+      const target = { by: "label" as const, value: name };
+      if (v.is(loginTargetSchema, target)) return target;
+    }
+    return passwordFormNameTarget(element, hidden);
   }
   if (
     element instanceof HTMLAnchorElement &&
@@ -598,6 +601,25 @@ function contentTarget(
   if (!unique) return undefined;
   const target = { by: "text" as const, value: text };
   return v.is(loginTargetSchema, target) ? target : undefined;
+}
+
+/**
+ * The `password-form-name` locator of a field that no other locator names alone
+ * (ADR 0072): its `name`, when the executor finds it alone by that name among
+ * the elements of forms holding a shown password input not marked `new-password`, as
+ * Hacker News's account field `acct`, which its create-account form repeats. A name that
+ * may be a token, or that redaction would change, is never used.
+ */
+function passwordFormNameTarget(
+  element: HTMLInputElement,
+  hidden: boolean,
+): LoginTarget | undefined {
+  const value = element.getAttribute("name");
+  if (value === null || tokenSegment(value) || observedText(value) !== value) return undefined;
+  const target = { by: "password-form-name" as const, value };
+  if (!v.is(loginTargetSchema, target)) return undefined;
+  const found = findTargets(element.ownerDocument, target, { hidden });
+  return found.length === 1 && found[0] === element ? target : undefined;
 }
 
 /**
@@ -1142,6 +1164,27 @@ const describeAll = (document: Document) =>
   [...document.querySelectorAll(observed)].map(describe).filter((entry) => entry !== undefined);
 
 /**
+ * Why a page's description found no field, as a log code of codes only (ADR 0019): how
+ * many inputs other than hidden ones the page holds (`n`), how many fields `describe`
+ * accepted (`d`), and the first three such inputs as `type-presence`, the presence being
+ * `shown` or {@link presenceMiss}'s reason, with `-out` for one outside every form. Added
+ * after x.com's sign-in was described without its field in the owner's Chrome only
+ * (2026-10-23).
+ */
+export function fieldsMissDetail(document: Document): string {
+  const inputs = [...document.querySelectorAll<HTMLInputElement>("input:not([type='hidden'])")];
+  const described = describeAll(document).filter(
+    (entry) =>
+      (entry.kind === "candidate" && fillTypes[entry.draft.role]) ||
+      (entry.kind === "unsupported" && entry.field),
+  ).length;
+  const first = inputs
+    .slice(0, 3)
+    .map((input) => `${input.type}-${presenceMiss(input) ?? "shown"}${input.form ? "" : "-out"}`);
+  return [`n${inputs.length}`, `d${described}`, ...first].join(".");
+}
+
+/**
  * An icon button that never submits a form on its own, such as the eye that shows the
  * password: `type="button"` and no text of its own, so no text locator either. One with
  * text, such as an `<input type="button" value="Login">` that submits by script, is not.
@@ -1273,6 +1316,10 @@ export function extractLoginObservation(
     known.some((target) => {
       if (target.by === "label")
         return fieldName(field) === target.value && index.get("label")!.get(target.value) === 1;
+      if (target.by === "password-form-name") {
+        const found = findTargets(document, target);
+        return found.length === 1 && found[0] === field;
+      }
       const attribute = locators.find(([by]) => by === target.by)?.[1];
       return (
         attribute !== undefined &&

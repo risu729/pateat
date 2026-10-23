@@ -41,6 +41,17 @@ This targets locally installed Chrome. Running in a hosted browser depends on
 that environment allowing installation and storage; it is not an initial
 compatibility claim or an alternative cloud-browser implementation.
 
+Logins and fills never read what the person types or chooses on a page in order to keep
+it (owner, 2026-10-23). No such value is stored, logged, synced, sent to the service or
+the AI, and recipes are never built from the person's own clicks or input
+([ADR 0028](adr/0028-account-chooser-login-pages.md)). Pateat reads a field's value only
+to check whether it is empty or holds what Pateat typed, and keeps neither. A record
+that the person acted, such as the submission signal (`login.document.submitted`,
+ADR 0028) or a logout click ([ADR 0021](adr/0021-account-choice-outside-settings.md)),
+holds no value they entered. Saving a credential to the vault, as the Bitwarden
+extension offers, is the separate later writeback capability below, not part of logins
+and fills.
+
 ## Components and trust boundaries
 
 | Component               | Responsibilities                                                                           | May hold secrets?                                               |
@@ -178,9 +189,13 @@ The pure account mapper prepares trusted transport responses for local crypto.
 It correlates token subject, sync profile and a known account's canonical provider
 binding. Decoding unsigned JWT claims does not verify their signature or establish
 ownership; the calling host must preserve the fixed HTTPS response provenance.
-Authentication salt/KDF and vault-unlock salt/KDF remain independent. Incomplete
-modern account keys cannot fall back to legacy state. Previously verified account
-format and signed security-version floors must survive subsequent syncs.
+An access token whose `exp` has been reached is expired. Like the official clients'
+`TokenService`, which reads only `exp`, the mapper never compares `nbf` (the server's
+issue second) with the local clock, so a clock behind the server's still accepts a
+fresh token; `nbf` and `iat` must only be non-negative integers. Authentication salt/KDF
+and vault-unlock salt/KDF remain independent. Incomplete modern account keys cannot
+fall back to legacy state. Previously verified account format and signed
+security-version floors must survive subsequent syncs.
 
 The initial mapper admits login, secure-note, card and identity items. Other
 types have explicit unavailable results containing only IDs and an unsupported
@@ -233,21 +248,32 @@ Disconnect, cancellation and deadlines invalidate pending results and terminate 
 affected Workers; a fresh host never replays old operations. A session's Worker runs one
 job at a time, so the host delivers a session's jobs in turn: a job for a busy session
 waits instead of failing `resource-limit`, as when a passkey is signed while a login
-matches the page's URI. A waiting job gets a full budget once it is delivered, so it can
-take up to twice its budget in all. A job cancelled while it waits, or whose wait
-outlasts its budget (`resource-limit`), never reaches the Worker and leaves the session
-open. Locking or closing the session fails its waiting jobs with `crypto-locked`, and
-the pending limit still refuses extra jobs with `resource-limit`. The vault manager
-forgets a live session the host has ended (a timeout, cancellation, Worker failure or a
-lost offscreen document), so while automatic unlock is enabled the next vault read
-restores it from the retained key instead of failing until the service worker restarts;
-with it off, the restore fails `auto-unlock-disabled`. The initial caller
+matches the page's URI. Opens and password derivations likewise wait their turn one at a
+time, as when a page restores one connection while a sync opens another's candidate. A
+job's budget is 30 seconds, and 60 seconds for an Argon2id derivation (a sign-in's hash,
+or an open with the master password), whose largest Bitwarden setting took about 25
+seconds in Node (owner's choice 2026-10-23); the offscreen document applies the same
+budgets. A job may wait for its turn as long as the longest budget of the jobs ahead of
+it, so an open behind an Argon2id derivation waits up to 60 seconds, and it gets a full
+budget once it is delivered. A job cancelled while it waits, or whose wait outlasts that
+limit (`resource-limit`), never reaches the Worker and leaves the session open. Locking
+or closing the session fails its waiting jobs with `crypto-locked`, and the pending
+limit still refuses extra jobs with `resource-limit`. The number of connections with an
+open vault is not capped (owner's choice 2026-10-23); each connection has room for one
+sync candidate besides its live session, and a third open for it fails `resource-limit`,
+checked again when a waiting open's turn comes. The offscreen document backs this up
+with the same two sessions per connection. Past 5 connections the options page warns
+that the official extension allows 5 accounts and that each unlocked vault uses more
+memory ([differences](bitwarden-differences.md#connections-and-key-derivation)). The
+vault manager forgets a live session the host has ended (a timeout, cancellation, Worker
+failure or a lost offscreen document), so while automatic unlock is enabled the next
+vault read restores it from the retained key instead of failing until the service worker
+restarts; with it off, the restore fails `auto-unlock-disabled`. The initial caller
 remains a synthetic compatibility probe. Durable cache, retained unlock material and
-production connection setup are separate gates. More than one staged session may exist
-for a connection. Opening a new snapshot does not itself accept it or retire older
-sessions. The future cache manager must explicitly retire superseded handles and
-invalidate affected policy/recipe references before accepting a replacement snapshot for
-credential release.
+production connection setup are separate gates. Opening a new snapshot does not itself
+accept it or retire older sessions. The future cache manager must explicitly retire
+superseded handles and invalidate affected policy/recipe references before accepting a
+replacement snapshot for credential release.
 
 Design later personal API key, SSO, device approval and Bitwarden passkey login
 flows without assuming every user has a master password. Authentication and
@@ -353,9 +379,14 @@ new alert. The executor runs both checks
 username's shape when every matching item agrees
 ([ADR 0016](adr/0016-recipe-generation-trigger.md#username-shape)).
 
-Local field snapshots detach supported decrypted items from caller mutation. Each crypto
-Worker caches at most 128 decrypted items per session, disposing the least recently used
-item on eviction; closing the session destroys the Worker and its remaining cache.
+Local field snapshots detach supported decrypted items from caller mutation. The crypto
+Worker keeps no decrypted item between requests: each field listing or field resolution
+decrypts that one item, answers from a snapshot made for the request, and disposes the
+snapshot before it replies, so a field request returns only the listing or the one
+value asked for (the probe build's `decrypt` operation still returns a whole item).
+JavaScript cannot wipe the disposed copies; they only become unreachable. Between
+requests the session keeps no decrypted item data beyond the value-free catalog and the
+login URI rules captured during verification; closing the session destroys the Worker.
 References bind connection, user, item and snapshot identity; custom fields use
 snapshot-scoped positional IDs because Bitwarden does not supply a persistent field
 UUID. Resolution requires an explicit field allowlist. Linked aliases also require
@@ -393,10 +424,12 @@ until reconciled. Do not claim an atomic transaction across both stores.
 Persistent reconciliation and its restart tests are under implementation in
 the [connection setup slice](plan.md#connection-setup-and-live-catalog-progress).
 
-Generate TOTP locally and preserve stored parameters. Test raw Base32, standard
-TOTP URIs and Bitwarden's Steam variant. Unsupported OTP formats must not be
-silently interpreted as TOTP. Bitwarden setup's manually entered verification
-codes are distinct from future automatic email/SMS challenge retrieval.
+Generate TOTP locally, giving the code the official Bitwarden SDK gives for the same
+stored key (owner, 2026-10-23), including keys it reads loosely; see
+[TOTP progress](plan.md#local-field-and-totp-progress). Test raw Base32, `otpauth://`
+URIs and Bitwarden's Steam variant against the published SDK. Bitwarden setup's
+manually entered verification codes are distinct from future automatic email/SMS
+challenge retrieval.
 
 ### Unsupported Bitwarden sign-in cases
 
@@ -408,7 +441,8 @@ guess:
   identity and API addresses: the address must be an HTTPS origin, or an HTTP origin on
   exactly `localhost` or `127.0.0.1` (`normalizeBitwardenProfile` in
   `packages/bitwarden/src/environment.ts`). Plain HTTP on any other host, `[::1]`
-  included, is refused.
+  included, is refused. The page trims a typed address's ends before checking it and
+  asking for site access.
 - Accounts that cannot sign in and unlock with a master password. A sign-in refused
   because an organization requires SSO ends `interaction-required` with reason `sso`
   (`packages/bitwarden/src/auth-models.ts`), or `unsupported-challenge` when the answer
@@ -422,6 +456,11 @@ guess:
   such as Duo, YubiKey OTP, FIDO2/WebAuthn or a recovery code. Choosing email sends one
   code, and "Resend code" sends another (ADR 0059). The page never asks Bitwarden to
   remember the device, so every password sign-in asks for a code.
+- A verification code with a space inside, such as `123 456`. The official clients trim
+  a code's ends only (`tokenFormValue.trim()` in `two-factor-auth.component.ts`; the
+  new-device page trims a pasted code only), and the settings page trims every code's
+  ends: it sends ` 123456 ` as `123456` but `123 456` as typed, which the server
+  refuses.
 - Email addresses that the official Bitwarden login page refuses. The settings page and
   the worker use that page's rule (Angular's `Validators.email`), as `bitwardenEmail` in
   `packages/bitwarden/src/email.ts`: only ASCII, no leading, trailing or repeated `.`
@@ -434,19 +473,48 @@ guess:
   official login page.
 - A sign-in or sync that takes longer than 120 seconds: the settings page's request
   times out and closes its connection to the worker, which cancels the work. A
-  verification challenge expires after 5 minutes without a countdown, as the official
+  verification challenge expires 5 minutes after the sign-in started, as the official
   clients' pending sign-in does
   ([`LOGIN_SESSION_TIMEOUT_LENGTH`](https://github.com/bitwarden/clients/blob/86f41566aebe5a024796df8abfb3d4d89ec509c1/libs/auth/src/common/services/login-strategies/default-login-strategy-session-timeout.service.ts#L14)).
-  The waiting sign-in, password included, lives only in the service worker, which Chrome
-  stops after 30 seconds without an event, so the settings page sends the worker a
+  The challenge reply carries that end as `expiresAt`, and the code screen says "Enter
+  the code by 8:26 PM. After that the sign-in ends and needs the master password again."
+  A code the server refuses (Bitwarden's "Two-step token is invalid. Try again.",
+  Vaultwarden's invalid or expired TOTP and email token messages) keeps the sign-in
+  waiting, as the official two-step page does
+  ([two-factor-auth.component.ts](https://github.com/bitwarden/clients/blob/86f41566aebe5a024796df8abfb3d4d89ec509c1/libs/auth/src/angular/two-factor-auth/two-factor-auth.component.ts#L338-L353)):
+  the reply is the same challenge with `invalidCode: true`, and the code screen keeps
+  the chosen method and the sent email and says "The code was not accepted: it is wrong
+  or no longer valid." A refused new-device code does the same through `invalidOtp`.
+  Before 2026-10-23 a refused code ended the sign-in and the form asked for the master
+  password again; the owner asked for this change that day (11:50 UTC). The waiting
+  sign-in, password included, lives only in the service worker, which Chrome stops after
+  30 seconds without an event, so the settings page sends the worker a
   `connection.keep-alive` message as soon as a challenge shows and every 20 seconds
-  after (the interval of Chrome's own heartbeat examples). An answer that the flow is
-  gone (its 5 minutes ended, or Chrome restarted the worker anyway) ends the challenge
-  with "This verification session expired"; a first sign-in then offers "Sign in again".
-  Closing the settings page ends the sign-in. Before this, on 2026-10-22 in the owner's
+  after (the interval of Chrome's own heartbeat examples). A tab Chrome froze or slowed,
+  or a computer that slept, hears late, so the page also sends one at `expiresAt` and
+  whenever it becomes visible; of several answers that find the end at once, only the
+  first ends the challenge. A provider request that the end itself aborts answers
+  `setup-expired`, not `cancelled`; the vault download and unlock after an accepted code
+  still count against the 5 minutes, and work the end stops there answers `cancelled`,
+  which the form shows as "The sign-in reached its 5-minute end before it finished." An
+  answer that the flow is gone ends the challenge, a first sign-in then offers "Sign in
+  again", and the sign-in form says why next to the master password (the field's
+  `aria-describedby`): "The sign-in timed out at 8:26 PM: no code was entered within 5
+  minutes." once `expiresAt` passed, else "The sign-in ended early, by 8:24 PM, before
+  its 5 minutes. This usually means Chrome stopped Pateat's background." (the time is
+  when the page found out; Chrome restarting the worker is the usual cause, but a
+  permission removal or a second settings page's Disable automatic unlock ends it the
+  same way); any other error that ends a waiting sign-in is said there too; the panel
+  status says "The sign-in timed out waiting for the code." or "The sign-in ended before
+  the code was entered." The local log records it as `vault.sign-in` with step
+  `keep-alive`, `continue` or `send-email-code` and outcome `setup-expired`. Closing the
+  settings page ends the sign-in. Before the heartbeat, on 2026-10-22 in the owner's
   Chrome with a local Vaultwarden and email two-step, diagnostics recorded four worker
   starts while the code was fetched, and the sign-in asked for the master password
-  again.
+  again. With it, on 2026-10-23 the owner left the code screen for about 10 minutes, and
+  the form asked for the master password again; the only explanation was "This
+  verification session expired. Start sign-in again." in the panel status above the
+  connection rows.
 - A second sign-in step or sync from one settings page while one runs, a new sign-in
   or sync while that page's verification challenge waits (the challenge stays usable),
   a sign-in or sync of a connection that already has one, or a fifth at once across
@@ -641,8 +709,11 @@ Checked against the code on 2026-10-17:
 - Hostnames Pateat does not run on (see
   [Hostnames Pateat does not run on](#hostnames-pateat-does-not-run-on)): the popup says
   Pateat works on HTTPS websites.
-- Internationalized domain names show in their punycode form (`xn--…`); a default's
-  origin can be typed only in that form.
+- Internationalized domain names show in their punycode form (`xn--…`). A default's
+  origin may be typed in any spelling of the bare origin that the browser's `URL` reads
+  as that origin, with no path, query, fragment or trailing slash, as the official
+  clients parse stored URIs: `HTTPS://Bank.Example:443` and `https://例え.jp` are saved
+  as `https://bank.example` and `https://xn--r8jz45g.jp`.
 - HTTPS pages where Chrome runs no extension content script, such as the Chrome Web
   Store or the PDF viewer: the popup still shows the switch and default list.
 - Private windows share the settings of normal ones: the popup's switch and "Use as
@@ -709,11 +780,16 @@ slot per custom field a matching item allows (Text, Hidden, or Linked with an al
 source), named by field name and position, under an opaque ID such as `custom-1`
 ([ADR 0027](adr/0027-per-account-login-routes.md)). Just before sending, it reads the
 matching items' usernames and the values of Text fields and of Linked fields that read
-the username or a Text field for their shape, each sent only when all items agree. The
-returned recipe enters the recipe cache and starts at once: `login.reconnect` asks every
-tab's page still tracked on that origin and path that holds no login to announce again.
-That covers the page that was sent and a page refused for want of a recipe while the
-request was in flight, such as one that replaced it in its tab or the same page in
+the username or a Text field for their shape, each sent only when all items agree. A
+list of accounts is sent with no slots or shapes at all, and a sign-in entry page
+without slots; both have the matching items' usernames hidden as every page sent does
+(owner, 2026-10-23 11:48 UTC;
+[ADR 0028](adr/0028-account-chooser-login-pages.md#amendment-2026-10-23-sent-without-slots),
+[ADR 0031](adr/0031-sign-in-entry-pages.md#amendment-2026-10-23-the-matching-items-usernames-are-hidden)).
+The returned recipe enters the recipe cache and starts at once: `login.reconnect` asks
+every tab's page still tracked on that origin and path that holds no login to announce
+again. That covers the page that was sent and a page refused for want of a recipe while
+the request was in flight, such as one that replaced it in its tab or the same page in
 another tab. A generated recipe the chosen item cannot run is revoked and its page
 generated in the same visit
 ([ADR 0058](adr/0058-automatic-recipe-removal.md#a-a-recipe-the-chosen-item-cannot-run)):
@@ -902,12 +978,17 @@ since a late click could submit an expired code; its failure ends the attempt
 `retry-limit` at once (ADR 0027). Initiated or possibly initiated effects remain
 counted, not proven server requests: one page handler can itself issue more than one
 request. Each fill step writes only inputs inside one form (or only inputs outside any
-form). Where the values go is checked in the page, as the browser would submit the form:
-before a fill step writes into a form, the form's `action` attribute, and before a click
-on a submit button or image input, that control's `formaction` attribute or else its
-form's `action`, resolved against the document's base URL (so a `<base href>` counts; an
-empty or missing value is the document's URL), must have the document's own origin, or
-be allowed by the background
+form), and one input per field: when two of its locators name the same input, the step
+fills nothing and fails `structural-mismatch` (`fields-shared`). A plan's click is in
+the same form, except a button outside every form for the fields of the page's only
+password form when that form lists no button of its own and the button is the only one
+outside every form (`besideForm` in `packages/inference/src/plan.ts`, owner's choice
+2026-10-23). Where the values go is checked in the page, as the browser would submit the
+form: before a fill step writes into a form, the form's `action` attribute, and before a
+click on a submit button or image input, that control's `formaction` attribute or else
+its form's `action`, resolved against the document's base URL (so a `<base href>`
+counts; an empty or missing value is the document's URL), must have the document's own
+origin, or be allowed by the background
 ([ADR 0051](adr/0051-form-destinations-by-item-uri-match.md)). The content script sends
 only an HTTP(S) destination on another origin to the background
 (`login.destination.check`, with the attempt's token and current operation), which
@@ -947,10 +1028,15 @@ recipe cannot place them in a search box. A Hidden custom field goes only into a
 password or short numeric input, and a Linked custom field follows the field it reads.
 Before a fill step that writes a secret but not the username (a site that remembers the
 account and asks only for the password), the background sends the selected item's
-username to the content script with that one fill. The content script compares it with
-the account identifiers shown in the form, or the page when there is no form, and the
-first eight `h1`-`h3` headings; every element boundary but a `<wbr>` separates words,
-format characters are left out (so `taro.yamada@<wbr>example.com` is one address), and
+username to the content script with that one fill. While the page shows no identifier
+to compare with, the content script first waits until the document has loaded and its
+DOM has not changed for 1 second, for at most 5 seconds and until 2 seconds before the
+operation expires, because a page can show the remembered account after its password
+field (Duolingo, 2026-10-23). It then compares
+the username with the account identifiers shown in the form, or the page when there
+is no form, and the first eight `h1`-`h3` headings; every element boundary but a
+`<wbr>` separates words, format characters are left out (so
+`taro.yamada@<wbr>example.com` is one address), and
 `mailto:` links, `<address>` and `<footer>` are skipped as contact addresses. The
 username never leaves the content script or reaches status. An email username is
 compared with shown email addresses. A username of digits only is compared with masked
@@ -966,22 +1052,22 @@ the account, such as a card number on a password page, still stops a digits-only
 username: a known limitation. A recipe can name an `accountSwitch` target: the button or
 `<a href>` link that switches to another account
 (`{ "by": "text", "value": "Use another account" }`; text locators match link text only
-here and in a signed-in marker; the recipe must not use it for a click step or
-`rejection`). When the page shows another account, nothing was submitted in the attempt,
-and that target matches exactly one shown link or button that does not submit a form,
-the background first records the attempt as `account-switched` (blocked, no submission
-spent) and then has the content script click it. The click happens only within 10
-seconds, on the same path, while the target still matches exactly that element;
-otherwise the record becomes `wrong-account` and keeps holding that origin in the tab.
-After the click, the tab's next document of that origin that reports ready starts a new
-attempt instead of resuming, so a recipe that starts on the page the switch leads to
-logs in, such as an email page at `/signin/id` after a password page at `/signin/pwd`
-that showed `myaccount@example.com` (owner decision, 2026-10-11). That attempt carries
-the switch and never clicks another: a page that still shows another account ends it
-`wrong-account`. Without the target, or when it is missing or ambiguous, the attempt
-ends `wrong-account` as above. A switch that changes the account in place, without
-loading a new document, does not continue the login. Before a fill step writes anything,
-the content script checks every value against its input
+here and in a signed-in marker; the recipe must not use it for a click step, a handler,
+`rejection` or a signed-in marker). When the page shows another account, nothing was
+submitted in the attempt, and that target matches exactly one shown link or button that
+does not submit a form, the background first records the attempt as `account-switched`
+(blocked, no submission spent) and then has the content script click it. The click
+happens only within 10 seconds, on the same path, while the target still matches exactly
+that element; otherwise the record becomes `wrong-account` and keeps holding that origin
+in the tab. After the click, the tab's next document of that origin that reports ready
+starts a new attempt instead of resuming, so a recipe that starts on the page the switch
+leads to logs in, such as an email page at `/signin/id` after a password page at
+`/signin/pwd` that showed `myaccount@example.com` (owner decision, 2026-10-11). That
+attempt carries the switch and never clicks another: a page that still shows another
+account ends it `wrong-account`. Without the target, or when it is missing or ambiguous,
+the attempt ends `wrong-account` as above. A switch that changes the account in place,
+without loading a new document, does not continue the login. Before a fill step writes
+anything, the content script checks every value against its input
 ([ADR 0010](adr/0010-inference-field-hints.md)): non-empty, within the input's
 `maxlength` and `minlength` (ignored on `number` inputs), and a valid email or number
 for those input types (`valueMismatch` in `packages/contracts/src/values.ts`). A
@@ -1568,6 +1654,30 @@ behind the same Access check as the page. The Worker's own HTML pages
 a `data:` URL and allow only `img-src data:`, so the icon never needs a request to a
 path that another Access application, or none, guards.
 
+## Extension UI language
+
+Every extension page (the popup, the passkey chooser, the settings page with its
+Bitwarden, sites, sync service and theme sections, and the diagnostics page) and the
+toolbar tooltips bundle English and Japanese catalogs with the owner-chosen i18next and
+react-i18next libraries (`apps/extension/src/locales/`). Labels, status explanations,
+notices, accessible names, `<html lang>` and document titles follow the language
+selected on the settings page. Vault names, usernames and hostnames are interpolated as
+text; unknown status codes remain visible as codes. The setting does not change login
+policy.
+
+As [ADR 0043](adr/0043-extension-language-preference.md) records, `chrome.storage.local`
+holds `pateat.language` as `system`, `en` or `ja`, per browser profile and outside
+service sync; `system` takes the first English or Japanese entry of
+`navigator.languages`, else English. Each page reads it before its first render and
+follows changes made on another page; the worker reads it at start and rewrites every
+tab's tooltip when it changes. A notice already on screen keeps its catalog key and
+values, so a language change translates it again without resetting drafts, focus or a
+running operation.
+
+Bug report text, exported log entries and diagnostic codes stay English. The manifest
+description comes from `public/_locales` by Chrome's own UI language. The service's
+pages, such as `/manage`, are not translated yet.
+
 ## Page styles and theme
 
 The extension's pages (settings, popup, diagnostics and the passkey chooser) and the
@@ -1578,8 +1688,8 @@ owner web UI take their colors, type, radii and focus ring from the
 Tailwind colors, with each light/dark color pair written once using `light-dark()`.
 `color-scheme: light dark` follows the browser, and the explicit theme overrides set
 only `color-scheme`; shadow colors are paired separately from their shapes. The Worker's
-script-free pages (`services/api/src/pages.ts`: `/pair/signed-in`, the Access and error
-pages and `/manage/claude`) inline a small stylesheet,
+script-free pages (`services/api/src/pages.ts`: `/pair/signed-in` and the Access and
+error pages) inline a small stylesheet,
 `services/api/src/page-styles.ts`, with the same tokens, the logo beside "Pateat" and
 the page in one panel. `tests/options/design-tokens.test.tsx` compares the three token
 copies and checks their resolved light and dark palettes, including shadows.
@@ -1598,16 +1708,52 @@ pages allow inline script (the MV3 policy, and the owner web UI's `script-src 's
 the choice is applied from the page's module, so a page whose stored choice differs from
 the browser's scheme may paint one frame in the browser's scheme first.
 
+Forced colors, such as Windows contrast themes, replace the popup's accent colors and
+drop its shadows, so the popup gives its selected account card and its switch system
+colors of their own (owner, 2026-10-23 12:57 UTC): the selected card has a 2px
+`Highlight` border; the switch has a 1px `ButtonText` border and knob, a `Highlight`
+track with a `HighlightText` knob when on, and `GrayText` while disabled. Both keep
+their sizes.
+
+The settings page's section list marks one section with `aria-current="location"`
+(owner, 2026-10-23 12:59 UTC): the last section whose top has passed 40% of the window
+height, or, once the page has scrolled to its bottom, where short last sections never
+get there, the last one shown. A clicked link stays marked while the page jumps to its
+section, until the person turns the wheel, presses a key or presses the pointer
+(`wheel`, `keydown`, `pointerdown`), or the address changes to another fragment, such as
+by Back. Chrome sends `pointerdown` for a press on the page's scrollbar too, which
+`tests/extension/foundation.spec.ts` checks with the scrollbar shown.
+
 Deleting a Bitwarden connection in settings asks in a modal Base UI `AlertDialog`. It
 names the connection and explains removal of its local vault cache, unlock key and sync
 sign-in. Focus starts on **Keep connection**; Keep and Escape close without deleting,
 report "Connection kept." and return focus to that row's **More** button. Backdrop
 clicks leave the question open, and the page behind it is blocked until it closes.
-**Delete connection** runs the existing local deletion operation and reports its result
-in the settings status line. The owner approved this change on 2026-10-14 at 08:40 UTC
+**Delete connection** runs the existing local deletion operation, reports its result in
+the settings status line and moves focus there. The owner approved this change on
+2026-10-14 at 08:40 UTC
 ([adopted platform features](research/2026-10-14-platform-feature-candidates.md)). The
 `/manage` recipe revoke and diagnostics **Clear logs** confirmations remain inline;
 whether they follow is a separate owner decision.
+
+Keyboard focus in the popup and the settings page's Bitwarden setup stays with the
+operation the person started instead of falling back to the top of the page (owner,
+2026-10-23 12:32 UTC):
+
+- A button that starts an operation stays focusable while it runs: Base UI's
+  `focusableWhenDisabled` marks it `aria-disabled` instead of `disabled`, because Chrome
+  moves focus off a focused control that becomes disabled. `Button` dims both states.
+  A row's **More** menu trigger cannot (Base UI's `Menu.Trigger` lacks the option), so
+  during a menu action focus sits on the page until the action ends.
+- When the result removes the pressed button or leaves it disabled, including **Cancel
+  setup** with nothing left to cancel, focus moves to the result line
+  (`#popup-message`, `#bitwarden-setup-status`) with `focus({ preventScroll: true })`,
+  so a mouse click does not scroll the page. Both are polite live regions, so a screen
+  reader may read the result twice.
+- A control the result opens takes focus instead: a verification challenge's code field
+  (also after sending or resending the email code, or a refused code), the master
+  password for **Sign in again**, and **Server** after **Add another connection**.
+  Focus the person moved out of the setup panel meanwhile stays where it is.
 
 ## Diagnostics
 
@@ -1633,8 +1779,9 @@ that exact page URL and returns a value-free summary
   unlocked, the unlock KDF family (`PBKDF2` or `Argon2id`) and, on the page only, its
   parameters;
 - the Pateat service pairing state, `rejected` and `cacheFull`, site access to the
-  paired origin, its `/health` revision, the last recipe sync, next scheduled sync,
-  settings revision, settings hold and recipe cache size;
+  paired origin, its `/health` revision, the last recipe sync, next scheduled sync (now,
+  when the clock was set back before the last attempt, as sync treats it), settings
+  revision, settings hold and recipe cache size;
 - the service's own record from `GET /v1/device` with the device credential: when the
   device was paired, the owner's live recipe count and settings revision, and whether
   recipe generation would run now, in the order a generation call checks it
@@ -1710,6 +1857,7 @@ be told apart
 | `runtime.updated` | info | previous and new build revision, version |
 | `vault.state` | warn for `unavailable`, `review-required` or `reauthentication-required`, even at a worker's first sight; else debug at the first sight, then info | connection pseudonym, state, previous state, sync sign-in, `synced` when a new snapshot was accepted |
 | `vault.sync` | info for a result, including `unchanged` since the person pressed Sync, and for `cancelled`, else warn | connection pseudonym, the settings-page Sync's result kind or error code, and the account mismatch check when there is one |
+| `vault.sign-in` | info, except warn for an error other than `cancelled` and `setup-expired` and for an email code that was not sent | the settings-page sign-in step (`begin` for the password, `continue` for the code, `send-email-code`, or `keep-alive` only when the heartbeat found the sign-in gone) and its result kind, `code-refused` when the server refused the code and the sign-in still waits, email send result or error code. No connection: a new connection's challenge shows before its ID is listed |
 | `vault.check` | debug for `unchanged`, `skipped` and the same outcome as the connection's last stored check other than `synced`, also after the worker restarted (such as a sign-in that still needs the password, where no request is sent); otherwise info for `synced` and `deferred` (the replacement waits for a login or passkey request), else warn | connection pseudonym and the automatic check's outcome (ADR 0025): `unchanged`, `synced`, `deferred`, `rate-limited`, `failed`, `reauthentication-required`, `account-deleted` or `skipped` |
 | `vault.refresh` | debug for `refreshed`, info for `not-sent`, else warn | connection pseudonym; `not-sent` when no usable session was refreshed and no refresh was sent, with why: `no-session`, `no-refresh-token`, `claimed` (another refresh in this worker holds it), `provider-permission-required`, `cancelled` or the store's error code; `refreshed`, `restored` (the session was put back after a network failure, timeout, 429 or 5xx), `rejected`, `account-mismatch` or `failed` (a non-retryable error drops the claim's refresh token so the sync sign-in needs the password; a store error leaves the claim to resume; a conflict means forget or a password sign-in replaced it); the transport or store error code and HTTP status when there is one |
 | `service.sync` | debug for `synced`, `incomplete`, `not-connected` unless a recipe was added, updated or removed, then info; info for `unreachable`, since a device offline for a while would otherwise fill the warnings, and `busy` (a settings write that waits for a login, a sync superseded by a later one, or attempts that ran out); else warn | recipe and settings sync outcome; `full`, or `recipes` for a recipes-only run after a judged page; recipes added, updated and removed in the cache; how long the run's requests took, added up ([timing](#request-and-login-timing)): `roundTripMs`, and `serverMs` and `networkMs` when every answer named the service's time |
@@ -1717,7 +1865,7 @@ be told apart
 | `service.login` | info for `kept`, `refused` and `failed:unreachable`, else warn | recipe ID and revision (`recipeRevision`), the chooser branch, and the result of one [login record](#login-records-on-the-service) request: `kept`, `refused`, `rejected` or `failed:<code>`, or `failed:invalid-record` for a record the contract refuses, which is not sent |
 | `service.use` | debug for `kept` and `refused`, info for `failed:unreachable`, else warn | recipe ID and revision (`recipeRevision`) and the result of one [recipe use](#recipe-use-on-the-service) request: `kept`, `refused` (a 404, as for a recipe revoked meanwhile), `rejected` or `failed:<code>` |
 | `settings.changed` | info | `synced` (a settings sync wrote local settings) or `saved` (the settings page); the settings revision when the entry is written. Running logins and passkey requests stop; a watched login stops only if the new settings no longer allow its account |
-| `login.attempt` | debug when a new page resumes the attempt without changing its state or outcome; otherwise info for `authenticated` and `retryable`, for a route change and for the end of a fill-only login after a logout, warn for other `blocked`, for `watching` and when the result settles as unknown (`unknown-submit`, marked `settled`), so a login that did not finish counts as a warning, info for `document-gone` with a reason other than `no-receiver` and for `captcha-shown`, else debug | origin, recipe ID and revision (`recipeRevision`), route and `password` variant, state, step, step count, the current step's kind (`fill`, `click`, `wait`, `assert`) and effect (`prepare`, `advance`, `submit`), the entered handler the step belongs to, outcome (`challenge-abandoned` or `watch-abandoned` when a watched login's first step showed again before it signed in, [ADR 0027](adr/0027-per-account-login-routes.md#watching-after-a-challenge)); for `policy-changed`, its cause and a refused plan's reason; else `fill-only` as the reason for a login that only fills the form after a logout (ADR 0021 D); `routeChange` when the login changed route ([ADR 0034](adr/0034-answer-page-passkey-requests.md)): `page-request` (to the `passkey` route, because the page asked for a passkey), or back to the `password` route as `request-missing`, `answer-failed`, `sign-in-rejected` or `sign-in-shown`; `stop` (`password`) on every entry of a login that stops before its item's missing password, also one whose stop lies just past its route's last step, and `password-empty` as the reason when it ends `challenge` at that stop, or `password-empty:<why>` (such as `password-empty:fills-lacking`) when a continuation of a stop past the plan's last step could not take the stop over ([ADR 0036](adr/0036-passkey-after-the-identifier.md)); the item's lack of a password shows as the `no-route` detail does, never a value. A result that settles as unknown (`unknown-submit`) on a page that still shows a sign-in element of the route, with no failure that acted (S1, [ADR 0029](adr/0029-local-sign-in-state.md)), names `sign-in-shown` as its `cause`. A login that failed or was cancelled names its `cause` when one is known (a plain wait timeout or a cancel without a reason has none): the step's elements did not show in time (`elements-timeout`), a code page neither submitted the code nor took the click (`code-not-submitted`), no operation could be built (`no-operation`), the login's item could not answer the page's passkey request (`answer-failed`), the operation no longer validated (`operation-invalid`), a field had no vault binding (`slot-unbound`), the page did not answer or its answer failed its check (`no-answer`), a code page said it submitted the code itself but no check confirmed it (`page-submitted`), the page showed a CAPTCHA, so the click was left to the person and the attempt waits in `awaiting-result` (`captcha-shown`), the document stopped answering, as when a submit replaced it, so the attempt waits in `reconciling` for the next document to resume it (`document-gone`, with what the browser said as the reason: `no-receiver` when no listener was left or the page went into the back/forward cache, logged at debug as a submit's usual navigation, else `port-closed` when the listener did not answer or `send-failed`, logged at info as they may hide a fault), or the page's own reason: the worker did not authorize the step (`not-authorized`), the document was cancelled (`document-cancelled`), the operation was used (`operation-used`) or expired (`operation-expired`), the page moved to another path (`page-changed`, also with a `timeout` outcome when the wait ended on another path), a field changed under the fill (`field-changed`), the step threw (`threw`), the form was replaced (`form-replaced`), the target is missing or not writable, or a `password` handler's button no longer names the password at the press ([ADR 0048](adr/0048-password-method-button.md)) (`target-missing`), the form changed before a click (`form-changed`), an `assert` did not hold (`assert-failed`), the step was sent values it does not fill (`unexpected-values`), its fields are in different forms (`fields-split`), an input refused its secret (`secret-refused`), the page's inputs have no value setter (`unsupported-input`), a code field's submission watch could not start (`code-watch-failed`), the form or the clicked button would send the form off the document's origin to a destination the background did not allow (`form-off-origin`), or the background could not decide that now (`form-destination-unchecked`, [ADR 0051](adr/0051-form-destinations-by-item-uri-match.md)); `unconfirmed` for an undecided completion without a confirmed sign-in (ADR 0029); on the entry where a login ends signed in or blocked (a watched login when its watch ends), how long it took: `totalMs`, `serviceMs`, `networkMs`, `personMs`, `pageMs` and `otherMs` ([timing](#request-and-login-timing)) |
+| `login.attempt` | debug when a new page resumes the attempt without changing its state or outcome; otherwise info for `authenticated` and `retryable`, for a route change and for the end of a fill-only login after a logout, warn for other `blocked`, for `watching` and when the result settles as unknown (`unknown-submit`, marked `settled`), so a login that did not finish counts as a warning, info for `document-gone` with a reason other than `no-receiver` and for `captcha-shown`, else debug | origin, recipe ID and revision (`recipeRevision`), route and `password` variant, state, step, step count, the current step's kind (`fill`, `click`, `wait`, `assert`) and effect (`prepare`, `advance`, `submit`), the entered handler the step belongs to, outcome (`challenge-abandoned` or `watch-abandoned` when a watched login's first step showed again before it signed in, [ADR 0027](adr/0027-per-account-login-routes.md#watching-after-a-challenge)); for `policy-changed`, its cause and a refused plan's reason; else `fill-only` as the reason for a login that only fills the form after a logout (ADR 0021 D); `routeChange` when the login changed route ([ADR 0034](adr/0034-answer-page-passkey-requests.md)): `page-request` (to the `passkey` route, because the page asked for a passkey), or back to the `password` route as `request-missing`, `answer-failed`, `sign-in-rejected` or `sign-in-shown`; `stop` (`password`) on every entry of a login that stops before its item's missing password, also one whose stop lies just past its route's last step, and `password-empty` as the reason when it ends `challenge` at that stop, or `password-empty:<why>` (such as `password-empty:fills-lacking`) when a continuation of a stop past the plan's last step could not take the stop over ([ADR 0036](adr/0036-passkey-after-the-identifier.md)); the item's lack of a password shows as the `no-route` detail does, never a value. A result that settles as unknown (`unknown-submit`) on a page that still shows a sign-in element of the route, with no failure that acted (S1, [ADR 0029](adr/0029-local-sign-in-state.md)), names `sign-in-shown` as its `cause`. A login that failed or was cancelled names its `cause` when one is known (a plain wait timeout or a cancel without a reason has none): the step's elements did not show in time (`elements-timeout`), a code page neither submitted the code nor took the click (`code-not-submitted`), no operation could be built (`no-operation`), the login's item could not answer the page's passkey request (`answer-failed`), the operation no longer validated (`operation-invalid`), a field had no vault binding (`slot-unbound`), the page did not answer or its answer failed its check (`no-answer`), a code page said it submitted the code itself but no check confirmed it (`page-submitted`), the page showed a CAPTCHA, so the click was left to the person and the attempt waits in `awaiting-result` (`captcha-shown`), the document stopped answering, as when a submit replaced it, so the attempt waits in `reconciling` for the next document to resume it (`document-gone`, with what the browser said as the reason: `no-receiver` when no listener was left or the page went into the back/forward cache, logged at debug as a submit's usual navigation, else `port-closed` when the listener did not answer or `send-failed`, logged at info as they may hide a fault), or the page's own reason: the worker did not authorize the step (`not-authorized`), the document was cancelled (`document-cancelled`), the operation was used (`operation-used`) or expired (`operation-expired`), the page moved to another path (`page-changed`, also with a `timeout` outcome when the wait ended on another path), a field changed under the fill (`field-changed`), the step threw (`threw`), the form was replaced (`form-replaced`), the target is missing or not writable, or a `password` handler's button no longer names the password at the press ([ADR 0048](adr/0048-password-method-button.md)) (`target-missing`), the form changed before a click (`form-changed`), an `assert` did not hold (`assert-failed`), the step was sent values it does not fill (`unexpected-values`), two of its fields name the same input (`fields-shared`), its fields are in different forms (`fields-split`), an input refused its secret (`secret-refused`), the page's inputs have no value setter (`unsupported-input`), a code field's submission watch could not start (`code-watch-failed`), the form or the clicked button would send the form off the document's origin to a destination the background did not allow (`form-off-origin`), or the background could not decide that now (`form-destination-unchecked`, [ADR 0051](adr/0051-form-destinations-by-item-uri-match.md)); `unconfirmed` for an undecided completion without a confirmed sign-in (ADR 0029); on the entry where a login ends signed in or blocked (a watched login when its watch ends), how long it took: `totalMs`, `serviceMs`, `networkMs`, `personMs`, `pageMs` and `otherMs` ([timing](#request-and-login-timing)) |
 | `login.handler` | info | origin, recipe ID and revision (`recipeRevision`), handler index, kind (`passkey`, `password` or `totp`), step count; `entered`, `shown-again` (left to the person after this login ran it), `missing-fact` (the item lacks what the handler needs, including a `totp` handler's built-in TOTP field), `code-used` (a `totp` handler in a login that already types a TOTP code) or `no-room` (the attempt's step or submission budget is spent) |
 | `login.entry` | info for `pressed` and for the first `refused` of each reason on a document, debug for `refused` with `no-return-target` or `in-progress` and for a reason the document already logged, warn for `blocked` ([ADR 0019](adr/0019-local-diagnostics-and-logs.md#amendment-what-the-log-records)'s levels) | a site's sign-in entry ([ADR 0031](adr/0031-sign-in-entry-pages.md)): origin, recipe ID and revision (`recipeRevision`) and outcome. `pressed` when the document answered that it clicked the link. `refused` with the check before the press that failed: `frame`, `storage-unavailable`, `blocked` (the revision is blocked on this device), `tab-unavailable` (the tab could not be read), `page-changed`, `recipe-changed`, `no-return-target` (the URL names no other path of the site), `no-site`, `site-record` (the tab ran a login of the site), `site-held` (another tab's login holds it), `logged-out` (a tab keeps a logout of it), `logout-clicked` (a control that logs out was clicked on the site in this tab, ADR 0021 D), `press-limit` (the tab pressed an entry in the last 10 minutes), `settings-unavailable`, `site-excluded`, `destination-excluded`, `no-vault-match`, `in-progress` (another document of the tab is being pressed), `no-answer`, `target-missing`, `target-ambiguous`, the element's refusal (`not-link`, `script-link`, `hidden`, `no-text`, `new-window`, `download`), the `href`'s (`link-not-https`, `link-off-site`, `link-query-off-site`, `link-same-page`), `target-changed`, `cancelled`, `unconfirmed` (the document never answered the press, which still counts against the tab's limit) or `exception`. `blocked` with why the page after the press blocked the revision: `left-site`, `no-sign-in` or `sign-up`, and the detail `storage-unavailable` when the block holds in this worker only |
 | `login.state` | debug for a later page of an attempt that already settled as unknown, else info | origin, recipe ID and revision (`recipeRevision`), route; the page signs of [ADR 0029](adr/0029-local-sign-in-state.md) that show, as flags: a sign-in element of the route (`s1`), a password input not for a new password and not in a form with two or more shown password inputs (`s2`), a code input (`s3`), a CAPTCHA widget (`s4`), a passkey request of the top document after the step, outside conditional mediation (`s5`), a new invalid mark on the step's sign-in inputs (`f1`) or new alert text, read as the fill check reads it (`f2`), next to the sign-in fields in the submitted document, or, with `reshown`, any invalid mark on the route's sign-in inputs or any text of an alert next to the form in the first new top document after a password submission, within 30 seconds of it, that shows the sign-in form again, a signed-in marker on any path (`e1`), the username in the header or navigation (`e2`), the return target the sign-in page's URL named (`e3`); and what the ADR would do (`rejected`, `unknown`, `continuing`, `signed-in`, `judge`); `settled` for a later page of an attempt that already settled as unknown; `reshown` when S1 holds in the first new top document after the attempt's password submission, announced within 30 seconds of it, where `rejected` needs no CAPTCHA (`s4`) and also ends a watched login. When S1 holds without `reshown`, `reshownMiss` says why: no effect step of the attempt is known (`no-effect`, as after a worker restart), the last one asked for a passkey (`passkey-step`) or did not submit (`not-submit`, as an `advance`), the page is the document the step ran in (`same-document`), no other top document came within 30 seconds of the step (`late`), or the page is a later document than the first one that did (`later-document`). With `reshown` and no F2, `alertMiss` says why no alert next to the form counted: none outside the sign-in inputs shows text (`no-alert`), none of the route's sign-in elements is a single shown writable input (`no-input`), or the first rule failed by the region closest to counting: its nearest common container with the form is the body or the root (`body`), or holds page chrome (`chrome`), another form that asks for input (`other-form`) or the main area (`main`). Both are codes only, never page text. When an `advance` whose next step is on its own path ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)) settles without being confirmed, four more codes say why, each listing up to four of that step's targets in order, joined by `.`: their states as the content script measured them just before the advance (`advanceBefore`: `missing`, `unique`, `ambiguous`, `unusable`, or `unmeasured` without that measurement, as after a worker restart), their states with the same requirement when it settled (`advanceAfter`), the check that decided each of those (`advanceWhy`, which explains `advanceAfter` only: `ok`, `missing`, `matches-2` to `matches-9` for several elements, 9 or more; for the input or button test, an element the content script's visibility check does not see, under a `hidden` attribute (`hidden-attr`) or not rendered otherwise (`not-rendered`), or one it sees that is disabled, read-only or no such control (`not-writable`, `not-clickable`); or else the first reason the page's description does not see the element: an `inert`, `aria-hidden` or `hidden` attribute (`hidden-attr`), not rendered otherwise (`not-rendered`), moved before the page's start (`off-start`), transparent and neither fading in nor shown by its own label (`transparent`) or under 2 pixels (`tiny`)), and whether the page was on the step's path (`advancePath`: `same` or `other`). They are read in a top document only, once, just before the sign-in state is first read, not at its last recheck (2026-10-19, agent change after UNSW's stall after Next). Logged for a page after an effect step that no check explained, before the judge is asked. On the `password` route a `signed-in` page is read again a second later, and a second apart while it loads (at most ten times), and the last reading is the one logged; the other decisions but `unknown` are read again the same way, and so is an `unknown` reading of the sign-in form shown again with its password input and no other sign, before the tab asks again (ADR 0021 D). A confirmed `signed-in` completes the login without the judge and a confirmed `rejected` ends it `credential-rejected`; the rest go to the judge as described above (ADR 0029). E1 reads the recipe's signed-in markers as the completion check does: a marker counts on any path, but not while one of its `absent` elements is there, even hidden. A login in a frame is not read |
@@ -1730,7 +1878,7 @@ be told apart
 | `login.choice` | info | origin and whether the account a login authenticated with was saved afterwards: `saved`, `already-saved`, or why not: `account-changed`, `login-in-progress` (another login runs, and saving would stop it), `settings-unavailable` or `write-failed`; logged only when the login's site default or binding was not saved yet: an account found by URI match, one picked to become the default, a saved default whose binding is new, or a saved binding the login widened by the slots it filled ([ADR 0027](adr/0027-per-account-login-routes.md#amendment-2026-10-19-saved-bindings-that-lack-a-slot)) |
 | `login.popup` | info; debug for `none` without a login record or a refused page | origin and what the toolbar popup was told about the tab's account choice (ADR 0021), logged when that changes for the tab: `offered` with how many accounts (`candidates`), why the tab asks after a logout (`logout`: `this-tab`, `rejected`, `other-tab` or `stopped-login`), `held`, and `rejectedElsewhere` when the site rejected another tab's login that still asks, so the popup chooses no account, or `none`; the tab's login record for the origin as `recordState` and `recordOutcome`, and the page's last refusal reason as `pageReason`, which together say why nothing was offered |
 | `login.exception` | warn | origin, recipe ID and revision (`recipeRevision`), route, the state the login was left in and its step, the exception's class name, its message only when it is a Pateat error code, and up to five of its stack positions inside the extension's own files; logged when an exception stops a running login. A document that stops answering is no exception: `login.attempt` logs it with `document-gone` |
-| `recipe.generate` | debug for `skipped` with `no-vault-match`, `not-connected`, `not-a-list`, `no-listed-account` or `nothing-offered`, warn for `failed`, else info | origin, outcome (`sent` when the page goes out, then `recipe`, `abstained`, `failed`, `unavailable`, `skipped`) and its reason: the abstention, failure or unavailable code, `device-rejected`, `error` for a thrown error, or why nothing was sent (`sending`, `sent`, `no-vault-match` with a detail (`no-item`, `no-slots`, `no-connection`, `incomplete-item`, `site-excluded`, `invalid-url`, or `no-passkey` for a passkey-only page whose matching items hold no discoverable passkey and that shows no entry or list to handle instead, ADR 0053), `vault-unavailable` with the vault's reason (or `settings`, `tab`, `error`), `connection-disabled` when every vault connection is turned off, `not-a-list` with why a page whose text holds an `@` is not a list of accounts (ADR 0028: `aria-hidden`, `inert`, `hidden`, `not-rendered`, `page-chrome`, `inside-control`, `no-entry`, `unread-text`, `split-address`), `no-listed-account` when no short text beside the buttons named an item (`no-name-match` when the page also shows no control to sign in with another account; when words for another account show but no such control counts, why: for a usable control with the words, `other-holds-name` when its text or label holds a shown name, `other-not-clickable` when a list click could not press it, `other-text-long` when its text is over 64 characters, `other-label-only` when only an `aria-label` has them; for words outside every usable control, `other-in-chrome` in page chrome, `other-not-entry` with nothing shown, enabled and clickable around them, `other-not-control` in a clickable element that is not an innermost control; or the vault's reason), or for any list on a page whose path holds a matching item's username (`username-in-path`), or for a list by email when no matching item's username is an email and the page shows no control for another account (`no-email-username`), `nothing-offered` when a page that could be sent showed no list of accounts, sign-in entry, identifier input or passkey button once its DOM was quiet (ADR 0057) and no sign-in input by the end of the 10-second wait (`no-list`), was the page right after a submitted password form (`after-sign-in`, also with a secret answer), or showed a sign-in input only at the end of the wait (`sign-in-shown`), or, with none of those, showed a writable `type="text"` input named or labelled as a secret or security answer or question (`text-answer`) when no vault item matches, `text-answer` itself when such a page has a matching item, and `frame` for a frame whose page would be sent now and that showed a sign-in input or such an answer at one of five readings within the 10-second wait, both pages that look like a verification and are never sent ([ADR 0035](adr/0035-page-kinds-per-site.md#implementation-of-delivery-1)), `field-not-described` for the page after a final `advance` step whose description lacks the sign-in input it qualified with (ADR 0018), `incomplete-observation` with why as `detail`: for an incomplete description the extractor's first cause, in this order for a login page `shadow-field` (a fillable field in any shadow root), `shadow-control` (another control in a shadow root inside a login form), `unfillable-field` (a transparent or tiny, read-only or disabled fillable field of a login form; one transparent only while it or an ancestor fades in from opacity 0, or only under its own `<label>` that holds it and shows text opaque, as a floating label, counts as opaque, and one both transparent or tiny and disabled is left out), `unsupported-control` (a select, radio button, text area or other input the executor cannot act on in a login form), `unlocated-field`, `unlocated-checkbox` and `unlocated-button` (a login form's field, required checkbox or button without a locator that names it alone, including an icon button in a form with no other button to submit with; a checkbox without `required`, `aria-required="true"` or a locator is left out), `too-many-candidates` (more than 48), and for a list of accounts `shadow-field`, `too-many-accounts` (more than eight), `unlisted-accounts` (an account whose text could not be sent), `too-many-elements` (more than the 4,000 elements the list scan reads) and `too-many-controls` (more than eight other controls outside page chrome, the page's footer included), or `incomplete` without one; `invalid-observation` for a description that fails its schema; for a complete one `origin-changed` or `path-changed` when it describes another origin or path than the document's, `list-mismatch` when a page announced as a list is described without accounts or another page with them, and for a page offered as a site's sign-in entry `not-entry` when it shows a field or lists accounts; the content script's refusal (`no-candidates` for no field or nothing in a login form to locate or act on, `no-locator` for a login form whose controls could not be located, `unsupported-page` for a description that fails its schema or a list whose raw path holds a listed name (a path that may carry a token is sent with `[id]` instead, ADR 0039), `extract-error` when the extractor threw, `cancelled` for a cancelled document), `extract-failed` for an answer that fails its check or never came, `unreachable` when the page went away or stopped answering before it could be read, as during a navigation, with how as `detail` (`no-receiver`, `port-closed`, `send-failed`), `exception` when reading the vault for it, or anything else, threw while the page still shows, `no-slots`, `not-connected`, `storage-unavailable`, `username-unread` when a matching item's username could not be read to hide it, `username-shown` when a username shows in the page's path or a field's locator, where it cannot be hidden, for the page after a final `advance` step `scope-incomplete` while the vault match could not evaluate every item, `after-sign-in` for the tab's next page after a submitted password form when it lists accounts, offers an entry, asks for an identifier alone or shows a passkey button, `signed-in-elsewhere` for a list of accounts while another tab's login of the origin authenticated less than an hour ago and neither this tab clicked a control that logs out in the last 10 minutes nor any tab of the origin asks after a logout, which also keeps a sign-in entry offered beside the list from being sent (ADR 0028), and for a page offered as a site's sign-in entry `no-return-target`, `site-record`, `logged-out` and `no-entry-link` when its description lists no link, and for a form on a chooser's path `no-account-field` when it has no field for the account and `list-shown` when the list shows by then); `page` (also for a page that asks for an account identifier alone, [ADR 0016](adr/0016-recipe-generation-trigger.md#pages-that-ask-for-an-identifier-alone), and a passkey-only page, ADR 0053), `accounts` for a list of accounts (ADR 0028), `entry` for a page sent as a site's sign-in entry (ADR 0031), or `other` for a form on a chooser's path sent as its `other` branch's first page (ADR 0028), with the chooser's ID and revision once the page is sent; for `invalid-output`, the check that refused the model's output (`json`, `schema` or `plan`), the plan check's code or the output format's issue, and for a format issue where in the output it was; a page that is not sent is logged once per document, with the last reason after up to ten reads a second apart; for the page after a final `advance` step, the recipe ID and the revision it continues, and for a returned revision whether this login took it over, left out when the page that asked was left before the answer, and when it did not, why (`notTakenOver`, [ADR 0027](adr/0027-per-account-login-routes.md#amendment-2026-10-19-saved-bindings-that-lack-a-slot)): the dry run's plan refusal (such as `binding-slots-mismatch`, `field-missing` or `field-ambiguous`), `left`, `route-missing`, `route-not-password`, `recipe-changed`, `not-continued`, `settings-unavailable`, `settings-revision`, `account-changed`, `stop:<miss>` for a login stopping before its item's missing password, `not-ready`, `budget-exceeded` or `not-recorded`; once answered or failed, how long the request took: `roundTripMs`, `serverMs`, `networkMs`, `tokenMs` and `modelMs` ([timing](#request-and-login-timing)); `signedIn`, the hint a recipe's first page was sent with, and for a returned route recipe its `pageKind` ([ADR 0035](adr/0035-page-kinds-per-site.md)) |
+| `recipe.generate` | debug for `skipped` with `no-vault-match`, `not-connected`, `not-a-list`, `no-listed-account` or `nothing-offered`, warn for `failed`, else info | origin, outcome (`sent` when the page goes out, then `recipe`, `abstained`, `failed`, `unavailable`, `skipped`) and its reason: the abstention, failure or unavailable code, `device-rejected`, `error` for a thrown error, or why nothing was sent (`sending`, `sent`, `no-vault-match` with a detail (`no-item`, `no-slots`, `no-connection`, `incomplete-item`, `site-excluded`, `invalid-url`, or `no-passkey` for a passkey-only page whose matching items hold no discoverable passkey and that shows no entry or list to handle instead, ADR 0053), `vault-unavailable` with the vault's reason (or `settings`, `tab`, `error`), `connection-disabled` when every vault connection is turned off, `not-a-list` with why a page whose text holds an `@` is not a list of accounts (ADR 0028: `aria-hidden`, `inert`, `hidden`, `not-rendered`, `page-chrome`, `inside-control`, `no-entry`, `unread-text`, `split-address`), `no-listed-account` when no short text beside the buttons named an item (`no-name-match` when the page also shows no control to sign in with another account; when words for another account show but no such control counts, why: for a usable control with the words, `other-holds-name` when its text or label holds a shown name, `other-not-clickable` when a list click could not press it, `other-text-long` when its text is over 64 characters, `other-label-only` when only an `aria-label` has them; for words outside every usable control, `other-in-chrome` in page chrome, `other-not-entry` with nothing shown, enabled and clickable around them, `other-not-control` in a clickable element that is not an innermost control; or the vault's reason), or for any list on a page whose path holds a matching item's username (`username-in-path`), or for a list by email when no matching item's username is an email and the page shows no control for another account (`no-email-username`), `nothing-offered` when a page that could be sent showed no list of accounts, sign-in entry, identifier input or passkey button once its DOM was quiet (ADR 0057) and no sign-in input by the end of the 10-second wait (`no-list`), was the page right after a submitted password form (`after-sign-in`, also with a secret answer), or showed a sign-in input only at the end of the wait (`sign-in-shown`), or, with none of those, showed a writable `type="text"` input named or labelled as a secret or security answer or question (`text-answer`) when no vault item matches, `text-answer` itself when such a page has a matching item, and `frame` for a frame whose page would be sent now and that showed a sign-in input or such an answer at one of five readings within the 10-second wait, both pages that look like a verification and are never sent ([ADR 0035](adr/0035-page-kinds-per-site.md#implementation-of-delivery-1)), `field-not-described` for the page after a final `advance` step whose description lacks the sign-in input it qualified with (ADR 0018), `incomplete-observation` with why as `detail`: for an incomplete description the extractor's first cause, in this order for a login page `shadow-field` (a fillable field in any shadow root), `shadow-control` (another control in a shadow root inside a login form), `unfillable-field` (a transparent or tiny, read-only or disabled fillable field of a login form; one transparent only while it or an ancestor fades in from opacity 0, or only under its own `<label>` that holds it and shows text opaque, as a floating label, counts as opaque, and one both transparent or tiny and disabled is left out), `unsupported-control` (a select, radio button, text area or other input the executor cannot act on in a login form), `unlocated-field`, `unlocated-checkbox` and `unlocated-button` (a login form's field, required checkbox or button without a locator that names it alone, including an icon button in a form with no other button to submit with; a checkbox without `required`, `aria-required="true"` or a locator is left out), `too-many-candidates` (more than 48), and for a list of accounts `shadow-field`, `too-many-accounts` (more than eight), `unlisted-accounts` (an account whose text could not be sent), `too-many-elements` (more than the 4,000 elements the list scan reads) and `too-many-controls` (more than eight other controls outside page chrome, the page's footer included), or `incomplete` without one; `invalid-observation` for a description that fails its schema; for a complete one `origin-changed` or `path-changed` when it describes another origin or path than the document's, `list-mismatch` when a page announced as a list is described without accounts or another page with them, and for a page offered as a site's sign-in entry `not-entry` when it shows a field or lists accounts; the content script's refusal (`no-candidates` for no field or nothing in a login form to locate or act on, with why as `detail`: the page's inputs other than hidden ones (`n`), the fields the description accepted (`d`) and the first three inputs as `type-presence`, the presence `shown` or why the description does not see it (as in `advanceWhy`), with `-out` for one outside every form, such as `n2.d0.text-hidden-attr.password-hidden-attr` (agent change, 2026-10-23, after x.com's field was not described in the owner's Chrome only), `no-locator` for a login form whose controls could not be located, `unsupported-page` for a description that fails its schema or a list whose raw path holds a listed name (a path that may carry a token is sent with `[id]` instead, ADR 0039), `extract-error` when the extractor threw, `cancelled` for a cancelled document), `extract-failed` for an answer that fails its check or never came, `unreachable` when the page went away or stopped answering before it could be read, as during a navigation, with how as `detail` (`no-receiver`, `port-closed`, `send-failed`), `exception` when reading the vault for it, or anything else, threw while the page still shows, `no-slots`, `not-connected`, `storage-unavailable`, `username-unread` when a matching item's username could not be read to hide it, `username-shown` when a username shows in the page's path or a field's locator, where it cannot be hidden, for the page after a final `advance` step `scope-incomplete` while the vault match could not evaluate every item, `after-sign-in` for the tab's next page after a submitted password form when it lists accounts, offers an entry, asks for an identifier alone or shows a passkey button, `signed-in-elsewhere` for a list of accounts while another tab's login of the origin authenticated less than an hour ago and neither this tab clicked a control that logs out in the last 10 minutes nor any tab of the origin asks after a logout, which also keeps a sign-in entry offered beside the list from being sent (ADR 0028), and for a page offered as a site's sign-in entry `no-return-target`, `site-record`, `logged-out` and `no-entry-link` when its description lists no link, and for a form on a chooser's path `no-account-field` when it has no field for the account and `list-shown` when the list shows by then); `page` (also for a page that asks for an account identifier alone, [ADR 0016](adr/0016-recipe-generation-trigger.md#pages-that-ask-for-an-identifier-alone), and a passkey-only page, ADR 0053), `accounts` for a list of accounts (ADR 0028), `entry` for a page sent as a site's sign-in entry (ADR 0031), or `other` for a form on a chooser's path sent as its `other` branch's first page (ADR 0028), with the chooser's ID and revision once the page is sent; for `invalid-output`, the check that refused the model's output (`json`, `schema` or `plan`), the plan check's code or the output format's issue, and for a format issue where in the output it was; a page that is not sent is logged once per document, with the last reason after up to ten reads a second apart; for the page after a final `advance` step, the recipe ID and the revision it continues, and for a returned revision whether this login took it over, left out when the page that asked was left before the answer, and when it did not, why (`notTakenOver`, [ADR 0027](adr/0027-per-account-login-routes.md#amendment-2026-10-19-saved-bindings-that-lack-a-slot)): the dry run's plan refusal (such as `binding-slots-mismatch`, `field-missing` or `field-ambiguous`), `left`, `route-missing`, `route-not-password`, `recipe-changed`, `not-continued`, `settings-unavailable`, `settings-revision`, `account-changed`, `stop:<miss>` for a login stopping before its item's missing password, `not-ready`, `budget-exceeded` or `not-recorded`; once answered or failed, how long the request took: `roundTripMs`, `serverMs`, `networkMs`, `tokenMs` and `modelMs` ([timing](#request-and-login-timing)); `signedIn`, the hint a recipe's first page was sent with, and for a returned route recipe its `pageKind` ([ADR 0035](adr/0035-page-kinds-per-site.md)) |
 | `recipe.judge` | warn for `retry` after a request that failed (any reason but `not-connected`, where nothing was sent), for an undecided answer that completed the login (`completed`, ADR 0029) or that did not complete it only because a disabled field was left out or the login stops before its item's missing password (`notCompleted`), and for a watched login's `unclear` or `challenge` or its `not-sent` `page-limit`, which leave it without a result (ADR 0027), else info; `unclear` stays info even with a failure code such as `timeout`, since it also covers permanent refusals such as `already-judged`, and its reason tells them apart; `sent` is logged just before the request leaves the device and is kept because it is all that is left when no answer comes | origin, recipe ID and revision (`recipeRevision`), route; `sent` when the page goes out, then the verdict (`signed-in`, `rejected`, `challenge`, `unclear`, `retry`); for `unclear` and `retry`, the transport, service or model code (for example `already-judged`, `busy`, `timeout`); for a returned revision, whether this login took it over; `watched` for a page of a watched login; `completed` when the judge did not decide a page with no sign and no evidence and the login completed on it; `moved` for a page of another origin of the site that a `password` login's tab moved to right after the submission, or of another site right after a TOTP code or a passkey answered after the password, judged once, whose verdict alone decides the login (ADR 0022), with that page's origin; `disabledLeftOut` on each entry of a page whose description left out a disabled field that may not be a sign-in field, which completes the login only on `signed-in`, and `notCompleted` (`disabled-left-out`) when an undecided answer would otherwise have completed it (ADR 0029), or `password-empty` for a login that stops before its item's missing password, which ends `challenge` instead ([ADR 0036](adr/0036-passkey-after-the-identifier.md)); `stop` (`password`) on each entry of the page judged at such a login's stop for a passkey button beside the password field, `not-sent` with `stop-judged` when the attempt sent it already, or with `chooser` for a chooser login's stop, which the service does not judge; `not-sent` when the page after an effect step is not sent to the judge, with why: the step's two pages, or the watch's, were already sent (`page-limit`), a sign-in field of the route still shows on a sign-in path (`sign-in-shown`), a signed-in marker shows but does not prove the sign-in, as more than once or beside one of its `absent` elements (`marker-shown`), a field in a shadow root (`shadow-field`), one that cannot be filled and may be a sign-in field (`unfillable-field`: a password or email input, one with any autocomplete token the description carries other than `off`, such as `username`, `current-password`, `one-time-code` or a personal-data token such as `tel`, or a short numeric field; other read-only, disabled, transparent or tiny fields, as a read-only date picker, are left out), one that may be a sign-in field without a usable locator, as above, except a password field of a form with two or more of them or for a new password (`unlocated-field`; other fields without one are left out), more than 48 fields (`too-many-fields`), nothing to describe (`no-candidates`), a description that fails its schema (`unsupported-page`; a path that may carry a token is sent with `[id]` instead, as on every page since ADR 0039), an extractor that threw (`extract-error`), a response that fails its check (`invalid-page`), a cancelled login (`cancelled`), a page that changed meanwhile (`page-changed`) or could not be asked (`unreachable`), a username that could not be read to hide it (`username-unread`) or that shows where it cannot be hidden (`username-shown`), a sign-in page after a recipe's final `advance` step, which is sent to continue the recipe instead (`continuation`), or, for a `moved` page, a recipe revision no longer at hand (`recipe-unavailable`) or no paired service (`no-service`); once answered or failed, how long the request took: `roundTripMs`, `serverMs`, `networkMs`, `tokenMs` and `modelMs` ([timing](#request-and-login-timing)) |
 | `recipe.sample` | debug for `sent`, `recent`, `gone` and `not-sent`, info for `kept` and `refused`, warn for `failed` | origin, recipe ID and revision (`recipeRevision`), route; a repeat login's signed-in page sample ([ADR 0029](adr/0029-local-sign-in-state.md#amendment-signed-in-page-samples-2026-10-18)): `sent` just before it leaves the device, then `kept` (the service logged it), `recent` (the service had a sample of the recipe and branch from the last 30 days), `gone` (a 404: the service no longer holds the recipe revision, as when it was revoked meanwhile), `refused` (a 400: the service turned the page away, as one still showing a fill field of the route) or `failed` with the transport's code or `device-rejected`; `not-sent` with why when one was due: the page changed (`page-changed`), the site was excluded since the login started (`site-excluded`, checked again just before the request), the settings could not be read, the description's own `not-sent` codes of `recipe.judge`, a disabled field left out (`disabled-left-out`) or a record that could not be stored (`storage-unavailable`). Nothing is logged when no sample is due |
 | `recipe.revoke` | info for `revoked` and `conflict`, warn for `failed`, else debug | origin, recipe ID and revision (`recipeRevision`) of a new login's recipe the chosen item cannot run ([ADR 0058](adr/0058-automatic-recipe-removal.md#a-a-recipe-the-chosen-item-cannot-run)); `route`, the route the item would take that the recipe lacks (`passkey` or `password`); the outcome: `revoked`, `conflict` (the service's head had moved on), `not-due` with `not-connected`, `sending` or `sent` when the page may not be sent for generation now, or without a reason when this device revoked the recipe in the last 30 days, `not-sent` with `storage-unavailable` when the revocation could not be recorded first, or `failed` with the transport's code, `device-rejected` or `error`; as `detail`, the plan's refusal (its `no-route` detail, such as `password-empty:no-advance` or `no-totp`, or its reason); how long the request took: `roundTripMs`, `serverMs` and `networkMs` ([timing](#request-and-login-timing)) |
@@ -1951,6 +2099,14 @@ failure condition, and provenance. The vocabulary is packaged code such as fill,
 wait-for-state, and assert-state. There is no eval, remote JavaScript, arbitrary fetch,
 or model-selected secret destination.
 
+A generated page plan fills its fields and clicks the one button that advances or
+submits. When the form shows no such button, as x.com's sign-in before a username is
+typed, the plan's action is its last field, and the click step carries `press: "enter"`
+with that field as its target: the executor then submits the field's form as Enter does,
+through the form's default button or `requestSubmit()`, never through a default button
+that showed when the fill began, is disabled or sits outside the form
+([ADR 0064](adr/0064-enter-in-a-form-without-a-button.md)).
+
 A stored recipe is either a login recipe, with `pageKind`, `slots`, `steps`,
 `maxSubmissions` and the optional route members, or an entry recipe
 ([ADR 0031](adr/0031-sign-in-entry-pages.md#recipe-contract)) whose only member besides
@@ -1978,7 +2134,10 @@ announces goes first); the worker then checks the tab holds no attempt record fo
 origin of the site, no tab keeps a logout of it, the page is not the tab's next page
 after a submitted password form and a vault item matches, and sends the page's shown,
 enabled buttons and links with rendered text outside forms with fields, header and
-navigation first, up to 48, without slots. The content script lists the hosts the page's
+navigation first, up to 48, without slots and with the matching items' usernames hidden
+as `[account]` (a page refused as `username-unread` or `username-shown` is not sent,
+[ADR 0031](adr/0031-sign-in-entry-pages.md#amendment-2026-10-23-the-matching-items-usernames-are-hidden)).
+The content script lists the hosts the page's
 URL and links name, and the worker answers which are on the site, so a link to another
 site, `http:` (unless the page is `http:` too, ADR 0050), to the page itself or only
 another fragment of it, opening another window (by its own `target` or the document's
@@ -2021,8 +2180,16 @@ A third kind is a chooser recipe
 besides its identity, revision and origin is `chooser`: the path where a list of
 accounts shows, the optional `other` and `continue` buttons, and the optional
 `afterAccount` and `afterOther` branches, each a login recipe under the chooser's own
-ID, revision and origin. The entry to click is never stored. Like an entry recipe, it is
-validated, stored, synced, listed and revoked, and the extension never starts it yet.
+ID, revision and origin. A chooser holds a branch only while `chooserRoute`, which puts
+the click on the list in front of it, makes a login recipe of it for every click that
+leads there. With that click, the branch has at most 31 steps, at most 7 of them clicks
+or fills that advance or submit, and room for `username` among its slots. Nothing on a
+button the login clicks on the list proves or hands off the sign-in (a signed-in marker,
+account switch, `password` handler button or `totp` code field), and the branch is not
+`passkeyOnly`, which the route drops. A generated page that would break this answers
+`recipe-invalid`, and a judged marker or handler that would is not learned. The entry to
+click is never stored. Like an entry recipe, it is validated, stored, synced, listed and
+revoked, and the extension never starts it yet.
 The service writes one when the model answers that a page with `accounts` is an account
 list, naming the list's `other` and `continue` controls by reference; the controls must
 be buttons or links of the page whose text holds no `[email]`, `[masked]`, `[number]`,
@@ -2041,7 +2208,10 @@ too. A form page, or a route recipe's next page, whose stored recipe is a choose
 answers `recipe-conflict`. The extension sends a page that lists accounts once its DOM
 has been quiet for a second, or 5 seconds after it starts waiting (ADR 0057), unless it
 follows a submitted password form, with a username that is not an email and the other
-texts beside its buttons shown as `[account]`, and caches the chooser it gets. A login
+texts beside its buttons shown as `[account]` and with `slots: []`, which the service
+requires of a list
+([ADR 0028](adr/0028-account-chooser-login-pages.md#amendment-2026-10-23-sent-without-slots)),
+and caches the chooser it gets. A login
 on the list clicks the account's entry, the `continue` button or `other`, as the content
 script finds them for the account's username, then runs that branch and sends its pages
 with the branch; with nothing to click it ends `account-not-listed`
@@ -2091,17 +2261,18 @@ A recipe's `completion` is a list of up to four signed-in markers without a path
 ([ADR 0029](adr/0029-local-sign-in-state.md)), in the order the judge found them: the
 first from the page after the first sign-in, each later one from another page the judge
 answered `signed-in` for while no learned marker showed there. A marker is never an
-element the recipe's steps, passkey route or handlers use, on any path. Each may also
-list up to four `absent` elements. The executor reports `authenticated` when one marker
-is unique and visible on any path and every `absent` element of that marker is missing.
-A marker may be a link named by its text, such as an account page link without an `id`,
-matched as an account switch's is. A marker learned on a page that signs in on its own
-path lists that path's sign-in fields, because the executor checks the markers after
-every step and counts hidden elements: a login page that keeps a hidden "Sign out" link
-never counts as signed in. A site that keeps those sign-in inputs hidden in its pages
-after signing in therefore never reports `authenticated` with such a marker. A recipe's
-markers and their absent elements, its rejection and any one step's elements together
-stay within one 24-element observation, so a marker that would exceed it is not learned.
+element the recipe's steps, passkey route or handlers use, nor its account switch or
+rejection, on any path. Each may also list up to four `absent` elements. The executor
+reports `authenticated` when one marker is unique and visible on any path and every
+`absent` element of that marker is missing. A marker may be a link named by its text,
+such as an account page link without an `id`, matched as an account switch's is. A
+marker learned on a page that signs in on its own path lists that path's sign-in fields,
+because the executor checks the markers after every step and counts hidden elements: a
+login page that keeps a hidden "Sign out" link never counts as signed in. A site that
+keeps those sign-in inputs hidden in its pages after signing in therefore never reports
+`authenticated` with such a marker. A recipe's markers and their absent elements, its
+rejection and any one step's elements together stay within one 24-element observation,
+so a marker that would exceed it is not learned.
 
 A login that such a marker completed after an effect step sends nothing to the judge,
 but its page may go to the service as a sample for evaluation ([ADR
@@ -2122,9 +2293,13 @@ failure only loses the sample, logged as `recipe.sample`.
 
 A step names its element with an allowlisted locator, never CSS: an `id` or `name` (any
 ASCII except whitespace and control characters, as in `ctl00$Main$txtUserId` or
-`user[login]`), a `data-testid` (`[A-Za-z0-9_.:-]`), an `<input>`'s `autocomplete`
+`user[login]`), a `data-testid` or, after it, a `data-test` (`[A-Za-z0-9_.:-]`;
+`data-test` since [ADR 0071](adr/0071-data-test-locators.md)), an `<input>`'s
+`autocomplete`
 token, a fillable input's visible name
-([ADR 0037](adr/0037-fields-by-visible-name.md), below), a `password` handler's
+([ADR 0037](adr/0037-fields-by-visible-name.md), below) or its `name` within the
+sign-in form ([ADR 0072](adr/0072-field-name-in-the-sign-in-form.md), below), a
+`password` handler's
 button's accessible name (ADR 0048's amendment, below), or, for a click or a state
 check only, a button's text:
 `{ "by": "text", "value": "ログイン" }` names the `<button>` whose rendered text (or,
@@ -2150,7 +2325,12 @@ that shows such an input cannot become the completion. A script button is a cont
 scripts make clickable: a script link, or another element with `role="button"`, but
 never a form control or anything inside an `<a href>`. A script link is an `<a>` without
 `href` that has an `onclick` attribute or `role="button"`, such as
-`<a id="login" onclick="document.loginForm.submit()">`, or an `<a href>` that runs a
+`<a id="login" onclick="document.loginForm.submit()">`, or sets a pointer cursor
+itself (CSS `cursor: pointer` that its parent does not have), such as IIJmio's
+`<a class="pink_btn">ログイン</a>`, whose script listener leaves no attribute
+(owner-approved 2026-10-23); the cursor is read as computed when the page is read,
+so one set only on hover or once the fields are filled does not count, or an `<a href>`
+that runs a
 script instead of following the link: a `javascript:` URL (or a `data:` or `vbscript:`
 one, which Chrome never follows from a page), such as
 `<a href="javascript:;" onclick="login()">ログイン</a>`, or an empty or fragment-only
@@ -2295,6 +2475,15 @@ sign-in field gets it; markers never do.
 generated again each time (2026-10-13). A site that rewords the field gets its recipe
 generated again.
 
+A field that none of those names alone is located by its `name` within the sign-in form
+before an `id` another load may change (owner, 2026-10-23,
+[ADR 0072](adr/0072-field-name-in-the-sign-in-form.md)):
+`{ "by": "password-form-name", "value": "acct" }` names the one shown element whose
+`name` equals the value and whose form also holds a shown password input not marked
+`new-password`. Hacker News's sign-in shows a create-account form below its login form
+with the same `name="acct"`, and its account field has no other locator. Fill steps and
+a `totp` handler's code field take it, never a button, link, entry or list control.
+
 An `id`, `name`, `data-testid` or `autocomplete` locator that several elements match
 counts only the shown ones, by the content script's visibility check (owner,
 2026-10-22, the 2026-10-22 amendment of
@@ -2427,26 +2616,24 @@ replaced, an `id`, `name` or `data-testid` that may be a token locates nothing, 
 judged page, so a token the page also writes into such an attribute is not sent through
 a locator either. Text, labels and the title are not checked against the replaced
 segment, and a short token the rule does not flag is sent as it is, so this is a
-heuristic. A username in the path
-is looked for in the raw path, before the replacement. The local log's `url` keeps the
-raw path (owner decision 2026-10-13). Labels can
-contain private data too: sanitize and bound them, with privacy fixtures and an
-abstention path when a useful safe observation cannot be constructed. The owner chose on
-2026-10-11 to redact observed text before it is sent: email-like strings, including
-masked ones, become `[email]`; runs of three or more `*`, `●`, `•` or `＊` become
-`[masked]`; and runs of four or more ASCII or fullwidth digits become `[number]`
-(`口座番号 ****1234` becomes `口座番号 [masked][number]`). Page text is read as it
-renders, both before redaction and before it is compared with an account: a `<wbr>`
-line-break opportunity separates nothing, and format characters (`\p{Cf}`, such as
-U+200B zero-width space and U+00AD soft hyphen) are left out, so
-`taro.yamada@<wbr>example.com` and `taro.yamada@&#8203;example.com` become
-`[email]`, and the sign-in state's E2, the entries of a list of accounts and the
-wrong-account check each read them as one address; usernames are compared without
-format characters too. Names cannot be detected and
-stay, except the account's own usernames: just before a page goes to the service (a
-recipe's first page, the page after an `advance` step, the page the completion judge
-gets and a signed-in page sample), the worker reads the `login.username` of the items
-that match the page as for the
+heuristic. A username in the path is looked for in the raw path, before the replacement.
+The local log's `url` keeps the raw path (owner decision 2026-10-13). Labels can contain
+private data too: sanitize and bound them, with privacy fixtures and an abstention path
+when a useful safe observation cannot be constructed. The owner chose on 2026-10-11 to
+redact observed text before it is sent: email-like strings, including masked ones,
+become `[email]`; runs of three or more `*`, `●`, `•` or `＊` become `[masked]`; and
+runs of four or more ASCII or fullwidth digits become `[number]` (`口座番号 ****1234`
+becomes `口座番号 [masked][number]`). Page text is read as it renders, both before
+redaction and before it is compared with an account: a `<wbr>` line-break opportunity
+separates nothing, and format characters (`\p{Cf}`, such as U+200B zero-width space and
+U+00AD soft hyphen) are left out, so `taro.yamada@<wbr>example.com` and
+`taro.yamada@&#8203;example.com` become `[email]`, and the sign-in state's E2, the
+entries of a list of accounts and the wrong-account check each read them as one address;
+usernames are compared without format characters too. Names cannot be detected and stay,
+except the account's own usernames: just before a page goes to the service (a recipe's
+first page, the page after an `advance` step, the page the completion judge gets and a
+signed-in page sample), the worker reads the `login.username` of the items that match
+the page as for the
 [username shape](adr/0016-recipe-generation-trigger.md#username-shape), and for a judged
 page the login's own item's too, and hides each username of three or more characters
 (the minimum the sign-in state's E2 uses) where it shows as `[account]`, by
@@ -2499,23 +2686,24 @@ live regions, error messages, controls, labels, links and headings left out
 code field, it carries `nearButtons` instead: up to three such texts near its buttons,
 read inside an open modal that holds one or else the first shown main landmark, and
 never in the header or navigation, so the judge can tell that a button labelled only
-"Verify" starts a security-key check. There, a polite live region without a role of
-its own that holds one of those buttons, the modal or main itself or a region inside
-it, is read as any other part of the page; every other live region is still left out.
-Login pages keep the
-four-digit rule, since hints such as `4 digits` help map fields. When a login page
-already shows a chosen account and offers a button or link to use another one, the
-generation role may name it as the plan's `accountSwitch`; it must be an observed button
-or link that the plan neither fills nor uses as its action. The generated recipe keeps
-the first switch a page names that no step clicks. Only links inside the login form are
-observed, so a switch link outside it is not named. A button whose text a link elsewhere
-on the page shows too, and a button that would submit a form, are never clicked as a
-switch; the attempt then ends `wrong-account`. Locating links by text means in-form
-links without an `id`, `name` or `data-testid` are now observed as well, with their
-redacted labels, and a switch link's redacted rendered text is stored in the recipe.
-Model output must pass structural and semantic checks on the server and again locally.
-Screenshot, audio and video collection are deferred. A provider's multimodal support
-does not enable these inputs without a separate privacy/evaluation gate.
+"Verify" starts a security-key check. There, a polite live region without a role of its
+own that holds one of those buttons, the modal or main itself or a region inside it, is
+read as any other part of the page; every other live region is still left out. Login
+pages keep the four-digit rule, since hints such as `4 digits` help map fields. When a
+login page already shows a chosen account and offers a button or link to use another
+one, the generation role may name it as the plan's `accountSwitch`; it must be an
+observed button or link that the plan neither fills nor uses as its action. The
+generated recipe keeps the first switch a page names that no step clicks and that is not
+the passkey button, a handler's element, the rejection or a signed-in marker. Only links
+inside the login form are observed, so a switch link outside it is not named. A button
+whose text a link elsewhere on the page shows too, and a button that would submit a
+form, are never clicked as a switch; the attempt then ends `wrong-account`. Locating
+links by text means in-form links without an `id`, `name` or `data-testid` are now
+observed as well, with their redacted labels, and a switch link's redacted rendered text
+is stored in the recipe. Model output must pass structural and semantic checks on the
+server and again locally. Screenshot, audio and video collection are deferred. A
+provider's multimodal support does not enable these inputs without a separate
+privacy/evaluation gate.
 
 Use a cached compatible recipe first. On structural mismatch or repeated genuine
 recipe failure, request repair within a separate bounded inference budget (proposed, not
@@ -2524,7 +2712,9 @@ revoked; repair is planned early in [phase 3](plan.md#phase-3-public-release)). 
 credentials, MFA, network errors, and account lockout do not trigger endless
 relearning or reset submission limits. Inference can abstain, refuse, time out,
 or return invalid output; all have explicit local outcomes.
-Never automatically fall back to another provider or model. Compatible local
+Never automatically fall back to another provider or model, except that a refused
+request asks the owner's next configured model, and failed fast mode the same model at
+the standard speed (ADR 0014). Compatible local
 recipes continue working when inference is unavailable or its spending cap is
 reached.
 
@@ -2574,6 +2764,12 @@ as stated, never as a guessed recipe:
   is complete, and the paid answer is dropped.
 - The service passes no abort signal to the model call, so a device that stops waiting
   or disconnects does not end it; the call is charged and logged as usual.
+- A button a page shows only after a value is typed is not described, because Pateat
+  never types a placeholder value into a page to reveal it (owner, 2026-10-23 11:25 UTC:
+  「仮の値を入れるのは一旦しない方向で」, as a page may change when a username is
+  typed; reconsidered only when a site cannot be handled otherwise). Such a form is
+  submitted only as [ADR 0064](adr/0064-enter-in-a-form-without-a-button.md) does, so
+  one whose shown button is not a submit button is not submitted.
 
 ## Existing passkeys
 
@@ -2889,6 +3085,12 @@ people.
   request limit. The owner deletes all three on the web UI's Request log page. Devices
   are not counted: each pairing needs an interactive Access login.
 
+The [offline synthetic measurement report](research/2026-10-23-synthetic-limits.md)
+provides a reproducible UTF-8 serialization check against these configured limits: a
+valid wide-marker shape reaches the 1.5 MiB owner byte cap at 710 recipes, whose cache
+still fits the 2 MiB device cap. It is not hosted enforcement, storage-quota or
+performance evidence.
+
 ### Unsupported service edge cases
 
 Status: recorded on 2026-10-17 from a reading of the Worker code; none of these is a
@@ -2901,9 +3103,15 @@ planned change. Each is current behavior that the service does not handle.
 - Clock skew. Access tokens get no leeway: a token whose `iat` or `nbf` is ahead of
   the Worker's clock, or one forwarded in the second before its `exp`, is refused with
   403 rather than "sign in first".
-- Device labels. A label refuses every `\p{C}` character, which includes format
-  characters such as the zero-width joiner of emoji sequences and bidirectional marks,
-  and counts 64 UTF-16 code units, so an emoji takes two.
+- Device labels. A label is 1 to 64 UTF-16 code units after trimming, so an emoji
+  takes two and a joined emoji sequence more. It needs at least one letter, digit,
+  punctuation mark or symbol that shows (default-ignorable characters such as the Hangul
+  filler U+3164, and the blank Braille pattern U+2800, do not count); with one, format
+  and private-use characters such as the zero-width joiner of emoji sequences, the
+  zero-width space and the soft hyphen are accepted (owner, 2026-10-23 12:57 UTC).
+  Control characters, lone surrogates, line and paragraph separators and text-direction
+  marks are refused (`deviceLabelSchema` in `packages/contracts/src/pairing.ts`). The
+  settings page answers a name with nothing that shows with "Enter a device name.".
 - Upper-case IDs. Device IDs in management paths are compared exactly, so
   `/manage/api/devices/<ID in upper case>/revoke` answers 404 for an existing device.
 - Unaddressable recipe IDs. The recipe ID contract accepts `.`, `..` and `generate`,
@@ -2921,8 +3129,7 @@ planned change. Each is current behavior that the service does not handle.
   recipe ID or revision contracts without a migration, can produce one.
 - Requests without limits. `OWNER_LIMITER` runs after authentication, so `/v1`
   requests with unknown credentials are not limited by the Worker; owner pages, their
-  assets, `/pair/signed-in` and `/manage/claude` (whose test button makes one token
-  exchange with Anthropic per post) have no per-identity limit either.
+  assets and `/pair/signed-in` have no per-identity limit either.
 - Strict request shapes. Paths match exactly: a trailing slash, another letter case or
   an unknown path under `/manage` answers the JSON 404 `not_found`, not an HTML page.
   The change feed refuses any query parameter but `after` and `limit` with 400, and a
@@ -2945,17 +3152,22 @@ steady-state API calls carry no cookie.
   application with a Bypass policy exempts the paths that cannot pass an interactive
   login: the `/v1` sync routes, which accept only device credentials; `/health`; and the
   two `/.well-known` issuer routes that Anthropic fetches anonymously. The Worker
-  verifies the `Cf-Access-Jwt-Assertion` JWT itself:
-  signature against the team JWKS, configured audience tag and issuer, and expiry. It
-  never trusts the plain identity headers. The owner key is the issuer plus the token
-  subject, not the email address. Verification uses Hono's JWT utility with the team
-  JWKS, allowing only RS256; Hono's JWK middleware reads only `Bearer` values, and a
-  dedicated JWT library would need its own owner decision. Tokens without an expiry or a
-  user subject, such as service tokens, are refused. The public keys are edge-cached for
-  five minutes, so a rotated key may be refused briefly.
+  verifies the `Cf-Access-Jwt-Assertion` JWT itself: signature against the team JWKS,
+  configured audience tag and issuer, and expiry. It never trusts the plain identity
+  headers. The owner key is the issuer plus the token subject, not the email address.
+  Verification uses Hono's JWT utility with the team JWKS, allowing only RS256; Hono's
+  JWK middleware reads only `Bearer` values, and a dedicated JWT library would need its
+  own owner decision. Tokens without an expiry or a user subject, such as service
+  tokens, are refused. The public keys are edge-cached for five minutes, so a rotated
+  key may be refused briefly. When they cannot be fetched (an error, an answer that is
+  not a key set, or no answer within five seconds), the request fails as an outage
+  (owner pages 503 asking to try again later, JSON routes 503 `access_keys_unavailable`)
+  rather than as a refused sign-in; the extension's settings page and the web UI ask to
+  try again later.
 - Pairing. **Pair this device** on the settings page asks for site access to the
   service, then the extension's background service worker sends one `POST /pair` with
-  the device label, `credentials: "include"`, `redirect: "manual"` and
+  the device label ([device labels](#unsupported-service-edge-cases)),
+  `credentials: "include"`, `redirect: "manual"` and
   `X-Requested-With: XMLHttpRequest`, so the browser's Access session travels with it.
   The route sits behind Access; the Worker verifies the token (the host-wide
   application's audience, or "pateat pair"'s, which also admits browsers without WARP,
@@ -2972,8 +3184,8 @@ steady-state API calls carry no cookie.
   settings page opens `<service>/pair/signed-in` in a new tab once per click, where
   Access signs the browser in and the page asks the user to return; it retries once when
   it is shown or focused again, and offers **Try again** and **Open sign-in page**. A
-  refused sign-in, an unlisted extension ID and a service without pairing settings each
-  have their own message.
+  refused sign-in, an unlisted extension ID, a service without pairing settings and a
+  service that could not fetch Access's signing keys each have their own message.
 - Lifetime and recovery. A credential expires once it has gone unused for 90 days, and
   each authenticated use renews it; there is no absolute lifetime and no rotation (owner
   decision, 2026-10-11). The service records a device's last use at most once a day
@@ -3001,6 +3213,46 @@ cookie validation; only the transport unit tests' synthetic responses cover thos
 verification worked against the real Access application when the owner paired with
 the typed code on 2026-10-11. Credential idle expiry has local tests only so far.
 
+### Sync cases Pateat does not handle
+
+Status: current behavior, read from the code on 2026-10-23; no fix is planned for any of
+these yet. Each says what a device does and how to recover.
+
+- A service database restored to an earlier point. A device keeps its recipe cursor, and
+  the service answers a cursor past its newest change with an empty, complete page. So
+  the device skips every recipe change whose sequence number is not past its cursor, for
+  good unless that recipe is written again, and keeps cached recipes that the restore
+  removed. While the service's settings revision is below the device's stored base,
+  settings merge without a base and nothing is removed; once other writes pass that
+  revision, the stored base applies again and the device removes every entry the restore
+  dropped ([plan](plan.md#service-sync-progress)).
+  Disconnecting and pairing each device again recovers recipes, since a new pairing
+  starts from an empty cache; it does not recover settings, because local settings stay
+  and the new pairing merges them without a base as well.
+- An extension built before the service, whose contracts reject a recipe or settings
+  document the service sends. The page fails as an unexpected response, and recipe sync
+  stops at it in the same way, revocations included, while login keeps using the cache;
+  a settings document it cannot read stops settings sync. Updating the extension
+  recovers.
+- Sync records that a new build cannot read after an extension update. The recipe cache
+  is discarded and synced again from the start, and each recipe is found only once its
+  page arrives. The settings base is discarded too, so the next merge has none: an entry
+  that the service or another device removed since this device last synced comes back
+  from this device, and one this device removed comes back from the service. An
+  unreadable pairing record instead stops sync until the device is forgotten and paired
+  again.
+- A device credential that could not be written after `POST /pair`. It is kept only in
+  the worker's memory and saved on the next request; if the worker stops first, it is
+  lost. The device stays active on the service until it is revoked on the management
+  page or goes 90 days unused, and pairing again creates a second device.
+- Failed syncs on the settings page. The page shows only a rejected device, recipes or
+  settings that no longer fit, and the time of the last complete sync. A sync that keeps
+  failing for another reason (no network, an unexpected answer, full extension storage,
+  a login that holds the settings write, a backlog over 50 pages, or site access to the
+  service withdrawn) still shows the last success. After the first complete sync the
+  page reads this state again only when it is reloaded. The diagnostics page warns once
+  the last complete sync is more than 24 hours old.
+
 ### Owner web UI
 
 Status: design approved by the owner on 2026-10-11, and its reorganisation into Sites
@@ -3010,7 +3262,10 @@ delete-all action ([ADR 0012](adr/0012-inference-request-log.md)); implemented a
 tested locally, not deployed. The Dashboard tab follows the owner's approval of the
 speed dashboard on 2026-10-18 (08:38 UTC), with Recharts for its charts (08:39 UTC,
 [development](development.md#dependency-policy)); implemented and tested locally, not
-deployed. The app, its Access-checked assets and API, and the devices, sites and site
+deployed. The Claude tab (owner decision of 2026-10-23, 12:46 UTC) holds the Claude
+Console values, the WIF identifiers, the connection test and each role's models in one
+page; it replaced the temporary script-free `/manage/claude` form and the Models tab.
+The app, its Access-checked assets and API, and the devices, sites and site
 pages are implemented and tested locally; the deployed service still has the earlier
 sites, account bindings and recipes pages until the next deployment. It replaces the
 extension's settings page for the data the service holds
@@ -3020,13 +3275,13 @@ field exclusions and custom-field review, which need the device's vault catalog
 
 - Pages. A React app under `/manage`, built with the same approved stack as the
   extension's pages ([ADR 0004](adr/0004-library-composition.md)) and served by the
-  Worker as static assets. Its header shows the logo and four tabs, Dashboard, Sites,
-  Devices and Request log, and its footer the version, links to the source and the GPL
-  text at the built commit and to the third-party notices, and the Theme select. React's
-  rendered `<title>` sets the tab title to `Dashboard – Pateat`, `Devices – Pateat`,
-  `Sites – Pateat`, `Request log – Pateat` or `<origin> – Pateat`; the static HTML keeps
-  `Pateat` before the app renders. Each page is its own path, a full page load that the
-  Worker serves only for these paths:
+  Worker as static assets. Its header shows the logo and five tabs, Dashboard, Sites,
+  Devices, Claude and Request log, and its footer the version, links to the source and
+  the GPL text at the built commit and to the third-party notices, and the Theme select.
+  React's rendered `<title>` sets the tab title to `Dashboard – Pateat`,
+  `Devices – Pateat`, `Sites – Pateat`, `Claude – Pateat`, `Request log – Pateat` or
+  `<origin> – Pateat`; the static HTML keeps `Pateat` before the app renders. Each page
+  is its own path, a full page load that the Worker serves only for these paths:
   - Dashboard (`/manage/dashboard`): the owner's request log, login records, login
     result codes, recipes and spend over 24 hours, 7 days or 30 days (7 days first),
     aggregated by the Worker from the owner's rows (`GET /manage/api/dashboard`). Speed
@@ -3066,6 +3321,27 @@ field exclusions and custom-field review, which need the device's vault catalog
     values are shown instead of a p90. Each chart is hidden from assistive technology
     and repeated as a table; Recharts loads only with this page.
   - Devices (`/manage`): the current list and revocation, moved into the app.
+  - Claude (`/manage/claude`, owner decision of 2026-10-23, 12:46 UTC): everything the
+    service needs to call Claude for the owner, in one page. Claude Console lists the
+    values to enter there for the owner's Workload Identity Federation rule
+    ([ADR 0015](adr/0015-per-owner-claude-credentials.md)): the issuer URL, or that the
+    service has none configured; the exact subject `owner:<ownerId>`; the audience; the
+    scope. Federation identifiers is a form of the four identifiers, starting from the
+    saved ones and keeping what the owner typed across refetches, which shows each
+    field's expected shape, trims whitespace, checks each against its pattern before
+    saving, and says when a saved row no longer validates; the last save wins. Test the
+    connection exchanges one token with the saved identifiers, which calls no model and
+    costs nothing, and shows how long the token is valid for or why the exchange failed;
+    the token never reaches the page. Models holds, for recipe generation and the
+    sign-in judge, the ordered model choices (first, then fallbacks after a refusal),
+    each a model, effort and speed, from the models the owner's credential can list
+    ([ADR 0014](adr/0014-claude-generation-provider.md)); a model without a price, an
+    effort it does not accept and fast mode that keeps failing cannot be chosen. Saving
+    writes `PUT /manage/api/models`; Use the defaults restores Opus 5.5 then Sonnet 5.5.
+    The page notes that none of the values is a secret and that archiving the federation
+    rule in the Console stops Pateat's access. It replaced the temporary script-free
+    form the owner chose on 2026-10-11 to try WIF before the web UI existed, and the
+    separate Models tab.
   - Request log (`/manage/request-log`): how many requests the
     [request log](adr/0012-inference-request-log.md) holds for the owner
     (requests answered without Claude included), and how many
@@ -3104,20 +3380,19 @@ field exclusions and custom-field review, which need the device's vault catalog
   `PUT /v1/recipes/:recipeId`. Item selection and field exclusions are not shown yet;
   once synced ([ADR 0023](adr/0023-synced-vault-policy.md)) the web UI first only lists
   them, and they are edited on the extension's settings page.
-
-  Claude credentials are entered on `/manage/claude`, a temporary script-free page
-  ([ADR 0015](adr/0015-per-owner-claude-credentials.md)). The web UI will replace it,
-  but its page for Claude credentials is not designed yet.
 - Data. The app calls a JSON API under `/manage/api/*`. It does not call `/v1`, whose
   routes accept only device credentials. The API shares the owner-scoped read and write
-  code of `/v1/settings` and `/v1/recipes/:recipeId`. Writes carry the revision the page
-  last read; a stale write changes nothing and returns the current state. The service
-  copy of settings holds no `connections`: the extension uploads none, a web write must
-  have none, and the page drops any that another client stored. A web write also stays
-  within the 120 KiB document size devices upload. An identity with no paired device has
-  no settings to edit and is told to pair one. Devices receive the change on their next
-  settings or recipe sync. The device ID columns recording who wrote a settings or
-  recipe revision are nullable; null means the web UI wrote it.
+  code of `/v1/settings` and `/v1/recipes/:recipeId`. Settings and recipe writes carry
+  the revision the page last read; a stale write changes nothing and returns the current
+  state. The service copy of settings holds no `connections`: the extension uploads
+  none, a web write must have none, and the page drops any that another client stored.
+  A web write also stays within the 120 KiB document size devices upload. An identity
+  with no paired device has no settings to edit and is told to pair one. Devices receive
+  the change on their next settings or recipe sync. The device ID columns recording who
+  wrote a settings or recipe revision are nullable; null means the web UI wrote it. The
+  Claude identifiers are written whole by `PUT /manage/api/claude` without a revision,
+  since only the owner edits them and devices never do; an identity with no paired
+  device has none either.
 - Display names. Site defaults and bindings keep display-only names beside their IDs, so
   the page can name them: `itemName`, the item's label (optional on a site default), and
   an optional `accountName`, the label the owner gave the vault connection the account

@@ -157,8 +157,9 @@ export const generationInstructions = [
   "one of the user's vault fields, and fieldPosition tells apart the user's fields of the",
   "same name: compare its name and valueShape with element labels, descriptions and",
   "constraints. Fill only the slots this page asks for. The action is the one button that",
-  "advances to another step or submits the credentials. Use only candidate and slot IDs",
-  "from the input.",
+  "advances to another step or submits the credentials. If the form shows no such button,",
+  "the action is the last field you fill, whose form is then submitted as pressing Enter",
+  "there does. Use only candidate and slot IDs from the input.",
   "Never name a button that registers, creates, adds or sets up a passkey or security key,",
   "or one the plan uses, as passkeyButton.",
   pageKindInstruction,
@@ -171,12 +172,13 @@ export const generationPromptVersion = promptVersionOf(generationInstructions, o
 
 /**
  * The prompt line only a request for a page that lists accounts gets (ADR 0028): answer
- * account-list without choosing an account.
+ * account-list without choosing an account. Such a request has no slots (owner 2026-10-23
+ * 11:48 UTC), which the line says, so the slot mapping above reads as not applying.
  */
 export const accountListInstruction =
-  "An observation with accounts lists saved accounts and has no fields: answer " +
-  "account-list when choosing one of them leads on to signing in, else abstain. Never " +
-  "choose an account.";
+  "An observation with accounts lists saved accounts and has no fields, and its request " +
+  "has no slots: answer account-list when choosing one of them leads on to signing in, " +
+  "else abstain. Never choose an account.";
 /** The instructions of a request for a list of accounts: the generation role's and the list line. */
 export const accountListGenerationInstructions = `${generationInstructions} ${accountListInstruction}`;
 /** A list request's prompt version, for the request log. */
@@ -375,10 +377,11 @@ export function createRecipeGenerator(config: GenerationConfig) {
     request: GenerationRequest,
   ): Promise<InferenceOutcome<GeneratedPage | ValidatedAccountList>> {
     const observation = v.safeParse(loginObservationSchema, request.observation);
-    const slots = v.safeParse(
-      request.passkeyOnly ? v.strictTuple([]) : semanticSlotsSchema,
-      request.slots,
-    );
+    // A passkey-only page (ADR 0053) and a list of accounts (ADR 0028) offer no slots.
+    const slotless =
+      request.passkeyOnly === true ||
+      (observation.success && observation.output.accounts !== undefined);
+    const slots = v.safeParse(slotless ? v.strictTuple([]) : semanticSlotsSchema, request.slots);
     const repair =
       request.repair === undefined ? undefined : v.safeParse(repairSchema, request.repair);
     if (!observation.success || !slots.success || (repair && !repair.success))

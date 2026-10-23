@@ -184,7 +184,13 @@ function expectNativeAssertion(result: Serialized, origin: string, challenge: st
   });
 }
 
-type ProbeControl = { ok: boolean; signatures: number; remembered: string[] };
+type ProbeControl = {
+  ok: boolean;
+  signatures: number;
+  delayed: number;
+  stopped: number;
+  remembered: string[];
+};
 /** Probe controls are accepted only from the extension's own options page. */
 async function probeControls(context: BrowserContext, extensionId: string) {
   const options = await context.newPage();
@@ -197,6 +203,10 @@ async function probeControls(context: BrowserContext, extensionId: string) {
         await send({ version: 1, type: "passkey.probe.configure", ...settings }),
       ).toMatchObject({ ok: true }),
     signatures: async () => (await send({ version: 1, type: "passkey.probe.status" })).signatures,
+    /** Delayed signatures that started. */
+    delayed: async () => (await send({ version: 1, type: "passkey.probe.status" })).delayed,
+    /** Delayed signatures that cancellation or the deadline stopped; they never sign. */
+    stopped: async () => (await send({ version: 1, type: "passkey.probe.status" })).stopped,
     remembered: async () => (await send({ version: 1, type: "passkey.probe.status" })).remembered,
   };
 }
@@ -339,9 +349,60 @@ test("abort rejects with the caller's reason and a slow bridge delegates", async
       await probe.configure({ signDelayMs: 3000, timeoutMs: 300 });
       const slow = challengeHex();
       expectNativeAssertion(await clickRequest(page, { challenge: slow }), origin, slow);
-      // Outlast both delayed signatures: cancellation and the deadline must have stopped them.
-      await page.waitForTimeout(3500);
+      // Cancellation and the deadline stopped both delayed signatures, so neither signs, and
+      // no signature started again after its stop.
+      await expect.poll(probe.stopped).toBe(2);
+      expect(await probe.delayed()).toBe(2);
       expect(await probe.signatures()).toBe(0);
+    });
+  } finally {
+    server.close();
+  }
+});
+
+test("a document navigated away from while Pateat signs gets nothing, and the tab's next document is answered without asking again", async () => {
+  const { server, origin } = await startRelyingParty();
+  try {
+    await withLoginExtension(async (context, _worker, extensionId) => {
+      const probe = await probeControls(context, extensionId);
+      await probe.configure({ signDelayMs: 3000 });
+      const page = await openRelyingParty(context, origin);
+      await page.evaluate(
+        (value) => {
+          (window as unknown as { nextSpec: Spec }).nextSpec = value;
+        },
+        { challenge: challengeHex() },
+      );
+      await page.getByRole("button", { name: "Sign in with a passkey" }).click();
+      // Leave only once the background is waiting on the delayed signature.
+      await expect.poll(probe.delayed).toBe(1);
+      await page.goto(`${origin}/?after`);
+      // The replaced document's cancel stopped the signature that was running.
+      await expect.poll(probe.stopped).toBe(1);
+      expect(await probe.signatures()).toBe(0);
+
+      // Nothing was recorded as a sign-in in this tab, so the single match signs silently.
+      await probe.configure();
+      const opened: Page[] = [];
+      const track = (added: Page) => opened.push(added);
+      context.on("page", track);
+      const next = challengeHex();
+      expectPateatAssertion(await clickRequest(page, { challenge: next }), origin, next);
+      context.off("page", track);
+      // No chooser window, which a recorded sign-in would have opened.
+      expect(opened).toEqual([]);
+      expect(await probe.signatures()).toBe(1);
+
+      // Navigating away from a request whose chooser window is open closes the window; without
+      // the cancel it would stay open. The counts below are sanity checks only.
+      await probe.configure({ count: 2 });
+      const fresh = await openRelyingParty(context, origin);
+      const waiting = await requestWithChooser(context, fresh, { challenge: challengeHex() });
+      const closed = waiting.chooser.waitForEvent("close");
+      await fresh.goto(`${origin}/?left`);
+      await closed;
+      expect(await probe.signatures()).toBe(1);
+      expect(await probe.remembered()).toEqual([]);
     });
   } finally {
     server.close();

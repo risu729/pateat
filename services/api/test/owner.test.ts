@@ -9,7 +9,7 @@ import {
 } from "@pateat/contracts";
 import { env } from "cloudflare:workers";
 import * as v from "valibot";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { app } from "../src/app";
 import {
   claims,
@@ -17,6 +17,7 @@ import {
   forgedAccess,
   installAccessKeys,
   jwks,
+  type JwksMode,
   newSubject,
   ORIGIN,
   owner,
@@ -116,17 +117,21 @@ describe("Access verification", () => {
       expect(response.headers.get("Content-Type")).toMatch(/^text\/html/);
     const pageBodies = await Promise.all(pageResponses.map((response) => response.text()));
     for (const body of pageBodies) expect(body).not.toContain("Pateat test app");
-    const claudeForm = await request("/manage/claude", {
-      method: "POST",
+    // A well-formed same-origin write is refused by Access, not by origin or body checks.
+    const claudeWrite = await request("/manage/api/claude", {
+      method: "PUT",
       access: viaPair.token,
-      headers: { "Content-Type": "application/x-www-form-urlencoded", Origin: ORIGIN },
-      body: new URLSearchParams({ action: "save" }),
+      headers: { "Content-Type": "application/json", Origin: ORIGIN },
+      body: JSON.stringify({
+        version: 1,
+        identifiers: {
+          federationRuleId: "fdrl_01SyntheticRule",
+          organizationId: "00000000-0000-4000-8000-000000000000",
+          serviceAccountId: "svac_01SyntheticAccount",
+          workspaceId: "wrkspc_01SyntheticWorkspace",
+        },
+      }),
     });
-    expect(claudeForm.status).toBe(403);
-    // Refused by Access, not by the form's own origin or body checks.
-    const claudeFormBody = await claudeForm.text();
-    expect(claudeFormBody).toContain("Access denied");
-    expect(claudeFormBody).toContain("Your sign-in could not be verified.");
 
     const apiResponses = await Promise.all([
       manageApi("/manage/api/devices", viaPair.token, "GET"),
@@ -134,14 +139,24 @@ describe("Access verification", () => {
       manageApi("/manage/api/recipes", viaPair.token, "GET"),
       manageApi("/manage/api/dashboard", viaPair.token, "GET"),
       manageApi(`/manage/api/devices/${device.deviceId}/revoke`, viaPair.token, "POST"),
+      manageApi("/manage/api/models", viaPair.token, "GET"),
+      manageApi("/manage/api/claude", viaPair.token, "GET"),
+      manageApi("/manage/api/claude/test", viaPair.token, "POST"),
+      claudeWrite,
     ]);
-    expect(apiResponses.map((response) => response.status)).toEqual([403, 403, 403, 403, 403]);
+    expect(apiResponses.map((response) => response.status)).toEqual(apiResponses.map(() => 403));
     expect(await Promise.all(apiResponses.map((response) => response.json()))).toEqual(
       apiResponses.map(() => ({ error: "forbidden" })),
     );
 
-    // The device was not revoked, and the host-wide application still reaches the owner.
+    // The device was not revoked, no identifiers were saved, and the host-wide
+    // application still reaches the owner.
     expect((await deviceApi(device.credential)).status).toBe(200);
+    expect(
+      await env.DB.prepare("SELECT 1 FROM inference_credentials WHERE owner_id = ?")
+        .bind(await ownerIdFor(viaPair.subject))
+        .first(),
+    ).toBeNull();
     const viaHost = await owner(viaPair.subject);
     expect((await request("/manage", { access: viaHost.token })).status).toBe(200);
     const listed = v.parse(
@@ -151,15 +166,93 @@ describe("Access verification", () => {
     expect(listed.devices.map((entry) => entry.id)).toEqual([device.deviceId]);
   });
 
-  it("fails closed when the signing keys cannot be fetched", async () => {
-    jwks.available = false;
+  /** Runs `body` while the mocked key set answers as `mode`, then restores it. */
+  async function duringOutage<T>(mode: JwksMode, body: () => Promise<T>): Promise<T> {
+    jwks.mode = mode;
     try {
-      const response = await request("/manage", { access: (await owner()).token });
-      expect(response.status).toBe(403);
+      return await body();
     } finally {
-      jwks.available = true;
+      jwks.mode = "ok";
     }
-  });
+  }
+
+  const outages: [string, JwksMode][] = [
+    ["a non-OK response", "status"],
+    ["a JSON body that is not a key set", "malformed"],
+    ["a body that is not JSON", "not-json"],
+    ["a fetch that rejects", "reject"],
+  ];
+
+  it.each(outages)(
+    "treats %s for the signing keys as an outage, not a refused sign-in",
+    async (_, mode) => {
+      const viaHost = await owner();
+      const viaPair = await pairOwner();
+      const pages: [string, string][] = [
+        ["/manage", viaHost.token],
+        ["/manage/sites", viaHost.token],
+        ["/manage/sites/https/bank.example", viaHost.token],
+        ["/manage/assets/app.js", viaHost.token],
+        ["/manage/claude", viaHost.token],
+        ["/pair/signed-in", viaPair.token],
+      ];
+      const { pageResponses, apiResponses, missing } = await duringOutage(mode, async () => ({
+        pageResponses: await Promise.all(pages.map(([path, access]) => request(path, { access }))),
+        apiResponses: await Promise.all([
+          postPair(viaPair.token),
+          postPair(viaHost.token),
+          manageApi("/manage/api/devices", viaHost.token, "GET"),
+          manageApi("/manage/api/settings", viaHost.token, "GET"),
+          manageApi(`/manage/api/devices/${crypto.randomUUID()}/revoke`, viaHost.token, "POST"),
+        ]),
+        // A missing token is refused before any key is fetched.
+        missing: await Promise.all([request("/manage"), postPair(undefined)]),
+      }));
+
+      expect(pageResponses.map((response) => response.status)).toEqual(pages.map(() => 503));
+      for (const response of pageResponses)
+        expect(response.headers.get("Content-Type")).toMatch(/^text\/html/);
+      for (const body of await Promise.all(pageResponses.map((response) => response.text()))) {
+        expect(body).toContain("Your sign-in could not be checked. Try again later.");
+        expect(body).not.toContain("Access denied");
+        expect(body).not.toContain("Pateat test app");
+      }
+      expect(apiResponses.map((response) => response.status)).toEqual(apiResponses.map(() => 503));
+      expect(await Promise.all(apiResponses.map((response) => response.json()))).toEqual(
+        apiResponses.map(() => ({ error: "access_keys_unavailable" })),
+      );
+      expect(missing.map((response) => response.status)).toEqual([401, 401]);
+      // No owner was created by the pairing attempts.
+      expect(await ownerIdFor(viaPair.subject)).toBeNull();
+      expect(await ownerIdFor(viaHost.subject)).toBeNull();
+
+      // Once the keys answer again, the same tokens work.
+      expect((await request("/manage", { access: viaHost.token })).status).toBe(200);
+      expect((await postPair(viaPair.token)).status).toBe(201);
+    },
+  );
+
+  it("gives up on signing keys that never arrive after its timeout", async () => {
+    // The real timeout is 5 s; shorten the requested signal so the abort really fires.
+    const timeout = AbortSignal.timeout.bind(AbortSignal);
+    const requested: number[] = [];
+    const spy = vi.spyOn(AbortSignal, "timeout").mockImplementation((ms) => {
+      requested.push(ms);
+      return timeout(20);
+    });
+    try {
+      const responses = await duringOutage("hang", async () =>
+        Promise.all([
+          request("/manage", { access: (await owner()).token }),
+          postPair((await pairOwner()).token),
+        ]),
+      );
+      expect(responses.map((response) => response.status)).toEqual([503, 503]);
+      expect(requested).toEqual([5_000, 5_000]);
+    } finally {
+      spy.mockRestore();
+    }
+  }, 2_000);
 
   it("fails closed without Access configuration", async () => {
     const { token } = await owner();

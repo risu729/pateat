@@ -3,6 +3,7 @@ import {
   isSiteExcluded,
   siteDefaultConnection,
   type SettingsResponse,
+  type SettingsChangeCause,
   type SettingsSnapshot,
   type VaultCatalog,
   type LocalSettings,
@@ -144,7 +145,7 @@ export async function findVaultPasskeys(input: {
         counter: entry.counter,
         preferred: preferred?.connectionId === connection.id && preferred.itemId === entry.itemId,
         display: {
-          item: item?.label ?? "Unnamed item",
+          ...(item?.label ? { item: item.label } : {}),
           ...(entry.userName ? { userName: entry.userName } : {}),
           account: connection.label,
         },
@@ -324,6 +325,7 @@ export async function rememberVaultPasskey(input: {
     handle(request: { version: 1; type: "settings.get" }): Promise<SettingsResponse>;
     update(
       expectedRevision: number | undefined,
+      cause: SettingsChangeCause,
       mutate: (snapshot: SettingsSnapshot) => SettingsSnapshot,
     ): Promise<SettingsSnapshot>;
   };
@@ -365,7 +367,7 @@ export async function rememberVaultPasskey(input: {
   const others = settings.siteDefaults.filter((site) => site.origin !== origin);
   // The settings schema bounds the list; a full list keeps its entries.
   if (others.length >= 1000) return false;
-  await input.settings.update(saved.snapshot.revision, (snapshot) => ({
+  await input.settings.update(saved.snapshot.revision, "account-choice", (snapshot) => ({
     ...snapshot,
     settings: {
       ...snapshot.settings,

@@ -8,6 +8,7 @@ import {
   extractLoginObservation,
   extractPasskeyObservation,
   extractSignedInObservation,
+  fieldsMissDetail,
 } from "./extract";
 
 // Runs in Chromium (vitest browser mode) so layout, visibility and labels are real.
@@ -969,6 +970,26 @@ describe("extractLoginObservation", () => {
     expect(extractLoginObservation()).toEqual({ ok: false, reason: "no-candidates" });
   });
 
+  it("names a button by data-test when its text is not unique (Duolingo, 2026-10-23)", () => {
+    // The page behind Duolingo's sign-in overlay keeps its own "ログイン" button.
+    page(
+      `<header><button data-test="have-account">ログイン</button></header>
+      <form><input data-test="email-input" id="web-ui1" type="text">
+        <input data-test="password-input" id="web-ui2" type="password">
+        <button data-test="register-button" type="submit">ログイン</button></form>`,
+    );
+    const observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(observation.candidates.map((candidate) => candidate.target)).toEqual([
+      { by: "id", value: "web-ui1" },
+      { by: "id", value: "web-ui2" },
+      { by: "data-test", value: "register-button" },
+    ]);
+    expect(findTargets(document, observation.candidates[2]!.target)).toEqual([
+      document.querySelector("form button"),
+    ]);
+  });
+
   it("produces targets the executor's exact-match lookup resolves to the same element", () => {
     page(
       `<form id="f"><input id="a"><input name="ctl00$Main$b"><input data-testid="c">
@@ -1285,6 +1306,58 @@ describe("extractLoginObservation", () => {
       <form id="m"><input name="user"><input name="pass" type="password"><button id="mgo">Log in</button></form>`,
     );
     expect(observe().complete).toBe(false);
+  });
+
+  it("names a field by its name in the sign-in form when another form repeats it (Hacker News)", () => {
+    // Hacker News's /login (2026-10-23): a create-account form below repeats the names.
+    const form = (creating: string, password: string, submit: string) =>
+      `<form method="post">${creating}<table>
+        <tr><td>username:</td><td><input type="text" name="acct" autocomplete="username"></td></tr>
+        <tr><td>password:</td><td><input type="password" name="pw" autocomplete="${password}"></td></tr>
+      </table><input type="submit" value="${submit}"></form>`;
+    page(
+      `<b>Login</b>${form("", "current-password", "login")}
+      <b>Create Account</b>${form(`<input type="hidden" name="creating" value="t">`, "new-password", "create account")}`,
+    );
+    const observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(observation.candidates.map((candidate) => candidate.target)).toEqual([
+      { by: "password-form-name", value: "acct" },
+      { by: "autocomplete", value: "current-password" },
+      { by: "text", value: "login" },
+    ]);
+    expect(findTargets(document, observation.candidates[0]!.target)).toEqual([
+      document.querySelector("input[name=acct]"),
+    ]);
+    // Two sign-in forms that repeat the name stay ambiguous.
+    page(`${form("", "current-password", "login")}${form("", "current-password", "go")}`);
+    expect(observe().complete).toBe(false);
+    // Continuing a recipe, the filled field shown read-only again is left out.
+    page(
+      `${form("", "current-password", "login").replace('name="acct"', 'name="acct" readonly')}
+      ${form(`<input type="hidden" name="creating" value="t">`, "new-password", "create account")}`,
+    );
+    const result = extractLoginObservation(document, [{ by: "password-form-name", value: "acct" }]);
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.observation.complete).toBe(true);
+    expect(result.observation.candidates.map(({ target }) => target)).toEqual([
+      { by: "autocomplete", value: "current-password" },
+      { by: "text", value: "login" },
+    ]);
+  });
+
+  it("describes a pointer link without href as the login's button (IIJmio, 2026-10-23)", () => {
+    page(
+      `<div><input name="j_username"><input name="j_password" type="password">
+        <a class="pink_btn" style="cursor:pointer">ログイン</a></div>`,
+    );
+    const observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(summary(observation).map(({ role, target }) => [role, target])).toEqual([
+      ["text", { by: "name", value: "j_username" }],
+      ["password", { by: "name", value: "j_password" }],
+      ["button", { by: "text", value: "ログイン" }],
+    ]);
   });
 
   it("treats every control outside a form as part of a formless login", () => {
@@ -3986,5 +4059,17 @@ describe("passkey-only start observation", () => {
   ])("does not qualify registration, hidden buttons or a fill form: %s", (html) => {
     page(html);
     expect(extractPasskeyObservation(document).ok).toBe(false);
+  });
+});
+
+describe("fieldsMissDetail", () => {
+  it("names the page's inputs and how each shows, as codes only", () => {
+    page(`<form><input type="email" value="me@example.com" aria-hidden="true">
+      <input type="password" style="opacity: 0"></form>
+      <input type="text" hidden><input type="text" name="q">`);
+    expect(fieldsMissDetail(document)).toBe(
+      "n4.d2.email-hidden-attr.password-transparent.text-hidden-attr-out",
+    );
+    expect(fieldsMissDetail(document)).not.toContain("example");
   });
 });

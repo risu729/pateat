@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { runClaudeBenchmark, runClaudeJudgeBenchmark } from "./bench";
 import { evaluationCorpus, expectedFields } from "./corpus/cases";
 import { judgeCorpus } from "./corpus/judge";
-import { claudeBenchmarkModels, claudeFastModeRates } from "./providers/claude";
+import { claudeModelRates } from "./providers/claude";
 import { caseFor } from "./testing/fake-models";
 
 // Answers every corpus page with its ground truth, shaped like the Messages API.
@@ -81,9 +81,9 @@ describe("Claude benchmark runner", () => {
       maxCostUsd: 1,
       fetch: claude.fetch,
     });
-    // (65,536 input bytes x $4 + 8,192 output tokens x $20) per million, per call.
-    expect(result.report.total).toBe(2);
-    expect(result.estimatedCostUsd).toBeCloseTo(2 * 0.426_0, 3);
+    // (65,536 input bytes x $4 + 1,024 output tokens x $20) per million, per call.
+    expect(result.report.total).toBe(3);
+    expect(result.estimatedCostUsd).toBeCloseTo(3 * 0.282_6, 3);
   });
 
   it("reports the refusal category of a refused case", async () => {
@@ -131,7 +131,7 @@ describe("Claude benchmark runner", () => {
         ],
         stop_reason: "end_turn",
         stop_sequence: null,
-        usage: { input_tokens: 1_000_000, output_tokens: 0 },
+        usage: { input_tokens: 50_000, output_tokens: 0 },
       });
     }) as typeof globalThis.fetch;
     const result = await runClaudeBenchmark({
@@ -141,14 +141,14 @@ describe("Claude benchmark runner", () => {
       choice: {
         modelId: "claude-haiku-5-5",
         effort: "medium",
-        rates: claudeBenchmarkModels["claude-haiku-5-5"],
+        rates: claudeModelRates("claude-haiku-5-5")!,
       },
       fetch,
     });
     expect(sent).toEqual([{ model: "claude-haiku-5-5", effort: "medium" }]);
     expect(result).toMatchObject({ model: "claude-haiku-5-5", effort: "medium" });
     expect(result.servedModels).toEqual(["claude-haiku-5-5"]);
-    expect(result.estimatedCostUsd).toBeCloseTo(0.1);
+    expect(result.estimatedCostUsd).toBeCloseTo(0.005);
   });
 
   it("asks for fast mode and reports the speed served", async () => {
@@ -179,7 +179,7 @@ describe("Claude benchmark runner", () => {
       choice: {
         modelId: "claude-opus-5-5",
         effort: "low",
-        rates: claudeFastModeRates["claude-opus-5-5"],
+        rates: claudeModelRates("claude-opus-5-5", "fast")!,
         speed: "fast",
       },
       fetch,

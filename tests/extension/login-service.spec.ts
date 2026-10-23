@@ -1,5 +1,6 @@
 import { expect, test, type BrowserContext, type Page, type Worker } from "@playwright/test";
 import { beginInput, settingsRequest, setupProbe, setupRequest } from "./connection-fixture";
+import { logs } from "./login-fixture";
 import { startLoginFixture } from "./login-server";
 import { startSyncService } from "./sync-service";
 import { withVaultProfile } from "./vault-fixture";
@@ -344,7 +345,11 @@ test("a password page shown alone, as for an account the site remembers, logs in
         await other.addInitScript(() => sessionStorage.setItem("identityMatched", "true"));
         await other.goto(`${site}/password?email=1`);
         await expect(other.locator("#password")).toBeVisible();
-        await other.waitForTimeout(3_000);
+        // The page is offered for generation instead, which ends its handling here, as no
+        // model is configured.
+        await expect
+          .poll(() => logs(browser.background, "recipe.generate"))
+          .toContainEqual(expect.objectContaining({ outcome: "unavailable" }));
         await expect(other.locator("#password")).toHaveValue("");
         expect(await other.evaluate(() => sessionStorage.getItem("submitClicks"))).toBeNull();
         expect(await send(options, { version: 1, type: "login.probe.status" })).toMatchObject({

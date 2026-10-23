@@ -14,12 +14,27 @@ export const deviceIdSchema = v.pipe(v.string(), v.uuid());
  * use renews it. There is no absolute lifetime.
  */
 export const DEVICE_IDLE_LIMIT_MS = 90 * 24 * 60 * 60 * 1000;
+/**
+ * A letter, digit, punctuation mark or symbol that shows: what keeps a device name from
+ * looking blank. Default-ignorable ones such as the Hangul filler U+3164, and the blank
+ * Braille pattern U+2800, show nothing.
+ */
+export const VISIBLE_LABEL_CHARACTER =
+  /(?![\p{Default_Ignorable_Code_Point}\u2800])[\p{L}\p{N}\p{P}\p{S}]/u;
+
 export const deviceLabelSchema = v.pipe(
   v.string(),
   v.trim(),
   v.minLength(1),
   v.maxLength(64),
-  v.regex(/^[^\p{C}]+$/u, "Labels cannot contain control characters"),
+  // Control characters, lone surrogates, line and paragraph separators and text-direction
+  // marks are refused. Other format characters stay, as emoji need joiners and tags.
+  v.regex(
+    /^[^\p{Cc}\p{Cs}\p{Zl}\p{Zp}\p{Bidi_Control}]+$/u,
+    "Labels cannot contain control characters, line breaks or text-direction marks",
+  ),
+  // A name of invisible characters alone would show as blank.
+  v.regex(VISIBLE_LABEL_CHARACTER, "Labels need a visible character"),
 );
 
 /** A Chrome extension ID: the first 128 bits of the key's SHA-256 as letters `a`-`p`. */
@@ -48,6 +63,8 @@ export const pairErrorCodeSchema = v.picklist([
   "access_unavailable",
   /** The service's list of extension IDs is empty or malformed. */
   "pairing_unavailable",
+  /** Access's signing keys could not be fetched, so no login token can be checked. */
+  "access_keys_unavailable",
   "rate_limited",
   "method_not_allowed",
   "payload_too_large",

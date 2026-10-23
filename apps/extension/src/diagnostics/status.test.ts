@@ -256,6 +256,22 @@ describe("diagnostics status", () => {
       expect(serialized).not.toContain(secret);
   });
 
+  it("shows a sync as due now when the clock moved back", async () => {
+    // Sync treats a schedule started in the future as due now, so diagnostics agrees.
+    const deps = dependencies({
+      storage: {
+        ...dependencies().storage,
+        recipeSchedule: async () => ({
+          version: 1,
+          startedAt: NOW + 24 * 60 * 60_000,
+          retryAt: NOW + 24 * 60 * 60_000 + 300_000,
+        }),
+      },
+    });
+    const status = await collectDiagnostics(deps);
+    expect(status.service).toMatchObject({ kind: "connected", nextSyncAt: NOW });
+  });
+
   it("keeps a pseudonym stable for one key and copies only the KDF family", async () => {
     const deps = dependencies();
     const first = await collectDiagnostics(deps);
