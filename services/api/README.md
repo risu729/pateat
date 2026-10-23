@@ -677,7 +677,7 @@ writes to learn whether another call is needed, and writes the attempt record, l
 and recipe only in the run that has every response.
 
 Such calls need no credential on the service and skip its spend stops. Each is logged
-with `source = 'device'` (migration `0031_inference_log_source`), its cost from the
+with `source = 'device'` (migration `0032_inference_log_source`), its cost from the
 reported usage, `token_ms` and `model_ms` null, and nothing added to `inference_spend`.
 The automatic stop of fast mode counts the rows of its own source only.
 
