@@ -206,7 +206,13 @@ describe("diagnostics status", () => {
       detail:
         "recipe generation off, no Claude credentials on the service (credentials-not-configured)",
     });
-    expect(status.settings).toEqual({ excludedSites: 1, siteDefaults: 0, bindings: 0 });
+    expect(status.settings).toEqual({
+      excludedSites: 1,
+      allowedSites: 0,
+      allowedSitesEnabled: false,
+      siteDefaults: 0,
+      bindings: 0,
+    });
     expect(status.checks).toContainEqual({
       id: "clock",
       level: "warn",
@@ -456,6 +462,35 @@ describe("diagnostics status", () => {
     expect(
       formatReport(thrown, { name: "Chrome", version: "156", installType: "normal" }),
     ).toContain("Service record: service record not read (unavailable)");
+  });
+
+  it("counts the allowed sites and says whether they are on, never naming them (ADR 0077)", async () => {
+    const browser = { name: "Chrome", version: "156", installType: "normal" };
+    const off = await collectDiagnostics(dependencies());
+    expect(formatReport(off, browser)).toContain(
+      "\nSettings: excluded sites 1 · allowed sites 0 (off) · site defaults 0 · bindings 0\n",
+    );
+    const on = await collectDiagnostics(
+      dependencies({
+        settings: async () =>
+          ({
+            connections: [],
+            excludedSites: [],
+            allowedSites: [
+              { hostname: "bank.example", includeSubdomains: false },
+              { hostname: "mail.example", includeSubdomains: true },
+            ],
+            allowedSitesEnabled: true,
+            siteDefaults: [],
+            bindings: [],
+          }) as never,
+      }),
+    );
+    expect(on.settings).toMatchObject({ allowedSites: 2, allowedSitesEnabled: true });
+    const report = formatReport(on, browser);
+    expect(report).toContain("· allowed sites 2 (on) ·");
+    expect(report).not.toContain("bank.example");
+    expect(report).not.toContain("mail.example");
   });
 
   it("reports the vault timeout and a locked vault (ADR 0075)", async () => {

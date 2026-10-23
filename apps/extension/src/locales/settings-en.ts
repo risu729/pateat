@@ -138,8 +138,8 @@ export const settingsEn = {
   "The default for {{origin}} is kept but not used while the site is excluded.":
     "The default for {{origin}} is kept but not used while the site is excluded.",
   "Remove default for {{origin}}": "Remove default for {{origin}}",
-  "Allow {{name}}": "Allow {{name}}",
-  Allow: "Allow",
+  "Remove exclusion for {{name}}": "Remove exclusion for {{name}}",
+  "Remove exclusion": "Remove exclusion",
   "No excluded sites or default accounts": "No excluded sites or default accounts",
   Origin: "Origin",
   "Also list items that do not match": "Also list items that do not match",
@@ -208,4 +208,22 @@ export const settingsEn = {
     "Spent with this key: {{today}} today and {{month}} this month (UTC), estimated from the usage Anthropic reports. Requests stop at either limit.",
   "The key stays on this device and is sent to Anthropic only, never to the sync service. For now, recipes are made with it only while a sync service is paired.":
     "The key stays on this device and is sent to Anthropic only, never to the sync service. For now, recipes are made with it only while a sync service is paired.",
+  "This site is not an allowed site, so this default is not used.":
+    "This site is not an allowed site, so this default is not used.",
+  "This site is not an allowed site.": "This site is not an allowed site.",
+  "Allowed sites": "Allowed sites",
+  "Run only on allowed sites": "Run only on allowed sites",
+  "Remove {{name}} from the allowed sites": "Remove {{name}} from the allowed sites",
+  "Pateat runs only on these sites.": "Pateat runs only on these sites.",
+  "No site is allowed, so Pateat logs in nowhere until you allow one.":
+    "No site is allowed, so Pateat logs in nowhere until you allow one.",
+  "While this is off, Pateat runs on every site that is not excluded.":
+    "While this is off, Pateat runs on every site that is not excluded.",
+  Site: "Site",
+  "Allow subdomains too": "Allow subdomains too",
+  "Allow site": "Allow site",
+  "Exclusions under Sites win over allowed sites.":
+    "Exclusions under Sites win over allowed sites.",
+  "Turning this off keeps the list. The Pateat popup can allow the open site.":
+    "Turning this off keeps the list. The Pateat popup can allow the open site.",
 } as const;

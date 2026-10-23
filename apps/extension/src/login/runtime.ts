@@ -21,6 +21,7 @@ import {
   heldRouteMissing,
   isGeneratedRecipeId,
   isSiteExcluded,
+  siteRefusal,
   loginFieldFacts,
   loginFieldSource,
   manualDetails,
@@ -4143,7 +4144,8 @@ export function createLoginRuntime(
   ): Promise<{ reason: string } | undefined> {
     if (!live.topUrl) return undefined;
     const top = new URL(live.topUrl).origin;
-    if (isSiteExcluded(snapshot.snapshot.settings, top)) return { reason: "site-excluded" };
+    const refused = siteRefusal(snapshot.snapshot.settings, top);
+    if (refused) return { reason: refused };
     const connection = snapshot.catalog.connections.find(
       (entry) => entry.id === selected.connectionId,
     );
@@ -7166,10 +7168,10 @@ export function createLoginRuntime(
       const snapshot = await settings.handle({ version: 1, type: "settings.get" });
       if (!snapshot.ok) return "settings-unavailable";
       const saved = snapshot.snapshot.settings;
-      return isSiteExcluded(saved, live.document.origin) ||
-        (live.topUrl !== undefined && isSiteExcluded(saved, live.topUrl))
-        ? "site-excluded"
-        : undefined;
+      return (
+        siteRefusal(saved, live.document.origin) ??
+        (live.topUrl === undefined ? undefined : siteRefusal(saved, live.topUrl))
+      );
     };
     /** The page as the judge would get it, while it is still the one the login ended on. */
     const describe = async (): Promise<
@@ -13157,7 +13159,8 @@ export function createLoginRuntime(
       .handle({ version: 1, type: "settings.get" })
       .catch(() => undefined);
     if (!snapshot?.ok) return "settings-unavailable";
-    if (isSiteExcluded(snapshot.snapshot.settings, url)) return "site-excluded";
+    const refused = siteRefusal(snapshot.snapshot.settings, url);
+    if (refused) return refused;
     const matched = await vaultMatches({ ...live, url }).catch(() => undefined);
     if (!matched?.items.length) return "no-vault-match";
     return undefined;

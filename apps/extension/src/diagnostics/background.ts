@@ -112,7 +112,7 @@ export function createDiagnosticsLog(options: {
           ...(settings?.bindings.map((binding) => binding.origin) ?? []),
           ...(recipes.success ? recipes.output.recipes.map((recipe) => recipe.origin) : []),
         ]),
-        hosts: settings?.excludedSites ?? [],
+        hosts: [...(settings?.excludedSites ?? []), ...(settings?.allowedSites ?? [])],
       };
     },
   });

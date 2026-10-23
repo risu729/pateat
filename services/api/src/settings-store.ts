@@ -12,6 +12,9 @@ import { hasProfile } from "./profile-store";
 export const profileDocument = (document: LocalSettings) => ({
   excludedSites: document.excludedSites,
   repromptSites: document.repromptSites,
+  // Allowed sites that are empty and off are left out, which reads back the same (ADR 0077).
+  ...(document.allowedSites?.length ? { allowedSites: document.allowedSites } : {}),
+  ...(document.allowedSitesEnabled ? { allowedSitesEnabled: true } : {}),
   siteDefaults: document.siteDefaults,
 });
 

@@ -280,9 +280,12 @@ function Local({ status }: { status: DiagnosticsStatus }) {
         {status.settings && (
           <Row term="Settings">
             {t(
-              "excluded sites {{excludedSites}}, site defaults {{siteDefaults}}, bindings {{bindings}}",
+              status.settings.allowedSitesEnabled
+                ? "excluded sites {{excludedSites}}, allowed sites {{allowedSites}} (on), site defaults {{siteDefaults}}, bindings {{bindings}}"
+                : "excluded sites {{excludedSites}}, allowed sites {{allowedSites}} (off), site defaults {{siteDefaults}}, bindings {{bindings}}",
               {
                 excludedSites: status.settings.excludedSites,
+                allowedSites: status.settings.allowedSites,
                 siteDefaults: status.settings.siteDefaults,
                 bindings: status.settings.bindings,
               },

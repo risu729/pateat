@@ -16,6 +16,7 @@ import {
   Info,
   KeyRound,
   Link,
+  ListChecks,
   Shield,
   Timer,
   Vault,
@@ -28,6 +29,7 @@ import { Button } from "./button";
 import { SETTINGS_QUERY_KEY, type SettingsClient } from "./client";
 import { VaultAccess, VaultRows } from "./connections";
 import { SitePolicy } from "./site-policy";
+import { AllowedSites } from "./allowed-sites";
 import { BitwardenSetup } from "./bitwarden-setup";
 import { DeviceModelPanel, type DeviceModelClient } from "./device-model";
 import type { ConnectionClient } from "./connection-client";
@@ -278,6 +280,8 @@ export function SettingsApp({
     form.setFieldValue("connections", value.connections);
     form.setFieldValue("excludedSites", value.excludedSites);
     form.setFieldValue("repromptSites", value.repromptSites);
+    form.setFieldValue("allowedSites", value.allowedSites);
+    form.setFieldValue("allowedSitesEnabled", value.allowedSitesEnabled);
     form.setFieldValue("siteDefaults", value.siteDefaults);
     form.setFieldValue("bindings", value.bindings);
     rebased.current = true;
@@ -347,6 +351,8 @@ export function SettingsApp({
     form.setFieldValue("connections", next.connections);
     form.setFieldValue("excludedSites", next.excludedSites);
     form.setFieldValue("repromptSites", next.repromptSites);
+    form.setFieldValue("allowedSites", next.allowedSites);
+    form.setFieldValue("allowedSitesEnabled", next.allowedSitesEnabled);
     form.setFieldValue("siteDefaults", next.siteDefaults);
     edits.current += 1;
     setDirty(true);
@@ -493,6 +499,7 @@ export function SettingsApp({
       ? [{ id: "vault-timeout", label: t("Vault timeout"), icon: Timer }]
       : []),
     { id: "sites", label: t("Sites"), icon: Globe },
+    { id: "allowed-sites", label: t("Allowed sites"), icon: ListChecks },
     ...(serviceClient ? [{ id: "sync", label: t("Sync service"), icon: Link }] : []),
     ...(deviceModelClient ? [{ id: "ai-key", label: t("AI key"), icon: KeyRound }] : []),
   ];
@@ -624,6 +631,17 @@ export function SettingsApp({
             ) : (
               <Panel id="sites" headingId="sites-heading" title={t("Sites")}>
                 <ul id="site-list" className="hidden" />
+              </Panel>
+            )}
+            {accepted ? (
+              <AllowedSites key={`allowed-${generation}`} draft={draft} edit={edit} />
+            ) : (
+              <Panel
+                id="allowed-sites"
+                headingId="allowed-sites-heading"
+                title={t("Allowed sites")}
+              >
+                <ul id="allowed-site-list" className="hidden" />
               </Panel>
             )}
           </fieldset>

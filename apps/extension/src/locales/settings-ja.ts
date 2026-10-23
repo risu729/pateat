@@ -142,8 +142,8 @@ export const settingsJa = {
   "The default for {{origin}} is kept but not used while the site is excluded.":
     "{{origin}} の既定のアカウントは保持されますが、サイトが除外されている間は使用されません。",
   "Remove default for {{origin}}": "{{origin}} の既定のアカウントを解除",
-  "Allow {{name}}": "{{name}} の除外を解除",
-  Allow: "除外を解除",
+  "Remove exclusion for {{name}}": "{{name}} の除外を解除",
+  "Remove exclusion": "除外を解除",
   "No excluded sites or default accounts": "除外サイトも既定のアカウントもありません",
   Origin: "オリジン",
   "Also list items that do not match": "一致しないアイテムも表示する",
@@ -213,4 +213,22 @@ export const settingsJa = {
     "このキーでの利用額: 今日 {{today}}、今月 {{month}}（UTC）。Anthropic が返す使用量からの見積もりです。どちらかの上限に達すると問い合わせを止めます。",
   "The key stays on this device and is sent to Anthropic only, never to the sync service. For now, recipes are made with it only while a sync service is paired.":
     "キーはこのデバイスにだけ保存し、Anthropic にだけ送ります。同期サービスには送りません。今のところ、このキーでレシピを作るのは同期サービスとペアリングしているときだけです。",
+  "This site is not an allowed site, so this default is not used.":
+    "このサイトは許可サイトではないため、この既定のアカウントは使いません。",
+  "This site is not an allowed site.": "このサイトは許可サイトではありません。",
+  "Allowed sites": "許可サイト",
+  "Run only on allowed sites": "許可サイトでだけ動かす",
+  "Remove {{name}} from the allowed sites": "{{name}} を許可サイトから外す",
+  "Pateat runs only on these sites.": "Pateat はこれらのサイトでだけ動きます。",
+  "No site is allowed, so Pateat logs in nowhere until you allow one.":
+    "許可サイトがないため、サイトを許可するまで Pateat はどこにもログインしません。",
+  "While this is off, Pateat runs on every site that is not excluded.":
+    "オフのあいだは、除外していないすべてのサイトで Pateat が動きます。",
+  Site: "サイト",
+  "Allow subdomains too": "サブドメインも許可する",
+  "Allow site": "サイトを許可",
+  "Exclusions under Sites win over allowed sites.":
+    "「サイト」の除外は、許可サイトより優先します。",
+  "Turning this off keeps the list. The Pateat popup can allow the open site.":
+    "オフにしても一覧は残ります。開いているサイトは、Pateat のポップアップから許可できます。",
 } satisfies Record<keyof typeof settingsEn, string>;

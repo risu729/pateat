@@ -100,8 +100,8 @@ export const serviceJa = {
     "サービスから想定外の応答がありました。しばらくしてから、もう一度お試しください。",
   "Profile access failed.": "プロファイルを読み書きできませんでした。",
   "Edit a settings profile": "設定プロファイルの編集",
-  "Change another profile's site exclusions, sites that ask for the master password and saved accounts from here. Account names come from this browser's vaults. Saving does not change which profile this device uses, and account bindings stay shared by every profile.":
-    "ほかのプロファイルの除外サイト、マスターパスワードを求めるサイト、保存したアカウントを、ここで変更できます。アカウント名はこのブラウザーの保管庫から表示します。保存しても、このデバイスが使うプロファイルは変わりません。フィールドの対応付けはすべてのプロファイルで共通のままです。",
+  "Change another profile's site exclusions, allowed sites, sites that ask for the master password and saved accounts from here. Account names come from this browser's vaults. Saving does not change which profile this device uses, and account bindings stay shared by every profile.":
+    "ほかのプロファイルの除外サイト、許可サイト、マスターパスワードを求めるサイト、保存したアカウントを、ここで変更できます。アカウント名はこのブラウザーの保管庫から表示します。保存しても、このデバイスが使うプロファイルは変わりません。フィールドの対応付けはすべてのプロファイルで共通のままです。",
   "Load profiles": "プロファイルを読み込む",
   "Profile to edit": "編集するプロファイル",
   "Choose a profile": "プロファイルを選択",

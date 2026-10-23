@@ -575,6 +575,8 @@ export async function collectDiagnostics(
       ? {
           settings: {
             excludedSites: settings.excludedSites.length,
+            allowedSites: settings.allowedSites?.length ?? 0,
+            allowedSitesEnabled: settings.allowedSitesEnabled === true,
             siteDefaults: settings.siteDefaults.length,
             bindings: settings.bindings.length,
           },

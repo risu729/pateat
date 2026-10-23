@@ -4,12 +4,14 @@ import { useId, useRef, useState, type FormEvent } from "react";
 import { describeError, type ManageClient } from "./api";
 import { Button } from "./button";
 import { isActive, RevokedRecipes, UnreadableRecipes, useRecipes } from "./recipes";
+import { AllowedSites } from "./allowed-sites";
 import {
-  allowSite,
   defaultAccountLabel,
   exclusionLabel,
   exclusionsCovering,
   excludeSite,
+  notAllowed,
+  removeExclusion,
   siteHostname,
   useSettings,
   useSettingsEdit,
@@ -137,6 +139,7 @@ export function SitesPage({ client }: { client: ManageClient }) {
             const siteDefault = current?.siteDefaults.find((entry) => entry.origin === origin);
             const bindingCount = bindingsByOrigin.get(origin)?.length ?? 0;
             const excluded = exclusionsCovering(current, siteHostname(origin)).length > 0;
+            const leftOut = !excluded && notAllowed(current, siteHostname(origin));
             return (
               // The whole row opens the site; the link is its only control.
               <li key={origin} className={`relative ${ROW_CLASSES} hover:bg-surface-sunken`}>
@@ -169,6 +172,12 @@ export function SitesPage({ client }: { client: ManageClient }) {
                           Excluded
                         </Badge>
                       )}
+                      {leftOut && (
+                        <Badge tone="muted">
+                          <Ban size={12} aria-hidden />
+                          Not allowed
+                        </Badge>
+                      )}
                     </span>
                   }
                 />
@@ -191,11 +200,15 @@ export function SitesPage({ client }: { client: ManageClient }) {
               />
               <Button
                 variant="outline"
-                aria-label={`Allow ${exclusionLabel(site)}`}
+                aria-label={`Remove exclusion for ${exclusionLabel(site)}`}
                 disabled={edit.isPending}
-                onClick={() => change(allowSite(site.hostname, `${exclusionLabel(site)} allowed`))}
+                onClick={() =>
+                  change(
+                    removeExclusion(site.hostname, `${exclusionLabel(site)} is no longer excluded`),
+                  )
+                }
               >
-                Allow
+                Remove exclusion
               </Button>
             </li>
           ))}
@@ -241,6 +254,7 @@ export function SitesPage({ client }: { client: ManageClient }) {
           )}
         </form>
       )}
+      {settings.data && <AllowedSites settings={current} busy={edit.isPending} change={change} />}
       {recipes.data && (
         <div className="space-y-8 pt-4">
           <UnreadableRecipes client={client} announce={setNotice} />

@@ -150,7 +150,9 @@ test("excludes a site on a service that has no settings yet, then allows it", as
     .toHaveTextContent("intranet.example is already excluded.");
   expect(client.saveSettings).toHaveBeenCalledTimes(1);
 
-  await page.getByRole("button", { name: "Allow intranet.example and subdomains" }).click();
+  await page
+    .getByRole("button", { name: "Remove exclusion for intranet.example and subdomains" })
+    .click();
   await expect.element(page.getByText("No sites yet")).toBeVisible();
   expect(client.saveSettings).toHaveBeenLastCalledWith(
     1,
@@ -159,7 +161,7 @@ test("excludes a site on a service that has no settings yet, then allows it", as
   );
   await expect
     .element(page.getByRole("status"))
-    .toHaveTextContent("intranet.example and subdomains allowed");
+    .toHaveTextContent("intranet.example and subdomains is no longer excluded");
 });
 
 test("asks for a paired device before settings can be edited", async () => {
@@ -250,7 +252,9 @@ test("lists each site with its recipes, default account and bindings", async () 
   await expect.element(shop).toMatchTextContent(`item-2 in bitwarden account ${USER}`);
   await expect.element(shop).toMatchTextContent("Excluded");
   await expect.element(shop).not.toMatchTextContent("recipe");
-  await expect.element(page.getByRole("button", { name: "Allow shop.example" })).toBeVisible();
+  await expect
+    .element(page.getByRole("button", { name: "Remove exclusion for shop.example" }))
+    .toBeVisible();
 });
 
 test("removes a site's default account on its page, keeping the rest", async () => {
@@ -310,7 +314,7 @@ test("a write that lost to another writer shows the current settings and changes
       excludedSites: [{ hostname: "new.example", includeSubdomains: false }],
     }),
   });
-  await page.getByRole("button", { name: "Allow old.example" }).click();
+  await page.getByRole("button", { name: "Remove exclusion for old.example" }).click();
   await expect
     .element(page.getByRole("alert"))
     .toMatchTextContent(/The settings changed elsewhere/);
@@ -427,7 +431,9 @@ test("turns Pateat off and on for the site's exact hostname", async () => {
     settingsOf(),
     "00000000-0000-4000-8000-000000000001",
   );
-  await expect.element(page.getByRole("status")).toHaveTextContent("bank.example allowed");
+  await expect
+    .element(page.getByRole("status"))
+    .toHaveTextContent("bank.example is no longer excluded");
 });
 
 test("leaves a rule that also covers other sites to the Sites list", async () => {
@@ -446,7 +452,7 @@ test("leaves a rule that also covers other sites to the Sites list", async () =>
   await expect
     .element(toggle)
     .toHaveAccessibleDescription(
-      "Excluded with example and subdomains; allow it on the Sites list",
+      "Excluded with example and subdomains; remove that exclusion on the Sites list",
     );
 });
 
@@ -514,4 +520,142 @@ test("matches and writes a trailing-dot origin's hostname without the dot", asyn
   await expect
     .element(page.getByRole("listitem").filter({ hasText: "https://bank.example." }))
     .toMatchTextContent("Excluded");
+});
+
+test("turns the allowed sites on, adds and removes one, and keeps the list when off", async () => {
+  const client = mockClient({
+    version: 1,
+    profileId: "00000000-0000-4000-8000-000000000001",
+    revision: 1,
+    settings: settingsOf({ siteDefaults: [bankDefault] }),
+  });
+  await mount(client, "/manage/sites");
+  const allowlist = page.getByRole("switch", { name: "Run only on allowed sites" });
+  await expect.element(allowlist).not.toBeChecked();
+  await allowlist.click();
+  await expect.element(allowlist).toBeChecked();
+  expect(client.saveSettings).toHaveBeenLastCalledWith(
+    1,
+    settingsOf({ siteDefaults: [bankDefault], allowedSitesEnabled: true }),
+    "00000000-0000-4000-8000-000000000001",
+  );
+  // On with nothing allowed: the site row says it is left out.
+  await expect
+    .element(page.getByText("No site is allowed, so Pateat logs in nowhere until you allow one"))
+    .toBeVisible();
+  await expect.element(page.getByText("Not allowed")).toBeVisible();
+
+  await page.getByLabelText("Hostname to allow").fill("Bank.Example");
+  await page.getByRole("button", { name: "Allow site" }).click();
+  await expect
+    .element(page.getByRole("status"))
+    .toHaveTextContent("bank.example is now an allowed site");
+  expect(client.saveSettings).toHaveBeenLastCalledWith(
+    2,
+    settingsOf({
+      siteDefaults: [bankDefault],
+      allowedSitesEnabled: true,
+      allowedSites: [{ hostname: "bank.example", includeSubdomains: false }],
+    }),
+    "00000000-0000-4000-8000-000000000001",
+  );
+  await expect.element(page.getByText("Not allowed")).not.toBeInTheDocument();
+
+  await allowlist.click();
+  await expect.element(allowlist).not.toBeChecked();
+  expect(client.saveSettings).toHaveBeenLastCalledWith(
+    3,
+    settingsOf({
+      siteDefaults: [bankDefault],
+      allowedSitesEnabled: false,
+      allowedSites: [{ hostname: "bank.example", includeSubdomains: false }],
+    }),
+    "00000000-0000-4000-8000-000000000001",
+  );
+
+  await page.getByRole("button", { name: "Remove bank.example from the allowed sites" }).click();
+  await expect
+    .element(page.getByRole("status"))
+    .toHaveTextContent("bank.example is no longer an allowed site");
+  expect(client.saveSettings).toHaveBeenLastCalledWith(
+    4,
+    settingsOf({ siteDefaults: [bankDefault], allowedSitesEnabled: false, allowedSites: [] }),
+    "00000000-0000-4000-8000-000000000001",
+  );
+});
+
+test("the site switch allows a site the allowed sites leave out, and removes only its own", async () => {
+  const client = mockClient({
+    version: 1,
+    profileId: "00000000-0000-4000-8000-000000000001",
+    revision: 1,
+    settings: settingsOf({
+      allowedSitesEnabled: true,
+      allowedSites: [{ hostname: "shop.example", includeSubdomains: false }],
+    }),
+  });
+  await mount(client, BANK_PAGE);
+  const toggle = page.getByRole("switch", { name: "Pateat on this site" });
+  await expect.element(toggle).not.toBeChecked();
+  await expect.element(toggle).toBeEnabled();
+  await expect
+    .element(toggle)
+    .toHaveAccessibleDescription("Not an allowed site; turning Pateat on allows it");
+  await toggle.click();
+  await expect.element(toggle).toBeChecked();
+  expect(client.saveSettings).toHaveBeenLastCalledWith(
+    1,
+    settingsOf({
+      allowedSitesEnabled: true,
+      allowedSites: [
+        { hostname: "shop.example", includeSubdomains: false },
+        { hostname: "bank.example", includeSubdomains: false },
+      ],
+    }),
+    "00000000-0000-4000-8000-000000000001",
+  );
+  await expect
+    .element(page.getByRole("status"))
+    .toHaveTextContent("bank.example is now an allowed site");
+
+  // Off again removes the site's own allowed site instead of excluding it.
+  await toggle.click();
+  await expect.element(toggle).not.toBeChecked();
+  expect(client.saveSettings).toHaveBeenLastCalledWith(
+    2,
+    settingsOf({
+      allowedSitesEnabled: true,
+      allowedSites: [{ hostname: "shop.example", includeSubdomains: false }],
+    }),
+    "00000000-0000-4000-8000-000000000001",
+  );
+  await expect
+    .element(page.getByRole("status"))
+    .toHaveTextContent("bank.example is no longer an allowed site");
+});
+
+test("the site switch excludes a site that a shared allowed site covers", async () => {
+  const client = mockClient({
+    version: 1,
+    profileId: "00000000-0000-4000-8000-000000000001",
+    revision: 1,
+    settings: settingsOf({
+      allowedSitesEnabled: true,
+      allowedSites: [{ hostname: "example", includeSubdomains: true }],
+    }),
+  });
+  await mount(client, BANK_PAGE);
+  const toggle = page.getByRole("switch", { name: "Pateat on this site" });
+  await expect.element(toggle).toBeChecked();
+  await toggle.click();
+  await expect.element(toggle).not.toBeChecked();
+  expect(client.saveSettings).toHaveBeenLastCalledWith(
+    1,
+    settingsOf({
+      allowedSitesEnabled: true,
+      allowedSites: [{ hostname: "example", includeSubdomains: true }],
+      excludedSites: [{ hostname: "bank.example", includeSubdomains: false }],
+    }),
+    "00000000-0000-4000-8000-000000000001",
+  );
 });

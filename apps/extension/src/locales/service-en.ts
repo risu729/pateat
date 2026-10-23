@@ -97,8 +97,8 @@ export const serviceEn = {
     "The service gave an unexpected answer. Try again later.",
   "Profile access failed.": "Profile access failed.",
   "Edit a settings profile": "Edit a settings profile",
-  "Change another profile's site exclusions, sites that ask for the master password and saved accounts from here. Account names come from this browser's vaults. Saving does not change which profile this device uses, and account bindings stay shared by every profile.":
-    "Change another profile's site exclusions, sites that ask for the master password and saved accounts from here. Account names come from this browser's vaults. Saving does not change which profile this device uses, and account bindings stay shared by every profile.",
+  "Change another profile's site exclusions, allowed sites, sites that ask for the master password and saved accounts from here. Account names come from this browser's vaults. Saving does not change which profile this device uses, and account bindings stay shared by every profile.":
+    "Change another profile's site exclusions, allowed sites, sites that ask for the master password and saved accounts from here. Account names come from this browser's vaults. Saving does not change which profile this device uses, and account bindings stay shared by every profile.",
   "Load profiles": "Load profiles",
   "Profile to edit": "Profile to edit",
   "Choose a profile": "Choose a profile",

@@ -27,7 +27,7 @@ export const MAX_SETTINGS_SYNC_ATTEMPTS = 3;
 export const MAX_SETTINGS_DEFER_MS = 2 * 60 * 1000;
 
 type SiteDefault = LocalSettings["siteDefaults"][number];
-type ExcludedSite = LocalSettings["excludedSites"][number];
+type SiteRule = LocalSettings["excludedSites"][number];
 type Binding = LocalSettings["bindings"][number];
 
 /**
@@ -35,8 +35,11 @@ type Binding = LocalSettings["bindings"][number];
  * connections, item selection and field exclusions stay on this device.
  */
 export type SyncedSettings = {
-  excludedSites: ExcludedSite[];
-  repromptSites: ExcludedSite[];
+  excludedSites: SiteRule[];
+  repromptSites: SiteRule[];
+  /** Kept while the list is off; absent in the settings is the same as empty (ADR 0077). */
+  allowedSites: SiteRule[];
+  allowedSitesEnabled: boolean;
   siteDefaults: SiteDefault[];
   bindings: Binding[];
 };
@@ -45,6 +48,8 @@ export function syncedSettings(settings: LocalSettings): SyncedSettings {
   return {
     excludedSites: settings.excludedSites,
     repromptSites: settings.repromptSites,
+    allowedSites: settings.allowedSites ?? [],
+    allowedSitesEnabled: settings.allowedSitesEnabled ?? false,
     siteDefaults: settings.siteDefaults,
     bindings: settings.bindings,
   };
@@ -53,6 +58,8 @@ export function syncedSettings(settings: LocalSettings): SyncedSettings {
 const emptySynced: SyncedSettings = {
   excludedSites: [],
   repromptSites: [],
+  allowedSites: [],
+  allowedSitesEnabled: false,
   siteDefaults: [],
   bindings: [],
 };
@@ -114,7 +121,7 @@ export type SettingsSyncOutcome =
   | "storage-unavailable"
   | TransportFailure;
 
-const siteKey = (entry: ExcludedSite) => entry.hostname;
+const siteKey = (entry: SiteRule) => entry.hostname;
 const defaultKey = (entry: SiteDefault) => entry.origin;
 const bindingKey = (entry: Binding) =>
   JSON.stringify([entry.recipeId, entry.origin, entry.provider, entry.userId, entry.itemId]);
@@ -146,6 +153,11 @@ function mergeEntries<T>(
   return merged;
 }
 
+/** One value merged like an entry: the service's change wins, then a local one. */
+function mergeValue<T>(base: { service: T; local: T }, local: T, service: T): T {
+  return same(service, base.service) && !same(local, base.local) ? local : service;
+}
+
 export function mergeSyncedSettings(
   base: SyncBase,
   local: SyncedSettings,
@@ -167,6 +179,17 @@ export function mergeSyncedSettings(
       local.repromptSites,
       service.repromptSites,
       siteKey,
+    ),
+    allowedSites: mergeEntries(
+      part("allowedSites"),
+      local.allowedSites,
+      service.allowedSites,
+      siteKey,
+    ),
+    allowedSitesEnabled: mergeValue(
+      part("allowedSitesEnabled"),
+      local.allowedSitesEnabled,
+      service.allowedSitesEnabled,
     ),
     siteDefaults: mergeEntries(
       part("siteDefaults"),
@@ -208,8 +231,7 @@ export function refreshDisplayNames(synced: SyncedSettings, catalog: VaultCatalo
     return next.success ? next.output : entry;
   }
   return {
-    excludedSites: synced.excludedSites,
-    repromptSites: synced.repromptSites,
+    ...synced,
     siteDefaults: synced.siteDefaults.map((entry) => refresh(entry, siteDefaultSchema)),
     bindings: synced.bindings.map((entry) => refresh(entry, savedLoginBindingSchema)),
   };
@@ -228,6 +250,8 @@ function equalSynced(left: SyncedSettings, right: SyncedSettings): boolean {
   return (
     same(sorted(left.excludedSites, siteKey), sorted(right.excludedSites, siteKey)) &&
     same(sorted(left.repromptSites, siteKey), sorted(right.repromptSites, siteKey)) &&
+    same(sorted(left.allowedSites, siteKey), sorted(right.allowedSites, siteKey)) &&
+    left.allowedSitesEnabled === right.allowedSitesEnabled &&
     same(sorted(left.siteDefaults, defaultKey), sorted(right.siteDefaults, defaultKey)) &&
     same(sorted(left.bindings, bindingKey), sorted(right.bindings, bindingKey))
   );

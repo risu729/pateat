@@ -122,6 +122,7 @@ owner the reason when the amendment changes a recorded owner instruction.
 - [0072: A field may be named by its `name` within the sign-in form](adr/0072-field-name-in-the-sign-in-form.md)
 - [0075: Lock, log out and the vault timeout](adr/0075-vault-lock-and-timeout.md)
 - [0076: Settings profiles, delivered](adr/0076-settings-profiles-delivered.md)
+- [0077: Allowed sites](adr/0077-allowed-sites.md)
 
 This layout follows the useful separation in
 [Kogane ADR 0041](https://github.com/risu729/kogane/blob/main/docs/adr/0041-documentation-scope.md),

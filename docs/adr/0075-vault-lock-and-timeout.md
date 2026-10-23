@@ -59,9 +59,10 @@ logged-out vault cannot be
 unlocked; it needs **Sign in again**.
 
 **Lock** removes the key from the session and, for an active vault, moves the record to
-locked. A password sign-in always unlocks the vault it signs in to (agent's choice: the
+locked. A password sign-in always unlocks the vault it signs in to: the
 "Enable automatic unlock on this device" checkbox is removed, since the timeout now
-decides how long the key stays).
+decides how long the key stays (an agent's choice, which the owner confirmed on
+2026-10-23 at 20:40 UTC).
 
 ### The vault timeout
 
@@ -71,7 +72,8 @@ timeout (a number of minutes from 1 to 525,600, `system-idle`, `system-lock`, `r
 or `never`) and the action (`lock` or `log-out`). The settings page offers the presets
 and a custom number of minutes (agent's choice of the one-year cap). An absent record is
 **Never** with **Lock**, so existing installs keep unlocking after a restart as ADR 0006
-required (agent's choice; the official extension's default is On browser restart). A
+required (an agent's choice, which the owner confirmed on 2026-10-23 at 20:40 UTC; the
+official extension's default is On browser restart). A
 record that does not parse acts as **On browser restart** with **Lock**, so a damaged
 setting never keeps a vault open longer than asked.
 

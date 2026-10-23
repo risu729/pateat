@@ -31,6 +31,7 @@ are assigned now so that profiles can be added without moving data again:
 | ---------------------------------------------------------- | ----------------- |
 | `excludedSites`                                            | profile           |
 | `repromptSites` (2026-10-23)                               | profile           |
+| `allowedSites`, `allowedSitesEnabled` (ADR 0077)           | profile           |
 | `siteDefaults`                                             | profile           |
 | `accountPolicies`, including `enabled` (ADR 0023)          | profile           |
 | `itemPolicies` (ADR 0023)                                  | profile           |
@@ -83,4 +84,5 @@ records how, and the owner's choices made while building them. Two points differ
 the text above: a pairing must choose a profile even when the owner has only one, and
 `devices.profile_id` refers to profiles that are deleted softly. ADR 0023's lists and
 ADR 0035's page permissions are still to be built; they become profile parts when they
-are.
+are. Later the same day the allowed sites joined them as a profile part, as the owner
+chose on 2026-10-19 ([ADR 0077](0077-allowed-sites.md)).

@@ -1235,8 +1235,9 @@ items the owner mentioned and gates still open on 2026-10-11.
   quotas come with it.
 - Settings to limit Pateat as an extension that handles personal data: only allowed
   sites (an allowlist), and a choice of how long the vault stays unlocked, as the
-  official Bitwarden extension offers. The second is done: Lock, Log out and the vault
-  timeout ([ADR 0075](adr/0075-vault-lock-and-timeout.md)).
+  official Bitwarden extension offers. Both are done: allowed sites
+  ([ADR 0077](adr/0077-allowed-sites.md)), and Lock, Log out and the vault timeout
+  ([ADR 0075](adr/0075-vault-lock-and-timeout.md)).
 - Answering Chrome's Immediate UI requests (`navigator.credentials.get` with
   `uiMode: "immediate"`, made when the person presses a site's sign-in button) like
   other passkey get requests, chooser window included: decided and implemented on

@@ -2,7 +2,9 @@ import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { i18n } from "../i18n";
 import {
+  allowlistOn,
   isSiteExcluded,
+  siteRuleCovers,
   normalizeHostname,
   parseSiteUrl,
   siteDefaultConnection,
@@ -76,7 +78,7 @@ export interface PopupHost {
 }
 
 type Saved = Extract<SettingsResponse, { ok: true }>;
-type ExcludedSite = LocalSettings["excludedSites"][number];
+type SiteRule = LocalSettings["excludedSites"][number];
 type Tone = "progress" | "success" | "error";
 type NoticeText = (translate: TFunction) => string;
 
@@ -93,42 +95,71 @@ function hostnameOf(origin: string): string {
   return normalizeHostname(new URL(origin).hostname) ?? new URL(origin).hostname;
 }
 
-/**
- * The "Pateat on this site" switch. It is on unless an exclusion rule covers the
- * hostname, and the popup changes only the hostname's own exact rule: a rule for a parent
- * domain, or one that includes subdomains, also covers other sites, so only the settings
- * page changes it.
- */
 /** Which rules of a site list cover a hostname, and how the popup changes its own. */
-function siteRules(rules: ExcludedSite[], hostname: string) {
-  const covering = rules.filter(
-    (site) =>
-      hostname === site.hostname ||
-      (site.includeSubdomains && hostname.endsWith(`.${site.hostname}`)),
-  );
-  const own = (site: ExcludedSite) => site.hostname === hostname && !site.includeSubdomains;
+function siteRules(rules: SiteRule[], hostname: string) {
+  const covering = rules.filter((site) => siteRuleCovers(site, hostname));
+  const own = (site: SiteRule) => site.hostname === hostname && !site.includeSubdomains;
   return {
     listed: covering.length > 0,
     editable: covering.every(own),
     /** The covering rules the popup cannot change; each includes subdomains. */
     shared: covering.filter((site) => !own(site)),
     /** The list with or without the hostname's own rule. */
-    with: (list: ExcludedSite[], listed: boolean) =>
+    with: (list: SiteRule[], listed: boolean) =>
       listed
         ? [...list.filter((site) => !own(site)), { hostname, includeSubdomains: false }]
         : list.filter((site) => !own(site)),
   };
 }
 
+/**
+ * The "Pateat on this site" switch. It is on unless an exclusion rule covers the
+ * hostname or, while the allowed sites are on, none of them does (ADR 0077). The popup
+ * changes only the hostname's own exact rules: a rule for a parent domain, or one that
+ * includes subdomains, also covers other sites, so only the settings page changes it.
+ * While the allowed sites are on, turning the switch on allows the hostname, and turning
+ * it off removes the hostname's own allowed site, or excludes the hostname when a shared
+ * allowed site covers it.
+ */
 export function siteSwitch(settings: LocalSettings, hostname: string) {
-  const rules = siteRules(settings.excludedSites, hostname);
+  const covers = (site: SiteRule) => siteRuleCovers(site, hostname);
+  const own = (site: SiteRule) => site.hostname === hostname && !site.includeSubdomains;
+  const rules = settings.excludedSites.filter(covers);
+  const allowed = !allowlistOn(settings) || (settings.allowedSites ?? []).some(covers);
+  // Allowed only by the hostname's own rule: turning it off removes that rule.
+  const removesAllowed = (value: LocalSettings) => {
+    const covering = allowlistOn(value) ? (value.allowedSites ?? []).filter(covers) : [];
+    return covering.length > 0 && covering.every(own);
+  };
   return {
-    on: !rules.listed,
-    editable: rules.editable,
-    shared: rules.shared,
+    on: rules.length === 0 && allowed,
+    editable: rules.every(own),
+    /** The covering rules the popup cannot change; each includes subdomains. */
+    shared: rules.filter((site) => !own(site)),
+    /** The allowed sites are on and leave the hostname out. */
+    notAllowed: !allowed,
+    /** The notice once the change is saved. */
+    done(on: boolean): NoticeText {
+      if (on)
+        return allowed
+          ? (translate) => translate("{{hostname}} is no longer excluded.", { hostname })
+          : (translate) => translate("{{hostname}} is now an allowed site.", { hostname });
+      return removesAllowed(settings)
+        ? (translate) => translate("{{hostname}} is no longer an allowed site.", { hostname })
+        : (translate) => translate("{{hostname}} is now excluded.", { hostname });
+    },
     /** Turns Pateat on or off for the hostname in a copy of the settings. */
     set(value: LocalSettings, on: boolean) {
-      value.excludedSites = rules.with(value.excludedSites, !on);
+      if (on) {
+        value.excludedSites = value.excludedSites.filter((site) => !own(site));
+        if (allowlistOn(value) && !(value.allowedSites ?? []).some(covers))
+          value.allowedSites = [
+            ...(value.allowedSites ?? []),
+            { hostname, includeSubdomains: false },
+          ];
+      } else if (removesAllowed(value))
+        value.allowedSites = (value.allowedSites ?? []).filter((site) => !own(site));
+      else value.excludedSites.push({ hostname, includeSubdomains: false });
     },
   };
 }
@@ -687,6 +718,8 @@ export function SiteApp({
         JSON.stringify([
           saved.snapshot.settings.connections,
           saved.snapshot.settings.excludedSites,
+          saved.snapshot.settings.allowedSites ?? [],
+          saved.snapshot.settings.allowedSitesEnabled ?? false,
         ]),
       saved?.catalog.connections.map((entry) => [
         entry.snapshotId ?? null,
@@ -957,13 +990,7 @@ export function SiteApp({
         busy={busy}
         onChange={(on) => {
           setSwitching(on);
-          void change(
-            (value) => site.set(value, on),
-            (translate) =>
-              on
-                ? translate("{{hostname}} is no longer excluded.", { hostname })
-                : translate("{{hostname}} is now excluded.", { hostname }),
-          );
+          void change((value) => site.set(value, on), site.done(on));
         }}
       />
     );
@@ -1354,6 +1381,11 @@ export function SiteApp({
                   ))}
                 </ul>
               </>
+            )}
+            {site.editable && site.notAllowed && (
+              <p id="popup-site-not-allowed">
+                {t("Pateat runs only on allowed sites, and this site is not one of them.")}
+              </p>
             )}
             <p id="popup-site-status" className="popup-muted popup-status">
               <Ban size={16} strokeWidth={2} aria-hidden="true" />

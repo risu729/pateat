@@ -600,7 +600,10 @@ active tab's site default account and exclusion, through the same worker-owned s
 ([ADR 0021](adr/0021-account-choice-outside-settings.md)). Its "Pateat on this site"
 switch adds or removes only an exclusion rule for the exact hostname without subdomains;
 when a parent-domain rule or one with subdomains covers the site, the switch is disabled
-and the popup links each such rule to the settings page. While the tab's page waits for
+and the popup links each such rule to the settings page. While the allowed sites are on
+([ADR 0077](adr/0077-allowed-sites.md)), the switch is on only for an allowed site:
+turning it on allows the exact hostname, and turning it off removes that rule, or
+excludes the hostname when a broader rule allows it. While the tab's page waits for
 an account choice, the choice is the popup's only list (the owner asked for one list on
 2026-10-13 at 03:54 UTC): its cards mark the saved default, its "Make it the default"
 checkbox makes the picked account the default once that login succeeds (a pick of
@@ -640,9 +643,9 @@ settled as unknown (`settled`), and the last login and model request the badge k
 from the log reports, with the badge's lifetime: a top page of another origin or the
 tab's closing drops them, and `chrome.storage.session` keeps them across a worker
 restart. Item selection, field exclusions and custom-field review stay on the
-extension's settings page once synced ([ADR 0023](adr/0023-synced-vault-policy.md)).
-The service keeps excluded sites and site defaults per settings profile and bindings per
-owner, under one owner revision ([ADR 0024](adr/0024-settings-profiles.md),
+extension's settings page once synced ([ADR 0023](adr/0023-synced-vault-policy.md)). The
+service keeps excluded sites, allowed sites and site defaults per settings profile and
+bindings per owner, under one owner revision ([ADR 0024](adr/0024-settings-profiles.md),
 [ADR 0076](adr/0076-settings-profiles-delivered.md)). Each device uses one profile,
 chosen when it pairs or on the management page's Devices page; `/manage/profiles`
 renames, copies and deletes profiles, and the Sites pages edit one profile at a time.
@@ -755,8 +758,9 @@ Checked against the code on 2026-10-17:
 - Exclusion rules name hostnames only: no wildcard patterns, paths or ports, subdomains
   only through the checkbox, and no warning for a rule on a public suffix such as `com`
   or for subdomains of an IP address.
-- At most 1000 exclusion rules, 1000 site defaults and 1000 IDs in each item selection
-  or exclusion list; a draft over a limit is not saved and says only that it is invalid.
+- At most 1000 exclusion rules, 1000 allowed sites, 1000 site defaults and 1000 IDs in
+  each item selection or exclusion list; a draft over a limit is not saved and says only
+  that it is invalid.
 - A settings edit that meets a revision conflict is not merged: reloading the saved
   settings discards it, and it has to be made again.
 - Accounts are told apart by an item ID's first 8 characters when their names read the
@@ -773,11 +777,12 @@ only the one recorded document that was refused for several matches, through
 check after a page with a recipe found no matching item likewise reconnects only that
 refused document, once the check applied a new snapshot within ten seconds
 ([ADR 0025](adr/0025-automatic-vault-sync.md#after-no-item-matches)). A static content
-script runs on every HTTP(S) page and frame; the background admits non-excluded sites
-with host access and needs a cached recipe for the exact origin before any policy or
-vault access ([ADR 0009](adr/0009-install-time-https-site-access.md)). On an `http:`
-page only a vault URI saved with an explicit `http://` scheme matches, so only those
-items can be chosen, counted or trigger generation there
+script runs on every HTTP(S) page and frame; the background admits sites that are not
+excluded and, while the allowed sites are on, allowed, with host access and needs a
+cached recipe for the exact origin before any policy or vault access
+([ADR 0009](adr/0009-install-time-https-site-access.md)). On an `http:` page only a
+vault URI saved with an explicit `http://` scheme matches, so only those items can be
+chosen, counted or trigger generation there
 ([ADR 0050](adr/0050-http-pages-for-http-items.md)). A frame also needs the tab's page
 admitted, and its account must match the tab's URL as well as the frame's
 ([ADR 0017](adr/0017-login-forms-in-frames.md)). The exception is recipe generation: a

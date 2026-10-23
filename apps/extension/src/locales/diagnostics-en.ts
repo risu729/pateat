@@ -97,8 +97,10 @@ export const diagnosticsEn = {
   granted: "granted",
   withheld: "withheld",
   "unavailable ({{error}})": "unavailable ({{error}})",
-  "excluded sites {{excludedSites}}, site defaults {{siteDefaults}}, bindings {{bindings}}":
-    "excluded sites {{excludedSites}}, site defaults {{siteDefaults}}, bindings {{bindings}}",
+  "excluded sites {{excludedSites}}, allowed sites {{allowedSites}} (on), site defaults {{siteDefaults}}, bindings {{bindings}}":
+    "excluded sites {{excludedSites}}, allowed sites {{allowedSites}} (on), site defaults {{siteDefaults}}, bindings {{bindings}}",
+  "excluded sites {{excludedSites}}, allowed sites {{allowedSites}} (off), site defaults {{siteDefaults}}, bindings {{bindings}}":
+    "excluded sites {{excludedSites}}, allowed sites {{allowedSites}} (off), site defaults {{siteDefaults}}, bindings {{bindings}}",
   "{{size}} KB of 10 MB": "{{size}} KB of 10 MB",
   "{{count}} days": "{{count}} days",
   "unpacked install": "unpacked install",

@@ -449,6 +449,77 @@ test("a page waiting for the master password offers to open its window again", a
   expect(choices.reprompt).toHaveBeenCalledWith(7);
 });
 
+test("with the allowed sites on, the switch allows a site they leave out and removes it again", async () => {
+  const settings = createDefaultSettings();
+  settings.allowedSitesEnabled = true;
+  settings.allowedSites = [{ hostname: "shop.example", includeSubdomains: false }];
+  const { client, current } = store(saved(3, settings));
+  await mount(client, "https://login.bank.example/");
+  const toggle = page.getByRole("switch", { name: "Pateat on this site" });
+  await expect.element(toggle).not.toBeChecked();
+  await expect.element(toggle).toBeEnabled();
+  await expect
+    .element(page.getByText("Pateat runs only on allowed sites, and this site is not one of them."))
+    .toBeVisible();
+  // A site the allowed sites leave out is not searched.
+  expect(client.findSiteAccounts).not.toHaveBeenCalled();
+  await userEvent.click(toggle);
+  await expect.element(page.getByText("login.bank.example is now an allowed site.")).toBeVisible();
+  await expect.element(toggle).toBeChecked();
+  expect(current().snapshot.settings.allowedSites).toEqual([
+    { hostname: "shop.example", includeSubdomains: false },
+    { hostname: "login.bank.example", includeSubdomains: false },
+  ]);
+  expect(current().snapshot.settings.excludedSites).toEqual([]);
+  await userEvent.click(toggle);
+  await expect
+    .element(page.getByText("login.bank.example is no longer an allowed site."))
+    .toBeVisible();
+  await expect.element(toggle).not.toBeChecked();
+  // Only its own rule goes; the site is not excluded too.
+  expect(current().snapshot.settings.allowedSites).toEqual([
+    { hostname: "shop.example", includeSubdomains: false },
+  ]);
+  expect(current().snapshot.settings.excludedSites).toEqual([]);
+});
+
+test("with the allowed sites on, turning off a site a shared rule allows excludes it", async () => {
+  const settings = createDefaultSettings();
+  settings.allowedSitesEnabled = true;
+  settings.allowedSites = [{ hostname: "bank.example", includeSubdomains: true }];
+  const { client, current } = store(saved(3, settings));
+  await mount(client, "https://login.bank.example/");
+  const toggle = page.getByRole("switch", { name: "Pateat on this site" });
+  await expect.element(toggle).toBeChecked();
+  await userEvent.click(toggle);
+  await expect.element(page.getByText("login.bank.example is now excluded.")).toBeVisible();
+  expect(current().snapshot.settings.allowedSites).toEqual([
+    { hostname: "bank.example", includeSubdomains: true },
+  ]);
+  expect(current().snapshot.settings.excludedSites).toEqual([
+    { hostname: "login.bank.example", includeSubdomains: false },
+  ]);
+  // On again removes the exclusion; the shared rule still allows the site.
+  await userEvent.click(toggle);
+  await expect.element(page.getByText("login.bank.example is no longer excluded.")).toBeVisible();
+  expect(current().snapshot.settings.excludedSites).toEqual([]);
+  expect(current().snapshot.settings.allowedSites).toEqual([
+    { hostname: "bank.example", includeSubdomains: true },
+  ]);
+});
+
+test("allowed sites that are off change nothing in the popup", async () => {
+  const settings = createDefaultSettings();
+  settings.allowedSitesEnabled = false;
+  settings.allowedSites = [{ hostname: "shop.example", includeSubdomains: false }];
+  const { client } = store(saved(3, settings));
+  await mount(client, "https://login.bank.example/");
+  await expect.element(page.getByRole("switch", { name: "Pateat on this site" })).toBeChecked();
+  await expect
+    .element(page.getByText("Pateat runs only on allowed sites, and this site is not one of them."))
+    .not.toBeInTheDocument();
+});
+
 test("a switch change that is not saved returns to the saved state", async () => {
   const { client, current } = store();
   client.saveSettings.mockResolvedValueOnce({

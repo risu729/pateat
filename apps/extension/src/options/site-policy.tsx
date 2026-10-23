@@ -6,6 +6,7 @@ import {
   normalizeHostname,
   parseSiteUrl,
   resolveSiteAccount,
+  siteAccess,
   siteDefaultConnection,
   type LocalSettings,
   type SiteAccountsResponse,
@@ -58,6 +59,7 @@ function unavailableReason(reason: string): string {
   const descriptions: Record<string, string> = {
     "invalid-url": "The destination is invalid.",
     "site-excluded": "This site is excluded.",
+    "site-not-allowed": "This site is not an allowed site, so this default is not used.",
     "default-not-set": "No default account is set.",
     "item-origin-mismatch": "This account does not match the exact origin.",
     "connection-missing": "The vault connection is unavailable.",
@@ -471,7 +473,9 @@ export function SitePolicy({
   else if (accounts.isError || (accounts.data && !accounts.data.ok))
     accountNote =
       accounts.data && !accounts.data.ok && accounts.data.reason === "site-excluded"
-        ? t("This site is excluded.")
+        ? siteAccess(draft, accountOrigin) === "not-allowed"
+          ? t("This site is not an allowed site.")
+          : t("This site is excluded.")
         : t("The matching accounts could not be listed.");
   else if (!matchedCount)
     accountNote = t(
@@ -655,7 +659,7 @@ export function SitePolicy({
           <Button
             type="button"
             variant="outline"
-            aria-label={t("Allow {{name}}", { name })}
+            aria-label={t("Remove exclusion for {{name}}", { name })}
             onClick={() => {
               edit((settings) => {
                 settings.excludedSites = settings.excludedSites.filter(
@@ -665,7 +669,7 @@ export function SitePolicy({
               originInput.current?.focus();
             }}
           >
-            {t("Allow")}
+            {t("Remove exclusion")}
           </Button>
         }
       />
@@ -717,8 +721,9 @@ export function SitePolicy({
       order: `2 ${rule.hostname}`,
       row: () => repromptRow(rule),
     })),
+    // A default on a site the allowed sites leave out is listed, and says it is not used.
     ...draft.siteDefaults
-      .filter((entry) => !isSiteExcluded(draft, entry.origin))
+      .filter((entry) => !ruleFor(draft.excludedSites, entry.origin))
       .map((entry) => ({
         hostname: hostOf(entry.origin),
         order: `1 ${entry.origin}`,

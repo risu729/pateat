@@ -83,6 +83,10 @@ export const en = {
   "Pateat's settings could not be loaded.": "Pateat's settings could not be loaded.",
   "{{hostname}} is no longer excluded.": "{{hostname}} is no longer excluded.",
   "{{hostname}} is now excluded.": "{{hostname}} is now excluded.",
+  "{{hostname}} is now an allowed site.": "{{hostname}} is now an allowed site.",
+  "{{hostname}} is no longer an allowed site.": "{{hostname}} is no longer an allowed site.",
+  "Pateat runs only on allowed sites, and this site is not one of them.":
+    "Pateat runs only on allowed sites, and this site is not one of them.",
   "Vault account": "Vault account",
   "{{account}}, not available here": "{{account}}, not available here",
   "Finding the vault items that match this site…": "Finding the vault items that match this site…",
