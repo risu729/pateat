@@ -167,8 +167,8 @@ Pateat's rule is in [Background execution](architecture.md#background-execution)
 ## After a logout, pausing and switching accounts
 
 Proposed on 2026-10-23, not accepted
-([ADR 0060](adr/0060-log-in-again-after-a-logout.md),
-[ADR 0061](adr/0061-switch-accounts-from-the-popup.md)).
+([ADR 0062](adr/0062-log-in-again-after-a-logout.md),
+[ADR 0063](adr/0063-switch-accounts-from-the-popup.md)).
 
 - The official extension never presses a button, and its "Autofill on page load" fills
   on every load without telling a logout apart

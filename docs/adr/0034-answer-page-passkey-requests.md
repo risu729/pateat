@@ -10,7 +10,7 @@ a recipe without a passkey button, and its fallback to the password) and
 [ADR 0025](0025-automatic-vault-sync.md) (a waiting conditional request does not hold
 the vault).
 
-Amended on 2026-10-23 by [ADR 0060](0060-log-in-again-after-a-logout.md) (proposed,
+Amended on 2026-10-23 by [ADR 0062](0062-log-in-again-after-a-logout.md) (proposed,
 not accepted): rule 5's case after a logout is gone, since a logout is followed by an
 ordinary login; the remaining asks keep the request as before, and a conditional request
 on a paused site is handed on at once.

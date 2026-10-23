@@ -26,7 +26,7 @@ remembered account's row on `platform.openai.com`, the tab moved to
 came back to `platform.openai.com/auth/callback` signed in. Which item answered was not
 recorded.
 
-Amended on 2026-10-23 by [ADR 0060](0060-log-in-again-after-a-logout.md) (proposed,
+Amended on 2026-10-23 by [ADR 0062](0062-log-in-again-after-a-logout.md) (proposed,
 not accepted): a released record is followed by an ordinary login instead of asking,
 except after a rejection, a stopped login or an abandoned watch, which ask without
 filling; a third automatic login of a site within 10 minutes asks (`relogin-limit`).

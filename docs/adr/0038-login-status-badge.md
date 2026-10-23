@@ -7,7 +7,7 @@ warningっぽいの数秒、詳しくはポップアップでよい」. Amends
 [site count badge](0021-account-choice-outside-settings.md#site-count-badge)) and
 replaces the spinning toolbar icon the owner chose at 14:04 UTC the same day.
 
-Amended on 2026-10-23 by [ADR 0060](0060-log-in-again-after-a-logout.md) (proposed,
+Amended on 2026-10-23 by [ADR 0062](0062-log-in-again-after-a-logout.md) (proposed,
 not accepted): the badge's after-logout state and fill-only wording are removed, and a
 paused site shows a gray `II` unless a choice waits.
 

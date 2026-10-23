@@ -14,8 +14,8 @@ asks (implemented, see the end of D). Amended on 2026-10-13 by the owner's
 2026-10-16 by the owner: in D, a click on a control that logs out also makes the tab ask
 (implemented, see [logout clicks](#logout-clicks)).
 
-Amended on 2026-10-23 by [ADR 0060](0060-log-in-again-after-a-logout.md) and
-[ADR 0061](0061-switch-accounts-from-the-popup.md) (proposed, not accepted): D's logout
+Amended on 2026-10-23 by [ADR 0062](0062-log-in-again-after-a-logout.md) and
+[ADR 0063](0063-switch-accounts-from-the-popup.md) (proposed, not accepted): D's logout
 state, fill-only login, logout clicks and passkey chooser after a sign-in are removed,
 so a logout is followed by an ordinary login; its rejected-password, stopped-login and
 abandoned-watch asks stay, without filling; [Later](#later)'s account switch is built,
@@ -227,7 +227,7 @@ more.
 ### D. After a logout, choose again (detection L1)
 
 Proposed on 2026-10-23 for replacement by
-[ADR 0060](0060-log-in-again-after-a-logout.md): only the rejected-password,
+[ADR 0062](0062-log-in-again-after-a-logout.md): only the rejected-password,
 stopped-login and abandoned-watch asks below remain, without filling. The text below
 records the rule as built until then.
 
@@ -482,7 +482,7 @@ expires within 10 minutes after such a click.
 
 ## Later
 
-Built as proposed on 2026-10-23 by [ADR 0061](0061-switch-accounts-from-the-popup.md).
+Built as proposed on 2026-10-23 by [ADR 0063](0063-switch-accounts-from-the-popup.md).
 
 The owner asked on 2026-10-11 to record, not build, a follow-up. Choosing another
 account in the popup while logged in would log out and log in again automatically. This

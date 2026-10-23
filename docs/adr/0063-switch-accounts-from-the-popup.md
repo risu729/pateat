@@ -1,7 +1,7 @@
-# ADR 0061: Switch accounts from the popup
+# ADR 0063: Switch accounts from the popup
 
 Status: proposed, not accepted. Built with
-[ADR 0060](0060-log-in-again-after-a-logout.md) at the owner's request of 2026-10-23
+[ADR 0062](0062-log-in-again-after-a-logout.md) at the owner's request of 2026-10-23
 (05:28 UTC) to build on the likely answers and decide later. The two questions here
 (how Pateat logs out, and how long a pick that is not made the default lasts) were not
 yet asked; the decisions below are the reviewed proposal's recommendations. Builds the
@@ -15,7 +15,7 @@ Date: 2026-10-23
 
 ## Context
 
-With [ADR 0060](0060-log-in-again-after-a-logout.md), a logout is followed by an
+With [ADR 0062](0062-log-in-again-after-a-logout.md), a logout is followed by an
 automatic login with the same account, so logging out no longer offers another one. A
 person who wants another account needs a way to ask for it while signed in.
 
@@ -67,7 +67,7 @@ A pick with "Make default" off, in the ADR 0021 B choice or in a switch, is used
 registrable site until the browser closes, separately for incognito, in
 `pateat.login-session-picks.v1` in `chrome.storage.session`. Automatic logins and the
 passkey item choice use it before the site default. Before, such a pick lasted one
-login; with ADR 0060 the next automatic login after an expiry or logout would otherwise
+login; with ADR 0062 the next automatic login after an expiry or logout would otherwise
 return to the default account without the person noticing. "Make default" on saves the
 default after a confirmed sign-in, as
 [ADR 0021](0021-account-choice-outside-settings.md) already does.

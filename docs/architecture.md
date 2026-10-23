@@ -577,9 +577,9 @@ at, [ADR 0049](adr/0049-start-at-a-later-step.md)) appearing again in that tab's
 asks for a choice again instead of logging in, with the saved default first; for
 passkeys, a username-less request after Pateat signed in the tab opens the chooser
 window (part D of [ADR 0021](adr/0021-account-choice-outside-settings.md)). Proposed on
-2026-10-23, not accepted: [ADR 0060](adr/0060-log-in-again-after-a-logout.md) replaces
+2026-10-23, not accepted: [ADR 0062](adr/0062-log-in-again-after-a-logout.md) replaces
 this with an ordinary login after a logout (with a repeat guard and a timed pause in the
-popup), and [ADR 0061](adr/0061-switch-accounts-from-the-popup.md) adds the popup's
+popup), and [ADR 0063](adr/0063-switch-accounts-from-the-popup.md) adds the popup's
 account switch, which logs out with a model-found logout control and logs in with the
 picked item. Cookies
 may be shared across tabs even during initial login. Another tab's login of the origin

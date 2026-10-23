@@ -1,10 +1,10 @@
-# ADR 0060: Log in again after a logout, and pause automatic login
+# ADR 0062: Log in again after a logout, and pause automatic login
 
 Status: proposed, not accepted. On 2026-10-22 (11:37 UTC) the owner asked to drop the
 rule that Pateat does not log in by itself after a logout
 (「バグの温床なのでやめたい」), to log in automatically whenever a login page is
 entered, and to add a button that pauses automatic login for a while, designed together
-with account switching ([ADR 0061](0061-switch-accounts-from-the-popup.md)). A reviewed
+with account switching ([ADR 0063](0063-switch-accounts-from-the-popup.md)). A reviewed
 proposal asked three questions by decision card; before they were answered, the owner
 asked on 2026-10-23 (05:28 UTC) to build on the likely answers and decide later, like
 the pull requests built ahead of their phases
@@ -34,7 +34,7 @@ the next day in a new tab.
 The official Bitwarden extension never presses a button, but its "Autofill on page
 load" fills on every load and does not tell a logout apart
 ([Bitwarden help](https://bitwarden.com/help/auto-fill-browser/)). With account
-switching ([ADR 0061](0061-switch-accounts-from-the-popup.md)), a person rarely needs
+switching ([ADR 0063](0063-switch-accounts-from-the-popup.md)), a person rarely needs
 to stay logged out; the pause covers that case.
 
 ## Decision
@@ -45,7 +45,7 @@ to stay logged out; the pause covers that case.
   login may start at, [ADR 0049](0049-start-at-a-later-step.md)) shows again, the
   tab's [ADR 0022](0022-login-attempts-per-tab-and-origin.md) record is released as
   before, and an ordinary login starts with the account an automatic login would use:
-  the session pick of [ADR 0061](0061-switch-accounts-from-the-popup.md), else the site
+  the session pick of [ADR 0063](0063-switch-accounts-from-the-popup.md), else the site
   default, else the only match. The passkey route is taken when chosen. Other tabs of
   the site log in as usual.
 - Removed: the logout state (`pateat.login-logouts.v1`), other tabs asking because of
