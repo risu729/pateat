@@ -276,6 +276,7 @@ export const LOG_EVENTS = {
       account: "code",
       candidates: "count",
       item: "item",
+      fillOnly: "flag",
       startStep: "count",
       list: "code",
       listUsername: "code",

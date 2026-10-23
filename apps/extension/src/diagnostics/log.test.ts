@@ -2005,13 +2005,28 @@ describe("unhandled errors", () => {
     });
     log.login({ type: "refused", ...site, reason: "tab-busy", frame: true });
     log.login({ type: "refused", ...site, reason: "tab-busy" });
-    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(5));
+    // Filling the form while the tab asks for an account ends without pressing anything by
+    // design.
+    log.login({
+      type: "attempt",
+      ...site,
+      recipeId: "synthetic-recipe",
+      recipeRevision: 1,
+      route: "password",
+      state: "blocked",
+      stepIndex: 1,
+      stepCount: 2,
+      outcome: "cancelled",
+      reason: "fill-only",
+    });
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(6));
     const entries = (await log.logger.entries()).filter((entry) => entry.event !== "log.debug");
     expect(entries.map((entry) => [entry.event, entry.level, entry.fields["settled"]])).toEqual([
       ["login.attempt", "warn", true],
       ["login.attempt", "debug", undefined],
       ["login.refused", "debug", undefined],
       ["login.refused", "info", undefined],
+      ["login.attempt", "info", undefined],
     ]);
     expect(entries[2]?.fields).toMatchObject({ reason: "tab-busy", frame: true });
     expect((await log.logger.summary()).recentWarnings).toBe(1);

@@ -4,11 +4,12 @@ const id = v.pipe(v.string(), v.minLength(1), v.maxLength(120));
 const tabId = v.pipe(v.number(), v.integer(), v.minValue(0));
 
 /**
- * Why a tab asks for an account instead of logging in, filling nothing (ADR 0021 D, ADR
- * 0062): the site did not accept its last login (`rejected`) or another tab's that still
- * asks (`rejected-elsewhere`), this tab's own login stopped after a submission or its
- * watch ended before it signed in (`stopped-login`), or two automatic logins of the site
- * ended signed in within 10 minutes (`relogin-limit`).
+ * Why a tab asks for an account instead of logging in (ADR 0021 D, ADR 0062): the site did
+ * not accept its last login (`rejected`) or another tab's that still asks
+ * (`rejected-elsewhere`), or this tab's own login stopped after a submission or its watch
+ * ended before it signed in (`stopped-login`); these three fill the page once with the one
+ * account to use, pressing nothing. Or two automatic logins of the site ended signed in
+ * within 10 minutes (`relogin-limit`), which fills nothing.
  */
 export const askReasonSchema = v.picklist([
   "rejected",
@@ -147,7 +148,8 @@ export const statusResponseSchema = v.variant("ok", [
     /**
      * The tab's last login on this origin's page: `started`, then its state and outcome;
      * `settled` while it is `reconciling` with a result that settled as unknown, which is
-     * watched from the next page on (ADR 0027).
+     * watched from the next page on (ADR 0027); `fillOnly` for a login that only fills the
+     * form while the tab asks for an account and never presses anything (ADR 0021 D).
      */
     login: v.optional(
       v.strictObject({
@@ -155,6 +157,7 @@ export const statusResponseSchema = v.variant("ok", [
         outcome: v.optional(code),
         cause: v.optional(code),
         unconfirmed: v.optional(v.literal(true)),
+        fillOnly: v.optional(v.literal(true)),
         settled: v.optional(v.literal(true)),
       }),
     ),

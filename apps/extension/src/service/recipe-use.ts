@@ -5,8 +5,9 @@ import type { ServiceConnection } from "./runtime";
 import type { OutcomeResult, ServiceTransport } from "./transport";
 
 // Each login that starts on a service recipe revision tells the service, so it does not
-// revoke the recipe as unused (ADR 0058), whatever happens after: logins that stop before
-// an item's missing password send no login record (ADR 0055) but are use too. The recipe ID and revision only. Sending is best-effort; it never waits on, throws
+// revoke the recipe as unused (ADR 0058), whatever happens after: fill-only logins and ones
+// that stop before an item's missing password send no login record (ADR 0055) but are use
+// too. The recipe ID and revision only. Sending is best-effort; it never waits on, throws
 // into or changes a login, and a failed send is neither retried nor stored.
 
 /**
@@ -28,8 +29,8 @@ export type RecipeUseSent = {
 /**
  * The use to send for a login report, or nothing: only a login's `start` report, which the
  * runtime sends once when a new login starts, on a service recipe revision (a valid recipe
- * ID and a revision of at least 1, as for a login record). A login of an item without a
- * password counts as well.
+ * ID and a revision of at least 1, as for a login record). A fill-only login and one of an
+ * item without a password count as well.
  */
 export function recipeUseOf(
   report: LoginReport,

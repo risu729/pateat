@@ -288,8 +288,8 @@ export const loginRecordSchema = v.strictObject({
 /**
  * `POST /v1/recipes/:recipeId/use`: a login started on this recipe revision, whatever
  * happened after, so the service does not revoke the recipe as unused (ADR 0058). It also
- * covers the logins that send no login record, as one that stops before an item's missing
- * password. The revision only: never a URL, origin, page text, value or
+ * covers the logins that send no login record, as a fill-only one or one that stops before
+ * an item's missing password. The revision only: never a URL, origin, page text, value or
  * username, and the service adds the time.
  */
 export const recipeUseReportSchema = v.strictObject({
