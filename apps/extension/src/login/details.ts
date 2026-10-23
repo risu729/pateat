@@ -1,5 +1,6 @@
 import {
   getItemEligibility,
+  itemAsksForMasterPassword,
   resolveDetailSourceField,
   type DatePart,
   type DetailField,
@@ -93,6 +94,31 @@ export function readsFrom(
   if (ownItemDetails.includes(detail)) return item.id === loginItemId;
   if (detail === "pin") return item.id === loginItemId || isCard(item);
   return true;
+}
+
+/**
+ * Where a detail is read (ADR 0061, decided by the owner 2026-10-23 21:50 UTC): the page's
+ * URL, and whether this login already holds the master password for the vault account,
+ * typed in Pateat's chooser window before it started or before a detail was read.
+ */
+export type DetailSite = { url: string; verified: boolean };
+
+/**
+ * Whether the master password has to be asked before a detail is read from `item`: an
+ * item other than the login item `loginItemId`, as an identity or a card, with Bitwarden's
+ * re-prompt on a site in `repromptSites`, while the login does not hold the password yet.
+ * The login item's own answers and member IDs are read as its login is, which started
+ * only after the password.
+ */
+export function waitsForMasterPassword(
+  settings: LocalSettings,
+  item: Pick<VaultItemMetadata, "id" | "reprompt">,
+  loginItemId: string,
+  site: DetailSite,
+): boolean {
+  return (
+    item.id !== loginItemId && !site.verified && itemAsksForMasterPassword(settings, item, site.url)
+  );
 }
 
 /**

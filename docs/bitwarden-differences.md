@@ -213,7 +213,12 @@ chooser window before a login starts or a passkey signs; elsewhere it uses such 
 like any other, and it never asks per field
 ([vault adapter](architecture.md#vault-adapter); owner's decision, 2026-10-23 at 12:46
 UTC). Logging in without a person is what Pateat is for, and re-prompt protects the
-interface rather than the vault data.
+interface rather than the vault data. On such a site a personal detail from another
+re-prompt item, as an identity or a card, is read in a login started after that window;
+in another login the window asks before the read, and the card guess never reads such a
+card
+([ADR 0061](adr/0061-personal-details-during-a-login.md#items-with-bitwardens-re-prompt);
+owner, 2026-10-23 21:50 UTC).
 
 ## Decrypted items in memory
 
