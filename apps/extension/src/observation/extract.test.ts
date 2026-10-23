@@ -1120,9 +1120,17 @@ describe("extractLoginObservation", () => {
     // be internationalized. Repeated headings are kept once, so each one differs.
     page(
       `<h1>o'brien@example.com</h1><h2>taro#1@example.com さん</h2><h3>taro@例え.jp でログイン</h3>
+      <h3>連絡先 taro@例え.日本 まで</h3><h3>ID: taro@例え.日本でログイン中</h3>
       <form id="f"><input id="u"><input id="pw" type="password"><button id="go">Go</button></form>`,
     );
-    expect(observe().headings).toEqual(["[email]", "[email] さん", "[email] でログイン"]);
+    // A last label that is not ASCII takes the text glued to it along.
+    expect(observe().headings).toEqual([
+      "[email]",
+      "[email] さん",
+      "[email] でログイン",
+      "連絡先 [email] まで",
+      "ID: [email]",
+    ]);
   });
 
   it("keeps the text around an email address, a handle in a URL and a key=value pair", () => {
