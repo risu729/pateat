@@ -633,6 +633,25 @@ describe("owner web UI recipes", () => {
       manageRecipesSchema,
       await (await request("/manage/api/recipes", { access: by.token })).json(),
     );
+  /** Which units of the owner's recipes the service has a record of (ADR 0060). */
+  const unitSources = async (ownerId: string) =>
+    (
+      await env.DB.prepare(
+        "SELECT recipe_id, layout, unit FROM recipe_unit_sources WHERE owner_id = ? ORDER BY recipe_id, layout, unit",
+      )
+        .bind(ownerId)
+        .all()
+    ).results;
+  /** The marker unit's hash of the `welcome` marker every layout of `recipe` has. */
+  const welcomeMarker = async () =>
+    new Uint8Array(
+      await crypto.subtle.digest(
+        "SHA-256",
+        new TextEncoder().encode(JSON.stringify(["", { by: "id", value: "welcome" }])),
+      ),
+    )
+      .toHex()
+      .slice(0, 12);
 
   it("lists only the owner's recipes, most recently changed first, with their documents", async () => {
     const first = await owner();
@@ -687,8 +706,9 @@ describe("owner web UI recipes", () => {
     )
       .bind(await ownerIdFor(by.subject))
       .all();
-    // A revoked recipe keeps only its tombstone.
+    // A revoked recipe keeps only its tombstone, and no record of its units (ADR 0060).
     expect(rows.results).toEqual([{ revision: 2, state: "revoked", created_by_device_id: null }]);
+    expect(await unitSources((await ownerIdFor(by.subject))!)).toEqual([]);
     // A device may still publish an explicit replacement after the tombstone.
     expect((await publish(device.credential, "bank-signin", 2)).status).toBe(200);
   });
@@ -791,6 +811,11 @@ describe("owner web UI recipes", () => {
       .bind(ownerId)
       .all();
     expect(rows.results).toEqual([{ revision: 2, state: "revoked", created_by_device_id: null }]);
+    // Only the recipe still active keeps the record of its units (ADR 0060).
+    expect((await unitSources(ownerId!)).map((row) => row["recipe_id"])).toEqual([
+      "shop-signin",
+      "shop-signin",
+    ]);
     expect(await (await deviceApi(device.credential, "/v1/recipes?after=2")).json()).toMatchObject({
       changes: [{ recipeId: "bank-signin", revision: 2, state: "revoked" }],
     });
@@ -824,9 +849,11 @@ describe("owner web UI recipes", () => {
       body: JSON.stringify({ version: 1, revision: 1, layout: "3000" }),
     });
     const [listed] = (await list(by)).recipes;
+    // A device wrote both layouts, so no model made their first pages (ADR 0060).
+    const byDevice = { origin: "device", model: null, createdAt: expect.any(Number) };
     expect(listed!.layouts).toEqual([
-      { key: "1000", lastUsedAt: null },
-      { key: "2000", lastUsedAt: expect.any(Number) },
+      { key: "1000", lastUsedAt: null, firstPage: byDevice },
+      { key: "2000", lastUsedAt: expect.any(Number), firstPage: byDevice },
     ]);
     expect(listed!.layouts[1]!.lastUsedAt).toBeGreaterThanOrEqual(before);
     const ownerId = await ownerIdFor(by.subject);
@@ -866,7 +893,12 @@ describe("owner web UI recipes", () => {
     });
     expect(await lastUsed()).toBe(usedAt);
     expect((await list(by)).recipes[0]!.layouts).toEqual([
-      { key: "2000", lastUsedAt: expect.any(Number) },
+      { key: "2000", lastUsedAt: expect.any(Number), firstPage: byDevice },
+    ]);
+    // The removed layout's units go with it (ADR 0060).
+    expect(await unitSources(ownerId!)).toEqual([
+      { recipe_id: "bank-signin", layout: "2000", unit: `marker:${await welcomeMarker()}` },
+      { recipe_id: "bank-signin", layout: "2000", unit: "page:0" },
     ]);
     // Removing the last layout revokes the recipe, and its layouts' uses go with it.
     const last = await revokeLayout(by, "bank-signin", "2000", 2);
@@ -879,6 +911,7 @@ describe("owner web UI recipes", () => {
         .bind(ownerId)
         .first("n"),
     ).toBe(0);
+    expect(await unitSources(ownerId!)).toEqual([]);
   });
 
   it("removes a layout unused for 90 days while another is used (ADR 0060)", async () => {
@@ -931,6 +964,10 @@ describe("owner web UI recipes", () => {
       .bind(await ownerIdFor(by.subject))
       .all();
     expect(rows.results).toEqual([{ revision: 2, created_by_device_id: null }]);
+    // The removed layout's units go with it (ADR 0060).
+    expect([
+      ...new Set((await unitSources((await ownerIdFor(by.subject))!)).map((row) => row["layout"])),
+    ]).toEqual(["2000", "3000"]);
   });
 
   it("keeps an idle layout generated as a verification, which never runs (ADR 0035, ADR 0060)", async () => {
@@ -958,6 +995,25 @@ describe("owner web UI recipes", () => {
         revision: 2,
         state: "active",
         recipe: { ...stored, revision: 2, layouts: [stored.layouts[0], stored.layouts[2]] },
+      },
+    ]);
+  });
+
+  it("lists the model and time of each layout's first page that the service generated (ADR 0060)", async () => {
+    const by = await owner();
+    const device = await pairDevice(by);
+    expect((await publish(device.credential, "bank-signin", 0)).status).toBe(200);
+    // Stands in for the row a generated first page leaves.
+    await env.DB.prepare(
+      "UPDATE recipe_unit_sources SET origin = 'generated', provider = 'anthropic', model = 'claude-synthetic', created_at = 1234 WHERE owner_id = ? AND unit = 'page:0'",
+    )
+      .bind(await ownerIdFor(by.subject))
+      .run();
+    expect((await list(by)).recipes[0]!.layouts).toEqual([
+      {
+        key: "1000",
+        lastUsedAt: null,
+        firstPage: { origin: "generated", model: "claude-synthetic", createdAt: 1234 },
       },
     ]);
   });
@@ -1018,11 +1074,37 @@ describe("owner web UI request log", () => {
   it("counts and deletes only the signed-in owner's rows and codes, keeping recipes, settings and spend", async () => {
     const first = await owner();
     const second = await owner();
-    await Promise.all([pairDevice(first), pairDevice(second)]);
+    const devicesOf = await Promise.all([pairDevice(first), pairDevice(second)]);
     const [mine, theirs] = await Promise.all([
       ownerIdFor(first.subject),
       ownerIdFor(second.subject),
     ]);
+    // Each owner holds a recipe its device wrote, with a record of its units (ADR 0060).
+    for (const { credential } of devicesOf) {
+      // oxlint-disable-next-line no-await-in-loop -- One recipe per owner.
+      const written = await deviceApi(credential, "/v1/recipes/bank-signin", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          version: 1,
+          expectedRevision: 0,
+          state: "active",
+          recipe: {
+            version: 1,
+            id: "bank-signin",
+            revision: 1,
+            origin: "https://bank.example",
+            entry: { path: "/", target: { by: "text", value: "Log in" } },
+          },
+        }),
+      });
+      expect(written.status).toBe(200);
+    }
+    const unitCount = (ownerId: string) =>
+      env.DB.prepare("SELECT COUNT(*) AS n FROM recipe_unit_sources WHERE owner_id = ?")
+        .bind(ownerId)
+        .first("n");
+    expect(await unitCount(mine!)).toBe(1);
     const oldest = Date.now() - 40 * DAY_MS;
     await env.DB.batch([
       insertLog(mine!, Date.now() - 30 * DAY_MS),
@@ -1079,16 +1161,21 @@ describe("owner web UI request log", () => {
     expect(await logCount(theirs!)).toBe(1);
     expect(await outcomeCount(theirs!)).toBe(1);
     expect(await loginCount(theirs!)).toBe(1);
-    // Only the log goes: the spend the limits count, judged pages and settings stay.
+    // The record of which call made each part of a recipe goes with the log (ADR 0060).
+    expect(await unitCount(mine!)).toBe(0);
+    expect(await unitCount(theirs!)).toBe(1);
+    // Only the log goes: the spend the limits count, judged pages, settings and recipes stay.
     const kept = await env.DB.batch([
       env.DB.prepare("SELECT calls FROM inference_spend WHERE owner_id = ?").bind(mine),
       env.DB.prepare("SELECT verdict FROM page_judgements WHERE owner_id = ?").bind(mine),
       env.DB.prepare("SELECT revision FROM settings WHERE owner_id = ?").bind(mine),
+      env.DB.prepare("SELECT state FROM recipe_heads WHERE owner_id = ?").bind(mine),
     ]);
     expect(kept.map((result) => result.results)).toEqual([
       [{ calls: 2 }],
       [{ verdict: "signed-in" }],
       [{ revision: 1 }],
+      [{ state: "active" }],
     ]);
     // Deleting an empty log is harmless.
     expect(

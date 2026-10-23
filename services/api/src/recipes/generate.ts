@@ -91,7 +91,17 @@ import {
   readHead,
   readRevision,
   writeRecipe,
+  type UnitSources,
 } from "../recipe-store";
+import {
+  branchUnit,
+  ENTRY_UNIT,
+  handlerUnit,
+  LIST_UNIT,
+  markerUnit,
+  pageUnit,
+  type RecipeUnit,
+} from "../recipe-units";
 import { recipeBindingSlots } from "../settings-store";
 
 // The recipe generation routes of ADR 0018: one page per call, appended to one recipe
@@ -645,7 +655,15 @@ export async function generateRecipe(
     },
   });
   if (call.status === "unavailable") return unsent(raced ?? unavailable(call.reason));
-  const { logId } = call;
+  const { logId, served } = call;
+  /** The provenance of the units this call's write adds (ADR 0060). */
+  const generated = (units: RecipeUnit[]): UnitSources => ({
+    origin: "generated",
+    units,
+    served,
+    promptVersion: logged.promptVersion,
+    logId,
+  });
   const result = unsettled(call.outcome);
   // A request the role refused locally, as one too large, was never sent; the roles refuse
   // locally only with a failure.
@@ -658,9 +676,11 @@ export async function generateRecipe(
    * given, or with what won the race: only the recipe this call wrote has a mapping to
    * answer with. A branch's page lost to a write of the chooser's other branch, or of a
    * judgement there, is written once more onto that head, so the paid answer is kept.
+   * `units` are the units the page adds, recorded with the write (ADR 0060).
    */
   const save = async (
     recipe: StoredLoginRecipe,
+    units: RecipeUnit[],
     customSlots: { slot: string; offered: string }[] = [],
     rebase?: (head: SyncRecipeChange | null) => Promise<StoredLoginRecipe | undefined>,
   ): Promise<RecipeGenerationResult> => {
@@ -674,6 +694,7 @@ export async function generateRecipe(
         recipeId,
         { version: 1, state: "active", expectedRevision, recipe: next },
         scope.deviceId,
+        { sources: generated(units) },
       );
       if (written.ok) {
         // eslint-disable-next-line no-await-in-loop
@@ -729,7 +750,9 @@ export async function generateRecipe(
         ],
       },
     });
-    return recipe ? save(recipe) : failed("recipe-invalid");
+    return recipe
+      ? save(recipe, [{ layout: meta.key, unit: LIST_UNIT }])
+      : failed("recipe-invalid");
   }
   const built = buildLoginLayout(
     baseRecipe,
@@ -758,15 +781,24 @@ export async function generateRecipe(
       origin,
       layouts: [built.layout],
     });
-    return recipe ? save(recipe, customSlots) : failed("recipe-invalid");
+    return recipe
+      ? save(recipe, [{ layout: meta.key, unit: pageUnit(0) }], customSlots)
+      : failed("recipe-invalid");
   }
   // A continuation goes back as the layout it continues, beside the head's others: the
   // head the decision read, which the lock found unchanged.
   const head = active(headAtStart);
   const written = head && stored(head.recipe, branch, next);
-  if (!written) return failed("recipe-invalid");
-  if (!chooserSide) return save(written, customSlots);
-  return save(written, customSlots, async (latest) => {
+  if (!written || !named) return failed("recipe-invalid");
+  // The page's steps follow the route's: a branch's first page starts at 0 (ADR 0060).
+  const units = [
+    {
+      layout: named.layout,
+      unit: branchUnit(chooserSide, pageUnit(baseRecipe?.steps.length ?? 0)),
+    },
+  ];
+  if (!chooserSide) return save(written, units, customSlots);
+  return save(written, units, customSlots, async (latest) => {
     // Only a head whose own branch of the layout is still the one this page continues
     // takes the page.
     const current = active(latest);
@@ -891,6 +923,15 @@ export async function generateEntry(
     recipeId,
     { version: 1, state: "active", expectedRevision: baseRevision, recipe: built.recipe },
     scope.deviceId,
+    {
+      sources: {
+        origin: "generated",
+        units: [{ layout: null, unit: ENTRY_UNIT }],
+        served: call.served,
+        promptVersion: logged.promptVersion,
+        logId: call.logId,
+      },
+    },
   );
   if (!written.ok) {
     if (written.limited) return unavailable("recipe-limit");
@@ -1144,6 +1185,20 @@ export async function judgeCompletion(
   });
   if (call.status === "unavailable") return unsent(unavailable(call.reason), loginPaths);
   const { outcome } = call;
+  /**
+   * The provenance of the handlers or marker this judgement adds to the judged layout and
+   * branch (ADR 0060), several under the same request log row.
+   */
+  const named = parseRecipeBranch(branch);
+  const judged = (units: string[]): UnitSources => ({
+    origin: "judged",
+    units: named
+      ? units.map((unit) => ({ layout: named.layout, unit: branchUnit(named.branch, unit) }))
+      : [],
+    served: call.served,
+    promptVersion,
+    logId: call.logId,
+  });
   if (outcome.status === "failed") {
     const answer = failed(failureOf(outcome.error));
     // A request the role refused locally, as one too large, was never sent.
@@ -1220,12 +1275,15 @@ export async function judgeCompletion(
     if (handlers.length) console.info("Judged page handlers", { recipeId, handlers });
     const withHandlers = changed && stored(head.recipe, branch, changed);
     if (!withHandlers) return { version: 1, status: "challenge" };
+    // Handlers are only appended, so the ones after the judged route's are this call's.
+    const added = (changed?.handlers ?? []).slice(recipe.handlers?.length ?? 0);
     const written = await writeRecipe(
       env.DB,
       scope.ownerId,
       recipeId,
       { version: 1, state: "active", expectedRevision: head.revision, recipe: withHandlers },
       scope.deviceId,
+      { sources: judged(added.map(handlerUnit)) },
     );
     if (written.ok) {
       await keepLogRevision(env.DB, scope.ownerId, call.logId, written.change.revision);
@@ -1247,12 +1305,15 @@ export async function judgeCompletion(
   if (!learned.ok) return signedInAnyway ? signedIn : failed("invalid-output");
   const learnedRecipe = stored(head.recipe, branch, learned.recipe);
   if (!learnedRecipe) return signedInAnyway ? signedIn : failed("recipe-invalid");
+  // The marker learned is the route's last one.
+  const marker = learned.recipe.completion?.at(-1);
   const written = await writeRecipe(
     env.DB,
     scope.ownerId,
     recipeId,
     { version: 1, state: "active", expectedRevision: head.revision, recipe: learnedRecipe },
     scope.deviceId,
+    { sources: judged(marker ? [await markerUnit(marker)] : []) },
   );
   if (written.ok) {
     await keepLogRevision(env.DB, scope.ownerId, call.logId, written.change.revision);

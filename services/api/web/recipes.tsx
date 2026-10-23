@@ -6,6 +6,7 @@ import {
   type LoginChooserRecipe,
   type LoginMarkerTarget,
   type LoginRecipe,
+  type ManageLayoutSource,
   type ManageRecipe,
 } from "@pateat/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -159,6 +160,13 @@ function recipeFacts(recipe: LoginRecipe | LoginChooserRecipe): {
 
 const languageNames = { ja: "Japanese", en: "English" } as const;
 
+/** Who made a layout's first page and when (ADR 0060), as the service recorded it. */
+function firstPageSource(source: ManageLayoutSource | null | undefined): string {
+  if (!source) return "Not recorded";
+  const at = formatTime(source.createdAt);
+  return source.model ? `${source.model}, ${at}` : `Written by a device, ${at}`;
+}
+
 /** One layout's steps, each identifier set under its own heading when it has several. */
 function LayoutSteps({ variants }: { variants: ReturnType<typeof passwordVariants> }) {
   return (
@@ -207,6 +215,7 @@ function RecipeDetails({
     `${revision}, updated ${formatTime(entry.updatedAt)}`,
   ];
   const lastUses = new Map(entry.layouts.map((layout) => [layout.key, layout.lastUsedAt]));
+  const firstPages = new Map(entry.layouts.map((layout) => [layout.key, layout.firstPage]));
   const layouts = storedLayouts(recipe);
   return (
     <>
@@ -229,6 +238,7 @@ function RecipeDetails({
         if (!projected) return null;
         const { facts, variants } = recipeFacts(projected);
         const lastUsed = lastUses.get(layout.key);
+        const firstPage = firstPages.get(layout.key);
         return (
           <section
             key={layout.key}
@@ -249,6 +259,7 @@ function RecipeDetails({
                 ["Language", layout.language ? languageNames[layout.language] : "Not known"],
                 ["Created", formatTime(layout.createdAt)],
                 ["Last used", lastUsed ? formatTime(lastUsed) : "Not used yet"],
+                ["First page", firstPageSource(firstPage)],
                 ["Steps", `${variants.reduce((sum, variant) => sum + variant.steps.length, 0)}`],
                 ...facts,
               ]}

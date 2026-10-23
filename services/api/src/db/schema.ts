@@ -165,6 +165,73 @@ export const recipeLayoutUses = sqliteTable(
   ],
 );
 
+/** How a recipe unit got its current content (ADR 0060, generation provenance). */
+export const recipeUnitOrigins = ["generated", "judged", "device"] as const;
+export type RecipeUnitOrigin = (typeof recipeUnitOrigins)[number];
+/**
+ * Which call made each part ("unit") of an active recipe and when (ADR 0060): the service's
+ * own record, never synced to devices and never in the recipe document. A unit is a page of
+ * a layout's route (`page:<n>`), a handler (`handler:<kind>:<path>`), a signed-in marker
+ * (`marker:<hash>`), a chooser layout's list buttons (`list`) or an entry recipe (`entry`);
+ * a chooser branch's units start with `account/` or `other/` (`recipeUnitId`). Rows are
+ * written in the batch of the recipe write that adds the unit and only when that write
+ * wins; rows of layouts a write drops go with that write, every row of the recipe with its
+ * revocation, and every row of the owner with the request log's delete-all.
+ */
+export const recipeUnitSources = sqliteTable(
+  "recipe_unit_sources",
+  {
+    ownerId: text("owner_id").notNull(),
+    recipeId: text("recipe_id").notNull(),
+    /** The layout's key (`recipeLayoutKeySchema`); null for an entry recipe, which has none. */
+    layout: text("layout"),
+    /** The unit's ID within its layout (`recipeUnitId`). */
+    unit: text("unit").notNull(),
+    /**
+     * `generated` for a page the generation role answered, `judged` for a handler or marker
+     * the judge answered, `device` for every unit of a document a device wrote itself.
+     */
+    origin: text("origin", { enum: recipeUnitOrigins }).notNull(),
+    /** The model that answered (`ServedModel`); null for a `device` unit. */
+    provider: text("provider"),
+    model: text("model"),
+    effort: text("effort"),
+    speed: text("speed", { enum: ["standard", "fast"] }),
+    /** The role's prompt version the call was made with; null for a `device` unit. */
+    promptVersion: text("prompt_version"),
+    /** The service commit that wrote the unit (`PATEAT_BUILD_REVISION`). */
+    build: text("build").notNull(),
+    /**
+     * The device the recipe revision records as its writer: the one whose request generated
+     * or judged the unit, or that wrote the document.
+     */
+    deviceId: text("device_id").references(() => devices.id),
+    /**
+     * The request log row of the call (`inference_log.id`), not a foreign key: the log is
+     * kept one year and its rows may be deleted before the unit's.
+     */
+    logId: text("log_id"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    // An entry recipe's one unit has no layout; its write replaces its row explicitly.
+    uniqueIndex("recipe_unit_sources_unit_unique").on(
+      table.ownerId,
+      table.recipeId,
+      table.layout,
+      table.unit,
+    ),
+    foreignKey({
+      columns: [table.ownerId, table.recipeId],
+      foreignColumns: [recipeHeads.ownerId, recipeHeads.recipeId],
+    }),
+    check(
+      "recipe_unit_sources_origin_check",
+      sql`${table.origin} IN ('generated', 'judged', 'device')`,
+    ),
+  ],
+);
+
 /**
  * The owner's Claude credential (ADR 0015). Workload Identity Federation stores only
  * the identifiers of the owner's own Anthropic federation rule, never a key.

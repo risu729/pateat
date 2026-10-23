@@ -3,14 +3,37 @@ import {
   runsLogin,
   storedLayouts,
   syncRecipeChangeSchema,
+  type ManageLayoutSource,
   type StoredLoginRecipe,
   type SyncRecipeChange,
   type SyncRecipeWrite,
 } from "@pateat/contracts";
-import { and, asc, eq, gte, lt, or, sql, type SQL } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  gte,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  notInArray,
+  or,
+  sql,
+  type SQL,
+} from "drizzle-orm";
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
 import * as v from "valibot";
-import { owners, recipeHeads, recipeLayoutUses, recipeRevisions } from "./db/schema";
+import type { ServedModel } from "./claude/calls";
+import {
+  owners,
+  recipeHeads,
+  recipeLayoutUses,
+  recipeRevisions,
+  recipeUnitSources,
+  type RecipeUnitOrigin,
+} from "./db/schema";
+import { LIST_UNIT, pageUnit, type RecipeUnit } from "./recipe-units";
 import {
   KEPT_RECIPE_REVISIONS,
   MAX_ACTIVE_RECIPES,
@@ -149,6 +172,20 @@ export async function hasRecipeRoom(db: D1Database, ownerId: string): Promise<bo
 }
 
 /**
+ * What a recipe write records of the units it adds (ADR 0060, generation provenance): the
+ * call that made them, which a `device` write has none of.
+ */
+export type UnitSources =
+  | {
+      origin: Extract<RecipeUnitOrigin, "generated" | "judged">;
+      units: readonly RecipeUnit[];
+      served: ServedModel;
+      promptVersion: string;
+      logId: string | undefined;
+    }
+  | { origin: "device"; units: readonly RecipeUnit[] };
+
+/**
  * Writes the next revision of one recipe when `expectedRevision` is still its head.
  * `writer` is the device the write is for: the one that wrote it (`PUT /v1/recipes/:id`) or
  * whose request generated or judged it. It is null for a write no device asked for, by the
@@ -164,6 +201,10 @@ export async function hasRecipeRoom(db: D1Database, ownerId: string): Promise<bo
  * last use of each layout (ADR 0060) the written document no longer has. With `used:
  * false`, as when the owner or the idle check removes a layout, the write does not mark
  * the recipe used.
+ * The same batch keeps `recipe_unit_sources` (ADR 0060): it deletes the rows of layouts the
+ * document no longer has, every row of a revoked recipe, and with `sources` writes a row
+ * for each unit named there, replacing that unit's earlier row; a `device` write replaces
+ * every row of the recipe. `writer` is each row's device.
  */
 export async function writeRecipe(
   db: D1Database,
@@ -171,7 +212,7 @@ export async function writeRecipe(
   recipeId: string,
   write: SyncRecipeWrite,
   writer: string | null,
-  options: { unusedBefore?: number; used?: boolean } = {},
+  options: { unusedBefore?: number; used?: boolean; sources?: UnitSources } = {},
 ): Promise<
   | { ok: true; change: SyncRecipeChange }
   | { ok: false; limited: false; current: SyncRecipeChange | null }
@@ -292,7 +333,76 @@ export async function writeRecipe(
         : undefined,
     ),
   );
-  const [claimed, recorded] = await orm.batch([claim, history, pruned, unusedLayouts]);
+  // The provenance of the recipe's units (ADR 0060), kept only after this request's claim
+  // won: rows of layouts the document dropped go (every row for a tombstone, or for a
+  // device's document, which replaces them all), then each unit written gets its new row.
+  const won = sql`EXISTS (SELECT 1 FROM ${recipeHeads} WHERE ${recipeHeads.ownerId} = ${ownerId} AND ${recipeHeads.recipeId} = ${recipeId} AND ${recipeHeads.writeId} = ${writeId})`;
+  const { sources } = options;
+  const ofRecipe = and(
+    eq(recipeUnitSources.ownerId, ownerId),
+    eq(recipeUnitSources.recipeId, recipeId),
+    won,
+  );
+  const droppedSources = orm
+    .delete(recipeUnitSources)
+    .where(
+      and(
+        ofRecipe,
+        document === null || sources?.origin === "device"
+          ? undefined
+          : "entry" in document
+            ? isNotNull(recipeUnitSources.layout)
+            : or(isNull(recipeUnitSources.layout), notInArray(recipeUnitSources.layout, kept)),
+      ),
+    );
+  const units = document === null ? [] : (sources?.units ?? []);
+  const unitRows = sql`json_each(${JSON.stringify(units)}) AS unit_row`;
+  const unitLayout = sql`json_extract(unit_row.value, '$.layout')`;
+  const unitId = sql`json_extract(unit_row.value, '$.unit')`;
+  const call = sources && sources.origin !== "device" ? sources : undefined;
+  const writtenSources = units.length
+    ? [
+        orm
+          .delete(recipeUnitSources)
+          .where(
+            and(
+              ofRecipe,
+              sql`EXISTS (SELECT 1 FROM ${unitRows} WHERE ${unitId} = ${recipeUnitSources.unit} AND ${unitLayout} IS ${recipeUnitSources.layout})`,
+            ),
+          ),
+        // Drizzle fills INSERT ... SELECT positionally: keep these fields in the
+        // recipeUnitSources column order.
+        orm.insert(recipeUnitSources).select(
+          orm
+            .select({
+              ownerId: sql`${ownerId}`.as("owner_id"),
+              recipeId: sql`${recipeId}`.as("recipe_id"),
+              layout: unitLayout.as("layout"),
+              unit: unitId.as("unit"),
+              origin: sql`${sources!.origin}`.as("origin"),
+              provider: sql`${call?.served.provider ?? null}`.as("provider"),
+              model: sql`${call?.served.model ?? null}`.as("model"),
+              effort: sql`${call?.served.effort ?? null}`.as("effort"),
+              speed: sql`${call?.served.speed ?? null}`.as("speed"),
+              promptVersion: sql`${call?.promptVersion ?? null}`.as("prompt_version"),
+              build: sql`${PATEAT_BUILD_REVISION}`.as("build"),
+              deviceId: sql`${writer}`.as("device_id"),
+              logId: sql`${call?.logId ?? null}`.as("log_id"),
+              createdAt: sql`${now}`.as("created_at"),
+            })
+            .from(unitRows)
+            .where(won),
+        ),
+      ]
+    : [];
+  const [claimed, recorded] = await orm.batch([
+    claim,
+    history,
+    pruned,
+    unusedLayouts,
+    droppedSources,
+    ...writtenSources,
+  ]);
   if (claimed.meta.changes === 1 && recorded.meta.changes !== 1)
     throw new Error("Recipe head was claimed without its history row");
   if (claimed.meta.changes !== 1) {
@@ -391,6 +501,40 @@ export async function readLayoutUses(
     uses.set(row.recipeId, recipe);
   }
   return uses;
+}
+
+/**
+ * Who made the first page of each layout of the owner's recipes (ADR 0060, generation
+ * provenance), a chooser layout's list for a chooser, by recipe ID and layout key.
+ */
+export async function readFirstPageSources(
+  db: D1Database,
+  ownerId: string,
+): Promise<Map<string, Map<string, ManageLayoutSource>>> {
+  const rows = await drizzle(db)
+    .select({
+      recipeId: recipeUnitSources.recipeId,
+      layout: recipeUnitSources.layout,
+      origin: recipeUnitSources.origin,
+      model: recipeUnitSources.model,
+      createdAt: recipeUnitSources.createdAt,
+    })
+    .from(recipeUnitSources)
+    .where(
+      and(
+        eq(recipeUnitSources.ownerId, ownerId),
+        isNotNull(recipeUnitSources.layout),
+        inArray(recipeUnitSources.unit, [pageUnit(0), LIST_UNIT]),
+      ),
+    );
+  const sources = new Map<string, Map<string, ManageLayoutSource>>();
+  for (const { recipeId, layout, ...source } of rows) {
+    if (layout === null) continue;
+    const recipe = sources.get(recipeId) ?? new Map<string, ManageLayoutSource>();
+    recipe.set(layout, source);
+    sources.set(recipeId, recipe);
+  }
+  return sources;
 }
 
 /**

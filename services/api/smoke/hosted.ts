@@ -25,6 +25,7 @@ export const SMOKE_OWNER_PREFIX = "smoke-";
  * A Worker test fails when a table with an `owner_id` column is missing here.
  */
 export const OWNER_TABLES = [
+  "recipe_unit_sources",
   "recipe_layout_uses",
   "recipe_revisions",
   "recipe_heads",

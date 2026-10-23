@@ -2118,8 +2118,18 @@ into that layout only. The service keeps each layout's last use in
 `recipe_layout_uses` ([ADR 0058](adr/0058-automatic-recipe-removal.md) B): a started or
 ended login on it, or a write into it. A layout unused for 90 days, counted from its
 creation when it has no use, is removed while another layout of the recipe is used.
-Migration 0022 discarded every earlier recipe; each site generates again on its next
+Migration 0028 discarded every earlier recipe; each site generates again on its next
 visit.
+
+The service records which call made each unit of a recipe in the service-only table
+`recipe_unit_sources`
+([generation provenance](adr/0060-recipe-layouts.md#generation-provenance)), never in
+the synced document: each page of a layout (`page:<n>` by its first step), each handler
+and marker the judge adds, a chooser's list and branch units (`account/…`, `other/…`)
+and an entry recipe, with the model, effort, speed, prompt version, time, build, writing
+device and request log row. A device's own document marks all its units `device`. The
+rows go with their layout, the recipe's revocation and the request log's Delete all.
+`/manage` shows the model and time of each layout's first page.
 
 A generated recipe has no signed-in marker until the page after its first sign-in is
 judged ([ADR 0018](adr/0018-recipe-generation-route.md)). Until then the executor
@@ -2840,9 +2850,11 @@ sync, pairing and device management routes and the recipe generation routes of
 [ADR 0018](adr/0018-recipe-generation-route.md), with their limits and the
 [ADR 0012](adr/0012-inference-request-log.md) request log with each request's times, and
 keeps the result codes devices send for the first login of each recipe revision
-([first login results](#first-login-results-on-the-service)) in `login_outcomes` and a
+([first login results](#first-login-results-on-the-service)) in `login_outcomes`, a
 record of every login ([login records](#login-records-on-the-service)) in
-`login_timings`, as described in [its README](../services/api/README.md).
+`login_timings`, each layout's last use in `recipe_layout_uses` and which call made each
+part of a recipe in `recipe_unit_sources` ([recipe layouts](#recipe-layouts)), as
+described in [its README](../services/api/README.md).
 
 Initial human service authentication uses Cloudflare Access, validated through a
 supported integration or verified JWT, not an untrusted email header. Access-free
@@ -3173,8 +3185,9 @@ field exclusions and custom-field review, which need the device's vault catalog
     [login result codes](#first-login-results-on-the-service) and
     [login records](#login-records-on-the-service), since when, that each is kept one
     year, and Delete all, which after a confirmation naming the counts deletes every one
-    of the owner's rows of all three. Recipes, settings, judged pages and the spend
-    the limits count stay.
+    of the owner's rows of all three, and the record of which call made each part of a
+    recipe (ADR 0060). Recipes, settings, judged pages and the spend the limits count
+    stay.
   - Sites (`/manage/sites`): one list of every origin the service holds a recipe, a
     `siteDefaults` entry or a `bindings` entry for, each with badges for its recipe
     count, its default account ("<item> in <account>") and its binding count, and
@@ -3194,12 +3207,12 @@ field exclusions and custom-field review, which need the device's vault catalog
     other sites too); the default account with Remove, which restores the automatic
     single-match choice, and a pointer to the popup for choosing another; the origin's
     active recipes, each with its ID, revision and JSON, then each of its layouts
-    ([ADR 0060](adr/0060-recipe-layouts.md)) with its language, creation time,
-    last use, slots, signed-in markers, rejection target and steps, or an entry
-    recipe's entry, and revocation with a tombstone after a confirmation that names the
-    revision shown, or removal of one layout, as the next revision without it (the last
-    layout revokes the recipe); and the
-    origin's `bindings` entries with Remove, which makes that item fall back to the
+    ([ADR 0060](adr/0060-recipe-layouts.md)) with its language, creation time, last use,
+    the model and time of its first page (or that a device wrote it), slots, signed-in
+    markers, rejection target and steps, or an entry recipe's entry, and revocation with
+    a tombstone after a confirmation that names the revision shown, or removal of one
+    layout, as the next revision without it (the last layout revokes the recipe); and
+    the origin's `bindings` entries with Remove, which makes that item fall back to the
     built-in-slot binding. A generated recipe may have no marker yet (ADR 0018).
 
   The UI does not pick vault items or fields, because the item list exists only on

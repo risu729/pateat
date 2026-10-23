@@ -57,15 +57,30 @@ export const manageSettingsConflictSchema = v.strictObject({
 });
 
 /**
+ * Who made a layout's first page, a chooser layout's list included (ADR 0060, generation
+ * provenance): the model that generated it, or none when a device wrote the document, and
+ * when.
+ */
+export const manageLayoutSourceSchema = v.strictObject({
+  origin: v.picklist(["generated", "judged", "device"]),
+  model: v.nullable(v.pipe(v.string(), v.maxLength(128))),
+  createdAt: timestamp,
+});
+/**
  * One recipe's current head: the active recipe, or a tombstone once revoked, and when each
  * of its layouts was last used (ADR 0058, ADR 0060): by a login that started or ended on it,
- * or a write the login's page caused. `null` for a layout no login used yet.
+ * or a write the login's page caused. `null` for a layout no login used yet. `firstPage` is
+ * `null` when the service has no record of it, as after the request log was deleted.
  */
 export const manageRecipeSchema = v.strictObject({
   change: syncRecipeChangeSchema,
   updatedAt: timestamp,
   layouts: v.array(
-    v.strictObject({ key: recipeLayoutKeySchema, lastUsedAt: v.nullable(timestamp) }),
+    v.strictObject({
+      key: recipeLayoutKeySchema,
+      lastUsedAt: v.nullable(timestamp),
+      firstPage: v.nullable(manageLayoutSourceSchema),
+    }),
   ),
 });
 /**
@@ -394,6 +409,7 @@ export type ManageSettingsWrite = v.InferOutput<typeof manageSettingsWriteSchema
 export type ManageRecipe = v.InferOutput<typeof manageRecipeSchema>;
 export type ManageUnreadableRecipe = v.InferOutput<typeof manageUnreadableRecipeSchema>;
 export type ManageRecipes = v.InferOutput<typeof manageRecipesSchema>;
+export type ManageLayoutSource = v.InferOutput<typeof manageLayoutSourceSchema>;
 export type ManageRequestLog = v.InferOutput<typeof manageRequestLogSchema>;
 export type ManageRequestLogDeleted = v.InferOutput<typeof manageRequestLogDeletedSchema>;
 export type ManageDashboardRange = v.InferOutput<typeof manageDashboardRangeSchema>;

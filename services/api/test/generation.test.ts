@@ -34,6 +34,7 @@ import { saveWifCredential } from "../src/claude/credentials";
 import { saveModelConfig } from "../src/claude/models";
 import { MAX_ACTIVE_RECIPES } from "../src/limits";
 import { writeRecipe } from "../src/recipe-store";
+import { documentUnits } from "../src/recipe-units";
 import { seedRecipeBytes, storedRecipeBytes } from "./recipe-byte-helpers";
 import {
   ATTEMPT_WINDOW_MS,
@@ -6799,5 +6800,286 @@ describe("recipe layouts (ADR 0060)", () => {
     expect(
       await rows("SELECT revision FROM recipe_heads WHERE owner_id = ?", device.ownerId),
     ).toEqual([{ revision: 1 }]);
+  });
+});
+
+describe("generation provenance (ADR 0060)", () => {
+  const judgeReply = (result: unknown) => ({ text: JSON.stringify({ result }) });
+  type SourceRow = {
+    layout: string | null;
+    unit: string;
+    origin: string;
+    provider: string | null;
+    model: string | null;
+    effort: string | null;
+    speed: string | null;
+    prompt_version: string | null;
+    build: string;
+    device_id: string | null;
+    log_id: string | null;
+    created_at: number;
+  };
+  /** The owner's unit rows of a recipe, in the order they were written. */
+  const sources = async (ownerId: string, recipeId: string) =>
+    (await rows(
+      "SELECT layout, unit, origin, provider, model, effort, speed, prompt_version, build, device_id, log_id, created_at FROM recipe_unit_sources WHERE owner_id = ? AND recipe_id = ? ORDER BY created_at, unit",
+      ownerId,
+      recipeId,
+    )) as unknown as SourceRow[];
+  /**
+   * A row as a call wrote it: the model, effort, speed and prompt version its request log
+   * row names, the test build, and the device that asked.
+   */
+  async function fromCall(
+    device: Device,
+    row: SourceRow,
+    expected: { layout: string | null; unit: string; origin: "generated" | "judged" },
+  ) {
+    expect(row).toMatchObject({ ...expected, build: "test-revision", device_id: device.deviceId });
+    const [logged] = await rows(
+      "SELECT role, provider, model_id, effort, speed, prompt_version FROM inference_log WHERE owner_id = ? AND id = ?",
+      device.ownerId,
+      row.log_id,
+    );
+    expect(logged).toEqual({
+      role: expected.origin === "generated" ? "generate" : "judge",
+      provider: row.provider,
+      model_id: row.model,
+      effort: row.effort,
+      speed: row.speed,
+      prompt_version: row.prompt_version,
+    });
+    expect(row.provider).toBe("anthropic");
+    expect(row.model).toEqual(expect.any(String));
+  }
+  const markerId = async (target: unknown, origin = "") =>
+    `marker:${await hashOf([origin, target])}`;
+
+  it("records each page, the judge's handlers and its marker as units of their layout", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    const { recipeId } = change;
+    const key = (await layoutKey(device.ownerId, recipeId))!;
+    // One judgement adds two handlers: one row each, under the same request log row.
+    const code = {
+      ...element("app-code", "text", "Authentication code"),
+      autocomplete: "one-time-code" as const,
+      inputMode: "numeric" as const,
+      maxLength: 6,
+    };
+    const mfa = observation("/login/mfa", [
+      code,
+      element("verify", "button", "Verify"),
+      element("key", "button", "Use security key"),
+    ]);
+    replies.push(
+      judgeReply({
+        decision: "challenge",
+        passkeyButton: "key",
+        code: { field: "app-code", submit: "verify", source: "authenticator-app" },
+      }),
+    );
+    expect((await complete(device, recipeId, 2, mfa)).body).toMatchObject({
+      status: "challenge",
+      change: { revision: 3 },
+    });
+    replies.push(judgeReply({ decision: "signed-in", marker: "logout" }));
+    expect((await complete(device, recipeId, 3)).body).toMatchObject({
+      status: "signed-in",
+      change: { revision: 4 },
+    });
+    const written = await sources(device.ownerId, recipeId);
+    expect(written.map(({ unit }) => unit).toSorted()).toEqual(
+      [
+        "page:0",
+        // The email page's fill and click come first, so the password page starts at 2.
+        "page:2",
+        "handler:passkey:/login/mfa",
+        "handler:totp:/login/mfa",
+        await markerId({ by: "id", value: "logout" }),
+      ].toSorted(),
+    );
+    const unit = (id: string) => written.find((row) => row.unit === id)!;
+    await fromCall(device, unit("page:0"), { layout: key, unit: "page:0", origin: "generated" });
+    await fromCall(device, unit("page:2"), { layout: key, unit: "page:2", origin: "generated" });
+    for (const id of ["handler:passkey:/login/mfa", "handler:totp:/login/mfa"])
+      // oxlint-disable-next-line no-await-in-loop -- Each row is read on its own.
+      await fromCall(device, unit(id), { layout: key, unit: id, origin: "judged" });
+    expect(unit("handler:passkey:/login/mfa").log_id).toBe(unit("handler:totp:/login/mfa").log_id);
+    const marker = await markerId({ by: "id", value: "logout" });
+    await fromCall(device, unit(marker), { layout: key, unit: marker, origin: "judged" });
+    // Each unit names its own call, and the generation rows their prompt version.
+    expect(new Set(written.map((row) => row.log_id)).size).toBe(4);
+    expect(unit("page:0").prompt_version).toBe(await generationPromptVersion());
+    expect(unit(marker).prompt_version).toBe(await completionPromptVersion());
+    // The synced document carries none of it.
+    const document = JSON.stringify(await storedHead(device.ownerId, recipeId));
+    for (const value of [device.deviceId, device.ownerId, unit("page:0").model!, "test-revision"])
+      expect(document).not.toContain(value);
+  });
+
+  it("names a chooser's list and each branch's units under the branch", async () => {
+    const device = await owner();
+    const listPage: LoginObservation = {
+      ...observation("/login", [
+        element("other", "button", "Sign in with another profile"),
+        element("help", "link", "Help"),
+      ]),
+      accounts: ["[email] Last used", "[email]"],
+    };
+    replies.push({
+      text: JSON.stringify({ result: { decision: "account-list", other: "other" } }),
+    });
+    const list = await generate(device, listPage);
+    if (list.status !== "recipe") throw new Error(list.status);
+    const { recipeId } = list.change;
+    const key = (await layoutKey(device.ownerId, recipeId))!;
+    const branchPage = async (page: LoginObservation, revision: number, branch: string) =>
+      post(device, "/v1/recipes/generate", {
+        version: 1,
+        observation: page,
+        slots,
+        base: { recipeId, revision },
+        branch,
+      });
+    replies.push({ text: plan([["password", "password"]], "sign-in", "submit") });
+    expect((await branchPage(passwordPage, 1, "account")).status).toBe(200);
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    expect((await branchPage(emailPage, 2, "other")).status).toBe(200);
+    replies.push({ text: plan([["password", "password"]], "sign-in", "submit") });
+    expect((await branchPage(passwordPage, 3, "other")).status).toBe(200);
+    // A handler judged on the account branch's page.
+    replies.push(judgeReply({ decision: "challenge", passkeyButton: "key" }));
+    const judged = await post(device, `/v1/recipes/${recipeId}/completion`, {
+      version: 1,
+      revision: 4,
+      route: "password",
+      branch: "account",
+      observation: observation("/login/webauthn", [element("key", "button", "Use security key")]),
+    });
+    expect(await judged.json()).toMatchObject({ status: "challenge", change: { revision: 5 } });
+    const written = await sources(device.ownerId, recipeId);
+    expect(written.map(({ layout, unit, origin }) => ({ layout, unit, origin }))).toEqual(
+      expect.arrayContaining([
+        { layout: key, unit: "list", origin: "generated" },
+        { layout: key, unit: "account/page:0", origin: "generated" },
+        { layout: key, unit: "other/page:0", origin: "generated" },
+        { layout: key, unit: "other/page:2", origin: "generated" },
+        { layout: key, unit: "account/handler:passkey:/login/webauthn", origin: "judged" },
+      ]),
+    );
+    expect(written).toHaveLength(5);
+    expect(written.find((row) => row.unit === "list")!.prompt_version).toBe(
+      await accountListGenerationPromptVersion(),
+    );
+  });
+
+  it("records an entry recipe as one unit without a layout", async () => {
+    const device = await owner();
+    const topPage = observation("/en/", [
+      { id: "c1", role: "link", target: { by: "text", value: "Login" } },
+    ]);
+    replies.push({ text: JSON.stringify({ result: { decision: "entry", entry: "c1" } }) });
+    const response = await post(device, "/v1/recipes/generate", {
+      version: 1,
+      observation: topPage,
+    });
+    expect(await response.json()).toMatchObject({ status: "recipe" });
+    const recipeId = await generatedRecipeId(ORIGIN, "/en/");
+    const [row, ...others] = await sources(device.ownerId, recipeId);
+    expect(others).toEqual([]);
+    await fromCall(device, row!, { layout: null, unit: "entry", origin: "generated" });
+    expect(row!.prompt_version).toBe(await entryGenerationPromptVersion());
+  });
+
+  it("marks every unit of a document a device writes as the device's, replacing the calls'", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    const { recipeId } = change;
+    const key = (await layoutKey(device.ownerId, recipeId))!;
+    const stored = (await storedHead(device.ownerId, recipeId)) as Extract<
+      StoredLoginRecipe,
+      { layouts: unknown }
+    >;
+    const [layout] = stored.layouts;
+    const written = {
+      ...stored,
+      revision: 3,
+      layouts: [
+        {
+          ...layout!,
+          handlers: [
+            { kind: "passkey" as const, path: "/mfa", target: { by: "id" as const, value: "key" } },
+          ],
+          completion: [{ target: { by: "id" as const, value: "logout" } }],
+        },
+        { ...layout!, key: "1000", createdAt: 1000 },
+      ],
+    };
+    const put = await post(
+      device,
+      `/v1/recipes/${recipeId}`,
+      { version: 1, expectedRevision: 2, state: "active", recipe: written },
+      "PUT",
+    );
+    expect(put.status).toBe(200);
+    const rowsAfter = await sources(device.ownerId, recipeId);
+    // A device's document does not say where a page ended: its route is one `page:0`.
+    expect(rowsAfter.map(({ layout: at, unit }) => `${at} ${unit}`).toSorted()).toEqual(
+      [
+        `${key} page:0`,
+        `${key} handler:passkey:/mfa`,
+        `${key} ${await markerId({ by: "id", value: "logout" })}`,
+        "1000 page:0",
+      ].toSorted(),
+    );
+    for (const row of rowsAfter)
+      expect(row).toMatchObject({
+        origin: "device",
+        provider: null,
+        model: null,
+        effort: null,
+        speed: null,
+        prompt_version: null,
+        build: "test-revision",
+        device_id: device.deviceId,
+        log_id: null,
+      });
+    // A device's revocation deletes every row of the recipe.
+    const revoked = await post(
+      device,
+      `/v1/recipes/${recipeId}`,
+      { version: 1, expectedRevision: 3, state: "revoked" },
+      "PUT",
+    );
+    expect(revoked.status).toBe(200);
+    expect(await sources(device.ownerId, recipeId)).toEqual([]);
+  });
+
+  it("writes no row for a write that lost, and keeps the winner's", async () => {
+    const device = await owner();
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    const first = await generate(device, emailPage);
+    if (first.status !== "recipe") throw new Error(first.status);
+    const { recipeId } = first.change;
+    // Another device's write lands while the continuation's call runs.
+    during = async () => {
+      const head = (await storedHead(device.ownerId, recipeId)) as StoredLoginRecipe;
+      const result = await writeRecipe(
+        env.DB,
+        device.ownerId,
+        recipeId,
+        { version: 1, expectedRevision: 1, state: "active", recipe: { ...head, revision: 2 } },
+        device.deviceId,
+        { sources: { origin: "device", units: await documentUnits(head) } },
+      );
+      expect(result.ok).toBe(true);
+    };
+    replies.push({ text: plan([["password", "password"]], "sign-in", "submit") });
+    await generate(device, passwordPage, { recipeId, revision: 1 });
+    // The device's row replaced the first page's; the page that lost added none.
+    expect(
+      (await sources(device.ownerId, recipeId)).map(({ unit, origin }) => ({ unit, origin })),
+    ).toEqual([{ unit: "page:0", origin: "device" }]);
   });
 });

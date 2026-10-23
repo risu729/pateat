@@ -49,13 +49,13 @@ checks reports `token` alone. Parse it by metric name, as Cloudflare may add ent
 | `POST /manage/api/devices/:deviceId/revoke` | Revoke one of the owner's devices; 204 |
 | `GET /manage/api/settings` | The settings `/v1/settings` serves; revision 0 before the first write; 404 `not_paired` without a paired device |
 | `PUT /manage/api/settings` | Replace them like `PUT /v1/settings`; `connections` must be empty and the document at most 120 KiB |
-| `GET /manage/api/recipes` | Every recipe head with its document and each layout's last use (ADR 0060), most recently changed first; active heads whose document no longer validates are listed apart in `unreadable` |
+| `GET /manage/api/recipes` | Every recipe head with its document and each layout's last use and first page's source (`firstPage`: origin, model, time; ADR 0060), most recently changed first; active heads whose document no longer validates are listed apart in `unreadable` |
 | `POST /manage/api/recipes/:recipeId/revoke` | Revoke one recipe if `expectedRevision` is its head; otherwise 409 with the current head |
 | `POST /manage/api/recipes/:recipeId/layouts/:layout/revoke` | Remove one layout as the next revision if `expectedRevision` is the head, revoking the recipe when it was the last; 404 for a layout the head lacks, otherwise 409 with the current head |
 | `GET /manage/api/models` | The owner's model choices per role (`config`, the defaults while `saved` is false) and the models they may name (`models`): from the Models API with the owner's credential (`catalog: "models-api"`), else the pricing page (`"pricing"`), each with its efforts, rates and fast mode state (`none`, `available`, `failing`) |
 | `PUT /manage/api/models` | Save `{ version: 1, config }`; a choice the list does not offer (a model, effort or speed, or fast mode while failing) answers 400 `model_unavailable` |
 | `GET /manage/api/request-log` | How many request log rows (`entries`), login result codes (`outcomes`) and login records (`logins`) the owner has, and the oldest one's time (`oldestAt`, null when none) |
-| `DELETE /manage/api/request-log` | Delete every request log row, login result code and login record of the owner, and nothing else; answers how many (`deleted`, `outcomes`, `logins`) |
+| `DELETE /manage/api/request-log` | Delete every request log row, login result code and login record of the owner, and the record of which call made each recipe unit (`recipe_unit_sources`), and nothing else; answers how many (`deleted`, `outcomes`, `logins`) |
 | `GET /manage/claude` | Access page showing the Console values and the owner's WIF identifiers |
 | `POST /manage/claude` | Save the owner's four WIF identifiers |
 | `POST /manage/claude/test` | Exchange one assertion and show only the outcome, never the token |
@@ -173,6 +173,23 @@ its revocation lands keeps it
 removes, from up to 50 recipes, each layout whose newer of creation and last use is more
 than 90 days old while another layout of the recipe is newer, as the next revision
 without it. A failed check is logged and the request goes on.
+
+`recipe_unit_sources` records which call made each unit of an active recipe
+([ADR 0060](../../docs/adr/0060-recipe-layouts.md#generation-provenance)): service-only,
+never synced and never in the document. A unit is named within its layout (`layout`,
+null for an entry recipe) by `page:<n>` (the page whose steps start at index `n`),
+`handler:<kind>:<path>`, `marker:<12 hex digits of SHA-256 of [origin ?? "", target]>`,
+`list` (a chooser layout's buttons), `account/…` or `other/…` (a chooser branch's units)
+or `entry`; `src/recipe-units.ts` defines them. A row holds the unit's `origin`
+(`generated`, `judged` or `device`), the model that answered (`provider`, `model`,
+`effort`, `speed`, from the call's `served` model), the prompt version, the build, the
+writer device the revision records, the request log row's ID (not a foreign key) and the
+time. `writeRecipe` writes the rows in the batch of the write that adds the units, only
+when it wins: a generated first page or continuation page, each handler a judgement adds
+(several under one log ID) and the marker it learns, a chooser's list and branch pages,
+and an entry recipe. A device's active `PUT` replaces every row of the recipe with
+`device` rows for the document's units, each route taken as one `page:0`. The same batch
+deletes the rows of layouts the document dropped, and every row of a revoked recipe.
 
 ## Claude credentials
 
@@ -530,8 +547,9 @@ failures (agent's choices, not confirmed by the owner).
 
 Rows older than one year are deleted whenever a request is logged and on every
 `GET /v1/recipes`, because routine releases do not apply cron triggers.
-`DELETE /manage/api/request-log` deletes all of the owner's rows; a call still running
-then logs its row afterwards.
+`DELETE /manage/api/request-log` deletes all of the owner's rows, and the owner's
+`recipe_unit_sources` rows, which record the same calls; a call still running then logs
+its row afterwards.
 
 `POST /v1/recipes/:recipeId/outcome` takes
 `{ version: 1, revision, branch, outcome, cause?, step }`: how the first login of that

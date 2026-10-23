@@ -20,11 +20,19 @@ import * as v from "valibot";
 import type { ApiEnv } from "../auth";
 import { configOffered, manageModels, readModelCatalog, saveModelConfig } from "../claude/models";
 import { readDashboard } from "../dashboard";
-import { devices, inferenceLog, loginOutcomes, loginTimings, recipeHeads } from "../db/schema";
+import {
+  devices,
+  inferenceLog,
+  loginOutcomes,
+  loginTimings,
+  recipeHeads,
+  recipeUnitSources,
+} from "../db/schema";
 import { apiError } from "../http";
 import { findOwner } from "../owners";
 import {
   readChange,
+  readFirstPageSources,
   readHead,
   readLayoutUses,
   revokeUnusedRecipes,
@@ -143,7 +151,12 @@ export const manageApiRoutes = new Hono<ApiEnv>()
         await selectHeads(c.env.DB, ownerId).orderBy(desc(recipeHeads.sequence))
       : [];
     const read = rows.map((row) => ({ ...readChange(row), updatedAt: row.updatedAt }));
-    const uses = ownerId ? await readLayoutUses(c.env.DB, ownerId) : new Map();
+    const [uses, sources] = ownerId
+      ? await Promise.all([
+          readLayoutUses(c.env.DB, ownerId),
+          readFirstPageSources(c.env.DB, ownerId),
+        ])
+      : [new Map(), new Map()];
     return c.json({
       version: 1,
       recipes: read
@@ -151,12 +164,14 @@ export const manageApiRoutes = new Hono<ApiEnv>()
         .map(({ change, updatedAt }) => ({
           change,
           updatedAt,
-          // Each layout's last use (ADR 0060); a tombstone has none.
+          // Each layout's last use and who made its first page (ADR 0060); a tombstone has
+          // none.
           layouts:
             change.state === "active"
               ? storedLayouts(change.recipe).map(({ key }) => ({
                   key,
                   lastUsedAt: uses.get(change.recipeId)?.get(key) ?? null,
+                  firstPage: sources.get(change.recipeId)?.get(key) ?? null,
                 }))
               : [],
         })),
@@ -230,8 +245,9 @@ export const manageApiRoutes = new Hono<ApiEnv>()
   )
   // The owner's ADR 0012 request log, the login result codes devices sent (ADR 0019,
   // amended 2026-10-18) and their login records (ADR 0055): how much they hold, and
-  // deleting all of it. Only these go: recipes, settings, judged pages and the spend the
-  // limits count stay.
+  // deleting all of it, with the record of which call made each part of a recipe (ADR
+  // 0060), which names the same calls. Only these go: recipes, settings, judged pages and
+  // the spend the limits count stay.
   .get("/request-log", async (c) => {
     const ownerId = await findOwner(c.env.DB, c.get("identity"));
     const db = drizzle(c.env.DB);
@@ -270,6 +286,7 @@ export const manageApiRoutes = new Hono<ApiEnv>()
           db.delete(inferenceLog).where(eq(inferenceLog.ownerId, ownerId)),
           db.delete(loginOutcomes).where(eq(loginOutcomes.ownerId, ownerId)),
           db.delete(loginTimings).where(eq(loginTimings.ownerId, ownerId)),
+          db.delete(recipeUnitSources).where(eq(recipeUnitSources.ownerId, ownerId)),
         ])
       : [];
     return c.json({

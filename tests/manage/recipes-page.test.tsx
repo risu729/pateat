@@ -112,7 +112,7 @@ afterEach(async () => {
 const active = (id: string, revision = 1) => ({
   change: { recipeId: id, revision, state: "active" as const, recipe: recipe(id, revision) },
   updatedAt: UPDATED,
-  layouts: [{ key: LAYOUT, lastUsedAt: UPDATED }],
+  layouts: [{ key: LAYOUT, lastUsedAt: UPDATED, firstPage: null }],
 });
 
 test("shows a recipe's steps, targets and JSON, then revokes it", async () => {
@@ -282,7 +282,7 @@ test("lists each identifier set of a recipe with several (ADR 0027)", async () =
       {
         change: { recipeId: "bank-signin", revision: 1, state: "active", recipe: varied },
         updatedAt: UPDATED,
-        layouts: [{ key: LAYOUT, lastUsedAt: null }],
+        layouts: [{ key: LAYOUT, lastUsedAt: null, firstPage: null }],
       },
     ],
   });
@@ -313,7 +313,7 @@ test("shows a recipe's passkey sign-in route (ADR 0027)", async () => {
       {
         change: { recipeId: "bank-signin", revision: 1, state: "active", recipe: withPasskey },
         updatedAt: UPDATED,
-        layouts: [{ key: LAYOUT, lastUsedAt: null }],
+        layouts: [{ key: LAYOUT, lastUsedAt: null, firstPage: null }],
       },
       active("card-signin"),
     ],
@@ -353,7 +353,7 @@ test("shows a passkey-only recipe and its one click (ADR 0053)", async () => {
       {
         change: { recipeId: "bank-passkey", revision: 1, state: "active", recipe: only },
         updatedAt: UPDATED,
-        layouts: [{ key: LAYOUT, lastUsedAt: null }],
+        layouts: [{ key: LAYOUT, lastUsedAt: null, firstPage: null }],
       },
     ],
   });
@@ -432,7 +432,7 @@ test("shows a chooser recipe's buttons and branches, which devices do not use ye
           },
         },
         updatedAt: UPDATED,
-        layouts: [{ key: LAYOUT, lastUsedAt: null }],
+        layouts: [{ key: LAYOUT, lastUsedAt: null, firstPage: null }],
       },
     ],
   });
@@ -607,8 +607,16 @@ test("lists each layout of a recipe and removes one after a confirmation (ADR 00
         change: { recipeId: "bank-signin", revision: 3, state: "active", recipe: two },
         updatedAt: UPDATED,
         layouts: [
-          { key: LAYOUT, lastUsedAt: UPDATED },
-          { key: newer, lastUsedAt: null },
+          {
+            key: LAYOUT,
+            lastUsedAt: UPDATED,
+            firstPage: { origin: "generated", model: "claude-synthetic", createdAt: UPDATED },
+          },
+          {
+            key: newer,
+            lastUsedAt: null,
+            firstPage: { origin: "device", model: null, createdAt: UPDATED },
+          },
         ],
       },
     ],
@@ -630,10 +638,12 @@ test("lists each layout of a recipe and removes one after a confirmation (ADR 00
     "LanguageJapanese",
     "Created2026-10-10 08:15 UTC",
     "Last used2026-10-11 08:15 UTC",
+    "First pageclaude-synthetic, 2026-10-11 08:15 UTC",
     "Steps2",
     "Layout 2",
     "LanguageEnglish",
     "Last usedNot used yet",
+    "First pageWritten by a device, 2026-10-11 08:15 UTC",
     "Steps1",
   ])
     // oxlint-disable-next-line no-await-in-loop -- one element, checked in order
