@@ -374,11 +374,11 @@ test("a document navigated away from while Pateat signs gets nothing, and the ta
         { challenge: challengeHex() },
       );
       await page.getByRole("button", { name: "Sign in with a passkey" }).click();
-      // The background takes the request well within this, then waits on the delayed signature.
-      await page.waitForTimeout(500);
+      // Leave only once the background is waiting on the delayed signature.
+      await expect.poll(probe.delayed).toBe(1);
       await page.goto(`${origin}/?after`);
-      // Outlast the delayed signature: the replaced document's cancel must have stopped it.
-      await page.waitForTimeout(3500);
+      // The replaced document's cancel stopped the signature that was running.
+      await expect.poll(probe.stopped).toBe(1);
       expect(await probe.signatures()).toBe(0);
 
       // Nothing was recorded as a sign-in in this tab, so the single match signs silently.
