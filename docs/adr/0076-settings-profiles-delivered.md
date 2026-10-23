@@ -16,7 +16,10 @@ that exist today: `excludedSites` and `siteDefaults` are per profile, and `bindi
 stay the owner's. `repromptSites` (the sites that ask for the master password, ADR 0021)
 joined the profile parts on 2026-10-23, and so did `passkeyBrowserSites` (the sites
 whose passkey requests go to the browser, ADR 0007) and ADR 0023's lists
-(`accountPolicies`, `itemPolicies` and `customFieldReviews`). ADR 0035's page
+(`accountPolicies`, `itemPolicies` and `customFieldReviews`), as did the popup's
+`popupPageSection` choice
+([ADR 0038](0038-login-status-badge.md#amendment-a-synced-setting-hides-the-popups-section-2026-10-23)),
+stored only while `false`. ADR 0035's page
 permissions are not built yet; when they land, they add their fields to the profile
 document (`profileDocument` in `services/api/src/settings-store.ts`) and to the
 extension's merge.

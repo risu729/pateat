@@ -3,6 +3,7 @@ import {
   profileIdSchema,
   localSettingsSchema,
   MAX_SETTINGS_DOCUMENT_BYTES,
+  popupPageSectionShown,
   savedLoginBindingSchema,
   settingsDocumentBytes,
   serviceOriginSchema,
@@ -49,6 +50,7 @@ export type SyncedSettings = {
   repromptSites: ExcludedSite[];
   siteDefaults: SiteDefault[];
   bindings: Binding[];
+  popupPageSection: boolean;
 };
 
 const LOCAL_PROVIDER = "dummy";
@@ -67,6 +69,7 @@ export function syncedSettings(settings: LocalSettings): SyncedSettings {
     repromptSites: settings.repromptSites,
     siteDefaults: settings.siteDefaults,
     bindings: settings.bindings,
+    popupPageSection: popupPageSectionShown(settings),
   };
 }
 
@@ -79,6 +82,7 @@ const emptySynced: SyncedSettings = {
   repromptSites: [],
   siteDefaults: [],
   bindings: [],
+  popupPageSection: true,
 };
 
 // The base of the next three-way merge. Normally both copies are the same; after an
@@ -250,6 +254,12 @@ export function mergeSyncedSettings(
       defaultKey,
     ),
     bindings: mergeEntries(part("bindings"), local.bindings, service.bindings, bindingKey),
+    // One value, merged like one entry.
+    popupPageSection:
+      service.popupPageSection === base.service.popupPageSection &&
+      local.popupPageSection !== base.local.popupPageSection
+        ? local.popupPageSection
+        : service.popupPageSection,
   };
 }
 
@@ -307,23 +317,34 @@ function equalSynced(left: SyncedSettings, right: SyncedSettings): boolean {
     same(sorted(left.passkeyBrowserSites, siteKey), sorted(right.passkeyBrowserSites, siteKey)) &&
     same(sorted(left.repromptSites, siteKey), sorted(right.repromptSites, siteKey)) &&
     same(sorted(left.siteDefaults, defaultKey), sorted(right.siteDefaults, defaultKey)) &&
-    same(sorted(left.bindings, bindingKey), sorted(right.bindings, bindingKey))
+    same(sorted(left.bindings, bindingKey), sorted(right.bindings, bindingKey)) &&
+    left.popupPageSection === right.popupPageSection
   );
 }
 
-/** Local settings with the synced part replaced; the demo provider's policy stays. */
+/**
+ * Local settings with the synced part replaced; the demo provider's policy stays. The
+ * popup's choice is kept only while it hides the page's status, as in the documents.
+ */
 function applySynced(settings: LocalSettings, merged: SyncedSettings): LocalSettings {
+  const { popupPageSection, ...lists } = merged;
+  const { popupPageSection: _replaced, ...rest } = settings;
   return {
-    ...settings,
-    ...merged,
+    ...rest,
+    ...lists,
     accountPolicies: [...merged.accountPolicies, ...localOnly(settings.accountPolicies)],
     itemPolicies: [...merged.itemPolicies, ...localOnly(settings.itemPolicies)],
     customFieldReviews: [...merged.customFieldReviews, ...localOnly(settings.customFieldReviews)],
+    ...(popupPageSection ? {} : { popupPageSection: false }),
   };
 }
 
 /** The service holds only the synced part; it never stores device-local connections. */
-const serviceDocument = (synced: SyncedSettings): LocalSettings => ({ connections: [], ...synced });
+const serviceDocument = ({ popupPageSection, ...lists }: SyncedSettings): LocalSettings => ({
+  connections: [],
+  ...lists,
+  ...(popupPageSection ? {} : { popupPageSection: false }),
+});
 
 export function createSettingsSync(options: {
   transport: Pick<ServiceTransport, "settings" | "saveSettings">;
