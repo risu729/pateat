@@ -72,9 +72,9 @@ extension keeps a copy, so logins keep working while the service is offline.
   ([ADR 0007](https://github.com/risu729/pateat/blob/main/docs/adr/0007-existing-passkey-assertions.md#presence-and-verification)).
   This is planned to become a setting before Pateat is public.
 - **Bitwarden's master password re-prompt** is honoured only on the sites you list
-  ([setup](./setup.md#sites-that-ask-for-the-master-password)). Elsewhere, Pateat fills,
-  and signs with the passkeys of, items marked with re-prompt without asking for the
-  master password.
+  ([setup](./setup.md#sites-that-ask-for-the-master-password)), and only for login items
+  and their passkeys. Elsewhere, and for personal details from linked card or identity
+  items, Pateat uses items marked with re-prompt without asking for the master password.
 
 ## Next steps
 

@@ -60,40 +60,6 @@ page.
 
 These limits apply to Pateat only and do not change anything in Bitwarden.
 
-### Vault timeout
-
-The **Vault timeout** section decides how long the vaults stay unlocked, counted from
-the last login filled, passkey signed, unlock or sign-in: 1, 5, 15 or 30 minutes, 1 or
-4 hours, **On system idle**, **On system lock**, **On browser restart**, **Never** (the
-default) or **Custom** minutes. **Timeout action** is **Lock** or **Log out**. The
-setting stays on this device.
-
-With **Never**, the unlock key is kept in the extension's storage in Chrome, so the
-vaults unlock by themselves after Chrome restarts. It is not protected by your operating
-system's key store: anyone who can use your Chrome profile, or read its files, can use
-the vaults. With any other timeout the key stays in memory only, so a browser restart
-also locks the vaults.
-
-### Sites that ask for the master password
-
-Bitwarden's master password re-prompt is honoured on the sites you list. Turn
-**Ask for the master password** on in the toolbar popup on a site, or add the site in
-the settings page's sites section, where **Include subdomains** covers its subdomains
-and **Stop asking** removes it. On those sites, a vault item marked for re-prompt is
-used only after you enter the master password in Pateat's window. Elsewhere it is used
-like any other item. The list starts empty.
-
-### AI key
-
-Under **AI key**, you can save an **Anthropic API key** from the Claude Console. This
-device then asks Claude with it, also while paired: the service writes each request,
-and the extension sends it to Anthropic itself. The key stays on this device and is
-sent to Anthropic only, never to the service. **Daily limit (USD)** and
-**Monthly limit (USD)**, $5 and $100 unless you change them, stop requests at either
-limit. **Remove key** deletes it. For now, recipes are written with the key only while
-the device is paired. Without a key, the service asks Claude with its owner's
-credentials.
-
 ## Pair with a Pateat service
 
 1. Under **Sync service**, enter the **Service address**, such as
@@ -107,8 +73,10 @@ credentials.
    one, or **New profile with this device's site settings** with a
    **New profile name**. A profile holds the excluded sites, the sites that ask for the
    master password and the default accounts, and devices that share a profile share
-   them. If this device already has its own excluded sites or default accounts, choosing
-   an existing profile asks first whether to replace them (**Pair and replace**).
+   them. Choosing an existing profile replaces this device's own lists with the
+   profile's. Pateat asks first (**Pair and replace**) when this device has excluded
+   sites or default accounts, but not when it has only sites that ask for the master
+   password.
 
 When pairing succeeds, the page says **This device is paired.** Pateat then syncs its
 profile's settings and the recipes from the service and keeps a copy on this device.
@@ -124,13 +92,15 @@ already on it.
 
 The service is a small Cloudflare Worker. Its pairing and management pages are behind
 Cloudflare Access; the extension reaches it with its device credential. It stores your
-settings profiles and recipes, and writes a recipe with Claude for a login page that
-has none. It also keeps, for one year, the page descriptions it receives, a record of
-each login that followed a recipe and the warnings and errors the extension reports;
+settings profiles, which vault field fills which part of each site's login, and
+recipes, and writes a recipe with Claude for a login page that has none. It also keeps,
+for one year, the page descriptions it receives, a record of each login that followed a
+recipe and the problems the extension reports;
 the [privacy policy](./privacy.md#your-pateat-service) lists them. It never receives
 vault values or keys. Its pages are **Dashboard**, **Sites**, **Profiles**,
 **Devices**, **Claude** (its Claude credentials and which models to use), **Problems**
-(the warnings and errors devices reported) and **Request log**.
+(the warnings, errors and reasons for doing nothing that devices reported) and
+**Request log**.
 
 Today each service is run by its owner for themselves: the service at `pateat.takuk.me`
 belongs to Pateat's developer and is not open to other people. A service accepts
@@ -138,6 +108,43 @@ pairing only from the extension IDs its operator lists, so running your own mean
 listing Pateat's ID, or the ID of your own build if you sign it with your own key. The
 [development guide](https://github.com/risu729/pateat/blob/main/docs/development.md#extension-id)
 describes both. Writing recipes on a device that is not paired is planned.
+
+## More settings
+
+### Vault timeout
+
+The **Vault timeout** section decides how long the vaults stay unlocked, counted from
+the last login filled, passkey signed, unlock or sign-in: 1, 5, 15 or 30 minutes, 1 or
+4 hours, **On system idle**, **On system lock**, **On browser restart**, **Never** (the
+default) or **Custom** minutes. **Timeout action** is **Lock** or **Log out**. The
+setting stays on this device.
+
+With **Never**, the unlock key is kept in the extension's storage in Chrome, so the
+vaults unlock by themselves after Chrome restarts. The key is not protected by your
+operating system's key store: anyone who can use your Chrome profile, or read its
+files, can use the vaults. With any other timeout the key stays in memory only, so
+restarting Chrome, or reloading or updating the extension, also locks the vaults.
+
+### Sites that ask for the master password
+
+Bitwarden's master password re-prompt is honoured on the sites you list. Turn
+**Ask for the master password** on in the toolbar popup on a site, or add the site with
+**Ask for the master password** in the settings page's **Sites** section, where
+**Include subdomains** covers its subdomains and **Stop asking** removes it. On those
+sites, a login item marked for re-prompt, and its passkeys, are used only after you
+enter the master password in Pateat's window. Elsewhere such an item is used like any
+other. Re-prompt is checked on the login item only: a personal detail from a linked
+card or identity item is filled without asking, even when that item is marked. The list
+starts empty.
+
+### AI key
+
+Under **AI key**, you can save an **Anthropic API key** from the Claude Console. While
+this device is paired, it asks Claude with this key instead of the service's
+credentials: the service writes each request, and the extension sends it to Anthropic
+itself. The key stays on this device and is sent to Anthropic only, never to the
+service. **Daily limit (USD)** and **Monthly limit (USD)**, $5 and $100 unless you
+change them, stop requests at either limit. **Remove key** deletes the key.
 
 ## Using Pateat
 

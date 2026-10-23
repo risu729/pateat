@@ -42,7 +42,9 @@ same ID and the same data in Chrome.
 
 1. Delete the contents of the folder you loaded, and extract the new release's ZIP file
    into the same folder.
-2. On `chrome://extensions`, press the reload button on Pateat's card.
+2. On `chrome://extensions`, press the reload button on Pateat's card. Unless the
+   [vault timeout](./setup.md#vault-timeout) is **Never**, this locks the vaults; unlock
+   them on the settings page.
 
 Do not press **Remove**: removing the extension deletes everything it stored in Chrome,
 including the vault connection and the service pairing, and you would have to

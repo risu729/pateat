@@ -26,15 +26,15 @@ read it, and removing the extension deletes it.
   encrypts it.
 - **The unlock key.** A key that decrypts that copy while the vault is unlocked. With
   the vault timeout **Never**, it is kept in the extension's storage so that the vault
-  unlocks by itself after Chrome restarts, not protected by your operating system's key
-  store; with any other timeout it is kept in memory only. **Lock** and **Log out**
-  remove it.
+  unlocks by itself after Chrome restarts; your operating system's key store does not
+  protect it. With any other timeout it is kept in memory only. **Lock** and
+  **Log out** remove it.
 - **The Bitwarden sync sign-in**, which lets Pateat sync the vault again without your
   master password. Your master password and verification codes are never stored. When
   you unlock a vault, or enter the master password for an item marked with re-prompt,
   Pateat checks it on your device and sends it nowhere.
 - **Your Anthropic API key**, if you save one, with what it spent today and this month.
-  It is stored as entered, not encrypted, and sent only to Anthropic.
+  It is stored without encryption and sent only to Anthropic.
 - **Each connection's details**: its name, the Bitwarden server, your email address and
   the device identifier Pateat uses with Bitwarden.
 - **Settings and recipes** synced from your Pateat service, which item and field limits
@@ -78,9 +78,10 @@ only by the person who runs it. The extension sends the service:
   name of a new one. The service also records when the device paired and when it was
   last used, and identifies you by the account you signed in to the service with.
 - **Settings**: for each settings profile, the sites you excluded, the sites that ask
-  for the master password and the default account for each site; and which vault field
-  fills which part of a site's login, identified by vault item and account IDs with the
-  item's and the connection's names and the names of custom fields.
+  for the master password and the default account for each site; and, for all
+  profiles, which vault field fills which part of a site's login. Default accounts and
+  fields are identified by vault item and account IDs, with the item's and the
+  connection's names and the names of custom fields.
 - **Page descriptions**, when a site has no recipe yet, its recipe no longer matches
   the page, or a login needs the next page described. Pateat describes a login page, a
   page that lists accounts to choose from, a page that asks for a personal detail, and
@@ -119,9 +120,12 @@ only by the person who runs it. The extension sends the service:
   service can judge whether the login worked. Once a site's recipe works, each device
   still sends its signed-in page at most once every 30 days, to check later that the
   recipe keeps signing in.
+- **Recipe use**: when a login on a recipe starts, including one that only fills, the
+  recipe, its revision and the layout used, so that the service knows the recipe is
+  still in use.
 - **Login records**
   ([ADR 0055](https://github.com/risu729/pateat/blob/main/docs/adr/0055-login-records-sent-to-the-service.md)):
-  when a login that follows a recipe starts, the recipe and its revision; when it ends,
+  when a login that follows a recipe ends,
   how it ended (a fixed code such as signed in or blocked, and why), the extension's
   version and how long it took, split into the time spent waiting for the service, for
   the network, for the site, and for you, such as while you typed a verification code.
@@ -130,9 +134,11 @@ only by the person who runs it. The extension sends the service:
 - **Problem reports**
   ([ADR 0066](https://github.com/risu729/pateat/blob/main/docs/adr/0066-problem-lines-sent-to-the-service.md)):
   automatically, each warning and error line of the diagnostics log, and each line that
-  says why Pateat did nothing on a page, with its time and the extension's version. A
-  line holds only fixed codes, counts, flags, recipe IDs and sites: a site you have not
-  set up is sent as a code the service cannot turn back into the site. For some lines
+  says why Pateat did nothing on a page, with its time, the extension's build and the
+  log's random ID. A line holds only fixed codes, error names and positions in
+  Pateat's own code, counts, flags, recipe IDs, tab IDs, the sites a passkey was asked
+  for, and sites: a site you have not set up is sent as a code the service cannot turn
+  back into the site. For some lines
   written before a login submitted anything, it holds the page's path, with IDs, tokens
   and email addresses replaced as in a page description; a username in such a path is
   not hidden. Values, page text and query strings are never sent. There is no setting
@@ -143,12 +149,13 @@ from which device's request, until that part is removed. It removes a recipe, or
 its alternative layouts, that has not been used for 90 days, and keeps a record that a
 removed recipe existed. It keeps the page descriptions it receives, with Claude's answer
 when Claude was asked, the login records and the problem reports, to show you on its
-dashboard and to evaluate and improve recipe writing. These are kept for one year. There
-is no scheduled removal: older entries are removed when a later page description, login
-record or recipe sync reaches the service. It also keeps, for each page Claude judged,
-the site, the page's path, when and with what result, until the site's recipe changes;
-and, for ten minutes, the site and path of each recipe it was asked to write, to avoid
-writing the same one twice.
+dashboard, to evaluate and improve recipe writing, and to find and fix Pateat's
+failures. These are kept for one year. There is no scheduled removal: older entries are
+removed when a later page description, login record, problem report or recipe sync
+reaches the service. It also keeps, for each page Claude judged, the site, the page's
+path, when and with what result, until the site's recipe changes; and, for ten minutes,
+the site and path of each recipe it was asked to write, to avoid writing the same one
+twice.
 
 The developer may publish reviewed page descriptions from the developer's own service,
 which holds only the developer's own logins, as evaluation data, with names and shapes
@@ -170,7 +177,8 @@ keeps the service's request logs, with the query part of each address removed.
 
 To write a recipe or judge a login, your Pateat service sends the page description and
 what the login needs from your vault, as above, to Claude, Anthropic's AI model, using
-the Claude credentials its owner set up. The owner chooses the Claude model on the
+the Claude credentials its owner set up, under the terms of that owner's Anthropic
+account. The owner chooses the Claude model on the
 service's **Claude** page; without a choice the service uses Claude Opus 5.5, and asks
 Claude Sonnet 5.5 once when Opus 5.5 declines a request.
 
@@ -180,9 +188,8 @@ Anthropic's answer back to the service, which keeps it as above. Anthropic then 
 the request under the terms of the account the key belongs to. The key is never sent to
 the service.
 
-Anthropic never receives vault values, login records, problem reports or the signed-in
-pages sent once every 30 days, and handles what it receives under the terms of the
-account that sent it.
+Pateat never sends Anthropic vault values, login records, problem reports or the
+signed-in pages sent once every 30 days.
 
 ## The websites you log in to
 
@@ -210,15 +217,16 @@ there.
   field choices, and revoke recipes and their layouts, though a revoked recipe leaves a
   record that it was revoked. Sites that ask for the master password are removed in the
   extension. **Delete all** on the **Request log** page deletes every stored page
-  description, login record and problem report, and removes the device and request
-  from the record of which model wrote each recipe part. A settings profile no device
-  uses can be deleted on the **Profiles** page; today that hides the profile, but its
-  stored settings stay. Disconnecting or revoking a device stops it from syncing but
-  keeps its record. These have no delete control: device records, the records of judged
-  pages and recipe repairs, the record of which model wrote each recipe part, and the
-  record of spending on Claude. The service's owner can delete them from its database.
-- **Your Anthropic API key**: **Remove key** on the settings page deletes it from your
-  device.
+  description, login record and problem report, and removes the device and request from
+  the record of which model wrote each recipe part. A settings profile no device uses,
+  other than the last one, can be deleted on the **Profiles** page; today that hides the
+  profile, but its stored settings stay. Disconnecting or revoking a device stops it
+  from syncing but keeps its record. These have no delete control: device records, the
+  records of judged pages and recipe repairs, the record of which model wrote each
+  recipe part, and the record of spending on Claude. The service's owner can delete them
+  from its database.
+- **Your Anthropic API key**: **Remove key** on the settings page deletes the key from
+  your device; its spend count stays until you remove the extension.
 - **On a lost device**: revoking it on the service stops it from reaching the service,
   but cannot erase the vault copy, unlock key and recipes already on it.
 - **At Bitwarden, Cloudflare and Anthropic**: under their own policies.
