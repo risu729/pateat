@@ -95,8 +95,8 @@ function setup(
     { connections: [] },
   );
   let service = options.service ?? state(0, null);
-  // The revision of this device's last stored write, as the service answers it.
-  let written: number | undefined;
+  // The write ID of this device's last stored write, as the service answers it.
+  let written: string | undefined;
   const answer = () => structuredClone({ ...service, ...(written ? { written } : {}) });
   const transport = {
     settings: vi.fn<ServiceTransport["settings"]>(async (): Promise<SettingsResult> => ({
@@ -107,7 +107,7 @@ function setup(
       if (write.expectedRevision !== service.revision)
         return { kind: "conflict", current: answer() };
       service = { ...state(service.revision + 1, write.settings), profileId: service.profileId };
-      written = service.revision;
+      written = write.writeId;
       return { kind: "state", state: answer() };
     }),
   };
@@ -723,6 +723,7 @@ describe("settings sync after the first", () => {
     expect(base()).toEqual({
       ...baseOf(4, agreed),
       pending: {
+        writeId: expect.any(String),
         profileId: PROFILE,
         revision: 5,
         settings: settingsOf({ ...agreed, excludedSites: [] }),
@@ -1470,6 +1471,37 @@ describe("device profile switches", () => {
     expect(await h.restart().run(CONNECTION, never)).toBe("synced");
     expect(h.transport.saveSettings).not.toHaveBeenCalled();
     expect(h.local()?.settings).toEqual({ ...next, connections: [localConnection] });
+    expect(h.base()).toMatchObject({ profileId: OTHER_PROFILE });
+  });
+});
+
+describe("a profile switch whose final base was lost", () => {
+  it("keeps the person's later edit once the switch's local write landed", async () => {
+    const old = settingsOf({ excludedSites: [site("old-profile.example")] });
+    const next = settingsOf({ excludedSites: [site("new-profile.example")] });
+    const h = setup({
+      local: old,
+      service: { ...state(8, next), profileId: OTHER_PROFILE },
+      base: baseOf(7, old),
+    });
+    // The record before the local write lands; the one after it is lost.
+    const write = h.storage.write.getMockImplementation()!;
+    h.storage.write.mockImplementationOnce(write).mockRejectedValueOnce(new Error("lost"));
+    expect(await h.sync.run(CONNECTION, never)).toBe("synced");
+    expect(h.local()?.settings).toEqual(next);
+    expect(h.base()).toMatchObject({ profileId: PROFILE });
+
+    await h.store.update(undefined, "settings-save", (current) => ({
+      ...current,
+      settings: {
+        ...current.settings,
+        excludedSites: [...current.settings.excludedSites, site("person.example")],
+      },
+    }));
+    expect(await h.restart().run(CONNECTION, never)).toBe("synced");
+    const sites = [site("new-profile.example"), site("person.example")];
+    expect(h.service().settings?.excludedSites).toEqual(sites);
+    expect(h.local()?.settings.excludedSites).toEqual(sites);
     expect(h.base()).toMatchObject({ profileId: OTHER_PROFILE });
   });
 });

@@ -34,8 +34,8 @@ export const ownerDocument = (document: LocalSettings) => ({
 /**
  * Reads the profile and the owner's shared parts at the owner's revision in one statement. A
  * profile with no document of its own yet answers `newProfile`, so the first device to
- * sync it keeps its own entries (ADR 0076). For a paired device, `written` is the revision
- * of its own last stored write, read in the same statement.
+ * sync it keeps its own entries (ADR 0076). For a paired device, `written` is the
+ * `writeId` of its own last stored write, read in the same statement.
  */
 export async function readSettings(
   db: D1Database,
@@ -45,7 +45,7 @@ export async function readSettings(
 ): Promise<SyncSettingsState> {
   const row = await db
     .prepare(`SELECT s.revision, s.document AS shared, p.document,
-      (SELECT settings_revision FROM devices WHERE id = ? AND owner_id = p.owner_id) AS written
+      (SELECT settings_write_id FROM devices WHERE id = ? AND owner_id = p.owner_id) AS written
     FROM profiles p LEFT JOIN settings s ON s.owner_id = p.owner_id
     WHERE p.owner_id = ? AND p.id = ? AND p.deleted_at IS NULL`)
     .bind(deviceId, ownerId, profileId)
@@ -53,7 +53,7 @@ export async function readSettings(
       revision: number | null;
       shared: string | null;
       document: string | null;
-      written: number | null;
+      written: string | null;
     }>();
   if (!row) throw new Error("profile-not-found");
   const shared: Partial<ReturnType<typeof ownerDocument>> = row.shared
@@ -165,9 +165,9 @@ export async function writeSettings(
       ),
     db
       .prepare(
-        "UPDATE devices SET settings_revision = ? WHERE id = ? AND owner_id = ? AND changes() = 1",
+        "UPDATE devices SET settings_write_id = ? WHERE id = ? AND owner_id = ? AND changes() = 1",
       )
-      .bind(write.expectedRevision + 1, writer, ownerId),
+      .bind(write.writeId ?? null, writer, ownerId),
   ]);
   if (results[1]?.meta.changes !== 1) {
     const currentProfile = writer
@@ -191,7 +191,7 @@ export async function writeSettings(
       profileId,
       revision: write.expectedRevision + 1,
       settings,
-      ...(writer === null ? {} : { written: write.expectedRevision + 1 }),
+      ...(writer === null || write.writeId === undefined ? {} : { written: write.writeId }),
     },
   };
 }

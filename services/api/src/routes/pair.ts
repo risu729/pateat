@@ -82,7 +82,7 @@ export async function createPairedDevice(
         createdAt: sql`${now}`.as("created_at"),
         lastUsedAt: sql`${now}`.as("last_used_at"),
         revokedAt: sql`NULL`.as("revoked_at"),
-        settingsRevision: sql`NULL`.as("settings_revision"),
+        settingsWriteId: sql`NULL`.as("settings_write_id"),
       })
       .from(ownerIdentities)
       .where(

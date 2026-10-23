@@ -39,7 +39,7 @@ export type Commit = { credential: string; before: LocalSettings | null; after: 
 /** `committed` is told of each upload the service stores, as it stores it. */
 export function settingsService(committed?: (commit: Commit) => void) {
   let state: SyncSettingsState = { version: 1, profileId: PROFILE, revision: 0, settings: null };
-  const written = new Map<string, number>();
+  const written = new Map<string, string>();
   const commits: Commit[] = [];
   const answer = (credential: string): SyncSettingsState => {
     const own = written.get(credential);
@@ -58,29 +58,25 @@ export function settingsService(committed?: (commit: Commit) => void) {
     transport(faults: DeviceFaults): Pick<ServiceTransport, "settings" | "saveSettings"> {
       return {
         settings: async (_, credential): Promise<SettingsResult> => {
-          await faults.request?.();
+          await faults.pause?.();
           return { kind: "state", state: answer(credential) };
         },
         saveSettings: async (_, credential, write): Promise<SettingsResult> => {
-          await faults.request?.();
-          if (faults.upload === "unsent") {
-            delete faults.upload;
-            return { kind: "failed", error: "unreachable" };
-          }
+          await faults.pause?.();
+          const fault = faults.upload?.();
+          if (fault === "unsent") return { kind: "failed", error: "unreachable" };
           if (write.expectedRevision !== state.revision)
             return { kind: "conflict", current: answer(credential) };
           const after = structuredClone(write.settings);
           commits.push({ credential, before: state.settings, after });
           committed?.({ credential, before: state.settings, after });
           state = { ...state, revision: state.revision + 1, settings: after };
-          written.set(credential, state.revision);
+          if (write.writeId === undefined) written.delete(credential);
+          else written.set(credential, write.writeId);
           // The answer is the state this write made, as the service's is.
           const stored = answer(credential);
-          await faults.request?.();
-          if (faults.upload === "answer-lost") {
-            delete faults.upload;
-            return { kind: "failed", error: "unreachable" };
-          }
+          await faults.pause?.();
+          if (fault === "answer-lost") return { kind: "failed", error: "unreachable" };
           return { kind: "state", state: stored };
         },
       };
@@ -88,13 +84,25 @@ export function settingsService(committed?: (commit: Commit) => void) {
   };
 }
 
+type UploadFault = "unsent" | "answer-lost";
+
+/** Fails the next upload only. */
+export function nextUpload(fault: UploadFault) {
+  let used = false;
+  return () => {
+    if (used) return undefined;
+    used = true;
+    return fault;
+  };
+}
+
 export type DeviceFaults = {
-  /** How the next upload fails: before it reaches the service, or after it committed. */
-  upload?: "unsent" | "answer-lost";
+  /** Decides how each upload fails: before it reaches the service, or after it committed. */
+  upload?: () => UploadFault | undefined;
   /** Decides how a write of the sync base fails, from the base it would write. */
   base?: (next: Record<string, unknown>) => "fails" | "hangs" | undefined;
-  /** Awaited around each request, so a test can interleave devices. */
-  request?: () => Promise<void>;
+  /** Awaited around each request and before each base write, so a test can interleave. */
+  pause?: () => Promise<void>;
 };
 
 /** `wrote` is told of each local settings write a sync makes, after it landed. */
@@ -127,6 +135,7 @@ export function settingsDevice(
   const storage = {
     read: async () => structuredClone(base),
     write: async (next: Record<string, unknown>) => {
+      await faults.pause?.();
       const fault = faults.base?.(next);
       if (fault === "fails") throw new Error("synthetic storage failure");
       // A worker stopped here: neither this write nor anything after it happens.
@@ -150,8 +159,19 @@ export function settingsDevice(
       return next;
     },
   };
-  const start = () =>
-    createSettingsSync({ transport: service.transport(faults), settings, storage });
+  /** The last service state this device received. */
+  let received: SyncSettingsState | undefined;
+  const note = (result: SettingsResult) => {
+    if (result.kind === "state") received = result.state;
+    if (result.kind === "conflict") received = result.current;
+    return result;
+  };
+  const transport = service.transport(faults);
+  const watched: typeof transport = {
+    settings: async (...args) => note(await transport.settings(...args)),
+    saveSettings: async (...args) => note(await transport.saveSettings(...args)),
+  };
+  const start = () => createSettingsSync({ transport: watched, settings, storage });
   let sync = start();
   return {
     connection,
@@ -173,6 +193,7 @@ export function settingsDevice(
       })),
     settings: () => snapshot.settings,
     base: () => base,
+    received: () => received,
   };
 }
 

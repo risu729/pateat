@@ -15,6 +15,7 @@ import {
   type SyncSettingsState,
   type VaultCatalog,
 } from "@pateat/contracts";
+import { newId } from "@pateat/contracts/ids";
 import * as v from "valibot";
 import type { ServiceConnection } from "./runtime";
 import type { ServiceTiming, ServiceTransport, TransportFailure } from "./transport";
@@ -109,18 +110,25 @@ const baseSchema = v.strictObject({
   /** The synced part of the local settings that `settings` already accounts for. */
   local: localSettingsSchema,
   /**
-   * The local settings revision this sync's write of `settings` to the local settings
-   * takes. Once the local change history shows that write, the local copy holds
-   * `settings`, also when the base recorded after it was lost.
+   * This sync's write of `settings` to the local settings: the local revision it takes,
+   * and the profile whose entries it puts in place. Once the local change history shows
+   * that write, the local copy holds `settings` and that profile's entries, also when the
+   * base recorded after it was lost.
    */
-  localWrite: v.optional(v.pipe(baseRevision, v.minValue(1))),
+  localWrite: v.optional(
+    v.strictObject({
+      revision: v.pipe(baseRevision, v.minValue(1)),
+      profileId: profileIdSchema,
+    }),
+  ),
   /**
    * An upload, recorded before it is sent, as the base it makes once it commits. The
-   * service's `written` (the revision of this device's last stored write) tells the next
+   * service's `written` (the `writeId` of this device's last stored write) tells the next
    * sync whether it did, also when its answer was lost.
    */
   pending: v.optional(
     v.strictObject({
+      writeId: v.pipe(v.string(), v.uuid()),
       profileId: profileIdSchema,
       revision: v.pipe(baseRevision, v.minValue(1)),
       settings: localSettingsSchema,
@@ -513,6 +521,8 @@ export function createSettingsSync(options: {
     // dropped otherwise. Every base written below starts from this one, so a committed
     // upload is not forgotten by a later write that fails.
     const stored = loaded && resolvePending(loaded, service.written);
+    /** The base last recorded, which a pending upload's record starts from. */
+    let recorded = stored;
     // Read only when an entry lacks a name: building the catalog restores the vaults.
     let catalog: Promise<VaultCatalog | undefined> | undefined;
     const serviceCopy = (state: SyncSettingsState) =>
@@ -542,6 +552,7 @@ export function createSettingsSync(options: {
       if (stale()) return false;
       try {
         await storage.write(next);
+        recorded = next;
         return true;
       } catch {
         return false;
@@ -553,7 +564,10 @@ export function createSettingsSync(options: {
     const baseProfile = (): string | undefined =>
       switchingProfile ? stored?.profileId : service.profileId;
     /** Records `next` at the service's revision; false when it was not written. */
-    async function record(next: SyncBase, localWrite?: number): Promise<boolean> {
+    async function record(
+      next: SyncBase,
+      localWrite?: NonNullable<SettingsBase["localWrite"]>,
+    ): Promise<boolean> {
       const profileId = baseProfile();
       if (profileId === undefined) return false;
       return save({
@@ -584,19 +598,21 @@ export function createSettingsSync(options: {
       }
       const localSynced = syncedSettings(local.settings);
       // The stored base's own local write landed before the base recorded after it was
-      // lost: the local copy holds the base's service copy, and only later local changes
-      // differ from it. Older than the kept change history, it counts as not written.
+      // lost: the local copy holds the base's service copy and that write's profile, and
+      // only later local changes differ from it. A profile switch it made is applied.
+      // Older than the kept change history, it counts as not written.
+      const landed = stored?.localWrite;
       if (
         attempt === 0 &&
         ownerBase !== base0 &&
-        stored?.localWrite !== undefined &&
+        landed !== undefined &&
         local.changes?.some(
-          (change) => change.revision === stored.localWrite && change.cause === "service-sync",
+          (change) => change.revision === landed.revision && change.cause === "service-sync",
         )
       ) {
-        const written = { service: ownerBase.service, local: ownerBase.service };
-        if (base === ownerBase) base = written;
-        ownerBase = written;
+        ownerBase = { service: ownerBase.service, local: ownerBase.service };
+        switchingProfile = !service.newProfile && landed.profileId !== service.profileId;
+        base = landed.profileId === service.profileId ? ownerBase : base0;
       }
       const serviceSynced = serviceCopy(service);
       const ownerParts = mergeSyncedSettings(ownerBase, localSynced, serviceSynced);
@@ -622,13 +638,15 @@ export function createSettingsSync(options: {
       if (upload) {
         // Recorded before it is sent: an upload whose answer is lost may have committed.
         const pendingProfile = baseProfile();
+        const writeId = newId();
         if (
-          stored &&
+          recorded &&
           pendingProfile !== undefined &&
           // oxlint-disable-next-line no-await-in-loop -- the upload waits for its record
           !(await save({
-            ...stored,
+            ...recorded,
             pending: {
+              writeId,
               profileId: pendingProfile,
               revision: service.revision + 1,
               settings: serviceDocument(merged),
@@ -642,10 +660,18 @@ export function createSettingsSync(options: {
           version: 1,
           expectedRevision: service.revision,
           settings: serviceDocument(merged),
+          writeId,
         });
         timed?.(saved.timing);
         if (saved.kind === "rejected") return "rejected";
         if (saved.kind === "failed") return saved.error;
+        // Settled here too, so a later attempt's pending record keeps a committed upload
+        // even when the record below fails.
+        if (recorded)
+          recorded = resolvePending(
+            recorded,
+            saved.kind === "conflict" ? saved.current.written : saved.state.written,
+          );
         if (saved.kind === "conflict") {
           if (service.profileId !== saved.current.profileId) {
             // The device moved meanwhile: the old profile's base says nothing about the
@@ -677,7 +703,7 @@ export function createSettingsSync(options: {
         if (
           baseProfile() !== undefined &&
           // oxlint-disable-next-line no-await-in-loop -- the local write waits for its record
-          !(await record(base, local.revision + 1))
+          !(await record(base, { revision: local.revision + 1, profileId: service.profileId }))
         )
           return stale() ? "busy" : "storage-unavailable";
         try {
@@ -741,14 +767,14 @@ export function createSettingsSync(options: {
 
 /**
  * `stored` with its pending upload settled: the base that upload makes when `written`,
- * the revision of this device's last write the service stored, is the upload's, and the
- * base before it otherwise. One sync runs at a time per device and resolves a pending
- * upload before it sends another, so no other write of this device has that revision.
+ * the write ID of this device's last write the service stored, is the upload's, and the
+ * base before it otherwise.
  */
-function resolvePending(stored: SettingsBase, written: number | undefined): SettingsBase {
+function resolvePending(stored: SettingsBase, written: string | undefined): SettingsBase {
   const { pending, localWrite, ...rest } = stored;
   if (!pending) return stored;
-  if (written !== pending.revision)
+  if (written !== pending.writeId)
     return { ...rest, ...(localWrite === undefined ? {} : { localWrite }) };
-  return { ...rest, ...pending };
+  const { writeId: _, ...made } = pending;
+  return { ...rest, ...made };
 }

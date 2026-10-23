@@ -313,9 +313,9 @@ not built yet.
 The owner asked on 2026-10-23 at 22:24 UTC to fix a lost merge base found by a model of
 the settings sync: an upload whose answer was lost, or a download whose base record was,
 left a base older than the writes made, and the next merge put back what another device
-changed since. The extension now records the base before each write it makes, and the
-service stores the revision of each device's own last winning settings write
-(`devices.settings_revision`), which `GET /v1/settings` answers to that device as
-`written`. A device learns from it whether an upload whose answer was lost committed;
-no other client sees it. The [plan](../plan.md#service-sync-progress) describes the
-records, and the architecture lists the cases still not handled.
+changed since. The extension now records the base before each write it makes. Each
+upload carries a new write ID, and the service stores the ID of each device's own last
+winning settings write (`devices.settings_write_id`), which `GET /v1/settings` answers
+to that device as `written`. A device learns from it whether an upload whose answer was
+lost committed; no other client sees it. The [plan](../plan.md#service-sync-progress)
+describes the records, and the architecture lists the cases still not handled.

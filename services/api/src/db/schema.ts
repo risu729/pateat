@@ -82,11 +82,11 @@ export const devices = sqliteTable(
     lastUsedAt: integer("last_used_at").notNull().default(0),
     revokedAt: integer("revoked_at"),
     /**
-     * The settings revision of this device's last stored settings write, set in the same
-     * batch: a device whose write got no answer learns from it whether the write
-     * committed. Null until the device writes.
+     * The `writeId` of this device's last stored settings write, set in the same batch: a
+     * device whose write got no answer learns from it whether the write committed. Null
+     * until the device writes.
      */
-    settingsRevision: integer("settings_revision"),
+    settingsWriteId: text("settings_write_id"),
   },
   (table) => [
     foreignKey({

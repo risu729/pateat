@@ -2166,45 +2166,51 @@ an older state whose revision has since passed the stored one is merged against 
 stored base, so its removals apply. The base is written before each write it describes,
 since a base older than the writes made would take an entry this device already uploaded
 or downloaded for an edit not yet sent and put back what another device changed since
-(owner, 2026-10-23 22:24 UTC). Before an upload, the base records it as pending, with
-the revision it would make; no upload is sent when that record cannot be written. The
-service stores, with each device's winning write, its revision
-(`devices.settings_revision`, migration 0034), and `GET /v1/settings` answers it to that
-device alone as `written`, so the next sync knows whether an upload whose answer was
-lost committed: the pending base when `written` is its revision, and the base before it
-otherwise. Before a local write, the base records the merge with the local revision that
-write takes (`localWrite`); no local write happens when that record cannot be written.
-When the local change history (the last 16 revisions) shows that revision written by
-`service-sync`, the local copy holds the merge, and only later local changes count as
-edits. While a profile switch is not applied locally yet, these records keep the old
-profile, so the next sync still replaces the old profile's entries. The base recorded
-after a complete sync stays best effort: losing it leaves a base that already describes
-both writes. Disconnecting forgets the base but keeps local settings, so pairing with
-another owner's service uploads this device's synced settings there. The merge is
-written back with a conditional `PUT /v1/settings`, and a stale service or local
-revision merges again, in up to three attempts per sync. A merge over the settings
-limits (1,000 entries per list, or an uploaded document over 120 KiB of the service's
-128 KiB body limit) is not applied, and the settings page says the settings no longer
-fit; when a later attempt in the same sync goes over, an earlier upload stays. Local
-settings change through the settings store's revision check, only when the merge differs
-from them, so an unchanged sync does not stop running login attempts. Before the merge
-is uploaded and written, the display names that site defaults and bindings lack are
-filled in from this device's catalog when their provider account is connected exactly
-once here: the item's label and the connection's label. A name already set is never
-overwritten, since another device may label the account differently or hold an older
-item label until its vault syncs; an account that is not connected here, connected twice
-or unavailable, or a catalog that cannot be read, leaves the names as they are. The
-catalog is built only while an entry still lacks a name, and a settled sync writes
-nothing. While a login is running, including one between pages, the upload still happens
-but the local write waits for a later sync, for at most two minutes after the first
-wait. The time of the first wait is stored under `pateat.sync-settings-hold.v1`, so the
-limit holds across service worker restarts, and it is cleared when a sync finds no login
-running. A later sync starts when the recipe schedule is due again. Saving settings on
-the extension's page or saving an automatic account choice starts a sync at once. A
-recipe sync that cannot reach the service skips settings, a 401 from either request
-marks the device rejected, and the settings page shows a complete sync only when both
-finished. Unit tests use a synthetic service and the real settings store over in-memory
-storage; sync against the deployed service has no recorded check yet.
+(owner, 2026-10-23 22:24 UTC). Before an upload, the base records it as pending, with a
+new write ID and the revision it would make; no upload is sent when that record cannot
+be written. The upload sends the write ID (`writeId`), and the service stores it with
+each device's winning write (`devices.settings_write_id`, migration 0034).
+`GET /v1/settings`, a conflict's `current` and a write's answer return it to that device
+alone as `written`, so the next sync knows whether an upload whose answer was lost
+committed: the pending base when `written` is its write ID, and the base before it
+otherwise. A later attempt of the same sync records its own pending upload beside the
+base an earlier attempt's committed upload made, even when the record after that upload
+was lost. Before a local write, the base records the merge with the local revision that
+write takes and the profile whose entries it puts in place (`localWrite`); no local
+write happens when that record cannot be written. When the local change history (the
+last 16 revisions) shows that revision written by `service-sync`, the local copy holds
+the merge and that profile's entries, so a profile switch it made is applied, and only
+later local changes count as edits. While a profile switch is not applied locally yet,
+these records keep the old profile, so the next sync still replaces the old profile's
+entries. The base recorded at the end of a sync stays best effort: after a write, losing
+it leaves the records above. A sync that wrote nothing has no other record, so losing
+that one is a case Pateat does not handle ([architecture](architecture.md)).
+Disconnecting forgets the base but keeps local settings, so pairing with another owner's
+service uploads this device's synced settings there. The merge is written back with a
+conditional `PUT /v1/settings`, and a stale service or local revision merges again, in
+up to three attempts per sync. A merge over the settings limits (1,000 entries per list,
+or an uploaded document over 120 KiB of the service's 128 KiB body limit) is not
+applied, and the settings page says the settings no longer fit; when a later attempt in
+the same sync goes over, an earlier upload stays. Local settings change through the
+settings store's revision check, only when the merge differs from them, so an unchanged
+sync does not stop running login attempts. Before the merge is uploaded and written, the
+display names that site defaults and bindings lack are filled in from this device's
+catalog when their provider account is connected exactly once here: the item's label and
+the connection's label. A name already set is never overwritten, since another device
+may label the account differently or hold an older item label until its vault syncs; an
+account that is not connected here, connected twice or unavailable, or a catalog that
+cannot be read, leaves the names as they are. The catalog is built only while an entry
+still lacks a name, and a settled sync writes nothing. While a login is running,
+including one between pages, the upload still happens but the local write waits for a
+later sync, for at most two minutes after the first wait. The time of the first wait is
+stored under `pateat.sync-settings-hold.v1`, so the limit holds across service worker
+restarts, and it is cleared when a sync finds no login running. A later sync starts when
+the recipe schedule is due again. Saving settings on the extension's page or saving an
+automatic account choice starts a sync at once. A recipe sync that cannot reach the
+service skips settings, a 401 from either request marks the device rejected, and the
+settings page shows a complete sync only when both finished. Unit tests use a synthetic
+service and the real settings store over in-memory storage; sync against the deployed
+service has no recorded check yet.
 
 Device credentials expire after 90 days unused, and each use renews them (owner,
 2026-10-11; [device enrollment](architecture.md#device-enrollment)). An expired device
