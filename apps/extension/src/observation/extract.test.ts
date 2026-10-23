@@ -1343,6 +1343,33 @@ describe("extractLoginObservation", () => {
       }
     });
   });
+  it("reads an input transparent only under its own shown label as visible (Airbnb, 2026-10-23)", () => {
+    // A floating label: the label's text shows, its input appears once focused.
+    const field = (label: string, input = "") =>
+      `<label for="email" style="display:block;position:relative">${label}
+        <div style="opacity:0"><input id="email" type="email" ${input}></div></label>`;
+    const rest = `<input id="p" type="password"><button id="go">Log in</button>`;
+    page(`<form id="f">${field("<div style='position:absolute'>Email</div>")}${rest}</form>`);
+    let observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(observation.candidates.map((candidate) => candidate.target.value)).toEqual([
+      "email",
+      "p",
+      "go",
+    ]);
+    // A label whose text is transparent too, an input at opacity 0 itself, or a
+    // transparent input outside its label is still faint, as a trap.
+    for (const html of [
+      `<div style="opacity:0">${field("Email")}</div>`,
+      field("Email", `style="opacity:0"`),
+      field("<span style='opacity:0'>Email</span>"),
+      `<label for="email">Email</label><div style="opacity:0"><input id="email" type="email"></div>`,
+    ]) {
+      page(`<form id="f">${html}${rest}</form>`);
+      observation = observe();
+      expect(observation.complete, html).toBe(false);
+    }
+  });
 
   it("names the first cause of an incomplete observation, without page text (ADR 0019)", () => {
     const gap = (html: string, shadow?: string) => {
