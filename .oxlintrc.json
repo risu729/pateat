@@ -7,6 +7,8 @@
     "**/.wxt/**",
     "**/.output/**",
     "**/.cloudflare/**",
+    "**/.vitepress/cache/**",
+    "**/.vitepress/dist/**",
     "**/worker-configuration.d.ts"
   ],
   "overrides": [

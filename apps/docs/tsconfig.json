@@ -1,0 +1,11 @@
+{
+  "extends": "@risu729/tsconfigs/bundler",
+  "compilerOptions": {
+    "types": ["node", "vite/client"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noEmit": true,
+    "skipLibCheck": true
+  },
+  "include": [".vitepress/**/*.ts"]
+}

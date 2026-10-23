@@ -25,6 +25,7 @@ from a synced cache ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)).
 | [Differences from Bitwarden](bitwarden-differences.md) | Deliberate differences from the official Bitwarden clients, with sources | Add an entry in the PR that introduces a difference                |
 | [ADRs](adr/0001-local-login-boundary.md)               | Decision rationale and alternatives                                      | Amend explicitly or supersede; preserve history                    |
 | [Research](research/2026-10-10-feasibility.md)         | Dated observations and primary sources                                   | Append new evidence or supersede; never imply current verification |
+| [Docs website](../apps/docs/src/index.md) | User-facing pages: installation, setup, permissions, privacy | Derived: update with the document or ADR that owns each fact; owns the privacy policy draft |
 
 The initial ADRs were accepted by merging PR #1.
 Acceptance does not mean implementation. A later replacement links the old and

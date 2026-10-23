@@ -1076,9 +1076,14 @@ Once the fixes have settled:
 - The docs website (VitePress 2, see
   [decisions still requiring evidence](#decisions-still-requiring-evidence)) with
   user-facing pages for installation, setup and permissions, plus the M6 operational
-  docs. The [operations runbook](operations.md) now documents current retry/revert
-  procedures and the unverified D1 restore and rollback-automation boundaries; this
-  does not complete installed-Chrome or disaster-recovery acceptance.
+  docs. Started: [`apps/docs`](development.md#docs-website) builds in CI with English
+  pages for installation, setup, permissions and a draft privacy policy with the Chrome
+  Web Store Limited Use statement. Still to do: deploying it (a public assets-only
+  Worker with per-PR previews, owner 2026-10-23), the M6 operational docs, the Japanese
+  pages, and updating the installation page once releases exist. The
+  [operations runbook](operations.md) now documents current retry/revert procedures and
+  the unverified D1 restore and rollback-automation boundaries; this does not complete
+  installed-Chrome or disaster-recovery acceptance.
 - A mode without the service, designed with the owner on 2026-10-23
   ([ADR 0040](adr/0040-running-without-the-service.md)): a device may hold its own
   Anthropic API key and call the model itself, also while paired, where the service only
@@ -1123,7 +1128,8 @@ Once the fixes have settled:
   developer account and will also publish there if the store's policies allow it
   (2026-10-11). The owner accepted on 2026-10-11 (18:36 UTC) that a store item gets a
   store-assigned extension ID, so devices pair again, and that the store requires a
-  privacy policy and a Limited Use statement. Risk: the
+  privacy policy and a Limited Use statement; drafts of both are on the docs website's
+  privacy page (`apps/docs/src/privacy.md`), not reviewed by the owner yet. Risk: the
   [MV3 code rules](https://developer.chrome.com/docs/webstore/program-policies/mv3-requirements)
   forbid "building an interpreter to run complex commands fetched from a remote source,
   even if those commands are fetched as data". A reviewer may count service-held recipes
@@ -3569,13 +3575,14 @@ own interoperability/recovery evidence.
 
 Extension releases on GitHub Releases, with their continuous delivery, are planned for
 [phase 3](#phase-3-public-release), with the Chrome Web Store if its policies allow;
-public recipe sharing and hosted
-browser installation are outside the plan. A simple docs website comes in phase 3 and is
-not a phase 1 gate. The owner chose VitePress for it on
-2026-10-11, as risu729/biwa uses, so biwa's Bun and mise build, assets-only Cloudflare
-Worker and per-PR previews can be reused. The owner chose VitePress 2 even before its
-stable release (on 2026-10-11 the npm `next` tag was 2.0.0-alpha.20, as biwa uses), and
-nothing is installed before the site is built. Starlight and Docusaurus were the
+public recipe sharing and hosted browser installation are outside the plan. A simple
+docs website comes in phase 3 and is not a phase 1 gate. The owner chose VitePress for
+it on 2026-10-11, as risu729/biwa uses, so biwa's Bun and mise build, assets-only
+Cloudflare Worker and per-PR previews can be reused. The owner chose VitePress 2 even
+before its stable release (on 2026-10-11 the npm `next` tag was 2.0.0-alpha.20, as biwa
+uses), and nothing was installed before the site was built; `apps/docs` pins
+2.0.0-alpha.20, still the `next` tag on 2026-10-15. Starlight and Docusaurus were the
 alternatives. The docs/ pages are written for development, so user-facing pages
-(installation, setup, permissions) are still to be written for the site. Extension build
-and automated tests remain in CI scope. Native helpers are not required by the product.
+(installation, setup, permissions) are written for the site in `apps/docs/src`.
+Extension build and automated tests remain in CI scope. Native helpers are not required
+by the product.

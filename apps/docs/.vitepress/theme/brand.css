@@ -1,0 +1,22 @@
+/* The icon's green (#1c9a7e), darkened in light mode so that link text keeps 4.5:1 contrast. */
+:root {
+  --vp-c-brand-1: #14735e;
+  --vp-c-brand-2: #178a71;
+  --vp-c-brand-3: #1c9a7e;
+  --vp-c-brand-soft: rgba(28, 154, 126, 0.14);
+}
+
+.dark {
+  --vp-c-brand-1: #4cc9a8;
+  --vp-c-brand-2: #33b393;
+  --vp-c-brand-3: #1c9a7e;
+  --vp-c-brand-soft: rgba(28, 154, 126, 0.16);
+}
+
+/* White button text needs the darker green in both modes. */
+:root,
+.dark {
+  --vp-button-brand-bg: #14735e;
+  --vp-button-brand-hover-bg: #11654f;
+  --vp-button-brand-active-bg: #0e5442;
+}
