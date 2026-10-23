@@ -1,7 +1,7 @@
 import * as v from "valibot";
 
 import { failure, type BitwardenResult } from "./errors";
-import { generateLocalTotp, type LocalOtpValue } from "./totp";
+import { generateLocalTotp, isTotpSeed, type LocalOtpValue } from "./totp";
 
 export interface LocalFieldReference {
   readonly connectionId: string;
@@ -24,6 +24,12 @@ export interface LocalFieldMetadata {
   readonly linkedFieldId?: string;
   /** Set on the login username, password or TOTP field when the item holds no value for it. */
   readonly empty?: true;
+  /**
+   * Set on a Text or Hidden custom field whose value is shaped like a TOTP key
+   * (`isTotpSeed`): it is resolved only as a code, never as text (ADR 0027, owner
+   * 2026-10-23). A flag only; the value never leaves.
+   */
+  readonly totpSeed?: true;
 }
 
 export type LocalFieldValue =
@@ -34,6 +40,11 @@ export type LocalFieldValue =
 export interface LocalFieldGrant {
   readonly allowedFieldIds: readonly string[];
   readonly nowMs?: () => number;
+  /**
+   * Resolve the field as a TOTP code: the login TOTP, or a Text or Hidden custom field
+   * whose value `isTotpSeed` accepts. The raw value is never returned.
+   */
+  readonly code?: true;
 }
 
 export interface LocalFieldSnapshot {
@@ -184,7 +195,7 @@ export function createLocalFieldSnapshot(input: unknown): BitwardenResult<LocalF
       fieldId: string,
       label: string,
       kind: LocalFieldMetadata["kind"],
-      custom?: { name: string | null; linkedFieldId: string | undefined },
+      custom?: { name: string | null; linkedFieldId: string | undefined; totpSeed?: boolean },
       empty = false,
     ) => {
       metadata.push(
@@ -195,6 +206,7 @@ export function createLocalFieldSnapshot(input: unknown): BitwardenResult<LocalF
           kind,
           ...(custom?.linkedFieldId ? { linkedFieldId: custom.linkedFieldId } : {}),
           ...(empty ? { empty: true as const } : {}),
+          ...(custom?.totpSeed ? { totpSeed: true as const } : {}),
         }),
       );
     };
@@ -223,6 +235,7 @@ export function createLocalFieldSnapshot(input: unknown): BitwardenResult<LocalF
         // Built-ins are listed first; a link to a field this item lacks names no source.
         linkedFieldId:
           source && metadata.some((entry) => entry.ref.fieldId === source) ? source : undefined,
+        totpSeed: (kind === "text" || kind === "hidden") && isTotpSeed(field.value),
       });
     });
     let catalog: readonly LocalFieldMetadata[] = Object.freeze(metadata);
@@ -272,12 +285,15 @@ export function createLocalFieldSnapshot(input: unknown): BitwardenResult<LocalF
             ) {
               return failure("stale-field-reference");
             }
+            // Read once: the decision below must match what was validated.
+            const code: unknown = grant?.code;
             if (
               !grant ||
               !Array.isArray(grant.allowedFieldIds) ||
               grant.allowedFieldIds.length > 2000 ||
               grant.allowedFieldIds.some((id) => typeof id !== "string" || id.length > 120) ||
-              (grant.nowMs !== undefined && typeof grant.nowMs !== "function")
+              (grant.nowMs !== undefined && typeof grant.nowMs !== "function") ||
+              (code !== undefined && code !== true)
             )
               return failure("invalid-field-input");
             const allowed = new Set(grant.allowedFieldIds);
@@ -291,6 +307,22 @@ export function createLocalFieldSnapshot(input: unknown): BitwardenResult<LocalF
                 item.login.totp,
                 grant.nowMs ? { nowMs: grant.nowMs } : {},
               );
+              return item ? generated : failure("crypto-locked");
+            }
+            if (code === true) {
+              // Only a Text or Hidden custom field may hold a seed; its value never leaves raw.
+              if (!custom.has(fieldId)) return failure("unsupported-field");
+              const field = item.fields?.[custom.get(fieldId)!];
+              if (!field) return failure("field-missing");
+              if (field.type !== 0 && field.type !== 1) return failure("unsupported-field");
+              if (!field.value) return failure("field-missing");
+              // A value not shaped like a key, which the generator would still read, is refused.
+              if (!isTotpSeed(field.value)) return failure("invalid-totp");
+              const generated = generateLocalTotp(
+                field.value.trim(),
+                grant.nowMs ? { nowMs: grant.nowMs } : {},
+              );
+              // Sampling the clock may dispose the snapshot; withhold the code then.
               return item ? generated : failure("crypto-locked");
             }
             let value: string | null | undefined;
@@ -311,8 +343,11 @@ export function createLocalFieldSnapshot(input: unknown): BitwardenResult<LocalF
                   source === "identity.fullName" ? [source, ...fullNameDependencies] : [source];
                 if (dependencies.some((id) => !allowed.has(id))) return failure("field-denied");
                 value = sourceValue(source);
-              } else if (field.type === 0 || field.type === 1) value = field.value;
-              else return failure("unsupported-field");
+              } else if (field.type === 0 || field.type === 1) {
+                // A field shaped like a TOTP key gives only codes, never its text.
+                if (isTotpSeed(field.value)) return failure("unsupported-field");
+                value = field.value;
+              } else return failure("unsupported-field");
             } else {
               if (!builtins.has(fieldId)) return failure("unsupported-field");
               if (

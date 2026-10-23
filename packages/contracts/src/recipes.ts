@@ -68,9 +68,16 @@ export function findLoginBinding(
 /**
  * One field of a live item, in the item's own field order. `name` is the field's raw
  * vault name: a custom field without a name (or with an empty one) has `null`, never a
- * display fallback such as "Custom field 2", so it can never be bound by name.
+ * display fallback such as "Custom field 2", so it can never be bound by name. `empty` and
+ * `totpSeed` are the catalog's value-free flags, which only the `totp` slot's automatic
+ * reference reads (`totpFieldReference`).
  */
-export type LocalItemField = { id: string; name: string | null };
+export type LocalItemField = {
+  id: string;
+  name: string | null;
+  empty?: true | undefined;
+  totpSeed?: true | undefined;
+};
 type FieldRefusal = "field-missing" | "field-ambiguous" | "field-count-changed";
 export type BindingFieldResolution =
   | { ok: true; slots: { slot: string; fieldId: string }[] }
@@ -177,11 +184,51 @@ export function customFieldReference(
 const builtinSlots = new Set<string>(["username", "password", "totp"]);
 
 /**
+ * The field the `totp` slot reads when no saved entry names one (ADR 0027, owner
+ * 2026-10-23): the item's built-in TOTP field when it holds a value (not flagged
+ * `empty`); otherwise its one named custom field the catalog flags as holding a TOTP key
+ * (`totpSeed`, set only on Text and Hidden fields), by its reference; otherwise the
+ * built-in field. Several flagged fields leave the built-in field, which then holds no
+ * value.
+ */
+export function totpFieldReference(fields: readonly LocalItemField[]): VaultFieldReference {
+  const builtin = fields.find((field) => field.id === builtinFieldIds.totp);
+  if (builtin && builtin.empty !== true) return "totp";
+  const seeds = fields.filter((field) => field.totpSeed === true && customFieldId.test(field.id));
+  const reference = seeds.length === 1 ? customFieldReference(fields, seeds[0]!.id) : undefined;
+  return reference ?? "totp";
+}
+
+/**
+ * Whether binding `slot` to `field` breaks the TOTP key rule (ADR 0027, owner
+ * 2026-10-23): a slot other than `totp` on a custom field the catalog flags as holding a
+ * TOTP key (`totpSeed`), whose value is never filled as text, or the `totp` slot on a
+ * custom field without that flag, which holds no key to make a code from. A login refuses
+ * such a binding before any step (`totp-field-mismatch`), and a template that would build
+ * one is skipped.
+ */
+export function totpFieldMismatch(slot: string, field: LocalItemField | undefined): boolean {
+  if (!field) return false;
+  return slot === "totp"
+    ? customFieldId.test(field.id) && field.totpSeed !== true
+    : field.totpSeed === true;
+}
+
+/** The reference a built-in slot reads by default: `totp` by `totpFieldReference`. */
+function builtinReference(
+  slot: "username" | "password" | "totp",
+  fields: readonly LocalItemField[],
+): VaultFieldReference {
+  return slot === "totp" ? totpFieldReference(fields) : slot;
+}
+
+/**
  * The binding an automatic account choice uses before AI generation maps slots (ADR
- * 0013): each of `slots`, the slots of the route a login takes, named `username`,
- * `password` or `totp` reads the item's built-in field of that name. Slots with any other
- * name have no automatic binding, and neither has a recipe whose origin or IDs do not fit
- * the binding schema.
+ * 0013): each of `slots`, the slots of the route a login takes, named `username` or
+ * `password` reads the item's built-in field of that name, and `totp` the field
+ * `totpFieldReference` picks from `fields`, the item's full field list (the built-in field
+ * without it). Slots with any other name have no automatic binding, and neither has a
+ * recipe whose origin or IDs do not fit the binding schema.
  */
 export function defaultLoginBinding(
   slots: readonly string[],
@@ -194,6 +241,7 @@ export function defaultLoginBinding(
     /** The chosen vault connection's label. */
     accountName?: string;
   },
+  fields: readonly LocalItemField[] = [],
 ): SavedLoginBinding | undefined {
   if (!slots.every((slot) => builtinSlots.has(slot))) return undefined;
   const { accountName, ...owner } = account;
@@ -202,7 +250,10 @@ export function defaultLoginBinding(
     origin: recipe.origin,
     ...owner,
     ...loginDisplayNames(account.itemId, account.itemName, accountName),
-    slots: slots.map((slot) => ({ slot, field: slot })),
+    slots: slots.map((slot) => ({
+      slot,
+      field: builtinReference(slot as "username" | "password" | "totp", fields),
+    })),
   });
   return binding.success ? binding.output : undefined;
 }
@@ -227,8 +278,8 @@ export type LoginBindingTemplate = readonly { slot: string; field: VaultFieldRef
 
 /**
  * Builds an item's binding from templates when it has none saved (ADR 0027): each slot
- * named `username`, `password` or `totp` reads the item's built-in field of that name,
- * and every other slot takes the template's reference to a custom field by name. The
+ * named `username`, `password` or `totp` reads the item's field as `defaultLoginBinding`
+ * picks it, and every other slot takes the template's reference to a custom field by name. The
  * templates are tried in order, and the first one whose references all resolve on this
  * item wins. Without one, the answer is the first resolution refusal, or
  * `binding-not-found` when no template covers every slot. `slots` is the slot list the
@@ -267,8 +318,9 @@ export function templateLoginBinding(
 
 /**
  * The template loop of `templateLoginBinding`: each of `slots` named `username`,
- * `password` or `totp` reads the item's built-in field of that name, and every other slot
- * takes the template's reference. The first template whose references all resolve on the
+ * `password` or `totp` reads the item's field as `defaultLoginBinding` picks it, and every
+ * other slot takes the template's reference. A template whose binding `totpFieldMismatch`
+ * refuses is skipped. The first template whose references all resolve on the
  * item and that `build` accepts wins; without one, the first resolution refusal, or
  * `binding-not-found` when no template covers every slot.
  */
@@ -286,19 +338,35 @@ function fromTemplates<T>(
     const references = slots.map((slot) => ({
       slot,
       field: builtinSlots.has(slot)
-        ? (slot as "username" | "password" | "totp")
+        ? builtinReference(slot as "username" | "password" | "totp", fields)
         : template.find((entry) => entry.slot === slot)?.field,
     }));
     if (references.some((entry) => entry.field === undefined)) continue;
     const bound = references as { slot: string; field: VaultFieldReference }[];
-    const failed = bound.flatMap((entry) => {
-      const resolved = resolveField(entry.field, fields);
-      return "reason" in resolved ? [{ slot: entry.slot, reason: resolved.reason }] : [];
-    })[0];
+    const resolutions = bound.map((entry) => ({
+      slot: entry.slot,
+      resolved: resolveField(entry.field, fields),
+    }));
+    const failed = resolutions.flatMap(({ slot, resolved }) =>
+      "reason" in resolved ? [{ slot, reason: resolved.reason }] : [],
+    )[0];
     if (failed) {
       refusal ??= { ok: false, ...failed };
       continue;
     }
+    // A template that would fill a TOTP key as text, or make a code from a field holding
+    // none, is passed over for the next one.
+    if (
+      resolutions.some(
+        ({ slot, resolved }) =>
+          "fieldId" in resolved &&
+          totpFieldMismatch(
+            slot,
+            fields.find((field) => field.id === resolved.fieldId),
+          ),
+      )
+    )
+      continue;
     const value = build(bound);
     if (value !== undefined) return { ok: true, value };
   }
@@ -316,14 +384,15 @@ export function bindingGaps(
 /**
  * A saved binding with its gaps, the slots of `slots` it holds no entry for, filled as for
  * an item without a saved binding (ADR 0027, amended 2026-10-19): a gap named `username`,
- * `password` or `totp` reads the item's built-in field of that name, and the other gaps
+ * `password` or `totp` reads the item's field as `defaultLoginBinding` picks it, and the
+ * other gaps
  * take a template's references by name, the first template whose references for every
  * such gap resolve on the item winning. `templates` are those `templateLoginBinding` would
  * get: the recipe's other saved bindings of the origin, then the generated slot map. The
  * saved entries are kept as they are and in their order, and the filled ones follow in
  * `slots` order; `widened` says whether any was added. A gap named `username`, `password`
- * or `totp` whose built-in field the saved binding already names directly under another
- * slot refuses `binding-slots-mismatch`; a custom field linked to that built-in field is
+ * or `totp` whose field the saved binding already names directly under another slot
+ * refuses `binding-slots-mismatch`; a custom field linked to that built-in field is
  * not detected. A gap left unfilled refuses `binding-slots-mismatch` too, as a saved
  * binding that lacks a slot did before; a template
  * reference that does not resolve on the item refuses with its field's reason when no
@@ -342,7 +411,13 @@ export function fillLoginBinding(
   if (gaps.length === 0) return { ok: true, binding: saved, widened: false };
   // A built-in gap whose field the binding already names directly under another slot would
   // type that value twice. Only direct references are compared.
-  if (gaps.some((slot) => saved.slots.some((entry) => entry.field === slot)))
+  const named = (slot: string) => {
+    const reference = JSON.stringify(
+      builtinReference(slot as "username" | "password" | "totp", fields),
+    );
+    return saved.slots.some((entry) => JSON.stringify(entry.field) === reference);
+  };
+  if (gaps.some((slot) => builtinSlots.has(slot) && named(slot)))
     return { ok: false, reason: "binding-slots-mismatch" };
   // Built-in gaps alone need no template.
   const sources = gaps.every((slot) => builtinSlots.has(slot)) ? [[]] : templates;

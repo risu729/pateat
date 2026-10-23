@@ -195,6 +195,12 @@ function harness(
         },
       };
     }),
+    verifyMasterPassword: vi.fn<VaultCryptoHost["verifyMasterPassword"]>(
+      async (_session, password) => ({
+        ok: true as const,
+        data: { matches: password === "synthetic-master-password" },
+      }),
+    ),
     signPasskey: vi.fn<VaultCryptoHost["signPasskey"]>(async (session, input) => ({
       ok: true as const,
       data: {
@@ -768,6 +774,25 @@ describe("offline restore and fresh session scope", () => {
       }),
     ).toEqual(vaultFailure("field-denied"));
   });
+  it("passes a code grant to the host without the snapshot ID", async () => {
+    const h = harness();
+    const current = await accepted(h);
+    const listed = await h.manager.listFields(current.handle, itemId);
+    if (!listed.ok) throw new Error("Synthetic field listing failed");
+    const otp = { kind: "otp" as const, value: "654321", period: 30, validUntilMs: 60_000 };
+    h.host.resolveField.mockImplementationOnce(async () => ({ ok: true, data: otp }));
+    expect(
+      await h.manager.resolveField(current.handle, listed.data[0]!.ref, {
+        snapshotId: current.handle.snapshotId,
+        allowedFieldIds: ["login.password"],
+        code: true,
+      }),
+    ).toEqual({ ok: true, data: otp });
+    expect(h.host.resolveField.mock.calls[0]![2]).toEqual({
+      allowedFieldIds: ["login.password"],
+      code: true,
+    });
+  });
   it("withholds a completed field result after disable invalidates its handle", async () => {
     const h = harness();
     const current = await accepted(h);
@@ -983,6 +1008,39 @@ describe("durable authority across independent managers", () => {
     );
     expect(h.host.findPasskeys).toHaveBeenCalledTimes(1);
     expect(h.host.signPasskey).toHaveBeenCalledTimes(2);
+  });
+  it("checks a master password only through the current live session", async () => {
+    const h = harness();
+    const current = await accepted(h);
+    expect(
+      await h.manager.verifyMasterPassword(current.handle, "synthetic-master-password"),
+    ).toEqual({ ok: true, data: { matches: true } });
+    expect(await h.manager.verifyMasterPassword(current.handle, "synthetic-guess")).toEqual({
+      ok: true,
+      data: { matches: false },
+    });
+    expect(h.host.verifyMasterPassword.mock.calls[0]?.[0].snapshotId).toBe(
+      current.handle.snapshotId,
+    );
+    expect(await h.manager.verifyMasterPassword(current.handle, "")).toEqual(
+      vaultFailure("invalid-request"),
+    );
+    expect(h.host.verifyMasterPassword).toHaveBeenCalledTimes(2);
+    const held = gate();
+    h.host.verifyMasterPassword.mockImplementationOnce(async () => {
+      await held.promise;
+      return { ok: true, data: { matches: true } };
+    });
+    const pending = h.manager.verifyMasterPassword(current.handle, "synthetic-master-password");
+    await vi.waitFor(() => expect(h.host.verifyMasterPassword).toHaveBeenCalledTimes(3));
+    await h.manager.disableAutoUnlock();
+    held.release();
+    // A check that finished after the session ended does not count as verified.
+    expect(await pending).toEqual(vaultFailure("stale-vault-handle"));
+    expect(
+      await h.manager.verifyMasterPassword(current.handle, "synthetic-master-password"),
+    ).toEqual(vaultFailure("stale-vault-handle"));
+    expect(h.host.verifyMasterPassword).toHaveBeenCalledTimes(3);
   });
   it("withholds a field completed after an external writer replaces the accepted revision", async () => {
     const h = harness();

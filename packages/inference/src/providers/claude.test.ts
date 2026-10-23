@@ -128,6 +128,33 @@ describe("Claude generation adapter", () => {
     }
   });
 
+  it("runs beforeRequest just before a request is sent, never for one refused locally", async () => {
+    const { sent, fetch } = fakeClaude({ text: groundTruth() });
+    const order: string[] = [];
+    const model = createClaudeGenerationModel({
+      apiKey: syntheticKey,
+      fetch: (async (input, init) => {
+        order.push("sent");
+        return fetch(input, init);
+      }) as typeof globalThis.fetch,
+      beforeRequest: async () => {
+        order.push("before");
+      },
+    });
+    const request = { observation: page.observation, slots: page.slots };
+    const small = createRecipeGenerator({
+      model,
+      limits: { ...limits, maxInputBytes: 1_024 },
+      maxOutputTokens: 4_096,
+    });
+    expect(await small(request)).toMatchObject({ status: "failed", error: "input-too-large" });
+    expect(order).toEqual([]);
+    const generate = createRecipeGenerator({ model, limits, maxOutputTokens: 4_096 });
+    expect((await generate(request)).status).toBe("ok");
+    expect(order).toEqual(["before", "sent"]);
+    expect(sent).toHaveLength(1);
+  });
+
   it("tells the model whose credentials these are and that values stay local", async () => {
     const { sent, fetch } = fakeClaude({ text: groundTruth() });
     const generate = createRecipeGenerator({

@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from "vitest";
 import * as sdk from "@bitwarden/sdk-internal/node/bitwarden_wasm_internal.js";
-import { generateLocalTotp } from "./totp";
+import { generateLocalTotp, isTotpSeed } from "./totp";
 import {
   bitwardenTotpSecret,
   bitwardenTotpTime,
@@ -385,5 +385,83 @@ describe("local TOTP agrees with the published Bitwarden SDK", () => {
       const { code, period } = totp.generate_totp(seed, now);
       expect(generateLocalTotp(seed, clock(now))).toEqual(ok(code, now, period));
     }
+  });
+});
+
+describe("TOTP key shape of a custom field value", () => {
+  it.each([
+    rfcTotpSecrets.SHA1,
+    rfcTotpSecrets.SHA1.toLowerCase(),
+    bitwardenTotpSecret,
+    `${bitwardenTotpSecret}======`,
+    "JBSW Y3DP EHPK 3PXP",
+    "jbsw y3dp ehpk 3pxp gezd g",
+    `  ${rfcTotpSecrets.SHA1}\n`,
+    `otpauth://totp/Synthetic:user?secret=${rfcTotpSecrets.SHA1}&issuer=Synthetic`,
+    `OTPAUTH://TOTP/Synthetic?secret=${rfcTotpSecrets.SHA1.toLowerCase()}&digits=8`,
+    `otpauth://hotp/Synthetic?secret=${rfcTotpSecrets.SHA1}&counter=1`,
+    "otpauth://totp/Synthetic?secret=AB",
+    "otpauth://totp/Synthetic?secret=JBSW%20Y3DP%3D",
+    `steam://${steamTotpSecret}`,
+    `STEAM://${steamTotpSecret.toLowerCase()}`,
+  ])("takes key case %# as a TOTP key", (value) => {
+    expect(isTotpSeed(value)).toBe(true);
+    // Every accepted key also gives a code.
+    expect(generateLocalTotp(value.trim(), clock(59_000)).ok).toBe(true);
+  });
+
+  it.each([
+    undefined,
+    null,
+    42,
+    "",
+    "   ",
+    // Short codes, PINs and digits alone.
+    "007",
+    "123456",
+    "2345 6723 4567 2345",
+    "JBSWY3DPEHPK3PX",
+    // Words, sentences and passphrases.
+    "Synthetic-password",
+    "correct horse battery staple",
+    "my first pet was named fluffy",
+    "InternationalizationX",
+    "ABCD EFGH IJKL MN OP",
+    "abcd  efgh ijkl mnop",
+    "JBSW\tY3DP EHPK 3PXP",
+    // Base32 letters alone, as dictionary words and passphrases are, need a digit 2-7.
+    "correcthorsebatterystaple",
+    "nottinghamforest",
+    "this goes very fast",
+    // Characters outside Base32, or padding too long or not at the end.
+    `${bitwardenTotpSecret}1`,
+    `${bitwardenTotpSecret}8`,
+    `${bitwardenTotpSecret}=======`,
+    `JBSWY3DP=EHPK3PXP`,
+    "not a base32 seed!",
+    // URIs that are no TOTP key.
+    "otpauth://totp/Synthetic",
+    "otpauth://totp/Synthetic?secret=",
+    "otpauth://totp/Synthetic?secret=not-base32!",
+    `otpauth://totp/Synthetic?secret=${rfcTotpSecrets.SHA1}&secret=1`,
+    `otpauth://other/Synthetic?secret=${rfcTotpSecrets.SHA1}`,
+    `https://example.com/?secret=${rfcTotpSecrets.SHA1}`,
+    "steam://",
+    "steam://not base32",
+    "steam://JBSWY3DPEHPK3PX",
+    `x${"A".repeat(8192)}`,
+  ])("does not take value case %# as a TOTP key", (value) => {
+    expect(isTotpSeed(value)).toBe(false);
+  });
+
+  it("leaves out a random key without a digit, which still makes codes elsewhere", () => {
+    // About 0.13% of random 32-character keys have no digit 2-7; such a key is not flagged
+    // (ADR 0027, amendment of 2026-10-23), but the generator still reads it, and it works
+    // from the built-in TOTP field or as an otpauth URI.
+    const digitFree = "QWERTYUIOPASDFGHJKLZXCVBNMQWERTY";
+    expect(digitFree).toHaveLength(32);
+    expect(isTotpSeed(digitFree)).toBe(false);
+    expect(isTotpSeed(`otpauth://totp/Synthetic?secret=${digitFree}`)).toBe(true);
+    expect(generateLocalTotp(digitFree, clock(59_000)).ok).toBe(true);
   });
 });

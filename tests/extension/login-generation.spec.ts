@@ -41,6 +41,15 @@ async function shortenStepWait(options: Page) {
   ).toMatchObject({ ok: true });
 }
 
+/**
+ * How long a test waits for a login without a learned completion to settle on the judged
+ * signed-in page: the submission's 3-second observation budget runs out, the page is
+ * judged, and the sign-in is read again a second later (ADR 0029), about 5 seconds after
+ * the page shows, which Playwright's default 5-second poll only just missed or met. The
+ * wait ends as soon as the login does.
+ */
+const SETTLE_MS = 15_000;
+
 type Candidate = { id: string; role: string; target: { by: string; value: string } };
 type Prompt = {
   task: string;
@@ -253,7 +262,9 @@ for (const [button, marker] of [
           });
           // The attempt settles on the judgement of the page after the submission.
           await expect
-            .poll(() => send(options, { version: 1, type: "login.probe.status" }))
+            .poll(() => send(options, { version: 1, type: "login.probe.status" }), {
+              timeout: SETTLE_MS,
+            })
             .toMatchObject({
               attempts: [{ state: "authenticated", outcome: "authenticated", submissions: 1 }],
             });
@@ -345,11 +356,9 @@ for (const { name, prefix, tenants } of [
           await page.goto(`${site}${paths[0]}?runId=${runId}`);
           await expect(page.locator("#signed-in")).toBeVisible();
           expect(fixture.evidence(runId)).toMatchObject({ posts: 1, allMatched: true });
-          // Reconciliation waits three seconds and compares readings a second apart.
-          // Allow its bounded loading/judging work to finish on a busy cloud worker.
           await expect
             .poll(() => send(options, { version: 1, type: "login.probe.status" }), {
-              timeout: 15_000,
+              timeout: SETTLE_MS,
             })
             .toMatchObject({ attempts: [{ state: "authenticated", outcome: "authenticated" }] });
           // The tenant's ID never leaves the device: the page goes with `[id]` in its place.
@@ -453,7 +462,9 @@ for (const { name, start, query, passwordPath } of [
           // The account and the password both matched, after one Next and one Log in.
           await expect(page.locator("#signed-in")).toBeVisible({ timeout: 60_000 });
           await expect
-            .poll(() => send(options, { version: 1, type: "login.probe.status" }))
+            .poll(() => send(options, { version: 1, type: "login.probe.status" }), {
+              timeout: SETTLE_MS,
+            })
             .toMatchObject({
               attempts: [{ state: "authenticated", outcome: "authenticated", submissions: 2 }],
             });
@@ -552,7 +563,9 @@ test("a generated identifier page learns the password choice, presses it and con
           passwordMatched: "true",
         });
         await expect
-          .poll(() => send(options, { version: 1, type: "login.probe.status" }))
+          .poll(() => send(options, { version: 1, type: "login.probe.status" }), {
+            timeout: SETTLE_MS,
+          })
           .toMatchObject({
             attempts: [
               {
@@ -658,7 +671,9 @@ test("a login whose saved binding names only the username takes over the continu
           passwordMatched: "true",
         });
         await expect
-          .poll(() => send(options, { version: 1, type: "login.probe.status" }))
+          .poll(() => send(options, { version: 1, type: "login.probe.status" }), {
+            timeout: SETTLE_MS,
+          })
           .toMatchObject({
             attempts: [
               {
@@ -879,7 +894,9 @@ for (const { name, loginPage } of [
             );
           // The press is no login attempt: only the login page's attempt is recorded.
           await expect
-            .poll(() => send(options, { version: 1, type: "login.probe.status" }))
+            .poll(() => send(options, { version: 1, type: "login.probe.status" }), {
+              timeout: SETTLE_MS,
+            })
             .toMatchObject({ attempts: [{ state: "authenticated", account: { origin: site } }] });
           expect(claude.prompts.map((prompt) => [prompt.task, prompt.observation.path])).toEqual([
             ["entry", "/en/"],
