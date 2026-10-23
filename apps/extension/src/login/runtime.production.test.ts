@@ -8925,6 +8925,8 @@ describe("production login document admission", () => {
           expect(readiness).not.toHaveProperty("entry");
           expect(await entryHello(h)).toMatchObject({ ok: false, reason: "recipe-not-found" });
           expect(service.generateEntry).not.toHaveBeenCalled();
+          // A refused page reads nothing of the vault, not even a username to hide.
+          expect(h.fields).not.toHaveBeenCalled();
           expect(reports("generation")).toEqual([
             {
               type: "generation",
@@ -8954,6 +8956,7 @@ describe("production login document admission", () => {
           expect(await h.hello({}, false)).toMatchObject({ entry: true });
           expect(await entryHello(h)).toMatchObject({ ok: false, reason: "recipe-not-found" });
           expect(service.generateEntry).not.toHaveBeenCalled();
+          expect(h.fields).not.toHaveBeenCalled();
           expect(reports("generation")).toEqual([
             expect.objectContaining({ outcome: "skipped", reason, page: "entry" }),
           ]);
@@ -8967,6 +8970,7 @@ describe("production login document admission", () => {
           expect(await h.hello({}, false)).toMatchObject({ entry: true });
           await entryHello(h);
           expect(service.generateEntry).not.toHaveBeenCalled();
+          expect(h.fields).not.toHaveBeenCalled();
           expect(reports("generation")).toEqual([
             expect.objectContaining({ outcome: "skipped", reason: "logged-out" }),
           ]);
@@ -8983,6 +8987,7 @@ describe("production login document admission", () => {
           });
           await entryHello(h, { documentId: "after-sign-in" });
           expect(service.generateEntry).not.toHaveBeenCalled();
+          expect(h.fields).not.toHaveBeenCalled();
           expect(reports("generation")).toEqual([
             expect.objectContaining({ outcome: "skipped", reason: "after-sign-in" }),
           ]);

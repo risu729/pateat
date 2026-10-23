@@ -440,10 +440,12 @@ signed-out page may still greet a remembered account by name. The owner chose
 when the entry was offered (the match `no-vault-match` checks), reads their usernames
 one at a time once the page is described, and hides them by generation's rule: each
 place in the title, headings and controls' texts becomes `[account]`, a link or button
-whose locator holds one is left out, and a page whose path holds one, or with no control
-left, is not sent. A username that cannot be read is logged as `username-unread`, one
-that cannot be hidden as `username-shown`, and a page whose every link was left out as
-`no-entry-link`, each with `page: entry`. The usernames are never sent, logged or kept.
+whose locator holds one is left out, and a page whose path holds one is not sent. As on
+every page, a username the owner excluded, or one shorter than three characters, is not
+read and so not hidden. A username that cannot be read is logged as `username-unread`,
+one that cannot be hidden as `username-shown`, and a page whose every link was left out
+as `no-entry-link`, each with `page: entry`. The usernames are never sent, logged or
+kept.
 
 Item and field names (slots) are still not sent with an entry page, a recorded
 difference: they do not help find the sign-in button, and an entry recipe fills nothing.
