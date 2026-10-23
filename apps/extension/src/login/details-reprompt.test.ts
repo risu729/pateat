@@ -13,6 +13,7 @@ const policy = (asks: boolean): LocalSettings => ({
   connections: [],
   excludedSites: [],
   repromptSites: asks ? [{ hostname: "bank.example", includeSubdomains: true }] : [],
+  passkeyBrowserSites: [],
   siteDefaults: [],
   bindings: [],
 });
