@@ -157,20 +157,20 @@ under this cap can therefore recover; see
 [ADR 0013](../../docs/adr/0013-service-held-recipes-and-settings.md#amendment-durable-recovery-under-cache-pressure-2026-10-14).
 The feed contains current heads, rather than every historical revision: a write moves
 its recipe's head to a new increasing sequence. The same batch deletes revisions older
-than the newest 10, and every earlier revision when the write revokes the recipe.
-Every winning write sets the head's `last_used_at`, except a service write that only
-removes layouts, and so do each accepted `/logins` record and `/use` report while the
-head is active. Each layout's own last use is kept in `recipe_layout_uses` (ADR 0060):
-the `/logins` record and `/use` report of a login on it, and the service's continuation,
-handler and marker writes into it; a write that drops a layout deletes its row. `GET /v1/recipes` and
-`GET /manage/api/recipes` first revoke up to 50 of the owner's active recipes whose
-`last_used_at` is more than 90 days old, oldest first and never an entry recipe, as
-tombstones with no writing device; a write that marks one used before its revocation
-lands keeps it ([ADR 0058](../../docs/adr/0058-automatic-recipe-removal.md)). The same
-check then removes, from up to 50 recipes, each layout whose newer of creation and last
-use is more than 90 days old while another layout of the recipe is newer, as the next
-revision without it. A failed
-check is logged and the request goes on.
+than the newest 10, and every earlier revision when the write revokes the recipe. Every
+winning write sets the head's `last_used_at`, except a service write that only removes
+layouts, and so do each accepted `/logins` record and `/use` report while the head is
+active. Each layout's own last use is kept in `recipe_layout_uses` (ADR 0060): the
+`/logins` record and `/use` report of a login on it, and the service's continuation,
+handler and marker writes into it; a write that drops a layout deletes its row.
+`GET /v1/recipes` and `GET /manage/api/recipes` first revoke up to 50 of the owner's
+active recipes whose `last_used_at` is more than 90 days old, oldest first and never an
+entry recipe, as tombstones with no writing device; a write that marks one used before
+its revocation lands keeps it
+([ADR 0058](../../docs/adr/0058-automatic-recipe-removal.md)). The same check then
+removes, from up to 50 recipes, each layout whose newer of creation and last use is more
+than 90 days old while another layout of the recipe is newer, as the next revision
+without it. A failed check is logged and the request goes on.
 
 ## Claude credentials
 
@@ -224,31 +224,30 @@ a code, or `unavailable` with a reason when no model was called. A generation th
 the path ending before it), or `{ check: "plan", reason }` with the plan check's code
 (such as `incompatible-role`).
 
-- `POST /v1/recipes/generate` takes `{ version: 1, observation, slots, base?, branch? }`.
-  Each origin and start path has one generated recipe, `gen-` and the first 32 hex
-  digits of the SHA-256 of the JSON `[origin, path]`; a page without `base` is the start
-  of its own. The recipe holds up to three layouts
-  ([ADR 0060](../../docs/adr/0060-recipe-layouts.md), proposed); a first page writes
-  one, keyed by its creation time and marked with the page's language. `base` and
-  `branch` go together: `branch` names the layout continued (`<key>`, or
+- `POST /v1/recipes/generate` takes
+  `{ version: 1, observation, slots, base?, branch? }`. Each origin and start path has
+  one generated recipe, `gen-` and the first 32 hex digits of the SHA-256 of the JSON
+  `[origin, path]`; a page without `base` is the start of its own. The recipe holds up
+  to three layouts ([ADR 0060](../../docs/adr/0060-recipe-layouts.md), proposed); a
+  first page writes one, keyed by its creation time and marked with the page's language.
+  `base` and `branch` go together: `branch` names the layout continued (`<key>`, or
   `<key>:account` / `<key>:other` for a chooser's branch), and a branch the stored
   recipe does not have answers `recipe-conflict`. Without `base`, an active recipe is
   returned as is; with `base`, the page's steps are appended after that layout's last
-  `advance` step. A stale `base` gets the current
-  recipe back, a `base` whose recipe is revoked answers `recipe-revoked` while the
-  revoked recipe's start page is generated again as the revision after its tombstone, a
-  `base` whose recipe was not generated for this origin and its start path answers
-  `recipe-conflict`. A first page needs room under the active recipe count limit; every
-  generated page, including continuations and entry pages, needs at least 32 KiB of byte
-  room before the model call. A refused write after the call also answers
-  `recipe-limit`. A judge write refused for bytes keeps the page's answer (`challenge`,
-  or `signed-in` once the recipe has a marker or the page is on another origin of the
-  site) and is logged; only a first marker on the recipe's own origin refused for bytes
-  answers `recipe-limit`. A `base` that is not a generated recipe ID is 400. The model
-  maps the slots, the plan is checked with `validateGeneratedPage`, and the steps are
-  stored with a conditional write. Up to 20 slots are accepted; a slot with a
-  `fieldName` (and `fieldPosition` for a duplicate name) is a custom-field offer, and
-  each offer names a different field
+  `advance` step. A stale `base` gets the current recipe back, a `base` whose recipe is
+  revoked answers `recipe-revoked` while the revoked recipe's start page is generated
+  again as the revision after its tombstone, a `base` whose recipe was not generated for
+  this origin and its start path answers `recipe-conflict`. A first page needs room
+  under the active recipe count limit; every generated page, including continuations and
+  entry pages, needs at least 32 KiB of byte room before the model call. A refused write
+  after the call also answers `recipe-limit`. A judge write refused for bytes keeps the
+  page's answer (`challenge`, or `signed-in` once the recipe has a marker or the page is
+  on another origin of the site) and is logged; only a first marker on the recipe's own
+  origin refused for bytes answers `recipe-limit`. A `base` that is not a generated
+  recipe ID is 400. The model maps the slots, the plan is checked with
+  `validateGeneratedPage`, and the steps are stored with a conditional write. Up to 20
+  slots are accepted; a slot with a `fieldName` (and `fieldPosition` for a duplicate
+  name) is a custom-field offer, and each offer names a different field
   ([ADR 0027](../../docs/adr/0027-per-account-login-routes.md)). Each offer the plan
   uses is named from the page's text for its element, such as `店番号`
   (`customSlotNames` in `packages/inference`), and the steps store that name instead of
@@ -542,15 +541,15 @@ time. Its rows follow the request log's one-year retention and its delete-all. T
 batch marks the recipe used (`last_used_at`) while its head is active, whichever
 revision the record names, and the record's layout when the head's document has it.
 
-`POST /v1/recipes/:recipeId/use` takes `{ version: 1, revision, layout }`: a login started on
-that revision, whatever happened after
+`POST /v1/recipes/:recipeId/use` takes `{ version: 1, revision, layout }`: a login
+started on that revision, whatever happened after
 ([ADR 0058](../../docs/adr/0058-automatic-recipe-removal.md)), including the fill-only
 logins and the logins that stop before an item's missing password, which send no
 `/logins` record. Any other field answers 400, a body over 256 bytes 413. It sets the
 head's `last_used_at` to the service's time when the head is active and the revision is
 at most its head, and answers 204, and marks the layout used when the head's document
-has it; a recipe the owner does not hold, a revision above
-its head or a revoked recipe answers 404. Nothing else is stored.
+has it; a recipe the owner does not hold, a revision above its head or a revoked recipe
+answers 404. Nothing else is stored.
 
 ## Schema and tests
 

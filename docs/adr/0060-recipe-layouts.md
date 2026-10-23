@@ -57,19 +57,19 @@ accounts in another language fails the same way.
 
 - The device runs a projection: one layout as an ordinary recipe of the former shape
   with `layout` set to its key, so the executor and the step code read one route as
-  before. The projection holds only that layout's signed-in markers, so a layout
-  without markers still learns its continuation pages (`continuable`) and the four-marker
-  limit holds. The checks that ask whether the tab is already signed in (the sign-in
-  state of [ADR 0029](0029-local-sign-in-state.md) and the later-step marker check of
+  before. The projection holds only that layout's signed-in markers, so a layout without
+  markers still learns its continuation pages (`continuable`) and the four-marker limit
+  holds. The checks that ask whether the tab is already signed in (the sign-in state of
+  [ADR 0029](0029-local-sign-in-state.md) and the later-step marker check of
   [ADR 0049](0049-start-at-a-later-step.md)) read every layout's markers.
 - The content script watches every layout's first step, as it watched every recipe of
   the origin, and reports the page's language with a ready start.
 - A new login on a start page chooses the layout in this order: the layouts that show
   the most of the start path's elements their first step and passkey button name; among
-  them the first whose plan passes for the account (route, slots and binding); preferring
-  a layout of the page's language; then the newest. When no plan passes, the first
-  refusal stands as before. The last-used layout is never a criterion, so a newer layout
-  made after a redesign is not passed over for an old one.
+  them the first whose plan passes for the account (route, slots and binding);
+  preferring a layout of the page's language; then the newest. When no plan passes, the
+  first refusal stands as before. The last-used layout is never a criterion, so a newer
+  layout made after a redesign is not passed over for an old one.
 - The attempt records the layout's key, and a resumed login loads the same layout.
   A newer revision whose projection of that layout is unchanged, or only adds handlers
   or markers, is taken over as before, so adding or removing another layout does not
@@ -169,9 +169,9 @@ rewrite of ADR 0041. The repair work builds on this ADR.
   the login runtime (`apps/extension/src/login/runtime.ts`), the page's language
   (`observation/extract.ts`, `login/content.ts`), and the service senders that now name
   the layout.
-- Service: `services/api/src/recipes/generate.ts`, `recipe-store.ts`
-  (`markLayoutUsed`, `removeUnusedLayouts`), `routes/recipes.ts`, `routes/manage-api.ts`,
-  `db/schema.ts`, migration `0022_recipe_layouts.sql`, and the management page
+- Service: `services/api/src/recipes/generate.ts`, `recipe-store.ts` (`markLayoutUsed`,
+  `removeUnusedLayouts`), `routes/recipes.ts`, `routes/manage-api.ts`, `db/schema.ts`,
+  migration `0022_recipe_layouts.sql`, and the management page
   (`services/api/web/recipes.tsx`).
 
 ## Alternatives

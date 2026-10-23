@@ -1838,13 +1838,13 @@ Only three value-free records of a login leave it: this result code, the
 [login record](#login-records-on-the-service) of each ended login with its times
 ([ADR 0055](adr/0055-login-records-sent-to-the-service.md)), and the
 [recipe use](#recipe-use-on-the-service) of each started login
-([ADR 0058](adr/0058-automatic-recipe-removal.md)). When a login on a service
-recipe revision first ends on this device, signed in or blocked, or settles as unknown
-without being watched, the worker (`apps/extension/src/service/outcomes.ts`) sends
+([ADR 0058](adr/0058-automatic-recipe-removal.md)). When a login on a service recipe
+revision first ends on this device, signed in or blocked, or settles as unknown without
+being watched, the worker (`apps/extension/src/service/outcomes.ts`) sends
 `POST /v1/recipes/:recipeId/outcome` with the revision, the layout and chooser branch
-([ADR 0060](adr/0060-recipe-layouts.md)), the `login.attempt` outcome, its cause when it is one of a fixed list (the worker's
-stop causes and the page's step reasons; `settled` or `unconfirmed` only when there is
-no listed cause) and the step index. A watched login
+([ADR 0060](adr/0060-recipe-layouts.md)), the `login.attempt` outcome, its cause when it
+is one of a fixed list (the worker's stop causes and the page's step reasons; `settled`
+or `unconfirmed` only when there is no listed cause) and the step index. A watched login
 ([ADR 0027](adr/0027-per-account-login-routes.md)) reports when its watch ends, signed
 in or blocked with the outcome the watch left, not where it first stopped. No URL,
 origin, reason text, label, value or username is sent, and the service adds the time. A
@@ -1892,14 +1892,14 @@ Status: Claude's choice for
 confirmed by the owner; implemented and tested locally, not deployed. When a login
 starts on a service recipe revision (its `login.start` report), the worker
 (`apps/extension/src/service/recipe-use.ts`) sends `POST /v1/recipes/:recipeId/use` with
-the revision and the layout the login runs only, so the service does not revoke the recipe as unused, whatever the
-login does after. This covers the logins that send no login record: fill-only logins,
-those of an item without a password, and `policy-changed`, `account-switched` or
-cause-less `cancelled` ends. A revision sent to the same service within the last hour
-(`RECIPE_USE_REPEAT_MS`) is not sent again unless that send failed; the worker keeps
-this in memory only, for at most 100 revisions. A failed send is not retried or stored,
-sending never waits on, throws into or changes the login, and each send logs a
-value-free `service.use` line.
+the revision and the layout the login runs only, so the service does not revoke the
+recipe as unused, whatever the login does after. This covers the logins that send no
+login record: fill-only logins, those of an item without a password, and
+`policy-changed`, `account-switched` or cause-less `cancelled` ends. A revision sent to
+the same service within the last hour (`RECIPE_USE_REPEAT_MS`) is not sent again unless
+that send failed; the worker keeps this in memory only, for at most 100 revisions. A
+failed send is not retried or stored, sending never waits on, throws into or changes the
+login, and each send logs a value-free `service.use` line.
 
 ## Declarative recipes and AI
 
@@ -1984,30 +1984,31 @@ A third kind is a chooser recipe
 besides its identity, revision and origin is `chooser`: the path where a list of
 accounts shows and its [layouts](#recipe-layouts), each with the optional `other` and
 `continue` buttons and the optional `afterAccount` and `afterOther` branches, each a
-login recipe under the chooser's own ID, revision and origin. The entry to click is never stored. Like an entry recipe, it is
-validated, stored, synced, listed and revoked, and the extension never starts it yet.
-The service writes one when the model answers that a page with `accounts` is an account
-list, naming the list's `other` and `continue` controls by reference; the controls must
-be buttons or links of the page whose text holds no `[email]`, `[masked]`, `[number]`,
-`@` or run of four digits. The page's description also says how many of its listed
-accounts are entries the extension clicks itself (`accountEntries`); when none is, an
-answer naming neither control is refused (`no-list-control`), since nothing could lead
-on from the list. A request with `branch` (`<layout>:account` or `<layout>:other`) and
-the chooser as `base` generates that branch's next page: its first page when the branch is absent, with
-no alternatives and no passkey route as for any later page, or an append after the
-branch's final `advance`. The page judgement takes the same `branch` and learns a
-signed-in marker or handler into that branch, with the list's path among the login
-paths, and a list shown again is never judged. Each answer is the whole chooser at its
-next revision; a branch's page that loses its write to the other branch is written once
-more onto the newer chooser. Generation attempts and judged pages are keyed by branch
-too. A form page, or a route recipe's next page, whose stored recipe is a chooser still
-answers `recipe-conflict`. The extension sends a page that lists accounts once its DOM
-has been quiet for a second, or 5 seconds after it starts waiting (ADR 0057), unless it
-follows a submitted password form, with a username that is not an email and the other
-texts beside its buttons shown as `[account]`, and caches the chooser it gets. A login
-on the list clicks the account's entry, the `continue` button or `other`, as the content
-script finds them for the account's username, then runs that branch and sends its pages
-with the branch; with nothing to click it ends `account-not-listed`
+login recipe under the chooser's own ID, revision and origin. The entry to click is
+never stored. Like an entry recipe, it is validated, stored, synced, listed and revoked,
+and the extension never starts it yet. The service writes one when the model answers
+that a page with `accounts` is an account list, naming the list's `other` and `continue`
+controls by reference; the controls must be buttons or links of the page whose text
+holds no `[email]`, `[masked]`, `[number]`, `@` or run of four digits. The page's
+description also says how many of its listed accounts are entries the extension clicks
+itself (`accountEntries`); when none is, an answer naming neither control is refused
+(`no-list-control`), since nothing could lead on from the list. A request with `branch`
+(`<layout>:account` or `<layout>:other`) and the chooser as `base` generates that
+branch's next page: its first page when the branch is absent, with no alternatives and
+no passkey route as for any later page, or an append after the branch's final `advance`.
+The page judgement takes the same `branch` and learns a signed-in marker or handler into
+that branch, with the list's path among the login paths, and a list shown again is never
+judged. Each answer is the whole chooser at its next revision; a branch's page that
+loses its write to the other branch is written once more onto the newer chooser.
+Generation attempts and judged pages are keyed by branch too. A form page, or a route
+recipe's next page, whose stored recipe is a chooser still answers `recipe-conflict`.
+The extension sends a page that lists accounts once its DOM has been quiet for a second,
+or 5 seconds after it starts waiting (ADR 0057), unless it follows a submitted password
+form, with a username that is not an email and the other texts beside its buttons shown
+as `[account]`, and caches the chooser it gets. A login on the list clicks the account's
+entry, the `continue` button or `other`, as the content script finds them for the
+account's username, then runs that branch and sends its pages with the branch; with
+nothing to click it ends `account-not-listed`
 ([ADR 0028](adr/0028-account-chooser-login-pages.md#execution)). When the list's path
 shows the stored `other` branch's first step instead of the list, as after the person
 pressed the button for another account, the login runs that branch without a click
@@ -2022,9 +2023,9 @@ shape and the discarding of earlier recipes are assumed, pending the owner's ans
 Implemented and tested locally on a branch, not deployed and not tried on real sites.
 Repair, which would add a layout when none shows, is not implemented.
 
-A stored login recipe holds one to three layouts under `layouts`, each the steps, routes,
-handlers and markers of one version of its sign-in pages, with a fixed `key` (its
-creation time in milliseconds), `createdAt` and, unless the page was `mixed`, the
+A stored login recipe holds one to three layouts under `layouts`, each the steps,
+routes, handlers and markers of one version of its sign-in pages, with a fixed `key`
+(its creation time in milliseconds), `createdAt` and, unless the page was `mixed`, the
 `language` it was generated from. A chooser holds its layouts under `chooser.layouts`.
 Every layout shares the recipe's ID, origin, start path and the owner's bindings.
 Requests and the service's records name a layout in `branch`: `<key>`, or

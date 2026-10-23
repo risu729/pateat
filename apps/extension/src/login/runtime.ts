@@ -7087,9 +7087,7 @@ export function createLoginRuntime(
       () => undefined,
     );
     const all = [recipe, ...(layouts ?? []).filter((other) => other.layout !== recipe.layout)];
-    /* eslint-disable no-await-in-loop */
     for (const layout of all) if (await showsMarker(live, layout)) return true;
-    /* eslint-enable no-await-in-loop */
     return false;
   }
   /**
