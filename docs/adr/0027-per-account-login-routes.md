@@ -1345,3 +1345,57 @@ make codes only from the login TOTP
 against a real Bitwarden vault or a real site: the change is covered by synthetic tests
 only, and a login in the owner's Chrome with an item that keeps its key in a custom
 field is still to be done.
+
+## Amendment 2026-10-23: code pages without a button
+
+**Problem** ([#916](https://github.com/risu729/pateat/issues/916), follow-up to
+[#850](https://github.com/risu729/pateat/issues/850)). On a Slack Enterprise workspace,
+the page after the password shows "Enter your authentication code" in six one-digit
+inputs. With build `658f10b`, which locates those inputs
+([#862](https://github.com/risu729/pateat/pull/862)), the page was judged at 10:44 UTC
+on 2026-10-23 and the judge answered `unclear`, so no `totp` handler was learned and the
+login ended as a challenge. The request log's metadata shows the verdict; the page
+description itself was not read for this amendment. The judge had to name the button
+that submits the code, and the page appears to show none: Slack's code inputs submit the
+code once its last digit is in. This is a general page shape, not a Slack feature
+([ADR 0033](0033-no-site-specific-features.md)).
+
+**Decision** (agent, 2026-10-23, built ahead of the owner's review as the owner allowed
+on 2026-10-23 05:28 UTC):
+
+- The judge's `code.submit` is optional. The judge leaves it out only when no button on
+  the page submits the code, as on a page that submits it once its last digit is in.
+  This changes the judge's prompt version, so such pages are judged again.
+- A `totp` handler's `target` is optional: `{ kind: "totp", path, field }` has no
+  button. The judge and the service keep such a handler only when the field passes the
+  same code rule as before (a code input of at least 6 characters alone in its form, or
+  the first input of a split code) and the field's form shows no button (the judge logs
+  `submit-unnamed`, the service answers `not-code-field`). A field outside any form may
+  have buttons elsewhere on the page, as a page's header or footer does. The service
+  checks the field against the recipe as before.
+- Its one step is a fill of the `totp` slot into the field with `effect: "submit"` and
+  `event: "input"`: the code is typed as a person types it, one digit per input for a
+  split code, and its last character is the submission. Nothing is clicked and no Enter
+  is pressed. The step counts as one submission. The extension enters the handler when
+  its field shows writable.
+- Once the last character went in, the page has the code: a page that then disables,
+  clears or removes the input, replaces it or leaves the path is taken as submitting
+  it, never as a failed fill. A page that kept a character out of an input it still
+  shows as it was never had the whole code: the login ends `fill-rejected`
+  (`VALUE_REJECTED` with the stage `code-refused`), as a refused code before a click
+  does. Otherwise the page is settled as after a handler's click: while the code field
+  still shows in that document, it is neither judged nor settled for up to two minutes,
+  then the login ends `challenge`. A new document of the tab is settled as usual. The
+  code is never typed again.
+
+**Consequences.** A code page that shows no button and waits for Enter, or for a
+button that appears only later, gets the code typed and then waits for the person, who
+presses Enter or the button; the login ends `challenge` after two minutes if the page
+still shows the code field. A judge that misses a real button outside the field's form,
+as on a page whose code input and Verify button are in no form, gives the same result;
+no local check catches that case, since such pages often show other buttons too. A
+route step after a buttonless handler never runs: an effectful fill ends the recipe's
+steps, as it does on a route. The Slack fix still depends on the item's TOTP seed
+being one the local TOTP reader accepts
+([#939](https://github.com/risu729/pateat/pull/939)) and needs a check in the owner's
+Chrome.

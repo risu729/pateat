@@ -1151,6 +1151,16 @@ describe("submission and failure reconciliation", () => {
         stage: "after-fill",
       }),
     ).toEqual(submit);
+    // A TOTP code typed as its own submission whose character the page kept out never went
+    // in whole: it ends the attempt, and the submission stays counted (ADR 0027).
+    expect(
+      transitionLoginAttempt(submit, {
+        type: "VALUE_REJECTED",
+        operationId: "input-one",
+        document,
+        stage: "code-refused",
+      }),
+    ).toMatchObject({ state: "blocked", outcome: "fill-rejected", submissions: 1 });
   });
 
   it("policy revocation cancels in-flight work and stale replies cannot restore it", () => {

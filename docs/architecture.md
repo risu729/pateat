@@ -1332,7 +1332,16 @@ unflagged custom field in the `totp` slot, is refused before any step
 Worker for a code. A flagged field is never offered to generation and never filled as
 text
 ([ADR 0027 amendment](adr/0027-per-account-login-routes.md#amendment-2026-10-23-a-totp-code-from-a-custom-field),
-owner 2026-10-23). The `password` handler
+owner 2026-10-23). A `totp` handler without a button, learned for a code
+page whose form shows none, as one that submits the code once its last digit is in, is
+entered once its code field shows writable; its one step types the code, one digit per
+input for a split code, as a fill that submits through the input itself (`effect:
+"submit"`), and nothing is clicked. A page that disables, clears, removes or replaces
+the input or leaves the path once the last character is in is taken as submitting the
+code, one that kept a character out of an input it still shows ends the login
+`fill-rejected`, and otherwise the page is held and settled as after a handler's click
+([ADR 0027](adr/0027-per-account-login-routes.md#amendment-2026-10-23-code-pages-without-a-button)).
+The `password` handler
 ([ADR 0048](adr/0048-password-method-button.md), owner 2026-10-18 01:38 UTC) clicks a
 button such as "Password" on a page that asks how to confirm the sign-in, as an
 `advance`, and the route's steps then type the password. It needs the `password` fact

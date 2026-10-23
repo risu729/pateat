@@ -455,8 +455,11 @@ export const commandSchema = v.variant("type", [
     /**
      * With a `totp` handler's code fill (ADR 0027): the button that submits the code. The
      * fill then watches for the page submitting the code by itself before it answers.
+     * Without `submit`, with the fill of a `totp` handler without a button (`effect:
+     * "submit"`, ADR 0027 amendment of 2026-10-23): the code is typed as a person types it,
+     * one digit per input for a split code, and its last character is the submission.
      */
-    code: v.optional(v.strictObject({ submit: loginTargetSchema })),
+    code: v.optional(v.strictObject({ submit: v.optional(loginTargetSchema) })),
     /**
      * With a `password` handler's click (ADR 0048): the button is pressed only while it,
      * read in the same task as the press, names the password as the way to confirm the

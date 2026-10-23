@@ -960,6 +960,26 @@ describe("second-factor page handlers (ADR 0027)", () => {
           }).step,
         ).toEqual(step);
     });
+
+    it("types the code as its submission when the page shows no button (#916)", () => {
+      const { target: _, ...buttonless } = code();
+      const parsed = parseLoginRecipe(withHandlers([buttonless])).handlers![0]!;
+      expect(parsed).toEqual({
+        kind: "totp",
+        path: "/two-factor",
+        field: { by: "id", value: "otp" },
+      });
+      expect(handlerTargets(parsed)).toEqual([{ by: "id", value: "otp" }]);
+      expect(handlerSteps(parsed)).toEqual([
+        {
+          kind: "fill",
+          path: "/two-factor",
+          fields: [{ slot: "totp", target: { by: "id", value: "otp" } }],
+          effect: "submit",
+          event: "input",
+        },
+      ]);
+    });
   });
 
   it("allows handler steps beyond the route's step indices in an operation", () => {

@@ -1229,6 +1229,66 @@ for (const [mode, query, verifyClicks, autoSubmits] of [
   });
 }
 
+for (const [mode, query] of [
+  ["a split code that signs in with a new document", ""],
+  ["a split code that signs in within the same document", "?spa=status"],
+  ["one code input", "?single"],
+] as const) {
+  test(`a code page without Verify gets the code typed as its submission and no click: ${mode} (#916)`, async () => {
+    const fixture = await startLoginFixture();
+    try {
+      await withLoginExtension(async (context, _worker, id) => {
+        const options = await context.newPage();
+        await configure(options, id, fixture.origin, true, undefined, true);
+        const status = async () =>
+          JSON.stringify(await send(options, { version: 1, type: "login.probe.status" }));
+        const page = await context.newPage();
+        await page.goto(`${fixture.origin}/totp-typed${query}`);
+        await expect(page.locator("#authenticated")).toBeVisible({ timeout: 10_000 });
+        await expect.poll(status).toContain('"authenticated"');
+        // The page submits the code on its last character; nothing is clicked.
+        expect(await codeEvidence(page)).toEqual({
+          codeInputs: 6,
+          verifyClicks: 0,
+          autoSubmits: 1,
+          codeMatched: "true",
+        });
+        const text = await status();
+        expect(text).toContain('"recipeId":"demo-totp-typed"');
+        expect(text).toContain('"handlers":[{"index":0,"start":2}]');
+        expect(text).not.toContain("012345");
+      });
+    } finally {
+      await fixture.close();
+    }
+  });
+}
+
+test("a code page without Verify that keeps a digit out refuses the code (#916)", async () => {
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, _worker, id) => {
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin, true, undefined, true);
+      const status = async () =>
+        JSON.stringify(await send(options, { version: 1, type: "login.probe.status" }));
+      const page = await context.newPage();
+      await page.goto(`${fixture.origin}/totp-typed?single&ui=drop`);
+      await expect.poll(status).toContain('"outcome":"fill-rejected"');
+      // Five of the six characters went in and the page never submitted them.
+      expect(await codeEvidence(page)).toEqual({
+        codeInputs: 5,
+        verifyClicks: 0,
+        autoSubmits: 0,
+        codeMatched: null,
+      });
+      expect(await status()).not.toContain("012345");
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
 for (const [mode, query, cause, codeInputs] of [
   [
     "an input the page changes after the first digit",

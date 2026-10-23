@@ -1260,10 +1260,17 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             return fail("wrong-account");
           }
         }
+        // A `totp` handler without a button types its code as the submission: the page
+        // submits it once it is in (ADR 0027 amendment of 2026-10-23).
+        const buttonless =
+          command.code !== undefined &&
+          command.code.submit === undefined &&
+          step.effect === "submit" &&
+          step.fields.length === 1;
         // A `totp` handler's code split into one input per digit goes in one digit per
         // input (ADR 0027, owner decision 2026-10-12 19:21 UTC).
         const split =
-          command.code && step.effect === "prepare" && step.fields.length === 1
+          command.code && (step.effect === "prepare" || buttonless) && step.fields.length === 1
             ? splitCodeInputs(writableInputs[0]!, command.values[0]!.value.length, writable)
             : undefined;
         const fits = (input: HTMLInputElement, value: string) =>
@@ -1288,7 +1295,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           step.effect === "prepare" ? fillBaseline(split ?? writableInputs) : undefined;
         // A code field fills alone; its watch starts before the code goes in (ADR 0027).
         const code =
-          command.code && step.effect === "prepare" && step.fields.length === 1
+          command.code?.submit && step.effect === "prepare" && step.fields.length === 1
             ? watchCodeSubmission(
                 writableInputs[0]!,
                 step.fields[0]!.target,
@@ -1296,7 +1303,18 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                 step.path,
               )
             : undefined;
-        if (command.code && !code) return fail("structural-mismatch", "code-watch-failed");
+        if (command.code && !code && !buttonless)
+          return fail("structural-mismatch", "code-watch-failed");
+        // Once the code's last character went in, the page has it: a page that then disables,
+        // clears or removes the input, or leaves the path, has taken the code. A character the
+        // page kept out of an input it still shows as it was refuses the code as before.
+        let codeIn = false;
+        const lastIn = () => {
+          codeIn = true;
+        };
+        const taken = (input: HTMLInputElement, stopped: string) =>
+          codeIn &&
+          (stopped !== "refused" || !input.isConnected || !writable(input) || input.value === "");
         try {
           for (const [index, field] of step.fields.entries()) {
             const input = inputs[index] as HTMLInputElement;
@@ -1367,23 +1385,25 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                 filled.add(digit);
                 // eslint-disable-next-line no-await-in-loop
                 const stopped = await typeValue(digit, value.value[place]!, setter, {
-                  beforeInput: place === split.length - 1 ? code?.typed : undefined,
+                  beforeInput:
+                    place === split.length - 1 ? (buttonless ? lastIn : code?.typed) : undefined,
                   between: scope,
                 });
                 // A page that took the code with its last digit may change or clear its
                 // form at once; the code watch says so first.
                 if (stopped && code?.submitted()) return fail("submitted");
+                if (stopped && taken(digit, stopped)) break;
                 // A digit the page kept out is never followed by the rest.
                 if (stopped === "refused") return fail("fill-rejected");
                 if (stopped) return fail("cancelled", stopped);
               }
-            } else if (step.effect === "prepare") {
+            } else if (step.effect === "prepare" || buttonless) {
               filled.add(input);
               // The code goes in now; the page's own reaction is measured from here. The
               // page may change between characters, so each one repeats the checks.
               // eslint-disable-next-line no-await-in-loop
               const stopped = await typeValue(input, value.value, setter, {
-                beforeInput: code?.typed,
+                beforeInput: buttonless ? lastIn : code?.typed,
                 between: () => {
                   if (cancelled) return "document-cancelled";
                   if (pagePath() !== step.path) return "page-changed";
@@ -1400,8 +1420,10 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
               });
               if (stopped && code?.submitted()) return fail("submitted");
               // A value the page kept a character of out is never submitted.
-              if (stopped === "refused") return fail("fill-rejected");
-              if (stopped) return fail("cancelled", stopped);
+              if (stopped && !taken(input, stopped)) {
+                if (stopped === "refused") return fail("fill-rejected");
+                return fail("cancelled", stopped);
+              }
             } else {
               // An advance or a submission through the page's own event gets that one event
               // alone, with no focus, keys or blur that could run its effect again.
