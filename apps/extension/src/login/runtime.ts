@@ -4873,7 +4873,7 @@ export function createLoginRuntime(
     );
     if (!observed || observed.path !== path) return false;
     let offset = 0;
-    const shown = observable
+    let shown = observable
       .filter((entry) => {
         const states = observed.targets.slice(offset, offset + entry.targets.length);
         offset += entry.targets.length;
@@ -4885,6 +4885,28 @@ export function createLoginRuntime(
       })
       .sort((left, right) => handlerOrder[left.handler.kind] - handlerOrder[right.handler.kind]);
     if (!shown.length) return false;
+    // A `detail` handler learned beside the sign-in form on a route path (ADR 0061) is not
+    // entered for the first time while that form shows a failure beside its fields: the
+    // password was wrong, and the login ends rejected rather than with the handler.
+    if (
+      shown.some(
+        (entry) =>
+          entry.handler.kind === "detail" &&
+          !run.metadata.handlers.some((entered) => entered.index === entry.index),
+      ) &&
+      routeSignInPaths(run.recipe, run.metadata.route).includes(path)
+    ) {
+      const reading = await readSignInState(run);
+      if (!current(run)) return true;
+      if (reading?.decision === "rejected") {
+        shown = shown.filter(
+          (entry) =>
+            entry.handler.kind !== "detail" ||
+            run.metadata.handlers.some((entered) => entered.index === entry.index),
+        );
+        if (!shown.length) return false;
+      }
+    }
     const reportHandler = (
       entry: (typeof entries)[number],
       outcome: Extract<LoginReport, { type: "handler" }>["outcome"],
@@ -5261,14 +5283,21 @@ export function createLoginRuntime(
       remaining.targets
         .slice(0, fills.length)
         .some((state) => state !== "missing" && state !== "unusable");
-    // One on a route path of a password login without a chooser may stand beside another
-    // form that asks for a detail, which is judged on its own (ADR 0061); a failure shown
-    // beside the sign-in form never is.
+    // One on a route path of a password login without a chooser or a stop, read in the tab's
+    // top document on the recipe's own origin, may stand beside another form that asks for
+    // a detail, which is judged on its own (ADR 0061); a failure shown beside the sign-in
+    // form never is, nor a page whose sign-in state was not read.
     const besideCandidate =
       fieldShown &&
-      reading?.decision !== "rejected" &&
+      reading !== undefined &&
+      reading.decision !== "rejected" &&
       metadata.route === "password" &&
-      !metadata.chooser;
+      !metadata.chooser &&
+      metadata.stopAt === undefined &&
+      metadata.pageOrigin === undefined &&
+      run.live.document.frameId === 0 &&
+      run.live.topUrl === undefined &&
+      run.live.document.origin === recipe.origin;
     if (
       !besideCandidate &&
       (reading?.decision === "unknown" || reading?.decision === "rejected" || fieldShown)
