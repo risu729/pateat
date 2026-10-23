@@ -128,6 +128,7 @@ describe("pageStatusLines", () => {
     ["accounts", "the site's list of accounts"],
     ["entry", "the site's sign-in link"],
     ["continuation", "the rest of the site's sign-in"],
+    ["repair", "the site's changed sign-in page"],
   ] as const)("shows a request in flight for %s while the badge spins", (page, what) => {
     const generation = { outcome: "sent", ...(page ? { page } : {}) };
     expect(lines({ asking: true, generation })).toEqual([

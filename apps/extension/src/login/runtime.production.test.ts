@@ -25,6 +25,7 @@ import { vaultFailure } from "../vault/record";
 import type { LiveUriMatcher } from "../vault/site-candidates";
 import { createVaultAutoSync, createVaultSyncRecords } from "../connections/auto-sync";
 import { createLoginGeneration } from "../service/generation";
+import { createRecipeRepairs, type RecipeRepairs } from "./repair";
 import { createRecipeSync } from "../service/recipes";
 import { createSettingsSync } from "../service/settings-sync";
 import type { ServiceTransport } from "../service/transport";
@@ -455,6 +456,8 @@ function harness(
     otherUsername?: boolean | "empty";
     /** Recipe generation for pages without a recipe. */
     generation?: LoginGeneration;
+    /** The repairs of generated recipes' start pages (ADR 0041). */
+    repairs?: RecipeRepairs;
     /** The item's passkey facts, read when a login starts (ADR 0027). */
     passkeys?: (account: unknown) => Promise<{ passkey: boolean; discoverable: boolean }>;
     /** The items holding a discoverable passkey for an origin (ADR 0034). */
@@ -632,6 +635,7 @@ function harness(
     recipes,
     ...(live.uris ? { uris: live.uris } : {}),
     ...(live.generation ? { generation: live.generation } : {}),
+    ...(live.repairs ? { repairs: live.repairs } : {}),
     ...(live.passkeys ? { passkeys: live.passkeys } : {}),
     ...(live.passkeyItems ? { passkeyItems: live.passkeyItems } : {}),
     ...(live.vault ? { vault: live.vault } : {}),
@@ -7853,6 +7857,244 @@ describe("production login document admission", () => {
       await vi.waitFor(() => expect(service.generate).toHaveBeenCalledTimes(1));
     });
 
+    describe("a generated recipe whose start page no longer matches (ADR 0041)", () => {
+      // The stored recipe names `user` and `password`; the redesigned page has neither.
+      const missing = [target("user"), target("password")];
+      const repairedRecipe = parseLoginRecipe({
+        ...generated,
+        revision: 2,
+        steps: [
+          {
+            kind: "fill",
+            path: "/signin",
+            fields: [
+              { slot: "username", target: target("login-id") },
+              { slot: "password", target: target("passcode") },
+            ],
+          },
+          { kind: "click", path: "/signin", target: target("go"), purpose: "submit" },
+        ],
+      });
+      const missHello = (
+        h: { login: { handle(message: unknown, sender: unknown): Promise<unknown> } },
+        documentId: string,
+        /** What the page says it missed; `null` for a page that says nothing. */
+        miss: Record<string, unknown> | null = { missing, status: 200 },
+      ) =>
+        h.login.handle(
+          {
+            version: 1,
+            type: "login.document.ready",
+            token: "synthetic-token",
+            shown: { path: "/signin", ...(miss ? { miss } : {}) },
+          },
+          sender({ documentId }),
+        );
+      function setup(answer?: () => Promise<GenerationOutcome>) {
+        fake.state.extracted = { login: loginPage };
+        const service = generation(answer ? { generate: answer } : {});
+        const report = vi.fn<(report: LoginReport) => void>();
+        const repairs = createRecipeRepairs({
+          read: async () => fake.state.storage["repairs"],
+          write: async (value) => {
+            fake.state.storage["repairs"] = value;
+          },
+        });
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris,
+          username: true,
+          custom: [],
+          generation: service,
+          repairs,
+          report,
+        });
+        h.recipes.recipe.mockResolvedValue(generated);
+        h.recipes.starts.mockResolvedValue(startsOf([generated.steps[0]!]));
+        const repairLog = () =>
+          report.mock.calls
+            .map(([entry]) => entry)
+            .filter((entry) => entry.type === "repair" || entry.type === "generation");
+        return { service, h, repairLog };
+      }
+
+      it("sends the start page for repair on the first load that misses", async () => {
+        const { service, h, repairLog } = setup(async () => {
+          h.recipes.recipe.mockResolvedValue(repairedRecipe);
+          h.recipes.starts.mockResolvedValue(startsOf([repairedRecipe.steps[0]!]));
+          return { outcome: "recipe", recipe: repairedRecipe };
+        });
+        expect(await missHello(h, "load-1")).toMatchObject({ reason: "form-not-ready" });
+        await vi.waitFor(() =>
+          expect(fake.state.messages.map((entry) => entry.type)).toContain("login.reconnect"),
+        );
+        expect(service.generate).toHaveBeenCalledWith(
+          expect.objectContaining({
+            observation: loginPage.observation,
+            repair: { recipeId: generated.id, revision: 1 },
+            // A start page is a recipe's first page, so it carries the hint (ADR 0035).
+            signedIn: false,
+          }),
+          expect.any(Function),
+        );
+        expect(repairLog()).toEqual([
+          {
+            type: "repair",
+            tabId: 1,
+            origin,
+            recipeId: generated.id,
+            recipeRevision: 1,
+            outcome: "due",
+          },
+          {
+            type: "generation",
+            tabId: 1,
+            origin,
+            outcome: "sent",
+            page: "repair",
+            recipeId: generated.id,
+            baseRevision: 1,
+            signedIn: false,
+          },
+          {
+            type: "generation",
+            tabId: 1,
+            origin,
+            outcome: "recipe",
+            page: "repair",
+            recipeId: generated.id,
+            baseRevision: 1,
+            pageKind: "sign-in",
+            signedIn: false,
+          },
+        ]);
+        // The page announces again and runs the repaired recipe at once.
+        expect(await h.hello({ documentId: "load-1" })).toEqual({ ok: true });
+        await vi.waitFor(() =>
+          expect(
+            fake.state.messages.filter((entry) => entry.type === "login.execute"),
+          ).toHaveLength(2),
+        );
+      });
+
+      it("does not send an error status or a slow page", async () => {
+        const { service, h, repairLog } = setup();
+        // A maintenance page answered 503 on the login page's URL.
+        await missHello(h, "down", { missing, status: 503 });
+        // Elements found once but not usable yet, as on a slow page.
+        await missHello(h, "slow", { missing: [], status: 200 });
+        // An older page that did not say what it missed.
+        await missHello(h, "quiet", null);
+        await vi.waitFor(() => expect(repairLog()).toHaveLength(3));
+        expect(repairLog().map((entry) => "reason" in entry && entry.reason)).toEqual([
+          "status",
+          "unusable",
+          "no-detail",
+        ]);
+        expect(service.generate).not.toHaveBeenCalled();
+      });
+
+      it("sends no page where a signed-in marker the recipe learned shows", async () => {
+        const { service, h, repairLog } = setup();
+        const signedIn = {
+          ...generated,
+          revision: 2,
+          completion: [{ target: target("sign-out") }],
+        };
+        h.recipes.recipe.mockResolvedValue(signedIn);
+        // A signed-in page on the start path, as a profile form with an email input.
+        fake.state.observed = ["unique"];
+        await missHello(h, "load-1");
+        await vi.waitFor(() => expect(repairLog()).toHaveLength(1));
+        expect(repairLog()[0]).toMatchObject({ outcome: "skipped", reason: "signed-in" });
+        expect(
+          fake.state.messages.filter((entry) => entry.type === "login.observe").at(-1),
+        ).toMatchObject({ targets: [target("sign-out")] });
+        // Without the marker, the page is sent.
+        fake.state.observed = ["missing"];
+        await missHello(h, "load-2");
+        await vi.waitFor(() => expect(service.generate).toHaveBeenCalledTimes(1));
+      });
+
+      it("holds a recipe the service answered without a new revision for the day", async () => {
+        const { service, h, repairLog } = setup(async () => ({
+          outcome: "abstained",
+          reason: "no-login-form",
+        }));
+        await missHello(h, "load-1");
+        await vi.waitFor(() => expect(service.generate).toHaveBeenCalledTimes(1));
+        // The model abstained, as on a maintenance page answered 200 that kept an input: the
+        // recipe stays, and no other repair is sent the same UTC day.
+        await vi.waitFor(() =>
+          expect(fake.state.storage["repairs"]).toMatchObject({
+            recipes: [{ recipeId: generated.id, held: expect.any(Number) }],
+          }),
+        );
+        for (const listener of fake.state.removed) listener(1);
+        await missHello(h, "load-2");
+        await vi.waitFor(() =>
+          expect(repairLog().at(-1)).toMatchObject({ outcome: "skipped", reason: "held" }),
+        );
+        expect(service.generate).toHaveBeenCalledTimes(1);
+      });
+
+      it("sends a start page that became a list of accounts as a list (ADR 0041 section 6)", async () => {
+        const { service, h } = setup();
+        const shown = page("/signin", [
+          { id: "c1", role: "button", target: target("other"), label: "Use another account" },
+        ]);
+        const listPage = { ...shown, observation: { ...shown.observation, accounts: ["[email]"] } };
+        fake.state.extracted = { accounts: listPage };
+        await h.login.handle(
+          {
+            version: 1,
+            type: "login.document.ready",
+            token: "synthetic-token",
+            shown: { path: "/signin", miss: { missing, status: 200 }, accounts: true },
+          },
+          sender({ documentId: "list" }),
+        );
+        await vi.waitFor(() => expect(service.generate).toHaveBeenCalledTimes(1));
+        expect(service.generate).toHaveBeenCalledWith(
+          expect.objectContaining({
+            observation: listPage.observation,
+            repair: { recipeId: generated.id, revision: 1 },
+          }),
+          expect.any(Function),
+        );
+        expect(service.generate.mock.calls[0]![0]).not.toHaveProperty("signedIn");
+      });
+
+      it("holds a recipe the service answered back unchanged for the day", async () => {
+        // The answer equaled a layout the recipe already has, so the service wrote nothing.
+        const { service, h, repairLog } = setup(async () => ({
+          outcome: "recipe",
+          recipe: generated,
+        }));
+        await missHello(h, "load-1");
+        await vi.waitFor(() =>
+          expect(fake.state.storage["repairs"]).toMatchObject({
+            recipes: [{ recipeId: generated.id, held: expect.any(Number) }],
+          }),
+        );
+        for (const listener of fake.state.removed) listener(1);
+        await missHello(h, "load-2");
+        await vi.waitFor(() =>
+          expect(repairLog().at(-1)).toMatchObject({ outcome: "skipped", reason: "held" }),
+        );
+        expect(service.generate).toHaveBeenCalledTimes(1);
+      });
+
+      it("does not hold a recipe whose request found another in flight", async () => {
+        const { service, h } = setup(async () => ({ outcome: "unavailable", reason: "busy" }));
+        await missHello(h, "load-1");
+        await vi.waitFor(() => expect(service.generate).toHaveBeenCalledTimes(1));
+        for (const listener of fake.state.removed) listener(1);
+        await missHello(h, "load-2");
+        await vi.waitFor(() => expect(service.generate).toHaveBeenCalledTimes(2));
+      });
+    });
+
     it("spins the tab's icon from the page's send until its answer", async () => {
       fake.state.extracted = { login: loginPage };
       let answer!: (outcome: GenerationOutcome) => void;
@@ -9726,6 +9968,7 @@ describe("production login document admission", () => {
           uris?: LiveUriMatcher;
           passkeyItems?: (origin: string) => Promise<readonly PasskeyItem[]>;
           otherUsername?: boolean;
+          repairs?: boolean;
         } = {},
       ) => {
         fake.state.extracted = { entry: entryPage };
@@ -9743,6 +9986,16 @@ describe("production login document admission", () => {
             report,
             ...(options.entries ? { entries: options.entries } : {}),
             ...(options.passkeyItems ? { passkeyItems: options.passkeyItems } : {}),
+            ...(options.repairs
+              ? {
+                  repairs: createRecipeRepairs({
+                    read: async () => fake.state.storage["repairs"],
+                    write: async (value) => {
+                      fake.state.storage["repairs"] = value;
+                    },
+                  }),
+                }
+              : {}),
           },
         );
         h.recipes.recipe.mockResolvedValue(undefined);
@@ -10403,6 +10656,73 @@ describe("production login document admission", () => {
               expect.objectContaining({ outcome: "skipped", reason: "after-sign-in" }),
             ]);
           });
+        });
+      });
+
+      describe("an entry whose link no longer shows (ADR 0041 section 6)", () => {
+        const generatedEntry: LoginEntryRecipe = { ...entryRecipe, id: `gen-${"e".repeat(32)}` };
+
+        it("sends the page for repair as an entry page", async () => {
+          fake.state.entry.inspect = inspected({ state: "missing", href: undefined });
+          const { service, h, reports } = setup({ entries: [generatedEntry], repairs: true });
+          expect(await h.hello({}, false)).toMatchObject({ reason: "entry" });
+          await vi.waitFor(() => expect(service.generateEntry).toHaveBeenCalledTimes(1));
+          expect(service.generateEntry).toHaveBeenCalledWith(
+            {
+              version: 1,
+              observation: entryPage.observation,
+              repair: { recipeId: generatedEntry.id, revision: 2 },
+            },
+            expect.any(Function),
+          );
+          expect(service.generate).not.toHaveBeenCalled();
+          expect(reports("repair")).toEqual([
+            expect.objectContaining({ recipeId: generatedEntry.id, outcome: "due" }),
+          ]);
+          expect(reports("entry")).toEqual([
+            expect.objectContaining({ outcome: "refused", reason: "target-missing" }),
+          ]);
+        });
+
+        it("sends a page that asks for a sign-in now as a form, and nothing for an error status", async () => {
+          fake.state.entry.inspect = inspected({
+            state: "missing",
+            href: undefined,
+            shows: "sign-in",
+          });
+          const { service, h } = setup({ entries: [generatedEntry], repairs: true });
+          fake.state.extracted = {
+            login: page("/", [
+              {
+                id: "c1",
+                role: "password",
+                target: { by: "id", value: "password" },
+                label: "Password",
+              },
+              { id: "c2", role: "button", target: { by: "id", value: "go" }, label: "Sign in" },
+            ]),
+          };
+          expect(await h.hello({}, false)).toMatchObject({ reason: "entry" });
+          await vi.waitFor(() => expect(service.generate).toHaveBeenCalledTimes(1));
+          expect(service.generate).toHaveBeenCalledWith(
+            expect.objectContaining({ repair: { recipeId: generatedEntry.id, revision: 2 } }),
+            expect.any(Function),
+          );
+          expect(service.generateEntry).not.toHaveBeenCalled();
+
+          // A maintenance page answered 503 is never sent.
+          fake.state.entry.inspect = inspected({ state: "missing", href: undefined, status: 503 });
+          const down = setup({ entries: [generatedEntry], repairs: true });
+          expect(await down.h.hello({ documentId: "down" }, false)).toMatchObject({
+            reason: "entry",
+          });
+          await vi.waitFor(() =>
+            expect(down.reports("repair")).toEqual([
+              expect.objectContaining({ outcome: "skipped", reason: "status" }),
+            ]),
+          );
+          expect(down.service.generateEntry).not.toHaveBeenCalled();
+          expect(down.service.generate).not.toHaveBeenCalled();
         });
       });
 
@@ -24548,6 +24868,66 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
       expect(status()![0]).toMatchObject({ chooser: { click: "continue" } });
     });
 
+    it("sends the list for repair when the chooser's button no longer shows (ADR 0041 section 6)", async () => {
+      fake.state.chosen = {
+        ok: true,
+        click: "none",
+        miss: {
+          username: "email",
+          entries: 1,
+          fits: 0,
+          beside: 0,
+          other: "missing",
+          continue: "none",
+        },
+      };
+      const listPage = {
+        ok: true,
+        observation: {
+          version: 1,
+          origin,
+          path: "/signin",
+          language: "ja",
+          complete: true,
+          candidates: [
+            {
+              id: "c1",
+              role: "button",
+              target: { by: "text", value: "別のプロフィールでログイン" },
+              label: "別のプロフィールでログイン",
+            },
+          ],
+          accounts: ["[email]"],
+        },
+      };
+      fake.state.extracted = { accounts: listPage };
+      const service = generation();
+      const reports: LoginReport[] = [];
+      const h = onList(service, reports, {
+        repairs: createRecipeRepairs({
+          read: async () => fake.state.storage["repairs"],
+          write: async (value) => {
+            fake.state.storage["repairs"] = value;
+          },
+        }),
+      });
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(service.generate).toHaveBeenCalledTimes(1));
+      expect(service.generate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          observation: listPage.observation,
+          repair: { recipeId: listed.id, revision: 1 },
+        }),
+        expect.any(Function),
+      );
+      // A list carries no signed-in hint (ADR 0035), and the login ends as before.
+      expect(service.generate.mock.calls[0]![0]).not.toHaveProperty("signedIn");
+      expect(status()![0]).toMatchObject({ outcome: "account-not-listed" });
+      expect(reports.filter((entry) => entry.type === "repair")).toEqual([
+        expect.objectContaining({ recipeId: listed.id, outcome: "due" }),
+      ]);
+    });
+
     it("ends account-not-listed without a click when nothing fits and there is no button", async () => {
       const miss = {
         username: "email",
@@ -29676,6 +30056,141 @@ describe("a login that starts at a later step its page shows (ADR 0049)", () => 
     return { h, reports, later };
   }
 
+  describe("a generated layout whose later step no longer shows (ADR 0041)", () => {
+    const layoutOf = (passwordPath: string) =>
+      parseLoginRecipe({
+        ...twoPages(passwordPath, `gen-${"c".repeat(32)}`),
+        layout: "1000",
+      });
+    const used = layoutOf("/signin/pwd");
+    /**
+     * Logs in from the email page; its advance leads to a redesigned password page, whose
+     * input and button have other IDs, and which shows `signs`. With `passwordPath` on the
+     * email page's own path, the form asks for the password in the same document.
+     */
+    async function redesigned(signs: Record<string, boolean>, passwordPath = "/signin/pwd") {
+      const layout = layoutOf(passwordPath);
+      fake.state.pageUrl = "https://login.example/signin/id";
+      fake.state.observedPath = "/signin/id";
+      shows(["email", "next"]);
+      fake.state.onExecute = async (message) => {
+        const step = (message["operation"] as { step: LoginStep }).step;
+        if (step.kind !== "click" || step.target.value !== "next") return;
+        fake.state.observedPath = passwordPath;
+        fake.state.pageUrl = `https://login.example${passwordPath}`;
+        fake.state.present = new Set(["passcode", "go"]);
+        if (passwordPath === "/signin/id") return;
+        // The password page loads as the next document.
+        fake.state.gone.add("synthetic-document");
+        setTimeout(() => void h.hello({ documentId: "password-page" }, false), 0);
+      };
+      const generate = vi.fn<LoginGeneration["generate"]>(async () => ({
+        outcome: "abstained",
+        reason: "ambiguous",
+      }));
+      const repairs = createRecipeRepairs({
+        read: async () => fake.state.storage["repairs"],
+        write: async (value) => {
+          fake.state.storage["repairs"] = value;
+        },
+      });
+      const { h, reports } = start([layout], {}, [], {
+        uris: vi.fn<LiveUriMatcher>(async () => ({ ok: true, data: uriMatch() })),
+        custom: [],
+        generation: {
+          available: vi.fn<LoginGeneration["available"]>(async () => "sent"),
+          generate,
+          generateEntry: vi.fn<LoginGeneration["generateEntry"]>(),
+          judge: vi.fn<LoginGeneration["judge"]>(async () => ({ verdict: "unclear" })),
+          slotFields: vi.fn<LoginGeneration["slotFields"]>(async () => undefined),
+        },
+        repairs,
+      });
+      fake.state.signs = {
+        password: false,
+        code: false,
+        captcha: false,
+        invalid: false,
+        alert: false,
+        ...signs,
+      };
+      // The attempt's next document finds its recipe by its ID.
+      h.recipes.recipe.mockResolvedValue(layout);
+      fake.state.extracted = {
+        login: {
+          ok: true,
+          observation: {
+            version: 1,
+            origin,
+            path: passwordPath,
+            language: "en",
+            complete: true,
+            candidates: [
+              { id: "c1", role: "password", target: target("passcode") },
+              { id: "c2", role: "button", target: target("go"), label: "Sign in" },
+            ],
+          },
+        },
+      };
+      expect(await h.hello()).toEqual({ ok: true });
+      // The advance is never confirmed, and the page settles as unknown once the step's
+      // wait ran out.
+      await vi.waitFor(
+        () => expect(status()).toMatchObject([{ outcome: "unknown-submit", settled: true }]),
+        { timeout: 20_000 },
+      );
+      return { generate, reports };
+    }
+
+    it("sends the password page it reached for repair", async () => {
+      const { generate, reports } = await redesigned({ password: true });
+      await vi.waitFor(() => expect(generate).toHaveBeenCalledTimes(1));
+      expect(generate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          repair: { recipeId: used.id, revision: 1, layout: "1000", step: 2 },
+        }),
+        expect.any(Function),
+      );
+      // A later step keeps its layout's page kind, so it carries no hint (ADR 0035).
+      expect(generate.mock.calls[0]![0]).not.toHaveProperty("signedIn");
+      expect(reports.filter((entry) => entry.type === "repair")).toEqual([
+        expect.objectContaining({ recipeId: used.id, outcome: "due" }),
+      ]);
+      // The model abstained, which holds the recipe for the day.
+      await vi.waitFor(() =>
+        expect(fake.state.storage["repairs"]).toMatchObject({
+          recipes: [{ recipeId: used.id, held: expect.any(Number) }],
+        }),
+      );
+    }, 30_000);
+
+    it("sends a single-URL form's password step that never showed (owner, 2026-10-23 12:51 UTC)", async () => {
+      const { generate } = await redesigned({ password: true }, "/signin/id");
+      await vi.waitFor(() => expect(generate).toHaveBeenCalledTimes(1));
+      expect(generate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          observation: expect.objectContaining({ path: "/signin/id" }),
+          repair: { recipeId: used.id, revision: 1, layout: "1000", step: 2 },
+        }),
+        expect.any(Function),
+      );
+    }, 30_000);
+
+    it.each([
+      ["shows no password input", {}],
+      ["asks for a CAPTCHA", { password: true, captcha: true }],
+    ])(
+      "sends nothing for a page that %s",
+      async (_, signs) => {
+        const { generate, reports } = await redesigned(signs);
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        expect(generate).not.toHaveBeenCalled();
+        expect(reports.filter((entry) => entry.type === "repair")).toEqual([]);
+      },
+      30_000,
+    );
+  });
+
   it("logs in from the password page a site shows for the account it remembers", async () => {
     shows(["password", "login"]);
     const used = twoPages();
@@ -30246,7 +30761,7 @@ describe("a login that starts at a later step its page shows (ADR 0049)", () => 
   });
 });
 
-describe("revoking a recipe the chosen item cannot run (ADR 0058 A)", () => {
+describe("repairing a recipe the chosen item cannot run (ADR 0058 A, amended by ADR 0041)", () => {
   afterEach(() => {
     vi.useRealTimers();
     for (const listener of fake.state.removed.splice(0))
@@ -30279,6 +30794,7 @@ describe("revoking a recipe the chosen item cannot run (ADR 0058 A)", () => {
     fake.state.signs = undefined;
     fake.state.signIn = false;
     fake.state.loaded = true;
+    release.mockClear();
   });
 
   const generatedId = "gen-0123456789abcdef0123456789abcdef";
@@ -30338,8 +30854,14 @@ describe("revoking a recipe the chosen item cannot run (ADR 0058 A)", () => {
     });
   };
   const discoverable = { passkey: true, discoverable: true };
-  type Replace = NonNullable<LoginGeneration["replace"]>;
-  function service(replace: Replace = async () => ({ outcome: "not-due" })) {
+  type Claim = NonNullable<LoginGeneration["claimRepair"]>;
+  /** The recipe a repair answers: the same form with the passkey button it lacked. */
+  const repaired = parseLoginRecipe({
+    ...onePage,
+    revision: 4,
+    passkey: { path: "/signin", target: target("passkey-login") },
+  });
+  function service(claim: Claim = async () => ({ outcome: "not-due" })) {
     return {
       available: vi.fn<LoginGeneration["available"]>(async () => true),
       generate: vi.fn<LoginGeneration["generate"]>(async (_request, sent) => {
@@ -30349,7 +30871,7 @@ describe("revoking a recipe the chosen item cannot run (ADR 0058 A)", () => {
       generateEntry: vi.fn<LoginGeneration["generateEntry"]>(),
       judge: vi.fn<LoginGeneration["judge"]>(async () => ({ verdict: "unclear" })),
       slotFields: vi.fn<LoginGeneration["slotFields"]>(async () => undefined),
-      replace: vi.fn<Replace>(replace),
+      claimRepair: vi.fn<Claim>(claim),
     };
   }
   /** The item's password is empty while `when` holds, as a vault sync would leave it. */
@@ -30365,15 +30887,14 @@ describe("revoking a recipe the chosen item cannot run (ADR 0058 A)", () => {
   };
   /**
    * A login of the item, whose password is empty and which holds a discoverable passkey
-   * unless told otherwise, on `used`; `revoke` answers the generation side's `replace` and
-   * may drop the recipe from the cache, as the pull after a revocation does.
+   * unless told otherwise, on `used`; `claim` answers the generation side's `claimRepair`.
    */
   function start(
     options: {
       used?: LoginRecipe;
       passkey?: { passkey: boolean; discoverable: boolean };
       password?: boolean;
-      replace?: (h: ReturnType<typeof harness>) => Replace;
+      claim?: (h: ReturnType<typeof harness>) => Claim;
       live?: Parameters<typeof harness>[1];
       overrides?: Partial<LocalSettings>;
     } = {},
@@ -30382,8 +30903,14 @@ describe("revoking a recipe the chosen item cannot run (ADR 0058 A)", () => {
     const reports: LoginReport[] = [];
     let h!: ReturnType<typeof harness>;
     const generation = service(async (...args) =>
-      options.replace ? options.replace(h)(...args) : { outcome: "not-due" },
+      options.claim ? options.claim(h)(...args) : { outcome: "not-due" },
     );
+    const repairs = createRecipeRepairs({
+      read: async () => fake.state.storage["repairs"],
+      write: async (value) => {
+        fake.state.storage["repairs"] = value;
+      },
+    });
     h = harness(
       {
         bindings: [
@@ -30403,6 +30930,8 @@ describe("revoking a recipe the chosen item cannot run (ADR 0058 A)", () => {
         report: (entry) => reports.push(entry),
         passkeys: vi.fn(async () => options.passkey ?? discoverable),
         generation,
+        repairs,
+        uris: async () => ({ ok: true as const, data: uriMatch() }),
         ...options.live,
       },
     );
@@ -30414,322 +30943,246 @@ describe("revoking a recipe the chosen item cannot run (ADR 0058 A)", () => {
     if (!options.password) emptyPassword(h);
     return { h, reports, generation };
   }
-  /** The pull after the revocation dropped the recipe, as a tombstone does. */
-  const dropped =
-    (outcome: "revoked" | "conflict" = "revoked"): ((h: ReturnType<typeof harness>) => Replace) =>
-    (h) =>
-    async () => {
-      h.recipes.recipe.mockResolvedValue(undefined);
-      h.recipes.starts.mockResolvedValue([]);
-      return { outcome };
-    };
-  const revokes = (reports: LoginReport[]) => reports.filter((entry) => entry.type === "revoke");
+  const release = vi.fn(async () => undefined);
+  /** A claimed repair, whose claim `release` gives back. */
+  const claimed = (): ((h: ReturnType<typeof harness>) => Claim) => () => async () => ({
+    outcome: "claimed",
+    release,
+  });
+  /** The page the repair sends: the form, without the passkey button. */
+  const formPage = {
+    ok: true,
+    observation: {
+      version: 1,
+      origin,
+      path: "/signin",
+      language: "en",
+      complete: true,
+      candidates: [
+        { id: "c1", role: "password", target: target("password") },
+        { id: "c2", role: "button", target: target("login"), label: "Sign in" },
+      ],
+    },
+  };
+  const unfits = (reports: LoginReport[]) => reports.filter((entry) => entry.type === "unfit");
   const refusals = (reports: LoginReport[]) =>
     reports.flatMap((entry) => (entry.type === "refused" ? [entry] : []));
   const executed = () => fake.state.messages.filter((entry) => entry.type === "login.execute");
 
-  it("revokes the recipe and asks the page to announce again once the cache dropped it", async () => {
-    const { h, reports, generation } = start({ replace: dropped() });
+  it("sends the start page for repair and asks the page to announce again with its answer", async () => {
+    fake.state.extracted = { login: formPage };
+    const { h, reports, generation } = start({ claim: claimed() });
+    generation.generate.mockImplementation(async (_request, sent) => {
+      sent?.();
+      h.recipes.recipe.mockResolvedValue(repaired);
+      return { outcome: "recipe", recipe: repaired };
+    });
     // The page waits as for a generation, reading no secret.
     expect(await h.hello()).toEqual({ ok: false, reason: "generating" });
     await vi.waitFor(() => expect(fake.state.reconnects).toHaveLength(1));
-    expect(generation.replace).toHaveBeenCalledExactlyOnceWith({
-      recipeId: generatedId,
-      revision: 3,
-      origin,
-      path: "/signin",
-    });
-    expect(fake.state.reconnects[0]).toEqual({
-      tabId: 1,
-      frameId: 0,
-      documentId: "synthetic-document",
-    });
-    expect(revokes(reports)).toEqual([
+    expect(generation.claimRepair).toHaveBeenCalledExactlyOnceWith(generatedId, "passkey");
+    expect(generation.generate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        observation: formPage.observation,
+        repair: { recipeId: generatedId, revision: 3 },
+      }),
+      expect.any(Function),
+    );
+    expect(unfits(reports)).toEqual([
       {
-        type: "revoke",
+        type: "unfit",
         tabId: 1,
         origin,
         recipeId: generatedId,
         recipeRevision: 3,
         route: "passkey",
-        outcome: "revoked",
+        outcome: "claimed",
         detail: "password-empty:no-advance",
       },
     ]);
-    // The refusal the revocation replaced is not logged.
+    // The claim stays, and the refusal the repair replaced is not logged.
+    expect(release).not.toHaveBeenCalled();
     expect(refusals(reports)).toEqual([]);
     expect(executed()).toEqual([]);
-    expect(h.fields).not.toHaveBeenCalled();
-    expect(fake.state.storage["pateat.login-attempts.v5"] ?? []).toEqual([]);
+    // Only the usernames to hide are read (ADR 0016), never a secret.
+    expect(h.fields.mock.calls.map(([request]) => request.fieldId)).not.toContain("login.password");
   });
 
-  it("asks the page to announce again after a conflict whose pull brought a newer revision", async () => {
-    const { h, reports } = start({
-      replace: (page) => async () => {
-        page.recipes.recipe.mockResolvedValue({ ...onePage, revision: 4 });
-        return { outcome: "conflict" };
-      },
+  it("tries a newer revision another device's repair stored before claiming one", async () => {
+    fake.state.extracted = { login: formPage };
+    const { h, reports, generation } = start({ claim: claimed() });
+    // The pull brings the revision with the passkey route.
+    const pullRecipes = vi.fn(async () => {
+      h.recipes.recipe.mockResolvedValue(repaired);
     });
+    Object.assign(generation, { pullRecipes });
     expect(await h.hello()).toEqual({ ok: false, reason: "generating" });
     await vi.waitFor(() => expect(fake.state.reconnects).toHaveLength(1));
-    expect(revokes(reports)).toMatchObject([{ outcome: "conflict", route: "passkey" }]);
+    expect(pullRecipes).toHaveBeenCalledOnce();
+    expect(generation.claimRepair).not.toHaveBeenCalled();
+    expect(generation.generate).not.toHaveBeenCalled();
+    expect(unfits(reports)).toEqual([
+      expect.objectContaining({ recipeRevision: 3, outcome: "newer" }),
+    ]);
     expect(refusals(reports)).toEqual([]);
   });
 
-  it("offers the page for generation once it announces again without the recipe", async () => {
-    const { h, generation } = start({
-      replace: dropped(),
-      live: { uris: async () => ({ ok: true as const, data: uriMatch() }) },
-    });
+  it("claims the repair when the pull brings nothing newer", async () => {
+    fake.state.extracted = { login: formPage };
+    const { h, generation } = start({ claim: claimed() });
+    const pullRecipes = vi.fn(async () => undefined);
+    Object.assign(generation, { pullRecipes });
     expect(await h.hello()).toEqual({ ok: false, reason: "generating" });
-    await vi.waitFor(() => expect(fake.state.reconnects).toHaveLength(1));
-    // The content script announces again: no recipe starts on the page now (ADR 0016).
-    expect(await h.hello()).toEqual({
-      ok: false,
-      reason: "recipe-not-found",
-      starts: [],
-      generate: true,
-    });
-    expect(generation.available).toHaveBeenCalledWith(origin, "/signin");
-    fake.state.extracted = {
-      login: {
-        ok: true,
-        observation: {
-          version: 1,
-          origin,
-          path: "/signin",
-          language: "en",
-          complete: true,
-          candidates: [
-            { id: "c1", role: "email", target: target("user"), autocomplete: "username" },
-            { id: "c2", role: "password", target: target("password") },
-            { id: "c3", role: "button", target: target("login"), label: "Sign in" },
-          ],
-        },
-      },
-    };
-    expect(await h.signIn()).toEqual({ ok: false, reason: "generating" });
-    await vi.waitFor(() => expect(generation.generate).toHaveBeenCalledTimes(1));
-    expect(generation.generate.mock.calls[0]![0]).toMatchObject({
-      observation: { origin, path: "/signin" },
-    });
-    expect(generation.replace).toHaveBeenCalledTimes(1);
-  });
-
-  it("sends the list a passkey-only recipe's page shows once a password-only item revoked it (ADR 0053)", async () => {
-    fake.state.present = new Set(["passkey-login"]);
-    const passkeyOnly = parseLoginRecipe({
-      version: 1,
-      id: generatedId,
-      revision: 3,
-      origin,
-      pageKind: "sign-in",
-      slots: [],
-      passkeyOnly: true,
-      passkey: { path: "/signin", target: target("passkey-login") },
-      steps: [
-        { kind: "click", path: "/signin", target: target("passkey-login"), purpose: "submit" },
-      ],
-      maxSubmissions: 1,
-    });
-    const passkeyItems = vi.fn(async (): Promise<readonly PasskeyItem[]> => []);
-    const { h, reports, generation } = start({
-      used: passkeyOnly,
-      password: true,
-      passkey: { passkey: false, discoverable: false },
-      replace: dropped(),
-      live: { uris: async () => ({ ok: true as const, data: uriMatch() }), passkeyItems },
-    });
-    expect(await h.hello()).toEqual({ ok: false, reason: "generating" });
-    await vi.waitFor(() => expect(fake.state.reconnects).toHaveLength(1));
-    expect(revokes(reports)).toMatchObject([{ route: "password", outcome: "revoked" }]);
-    expect(await h.hello()).toMatchObject({ reason: "recipe-not-found", generate: true });
-    fake.state.extracted = {
-      accounts: {
-        ok: true,
-        observation: {
-          version: 1,
-          origin,
-          path: "/signin",
-          language: "en",
-          complete: true,
-          candidates: [
-            { id: "c1", role: "button", target: target("other"), label: "Use another account" },
-          ],
-          accounts: ["[account]"],
-        },
-      },
-    };
-    // The page still shows the passkey button, beside a list with a control for another
-    // account: no matching item holds a passkey, so the list is sent as without the button.
-    expect(
-      await h.login.handle(
-        {
-          version: 1,
-          type: "login.document.ready",
-          token: "synthetic-token",
-          signIn: { path: "/signin", passkey: true },
-          list: { path: "/signin", names: ["Help"], other: true },
-        },
-        sender(),
-      ),
-    ).toEqual({ ok: false, reason: "generating" });
     await vi.waitFor(() => expect(generation.generate).toHaveBeenCalledOnce());
-    expect(passkeyItems).toHaveBeenCalledOnce();
-    expect(generation.generate.mock.calls[0]![0]).not.toHaveProperty("passkeyOnly");
-    expect(fake.state.messages.filter((entry) => entry.type === "login.extract")).toEqual([
-      expect.objectContaining({ page: "accounts" }),
-    ]);
-    expect(generation.replace).toHaveBeenCalledOnce();
-    expect(reports).not.toContainEqual(expect.objectContaining({ detail: "no-passkey" }));
+    expect(pullRecipes).toHaveBeenCalledOnce();
+    expect(generation.claimRepair).toHaveBeenCalledOnce();
   });
 
-  it.each<[string, Awaited<ReturnType<Replace>>]>([
-    ["not due", { outcome: "not-due" }],
-    ["not sent", { outcome: "not-sent", reason: "storage-unavailable" }],
-    ["failed", { outcome: "failed", reason: "unreachable" }],
-  ])("logs the original refusal late when the revocation was %s", async (_, answer) => {
-    const { h, reports } = start({ replace: () => async () => answer });
+  it("keeps the claim and refuses the page when the model abstains", async () => {
+    fake.state.extracted = { login: formPage };
+    const { h, reports, generation } = start({ claim: claimed() });
     expect(await h.hello()).toEqual({ ok: false, reason: "generating" });
     await vi.waitFor(() => expect(refusals(reports)).toHaveLength(1));
-    expect(revokes(reports)).toEqual([
-      expect.objectContaining({
-        outcome: answer.outcome,
-        ...(answer.reason ? { reason: answer.reason } : {}),
-        detail: "password-empty:no-advance",
-      }),
-    ]);
-    // The revocation's report comes first, then the refusal it replaced.
-    expect(reports.findIndex((entry) => entry.type === "revoke")).toBeLessThan(
-      reports.findIndex((entry) => entry.type === "refused"),
-    );
+    expect(generation.generate).toHaveBeenCalledOnce();
+    expect(release).not.toHaveBeenCalled();
     expect(refusals(reports)[0]).toMatchObject({
-      tabId: 1,
-      origin,
       reason: "no-route",
       detail: "password-empty:no-advance",
     });
     expect(fake.state.reconnects).toEqual([]);
+  });
+
+  it("gives the claim back when the page could not be sent", async () => {
+    // The page's description is cancelled, so nothing reaches the service.
+    fake.state.extracted = { login: { ok: false, reason: "cancelled" } };
+    const { h, reports, generation } = start({ claim: claimed() });
+    expect(await h.hello()).toEqual({ ok: false, reason: "generating" });
+    await vi.waitFor(() => expect(refusals(reports)).toHaveLength(1));
+    expect(generation.generate).not.toHaveBeenCalled();
+    expect(release).toHaveBeenCalledOnce();
+  });
+
+  it.each<[string, GenerationOutcome, boolean]>([
+    ["refused output", { outcome: "failed", reason: "invalid-output", check: "plan" }, false],
+    ["a model failure", { outcome: "failed", reason: "model-failed" }, false],
+    [
+      "the day's repair spent",
+      { outcome: "unavailable", reason: "repair-limit", retry: true },
+      true,
+    ],
+    [
+      "a request refused before the model",
+      { outcome: "failed", reason: "unreachable", retry: true },
+      true,
+    ],
+  ])("after %s, keeps the claim only when the model was called", async (_, answer, released) => {
+    fake.state.extracted = { login: formPage };
+    const { h, reports, generation } = start({ claim: claimed() });
+    generation.generate.mockImplementation(async (_request, sent) => {
+      sent?.();
+      return answer;
+    });
+    expect(await h.hello()).toEqual({ ok: false, reason: "generating" });
+    await vi.waitFor(() => expect(refusals(reports)).toHaveLength(1));
+    expect(release).toHaveBeenCalledTimes(released ? 1 : 0);
+  });
+
+  it("gives the claim back for a newer revision answered without a model call", async () => {
+    fake.state.extracted = { login: formPage };
+    const { h, generation } = start({ claim: claimed() });
+    // The cache was behind: the service answers its current revision as it is.
+    const current = parseLoginRecipe({ ...repaired, revision: 6 });
+    generation.generate.mockImplementation(async (_request, sent) => {
+      sent?.();
+      h.recipes.recipe.mockResolvedValue(current);
+      return { outcome: "recipe", recipe: current };
+    });
+    expect(await h.hello()).toEqual({ ok: false, reason: "generating" });
+    await vi.waitFor(() => expect(fake.state.reconnects).toHaveLength(1));
+    expect(release).toHaveBeenCalledOnce();
+  });
+
+  it.each<[string, Awaited<ReturnType<Claim>>]>([
+    ["not due", { outcome: "not-due" }],
+    ["not recorded", { outcome: "not-sent", reason: "storage-unavailable" }],
+  ])("refuses the page as before when the repair is %s", async (_, answer) => {
+    const { h, reports, generation } = start({ claim: () => async () => answer });
+    expect(await h.hello()).toEqual({ ok: false, reason: "generating" });
+    await vi.waitFor(() => expect(refusals(reports)).toHaveLength(1));
+    expect(unfits(reports)).toEqual([
+      expect.objectContaining({
+        outcome: answer.outcome,
+        ...("reason" in answer && answer.reason ? { reason: answer.reason } : {}),
+        detail: "password-empty:no-advance",
+      }),
+    ]);
+    // The claim's report comes first, then the refusal the repair would have replaced.
+    expect(reports.findIndex((entry) => entry.type === "unfit")).toBeLessThan(
+      reports.findIndex((entry) => entry.type === "refused"),
+    );
+    expect(generation.generate).not.toHaveBeenCalled();
+    expect(fake.state.reconnects).toEqual([]);
     expect(executed()).toEqual([]);
   });
 
-  it("refuses the page as before when the replacement throws", async () => {
+  it("refuses the page as before when the claim throws", async () => {
     const { h, reports } = start({
-      replace: () => async () => {
+      claim: () => async () => {
         throw new Error("synthetic generation side failure");
       },
     });
     expect(await h.hello()).toEqual({ ok: false, reason: "generating" });
     await vi.waitFor(() => expect(refusals(reports)).toHaveLength(1));
-    expect(revokes(reports)).toMatchObject([{ outcome: "failed", reason: "error" }]);
-    expect(fake.state.reconnects).toEqual([]);
+    expect(unfits(reports)).toMatchObject([{ outcome: "not-sent", reason: "error" }]);
   });
 
-  it("refuses the page as before when the cache still holds the revoked revision", async () => {
-    // The pull after the revocation failed, so the cache still starts the same revision.
-    const { h, reports } = start({ replace: () => async () => ({ outcome: "revoked" }) });
-    expect(await h.hello()).toEqual({ ok: false, reason: "generating" });
-    await vi.waitFor(() => expect(refusals(reports)).toHaveLength(1));
-    expect(revokes(reports)).toMatchObject([{ outcome: "revoked" }]);
-    expect(refusals(reports)[0]).toMatchObject({
-      reason: "no-route",
-      detail: "password-empty:no-advance",
-    });
-    expect(fake.state.reconnects).toEqual([]);
-  });
-
-  it.each(["revoked", "not-due"] as const)(
-    "leaves a page that went away before the answer (%s)",
-    async (outcome) => {
-      let answer!: () => void;
-      const { h, reports } = start({
-        replace: (page) => () =>
-          new Promise((resolve) => {
-            answer = () => {
-              page.recipes.recipe.mockResolvedValue(undefined);
-              resolve({ outcome });
-            };
-          }),
-      });
-      expect(await h.hello()).toEqual({ ok: false, reason: "generating" });
-      await vi.waitFor(() => expect(answer).toBeDefined());
-      // The tab closes before the service answers.
-      for (const listener of fake.state.removed) listener(1);
-      answer();
-      await vi.waitFor(() => expect(revokes(reports)).toHaveLength(1));
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      expect(fake.state.reconnects).toEqual([]);
-      expect(refusals(reports)).toEqual([]);
-    },
-  );
-
-  it("leaves a page that went away while the cache was read after the revocation", async () => {
-    const { h, reports } = start({
-      replace: (page) => async () => {
-        page.recipes.recipe.mockImplementation(async () => {
-          // The tab closes while the cache answers.
-          for (const listener of fake.state.removed) listener(1);
-          return undefined;
-        });
-        return { outcome: "revoked" };
-      },
+  it("leaves a page that went away before the claim", async () => {
+    let answer!: () => void;
+    const { h, reports, generation } = start({
+      claim: () => () =>
+        new Promise((resolve) => {
+          answer = () => resolve({ outcome: "claimed", release });
+        }),
     });
     expect(await h.hello()).toEqual({ ok: false, reason: "generating" });
-    await vi.waitFor(() => expect(revokes(reports)).toHaveLength(1));
-    await vi.waitFor(() => expect(h.recipes.recipe).toHaveBeenCalledTimes(2));
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(fake.state.reconnects).toEqual([]);
+    await vi.waitFor(() => expect(answer).toBeDefined());
+    // The tab closes before the claim is recorded.
+    for (const listener of fake.state.removed) listener(1);
+    answer();
+    await vi.waitFor(() => expect(release).toHaveBeenCalledOnce());
+    expect(generation.generate).not.toHaveBeenCalled();
     expect(refusals(reports)).toEqual([]);
   });
 
-  it("logs a page that could not be asked to announce again", async () => {
-    const { h, reports } = start({
-      replace: (page) => async () => {
-        // The document went with its page while the service answered.
-        fake.state.gone.add("synthetic-document");
-        page.recipes.recipe.mockResolvedValue(undefined);
-        return { outcome: "revoked" };
-      },
-    });
-    expect(await h.hello()).toEqual({ ok: false, reason: "generating" });
-    await vi.waitFor(() => expect(refusals(reports)).toHaveLength(1));
-    expect(refusals(reports)[0]).toMatchObject({ reason: "reconnect-failed" });
-    expect(refusals(reports)[0]).not.toHaveProperty("detail");
-  });
-
-  it("refuses the page as before when the generation side cannot revoke", async () => {
+  it("refuses the page as before when the generation side cannot claim", async () => {
     const reports: LoginReport[] = [];
-    const { replace: _replace, ...withoutReplace } = service();
+    const { claimRepair: _claim, ...withoutClaim } = service();
     const bare = harness(
       { bindings: [{ ...savedBinding, recipeId: generatedId }] },
       {
         username: true,
         report: (entry) => reports.push(entry),
         passkeys: vi.fn(async () => discoverable),
-        generation: withoutReplace,
+        generation: withoutClaim,
       },
     );
     bare.recipes.recipe.mockResolvedValue(onePage);
     emptyPassword(bare);
     expect(await bare.hello()).toEqual({ ok: false, reason: "no-route" });
-    expect(revokes(reports)).toEqual([]);
+    expect(unfits(reports)).toEqual([]);
     expect(refusals(reports)).toMatchObject([{ detail: "password-empty:no-advance" }]);
   });
 
-  it("revokes a recipe for an item without its TOTP secret that holds a discoverable passkey", async () => {
+  it("claims a repair for an item without its TOTP secret that holds a discoverable passkey", async () => {
     fake.state.present = new Set(["email", "next"]);
-    const { h, reports, generation } = start({ used: coded, password: true, replace: dropped() });
+    fake.state.extracted = { login: formPage };
+    const { h, reports, generation } = start({ used: coded, password: true, claim: claimed() });
     withoutTotp(h);
     expect(await h.hello()).toEqual({ ok: false, reason: "generating" });
-    await vi.waitFor(() => expect(fake.state.reconnects).toHaveLength(1));
-    expect(generation.replace).toHaveBeenCalledWith({
-      recipeId: generatedId,
-      revision: 3,
-      origin,
-      path: "/signin",
-    });
-    expect(revokes(reports)).toMatchObject([
-      { route: "passkey", outcome: "revoked", detail: "no-totp" },
+    await vi.waitFor(() => expect(refusals(reports)).toHaveLength(1));
+    expect(generation.claimRepair).toHaveBeenCalledWith(generatedId, "passkey");
+    expect(unfits(reports)).toMatchObject([
+      { route: "passkey", outcome: "claimed", detail: "no-totp" },
     ]);
     expect(executed()).toEqual([]);
   });
@@ -30741,12 +31194,12 @@ describe("revoking a recipe the chosen item cannot run (ADR 0058 A)", () => {
         used: coded,
         password: true,
         passkey: { passkey: true, discoverable: false },
-        replace: dropped(),
+        claim: claimed(),
       });
       withoutTotp(h);
       expect(await h.hello()).toEqual({ ok: false, reason: "no-route" });
       expect(refusals(reports)).toMatchObject([{ detail: "no-totp" }]);
-      expect(generation.replace).not.toHaveBeenCalled();
+      expect(generation.claimRepair).not.toHaveBeenCalled();
     });
 
     it("a variant refused for its binding beside one refused for the item's facts", async () => {
@@ -30775,7 +31228,7 @@ describe("revoking a recipe the chosen item cannot run (ADR 0058 A)", () => {
       });
       const { h, reports, generation } = start({
         used: varied,
-        replace: dropped(),
+        claim: claimed(),
         overrides: {
           bindings: [
             {
@@ -30791,18 +31244,18 @@ describe("revoking a recipe the chosen item cannot run (ADR 0058 A)", () => {
       });
       expect(await h.hello()).toEqual({ ok: false, reason: "no-route" });
       expect(refusals(reports)).toMatchObject([{ detail: "password-empty:alternatives" }]);
-      expect(generation.replace).not.toHaveBeenCalled();
+      expect(generation.claimRepair).not.toHaveBeenCalled();
     });
 
     it("a passkey that is not discoverable", async () => {
       const { h, reports, generation } = start({
         passkey: { passkey: true, discoverable: false },
-        replace: dropped(),
+        claim: claimed(),
       });
       expect(await h.hello()).toEqual({ ok: false, reason: "no-route" });
       expect(refusals(reports)).toMatchObject([{ detail: "password-empty:no-advance" }]);
-      expect(generation.replace).not.toHaveBeenCalled();
-      expect(revokes(reports)).toEqual([]);
+      expect(generation.claimRepair).not.toHaveBeenCalled();
+      expect(unfits(reports)).toEqual([]);
     });
 
     it("an item without a passkey (password-empty:no-passkey)", async () => {
@@ -30810,26 +31263,26 @@ describe("revoking a recipe the chosen item cannot run (ADR 0058 A)", () => {
       const { h, reports, generation } = start({
         used: emailFirst,
         passkey: { passkey: false, discoverable: false },
-        replace: dropped(),
+        claim: claimed(),
       });
       expect(await h.hello()).toEqual({ ok: false, reason: "no-route" });
       expect(refusals(reports)).toMatchObject([{ detail: "password-empty:no-passkey" }]);
-      expect(generation.replace).not.toHaveBeenCalled();
+      expect(generation.claimRepair).not.toHaveBeenCalled();
     });
 
     it("an item whose login ADR 0036's stop carries", async () => {
       fake.state.present = new Set(["email", "next"]);
       fake.state.onExecute = () => new Promise(() => undefined);
-      const { h, generation } = start({ used: emailFirst, replace: dropped() });
+      const { h, generation } = start({ used: emailFirst, claim: claimed() });
       expect(await h.hello()).toEqual({ ok: true });
-      expect(generation.replace).not.toHaveBeenCalled();
+      expect(generation.claimRepair).not.toHaveBeenCalled();
     });
 
     it("an item that holds the password the recipe fills", async () => {
       fake.state.onExecute = () => new Promise(() => undefined);
-      const { h, generation } = start({ password: true, replace: dropped() });
+      const { h, generation } = start({ password: true, claim: claimed() });
       expect(await h.hello()).toEqual({ ok: true });
-      expect(generation.replace).not.toHaveBeenCalled();
+      expect(generation.claimRepair).not.toHaveBeenCalled();
     });
 
     it("a recipe that has a passkey button", async () => {
@@ -30839,16 +31292,16 @@ describe("revoking a recipe the chosen item cannot run (ADR 0058 A)", () => {
         ...onePage,
         passkey: { path: "/signin", target: target("passkey-login") },
       });
-      const { h, generation } = start({ used: button, replace: dropped() });
+      const { h, generation } = start({ used: button, claim: claimed() });
       // The item takes the recipe's own passkey route.
       expect(await h.hello()).toEqual({ ok: true });
       await vi.waitFor(() => expect(executed()).toHaveLength(1));
-      expect(generation.replace).not.toHaveBeenCalled();
+      expect(generation.claimRepair).not.toHaveBeenCalled();
     });
 
     it("a refusal for the binding rather than the item's facts", async () => {
       const { h, reports, generation } = start({
-        replace: dropped(),
+        claim: claimed(),
         overrides: {
           connections: [
             {
@@ -30862,29 +31315,29 @@ describe("revoking a recipe the chosen item cannot run (ADR 0058 A)", () => {
         },
       });
       expect(await h.hello()).toEqual({ ok: false, reason: "binding-field-excluded" });
-      expect(generation.replace).not.toHaveBeenCalled();
-      expect(revokes(reports)).toEqual([]);
+      expect(generation.claimRepair).not.toHaveBeenCalled();
+      expect(unfits(reports)).toEqual([]);
     });
 
     it("a recipe the service did not generate", async () => {
       const owned = parseLoginRecipe({ ...onePage, id: recipe.id });
-      const { h, reports, generation } = start({ used: owned, replace: dropped() });
+      const { h, reports, generation } = start({ used: owned, claim: claimed() });
       expect(await h.hello()).toEqual({ ok: false, reason: "no-route" });
       expect(refusals(reports)).toMatchObject([{ detail: "password-empty:no-advance" }]);
-      expect(generation.replace).not.toHaveBeenCalled();
+      expect(generation.claimRepair).not.toHaveBeenCalled();
     });
   });
 
   describe("never outside a new login of the tab's own page at the first step", () => {
     it("a frame", async () => {
-      const { h, reports, generation } = start({ replace: dropped() });
+      const { h, reports, generation } = start({ claim: claimed() });
       const top = "https://login.example/account";
       fake.state.tabUrls[1] = top;
       expect(
         await h.hello({ frameId: 3, documentId: "frame-document", tab: { id: 1, url: top } }),
       ).toEqual({ ok: false, reason: "no-route" });
       expect(refusals(reports)).toMatchObject([{ detail: "password-empty:frame" }]);
-      expect(generation.replace).not.toHaveBeenCalled();
+      expect(generation.claimRepair).not.toHaveBeenCalled();
     });
 
     it("a login that would start at a later step (ADR 0049)", async () => {
@@ -30896,7 +31349,7 @@ describe("revoking a recipe the chosen item cannot run (ADR 0058 A)", () => {
           fake.state.present!.has(entry.value),
         ),
       });
-      const { h, reports, generation } = start({ used: coded, password: true, replace: dropped() });
+      const { h, reports, generation } = start({ used: coded, password: true, claim: claimed() });
       withoutTotp(h);
       h.recipes.recipe.mockResolvedValue(undefined);
       h.recipes.starts.mockResolvedValue([
@@ -30913,7 +31366,7 @@ describe("revoking a recipe the chosen item cannot run (ADR 0058 A)", () => {
       });
       expect(await h.hello()).toEqual({ ok: false, reason: "no-route" });
       expect(refusals(reports)).toMatchObject([{ reason: "no-route", detail: "no-totp" }]);
-      expect(generation.replace).not.toHaveBeenCalled();
+      expect(generation.claimRepair).not.toHaveBeenCalled();
     });
 
     it("a login on a chooser's list (ADR 0028)", async () => {
@@ -30934,7 +31387,7 @@ describe("revoking a recipe the chosen item cannot run (ADR 0058 A)", () => {
         },
       };
       fake.state.present = new Set();
-      const { h, reports, generation } = start({ used: coded, password: true, replace: dropped() });
+      const { h, reports, generation } = start({ used: coded, password: true, claim: claimed() });
       withoutTotp(h);
       h.recipes.recipe.mockResolvedValue(undefined);
       h.recipes.chooser.mockResolvedValue(chooser);
@@ -30943,11 +31396,11 @@ describe("revoking a recipe the chosen item cannot run (ADR 0058 A)", () => {
       ]);
       expect(await h.hello()).toEqual({ ok: false, reason: "no-route" });
       expect(refusals(reports)).toMatchObject([{ reason: "no-route", detail: "no-totp" }]);
-      expect(generation.replace).not.toHaveBeenCalled();
+      expect(generation.claimRepair).not.toHaveBeenCalled();
     });
 
     it("a page the tab asks for after a logout (ADR 0021 D)", async () => {
-      const { h, generation } = start({ replace: dropped() });
+      const { h, generation } = start({ claim: claimed() });
       expect(await h.hello({ documentId: "home" }, false)).toMatchObject({ ok: false });
       expect(
         await h.login.handle(
@@ -30959,7 +31412,7 @@ describe("revoking a recipe the chosen item cannot run (ADR 0058 A)", () => {
         ok: false,
         reason: "generating",
       });
-      expect(generation.replace).not.toHaveBeenCalled();
+      expect(generation.claimRepair).not.toHaveBeenCalled();
     });
 
     it("a resumed login of the recipe", async () => {
@@ -30969,7 +31422,7 @@ describe("revoking a recipe the chosen item cannot run (ADR 0058 A)", () => {
           await new Promise(() => undefined);
       };
       let empty = false;
-      const { h, generation } = start({ password: true, replace: dropped() });
+      const { h, generation } = start({ password: true, claim: claimed() });
       emptyPassword(h, () => empty);
       expect(await h.hello()).toEqual({ ok: true });
       await vi.waitFor(() => expect(executed()).toHaveLength(2));
@@ -30978,7 +31431,7 @@ describe("revoking a recipe the chosen item cannot run (ADR 0058 A)", () => {
         ok: false,
         reason: "generating",
       });
-      expect(generation.replace).not.toHaveBeenCalled();
+      expect(generation.claimRepair).not.toHaveBeenCalled();
     });
 
     it("while another tab runs a login of the recipe", async () => {
@@ -30987,7 +31440,7 @@ describe("revoking a recipe the chosen item cannot run (ADR 0058 A)", () => {
           await new Promise(() => undefined);
       };
       let empty = false;
-      const { h, reports, generation } = start({ password: true, replace: dropped() });
+      const { h, reports, generation } = start({ password: true, claim: claimed() });
       emptyPassword(h, () => empty);
       fake.state.tabUrls[2] = fake.state.pageUrl;
       expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({ ok: true });
@@ -30999,14 +31452,14 @@ describe("revoking a recipe the chosen item cannot run (ADR 0058 A)", () => {
         tabId: 1,
         detail: "password-empty:no-advance",
       });
-      expect(generation.replace).not.toHaveBeenCalled();
+      expect(generation.claimRepair).not.toHaveBeenCalled();
       // Once that tab closes, its login no longer holds the recipe.
       for (const listener of fake.state.removed) listener(2);
       expect(await h.hello({ documentId: "synthetic-document-3" })).toEqual({
         ok: false,
         reason: "generating",
       });
-      await vi.waitFor(() => expect(generation.replace).toHaveBeenCalledTimes(1));
+      await vi.waitFor(() => expect(generation.claimRepair).toHaveBeenCalledTimes(1));
     });
   });
 });

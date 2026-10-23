@@ -189,6 +189,7 @@ export const ja = {
   "the site's sign-in link": "サイトのログインリンク",
   "the site's list of accounts": "サイトのアカウント一覧",
   "the rest of the site's sign-in": "サイトのログインの続き",
+  "the site's changed sign-in page": "サイトの変更されたログインページ",
   "the site's sign-in page": "サイトのログインページ",
   "This site has a recipe for this page.": "このサイトには、このページに対応するレシピがあります。",
   "This site has a recipe, but none starts on this page.":

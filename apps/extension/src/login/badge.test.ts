@@ -144,9 +144,9 @@ describe("badgeResult", () => {
       expect(badgeResult({ ...sample, outcome }, now)).toBeUndefined();
   });
 
-  it("ignores a recipe revoked for an item that cannot run it (ADR 0058 A)", () => {
-    const revoke = {
-      type: "revoke" as const,
+  it("ignores a repair claimed for an item that cannot run its recipe (ADR 0058 A)", () => {
+    const unfit = {
+      type: "unfit" as const,
       tabId: 1,
       origin: "https://login.example",
       recipeId: "gen-0123456789abcdef0123456789abcdef",
@@ -154,8 +154,8 @@ describe("badgeResult", () => {
       route: "passkey" as const,
       detail: "password-empty:no-advance",
     };
-    for (const outcome of ["revoked", "conflict", "not-due", "not-sent", "failed"] as const)
-      expect(badgeResult({ ...revoke, outcome }, now)).toBeUndefined();
+    for (const outcome of ["claimed", "not-due", "not-sent"] as const)
+      expect(badgeResult({ ...unfit, outcome }, now)).toBeUndefined();
   });
 
   it("shows an unconfirmed completion as unsettled for four seconds", () => {
@@ -358,15 +358,15 @@ describe("login badge", () => {
     expect(h.view()).toMatchObject(NONE);
   });
 
-  it("keeps the tab's badge through a revocation report (ADR 0058 A)", async () => {
+  it("keeps the tab's badge through an unfit recipe's report (ADR 0058 A)", async () => {
     const h = harness();
     h.badge.observe(attempt({ outcome: "credential-rejected" }));
     await h.flush();
     const before = h.view();
     expect(before).toMatchObject(FAILED);
-    for (const outcome of ["revoked", "failed"] as const)
+    for (const outcome of ["claimed", "not-sent"] as const)
       h.badge.observe({
-        type: "revoke",
+        type: "unfit",
         tabId,
         origin: "https://login.example",
         recipeId: "gen-0123456789abcdef0123456789abcdef",

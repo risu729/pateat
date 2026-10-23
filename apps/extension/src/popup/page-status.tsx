@@ -151,7 +151,9 @@ function recipeLines(status: Status, t: TFunction): StatusLine[] {
         ? t("the site's list of accounts")
         : generation?.page === "continuation"
           ? t("the rest of the site's sign-in")
-          : t("the site's sign-in page");
+          : generation?.page === "repair"
+            ? t("the site's changed sign-in page")
+            : t("the site's sign-in page");
   const lines: StatusLine[] = [];
   if (status.recipe === "page")
     lines.push({ id: "recipe", tone: "idle", text: t("This site has a recipe for this page.") });
