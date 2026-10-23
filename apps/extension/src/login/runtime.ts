@@ -5347,22 +5347,35 @@ export function createLoginRuntime(
   async function settleDetails(run: Execution, confirmed: boolean): Promise<void> {
     const { tabId } = run.live.document;
     await sessionLoaded;
+    // The offer ends with its login, also when the person typed the value themselves and
+    // the page stays in the same document.
+    const offered = detailOffers.get(tabId)?.attemptId === run.metadata.id;
+    if (offered) detailOffers.delete(tabId);
     const kept = pendingDetails.get(tabId)?.filter((entry) => entry.attemptId === run.metadata.id);
-    if (!kept?.length) return;
+    if (!kept?.length) {
+      if (offered) await quietly(saveSession);
+      return;
+    }
     const rest = pendingDetails.get(tabId)!.filter((entry) => entry.attemptId !== run.metadata.id);
     if (rest.length) pendingDetails.set(tabId, rest);
     else pendingDetails.delete(tabId);
-    if (detailOffers.get(tabId)?.attemptId === run.metadata.id) detailOffers.delete(tabId);
     await quietly(saveSession);
     if (!confirmed) return;
-    // A link the owner chose again replaces one refused before.
-    for (const entry of kept) refusedDetails.delete(refusalKey(entry.link, entry.link.detail));
     const written = await writeDetailLinks(run, (links) => [
       ...links.filter(
         (link) => !kept.some((entry) => sameLink(link, entry.link, entry.link.detail)),
       ),
       ...kept.map((entry) => entry.link),
     ]);
+    // A link the owner chose again replaces one refused before, once it is written: until
+    // then the settings may still hold the refused one. The session keeps the refusals, so
+    // a restarted worker does not bring a lifted one back.
+    if (written === "saved" || written === "unchanged") {
+      const lifted = kept.filter((entry) =>
+        refusedDetails.delete(refusalKey(entry.link, entry.link.detail)),
+      );
+      if (lifted.length) await quietly(saveSession);
+    }
     for (const entry of kept)
       reportDetail(
         run.live.document,
