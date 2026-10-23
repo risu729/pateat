@@ -553,6 +553,41 @@ describe("logout requests and answers (ADR 0063)", () => {
         base: { recipeId: "gen-logout-1", revision: 1 },
       }),
     ).toBe(true);
+    // A stored click gone from the page is replaced past the clicks that still worked.
+    expect(
+      v.is(logoutGenerationRequestSchema, {
+        version: 1,
+        observation: signedIn,
+        base: { recipeId: "gen-logout-1", revision: 1, keep: 0 },
+      }),
+    ).toBe(true);
+    expect(
+      v.is(logoutGenerationRequestSchema, {
+        version: 1,
+        observation: signedIn,
+        base: { recipeId: "gen-logout-1", revision: 1, keep: 3 },
+      }),
+    ).toBe(false);
+    // A page after a logout control the extension found by its words.
+    const local = { path: "/home", target: { by: "accessible-name", value: "Sign out" } };
+    expect(v.is(logoutGenerationRequestSchema, { version: 1, observation: signedIn, local })).toBe(
+      true,
+    );
+    expect(
+      v.is(logoutGenerationRequestSchema, {
+        version: 1,
+        observation: signedIn,
+        local: { ...local, target: { by: "autocomplete", value: "username" } },
+      }),
+    ).toBe(false);
+    expect(
+      v.is(logoutGenerationRequestSchema, {
+        version: 1,
+        observation: signedIn,
+        local,
+        base: { recipeId: "gen-logout-1", revision: 1 },
+      }),
+    ).toBe(false);
     // A page with a field to fill, slots or a list of accounts is no logout request.
     expect(v.is(logoutGenerationRequestSchema, { version: 1, observation })).toBe(true);
     expect(

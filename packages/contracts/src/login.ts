@@ -754,14 +754,16 @@ export const MAX_LOGOUT_TARGETS = 3;
  */
 export const logoutPurposeSchema = v.picklist(["menu", "logout", "confirm"]);
 /**
- * A logout click's locator: a control by `id`, `name`, `test-id` or its rendered text,
- * never `autocomplete` or `label`, which name only inputs, nor `accessible-name`, which
- * names only a `password` handler's button.
+ * A logout click's locator: a control by `id`, `name`, `test-id`, its rendered text, or,
+ * for a control that shows no text of its own (an icon-only account menu, or a menu item),
+ * its `aria-label` or `title` (`accessible-name`); never `autocomplete` or `label`, which
+ * name only inputs.
  */
-const logoutTargetSchema = v.variant("by", [
+export const logoutTargetSchema = v.variant("by", [
   loginAttributeTargetSchema.options[0],
   loginAttributeTargetSchema.options[1],
   loginTextTargetSchema,
+  loginAccessibleNameTargetSchema,
 ]);
 /**
  * A recipe whose only member is `logout` (ADR 0063): how a signed-in page of the origin

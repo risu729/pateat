@@ -17,6 +17,14 @@ import * as v from "valibot";
 import { acceptsSecret, shortNumericInput } from "../login/inputs";
 import type { observationGaps } from "../login/wire";
 import { splitCodeInputs } from "../page/code-submission";
+import {
+  findLogoutTargets,
+  isMenuItem,
+  localLogoutControl,
+  logoutControlName,
+  menuItemText,
+  openMenus,
+} from "../page/logout-controls";
 import { autocompleteTokens, findTargets, linkPath, namedControls } from "../page/targets";
 import { observedPath, redactsPath, tokenSegment } from "./path";
 import {
@@ -1762,20 +1770,50 @@ export function extractEntryObservation(
 }
 
 /** Where an opened account menu holds its items, besides a modal dialog; a closed one shows none. */
-const openMenus = "[role='menu' i], [role='menubar' i], [popover], details[open]";
 
 /**
- * The observation of a signed-in page an account switch signs out of (ADR 0063): its shown,
- * enabled buttons and links outside every form with a field, as candidates the logout role
- * may name as the control that signs out, opens the menu holding it, or confirms it. The
- * page's hidden elements are never described, so a closed menu's items show only once a
- * round opened it. Those in an open modal dialog come first, then those in an open menu,
- * then those in the page header or navigation, then the rest in document order, up to the
- * observation's 48 candidates. A link that opens another window or downloads is left out.
- * Texts carry no number, as a signed-in marker's (ADR 0029), and a text locator with a
- * number character is never kept, so a balance or an unread count never names a control.
- * Fields are never described, so the page is sent without slots, as an entry page is
- * (ADR 0031).
+ * A logout click's locator for a control of a signed-in page (ADR 0063): its lasting
+ * `id`, `name` or `test-id`, or its text when that names it alone, as a login step's;
+ * else, for a control with no text of its own or a menu item, its `aria-label` or `title`
+ * when that names it alone. A text or name that holds a number or an `@` is never one, as
+ * it may be the account's.
+ */
+function logoutLocator(
+  element: HTMLElement,
+  index: LocatorIndex,
+  tokens: boolean,
+): LoginMarkerTarget | undefined {
+  const document = element.ownerDocument;
+  const personal = (value: string) => /[\p{Number}@]/u.test(value);
+  const only = (target: LoginMarkerTarget) => {
+    const found = findLogoutTargets(document, target);
+    return found.length === 1 && found[0] === element;
+  };
+  if (!isMenuItem(element)) {
+    const target = locate(element, index, {
+      tokens,
+      links: true,
+      lasting: true,
+      redactAttributes: true,
+    });
+    if (target && !(target.by === "text" && personal(target.value))) return target;
+  } else {
+    const text = menuItemText(element);
+    const target = text && !personal(text) ? { by: "text" as const, value: text } : undefined;
+    if (target && only(target)) return target;
+  }
+  const name = logoutControlName(element);
+  if (!name || personal(name)) return undefined;
+  const target = { by: "accessible-name" as const, value: name };
+  return only(target) ? target : undefined;
+}
+
+/**
+ * A signed-in page for an account switch's logout (ADR 0063): its shown, enabled buttons,
+ * links and menu items outside a form with a field to fill, never a link that opens a new
+ * window or downloads, each by {@link logoutLocator}. Those of an open dialog come first,
+ * then those of an open menu, then the page's header and navigation, so a page with more
+ * than 48 still shows them. Texts lose their numbers, as a count or an account number.
  */
 export function extractLogoutObservation(
   document: Document = globalThis.document,
@@ -1784,26 +1822,55 @@ export function extractLogoutObservation(
   if (!location) return { ok: false, reason: "unsupported-page" };
   const tokens = redactsPath(location.pathname);
   const index = locatorIndex(document);
-  const shownControls = describeAll(document).flatMap((entry) => {
+  const inFieldForm = (element: Element, form?: HTMLFormElement | null) =>
+    Boolean((form ?? element.closest("form"))?.querySelector(fields));
+  const described = describeAll(document).flatMap((entry) => {
     if (entry.kind !== "candidate") return [];
     const { element, role } = entry.draft;
     if ((role !== "button" && role !== "link") || !enabled(element)) return [];
     // A form with a field holds its own controls, such as a search box's button.
-    if ((entry.form ?? element.closest("form"))?.querySelector(fields)) return [];
+    if (inFieldForm(element, entry.form)) return [];
     if (role === "link") {
       const refusal = entryElementRefusal(element);
       if (refusal === "new-window" || refusal === "download") return [];
     }
-    const target = locate(element, index, {
-      tokens,
-      links: true,
-      lasting: true,
-      redactAttributes: true,
-    });
-    return target && !(target.by === "text" && /\p{Number}/u.test(target.value))
-      ? [{ form: entry.form, draft: entry.draft, target }]
-      : [];
+    const target = logoutLocator(element, index, tokens);
+    if (!target) return [];
+    const label = entry.draft.label ?? logoutControlName(element);
+    // A link named only by its aria-label or title is described as the button it is
+    // pressed as: an observation names only buttons by accessible name.
+    const draft = {
+      ...entry.draft,
+      ...(target.by === "accessible-name" ? { role: "button" as const } : {}),
+      ...(label ? { label } : {}),
+    };
+    return [{ form: entry.form, draft, target }];
   });
+  // A menu item that is no button or link, as `<li role="menuitem">Sign out</li>`.
+  const items = [...document.querySelectorAll("[role]")].flatMap((element) => {
+    if (
+      !isMenuItem(element) ||
+      element.getAttribute("aria-disabled")?.trim().toLowerCase() === "true" ||
+      inFieldForm(element)
+    )
+      return [];
+    const label = menuItemText(element) ?? logoutControlName(element);
+    const target = label === undefined ? undefined : logoutLocator(element, index, tokens);
+    if (!target || !label) return [];
+    return [
+      {
+        form: element.closest("form"),
+        draft: { element, role: "button" as const, label },
+        target,
+      },
+    ];
+  });
+  const shownControls = [
+    ...described,
+    ...items.filter(
+      (item) => !described.some((entry) => entry.draft.element === item.draft.element),
+    ),
+  ];
   const modals = openModals(document);
   const rank = (element: Element) =>
     modals.some((modal) => modal.contains(element))
@@ -1821,6 +1888,27 @@ export function extractLogoutObservation(
     .slice(0, maxCandidates);
   if (chosen.length === 0) return { ok: false, reason: "no-candidates" };
   return observe(document, chosen, true, (text) => withoutNumbers(text));
+}
+
+/**
+ * The one control of a signed-in page that says it logs out of this site
+ * ({@link localLogoutControl}), with its {@link logoutLocator}: the account switch clicks
+ * it without asking the model (ADR 0063, owner 2026-10-23). `ambiguous` when several say
+ * so, and `unlocated` when it has no locator a recipe could keep.
+ */
+export function extractLocalLogout(
+  document: Document = globalThis.document,
+):
+  | { ok: true; target: LoginMarkerTarget }
+  | { ok: false; reason: "none" | "ambiguous" | "unlocated" } {
+  const location = document.location;
+  if (!location) return { ok: false, reason: "none" };
+  const control = localLogoutControl(document);
+  if (typeof control === "string") return { ok: false, reason: control };
+  if (!enabled(control) || control.closest("form")?.querySelector(fields))
+    return { ok: false, reason: "none" };
+  const target = logoutLocator(control, locatorIndex(document), redactsPath(location.pathname));
+  return target ? { ok: true, target } : { ok: false, reason: "unlocated" };
 }
 
 /** A button-only passkey start, using the same bounded, value-free observation as login. */

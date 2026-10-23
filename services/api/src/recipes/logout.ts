@@ -8,6 +8,7 @@ import {
   type SyncRecipeChange,
 } from "@pateat/contracts";
 import {
+  accountText,
   appendLogoutClick,
   createLogoutGenerator,
   logoutInstructions,
@@ -65,10 +66,12 @@ const logoutAbstentions = new Set<string>([
 
 /**
  * `POST /v1/recipes/logout`. Returns `undefined` when `base` names a recipe ID that is not a
- * generated one, which the route answers as a bad request. Without `base` a stored logout
- * recipe of the origin and path answers without a model call; with `base`, a head newer
- * than it does, as another device appended the page first. The answer's click is appended
- * as the next revision; a `signed-out` answer and an abstention store nothing.
+ * generated one, or `local` a control by an account's text, which the route answers as a
+ * bad request. Without `base` a stored logout recipe of the origin and path (`local`'s path
+ * after a local click) answers without a model call; with `base`, a head newer than it
+ * does, as another device appended the page first. The answer's click is appended as the
+ * next revision, after `local`'s click or in place of `base`'s clicks past `keep`; a
+ * `signed-out` answer and an abstention store nothing.
  */
 export async function generateLogout(
   env: GenerationEnv,
@@ -76,9 +79,11 @@ export async function generateLogout(
   request: LogoutGenerationRequest,
   trace: RequestTrace,
 ): Promise<LogoutGenerationResult | undefined> {
-  const { observation, base } = request;
+  const { observation, base, local } = request;
   const { origin, path } = observation;
-  const recipeId = base?.recipeId ?? (await generatedLogoutRecipeId(origin, path));
+  // A control the extension found by its words never names an account (ADR 0028's rule).
+  if (local && accountText.test(local.target.value)) return undefined;
+  const recipeId = base?.recipeId ?? (await generatedLogoutRecipeId(origin, local?.path ?? path));
   if (!isGeneratedRecipeId(recipeId)) return undefined;
   const headAtStart = await readHead(env.DB, scope.ownerId, recipeId);
   // What the request log keeps of the request, sent or not (ADR 0012).
@@ -92,7 +97,7 @@ export async function generateLogout(
       recipeId,
       branch: "",
       baseRevision: headAtStart?.revision ?? 0,
-      page: base ? "continuation" : "first",
+      page: base || local ? "continuation" : "first",
     },
   } satisfies UnsentRequest;
   const unsent = (answer: Extract<LogoutGenerationResult, UnsentAnswer>) =>
@@ -185,8 +190,25 @@ export async function generateLogout(
     };
   const answer = outcome.value;
   if (answer.decision === "signed-out") return { version: 1, status: "signed-out" };
+  // The page follows a local click, which the recipe starts with, or replaces the base's
+  // clicks past those that still worked (`keep`).
+  const kept = before.base?.logout.targets.slice(0, base?.keep);
+  const start: LoginLogoutRecipe | undefined = local
+    ? {
+        version: 1,
+        id: recipeId,
+        revision: baseRevision,
+        origin,
+        logout: {
+          path: local.path,
+          targets: [{ kind: "click", path: local.path, target: local.target, purpose: "logout" }],
+        },
+      }
+    : before.base && kept?.length
+      ? { ...before.base, logout: { ...before.base.logout, targets: kept } }
+      : undefined;
   const built = appendLogoutClick(
-    before.base,
+    start,
     { id: recipeId, revision: baseRevision + 1, origin, path },
     answer,
   );

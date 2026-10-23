@@ -125,7 +125,9 @@ import {
   stateResultSchema,
   statusSchema,
   submittedSchema,
+  localLogoutResultSchema,
   logoutClickResultSchema,
+  LOGOUT_REACTION_MS,
   chooseResultSchema,
   type ListMissReport as ListMiss,
   probeControlSchema,
@@ -198,6 +200,7 @@ import {
   runLogout,
   siteDefaultsMark,
   type LogoutPress,
+  type LogoutSource,
   type LogoutService,
 } from "./switch";
 
@@ -1418,7 +1421,7 @@ type GenerationScope = {
  * a pick in the popup, an account switch's pick, or the site's pick kept for the browser
  * session (ADR 0063).
  */
-export type AccountSource = "default" | "match" | "pick" | "switch" | "session";
+export type AccountSource = "default" | "match" | "pick" | "switch";
 /**
  * A value-free account of what the runtime decided, for the local log (ADR 0019). The
  * origin and recipe ID are reduced there; no account ID is included, and the only item ID,
@@ -1784,6 +1787,8 @@ export type LoginReport = (
       reason?: string;
       detail?: string;
       purpose?: LogoutPurpose;
+      /** Where a click came from: the stored recipe, the model or the control's words. */
+      source?: LogoutSource;
       learned?: true;
       clicks?: number;
       recipeId?: string;
@@ -1917,6 +1922,8 @@ function choiceBadge(
               "Pateat: the last login on this site stopped in this tab. Click to choose an account.",
             "relogin-limit":
               "Pateat: this site was logged in again twice in 10 minutes. Click to choose an account.",
+            "one-time-pick":
+              "Pateat: you chose an account here without making it the default. Click to choose an account.",
           }[ask]
         : `Pateat: ${candidates.length} accounts match this page. Click to choose one.`,
   };
@@ -3185,6 +3192,40 @@ export function createLoginRuntime(
                 ? "missing"
                 : "page-changed";
           },
+          findLocal: async (live) => {
+            const parsed = v.safeParse(
+              localLogoutResultSchema,
+              await send(live, { type: "login.logout.local" }).catch(() => undefined),
+            );
+            if (!parsed.success) return "none";
+            return parsed.output.ok ? parsed.output.target : parsed.output.reason;
+          },
+          pressLocal: async (live, target) => {
+            let answer: unknown;
+            try {
+              answer = await send(live, {
+                type: "login.logout.click",
+                target,
+                timeoutMs: SWITCH_CHECK_MS,
+                watchMs: LOGOUT_REACTION_MS,
+              });
+            } catch {
+              // The page went while it was pressed or watched: the press led there.
+              return { press: "clicked", reacted: "navigated" };
+            }
+            const parsed = v.safeParse(logoutClickResultSchema, answer);
+            if (!parsed.success) return { press: "missing" };
+            if (parsed.output.ok)
+              return { press: "clicked", reacted: parsed.output.reacted ?? "none" };
+            return {
+              press:
+                parsed.output.reason === "ambiguous"
+                  ? "ambiguous"
+                  : parsed.output.reason === "missing"
+                    ? "missing"
+                    : "page-changed",
+            };
+          },
           settle: (live) => settleSwitch(tabId, site, live),
         },
         {
@@ -3199,13 +3240,14 @@ export function createLoginRuntime(
             }
           },
         },
-        (purpose, learned) =>
+        (purpose, learned, source) =>
           report(started.document, {
             type: "switch",
             tabId,
             origin: started.document.origin,
             stage: "click",
             purpose,
+            source,
             ...(learned ? { learned: true as const } : {}),
           }),
       );
@@ -3481,19 +3523,26 @@ export function createLoginRuntime(
       documents.get(frameKey(signedIn.document)) ?? documents.get(frameKey({ tabId, frameId: 0 }));
     if (!pick || pick.attemptId !== signedIn.id || site === undefined || !live) return;
     if (pick.makeDefault) {
-      await accountPicks.dropSession(site, live.incognito === true).catch(() => undefined);
+      await accountPicks.stopAsking(site, live.incognito === true).catch(() => undefined);
       return;
     }
     const snapshot = await settings
       .handle({ version: 1, type: "settings.get" })
       .catch(() => undefined);
     if (!snapshot?.ok) return;
+    // Picking the saved default itself chose nothing else: the site goes on as before.
+    const saved = snapshot.snapshot.settings.siteDefaults.find(
+      (entry) => entry.origin === signedIn.account.origin,
+    );
+    const mapped = saved && siteDefaultConnection(saved, snapshot.catalog);
+    if (saved?.itemId === pick.itemId && mapped?.ok && mapped.connectionId === pick.connectionId) {
+      await accountPicks.stopAsking(site, live.incognito === true).catch(() => undefined);
+      return;
+    }
     await accountPicks
-      .keepSession({
+      .askEveryTime({
         site,
         incognito: live.incognito === true,
-        connectionId: pick.connectionId,
-        itemId: pick.itemId,
         defaults: siteDefaultsMark(snapshot.snapshot.settings.siteDefaults, site, siteOf),
       })
       .catch(() => undefined);
@@ -3923,32 +3972,6 @@ export function createLoginRuntime(
       }
       if (!listed.length) return { reason: saved ? "default-unavailable" : "default-not-set" };
       return { reason: asking, candidates: listed.slice(0, 100), ask: true };
-    }
-    // The account picked for the site in this browser session without making it the default
-    // (ADR 0063) comes before the saved default while it still matches the page.
-    const pageSite = siteOf(live.document.origin);
-    const session =
-      uris && pageSite !== undefined
-        ? await accountPicks.sessionFor(
-            pageSite,
-            live.incognito === true,
-            siteDefaultsMark(snapshot.snapshot.settings.siteDefaults, pageSite, siteOf),
-          )
-        : undefined;
-    if (session) {
-      const found = await siteCandidates(snapshot, live);
-      if (
-        !("reason" in found) &&
-        found.candidates.some(
-          (entry) => entry.connectionId === session.connectionId && entry.itemId === session.itemId,
-        )
-      )
-        return {
-          connectionId: session.connectionId,
-          itemId: session.itemId,
-          saved: false,
-          source: "session",
-        };
     }
     if (saved) {
       const connection = siteDefaultConnection(saved, snapshot.catalog);
@@ -4449,8 +4472,8 @@ export function createLoginRuntime(
             ...(named.accountName ? { accountName: named.accountName } : {}),
           });
         }
-        // A pick made for this login only is never saved, nor is the session's (ADR 0063).
-        if (unsaved && chosen.source !== "session" && (!chosen.pick || chosen.pick.makeDefault))
+        // A pick made for this login only is never saved.
+        if (unsaved && (!chosen.pick || chosen.pick.makeDefault))
           choice = {
             binding: named,
             connectionId: chosen.connectionId,
@@ -9516,6 +9539,15 @@ export function createLoginRuntime(
     // in the popup still logs in, and is not counted (ADR 0062).
     if (!ask && !previous && !switched && reloginLimited(document.origin, incognito === true))
       ask = "relogin-limit";
+    // A pick that did not make its account the default makes the site ask every time until
+    // the browser closes or a default is saved for it (ADR 0063).
+    if (
+      !ask &&
+      !previous &&
+      !switched &&
+      (await asksEveryTime(document.origin, incognito === true, snapshot))
+    )
+      ask = "one-time-pick";
     if (ask && heldElsewhere(document.tabId, document.origin)) {
       showHeld(document.tabId);
       return refuse("origin-busy");
@@ -10210,24 +10242,28 @@ export function createLoginRuntime(
     return pick !== undefined;
   }
   /**
-   * The site's account pick for this browser session (ADR 0063), for a passkey request of
-   * `pageOrigin` while the saved defaults of its site are still those it was kept with.
+   * Whether the site of `pageOrigin` asks every time (ADR 0063): an account was picked there
+   * in this browser session without making it the default, and its saved defaults are still
+   * those of then. A settings read that fails counts as not asking.
    */
-  async function sessionPick(
+  async function asksEveryTime(
     pageOrigin: string,
     incognito: boolean,
-  ): Promise<{ connectionId: string; itemId: string } | undefined> {
+    snapshot?: Extract<SettingsResponse, { ok: true }>,
+  ): Promise<boolean> {
     const site = siteOf(pageOrigin);
-    if (site === undefined) return undefined;
-    const snapshot = await settings
-      .handle({ version: 1, type: "settings.get" })
-      .catch(() => undefined);
-    if (!snapshot?.ok) return undefined;
-    return accountPicks.sessionFor(
-      site,
-      incognito,
-      siteDefaultsMark(snapshot.snapshot.settings.siteDefaults, site, siteOf),
-    );
+    if (site === undefined) return false;
+    const read =
+      snapshot ??
+      (await settings.handle({ version: 1, type: "settings.get" }).catch(() => undefined));
+    if (!read?.ok) return false;
+    return accountPicks
+      .asksEveryTime(
+        site,
+        incognito,
+        siteDefaultsMark(read.snapshot.settings.siteDefaults, site, siteOf),
+      )
+      .catch(() => false);
   }
   /**
    * Sends the page as a site's sign-in entry (ADR 0031): its buttons and links, without
@@ -10739,6 +10775,11 @@ export function createLoginRuntime(
   browser.tabs.onReplaced.addListener((added, removed) => {
     if (added === removed) return;
     replacedTabs.add(removed);
+    // An account switch's pick and state go with the tab, as to a prerendered sign-in page
+    // (ADR 0063); moved before `forgetTab` below ends the gone tab's.
+    void accountPicks.moveSwitch(removed, added).catch(() => undefined);
+    const switching = switchStates.get(removed);
+    if (switching) switchStates.set(added, switching);
     const moved = (key: string) =>
       key.startsWith(`${removed} `) ? `${added}${key.slice(String(removed).length)}` : key;
     void sessionLoaded.then(async () => {
@@ -11481,6 +11522,13 @@ export function createLoginRuntime(
       (await pausedUntil({ url: input.origin, incognito })) !== undefined;
     if (await pausedPage()) return { kind: "delegate", reason: "paused" };
     const run = attempts.get(input.tabId);
+    // A site that asks every time logs in only by a pick, whose own login answers the
+    // request of its document; any other goes to the browser (ADR 0063).
+    if (
+      run?.live.document.documentId !== input.documentId &&
+      (await asksEveryTime(input.origin, incognito === true))
+    )
+      return { kind: "delegate", reason: "one-time-pick" };
     if (run?.live.document.documentId !== input.documentId) {
       const starts = await startsFor(input.origin).catch(() => []);
       if (!starts.length) return { kind: "delegate", reason: "no-recipe" };
@@ -12152,7 +12200,11 @@ export function createLoginRuntime(
     passkeyRequested,
     passkeyAnswered,
     conditionalRequest,
-    sessionPick,
+    /**
+     * Whether a passkey request of the origin treats the saved default as unset: its site
+     * asks every time after a pick that did not make its account the default (ADR 0063).
+     */
+    defaultUnset: (pageOrigin: string, incognito: boolean) => asksEveryTime(pageOrigin, incognito),
     /** A tab's page changed: a page of a paused site shows `II` on its badge (ADR 0062). */
     tabLoaded: (tab: Browser.tabs.Tab) => showTabPause(tab).catch(() => undefined),
   };

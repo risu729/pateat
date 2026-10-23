@@ -7,14 +7,16 @@ const tabId = v.pipe(v.number(), v.integer(), v.minValue(0));
  * Why a tab asks for an account instead of logging in, filling nothing (ADR 0021 D, ADR
  * 0062): the site did not accept its last login (`rejected`) or another tab's that still
  * asks (`rejected-elsewhere`), this tab's own login stopped after a submission or its
- * watch ended before it signed in (`stopped-login`), or two automatic logins of the site
- * ended signed in within 10 minutes (`relogin-limit`).
+ * watch ended before it signed in (`stopped-login`), two automatic logins of the site
+ * ended signed in within 10 minutes (`relogin-limit`), or an account was picked for the
+ * site in this browser session without making it the default (`one-time-pick`, ADR 0063).
  */
 export const askReasonSchema = v.picklist([
   "rejected",
   "rejected-elsewhere",
   "stopped-login",
   "relogin-limit",
+  "one-time-pick",
 ]);
 export type AskReason = v.InferOutput<typeof askReasonSchema>;
 /** The toolbar popup's line saying why it asks for an account (ADR 0021). */
@@ -28,6 +30,8 @@ export function choiceReason(ask: AskReason | undefined, matches: number, paused
     "stopped-login": "The last login on this site stopped in this tab",
     "relogin-limit":
       "Pateat logged in to this site twice in the last 10 minutes, so it waits for you to choose",
+    "one-time-pick":
+      "You chose an account here without making it the default, so Pateat asks each time until the browser closes",
   }[ask];
 }
 /** The toolbar popup asks which accounts the refused login in a tab could use (ADR 0021). */

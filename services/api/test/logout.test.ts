@@ -114,15 +114,30 @@ const confirmPage = page("/logout", [button("c1", "Cancel"), button("c2", "Yes, 
 const logoutAnswer = (control: string, purpose: string) =>
   JSON.stringify({ result: { decision: "logout", control, purpose } });
 
-async function logout(device: Device, observation: LoginObservation, base?: unknown) {
+async function logout(
+  device: Device,
+  observation: LoginObservation,
+  base?: unknown,
+  local?: unknown,
+) {
   const response = await post(device, "/v1/recipes/logout", {
     version: 1,
     observation,
     ...(base === undefined ? {} : { base }),
+    ...(local === undefined ? {} : { local }),
   });
   expect(response.status).toBe(200);
   return (await response.json()) as LogoutGenerationResult;
 }
+const clicks = (result: LogoutGenerationResult) => {
+  if (result.status !== "recipe") throw new Error(result.status);
+  return result.change.recipe.logout.targets.map((target) => [
+    target.path,
+    target.target.by,
+    target.target.value,
+    target.purpose,
+  ]);
+};
 
 describe("logout generation for an account switch (ADR 0063)", () => {
   it("stores the menu, then the logout and its confirmation, as the origin and path's logout recipe", async () => {
@@ -221,6 +236,70 @@ describe("logout generation for an account switch (ADR 0063)", () => {
       })
     ).json()) as { changes: { recipeId: string }[] };
     expect(synced.changes.map((change) => change.recipeId)).toEqual([recipeId]);
+  });
+
+  it("replaces a stored click gone from the page past the clicks that still worked", async () => {
+    const device = await owner();
+    const recipeId = await generatedLogoutRecipeId(ORIGIN, "/home");
+    replies.push(logoutAnswer("c1", "menu"));
+    await logout(device, homePage);
+    replies.push(logoutAnswer("c3", "logout"));
+    await logout(device, menuPage, { recipeId, revision: 1 });
+    // The menu still opens, but its "Sign out" is now named otherwise.
+    const renamed = page("/home", [...homePage.candidates, button("c3", "Log out")]);
+    replies.push(logoutAnswer("c3", "logout"));
+    const replaced = await logout(device, renamed, { recipeId, revision: 2, keep: 1 });
+    expect(replaced).toMatchObject({ status: "recipe", change: { revision: 3 } });
+    expect(clicks(replaced)).toEqual([
+      ["/home", "id", "account-menu", "menu"],
+      ["/home", "text", "Log out", "logout"],
+    ]);
+    // A first click gone from the start page starts the recipe again.
+    const moved = page("/home", [
+      { id: "c1", role: "button", target: { by: "id", value: "profile-menu" }, label: "Profile" },
+    ]);
+    replies.push(logoutAnswer("c1", "menu"));
+    const restarted = await logout(device, moved, { recipeId, revision: 3, keep: 0 });
+    expect(clicks(restarted)).toEqual([["/home", "id", "profile-menu", "menu"]]);
+    // A base another device replaced already answers with its recipe, without a model call.
+    const calls = sent.length;
+    expect(await logout(device, moved, { recipeId, revision: 3, keep: 0 })).toMatchObject({
+      status: "recipe",
+      change: { revision: 4 },
+    });
+    expect(sent).toHaveLength(calls);
+  });
+
+  it("starts the recipe with a logout control found by its words, then the page's click", async () => {
+    const device = await owner();
+    const local = { path: "/home", target: { by: "accessible-name", value: "Sign out" } };
+    const dialog = page("/home", [button("c1", "Cancel"), button("c2", "Yes, sign out")]);
+    replies.push(logoutAnswer("c2", "confirm"));
+    const result = await logout(device, dialog, undefined, local);
+    expect(result).toMatchObject({
+      status: "recipe",
+      change: { recipeId: await generatedLogoutRecipeId(ORIGIN, "/home"), revision: 1 },
+    });
+    expect(clicks(result)).toEqual([
+      ["/home", "accessible-name", "Sign out", "logout"],
+      ["/home", "text", "Yes, sign out", "confirm"],
+    ]);
+    // A signed-out answer stores nothing; a control by an account's text is refused.
+    const other = await owner();
+    replies.push(JSON.stringify({ result: { decision: "signed-out" } }));
+    expect(await logout(other, dialog, undefined, local)).toEqual({
+      version: 1,
+      status: "signed-out",
+    });
+    expect(
+      await rows("SELECT recipe_id FROM recipe_heads WHERE owner_id = ?", other.ownerId),
+    ).toEqual([]);
+    const refused = await post(other, "/v1/recipes/logout", {
+      version: 1,
+      observation: dialog,
+      local: { path: "/home", target: { by: "text", value: "alice@example.test" } },
+    });
+    expect(refused.status).toBe(400);
   });
 
   it("stores nothing for a signed-out page or an abstention, and refuses a confirmation first", async () => {

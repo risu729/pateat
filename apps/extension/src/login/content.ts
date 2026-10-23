@@ -3,6 +3,7 @@ import type { LoginMarkerTarget, LoginTarget } from "@pateat/contracts";
 import { browser } from "wxt/browser";
 import { accountText, showsOtherAccount, shownAccounts } from "../page/accounts";
 import { isButton } from "../page/text";
+import { findLogoutTargets, shownLayers } from "../page/logout-controls";
 import { pressElement } from "../page/script-url-click";
 import { autocompleteTokens, findTargets } from "../page/targets";
 import {
@@ -25,6 +26,7 @@ import { FIELD_GAP_MS, typeValue } from "../page/enter-value";
 import {
   extractAccountListObservation,
   extractEntryObservation,
+  extractLocalLogout,
   extractLogoutObservation,
   extractLoginObservation,
   extractPasskeyObservation,
@@ -702,7 +704,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       void (async () => {
         const until = Date.now() + command.timeoutMs;
         const find = () =>
-          matches(command.target, true).filter(
+          findLogoutTargets(document, command.target).filter(
             (element): element is HTMLElement => element instanceof HTMLElement && visible(element),
           );
         let found = find();
@@ -716,11 +718,33 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         if (location.href !== url) return { ok: false, reason: "page-changed" };
         if (found.length !== 1)
           return { ok: false, reason: found.length ? "ambiguous" : "missing" };
-        const pressed = await pressElement(found[0]!, () => !cancelled && location.href === url);
-        return pressed !== "missed"
-          ? { ok: true }
-          : { ok: false, reason: cancelled ? "cancelled" : "page-changed" };
+        const control = found[0]!;
+        const before = shownLayers(document);
+        const pressed = await pressElement(control, () => !cancelled && location.href === url);
+        if (pressed === "missed")
+          return { ok: false, reason: cancelled ? "cancelled" : "page-changed" };
+        if (command.watchMs === undefined) return { ok: true };
+        // How the page reacts to a control found by its words (ADR 0063): a page that
+        // navigates away ends this script, which the worker reads as navigated.
+        const watchUntil = Date.now() + command.watchMs;
+        for (;;) {
+          if (cancelled) return { ok: false, reason: "cancelled" };
+          if (location.href !== url) return { ok: true, reacted: "navigated" };
+          if (shownLayers(document) > before) return { ok: true, reacted: "dialog" };
+          if (!control.isConnected || !visible(control)) return { ok: true, reacted: "changed" };
+          if (Date.now() >= watchUntil) return { ok: true, reacted: "none" };
+          // eslint-disable-next-line no-await-in-loop
+          await pause(100);
+        }
       })().then(respond, () => respond({ ok: false, reason: "missing" }));
+      return true;
+    }
+    if (command.type === "login.logout.local") {
+      try {
+        respond(extractLocalLogout(document));
+      } catch {
+        respond({ ok: false, reason: "none" });
+      }
       return true;
     }
     if (command.type === "login.entry.check") {

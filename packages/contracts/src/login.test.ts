@@ -3037,11 +3037,13 @@ describe("logout recipes (ADR 0063)", () => {
     ).toBe(false);
   });
 
-  it("names a control by id, name, test-id or text, never an input or accessible-name locator", () => {
+  it("names a control by id, name, test-id, text or accessible name, never an input locator", () => {
     for (const target of [
       { by: "id", value: "logout" },
       { by: "name", value: "logout" },
       { by: "test-id", value: "account-menu" },
+      // An icon-only menu named by its aria-label or title (ADR 0063).
+      { by: "accessible-name", value: "Account menu" },
     ])
       expect(
         v.is(
@@ -3052,7 +3054,6 @@ describe("logout recipes (ADR 0063)", () => {
     for (const target of [
       { by: "autocomplete", value: "username" },
       { by: "label", value: "Sign out" },
-      { by: "accessible-name", value: "Sign out" },
       { by: "href", value: "/logout" },
     ])
       expect(

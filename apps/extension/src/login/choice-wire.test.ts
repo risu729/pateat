@@ -29,6 +29,10 @@ describe("the popup's reason for asking (ADR 0021)", () => {
     expect(choiceReason("relogin-limit", 1)).toBe(
       "Pateat logged in to this site twice in the last 10 minutes, so it waits for you to choose",
     );
+    // An account picked without making it the default (ADR 0063).
+    expect(choiceReason("one-time-pick", 2)).toBe(
+      "You chose an account here without making it the default, so Pateat asks each time until the browser closes",
+    );
   });
 
   it("says a failed pick saved no default when it was to be one (ADR 0021)", () => {

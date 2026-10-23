@@ -126,22 +126,27 @@ describe("logout generation (ADR 0063)", () => {
 });
 
 describe("logout plan check and assembly (ADR 0063)", () => {
-  it("accepts a button or link by id, name, test ID or text, never a field locator", () => {
+  it("accepts a button or link by id, name, test ID, text or accessible name, never a field locator", () => {
     expect(validateLogout(homePage, "c2")).toEqual({
       ok: true,
       target: { by: "text", value: "Orders" },
     });
-    expect(
-      validateLogout(
-        {
-          candidates: [
-            control("c1", "button", { by: "accessible-name", value: "Sign out" }),
-            { id: "c2", role: "checkbox", target: { by: "id", value: "keep" } },
-          ],
-        },
-        "c1",
-      ),
-    ).toEqual({ ok: false, reason: "incompatible-role" });
+    const page: Pick<LoginObservation, "candidates"> = {
+      candidates: [
+        control("c1", "button", { by: "accessible-name", value: "Account menu" }),
+        { id: "c2", role: "checkbox", target: { by: "id", value: "keep" } },
+        { id: "c3", role: "text", target: { by: "autocomplete", value: "username" } },
+        control("c4", "button", { by: "accessible-name", value: "alice@example.test" }),
+      ],
+    };
+    // An icon-only account menu is named by its aria-label or title (ADR 0063).
+    expect(validateLogout(page, "c1")).toEqual({
+      ok: true,
+      target: { by: "accessible-name", value: "Account menu" },
+    });
+    expect(validateLogout(page, "c2")).toEqual({ ok: false, reason: "incompatible-role" });
+    expect(validateLogout(page, "c3")).toEqual({ ok: false, reason: "incompatible-role" });
+    expect(validateLogout(page, "c4")).toEqual({ ok: false, reason: "account-text" });
   });
 
   const page = { id: "gen-logout", origin: "https://shop.example.test", path: "/home" };

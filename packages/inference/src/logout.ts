@@ -88,7 +88,7 @@ export type ValidatedLogout =
 
 /**
  * Checks the control a logout answer names: a button or link of the page, located by `id`,
- * `name`, `test-id` or `text`, whose label and locator name no account, by ADR 0028's rule
+ * `name`, `test-id`, `text` or `accessible-name`, whose label and locator name no account, by ADR 0028's rule
  * for the `other` button, so a recipe never stores an account's name as an account menu's
  * text.
  */
@@ -99,9 +99,10 @@ export function validateLogout(
   const candidate = observation.candidates.find((entry) => entry.id === candidateId);
   if (candidate === undefined) return { ok: false, reason: "unknown-candidate" };
   const { target } = candidate;
+  // An icon-only control or a menu item is named by its `aria-label` or `title`.
   if (
     (candidate.role !== "link" && candidate.role !== "button") ||
-    !isStepTarget(target) ||
+    !(isStepTarget(target) || target.by === "accessible-name") ||
     target.by === "autocomplete" ||
     target.by === "label"
   )

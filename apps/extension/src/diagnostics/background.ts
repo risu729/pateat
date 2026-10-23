@@ -662,6 +662,7 @@ export function createDiagnosticsLog(options: {
             reason: report.reason,
             detail: report.detail,
             purpose: report.purpose,
+            source: report.source,
             learned: report.learned,
             clicks: report.clicks,
             recipe: report.recipeId,

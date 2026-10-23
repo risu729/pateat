@@ -9,9 +9,10 @@ import {
 import * as v from "valibot";
 import { storage } from "wxt/utils/storage";
 
-// Account switching from the toolbar popup (ADR 0063), and the account picks a browser
-// session keeps per site (ADR 0063, Q5). The runtime decides when a switch may start; this
-// module keeps the picks and runs the logout, one click at a time.
+// Account switching from the toolbar popup (ADR 0063), and the sites a browser session asks
+// on after a pick that did not make its account the default (ADR 0063, Q5). The runtime
+// decides when a switch may start; this module keeps the picks and runs the logout, one
+// click at a time.
 
 /**
  * A switch's pick, per tab: the account the tab's next login page of the site logs in with,
@@ -20,17 +21,18 @@ import { storage } from "wxt/utils/storage";
  */
 export const SWITCH_PICKS_KEY = "session:pateat.login-switch-picks.v1";
 /**
- * The account picked for a site in this browser session, in the popup or by a switch,
- * without making it the default, per site and incognito or not: automatic logins and passkey
- * requests use it before the saved default until the browser closes.
+ * The sites, per incognito or not, where an account was picked in the popup or by a switch
+ * without making it the default: until the browser closes, or a default is saved or picked
+ * for the site, no automatic login starts there; each one asks, filling nothing, and the
+ * person's own passkey requests open the chooser with no default.
  */
-export const SESSION_PICKS_KEY = "session:pateat.login-session-picks.v1";
+export const ASK_EVERY_TIME_KEY = "session:pateat.login-ask-every-time.v1";
 /** How long a switch's pick waits for the site's login page. */
 export const SWITCH_PICK_MS = 2 * 60_000;
 /** Clicks a logout makes at most: the menu, the logout and its confirmation. */
 export const MAX_LOGOUT_ROUNDS = MAX_LOGOUT_TARGETS;
-/** Session picks kept at most; the oldest go first. */
-const MAX_SESSION_PICKS = 200;
+/** Asking sites kept at most; the oldest go first. */
+const MAX_ASKING_SITES = 200;
 
 const id = v.pipe(v.string(), v.minLength(1), v.maxLength(120));
 const tabIdSchema = v.pipe(v.number(), v.integer(), v.minValue(0));
@@ -49,22 +51,20 @@ export const switchPickSchema = v.strictObject({
 });
 export type SwitchPick = v.InferOutput<typeof switchPickSchema>;
 
-export const sessionPickSchema = v.strictObject({
+export const askingSiteSchema = v.strictObject({
   site: siteSchema,
   incognito: v.boolean(),
-  connectionId: id,
-  itemId: id,
   /**
-   * The site's saved defaults when the pick was kept ({@link siteDefaultsMark}): a default
-   * saved since, as in the popup, ends the pick.
+   * The site's saved defaults when the pick signed in ({@link siteDefaultsMark}): a default
+   * saved, changed or removed since, as in the popup, ends the asking.
    */
   defaults: v.pipe(v.string(), v.maxLength(8000)),
 });
-export type SessionPick = v.InferOutput<typeof sessionPickSchema>;
+export type AskingSite = v.InferOutput<typeof askingSiteSchema>;
 
 /**
- * The saved defaults of every origin of `site`, as a session pick compares them: a default
- * saved, changed or removed since the pick was kept ends it.
+ * The saved defaults of every origin of `site`, as an asking site compares them: a default
+ * saved, changed or removed since the pick ends the asking.
  */
 export function siteDefaultsMark(
   siteDefaults: readonly { origin: string; itemId: string; provider: string; userId: string }[],
@@ -79,19 +79,16 @@ export function siteDefaultsMark(
   );
 }
 
-/** An account of the vault. */
-export type PickedItem = { connectionId: string; itemId: string };
-
 /**
- * The switch and session picks, read from session storage once and written through. A
- * storage failure only loses a pick: a login then uses the saved default, as without one.
+ * The switch picks and asking sites, read from session storage once and written through. A
+ * storage failure only loses them: a login then uses the saved default, as without them.
  */
 export function createAccountPicks(now: () => number = Date.now) {
   const switches = new Map<number, SwitchPick>();
-  let sessions: SessionPick[] = [];
+  let asking: AskingSite[] = [];
   const loaded = (async () => {
     try {
-      const items = await storage.getItems([SWITCH_PICKS_KEY, SESSION_PICKS_KEY]);
+      const items = await storage.getItems([SWITCH_PICKS_KEY, ASK_EVERY_TIME_KEY]);
       const stored = Object.fromEntries(items.map(({ key, value }) => [key, value]));
       const picks = v.safeParse(
         v.pipe(v.array(switchPickSchema), v.maxLength(256)),
@@ -99,10 +96,10 @@ export function createAccountPicks(now: () => number = Date.now) {
       );
       if (picks.success) for (const pick of picks.output) switches.set(pick.tabId, pick);
       const kept = v.safeParse(
-        v.pipe(v.array(sessionPickSchema), v.maxLength(MAX_SESSION_PICKS)),
-        stored[SESSION_PICKS_KEY] ?? [],
+        v.pipe(v.array(askingSiteSchema), v.maxLength(MAX_ASKING_SITES)),
+        stored[ASK_EVERY_TIME_KEY] ?? [],
       );
-      if (kept.success) sessions = kept.output;
+      if (kept.success) asking = kept.output;
     } catch {
       // Unreadable session storage holds no pick.
     }
@@ -111,13 +108,13 @@ export function createAccountPicks(now: () => number = Date.now) {
   const save = () => {
     const value = [
       { key: SWITCH_PICKS_KEY as typeof SWITCH_PICKS_KEY, value: [...switches.values()] },
-      { key: SESSION_PICKS_KEY as typeof SESSION_PICKS_KEY, value: [...sessions] },
+      { key: ASK_EVERY_TIME_KEY as typeof ASK_EVERY_TIME_KEY, value: [...asking] },
     ];
     writes = writes.then(() => storage.setItems(value)).catch(() => undefined);
     return writes;
   };
-  const sameScope = (site: string, incognito: boolean) => (pick: SessionPick) =>
-    pick.site === site && pick.incognito === incognito;
+  const sameScope = (site: string, incognito: boolean) => (entry: AskingSite) =>
+    entry.site === site && entry.incognito === incognito;
   return {
     /** Starts a switch's pick for the tab, replacing any it had. */
     async startSwitch(pick: Omit<SwitchPick, "until">): Promise<SwitchPick> {
@@ -149,41 +146,48 @@ export function createAccountPicks(now: () => number = Date.now) {
       await loaded;
       if (switches.delete(tabId)) await save();
     },
+    /** Moves a switch's pick to the tab that replaced its tab, as a prerender does. */
+    async moveSwitch(from: number, to: number): Promise<void> {
+      await loaded;
+      const pick = switches.get(from);
+      if (!pick) return;
+      switches.delete(from);
+      switches.set(to, { ...pick, tabId: to });
+      await save();
+    },
     /**
-     * The site's session pick, in incognito windows or in the others, while the site's
-     * saved defaults are still those it was kept with (`defaults`); one older is dropped.
+     * Whether the site asks every time, in incognito windows or in the others, while its
+     * saved defaults are still those it was marked with (`defaults`); one older is dropped.
      */
-    async sessionFor(
+    async asksEveryTime(
       site: string | undefined,
       incognito: boolean,
       defaults: string,
-    ): Promise<PickedItem | undefined> {
+    ): Promise<boolean> {
       await loaded;
-      if (site === undefined) return undefined;
-      const pick = sessions.find(sameScope(site, incognito));
-      if (!pick) return undefined;
-      if (pick.defaults !== defaults) {
-        sessions = sessions.filter((entry) => entry !== pick);
-        void save();
-        return undefined;
-      }
-      return { connectionId: pick.connectionId, itemId: pick.itemId };
+      if (site === undefined) return false;
+      const entry = asking.find(sameScope(site, incognito));
+      if (!entry) return false;
+      if (entry.defaults === defaults) return true;
+      asking = asking.filter((other) => other !== entry);
+      void save();
+      return false;
     },
-    /** Keeps an account picked without making it the default for the rest of the session. */
-    async keepSession(pick: SessionPick): Promise<void> {
+    /** Makes the site ask every time for the rest of the browser session. */
+    async askEveryTime(entry: AskingSite): Promise<void> {
       await loaded;
-      sessions = [
-        ...sessions.filter((entry) => !sameScope(pick.site, pick.incognito)(entry)),
-        pick,
-      ].slice(-MAX_SESSION_PICKS);
+      asking = [
+        ...asking.filter((other) => !sameScope(entry.site, entry.incognito)(other)),
+        entry,
+      ].slice(-MAX_ASKING_SITES);
       await save();
     },
-    /** Drops the site's session pick, as when a pick was made the default. */
-    async dropSession(site: string, incognito: boolean): Promise<void> {
+    /** Ends the site's asking, as when a pick made its account the default. */
+    async stopAsking(site: string, incognito: boolean): Promise<void> {
       await loaded;
-      const kept = sessions.filter((entry) => !sameScope(site, incognito)(entry));
-      if (kept.length === sessions.length) return;
-      sessions = kept;
+      const kept = asking.filter((entry) => !sameScope(site, incognito)(entry));
+      if (kept.length === asking.length) return;
+      asking = kept;
       await save();
     },
   };
@@ -209,6 +213,12 @@ export type LogoutPage = { readonly document: { readonly origin: string }; reado
 /** What a logout click on the page came to. */
 export type LogoutPress = "clicked" | "missing" | "ambiguous" | "page-changed";
 
+/** How the page reacted within 5 seconds of a click Pateat found itself (`LOGOUT_REACTION_MS`). */
+export type LogoutReaction = "navigated" | "dialog" | "changed" | "none";
+
+/** Where a logout click came from: the stored recipe, the model, or the control's words. */
+export type LogoutSource = "recipe" | "model" | "local";
+
 /** The tab a switch signs out in, as the runtime drives it. */
 export interface LogoutDriver<Page extends LogoutPage> {
   /** The tab's top page of the site now, or nothing once the tab left the site or closed. */
@@ -217,6 +227,19 @@ export interface LogoutDriver<Page extends LogoutPage> {
   describe(page: Page): Promise<{ observation: LoginObservation } | { unsent: string }>;
   /** Presses a recipe's click on the page; a page that went meanwhile counts as clicked. */
   click(page: Page, target: LogoutTarget["target"]): Promise<LogoutPress>;
+  /**
+   * The page's one control that says it logs out by its words, with its locator, or why
+   * there is none: no control says so, several do, or it has no locator (ADR 0063).
+   */
+  findLocal(page: Page): Promise<LogoutTarget["target"] | "none" | "ambiguous" | "unlocated">;
+  /**
+   * Presses that control and watches the page up to `LOGOUT_REACTION_MS` for a
+   * reaction; a page that went meanwhile counts as clicked and navigated.
+   */
+  pressLocal(
+    page: Page,
+    target: LogoutTarget["target"],
+  ): Promise<{ press: LogoutPress; reacted?: LogoutReaction }>;
   /**
    * Waits for the page after a click to settle, as a new document or a quiet one, and says
    * whether it shows a sign-in input or a recipe's first step; nothing once the tab left the
@@ -253,22 +276,36 @@ export type LogoutRun = {
 /**
  * Signs the tab out of its site for an account switch (ADR 0063), at most
  * {@link MAX_LOGOUT_ROUNDS} clicks. Each click comes from the stored logout recipe of the
- * page's origin and path, or, past its end, from the logout role, which may append it to the
- * recipe. After each click the page settles: a sign-in input or a recipe's first step ends
- * the logout, as does the tab leaving the site after a logout or confirmation, or a stored
- * recipe that ran to its end on one. A logout learned in this run is checked with one more
- * question, which may answer `signed-out` or a confirmation to click.
+ * page's origin and path; past its end, from the page's one control that says it logs out
+ * by its words (owner 2026-10-23), so the model is asked only when that is unclear; else
+ * from the logout role, which may append it to the recipe. A stored click whose control is
+ * gone is asked for again once, in its place. After each click the page settles: a sign-in
+ * input or a recipe's first step ends the logout, as does the tab leaving the site after a
+ * logout or confirmation, or a stored recipe that ran to its end on one. A control found by
+ * its words that led to a page without one signed out too; one the page did not react to,
+ * or after which the page still shows the account (as a confirmation dialog), sends the
+ * page to the model, which keeps the local click in the recipe when it reacted. A logout
+ * learned in this run is checked with one more question, which may answer `signed-out` or a
+ * confirmation to click.
  */
 export async function runLogout<Page extends LogoutPage>(
   driver: LogoutDriver<Page>,
   service: LogoutService,
-  clicked?: (purpose: LogoutPurpose, learned: boolean) => void,
+  clicked?: (purpose: LogoutPurpose, learned: boolean, source: LogoutSource) => void,
 ): Promise<LogoutRun> {
   let page = driver.page();
   let recipe: LoginLogoutRecipe | undefined;
   let learned = false;
   let clicks = 0;
   let last: LogoutPurpose | undefined;
+  let lastSource: LogoutSource | undefined;
+  // Local clicks the recipe does not hold, as one the page did not react to.
+  let skipped = 0;
+  // A local click the page reacted to, which the next model answer's recipe starts with.
+  let local: { path: string; target: LogoutTarget["target"] } | undefined;
+  // The recipe's click gone from the page, asked for again once (`keep` of the request).
+  let replaceAt: number | undefined;
+  let regenerated = false;
   const facts = () => ({
     clicks,
     ...(recipe ? { recipe: { id: recipe.id, revision: recipe.revision } } : {}),
@@ -290,10 +327,42 @@ export async function runLogout<Page extends LogoutPage>(
   // Each round reads the page the previous click left, so the rounds run in order.
   /* eslint-disable no-await-in-loop */
   for (;;) {
-    let next = recipe?.logout.targets[clicks];
-    // A recipe that ran to its end on a confirmation, or on a logout it knew before this
-    // run, signed out: nothing follows them.
-    if (!next && (last === "confirm" || (last === "logout" && !learned))) return done();
+    const index = clicks - skipped;
+    let next = replaceAt === undefined ? recipe?.logout.targets[index] : undefined;
+    let source: LogoutSource = "recipe";
+    // A stored recipe that ran to its end on a confirmation or a logout signed out.
+    if (
+      !next &&
+      replaceAt === undefined &&
+      (last === "confirm" || (last === "logout" && lastSource === "recipe"))
+    )
+      return done();
+    // Past the recipe, the page's own logout control by its words, once per page.
+    if (!next && replaceAt === undefined && lastSource !== "local" && clicks < MAX_LOGOUT_ROUNDS) {
+      const found = await driver.findLocal(page).catch(() => "none" as const);
+      if (typeof found !== "string") {
+        const pressed = await driver.pressLocal(page, found);
+        if (pressed.press === "clicked") {
+          clicks += 1;
+          last = "logout";
+          lastSource = "local";
+          clicked?.("logout", learned, "local");
+          const before = page;
+          const after = await driver.settle(page);
+          if (!after || after.signIn) return done();
+          page = after.page;
+          if (pressed.reacted === "none" || pressed.reacted === undefined) skipped += 1;
+          else if (
+            pressed.reacted === "navigated" &&
+            (await driver.findLocal(page).catch(() => "ambiguous" as const)) === "none"
+          )
+            // A new page that offers no logout any more is signed out.
+            return done();
+          else local = { path: before.path, target: found };
+          continue;
+        }
+      }
+    }
     if (!next) {
       const described = await driver.describe(page);
       if ("unsent" in described) {
@@ -303,15 +372,26 @@ export async function runLogout<Page extends LogoutPage>(
           ? failed("no-logout-control", described.unsent)
           : failed("page-unreadable", described.unsent);
       }
+      // The recipe's clicks before this page, the local one aside.
+      const held = index - (local ? 1 : 0);
       const answer = await service
         .generate({
           version: 1,
           observation: described.observation,
-          ...(recipe && clicks > 0
-            ? { base: { recipeId: recipe.id, revision: recipe.revision } }
+          ...(recipe && (held > 0 || replaceAt !== undefined)
+            ? {
+                base: {
+                  recipeId: recipe.id,
+                  revision: recipe.revision,
+                  ...(replaceAt === undefined ? {} : { keep: replaceAt }),
+                },
+              }
             : {}),
+          ...(local ? { local } : {}),
         })
         .catch((): LogoutOutcome => ({ outcome: "failed", reason: "error" }));
+      local = undefined;
+      replaceAt = undefined;
       if (answer.outcome === "signed-out") return done();
       // Past the last click the answer only checks the logout.
       if (clicks >= MAX_LOGOUT_ROUNDS) return failed("still-signed-in");
@@ -322,21 +402,31 @@ export async function runLogout<Page extends LogoutPage>(
         );
       if (answer.outcome !== "recipe") return failed("service-unavailable", answer.reason);
       const fresh = answer.recipe;
-      next = fresh.logout.targets[clicks];
+      next = fresh.logout.targets[clicks - skipped];
       // The answer adds no click: every one the recipe holds ran already.
       if (!next || fresh.origin !== page.document.origin)
         return failed(clicks === 0 ? "no-logout-control" : "still-signed-in");
       recipe = fresh;
       learned = true;
+      source = "model";
     }
     // A stored click belongs to the page the recipe saw before it.
     if (next.path !== page.path) return failed("page-changed");
     const pressed = await driver.click(page, next.target);
-    if (pressed !== "clicked")
-      return failed(pressed === "page-changed" ? "page-changed" : "target-missing", pressed);
+    if (pressed === "missing" || pressed === "ambiguous") {
+      // A stored click whose control is gone is asked for again once, in its place.
+      if (source === "recipe" && !regenerated) {
+        regenerated = true;
+        replaceAt = index;
+        continue;
+      }
+      return failed("target-missing", pressed);
+    }
+    if (pressed !== "clicked") return failed("page-changed", pressed);
     clicks += 1;
     last = next.purpose;
-    clicked?.(next.purpose, learned);
+    lastSource = source;
+    clicked?.(next.purpose, learned, source);
     const after = await driver.settle(page);
     // The tab left the site: a logout may sign out through another one, a menu never does.
     if (!after) return last === "menu" ? failed("left-site") : done();

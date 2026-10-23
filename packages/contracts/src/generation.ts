@@ -12,7 +12,10 @@ import {
   loginEntryRecipeSchema,
   loginLogoutRecipeSchema,
   loginRecipeSchema,
+  loginPathSchema,
   loginRouteSchema,
+  logoutTargetSchema,
+  MAX_LOGOUT_TARGETS,
   storedRecipeSlots,
 } from "./login";
 import { syncRecipeIdSchema } from "./sync";
@@ -324,11 +327,34 @@ export const logoutGenerationRequestSchema = v.pipe(
   v.strictObject({
     version: v.literal(1),
     observation: loginObservationSchema,
-    base: v.optional(v.strictObject({ recipeId: syncRecipeIdSchema, revision: writtenRevision })),
+    /**
+     * The logout recipe whose clicks led to this page. `keep`, when it holds fewer clicks
+     * than the recipe, says the recipe's next click is gone from the page: the clicks past
+     * `keep` are replaced by the one the page is asked for (ADR 0063).
+     */
+    base: v.optional(
+      v.strictObject({
+        recipeId: syncRecipeIdSchema,
+        revision: writtenRevision,
+        keep: v.optional(
+          v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(MAX_LOGOUT_TARGETS - 1)),
+        ),
+      }),
+    ),
+    /**
+     * A logout control the extension found by its words on `path` and clicked, after which
+     * the page changed but still shows the account, as a confirmation dialog: the recipe
+     * starts with it, and the page's click follows (ADR 0063).
+     */
+    local: v.optional(v.strictObject({ path: loginPathSchema, target: logoutTargetSchema })),
   }),
   v.check(
     (request) => isEntryObservation(request.observation),
     "A logout request's page shows no field and lists no accounts",
+  ),
+  v.check(
+    (request) => !(request.base && request.local),
+    "A logout request follows a recipe or a local click, not both",
   ),
 );
 

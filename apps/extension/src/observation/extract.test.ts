@@ -5,6 +5,7 @@ import { findTargets } from "../page/targets";
 import {
   extractAccountListObservation,
   extractEntryObservation,
+  extractLocalLogout,
   extractLoginObservation,
   extractLogoutObservation,
   extractPasskeyObservation,
@@ -3855,5 +3856,62 @@ describe("extractLogoutObservation (ADR 0063)", () => {
   it("refuses a page with no control to press", () => {
     page(`<main><p>Nothing here</p><form><input name="q"><button>Search</button></form></main>`);
     expect(extractLogoutObservation()).toEqual({ ok: false, reason: "no-candidates" });
+  });
+
+  it("describes menu items and icon-only controls by their aria-label or title", () => {
+    page(
+      `<header>
+        <button type="button" aria-label="Account menu" aria-haspopup="menu"><svg></svg></button>
+        <a href="/help" title="Help"><svg></svg></a>
+        <button type="button" aria-label="Inbox 3 unread"><svg></svg></button>
+      </header>
+      <ul role="menu">
+        <li role="menuitem" tabindex="-1">Settings</li>
+        <li role="menuitem" tabindex="-1" aria-label="Sign out"><svg></svg></li>
+        <li role="menuitem" aria-disabled="true">Billing</li>
+      </ul>`,
+    );
+    const observation = logout();
+    expect(
+      observation.candidates.map((candidate) => [
+        candidate.role,
+        candidate.label,
+        candidate.target,
+      ]),
+    ).toEqual([
+      ["button", "Account menu", { by: "accessible-name", value: "Account menu" }],
+      ["button", "Help", { by: "accessible-name", value: "Help" }],
+      ["button", "Settings", { by: "text", value: "Settings" }],
+      ["button", "Sign out", { by: "accessible-name", value: "Sign out" }],
+    ]);
+  });
+});
+
+describe("extractLocalLogout (ADR 0063)", () => {
+  it("answers the locator of the one control that says it logs out", () => {
+    page(
+      `<header><a href="/home">Home</a><button type="button" id="bye">Log out</button></header>`,
+    );
+    expect(extractLocalLogout()).toEqual({ ok: true, target: { by: "id", value: "bye" } });
+    page(`<ul role="menu"><li role="menuitem" tabindex="-1">ログアウト</li></ul>`);
+    expect(extractLocalLogout()).toEqual({
+      ok: true,
+      target: { by: "text", value: "ログアウト" },
+    });
+    page(`<nav><button type="button" aria-label="Sign out"><svg></svg></button></nav>`);
+    expect(extractLocalLogout()).toEqual({
+      ok: true,
+      target: { by: "accessible-name", value: "Sign out" },
+    });
+  });
+
+  it("answers none, ambiguous or unlocated otherwise", () => {
+    page(`<header><button type="button">Sign out of all other sessions</button></header>`);
+    expect(extractLocalLogout()).toEqual({ ok: false, reason: "none" });
+    page(`<header><button type="button">Log out</button><a href="/out">Log out</a></header>`);
+    expect(extractLocalLogout()).toEqual({ ok: false, reason: "ambiguous" });
+    // A control named by the account it logs out has no locator a recipe could keep.
+    page(`<header><button type="button">Log out alice@example.test</button></header>`);
+    expect(extractLocalLogout()).toEqual({ ok: false, reason: "unlocated" });
   });
 });

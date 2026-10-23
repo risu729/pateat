@@ -150,6 +150,8 @@ const fake = vi.hoisted(() => {
     logoutClick: { ok: true } as unknown,
     /** Runs when the document presses a logout click, as the page then changes. */
     onLogoutClick: undefined as undefined | ((message: Record<string, unknown>) => void),
+    /** The document's control that says it logs out by its words (ADR 0063). */
+    logoutLocal: { ok: false, reason: "none" } as unknown,
     /** The open tabs `tabs.query` lists, by ID; none when unset. */
     openTabs: undefined as number[] | undefined,
   };
@@ -286,6 +288,7 @@ const fake = vi.hoisted(() => {
           state.onLogoutClick?.(message);
           return state.logoutClick;
         }
+        if (message["type"] === "login.logout.local") return state.logoutLocal;
         if (message["type"] === "login.entry.press") {
           state.onPress?.();
           return state.entry.press;
@@ -5723,7 +5726,7 @@ describe("production login document admission", () => {
           ]);
           expect(fake.state.badges[2]?.text ?? "").not.toMatch(/^\d+$/u);
         });
-        it("logs in again with the account the tab picked when no default is saved", async () => {
+        it("asks again after the tab's pick when no default is saved (ADR 0063)", async () => {
           const h = harness(unsaved, {
             allowedOrigins: [],
             uris: async () => ({ ok: true, data: both }),
@@ -5736,11 +5739,11 @@ describe("production login document admission", () => {
               { state: "authenticated", account: { itemId: otherItemId } },
             ]),
           );
-          // Several accounts match and none is the default: the page asks as on any visit.
+          // The pick did not make its account the default: the site asks every time.
           const before = steps().length;
           expect(await h.hello({ documentId: "signed-out" })).toEqual({
             ok: false,
-            reason: "account-ambiguous",
+            reason: "account-asked",
           });
           expect(steps()).toHaveLength(before);
         });
@@ -26601,9 +26604,10 @@ describe("account switching from the popup (ADR 0063)", () => {
     fake.state.entry.check = { ok: true, signIn: false, start: false, signUp: false };
     fake.state.logoutClick = { ok: true };
     fake.state.onLogoutClick = undefined;
+    fake.state.logoutLocal = { ok: false, reason: "none" };
   });
 
-  it("logs out with the stored recipe, then logs in with the picked account for the session", async () => {
+  it("logs out with the stored recipe, logs in once with the picked account, then asks", async () => {
     const logout = {
       recipes: vi.fn(async () => [
         logoutRecipe([{ target: target("sign-out"), purpose: "logout" }]),
@@ -26633,7 +26637,7 @@ describe("account switching from the popup (ADR 0063)", () => {
     await vi.waitFor(() =>
       expect(reports()).toEqual([
         { type: "switch", tabId: 1, origin, stage: "start" },
-        { type: "switch", tabId: 1, origin, stage: "click", purpose: "logout" },
+        { type: "switch", tabId: 1, origin, stage: "click", purpose: "logout", source: "recipe" },
         {
           type: "switch",
           tabId: 1,
@@ -26646,22 +26650,65 @@ describe("account switching from the popup (ADR 0063)", () => {
         },
       ]),
     );
-    // Not made the default: the saved default stays, and the pick is kept for the session.
+    // Not made the default: the saved default stays, and the site asks every time.
     expect(h.settings.settings.siteDefaults).toEqual([expect.objectContaining({ origin, itemId })]);
     await vi.waitFor(() =>
-      expect(fake.state.session["pateat.login-session-picks.v1"]).toEqual([
-        {
-          site: expect.any(String),
-          incognito: false,
-          connectionId,
-          itemId: otherItemId,
-          defaults: expect.any(String),
-        },
+      expect(fake.state.session["pateat.login-ask-every-time.v1"]).toEqual([
+        { site: "login.example", incognito: false, defaults: expect.any(String) },
       ]),
     );
     expect(fake.state.session["pateat.login-switch-picks.v1"]).toEqual([]);
     expect(await status(h)).toMatchObject({ used: { connectionId, itemId: otherItemId } });
+    // The pick's login is the person's own, which the relogin guard does not count.
+    expect(fake.state.session["pateat.login-relogins.v1"] ?? []).toEqual([
+      expect.objectContaining({ at: [expect.any(Number)] }),
+    ]);
   }, 15_000);
+
+  it("clicks the control that says it logs out by its words, without the service", async () => {
+    const logout = { recipes: vi.fn(async () => []), generate: vi.fn<LogoutService["generate"]>() };
+    const { h, reports } = await signedIn({ logout });
+    fake.state.logoutLocal = { ok: true, target: target("bye") };
+    fake.state.logoutClick = { ok: true, reacted: "navigated" };
+    leadsToSignIn(h, "bye");
+    expect(await switchTo(h)).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(attempts()).toMatchObject([
+        { account: { itemId: otherItemId }, document: { documentId: "signin-again" } },
+      ]),
+    );
+    expect(logout.generate).not.toHaveBeenCalled();
+    // The click watches the page for 5 seconds for a reaction.
+    expect(
+      fake.state.messages.filter((entry) => entry.type === "login.logout.click"),
+    ).toMatchObject([{ target: target("bye"), watchMs: 5000 }]);
+    await vi.waitFor(() =>
+      expect(reports()).toEqual([
+        { type: "switch", tabId: 1, origin, stage: "start" },
+        { type: "switch", tabId: 1, origin, stage: "click", purpose: "logout", source: "local" },
+        { type: "switch", tabId: 1, origin, stage: "end", outcome: "signed-out", clicks: 1 },
+      ]),
+    );
+  }, 15_000);
+
+  it("moves a switch's pick to the tab that replaced its tab", async () => {
+    const logout = { recipes: vi.fn(async () => []), generate: vi.fn<LogoutService["generate"]>() };
+    const { h } = await signedIn({ logout });
+    // The page never answers the logout, so the switch is still running.
+    fake.state.logoutLocal = { ok: true, target: target("bye") };
+    fake.state.logoutClick = new Promise(() => {});
+    expect(await switchTo(h)).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(fake.state.session["pateat.login-switch-picks.v1"]).toMatchObject([{ tabId: 1 }]),
+    );
+    fake.state.tabUrls[2] = fake.state.pageUrl;
+    for (const listener of fake.state.replaced) listener(2, 1);
+    await vi.waitFor(() =>
+      expect(fake.state.session["pateat.login-switch-picks.v1"]).toMatchObject([
+        { tabId: 2, itemId: otherItemId },
+      ]),
+    );
+  });
 
   it("opens the menu the model names, then clicks the logout it names there", async () => {
     const menu = logoutRecipe([{ target: target("account-menu"), purpose: "menu" }]);
@@ -26705,13 +26752,13 @@ describe("account switching from the popup (ADR 0063)", () => {
         ["end", undefined, true],
       ]),
     );
-    // Made the default once the login succeeded; no session pick is kept for it.
+    // Made the default once the login succeeded; the site does not ask every time.
     await vi.waitFor(() =>
       expect(h.settings.settings.siteDefaults).toEqual([
         expect.objectContaining({ origin, itemId: otherItemId }),
       ]),
     );
-    expect(fake.state.session["pateat.login-session-picks.v1"] ?? []).toEqual([]);
+    expect(fake.state.session["pateat.login-ask-every-time.v1"] ?? []).toEqual([]);
   }, 20_000);
 
   it("stops when no control logs out, and the tab keeps its account", async () => {
@@ -26823,13 +26870,15 @@ describe("account switching from the popup (ADR 0063)", () => {
     expect(await switchTo(h)).toEqual({ ok: false, reason: "site-excluded" });
   });
 
-  it("keeps a pick made without the default for the session, apart for incognito windows", async () => {
+  it("asks on every page of the site after a pick without the default, apart for incognito windows", async () => {
+    const report = vi.fn<(entry: LoginReport) => void>();
     const h = harness(
       { siteDefaults: [], bindings: [] },
-      { allowedOrigins: [], uris: async () => ({ ok: true, data: both }) },
+      { allowedOrigins: [], uris: async () => ({ ok: true, data: both }), report },
     );
     expect(await h.hello()).toEqual({ ok: false, reason: "account-ambiguous" });
     fake.state.onReconnect = () => h.hello();
+    // The person picks an account without making it the default.
     expect(
       await h.login.handle(
         {
@@ -26845,28 +26894,58 @@ describe("account switching from the popup (ADR 0063)", () => {
       ),
     ).toEqual({ ok: true });
     await vi.waitFor(() =>
-      expect(fake.state.session["pateat.login-session-picks.v1"]).toMatchObject([
-        { incognito: false, itemId: otherItemId },
+      expect(fake.state.session["pateat.login-ask-every-time.v1"]).toEqual([
+        { site: "login.example", incognito: false, defaults: "[]" },
       ]),
     );
-    // Another tab of the site logs in with the session's pick, though two items match.
+    // The pick's login is the person's own, which the relogin guard does not count.
+    expect(fake.state.session["pateat.login-relogins.v1"] ?? []).toEqual([]);
+    // Every other login page of the site now asks, filling nothing.
+    const fills = h.fields.mock.calls.length;
     fake.state.tabUrls[2] = signinUrl;
-    expect(await h.hello({ tab: { id: 2 }, documentId: "tab-2" })).toEqual({ ok: true });
-    await vi.waitFor(() =>
-      expect(attempts()).toContainEqual(
-        expect.objectContaining({
-          account: expect.objectContaining({ itemId: otherItemId }),
-          document: expect.objectContaining({ tabId: 2 }),
-        }),
-      ),
+    expect(await h.hello({ tab: { id: 2 }, documentId: "tab-2" })).toEqual({
+      ok: false,
+      reason: "account-asked",
+    });
+    expect(h.fields.mock.calls).toHaveLength(fills);
+    expect(
+      await h.login.handle({ version: 1, type: "login.choice.get", tabId: 2 }, popup),
+    ).toMatchObject({
+      ok: true,
+      ask: "one-time-pick",
+      candidates: [
+        expect.objectContaining({ itemId }),
+        expect.objectContaining({ itemId: otherItemId }),
+      ],
+    });
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "refused",
+        tabId: 2,
+        reason: "account-asked",
+        detail: "one-time-pick",
+      }),
     );
-    // An incognito window keeps its own picks: it asks, as without one.
+    // The person's passkey requests treat the default as unset there too, and the page's
+    // own conditional request goes to the browser.
+    expect(await h.login.defaultUnset(origin, false)).toBe(true);
+    expect(
+      await h.login.conditionalRequest({
+        tabId: 2,
+        origin,
+        documentId: "tab-2",
+        signal: new AbortController().signal,
+        incognito: false,
+      }),
+    ).toEqual({ kind: "delegate", reason: "one-time-pick" });
+    // An incognito window keeps its own: it chooses as without a pick.
+    expect(await h.login.defaultUnset(origin, true)).toBe(false);
     fake.state.tabUrls[3] = signinUrl;
     expect(await h.hello({ tab: { id: 3, incognito: true }, documentId: "tab-3" })).toEqual({
       ok: false,
       reason: "account-ambiguous",
     });
-    // A default saved since, as in the popup, ends the session's pick.
+    // A default saved since, as in the popup, ends the asking: its account logs in.
     h.settings.settings.siteDefaults = [{ origin, provider: "bitwarden", userId, itemId }];
     h.settings.revision += 1;
     fake.state.tabUrls[4] = signinUrl;
@@ -26879,9 +26958,46 @@ describe("account switching from the popup (ADR 0063)", () => {
         }),
       ),
     );
-    expect(fake.state.session["pateat.login-session-picks.v1"]).toEqual([]);
-    // A passkey request of the site reads the session's pick the same way.
-    expect(await h.login.sessionPick(origin, false)).toBeUndefined();
+    expect(fake.state.session["pateat.login-ask-every-time.v1"]).toEqual([]);
+    expect(await h.login.defaultUnset(origin, false)).toBe(false);
+  });
+
+  it("stops asking once a pick makes its account the default", async () => {
+    const { siteDefaultsMark } = await import("./switch");
+    // Kept before the worker starts, as after a restart in the same browser session.
+    fake.state.session["pateat.login-ask-every-time.v1"] = [
+      {
+        site: "login.example",
+        incognito: false,
+        defaults: siteDefaultsMark(
+          [{ origin, provider: "bitwarden", userId, itemId }],
+          "login.example",
+          (value) => new URL(value).hostname.split(".").slice(-2).join("."),
+        ),
+      },
+    ];
+    const h = harness({}, { allowedOrigins: [], uris: async () => ({ ok: true, data: both }) });
+    expect(await h.hello()).toEqual({ ok: false, reason: "account-asked" });
+    fake.state.onReconnect = () => h.hello();
+    expect(
+      await h.login.handle(
+        {
+          version: 1,
+          type: "login.choice.pick",
+          tabId: 1,
+          documentId: "synthetic-document",
+          connectionId,
+          itemId,
+          makeDefault: true,
+        },
+        popup,
+      ),
+    ).toMatchObject({ ok: true });
+    await vi.waitFor(() => expect(attempts()).toMatchObject([{ state: "authenticated" }]));
+    await vi.waitFor(() =>
+      expect(fake.state.session["pateat.login-ask-every-time.v1"]).toEqual([]),
+    );
+    expect(await h.login.defaultUnset(origin, false)).toBe(false);
   });
 
   it.each([
@@ -26936,28 +27052,4 @@ describe("account switching from the popup (ADR 0063)", () => {
       );
     },
   );
-
-  it("answers a passkey request's session pick per window kind", async () => {
-    const { siteDefaultsMark } = await import("./switch");
-    // Stored before the worker starts, as after a restart in the same browser session.
-    fake.state.session["pateat.login-session-picks.v1"] = [
-      {
-        site: "login.example",
-        incognito: true,
-        connectionId,
-        itemId: otherItemId,
-        defaults: siteDefaultsMark(
-          [{ origin, provider: "bitwarden", userId, itemId }],
-          "login.example",
-          (value) => new URL(value).hostname,
-        ),
-      },
-    ];
-    const h = harness({}, { uris: async () => ({ ok: true, data: both }) });
-    expect(await h.login.sessionPick(origin, true)).toEqual({
-      connectionId,
-      itemId: otherItemId,
-    });
-    expect(await h.login.sessionPick(origin, false)).toBeUndefined();
-  });
 });

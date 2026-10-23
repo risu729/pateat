@@ -20,11 +20,12 @@ const {
   createAccountPicks,
   runLogout,
   siteDefaultsMark,
-  SESSION_PICKS_KEY,
+  ASK_EVERY_TIME_KEY,
   SWITCH_PICK_MS,
   SWITCH_PICKS_KEY,
 } = await import("./switch");
 type Driver = Parameters<typeof runLogout>[0];
+type LogoutReaction = import("./switch").LogoutReaction;
 type Service = Parameters<typeof runLogout>[1];
 
 // ADR 0063: an account switch's logout, on a synthetic site's pages.
@@ -64,17 +65,32 @@ const recipe = (
  * A tab whose page after each click is scripted by the clicked control: the next page and
  * whether it shows a sign-in input, or nothing when the tab left the site.
  */
-function tab(after: Record<string, { page: Page; signIn: boolean } | undefined>) {
+function tab(
+  after: Record<string, { page: Page; signIn: boolean } | undefined>,
+  /** The page's control that says it logs out, by the page's name; none when unset. */
+  local: Record<string, ReturnType<typeof id> | "ambiguous" | "unlocated"> = {},
+  /** How the page reacts to a local click, by its control; `navigated` when unset. */
+  reactions: Record<string, LogoutReaction> = {},
+) {
   let current: Page | undefined = page("home");
   const clicked: string[] = [];
   let last = "";
-  const driver: Driver & { describe: ReturnType<typeof vi.fn> } = {
+  const driver: Driver & {
+    describe: ReturnType<typeof vi.fn>;
+    findLocal: ReturnType<typeof vi.fn>;
+  } = {
     page: () => current,
     describe: vi.fn(async (shown: Page) => ({ observation: observation(shown.path) })),
     click: vi.fn(async (_shown: Page, target: LoginTarget) => {
       clicked.push(target.value);
       last = target.value;
       return "clicked" as const;
+    }),
+    findLocal: vi.fn(async (shown: Page) => local[shown.name] ?? "none"),
+    pressLocal: vi.fn(async (_shown: Page, target: LoginTarget) => {
+      clicked.push(target.value);
+      last = target.value;
+      return { press: "clicked" as const, reacted: reactions[target.value] ?? "navigated" };
     }),
     settle: vi.fn(async () => {
       const next = after[last];
@@ -274,6 +290,177 @@ describe("an account switch's logout (ADR 0063)", () => {
     });
   });
 
+  it("clicks the one control that says it logs out without asking the model (owner 2026-10-23)", async () => {
+    const { driver, clicked } = tab(
+      { "log-out": { page: page("bye", "/bye"), signIn: false } },
+      { home: id("log-out") },
+    );
+    const logout = service([]);
+    const sources: string[] = [];
+    expect(
+      await runLogout(driver, logout, (purpose, _learned, source) =>
+        sources.push(`${source}:${purpose}`),
+      ),
+    ).toEqual({ outcome: "signed-out", clicks: 1 });
+    expect(clicked).toEqual(["log-out"]);
+    expect(sources).toEqual(["local:logout"]);
+    // A new page that offers no logout any more is signed out; the model is never asked.
+    expect(logout.generate).not.toHaveBeenCalled();
+    expect(driver.describe).not.toHaveBeenCalled();
+    // So is a sign-in page, or a tab that left the site.
+    const signIn = tab(
+      { "log-out": { page: page("signin", "/signin"), signIn: true } },
+      { home: id("log-out") },
+      { "log-out": "changed" },
+    );
+    expect(await runLogout(signIn.driver, service([]))).toEqual({
+      outcome: "signed-out",
+      clicks: 1,
+    });
+    const left = tab({ "log-out": undefined }, { home: id("log-out") });
+    expect(await runLogout(left.driver, service([]))).toEqual({ outcome: "signed-out", clicks: 1 });
+  });
+
+  it("asks the model when several controls say they log out", async () => {
+    const { driver, clicked } = tab(
+      { "sign-out": { page: page("signin", "/signin"), signIn: true } },
+      { home: "ambiguous" },
+    );
+    const logout = service(
+      [],
+      [{ outcome: "recipe", recipe: recipe([{ value: "sign-out", purpose: "logout" }]) }],
+    );
+    expect(await runLogout(driver, logout)).toMatchObject({ outcome: "signed-out", clicks: 1 });
+    expect(clicked).toEqual(["sign-out"]);
+    expect(logout.generate).toHaveBeenCalledWith({
+      version: 1,
+      observation: observation("/home"),
+    });
+  });
+
+  it("sends the page to the model when it did not react to the local click within 5 seconds", async () => {
+    const { driver, clicked } = tab(
+      {
+        "log-out": { page: page("home"), signIn: false },
+        "sign-out": { page: page("signin", "/signin"), signIn: true },
+      },
+      { home: id("log-out") },
+      { "log-out": "none" },
+    );
+    const logout = service(
+      [],
+      [{ outcome: "recipe", recipe: recipe([{ value: "sign-out", purpose: "logout" }]) }],
+    );
+    const sources: string[] = [];
+    expect(
+      await runLogout(driver, logout, (_purpose, _learned, source) => sources.push(source)),
+    ).toMatchObject({ outcome: "signed-out", clicks: 2, learned: true });
+    expect(clicked).toEqual(["log-out", "sign-out"]);
+    expect(sources).toEqual(["local", "model"]);
+    // The local click did nothing, so the recipe does not start with it.
+    expect(logout.generate).toHaveBeenCalledWith({
+      version: 1,
+      observation: observation("/home"),
+    });
+  });
+
+  it("sends a confirmation dialog after the local click to the model, which keeps that click", async () => {
+    const { driver, clicked } = tab(
+      {
+        "log-out": { page: page("dialog"), signIn: false },
+        yes: { page: page("signin", "/signin"), signIn: true },
+      },
+      { home: id("log-out") },
+      { "log-out": "dialog" },
+    );
+    const logout = service(
+      [],
+      [
+        {
+          outcome: "recipe",
+          recipe: recipe([
+            { value: "log-out", purpose: "logout" },
+            { value: "yes", purpose: "confirm" },
+          ]),
+        },
+      ],
+    );
+    expect(await runLogout(driver, logout)).toMatchObject({ outcome: "signed-out", clicks: 2 });
+    expect(clicked).toEqual(["log-out", "yes"]);
+    expect(logout.generate).toHaveBeenCalledWith({
+      version: 1,
+      observation: observation("/home"),
+      local: { path: "/home", target: id("log-out") },
+    });
+    // The local control is read once per page: the dialog is not searched by its words.
+    expect(driver.findLocal).toHaveBeenCalledTimes(1);
+  });
+
+  it("asks again once for a stored click whose control is gone, in its place", async () => {
+    const { driver, clicked } = tab({
+      "account-menu": { page: page("menu"), signIn: false },
+      "log-out": { page: page("signin", "/signin"), signIn: true },
+    });
+    const stored = recipe([
+      { value: "account-menu", purpose: "menu" },
+      { value: "sign-out", purpose: "logout" },
+    ]);
+    const click = driver.click as ReturnType<typeof vi.fn>;
+    click.mockImplementationOnce(async (_shown: Page, target: LoginTarget) => {
+      clicked.push(target.value);
+      return "clicked";
+    });
+    // The stored "sign-out" is gone from the open menu.
+    click.mockImplementationOnce(async () => "missing");
+    const logout = service(
+      [stored],
+      [
+        {
+          outcome: "recipe",
+          recipe: recipe(
+            [
+              { value: "account-menu", purpose: "menu" },
+              { value: "log-out", purpose: "logout" },
+            ],
+            3,
+          ),
+        },
+      ],
+    );
+    // The menu click went through the mock above, so the fake's page follows it by hand.
+    (driver.settle as ReturnType<typeof vi.fn>).mockImplementationOnce(async () => ({
+      page: page("menu"),
+      signIn: false,
+    }));
+    expect(await runLogout(driver, logout)).toMatchObject({
+      outcome: "signed-out",
+      clicks: 2,
+      learned: true,
+      recipe: { revision: 3 },
+    });
+    expect(clicked).toEqual(["account-menu", "log-out"]);
+    expect(logout.generate).toHaveBeenCalledWith({
+      version: 1,
+      observation: observation("/home"),
+      base: { recipeId: stored.id, revision: 2, keep: 1 },
+    });
+    // A second miss fails.
+    const gone = tab({});
+    const twice = service(
+      [recipe([{ value: "sign-out", purpose: "logout" }])],
+      [{ outcome: "recipe", recipe: recipe([{ value: "log-out", purpose: "logout" }], 2) }],
+    );
+    expect(await runLogout({ ...gone.driver, click: async () => "missing" }, twice)).toMatchObject({
+      outcome: "failed",
+      reason: "target-missing",
+      detail: "missing",
+      clicks: 0,
+    });
+    expect(twice.generate).toHaveBeenCalledWith(
+      expect.objectContaining({ base: expect.objectContaining({ keep: 0 }) }),
+    );
+  });
+
   it("counts a tab that left the site after a logout as signed out, but not after a menu", async () => {
     const logout = tab({ "sign-out": undefined });
     expect(
@@ -351,31 +538,21 @@ describe("account picks for a switch and the browser session (ADR 0063)", () => 
     expect(session.values[SWITCH_PICKS_KEY]).toEqual([]);
   });
 
-  it("keeps the session's pick per site and window kind, while the site's defaults stay", async () => {
+  it("asks every time per site and window kind, while the site's defaults stay", async () => {
     const defaults = [
       { origin: "https://shop.example.test", provider: "bitwarden", userId: "u", itemId: "item-1" },
     ];
     const mark = siteDefaultsMark(defaults, "shop.example.test", siteOf);
     const picks = createAccountPicks();
-    await picks.keepSession({
-      site: "shop.example.test",
-      incognito: false,
-      defaults: mark,
-      ...item,
-    });
-    expect(await picks.sessionFor("shop.example.test", false, mark)).toEqual(item);
-    expect(await picks.sessionFor("shop.example.test", true, mark)).toBeUndefined();
-    expect(await picks.sessionFor("other.example.test", false, mark)).toBeUndefined();
-    // A pick for the same site replaces the earlier one.
-    await picks.keepSession({
-      site: "shop.example.test",
-      incognito: false,
-      defaults: mark,
-      connectionId: "connection-1",
-      itemId: "item-3",
-    });
-    expect(session.values[SESSION_PICKS_KEY]).toEqual([
-      expect.objectContaining({ itemId: "item-3" }),
+    await picks.askEveryTime({ site: "shop.example.test", incognito: false, defaults: mark });
+    expect(await picks.asksEveryTime("shop.example.test", false, mark)).toBe(true);
+    expect(await picks.asksEveryTime("shop.example.test", true, mark)).toBe(false);
+    expect(await picks.asksEveryTime("other.example.test", false, mark)).toBe(false);
+    expect(await picks.asksEveryTime(undefined, false, mark)).toBe(false);
+    // Marking the site again keeps one entry.
+    await picks.askEveryTime({ site: "shop.example.test", incognito: false, defaults: mark });
+    expect(session.values[ASK_EVERY_TIME_KEY]).toEqual([
+      { site: "shop.example.test", incognito: false, defaults: mark },
     ]);
     // A default saved since for an origin of the site ends it.
     const changed = siteDefaultsMark(
@@ -403,35 +580,42 @@ describe("account picks for a switch and the browser session (ADR 0063)", () => 
         siteOf,
       ),
     ).toBe(mark);
-    expect(await picks.sessionFor("shop.example.test", false, changed)).toBeUndefined();
-    await vi.waitFor(() => expect(session.values[SESSION_PICKS_KEY]).toEqual([]));
+    expect(await picks.asksEveryTime("shop.example.test", false, changed)).toBe(false);
+    await vi.waitFor(() => expect(session.values[ASK_EVERY_TIME_KEY]).toEqual([]));
+    expect(await picks.asksEveryTime("shop.example.test", false, mark)).toBe(false);
   });
 
-  it("drops the site's session pick when one is made the default", async () => {
+  it("stops asking on the site when a pick made its account the default", async () => {
     const picks = createAccountPicks();
-    await picks.keepSession({
-      site: "shop.example.test",
-      incognito: true,
-      defaults: "[]",
-      ...item,
-    });
-    await picks.keepSession({
-      site: "shop.example.test",
-      incognito: false,
-      defaults: "[]",
-      ...item,
-    });
-    await picks.dropSession("shop.example.test", true);
-    expect(session.values[SESSION_PICKS_KEY]).toEqual([
+    await picks.askEveryTime({ site: "shop.example.test", incognito: true, defaults: "[]" });
+    await picks.askEveryTime({ site: "shop.example.test", incognito: false, defaults: "[]" });
+    await picks.stopAsking("shop.example.test", true);
+    expect(session.values[ASK_EVERY_TIME_KEY]).toEqual([
       expect.objectContaining({ incognito: false }),
     ]);
   });
 
+  it("moves a switch's pick to the tab that replaced its tab", async () => {
+    const picks = createAccountPicks();
+    await picks.startSwitch({
+      tabId: 1,
+      site: "shop.example.test",
+      incognito: false,
+      makeDefault: false,
+      ...item,
+    });
+    await picks.moveSwitch(1, 9);
+    await picks.moveSwitch(4, 5);
+    expect(await picks.switchFor(1, "shop.example.test", false)).toBeUndefined();
+    expect(await picks.switchFor(9, "shop.example.test", false)).toMatchObject({ tabId: 9 });
+    expect(session.values[SWITCH_PICKS_KEY]).toEqual([expect.objectContaining({ tabId: 9 })]);
+  });
+
   it("holds no pick when session storage cannot be read or holds another shape", async () => {
-    session.values[SESSION_PICKS_KEY] = [{ site: "shop.example.test" }];
+    session.values[ASK_EVERY_TIME_KEY] = [{ site: "shop.example.test" }];
     session.values[SWITCH_PICKS_KEY] = "broken";
     const picks = createAccountPicks();
-    expect(await picks.sessionFor("shop.example.test", false, "[]")).toBeUndefined();
+    expect(await picks.asksEveryTime("shop.example.test", false, "[]")).toBe(false);
     expect(await picks.switchFor(1, "shop.example.test", false)).toBeUndefined();
   });
 });
