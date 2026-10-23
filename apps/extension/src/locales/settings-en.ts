@@ -75,6 +75,7 @@ export const settingsEn = {
   "Licenses and source": "Licenses and source",
   "GPL-3.0-only, no warranty": "GPL-3.0-only, no warranty",
   Theme: "Theme",
+  'Show "This page" in the popup': 'Show "This page" in the popup',
   Light: "Light",
   Dark: "Dark",
   "Stored settings are invalid. They were not replaced.":
@@ -214,10 +215,10 @@ export const settingsEn = {
   "Key ending in {{ending}} saved. This device asks Claude with it, also while paired: the sync service then only keeps and shares the recipes and settings.":
     "Key ending in {{ending}} saved. This device asks Claude with it, also while paired: the sync service then only keeps and shares the recipes and settings.",
   "The saved key could not be read.": "The saved key could not be read.",
-  "Without a key, the paired sync service asks Claude with its owner's credentials.":
-    "Without a key, the paired sync service asks Claude with its owner's credentials.",
+  "Without a key, the paired sync service asks Claude with its owner's credentials, and a device without a pairing makes no recipes.":
+    "Without a key, the paired sync service asks Claude with its owner's credentials, and a device without a pairing makes no recipes.",
   "Spent with this key: {{today}} today and {{month}} this month (UTC), estimated from the usage Anthropic reports. Requests stop at either limit.":
     "Spent with this key: {{today}} today and {{month}} this month (UTC), estimated from the usage Anthropic reports. Requests stop at either limit.",
-  "The key stays on this device and is sent to Anthropic only, never to the sync service. For now, recipes are made with it only while a sync service is paired.":
-    "The key stays on this device and is sent to Anthropic only, never to the sync service. For now, recipes are made with it only while a sync service is paired.",
+  "The key stays on this device and is sent to Anthropic only, never to the sync service. Without a paired sync service, this device makes recipes with it and keeps them here.":
+    "The key stays on this device and is sent to Anthropic only, never to the sync service. Without a paired sync service, this device makes recipes with it and keeps them here.",
 } as const;

@@ -241,7 +241,7 @@ export function DeviceModelPanel({ client }: { client: DeviceModelClient }) {
                 text: view.isError
                   ? t("The saved key could not be read.")
                   : t(
-                      "Without a key, the paired sync service asks Claude with its owner's credentials.",
+                      "Without a key, the paired sync service asks Claude with its owner's credentials, and a device without a pairing makes no recipes.",
                     ),
               },
           ...(current?.saved
@@ -260,7 +260,7 @@ export function DeviceModelPanel({ client }: { client: DeviceModelClient }) {
             tone: "idle",
             icon: Info,
             text: t(
-              "The key stays on this device and is sent to Anthropic only, never to the sync service. For now, recipes are made with it only while a sync service is paired.",
+              "The key stays on this device and is sent to Anthropic only, never to the sync service. Without a paired sync service, this device makes recipes with it and keeps them here.",
             ),
           },
         ]}

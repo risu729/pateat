@@ -16,7 +16,7 @@ import {
   type ClaudeRates,
 } from "./providers/claude";
 
-// The service's bounds (`ROLE_LIMITS` and `MAX_OUTPUT_TOKENS` in services/api).
+// The service's bounds (`ROLE_LIMITS` and `MAX_OUTPUT_TOKENS` in @pateat/generation).
 const limits = { timeoutMs: 10_000, maxInputBytes: 64 * 1024, maxRetries: 0 };
 // Thinking counts toward this bound, so it leaves room beyond the JSON plan itself.
 const maxOutputTokens = 1_024;

@@ -218,3 +218,70 @@ describe("recipes this device holds as its own (ADR 0040)", () => {
     expect(await recipes.list()).toEqual([recipe("a", 9)]);
   });
 });
+
+describe("recipes written on this device without a pairing (ADR 0040)", () => {
+  const write = (value: LoginRecipeDocument, expectedRevision: number) => ({
+    version: 1 as const,
+    state: "active" as const,
+    expectedRevision,
+    recipe: value,
+  });
+
+  it("writes only over the revision a write expects", async () => {
+    const { recipes } = setup({ version: 1, recipes: [recipe("a", 2)] });
+    expect(await recipes.write("a", write(recipe("a", 2), 1))).toEqual({
+      ok: false,
+      limited: false,
+      current: recipe("a", 2),
+    });
+    expect(await recipes.write("a", write(recipe("a", 3, "/signin"), 2))).toEqual({
+      ok: true,
+      recipe: recipe("a", 3, "/signin"),
+    });
+    expect(await recipes.head("a")).toEqual(recipe("a", 3, "/signin"));
+    expect(await recipes.write("b", write(recipe("b", 1), 0))).toEqual({
+      ok: true,
+      recipe: recipe("b", 1),
+    });
+    expect((await recipes.usage()).count).toBe(2);
+  });
+
+  it("refuses a write the check says no to, and one of another recipe's ID", async () => {
+    const { recipes } = setup();
+    expect(await recipes.write("a", write(recipe("a", 1), 0), async () => false)).toEqual({
+      ok: false,
+      limited: false,
+      current: undefined,
+    });
+    expect(await recipes.write("b", write(recipe("a", 1), 0))).toEqual({
+      ok: false,
+      limited: false,
+      current: undefined,
+    });
+    expect(await recipes.list()).toEqual([]);
+  });
+
+  it("holds a write that would not fit, but not one that shrinks a recipe", async () => {
+    const large = recipe("a", 1, `/${"x".repeat(200)}`);
+    const room = new TextEncoder().encode(
+      JSON.stringify({ version: 1, recipes: [large] }),
+    ).byteLength;
+    const { recipes } = setup({ version: 1, recipes: [large] }, undefined, room);
+    expect(await recipes.write("b", write(recipe("b", 1), 0))).toEqual({
+      ok: false,
+      limited: true,
+    });
+    expect(await recipes.write("a", write(recipe("a", 2), 1))).toEqual({
+      ok: true,
+      recipe: recipe("a", 2),
+    });
+  });
+
+  it("removes a recipe it revokes", async () => {
+    const { recipes } = setup({ version: 1, recipes: [recipe("a", 2)] });
+    expect(await recipes.write("a", { version: 1, state: "revoked", expectedRevision: 2 })).toEqual(
+      { ok: true, recipe: undefined },
+    );
+    expect(await recipes.list()).toEqual([]);
+  });
+});

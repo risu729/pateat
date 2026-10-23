@@ -308,8 +308,9 @@ the login here. After `challenge` or `rejected` it
 answers `judged-challenge` or `judged-rejected`: the login then ends `challenge`, or
 stays unknown after `judged-rejected`, since an earlier rejection does not prove this
 one. A row with no verdict, after the request failed or while it is still being judged
-once the owner's lock has expired (until then a second request is answered `busy`),
-answers `judgement-unanswered`, and the login stays unknown. A watched login (below)
+(owner's requests run up to five at a time since 2026-10-23,
+[ADR 0018](0018-recipe-generation-route.md#five-calls-at-a-time)), answers
+`judgement-unanswered`, and the login stays unknown. A watched login (below)
 never completes on an undecided answer.
 
 The header and navigation text (since 2026-10-12): the signed-in description carries

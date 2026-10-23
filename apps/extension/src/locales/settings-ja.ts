@@ -76,6 +76,7 @@ export const settingsJa = {
   "Licenses and source": "ライセンスとソースコード",
   "GPL-3.0-only, no warranty": "GPL-3.0-only、無保証",
   Theme: "テーマ",
+  'Show "This page" in the popup': "ポップアップに「このページ」を表示",
   Light: "ライト",
   Dark: "ダーク",
   "Stored settings are invalid. They were not replaced.":
@@ -219,10 +220,10 @@ export const settingsJa = {
   "Key ending in {{ending}} saved. This device asks Claude with it, also while paired: the sync service then only keeps and shares the recipes and settings.":
     "末尾が {{ending}} のキーを保存しています。同期サービスとペアリングしていても、このデバイスがこのキーで Claude に問い合わせます。そのとき同期サービスは、レシピと設定の保存と共有だけを行います。",
   "The saved key could not be read.": "保存したキーを読み込めませんでした。",
-  "Without a key, the paired sync service asks Claude with its owner's credentials.":
-    "キーがないときは、ペアリングした同期サービスが、その所有者の認証情報で Claude に問い合わせます。",
+  "Without a key, the paired sync service asks Claude with its owner's credentials, and a device without a pairing makes no recipes.":
+    "キーがないときは、ペアリングした同期サービスが、その所有者の認証情報で Claude に問い合わせます。ペアリングしていないデバイスでは、レシピを作りません。",
   "Spent with this key: {{today}} today and {{month}} this month (UTC), estimated from the usage Anthropic reports. Requests stop at either limit.":
     "このキーでの利用額: 今日 {{today}}、今月 {{month}}（UTC）。Anthropic が返す使用量からの見積もりです。どちらかの上限に達すると問い合わせを止めます。",
-  "The key stays on this device and is sent to Anthropic only, never to the sync service. For now, recipes are made with it only while a sync service is paired.":
-    "キーはこのデバイスにだけ保存し、Anthropic にだけ送ります。同期サービスには送りません。今のところ、このキーでレシピを作るのは同期サービスとペアリングしているときだけです。",
+  "The key stays on this device and is sent to Anthropic only, never to the sync service. Without a paired sync service, this device makes recipes with it and keeps them here.":
+    "キーはこのデバイスにだけ保存し、Anthropic にだけ送ります。同期サービスには送りません。同期サービスとペアリングしていないときは、このデバイスがこのキーでレシピを作り、このデバイスに保存します。",
 } satisfies Record<keyof typeof settingsEn, string>;

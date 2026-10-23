@@ -60,6 +60,8 @@ export const syncSettingsStateSchema = v.pipe(
  * to 128 KiB; the document leaves room for the rest of the write.
  */
 export const MAX_SETTINGS_DOCUMENT_BYTES = 120 * 1024;
+/** Active recipes per owner, or on a device without a pairing; revoking one frees its place. */
+export const MAX_ACTIVE_RECIPES = 1_000;
 /** UTF-8 bytes of an owner's active recipe documents; tombstones do not count. */
 export const MAX_ACTIVE_RECIPE_BYTES = 1.5 * 1024 * 1024;
 /** Serialized device cache, including its envelope; leaves margin above the service cap. */

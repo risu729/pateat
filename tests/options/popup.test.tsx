@@ -1472,6 +1472,32 @@ test("the page section opens the detailed log", async () => {
   expect(host.close).not.toHaveBeenCalled();
 });
 
+test("settings that hide the page section hide it and its log link, and stop asking", async () => {
+  const hidden = { ...createDefaultSettings(), popupPageSection: false };
+  const { client, replace } = store(saved(0, hidden));
+  const choices = onPage({ recipe: "page", login: { state: "authenticated" } });
+  fakePolls();
+  const host = await mount(client, "https://bank.example/login", choices);
+  await expect.element(page.getByRole("group", { name: "Default account" })).toBeVisible();
+  await vi.advanceTimersByTimeAsync(POLL_MS * 2);
+  expect(choices.status).not.toHaveBeenCalled();
+  expect(page.getByRole("heading", { name: "This page" }).query()).toBeNull();
+  expect(page.getByRole("link", { name: "Open the detailed log" }).query()).toBeNull();
+  // Shown again from the settings page, or by another device's sync, while the popup is open.
+  replace(saved(1, createDefaultSettings()));
+  host.settingsChanged();
+  await expect.element(page.getByRole("heading", { name: "This page" })).toBeVisible();
+  await expect.element(page.getByRole("link", { name: "Open the detailed log" })).toBeVisible();
+  expect(choices.status).toHaveBeenCalledWith(7);
+  // Hidden again: the polling stops.
+  replace(saved(2, hidden));
+  host.settingsChanged();
+  await expect.poll(() => document.querySelector("#popup-page-status")).toBeNull();
+  const asked = choices.status.mock.calls.length;
+  await vi.advanceTimersByTimeAsync(POLL_MS * 3);
+  expect(choices.status).toHaveBeenCalledTimes(asked);
+});
+
 test("the page section says when a request sent to the AI has no answer and none is in flight", async () => {
   const { client } = store();
   await mount(
@@ -1598,6 +1624,21 @@ test("a page that asks for a detail offers the vault fields, the best guess sele
   const calls = details.get.mock.calls.length;
   await expect.poll(() => details.get.mock.calls.length, { timeout: 3000 }).toBeGreaterThan(calls);
   await expect.element(asks.getByRole("radio", { name: "Family › Date of birth" })).toBeChecked();
+});
+
+test("settings that hide the page's status still offer the details a page asks for", async () => {
+  const hidden = { ...createDefaultSettings(), popupPageSection: false };
+  const { client } = store(saved(0, hidden));
+  const choices = onPage({ recipe: "page", login: { state: "authenticated" } });
+  const details = withDetails({ offer: birthOffer });
+  await mount(client, "https://bank.example/login", choices, false, undefined, details);
+  // The offer is something to do on the page, not its status, so it stays.
+  await expect
+    .element(page.getByRole("group", { name: "This page asks for your birth year and month." }))
+    .toBeVisible();
+  expect(choices.status).not.toHaveBeenCalled();
+  expect(document.querySelector("#popup-page-status")).toBeNull();
+  expect(page.getByRole("link", { name: "Open the detailed log" }).query()).toBeNull();
 });
 
 test("Fill fills the picked field in the offer's document and says to check and submit", async () => {

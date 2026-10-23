@@ -1,3 +1,4 @@
+import { pageJudgementVerdicts, recipePages, recipeUnitOrigins } from "@pateat/generation/backend";
 import { sql } from "drizzle-orm";
 import {
   check,
@@ -193,15 +194,12 @@ export const recipeLayoutUses = sqliteTable(
   ],
 );
 
-/** How a recipe unit got its current content (ADR 0060, generation provenance). */
-export const recipeUnitOrigins = ["generated", "judged", "device"] as const;
-export type RecipeUnitOrigin = (typeof recipeUnitOrigins)[number];
 /**
  * Which call made each part ("unit") of an active recipe and when (ADR 0060): the service's
  * own record, never synced to devices and never in the recipe document. A unit is a page of
  * a layout's route (`page:<n>`), a handler (`handler:<i>`), a signed-in marker
  * (`marker:<i>`), a chooser layout's list buttons (`list`) or an entry recipe (`entry`); a
- * chooser branch's units start with `account/` or `other/` (`src/recipe-units.ts`). Rows are
+ * chooser branch's units start with `account/` or `other/` (`packages/generation/src/units.ts`). Rows are
  * written in the batch of the recipe write that adds the unit and only when that write
  * wins; rows of layouts a write drops go with that write, and every row of the recipe with
  * its revocation. The request log's delete-all clears `device_id` and `log_id`.
@@ -213,7 +211,7 @@ export const recipeUnitSources = sqliteTable(
     recipeId: text("recipe_id").notNull(),
     /** The layout's key (`recipeLayoutKeySchema`); null for an entry recipe, which has none. */
     layout: text("layout"),
-    /** The unit's ID within its layout (`src/recipe-units.ts`). */
+    /** The unit's ID within its layout (`packages/generation/src/units.ts`). */
     unit: text("unit").notNull(),
     /** 32 hex digits of the SHA-256 of the unit's content as written (`documentUnits`). */
     digest: text("digest").notNull(),
@@ -292,8 +290,6 @@ export const inferenceCredentials = sqliteTable(
   (table) => [check("inference_credentials_kind_check", sql`${table.kind} IN ('wif')`)],
 );
 
-/** Where a generated page sits in its recipe, for the request log (ADR 0012). */
-export const inferenceLogRecipePages = ["first", "continuation"] as const;
 /**
  * Every generation and judgement request the service received and its local outcome (ADR
  * 0012), kept for one year (owner, 2026-10-18) unless the owner deletes them all from the
@@ -392,7 +388,7 @@ export const inferenceLog = sqliteTable(
      * again after its revocation, a list of accounts or an entry page), `continuation` for
      * a page sent with a base (a later page, a chooser branch's pages included).
      */
-    recipePage: text("recipe_page", { enum: inferenceLogRecipePages }),
+    recipePage: text("recipe_page", { enum: recipePages }),
     /**
      * For generation: the device's hint that the page showed the user signed in (ADR 0035),
      * sent with a recipe's first page that lists no accounts; null for any other request.
@@ -420,9 +416,9 @@ export const inferenceLog = sqliteTable(
     costMicroUsd: integer("cost_micro_usd").notNull(),
     /**
      * Milliseconds from the Worker receiving the request to just before the model call:
-     * device authentication, the request limit, the route's own reads, the owner's lock,
-     * the gate and spend checks, the model configuration and the credential with its token
-     * exchange. A later call of the same request (a fallback after a refusal, or the
+     * device authentication, the request limit, the route's own reads, the owner's call
+     * slot, the gate and spend checks, the model configuration and the credential with its
+     * token exchange. A later call of the same request (a fallback after a refusal, or the
      * standard speed after fast mode failed) includes the calls before it.
      */
     preModelMs: integer("pre_model_ms"),
@@ -641,21 +637,6 @@ export const recipeRepairs = sqliteTable(
 );
 
 /**
- * What the judge answered for a page; `unclear` when the model abstained (ADR 0029), and
- * `partial` when it abstained on a description that left out a disabled field, so the
- * path is judged again once it is described in full; `optional` for a page after the
- * sign-in that the person may put off (ADR 0065).
- */
-export const pageJudgementVerdicts = [
-  "signed-in",
-  "challenge",
-  "rejected",
-  "optional",
-  "unclear",
-  "partial",
-] as const;
-export type PageJudgementVerdict = (typeof pageJudgementVerdicts)[number];
-/**
  * Pages sent to the judge per recipe revision, origin and path (ADR 0027): each is judged
  * at most once across devices and Worker restarts, and a recipe at most 20 times a UTC day.
  */
@@ -719,11 +700,19 @@ export const inferenceModelConfigs = sqliteTable("inference_model_configs", {
   updatedAt: integer("updated_at").notNull(),
 });
 
-/** One model call at a time per owner; a lock past `expiresAt` is abandoned. */
-export const inferenceLocks = sqliteTable("inference_locks", {
-  ownerId: text("owner_id")
-    .primaryKey()
-    .references(() => owners.id),
-  lockId: text("lock_id").notNull(),
-  expiresAt: integer("expires_at").notNull(),
-});
+/**
+ * The model calls an owner has running, one row per slot from 0 below
+ * `CLAUDE_CALL_LIMITS.concurrentCalls` (ADR 0018); a slot past `expiresAt` is abandoned.
+ */
+export const inferenceLocks = sqliteTable(
+  "inference_locks",
+  {
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => owners.id),
+    slot: integer("slot").notNull(),
+    lockId: text("lock_id").notNull(),
+    expiresAt: integer("expires_at").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.ownerId, table.slot] })],
+);

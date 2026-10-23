@@ -3,6 +3,7 @@ import { i18n } from "../i18n";
 import {
   conflictCauses,
   localSettingsSchema,
+  popupPageSectionShown,
   type LocalSettings,
   type SettingsConflictCause,
   type SettingsResponse,
@@ -21,7 +22,7 @@ import {
   Vault,
   type LucideIcon,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import * as v from "valibot";
 import { Logo } from "../logo";
 import { Button } from "./button";
@@ -290,6 +291,7 @@ export function SettingsApp({
     form.setFieldValue("repromptSites", value.repromptSites);
     form.setFieldValue("siteDefaults", value.siteDefaults);
     form.setFieldValue("bindings", value.bindings);
+    form.setFieldValue("popupPageSection", value.popupPageSection);
     rebased.current = true;
     return "rebased";
   }
@@ -368,6 +370,7 @@ export function SettingsApp({
     form.setFieldValue("passkeyBrowserSites", next.passkeyBrowserSites);
     form.setFieldValue("repromptSites", next.repromptSites);
     form.setFieldValue("siteDefaults", next.siteDefaults);
+    form.setFieldValue("popupPageSection", next.popupPageSection);
     edits.current += 1;
     setDirty(true);
     dirtyRef.current = true;
@@ -545,7 +548,28 @@ export function SettingsApp({
         )}
       </output>
       <div className="flex flex-wrap items-start gap-8">
-        <SectionNav sections={sections} />
+        <SectionNav
+          sections={sections}
+          display={
+            <label className="checkbox-row m-0 text-sm">
+              <input
+                id="popup-page-section"
+                type="checkbox"
+                checked={popupPageSectionShown(draft)}
+                disabled={busy || !accepted}
+                onChange={(event) => {
+                  const shown = event.target.checked;
+                  // Stored only when hidden, as in the synced document.
+                  edit((value) => {
+                    if (shown) delete value.popupPageSection;
+                    else value.popupPageSection = false;
+                  });
+                }}
+              />
+              {t('Show "This page" in the popup')}
+            </label>
+          }
+        />
         <main className="flex min-w-0 flex-[999_1_560px] flex-col gap-6">
           {!connectionClient && (
             <StatusLines
@@ -673,8 +697,11 @@ type NavSection = { id: string; label: string; icon: LucideIcon };
 const navLinkClass =
   "flex min-h-10 items-center gap-2.5 rounded-lg px-3 text-sm font-medium text-ink no-underline hover:bg-surface aria-[current]:bg-surface aria-[current]:font-[650] aria-[current]:text-accent-ink aria-[current]:shadow-[inset_0_0_0_1px_var(--border)]";
 
-/** The page's sections, the diagnostics page and the theme; the section in view is marked. */
-function SectionNav({ sections }: { sections: NavSection[] }) {
+/**
+ * The page's sections, the diagnostics page, the theme, the popup's display choice and the
+ * language; the section in view is marked.
+ */
+function SectionNav({ sections, display }: { sections: NavSection[]; display: ReactNode }) {
   const { t } = useTranslation(undefined, { i18n });
   const [current, setCurrent] = useState(sections[0]?.id);
   const ids = sections.map((section) => section.id).join(" ");
@@ -755,8 +782,9 @@ function SectionNav({ sections }: { sections: NavSection[] }) {
           </a>
         </li>
       </ul>
-      <div className="px-3">
+      <div className="flex flex-col gap-4 px-3">
         <ThemeSelect />
+        {display}
         <LanguageSelect />
       </div>
     </nav>

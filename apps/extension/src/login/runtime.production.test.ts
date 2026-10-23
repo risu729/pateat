@@ -1856,6 +1856,30 @@ describe("production login document admission", () => {
       stack: expect.any(String),
     });
   });
+  it("marks an exception of a login that only fills after a logout (ADR 0066)", async () => {
+    // This tab logged out of the site (ADR 0021 D); the item is the site default.
+    fake.state.session["pateat.login-logouts.v1"] = [{ tabId: 1, origin }];
+    const report = vi.fn<(report: LoginReport) => void>();
+    const h = harness({}, { report });
+    // The settings read after the fill fails once.
+    fake.state.onExecute = async () => {
+      fake.state.onExecute = undefined;
+      h.store.handle.mockRejectedValueOnce(new SyntaxError("synthetic settings answer"));
+    };
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(report.mock.calls.map(([entry]) => entry)).toContainEqual(
+        expect.objectContaining({ type: "exception" }),
+      ),
+    );
+    expect(
+      report.mock.calls.map(([entry]) => entry).find((entry) => entry.type === "start"),
+    ).toMatchObject({ fillOnly: true });
+    // Its line stays on the device, as every line of such a login.
+    expect(
+      report.mock.calls.map(([entry]) => entry).find((entry) => entry.type === "exception"),
+    ).toMatchObject({ name: "SyntaxError", fillOnly: true });
+  });
   it("logs only the type of a thrown value that is not an Error", async () => {
     const report = vi.fn<(report: LoginReport) => void>();
     const h = harness({}, { report });
@@ -28098,6 +28122,9 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
           state: "blocked",
           reason: "fill-only",
         });
+        // Every line of the login carries the mark that keeps it on the device (ADR 0066).
+        expect(attemptReports(reports).length).toBeGreaterThan(0);
+        for (const entry of attemptReports(reports)) expect(entry).toHaveProperty("fillOnly", true);
         expect(reports.at(-1)).toMatchObject({ type: "refused", reason: "logged-out" });
         expect(executed()).toEqual([]);
         expect(fake.state.messages.some((entry) => entry.type === "login.choose")).toBe(false);
@@ -31062,6 +31089,68 @@ describe("an item without a password, up to its password (ADR 0036)", () => {
       expect(attempts(started.report).at(-1)).toMatchObject({ reason: "password-empty" });
       expect(judge).not.toHaveBeenCalled();
       expect(pressed()).toBe(0);
+    });
+
+    it("keeps a login that only fills after a logout from judging its stop, its lines marked (ADR 0066)", async () => {
+      vi.useFakeTimers();
+      // The password page also asks for the username. This tab logged out of the site (ADR
+      // 0021 D) and shows that page, where the item's login starts at a later step (ADR
+      // 0049), fills the username and stops at the password.
+      const confirming = parseLoginRecipe({
+        ...emailFirst,
+        id: "synthetic-confirming",
+        steps: [
+          emailFirst.steps[0],
+          emailFirst.steps[1],
+          {
+            kind: "fill",
+            path: "/password",
+            fields: [{ slot: "username", target: target("account") }],
+          },
+          ...emailFirst.steps.slice(2),
+        ],
+      });
+      fake.state.session["pateat.login-logouts.v1"] = [{ tabId: 1, origin }];
+      fake.state.pageUrl = "https://login.example/password";
+      fake.state.observedPath = "/password";
+      fake.state.present = new Set(["account", "password", "login"]);
+      fake.state.extracted = { "signed-in": passwordPage };
+      fake.state.onExecute = undefined;
+      const { judge, generation } = judging({ verdict: "unclear" });
+      const { h, report } = start({ generation });
+      h.recipes.recipe.mockImplementation(async (_origin, path) =>
+        path === "/signin" ? confirming : undefined,
+      );
+      h.recipes.starts.mockResolvedValue([
+        {
+          path: "/signin",
+          steps: [confirming.steps[0]!],
+          later: laterStartSteps(confirming).map(({ step }) => step),
+        },
+      ]);
+      Object.assign(h.recipes, {
+        later: vi.fn(async (_origin: string, path: string) =>
+          path === "/password" ? [confirming] : [],
+        ),
+      });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => status()?.[0]?.["state"] === "watching");
+      expect(
+        report.mock.calls.map(([entry]) => entry).find((entry) => entry.type === "start"),
+      ).toMatchObject({ fillOnly: true, startStep: 2 });
+      expect(executed().map((step) => step.kind)).toEqual(["fill"]);
+      // The attempt contract refuses such a login a judgement at its stop, so it writes no
+      // `recipe.judge` line; its end names the stop's reason, and the mark still keeps that
+      // warning on the device.
+      expect(judge).not.toHaveBeenCalled();
+      expect(judgements(report)).toEqual([]);
+      expect(attempts(report).at(-1)).toMatchObject({
+        state: "watching",
+        reason: "password-empty",
+        fillOnly: true,
+      });
+      for (const entry of attempts(report)) expect(entry).toHaveProperty("fillOnly", true);
+      expect(passwordRead(h)).toBe(false);
     });
 
     it("does not judge the stop's page again after a restart during the request", async () => {

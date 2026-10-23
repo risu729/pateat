@@ -493,6 +493,7 @@ export const localSettingsSchema = v.pipe(
                 JSON.stringify([
                   link.origin,
                   link.provider,
+                  link.server,
                   link.userId,
                   link.itemId,
                   link.detail,
@@ -548,6 +549,12 @@ export const localSettingsSchema = v.pipe(
         "Duplicate account bindings",
       ),
     ),
+    /**
+     * Whether the toolbar popup shows its "This page" section (ADR 0038), synced like the
+     * other profile parts (ADR 0024). Shown unless this is `false`; read it with
+     * `popupPageSectionShown`.
+     */
+    popupPageSection: v.optional(v.boolean()),
   }),
 );
 
@@ -1101,6 +1108,10 @@ export function customFieldReviewState(
     return "vault-stale";
   return "review-required";
 }
+
+/** Whether the popup shows its "This page" section: unless the settings hide it. */
+export const popupPageSectionShown = (settings: Pick<LocalSettings, "popupPageSection">) =>
+  settings.popupPageSection !== false;
 
 export type EligibilityReason =
   | "connection-missing"
