@@ -307,6 +307,40 @@ export const ja = {
     "Pateat：{{count}} 件のアカウントがこのページに一致します。クリックして選んでください。",
   "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait up to 10 minutes and reload this page, to log in here.":
     "Pateat：別のタブでこのサイトへのログインが進行中か、成功していません。ここでログインするには、そのタブを閉じるか、最大 10 分待ってからこのページを再読み込みしてください。",
+  "This page asks for {{detail}}.": "このページは{{detail}}の入力を求めています。",
+  Fill: "入力",
+  Remove: "解除",
+  "Personal details Pateat fills on this site": "Pateat がこのサイトで入力する個人情報",
+  "Filled from {{field}}": "{{field}} から入力",
+  "Filled from {{field}} (not saved yet)": "{{field}} から入力（未保存）",
+  "Remove the link for {{detail}}": "{{detail}}の割り当てを解除",
+  "Filling…": "入力中…",
+  "Filled. Check it and submit the form; Pateat saves this choice once you are signed in.":
+    "入力しました。内容を確認してフォームを送信してください。ログインに成功すると、この選択が保存されます。",
+  "Nothing was filled. Reopen this popup and try again.":
+    "何も入力しませんでした。このポップアップを開き直して、もう一度お試しください。",
+  "Removing…": "解除中…",
+  "Removed. Pateat no longer fills {{detail}} on this site.":
+    "解除しました。今後このサイトでは{{detail}}を入力しません。",
+  "This link was already removed.": "この割り当てはすでに解除されています。",
+  "The link could not be removed. Reopen this popup and try again.":
+    "割り当てを解除できませんでした。このポップアップを開き直して、もう一度お試しください。",
+  "The link may not have been removed. Reopen this popup to see the links.":
+    "割り当てが解除されていない可能性があります。割り当てを確認するには、このポップアップを開き直してください。",
+  "your birth year and month": "生年月",
+  "your birth month and day": "誕生日（月日）",
+  "your birth date": "生年月日",
+  "the last 4 digits of your phone number": "電話番号の下 4 桁",
+  "the last 4 digits of your card number": "カード番号の下 4 桁",
+  "your card's security code": "カードのセキュリティコード",
+  "The page changed, so nothing was filled.": "ページが変わったため、何も入力しませんでした。",
+  "This page no longer asks for it.": "このページはもうこの情報を求めていません。",
+  "That field does not hold a value Pateat can use here.":
+    "そのフィールドの値はここでは使えません。",
+  "Pateat cannot read that field now. Unlock the vault and try again.":
+    "そのフィールドを今は読み取れません。保管庫のロックを解除して、もう一度お試しください。",
+  "The page did not accept the value.": "ページが値を受け付けませんでした。",
+  "ID {{id}}": "ID {{id}}",
   vaultsLocked_one:
     "{{count}} 個の保管庫がロック中のため、そのログインとパスキーは待機しています。",
   vaultsLocked_other:

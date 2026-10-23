@@ -27,6 +27,8 @@ export const settingsJa = {
   "settings were merged with the Pateat sync service": "Pateat 同期サービスとの設定の統合",
   "an account used to log in on a site was saved for that site":
     "サイトでのログインに使ったアカウントの保存",
+  "a vault field for a personal detail was linked or unlinked for a site":
+    "サイトの個人情報の割り当ての変更",
   "settings changed for a reason no longer recorded": "理由の記録が残っていない変更",
   "{{error}} Your unsaved changes are kept.": "{{error}} 未保存の変更は保持されています。",
   "{{error}} Your unsaved changes are kept. Reload saved settings to try again; reloading drops them.":

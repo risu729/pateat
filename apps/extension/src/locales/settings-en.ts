@@ -26,6 +26,8 @@ export const settingsEn = {
     "settings were merged with the Pateat sync service",
   "an account used to log in on a site was saved for that site":
     "an account used to log in on a site was saved for that site",
+  "a vault field for a personal detail was linked or unlinked for a site":
+    "a vault field for a personal detail was linked or unlinked for a site",
   "settings changed for a reason no longer recorded":
     "settings changed for a reason no longer recorded",
   "{{error}} Your unsaved changes are kept.": "{{error}} Your unsaved changes are kept.",

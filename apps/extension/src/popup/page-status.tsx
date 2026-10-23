@@ -2,6 +2,7 @@ import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { i18n } from "../i18n";
 import { Bug, CircleCheck, CircleX, Info, LoaderCircle, TriangleAlert } from "lucide-react";
+import type { ReactNode } from "react";
 import type { StatusResponse } from "../login/choice-wire";
 
 type Status = Extract<StatusResponse, { ok: true }>;
@@ -326,32 +327,41 @@ const ICONS = {
   err: CircleX,
 } as const;
 
+/**
+ * The popup's "This page" section: the page's status when the worker describes the page,
+ * then what else the popup offers for it, such as its personal details (ADR 0061).
+ */
 export function PageStatusSection({
   status,
+  children,
   onOpenDiagnostics,
 }: {
-  status: Status;
+  status: Status | undefined;
+  children?: ReactNode;
   onOpenDiagnostics: () => void;
 }) {
   const { t } = useTranslation(undefined, { i18n });
   return (
     <section className="popup-section" aria-labelledby="popup-page-heading">
       <h2 id="popup-page-heading">{t("This page")}</h2>
-      <ul id="popup-page-status" className="popup-lines" aria-live="polite">
-        {pageStatusLines(status, t).map((line) => {
-          const Icon = ICONS[line.tone];
-          return (
-            <li
-              key={line.id}
-              id={`popup-page-${line.id}`}
-              className={`popup-line popup-line--${line.tone}`}
-            >
-              <Icon size={16} strokeWidth={2} aria-hidden="true" />
-              <span>{line.text}</span>
-            </li>
-          );
-        })}
-      </ul>
+      {status && (
+        <ul id="popup-page-status" className="popup-lines" aria-live="polite">
+          {pageStatusLines(status, t).map((line) => {
+            const Icon = ICONS[line.tone];
+            return (
+              <li
+                key={line.id}
+                id={`popup-page-${line.id}`}
+                className={`popup-line popup-line--${line.tone}`}
+              >
+                <Icon size={16} strokeWidth={2} aria-hidden="true" />
+                <span>{line.text}</span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {children}
       <div>
         <a
           id="popup-open-diagnostics"

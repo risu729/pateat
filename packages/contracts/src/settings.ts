@@ -82,6 +82,27 @@ export const recipeSlotIdSchema = v.pipe(
 );
 const vaultNameSchema = v.pipe(v.string(), v.minLength(1), v.maxLength(200));
 /**
+ * The personal details a `detail` handler's input may ask for (ADR 0061), each read from
+ * a vault item the owner linked to the login and made into the value the page wants:
+ * a birth date in the input's `format`, the last four digits of a phone number or of a
+ * card number, or a card's security code.
+ */
+export const loginDetailSchema = v.picklist([
+  "birth-date",
+  "phone-last-4",
+  "card-last-4",
+  "card-code",
+]);
+/** How a `birth-date` input wants the date written (ADR 0061). */
+export const birthDateFormatSchema = v.picklist([
+  "yyyymmdd",
+  "yyyymm",
+  "yyyy-mm-dd",
+  "yyyy/mm/dd",
+  "mmdd",
+]);
+
+/**
  * A vault field named the same way on every device (ADR 0013). Custom fields are named;
  * when several share a name, `position` (1-based) and `count` pin one of them.
  */
@@ -123,6 +144,29 @@ export const savedLoginBindingSchema = v.strictObject({
       "Duplicate binding slots",
     ),
   ),
+});
+
+/**
+ * Where a linked detail's value is read (ADR 0061): an identity's phone number, a card's
+ * number or security code, or a custom field by name, as binding references name them.
+ */
+export const detailSourceFieldSchema = v.union([
+  v.picklist(["identity.phone", "card.number", "card.code"]),
+  vaultFieldReferenceSchema.options[1],
+]);
+/**
+ * The vault item and field a login item's site reads a personal detail from (ADR 0061),
+ * confirmed by the owner in the popup. References only: no item name, which for a card
+ * often carries its last digits, and never a value.
+ */
+export const detailLinkSchema = v.strictObject({
+  origin: originSchema,
+  provider: identifier,
+  userId: identifier,
+  /** The login item. */
+  itemId: identifier,
+  detail: loginDetailSchema,
+  source: v.strictObject({ itemId: identifier, field: detailSourceFieldSchema }),
 });
 
 /** The saved account for one origin, named by provider account and item (ADR 0013). */
@@ -184,6 +228,22 @@ export const localSettingsSchema = v.pipe(
         "Duplicate origins",
       ),
     ),
+    /** Synced links to the items that hold a login's personal details (ADR 0061). */
+    detailLinks: v.optional(
+      v.pipe(
+        v.array(detailLinkSchema),
+        v.maxLength(1000),
+        v.check(
+          (links) =>
+            new Set(
+              links.map((link) =>
+                JSON.stringify([link.origin, link.provider, link.userId, link.itemId, link.detail]),
+              ),
+            ).size === links.length,
+          "Duplicate detail links",
+        ),
+      ),
+    ),
     /** Synced account bindings (ADR 0013). */
     bindings: v.pipe(
       v.array(savedLoginBindingSchema),
@@ -226,6 +286,8 @@ export const SETTINGS_CHANGE_CAUSES = [
   "service-sync",
   /** An account used on a site, from a login or a passkey request, saved for it (ADR 0021). */
   "account-choice",
+  /** A vault field linked to a personal detail on a site, or that link removed (ADR 0061). */
+  "detail-link",
 ] as const;
 export const settingsChangeCauseSchema = v.picklist(SETTINGS_CHANGE_CAUSES);
 /** The most recent revisions whose cause the snapshot keeps. */
@@ -291,6 +353,8 @@ export const vaultCatalogSchema = v.strictObject({
           id: identifier,
           label: identifier,
           allowedOrigins: v.array(originSchema),
+          /** In the trash or archived; no personal detail is read from it (ADR 0061). */
+          inactive: v.optional(v.literal(true)),
           groupIds: identifiers,
           fields: v.array(
             v.strictObject({
@@ -363,6 +427,9 @@ export type SettingsConflictCause = NonNullable<SettingsError["causes"]>[number]
 export type VaultCatalog = v.InferOutput<typeof vaultCatalogSchema>;
 export type VaultFieldReference = v.InferOutput<typeof vaultFieldReferenceSchema>;
 export type SavedLoginBinding = v.InferOutput<typeof savedLoginBindingSchema>;
+export type LoginDetail = v.InferOutput<typeof loginDetailSchema>;
+export type BirthDateFormat = v.InferOutput<typeof birthDateFormatSchema>;
+export type DetailLink = v.InferOutput<typeof detailLinkSchema>;
 export type VaultConnectionMetadata = VaultCatalog["connections"][number];
 export type VaultItemMetadata = VaultConnectionMetadata["items"][number];
 

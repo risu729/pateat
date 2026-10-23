@@ -67,6 +67,16 @@ import {
   siteDefaultConnection,
   templateLoginBinding,
   TOTP_HANDLER_SLOT,
+  DETAIL_HANDLER_SLOT,
+  birthDateFormatSchema,
+  customFieldReference,
+  resolveDetailSourceField,
+  detailLinkSchema,
+  loginDetailSchema,
+  loginFieldTargetSchema,
+  loginTargetSchema,
+  type DetailLink,
+  type LoginDetail,
   totpFieldMismatch,
   totpFieldReference,
   transitionLoginAttempt,
@@ -206,6 +216,21 @@ import {
 import { newId } from "@pateat/contracts/ids";
 import { loginMoveFits } from "@pateat/contracts/site";
 import { isoTime, isoTimeMs, isoTimeSchema } from "../time";
+import {
+  detailCandidates,
+  detailValue,
+  linkedField,
+  savedDetailLink,
+  type DetailOwner,
+} from "./details";
+import {
+  detailFillRequestSchema,
+  detailRemoveRequestSchema,
+  detailRequestSchema,
+  type DetailFillResponse,
+  type DetailRemoveResponse,
+  type DetailResponse,
+} from "./detail-wire";
 
 const STORAGE_KEY = "pateat.login-attempts.v5";
 /** Accounts picked in the toolbar popup, per tab; session storage survives a worker restart. */
@@ -237,6 +262,17 @@ const NOTED_KEY = "session:pateat.login-noted.v1";
  * 2026-10-16): when it does, the tab asks as after its own login.
  */
 const LOGOUT_CLICKS_KEY = "session:pateat.login-logout-clicks.v1";
+/**
+ * Per tab, the `detail` handler its login stopped at for want of a linked value, and the
+ * links filled from the popup that wait for the tab's login to be confirmed (ADR 0061).
+ */
+const DETAIL_OFFERS_KEY = "session:pateat.login-detail-offers.v1";
+const PENDING_DETAILS_KEY = "session:pateat.login-pending-details.v1";
+/**
+ * Links whose value a site refused and that could not be removed from the settings yet;
+ * no login uses them, and their removal is tried again after each login (ADR 0061).
+ */
+const REFUSED_DETAILS_KEY = "session:pateat.login-refused-details.v1";
 const CONFIG_KEY = "pateat.login-probe-origin.v1";
 /**
  * How long another tab's login that has not succeeded holds its origin after its record
@@ -637,6 +673,44 @@ const pendingChoiceSchema = v.strictObject({
   candidates: v.array(v.strictObject({ connectionId: v.string(), itemId: v.string() })),
   logout: v.optional(logoutReasonSchema),
 });
+/**
+ * A `detail` handler that a tab's login stopped at because no linked vault field had a
+ * value for it (ADR 0061); the popup proposes fields for it while the tab shows `document`.
+ */
+const detailOfferSchema = v.strictObject({
+  document: loginDocumentSchema,
+  path: v.string(),
+  attemptId: v.string(),
+  /** The handler's index in the login's recipe, for the log. */
+  handler: v.pipe(v.number(), v.integer(), v.minValue(0)),
+  /** The login item and its site. */
+  account: v.strictObject({ connectionId: v.string(), itemId: v.string(), origin: v.string() }),
+  fields: v.pipe(
+    v.array(
+      v.strictObject({
+        detail: loginDetailSchema,
+        format: v.optional(birthDateFormatSchema),
+        target: loginFieldTargetSchema,
+      }),
+    ),
+    v.minLength(1),
+    v.maxLength(3),
+  ),
+  /** The handler's button, which must still show for the popup's fill. */
+  target: loginTargetSchema,
+});
+type DetailOffer = v.InferOutput<typeof detailOfferSchema>;
+/** A link filled from the popup, saved once the tab's login `attemptId` is confirmed. */
+const pendingDetailSchema = v.strictObject({
+  tabId: v.pipe(v.number(), v.integer(), v.minValue(0)),
+  attemptId: v.string(),
+  handler: v.pipe(v.number(), v.integer(), v.minValue(0)),
+  connectionId: v.string(),
+  link: detailLinkSchema,
+});
+type PendingDetail = v.InferOutput<typeof pendingDetailSchema>;
+const refusedDetailSchema = v.omit(detailLinkSchema, ["source"]);
+type RefusedDetail = v.InferOutput<typeof refusedDetailSchema>;
 /** A tab and origin that logged out after a Pateat login; it asks until a pick logs in. */
 const logoutSchema = v.strictObject({
   tabId: v.pipe(v.number(), v.integer(), v.minValue(0)),
@@ -680,6 +754,8 @@ const stoppedByPateat = (metadata: LoginAttemptMetadata) =>
 type PendingChoice = v.InferOutput<typeof pendingChoiceSchema>;
 type Execution = {
   metadata: LoginAttemptMetadata;
+  /** The links this login's `detail` fills used were already removed as refused (ADR 0061). */
+  detailsForgotten?: boolean;
   /** A chooser login's recipe (ADR 0028), whose list its first step clicks on. */
   chooser?: LoginChooserRecipe;
   /** A fill-only login's accounts, offered once it ends (ADR 0021 D). */
@@ -1993,8 +2069,12 @@ export type LoginReport = (
        * `code-used` when the login already types a TOTP code; `no-room` when the attempt's
        * budget is spent, or the login is at its stop before a missing password (ADR 0036);
        * for a `detail` handler (ADR 0061), `detail-manual` when its inputs ask only for
-       * details Pateat never fills, such as a card's security code, and `detail-unlinked`
-       * when no vault item is linked for any of the others.
+       * details Pateat never fills, `detail-unlinked` when no usable vault field is linked
+       * for a shown input, `detail-unreadable` when the linked value is no date or has too
+       * few digits, `detail-unavailable` when the vault could not give it, and, about the
+       * site's links, `detail-saved` when the popup's fill was saved after the login was
+       * confirmed, `detail-forgotten` when a refused value's link was removed, and
+       * `detail-kept` when it could not be removed now.
        */
       outcome:
         | "entered"
@@ -2003,7 +2083,13 @@ export type LoginReport = (
         | "code-used"
         | "no-room"
         | "detail-manual"
-        | "detail-unlinked";
+        | "detail-unlinked"
+        | "detail-unreadable"
+        | "detail-unavailable"
+        | "detail-saved"
+        | "detail-forgotten"
+        | "detail-kept"
+        | "detail-not-saved";
       steps: number;
     }
 ) & {
@@ -2384,6 +2470,14 @@ export function createLoginRuntime(
    * written; they hold until the worker stops (ADR 0031).
    */
   const unsavedBlocks: EntryBlock[] = [];
+  /** By tab: the `detail` handler its login stopped at for want of a link (ADR 0061). */
+  const detailOffers = new Map<number, DetailOffer>();
+  /** By tab: links filled from the popup, saved once its login is confirmed (ADR 0061). */
+  const pendingDetails = new Map<number, PendingDetail[]>();
+  /** Refused links not removed yet, by site, login item and detail (ADR 0061). */
+  const refusedDetails = new Map<string, RefusedDetail>();
+  const refusalKey = (owner: DetailOwner, detail: LoginDetail) =>
+    JSON.stringify([owner.origin, owner.provider, owner.userId, owner.itemId, detail]);
   /** Account choices being saved; each bumps the policy revision (ADR 0022). */
   const savingChoices = new Set<Promise<void>>();
   /** Counts account choices saved or attempted, so a new login sees a bump it missed. */
@@ -2407,6 +2501,9 @@ export function createLoginRuntime(
       ENTRY_PRESSES_KEY,
       NOTED_KEY,
       LOGOUT_CLICKS_KEY,
+      DETAIL_OFFERS_KEY,
+      PENDING_DETAILS_KEY,
+      REFUSED_DETAILS_KEY,
     ]);
     const stored = Object.fromEntries(items.map(({ key, value }) => [key, value]));
     const picks = v.safeParse(v.array(pickedAccountSchema), stored[PICKS_KEY] ?? []);
@@ -2455,6 +2552,26 @@ export function createLoginRuntime(
     );
     if (clicks.success)
       for (const entry of clicks.output) logoutClicks.set(`${entry.tabId} ${entry.site}`, entry);
+    const offers = v.safeParse(
+      v.pipe(v.array(detailOfferSchema), v.maxLength(256)),
+      stored[DETAIL_OFFERS_KEY] ?? [],
+    );
+    if (offers.success)
+      for (const entry of offers.output) detailOffers.set(entry.document.tabId, entry);
+    const kept = v.safeParse(
+      v.pipe(v.array(pendingDetailSchema), v.maxLength(1024)),
+      stored[PENDING_DETAILS_KEY] ?? [],
+    );
+    if (kept.success)
+      for (const entry of kept.output)
+        pendingDetails.set(entry.tabId, [...(pendingDetails.get(entry.tabId) ?? []), entry]);
+    const refused = v.safeParse(
+      v.pipe(v.array(refusedDetailSchema), v.maxLength(1000)),
+      stored[REFUSED_DETAILS_KEY] ?? [],
+    );
+    if (refused.success)
+      for (const entry of refused.output)
+        refusedDetails.set(refusalKey(entry, entry.detail), entry);
   });
   const scopes = (keys: Set<string>) =>
     [...keys].map((key) => {
@@ -2472,6 +2589,9 @@ export function createLoginRuntime(
       { key: ENTRY_PRESSES_KEY, value: [...entryPresses.values()] },
       { key: NOTED_KEY, value: [...noted].map(([page, ids]) => [page, [...ids]]) },
       { key: LOGOUT_CLICKS_KEY, value: [...logoutClicks.values()] },
+      { key: DETAIL_OFFERS_KEY, value: [...detailOffers.values()] },
+      { key: PENDING_DETAILS_KEY, value: [...pendingDetails.values()].flat() },
+      { key: REFUSED_DETAILS_KEY, value: [...refusedDetails.values()] },
     ]);
   }
   /**
@@ -3247,6 +3367,20 @@ export function createLoginRuntime(
     if (terminal(run.metadata) || idle(run.metadata)) reviewRequests();
     if (run.metadata.state === "authenticated" && !run.metadata.unconfirmed && run.choice)
       await remember(run);
+    // Links filled from the popup are saved once the login is confirmed, and links whose
+    // value the site rejected are removed (ADR 0061).
+    if (run.metadata.state === "authenticated" && !run.metadata.unconfirmed)
+      await settleDetails(run, true);
+    else if (
+      run.metadata.outcome === "credential-rejected" &&
+      previous.outcome !== "credential-rejected"
+    ) {
+      await settleDetails(run, false);
+      await forgetDetail(run);
+    }
+    // Refused links that another login kept from being removed are removed once one ends.
+    if (refusedDetails.size && terminal(run.metadata) && !terminal(previous))
+      await removeRefused(run).catch(() => undefined);
   }
   /**
    * Ends a fill-only login before its first step with an effect and forgets its record, so
@@ -4306,6 +4440,9 @@ export function createLoginRuntime(
     /** The account's allowed field IDs and the synced bindings it was authorized with. */
     fieldIds: string[];
     bindings: SavedLoginBinding[];
+    /** The settings and whole catalog it was authorized with, for linked details (ADR 0061). */
+    settings: LocalSettings;
+    catalog: VaultCatalog;
   };
   /** Resolve against a fresh live catalog; returns the authorizing metadata and binding. */
   async function allowed(run: Execution): Promise<Authorized | undefined> {
@@ -4361,6 +4498,8 @@ export function createLoginRuntime(
       binding: plan.binding,
       fieldIds: plan.account.fieldIds,
       bindings: snapshot.snapshot.settings.bindings,
+      settings: snapshot.snapshot.settings,
+      catalog: snapshot.catalog,
     };
   }
   async function observe(
@@ -5102,6 +5241,532 @@ export function createLoginRuntime(
       misses,
     };
   }
+  type DetailHandler = Extract<LoginHandler, { kind: "detail" }>;
+  /** The login item a run's links belong to, or none while its vault account is unknown. */
+  function detailOwner(
+    login: Pick<LoginAccount, "connectionId" | "itemId" | "origin">,
+    catalog: VaultCatalog,
+  ): { owner: DetailOwner; connection: VaultConnectionMetadata } | undefined {
+    const connection = catalog.connections.find((entry) => entry.id === login.connectionId);
+    if (!connection?.userId) return undefined;
+    return {
+      owner: {
+        origin: login.origin,
+        provider: connection.provider,
+        userId: connection.userId,
+        itemId: login.itemId,
+      },
+      connection,
+    };
+  }
+  /** Reports a `login.handler` outcome about a `detail` handler (ADR 0061). */
+  function reportDetail(
+    document: LoginDocument,
+    recipe: LoginRecipe,
+    handler: number,
+    outcome: Extract<Extract<LoginReport, { type: "handler" }>["outcome"], `detail-${string}`>,
+  ): void {
+    const entry = recipe.handlers?.[handler];
+    report(document, {
+      type: "handler",
+      tabId: document.tabId,
+      origin: document.origin,
+      recipeId: recipe.id,
+      recipeRevision: recipe.revision,
+      handler,
+      kind: "detail",
+      outcome,
+      steps: entry ? handlerSteps(entry).length : 0,
+    });
+  }
+  /**
+   * Which input of a shown `detail` handler a login fills (ADR 0061): the first whose
+   * detail Pateat fills, that has a saved link to a field the device may read, and that is
+   * writable now. Undefined when none is.
+   */
+  async function detailInput(run: Execution, handler: DetailHandler): Promise<number | undefined> {
+    const authorized = await allowed(run);
+    if (!authorized) return undefined;
+    const found = detailOwner(run.metadata.account, authorized.catalog);
+    if (!found) return undefined;
+    const linked = handler.fields.flatMap((field, index) => {
+      if (manualDetails.includes(field.detail)) return [];
+      if (refusedDetails.has(refusalKey(found.owner, field.detail))) return [];
+      const link = savedDetailLink(authorized.settings, found.owner, field.detail);
+      return link && linkedField(authorized.settings, authorized.catalog, found.connection, link)
+        ? [{ index, target: field.target }]
+        : [];
+    });
+    if (!linked.length) return undefined;
+    const observed = await observe(
+      run,
+      linked.map((entry) => entry.target),
+      linked.map(() => "writable" as const),
+    );
+    if (!observed || observed.path !== run.live.path) return undefined;
+    return linked.find((_, at) => observed.targets[at] === "unique")?.index;
+  }
+  /**
+   * Keeps the `detail` handler a login stopped at for want of a link, so the popup can
+   * propose vault fields for it while the tab shows this document (ADR 0061).
+   */
+  async function offerDetails(run: Execution, handler: DetailHandler, index: number) {
+    const asked = handler.fields.filter((field) => !manualDetails.includes(field.detail));
+    if (!asked.length) return;
+    await sessionLoaded;
+    detailOffers.set(run.live.document.tabId, {
+      document: run.live.document,
+      path: run.live.path,
+      attemptId: run.metadata.id,
+      handler: index,
+      account: {
+        connectionId: run.metadata.account.connectionId,
+        itemId: run.metadata.account.itemId,
+        origin: run.metadata.account.origin,
+      },
+      fields: asked,
+      target: handler.target,
+    });
+    await quietly(saveSession);
+  }
+  /**
+   * The saved link a login filled an entered `detail` handler's input from, by handler, for
+   * removal once the site refused the value (ADR 0061).
+   */
+  function filledDetails(run: Execution): { handler: number; detail: LoginDetail }[] {
+    return run.metadata.handlers.flatMap((entry) => {
+      const handler = run.recipe.handlers?.[entry.index];
+      if (handler?.kind !== "detail" || entry.field === undefined) return [];
+      const field = handler.fields[entry.field];
+      return field ? [{ handler: entry.index, detail: field.detail }] : [];
+    });
+  }
+  /**
+   * Writes `mutate` to the settings unless another tab's login is in progress, whose
+   * policy revision the write would bump (ADR 0022). Returns whether it wrote.
+   */
+  async function writeDetailLinks(
+    run: Execution | undefined,
+    mutate: (links: DetailLink[]) => DetailLink[],
+  ): Promise<"saved" | "unchanged" | "busy" | "failed"> {
+    if (!settings.update) return "failed";
+    if (attempts.values().some((other) => other !== run && inProgress(other))) return "busy";
+    // A login another tab is admitting waits for this write from here, before any await,
+    // as for an account choice (see `admit`).
+    const { promise: saving, resolve: finish } = Promise.withResolvers<void>();
+    savingChoices.add(saving);
+    let writing = false;
+    try {
+      const latest = await settings
+        .handle({ version: 1, type: "settings.get" })
+        .catch(() => undefined);
+      if (!latest?.ok) return "failed";
+      const before = latest.snapshot.settings.detailLinks ?? [];
+      if (JSON.stringify(mutate(before)) === JSON.stringify(before)) return "unchanged";
+      writing = true;
+      return await settings
+        .update(latest.snapshot.revision, "detail-link", (snapshot) => ({
+          ...snapshot,
+          settings: {
+            ...snapshot.settings,
+            detailLinks: mutate(snapshot.settings.detailLinks ?? []),
+          },
+        }))
+        .then(
+          () => "saved" as const,
+          () => "failed" as const,
+        );
+    } finally {
+      if (writing) remembered += 1;
+      savingChoices.delete(saving);
+      finish();
+    }
+  }
+  const sameLink = (link: DetailLink, owner: DetailOwner, detail: LoginDetail) =>
+    link.origin === owner.origin &&
+    link.provider === owner.provider &&
+    link.userId === owner.userId &&
+    link.itemId === owner.itemId &&
+    link.detail === detail;
+  /**
+   * Removes the links whose values a login filled once the site refused them, as when the
+   * handler's page showed again or the login was rejected, so the next login asks again
+   * rather than submitting the same value (ADR 0061).
+   */
+  async function forgetDetail(run: Execution): Promise<void> {
+    if (run.detailsForgotten) return;
+    const filled = filledDetails(run);
+    if (!filled.length) return;
+    run.detailsForgotten = true;
+    const snapshot = await settings
+      .handle({ version: 1, type: "settings.get" })
+      .catch(() => undefined);
+    const found = snapshot?.ok ? detailOwner(run.metadata.account, snapshot.catalog) : undefined;
+    const { document } = run.live;
+    if (!found) {
+      for (const entry of filled) reportDetail(document, run.recipe, entry.handler, "detail-kept");
+      return;
+    }
+    // No login uses a refused link from here, even one the settings still hold.
+    await sessionLoaded;
+    for (const entry of filled)
+      refusedDetails.set(refusalKey(found.owner, entry.detail), {
+        ...found.owner,
+        detail: entry.detail,
+      });
+    await quietly(saveSession);
+    const written = await removeRefused(run);
+    for (const entry of filled)
+      reportDetail(
+        document,
+        run.recipe,
+        entry.handler,
+        written === "saved" || written === "unchanged" ? "detail-forgotten" : "detail-kept",
+      );
+  }
+  /** Removes the refused links from the owner's settings, when no other login runs. */
+  async function removeRefused(run?: Execution) {
+    const refused = [...refusedDetails.values()];
+    if (!refused.length) return "unchanged" as const;
+    const written = await writeDetailLinks(run, (links) =>
+      links.filter((link) => !refused.some((entry) => sameLink(link, entry, entry.detail))),
+    );
+    if (written === "saved" || written === "unchanged") {
+      for (const entry of refused) refusedDetails.delete(refusalKey(entry, entry.detail));
+      await quietly(saveSession);
+    }
+    return written;
+  }
+  /**
+   * After a login is confirmed `authenticated`, saves the links its tab filled from the
+   * popup (ADR 0061); after any other ending they are dropped, as an unconfirmed account
+   * choice is (ADR 0023).
+   */
+  async function settleDetails(run: Execution, confirmed: boolean): Promise<void> {
+    const { tabId } = run.live.document;
+    await sessionLoaded;
+    // The offer ends with its login, also when the person typed the value themselves and
+    // the page stays in the same document.
+    const offered = detailOffers.get(tabId)?.attemptId === run.metadata.id;
+    if (offered) detailOffers.delete(tabId);
+    const kept = pendingDetails.get(tabId)?.filter((entry) => entry.attemptId === run.metadata.id);
+    if (!kept?.length) {
+      if (offered) await quietly(saveSession);
+      return;
+    }
+    const rest = pendingDetails.get(tabId)!.filter((entry) => entry.attemptId !== run.metadata.id);
+    if (rest.length) pendingDetails.set(tabId, rest);
+    else pendingDetails.delete(tabId);
+    await quietly(saveSession);
+    if (!confirmed) return;
+    const written = await writeDetailLinks(run, (links) => [
+      ...links.filter(
+        (link) => !kept.some((entry) => sameLink(link, entry.link, entry.link.detail)),
+      ),
+      ...kept.map((entry) => entry.link),
+    ]);
+    // A link the owner chose again replaces one refused before, once it is written: until
+    // then the settings may still hold the refused one. The session keeps the refusals, so
+    // a restarted worker does not bring a lifted one back.
+    if (written === "saved" || written === "unchanged") {
+      const lifted = kept.filter((entry) =>
+        refusedDetails.delete(refusalKey(entry.link, entry.link.detail)),
+      );
+      if (lifted.length) await quietly(saveSession);
+    }
+    for (const entry of kept)
+      reportDetail(
+        run.live.document,
+        run.recipe,
+        entry.handler,
+        written === "saved" || written === "unchanged" ? "detail-saved" : "detail-not-saved",
+      );
+  }
+  /**
+   * The value an entered `detail` handler's fill types (ADR 0061): read from the linked
+   * field and made into what the input asks for, in this worker, so the whole phone or card
+   * number never reaches the page. A card code fills only a password or short numeric input.
+   */
+  async function detailFill(
+    run: Execution,
+    authorized: Authorized,
+    stepIndex: number,
+  ): Promise<{ value: string; secret?: LoginSecretKind } | "unreadable" | "unavailable"> {
+    const index = attemptPlan(run.recipe, run.metadata)?.[stepIndex]?.handler;
+    const handler = index === undefined ? undefined : run.recipe.handlers?.[index];
+    const at = run.metadata.handlers.find((entry) => entry.index === index)?.field;
+    const field = handler?.kind === "detail" && at !== undefined ? handler.fields[at] : undefined;
+    const found = detailOwner(run.metadata.account, authorized.catalog);
+    const link = field && found && savedDetailLink(authorized.settings, found.owner, field.detail);
+    const source =
+      link && found && linkedField(authorized.settings, authorized.catalog, found.connection, link);
+    if (!field || !source || refusedDetails.has(refusalKey(found.owner, field.detail)))
+      return "unavailable";
+    let read: string | undefined;
+    try {
+      read = await fields({
+        account: { ...run.metadata.account, itemId: source.itemId },
+        connection: authorized.connection,
+        fieldId: source.fieldId,
+      });
+    } catch {
+      read = undefined;
+    }
+    if (read === undefined) return "unavailable";
+    const value = detailValue(field.detail, field.format, read);
+    read = "";
+    if (value === undefined) return "unreadable";
+    return { value, secret: field.detail === "card-code" ? "card-code" : "detail" };
+  }
+  /** The tab's page, when it is an HTTP(S) page the popup has a section for. */
+  async function popupPage(tabId: number) {
+    const tab = await browser.tabs.get(tabId).catch(() => undefined);
+    const page = tab?.url ? (URL.parse(tab.url) ?? undefined) : undefined;
+    return page?.protocol === "https:" || page?.protocol === "http:"
+      ? { url: page, title: tab?.title }
+      : undefined;
+  }
+  /** The tab's offer while the tab still shows its document on the page's origin. */
+  function shownOffer(tabId: number, pageOrigin: string): DetailOffer | undefined {
+    const offer = detailOffers.get(tabId);
+    const live = offer && documents.get(frameKey(offer.document));
+    // An offer belongs to the tab's login that stopped at it, not to a later one.
+    return offer &&
+      offer.account.origin === pageOrigin &&
+      live?.document.documentId === offer.document.documentId &&
+      tabAttempt(tabId)?.id === offer.attemptId
+      ? offer
+      : undefined;
+  }
+  /** The login item whose links the popup shows for the tab: its offer's, or its login's. */
+  function detailAccount(tabId: number, pageOrigin: string) {
+    return shownOffer(tabId, pageOrigin)?.account ?? recordFor(tabId, pageOrigin)?.account;
+  }
+  /**
+   * What the popup shows about a page's personal details (ADR 0061): the handler the tab's
+   * login stopped at with the fields that could give each detail, and the site's links for
+   * the login item, by their names in the device's catalog only.
+   */
+  async function popupDetail(tabId: number): Promise<DetailResponse> {
+    const page = await popupPage(tabId);
+    if (!page) return { ok: false, reason: "no-page" };
+    const pageOrigin = page.url.origin;
+    await sessionLoaded;
+    const login = detailAccount(tabId, pageOrigin);
+    const snapshot = await settings
+      .handle({ version: 1, type: "settings.get" })
+      .catch(() => undefined);
+    const found = login && snapshot?.ok ? detailOwner(login, snapshot.catalog) : undefined;
+    if (!found || !snapshot?.ok) return { ok: true, origin: pageOrigin, links: [] };
+    const policy = snapshot.snapshot.settings;
+    const { catalog } = snapshot;
+    const offer = shownOffer(tabId, pageOrigin);
+    const details = (offer?.fields ?? []).flatMap((field, at, all) => {
+      if (all.findIndex((other) => other.detail === field.detail) !== at) return [];
+      const candidates = detailCandidates(policy, catalog, found.connection, field.detail, {
+        host: page.url.hostname,
+        title: page.title,
+      });
+      return candidates.length
+        ? [
+            {
+              detail: field.detail,
+              ...(field.format ? { format: field.format } : {}),
+              candidates: candidates as [(typeof candidates)[number], ...typeof candidates],
+            },
+          ]
+        : [];
+    });
+    const kept = pendingDetails.get(tabId) ?? [];
+    const label = (itemId: string, field: DetailLink["source"]["field"]) => {
+      const item = found.connection.items.find((entry) => entry.id === itemId);
+      const fieldId = item && resolveDetailSourceField(field, item.fields);
+      return {
+        itemLabel: item?.label ?? "An item no longer in the vault",
+        fieldLabel:
+          (fieldId && item?.fields.find((entry) => entry.id === fieldId)?.label) ??
+          "A field no longer in the item",
+      };
+    };
+    const links = loginDetailSchema.options.flatMap((detail) => {
+      const waiting = kept.find((entry) => sameLink(entry.link, found.owner, detail));
+      if (waiting)
+        return [
+          {
+            detail,
+            ...label(waiting.link.source.itemId, waiting.link.source.field),
+            pending: true as const,
+          },
+        ];
+      const saved = savedDetailLink(policy, found.owner, detail);
+      return saved ? [{ detail, ...label(saved.source.itemId, saved.source.field) }] : [];
+    });
+    return {
+      ok: true,
+      origin: pageOrigin,
+      ...(offer && details.length
+        ? {
+            offer: {
+              documentId: offer.document.documentId,
+              details: details as [(typeof details)[number], ...typeof details],
+            },
+          }
+        : {}),
+      links,
+    };
+  }
+  /**
+   * The popup's **Fill** (ADR 0061): fills the offer's input with the value made from the
+   * chosen field, after its choosing radio, without pressing the button, and keeps the link
+   * for the tab until its login is confirmed.
+   */
+  async function popupDetailFill(
+    request: v.InferOutput<typeof detailFillRequestSchema>,
+  ): Promise<DetailFillResponse> {
+    await sessionLoaded;
+    const offer = detailOffers.get(request.tabId);
+    const live = offer && documents.get(frameKey(offer.document));
+    if (
+      !offer ||
+      offer.document.documentId !== request.documentId ||
+      live?.document.documentId !== offer.document.documentId ||
+      live.path !== offer.path ||
+      tabAttempt(request.tabId)?.id !== offer.attemptId
+    )
+      return { ok: false, reason: "document-gone" };
+    const field = offer.fields.find((entry) => entry.detail === request.detail);
+    if (!field) return { ok: false, reason: "not-a-candidate" };
+    const snapshot = await settings
+      .handle({ version: 1, type: "settings.get" })
+      .catch(() => undefined);
+    if (!snapshot?.ok) return { ok: false, reason: "unavailable" };
+    // The site and the login item may have been excluded since the login stopped.
+    if (
+      isSiteExcluded(snapshot.snapshot.settings, offer.account.origin) ||
+      !getItemEligibility(
+        snapshot.snapshot.settings,
+        snapshot.catalog,
+        offer.account.connectionId,
+        offer.account.itemId,
+      ).eligible
+    )
+      return { ok: false, reason: "unavailable" };
+    const found = detailOwner(offer.account, snapshot.catalog);
+    if (!found || found.connection.id !== request.connectionId)
+      return { ok: false, reason: "not-a-candidate" };
+    const offered = detailCandidates(
+      snapshot.snapshot.settings,
+      snapshot.catalog,
+      found.connection,
+      field.detail,
+      { host: new URL(offer.account.origin).hostname },
+      Infinity,
+    );
+    if (
+      !offered.some((entry) => entry.itemId === request.itemId && entry.fieldId === request.fieldId)
+    )
+      return { ok: false, reason: "not-a-candidate" };
+    const item = found.connection.items.find((entry) => entry.id === request.itemId);
+    const reference = request.fieldId.startsWith("custom.")
+      ? item && customFieldReference(item.fields, request.fieldId)
+      : request.fieldId;
+    const source = v.safeParse(detailLinkSchema.entries.source.entries.field, reference);
+    if (!source.success) return { ok: false, reason: "not-a-candidate" };
+    // The page must still show the handler: the input writable and its button shown.
+    const observed = v.safeParse(
+      observationSchema,
+      await send(live, {
+        type: "login.observe",
+        path: offer.path,
+        targets: [field.target, offer.target],
+        require: ["writable", "shown"],
+      }).catch(() => undefined),
+    );
+    if (
+      !observed.success ||
+      observed.output.path !== offer.path ||
+      observed.output.targets.some((state) => state !== "unique")
+    )
+      return { ok: false, reason: "document-gone" };
+    let read: string | undefined;
+    try {
+      read = await fields({
+        account: { ...offer.account, itemId: request.itemId },
+        connection: found.connection,
+        fieldId: request.fieldId,
+      });
+    } catch {
+      read = undefined;
+    }
+    if (read === undefined) return { ok: false, reason: "unavailable" };
+    const value = detailValue(field.detail, field.format, read);
+    read = "";
+    if (value === undefined) return { ok: false, reason: "unreadable" };
+    const command = {
+      type: "login.detail.fill",
+      path: offer.path,
+      target: field.target,
+      value,
+      secret: field.detail === "card-code" ? ("card-code" as const) : ("detail" as const),
+    };
+    const response = await send(live, command).catch(() => undefined);
+    command.value = "";
+    if (!v.safeParse(v.object({ ok: v.literal(true) }), response).success)
+      return { ok: false, reason: "not-filled" };
+    const link: DetailLink = {
+      ...found.owner,
+      detail: field.detail,
+      source: { itemId: request.itemId, field: source.output },
+    };
+    pendingDetails.set(request.tabId, [
+      // One link per handler: a second Fill, as after choosing another radio, replaces
+      // the first, so only the value last filled is saved.
+      ...(pendingDetails.get(request.tabId) ?? []).filter(
+        (entry) =>
+          !sameLink(entry.link, found.owner, field.detail) &&
+          !(entry.attemptId === offer.attemptId && entry.handler === offer.handler),
+      ),
+      {
+        tabId: request.tabId,
+        attemptId: offer.attemptId,
+        handler: offer.handler,
+        connectionId: found.connection.id,
+        link,
+      },
+    ]);
+    await quietly(saveSession);
+    return { ok: true };
+  }
+  /** The popup's **Remove** (ADR 0061): drops the site's link for a detail, kept or saved. */
+  async function popupDetailRemove(
+    tabId: number,
+    detail: LoginDetail,
+  ): Promise<DetailRemoveResponse> {
+    const page = await popupPage(tabId);
+    await sessionLoaded;
+    const login = page && detailAccount(tabId, page.url.origin);
+    const snapshot = await settings
+      .handle({ version: 1, type: "settings.get" })
+      .catch(() => undefined);
+    const found = login && snapshot?.ok ? detailOwner(login, snapshot.catalog) : undefined;
+    if (!found || !snapshot?.ok) return { ok: false, reason: "no-link" };
+    const kept = pendingDetails.get(tabId) ?? [];
+    const rest = kept.filter((entry) => !sameLink(entry.link, found.owner, detail));
+    if (rest.length !== kept.length) {
+      if (rest.length) pendingDetails.set(tabId, rest);
+      else pendingDetails.delete(tabId);
+      await quietly(saveSession);
+      return { ok: true };
+    }
+    if (!savedDetailLink(snapshot.snapshot.settings, found.owner, detail))
+      return { ok: false, reason: "no-link" };
+    const written = await writeDetailLinks(undefined, (links) =>
+      links.filter((link) => !sameLink(link, found.owner, detail)),
+    );
+    return written === "saved" || written === "unchanged"
+      ? { ok: true }
+      : { ok: false, reason: "not-saved" };
+  }
   /**
    * Enters a handler of the recipe on this path all of whose elements show (ADR 0027).
    * Several shown: the first not yet entered whose fact the item has, a `passkey` handler
@@ -5302,28 +5967,54 @@ export function createLoginRuntime(
       if (run.metadata.handlers.some((entered) => entered.index === entry.index))
         return "shown-again" as const;
       const { handler } = entry;
-      // A `detail` handler fills a value of a vault item linked to the login (ADR 0061),
-      // which no login links yet: one that asks only for a detail Pateat never fills is
-      // left to the person as such.
-      if (handler.kind === "detail")
+      // A `detail` handler fills a value of a vault item linked to the login (ADR 0061):
+      // one whose inputs ask only for details Pateat never fills is left to the person as
+      // such, and so is one with no linked value for a writable input.
+      if (handler.kind === "detail") {
+        if (detailPicks.get(entry.index) !== undefined) return undefined;
         return handler.fields.every((field) => manualDetails.includes(field.detail))
           ? ("detail-manual" as const)
           : ("detail-unlinked" as const);
+      }
       const fact = handlerFact[handler.kind];
       if (!run.metadata.facts[fact]) return "missing-fact" as const;
       return handler.kind === "totp" && attemptUsesCode(run.recipe, run.metadata)
         ? ("code-used" as const)
         : undefined;
     };
+    // Which input of each shown `detail` handler this login fills: the first with a linked
+    // value it may read and that is writable now (ADR 0061).
+    const detailPicks = new Map<number, number | undefined>();
+    for (const entry of shown)
+      if (
+        entry.handler.kind === "detail" &&
+        !run.metadata.handlers.some((entered) => entered.index === entry.index)
+      )
+        detailPicks.set(entry.index, await detailInput(run, entry.handler));
+    if (!current(run)) return true;
     // A `password` handler goes first; refused, as when its button shows again after its
     // press, it ends the login there, so the passkey button beside it is never pressed by a
     // login that types its password (ADR 0048).
+    // A `detail` handler's page shown again after its fill means the site refused the
+    // value, so its link is not used again (ADR 0061).
+    if (
+      shown.some((entry) => entry.handler.kind === "detail" && refusal(entry) === "shown-again")
+    ) {
+      await forgetDetail(run);
+      if (!current(run)) return true;
+    }
     const fresh =
       shown[0]!.handler.kind === "password" && refusal(shown[0]!) !== undefined
         ? undefined
         : shown.find((entry) => refusal(entry) === undefined);
     if (!fresh) {
-      reportHandler(shown[0]!, refusal(shown[0]!)!);
+      const refused = refusal(shown[0]!)!;
+      reportHandler(shown[0]!, refused);
+      // The popup proposes the vault fields that could give the details (ADR 0061), and a
+      // link whose value the page asked for again is not used again.
+      const handler = shown[0]!.handler;
+      if (handler.kind === "detail" && refused === "detail-unlinked" && !stop)
+        await offerDetails(run, handler, shown[0]!.index);
       await challenge();
       return true;
     }
@@ -5344,10 +6035,12 @@ export function createLoginRuntime(
         return true;
       }
     }
-    const steps = handlerSteps(fresh.handler);
+    const field = fresh.handler.kind === "detail" ? detailPicks.get(fresh.index) : undefined;
+    const steps = handlerSteps(fresh.handler, field);
     const event: LoginAttemptEvent = {
       type: "HANDLER",
       handler: fresh.index,
+      ...(field === undefined ? {} : { field }),
       steps: steps.length,
       effects: steps.filter((step) => {
         const effect = loginStepEffect(step);
@@ -6775,6 +7468,31 @@ export function createLoginRuntime(
       try {
         if (operation.step.kind === "fill") {
           for (const field of operation.step.fields) {
+            // A `detail` handler's input reads the vault field linked to the login item,
+            // not one of its own slots (ADR 0061).
+            const own = attemptPlan(run.recipe, run.metadata)?.[operation.stepIndex]?.handler;
+            if (
+              field.slot === DETAIL_HANDLER_SLOT &&
+              own !== undefined &&
+              run.recipe.handlers?.[own]?.kind === "detail"
+            ) {
+              const made = await detailFill(run, authorized, operation.stepIndex);
+              if (!current(run)) return;
+              if (typeof made === "string") {
+                const handler = attemptPlan(run.recipe, run.metadata)?.[operation.stepIndex]
+                  ?.handler;
+                if (handler !== undefined)
+                  reportDetail(run.live.document, run.recipe, handler, `detail-${made}`);
+                await change(
+                  run,
+                  { type: "POLICY_CHANGED" },
+                  { cause: "field-unavailable", reason: `detail-${made}` },
+                );
+                return;
+              }
+              values.push({ slot: field.slot, ...made });
+              continue;
+            }
             const reference = authorized.binding.slots.find((entry) => entry.slot === field.slot);
             if (!reference) {
               await change(
@@ -6960,6 +7678,11 @@ export function createLoginRuntime(
               ? { code: {} }
               : {}),
           ...(passwordChoice ? { passwordChoice: true as const } : {}),
+          // A `detail` handler's input is filled after its choosing radio (ADR 0061).
+          ...(operation.step.kind === "fill" &&
+          operation.step.fields.some((field) => field.slot === DETAIL_HANDLER_SLOT)
+            ? { choose: true as const }
+            : {}),
           // An advance whose next step is on its path has the document measure that step
           // just before its effect, in the same task (ADR 0013).
           ...(inPlace ? { next: inPlace } : {}),
@@ -11074,6 +11797,12 @@ export function createLoginRuntime(
       if (asked.success) return popupStatus(asked.output.tabId);
       const pick = v.safeParse(pickRequestSchema, message);
       if (pick.success) return pickFor(pick.output);
+      const detail = v.safeParse(detailRequestSchema, message);
+      if (detail.success) return popupDetail(detail.output.tabId);
+      const fill = v.safeParse(detailFillRequestSchema, message);
+      if (fill.success) return popupDetailFill(fill.output);
+      const remove = v.safeParse(detailRemoveRequestSchema, message);
+      if (remove.success) return popupDetailRemove(remove.output.tabId, remove.output.detail);
       return undefined;
     }
     if (v.safeParse(logoutClickedSchema, message).success) {
@@ -11368,6 +12097,8 @@ export function createLoginRuntime(
     void sessionLoaded.then(async () => {
       let changed = pending.delete(tabId);
       if (picked.delete(tabId)) changed = true;
+      if (detailOffers.delete(tabId)) changed = true;
+      if (pendingDetails.delete(tabId)) changed = true;
       // Each origin the tab asked for, logged once its asking ends, since the site's other
       // tabs stop asking with it and log in again (ADR 0021 D).
       const ended = new Map<string, "logout" | "rejected" | "stopped-login">();
