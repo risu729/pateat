@@ -209,18 +209,26 @@ function fadingIn(element: Element): boolean {
  * a container at opacity 0 inside a `<label>` that read 電話番号またはメールアドレス
  * (2026-10-23); the person clicks the label and types. The official Bitwarden extension
  * reads only the input's own opacity, so it fills that input too. An input at opacity 0
- * itself, or one whose label is transparent or shows no text, as a trap, is not.
+ * itself, or one whose label is transparent, tiny, before the page's start or shows no
+ * text, as a trap, is not.
  */
 function revealedByLabel(element: Element): boolean {
   if (!(element instanceof HTMLInputElement) || !fieldInputTypes.has(element.type)) return false;
   const view = element.ownerDocument.defaultView;
   if (!view || Number(view.getComputedStyle(element).opacity) === 0) return false;
-  return [...(element.labels ?? [])].some(
-    (label) =>
-      label.contains(element) &&
-      label.checkVisibility(visibility(true)) &&
-      collapseText(renderedText(label, fieldNameLimit) ?? "") !== "",
-  );
+  return [...(element.labels ?? [])].some((label) => {
+    if (!label.contains(element) || !label.checkVisibility(visibility(true))) return false;
+    // A label clipped to a pixel, as a screen-reader-only one, or moved before the page's
+    // start shows nothing.
+    const rect = label.getBoundingClientRect();
+    return (
+      rect.width >= 2 &&
+      rect.height >= 2 &&
+      rect.right + view.scrollX > 0 &&
+      rect.bottom + view.scrollY > 0 &&
+      collapseText(renderedText(label, fieldNameLimit) ?? "") !== ""
+    );
+  });
 }
 
 /**

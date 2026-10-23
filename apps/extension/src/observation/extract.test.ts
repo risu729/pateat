@@ -1364,6 +1364,13 @@ describe("extractLoginObservation", () => {
       field("Email", `style="opacity:0"`),
       field("<span style='opacity:0'>Email</span>"),
       `<label for="email">Email</label><div style="opacity:0"><input id="email" type="email"></div>`,
+      field(" "),
+      // A label clipped to one pixel, as a screen-reader-only one.
+      `<label for="email" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">
+        Email<div style="opacity:0"><input id="email" type="email"></div></label>`,
+      // A label naming another field holds no label of this one.
+      `<label for="other">Email<div style="opacity:0"><input id="email" type="email"></div></label>
+        <input id="other">`,
     ]) {
       page(`<form id="f">${html}${rest}</form>`);
       observation = observe();
