@@ -113,8 +113,8 @@ test("shows what an import would change and imports only once confirmed", async 
   await expect.element(page.getByText("https://site-9.example")).toBeVisible();
   await expect.element(page.getByText("https://site-10.example")).not.toBeInTheDocument();
   await expect.element(page.getByText("and 2 more")).toBeVisible();
-  await expect.element(page.getByText("Add or replace 2 vault limits.")).toBeVisible();
-  await expect.element(page.getByText("Add or replace 1 site rule.")).toBeVisible();
+  await expect.element(page.getByText("Change 2 vault limits.")).toBeVisible();
+  await expect.element(page.getByText("Change 1 site rule.")).toBeVisible();
   await expect.element(page.getByText("Keep 2 new or newer recipes.")).toBeVisible();
   expect(client.importFile).toHaveBeenCalledWith(FILE, false);
   expect(onImported).not.toHaveBeenCalled();

@@ -234,10 +234,10 @@ export function TransferPanel({
                 </li>
               )}
               {preview.policies > 0 && (
-                <li>{t("Add or replace {{count}} vault limit.", { count: preview.policies })}</li>
+                <li>{t("Change {{count}} vault limit.", { count: preview.policies })}</li>
               )}
               {preview.others > 0 && (
-                <li>{t("Add or replace {{count}} site rule.", { count: preview.others })}</li>
+                <li>{t("Change {{count}} site rule.", { count: preview.others })}</li>
               )}
               {preview.recipes > 0 && (
                 <li>{t("Keep {{count}} new or newer recipe.", { count: preview.recipes })}</li>

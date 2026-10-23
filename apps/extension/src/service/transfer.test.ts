@@ -254,6 +254,59 @@ describe("export and import", () => {
     });
   });
 
+  it("counts an item limit the file drops as a change", async () => {
+    const exclusion = {
+      ...owner,
+      itemId: "item-1",
+      itemName: "Example Bank",
+      selected: false,
+      excluded: true,
+      excludedFields: [],
+    };
+    const review = {
+      ...owner,
+      itemId: "item-1",
+      evidence: `bitwarden-v1:sha256:${"a".repeat(64)}`,
+      revisionDate: "2026-10-11T07:10:03.1234567Z",
+    };
+    // An older export: the item's review without the exclusion made since.
+    const file = await exported(setup({ settings: settingsOf({ customFieldReviews: [review] }) }));
+    const device = setup({
+      settings: settingsOf({ itemPolicies: [exclusion], customFieldReviews: [review] }),
+    });
+    expect(await device.transfer.handle(importRequest(file, false))).toMatchObject({
+      policies: 1,
+    });
+  });
+
+  it("refuses recipes beyond the device's limit before anything is imported", async () => {
+    const many = Array.from({ length: 1_000 }, (_, index) => recipe(`r-${index}`, 1, "/l"));
+    const device = setup({ settings: settingsOf(), recipes: many });
+    const file = await exported(setup({ recipes: [recipe("one-more")] }));
+    expect(await device.transfer.handle(importRequest(file, false))).toMatchObject({
+      ok: false,
+      error: "too-large",
+    });
+  });
+
+  it("refuses an import while a paired device's synced recipes cannot be read", async () => {
+    const file = await exported(setup({ recipes: [recipe("a")] }));
+    const device = setup({ settings: settingsOf() });
+    const transfer = createTransfer({
+      settings: {
+        read: async () => ({ version: 1, revision: 0, settings: settingsOf() }),
+        update: vi.fn(),
+      },
+      recipes: async () => undefined,
+      paired: async () => true,
+      device: { list: async () => [], keep: vi.fn() },
+    });
+    expect(await transfer.handle(importRequest(file))).toMatchObject({
+      error: "storage-unavailable",
+    });
+    expect(await device.recipes()).toEqual([]);
+  });
+
   it("leaves out the recipes a paired service already holds", async () => {
     const file = await exported(setup({ recipes: [recipe("a", 7), recipe("b", 2)] }));
     const device = setup({ settings: settingsOf(), synced: [recipe("a", 3)] });

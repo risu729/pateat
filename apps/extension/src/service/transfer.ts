@@ -46,14 +46,27 @@ function merge(
     : merged.output;
 }
 
-/** What the merge adds or replaces in the synced part, for the owner to confirm. */
+/**
+ * What the merge adds, replaces or drops in the synced part, for the owner to confirm. An
+ * item's policy and its custom-field review merge as one entry (ADR 0023), so the file's
+ * may drop the other half of one held here: that counts as a change of the item's limit.
+ */
 function changes(before: LocalSettings, after: LocalSettings) {
   const was = syncedSettings(before);
   const now = syncedSettings(after);
+  /** The entries only one side holds, unchanged ones left out. */
   const changed = <T>(previous: readonly T[], next: readonly T[]) => {
-    const held = new Set(previous.map((entry) => JSON.stringify(entry)));
-    return next.filter((entry) => !held.has(JSON.stringify(entry)));
+    const text = (entries: readonly T[]) => new Set(entries.map((entry) => JSON.stringify(entry)));
+    const [held, kept] = [text(previous), text(next)];
+    return [
+      ...next.filter((entry) => !held.has(JSON.stringify(entry))),
+      ...previous.filter((entry) => !kept.has(JSON.stringify(entry))),
+    ];
   };
+  const account = (entry: { provider: string; server: string; userId: string }) =>
+    JSON.stringify([entry.provider, entry.server, entry.userId]);
+  const item = (entry: { provider: string; server: string; userId: string; itemId: string }) =>
+    JSON.stringify([entry.provider, entry.server, entry.userId, entry.itemId]);
   const sites = new Set(
     [
       ...changed(was.bindings, now.bindings),
@@ -61,16 +74,21 @@ function changes(before: LocalSettings, after: LocalSettings) {
       ...changed(was.detailLinks, now.detailLinks),
     ].map((entry) => entry.origin),
   );
+  const limits = new Set([
+    ...changed(was.accountPolicies, now.accountPolicies).map(account),
+    ...changed(was.itemPolicies, now.itemPolicies).map(item),
+    ...changed(was.customFieldReviews, now.customFieldReviews).map(item),
+  ]);
+  const siteKey = (entry: { hostname: string }) => entry.hostname;
+  const rules = (name: "excludedSites" | "passkeyBrowserSites" | "repromptSites") =>
+    new Set(changed(was[name], now[name]).map(siteKey)).size;
   return {
     sites: [...sites].toSorted(),
-    policies:
-      changed(was.accountPolicies, now.accountPolicies).length +
-      changed(was.itemPolicies, now.itemPolicies).length +
-      changed(was.customFieldReviews, now.customFieldReviews).length,
+    policies: limits.size,
     others:
-      changed(was.excludedSites, now.excludedSites).length +
-      changed(was.passkeyBrowserSites, now.passkeyBrowserSites).length +
-      changed(was.repromptSites, now.repromptSites).length +
+      rules("excludedSites") +
+      rules("passkeyBrowserSites") +
+      rules("repromptSites") +
       (was.popupPageSection === now.popupPageSection ? 0 : 1),
   };
 }
@@ -131,7 +149,10 @@ export function createTransfer(options: {
    */
   async function wanted(file: TransferFile): Promise<StoredLoginRecipe[]> {
     if (!(await options.paired())) return file.recipes;
-    const synced = new Set(((await options.recipes()) ?? []).map((recipe) => recipe.id));
+    const held = await options.recipes();
+    // Without them, a recipe the service holds could not be told apart.
+    if (!held) throw new Error("The synced recipes cannot be read");
+    const synced = new Set(held.map((recipe) => recipe.id));
     return file.recipes.filter((recipe) => !synced.has(recipe.id));
   }
 
@@ -157,13 +178,16 @@ export function createTransfer(options: {
         return failure("storage-unavailable");
       }
       const revisions = new Map(held.map((recipe) => [recipe.id, recipe.revision]));
+      const kept = recipes.filter((recipe) => recipe.revision > (revisions.get(recipe.id) ?? 0));
+      const added = kept.filter((recipe) => !revisions.has(recipe.id)).length;
+      // As `keep` refuses it; its size limit is checked only when the import runs.
+      if (held.length + added > MAX_ACTIVE_RECIPES) return failure("too-large");
       return {
         version: 1,
         ok: true,
         type: "settings.import-preview",
         ...changes(snapshot.settings, merged),
-        recipes: recipes.filter((recipe) => recipe.revision > (revisions.get(recipe.id) ?? 0))
-          .length,
+        recipes: kept.length,
       };
     }
     let kept: number;

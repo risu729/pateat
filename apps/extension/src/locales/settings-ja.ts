@@ -269,16 +269,12 @@ export const settingsJa = {
   "Choose which of your vault items Pateat uses on {{count}} site:_other":
     "{{count}} 件のサイトで、Pateat が使う保管庫のアイテムをファイルの指定にします。",
   "and {{count}} more": "ほか {{count}} 件",
-  "Add or replace {{count}} vault limit.": "保管庫の制限を {{count}} 件追加または置き換えます。",
-  "Add or replace {{count}} vault limit._one":
-    "保管庫の制限を {{count}} 件追加または置き換えます。",
-  "Add or replace {{count}} vault limit._other":
-    "保管庫の制限を {{count}} 件追加または置き換えます。",
-  "Add or replace {{count}} site rule.": "サイトのルールを {{count}} 件追加または置き換えます。",
-  "Add or replace {{count}} site rule._one":
-    "サイトのルールを {{count}} 件追加または置き換えます。",
-  "Add or replace {{count}} site rule._other":
-    "サイトのルールを {{count}} 件追加または置き換えます。",
+  "Change {{count}} vault limit.": "保管庫の制限を {{count}} 件変更します。",
+  "Change {{count}} vault limit._one": "保管庫の制限を {{count}} 件変更します。",
+  "Change {{count}} vault limit._other": "保管庫の制限を {{count}} 件変更します。",
+  "Change {{count}} site rule.": "サイトのルールを {{count}} 件変更します。",
+  "Change {{count}} site rule._one": "サイトのルールを {{count}} 件変更します。",
+  "Change {{count}} site rule._other": "サイトのルールを {{count}} 件変更します。",
   "Keep {{count}} new or newer recipe.": "新しいか更新された {{count}} 件のレシピを保存します。",
   "Keep {{count}} new or newer recipe._one":
     "新しいか更新された {{count}} 件のレシピを保存します。",

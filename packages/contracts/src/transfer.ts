@@ -77,9 +77,9 @@ export const transferResponseSchema = v.union([
      * import adds or replaces: there, the file decides which vault item Pateat uses.
      */
     sites: v.pipe(v.array(v.string()), v.maxLength(3000)),
-    /** The vault policies and custom-field reviews it adds or replaces. */
+    /** The vault accounts and items whose limits or custom-field reviews it changes. */
     policies: count,
-    /** The other entries it adds or replaces: site exclusions and the like. */
+    /** The sites whose exclusion, master password or passkey rule it changes. */
     others: count,
     /** The recipes it would keep here. */
     recipes: count,

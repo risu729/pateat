@@ -240,9 +240,10 @@ How it works (chosen by an agent unless noted):
   wins. So the page first asks the background what the import would change
   (`settings.import` with `apply: false`) and shows it: the sites where the file decides
   which vault item Pateat uses (ten named, the rest counted), how many vault limits and
-  site rules it adds or replaces, and how many recipes it keeps, with a warning to
-  import only a file the owner made or trusts. Nothing changes until the owner presses
-  **Import**.
+  site rules it changes (an item's policy and its custom-field review merge as one
+  entry, so a file can also drop one held here, which counts too), and how many recipes
+  it keeps, with a warning to import only a file the owner made or trusts. Nothing
+  changes until the owner presses **Import**.
 - **Importing settings** merges the file into the device's settings as a first pairing
   merges a service's: every entry of both is kept, and the file's entry wins where both
   hold one. Vault connections stay. A merge that breaks a settings limit is refused
@@ -257,7 +258,8 @@ How it works (chosen by an agent unless noted):
   its ID only at a newer revision, so a login that resumes on a revision never finds
   other content under it, and the device keeps at most 1,000. A paired device leaves out
   a recipe whose ID its synced recipes hold, since the service's copy wins under the
-  upload rule above, and uploads the rest at its next full sync. Recipes that would not
+  upload rule above, and uploads the rest at its next full sync; while its synced
+  recipes cannot be read, it imports nothing. Recipes that would not
   fit are refused, and then nothing is imported. The recipes are kept before the
   settings are written: if that write then fails, the recipes stay and importing the
   file again finishes the settings.
