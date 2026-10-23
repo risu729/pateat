@@ -60,6 +60,11 @@ catalog ([feasibility note](../research/2026-10-12-card-security-code.md)).
    code goes only into a password or short numeric input.
 5. Values never leave the device; the service and the AI see only which kind of value a
    page asks for.
+6. Every value the owner has linked is filled automatically, a whole card number, a
+   card's expiry date and a PIN included (2026-10-23 11:41 UTC, answering "which values
+   may Pateat fill automatically on a page after the submission?" with 全部:
+   「割り当てのある値はカード番号や暗証番号も含めて自動で入れる」). So a page that asks
+   for a whole card number or a PIN now has a detail; `manualDetails` stays empty.
 
 ## Decision
 
@@ -74,17 +79,47 @@ make each value. A page that asks for anything else stays `challenge`.
 | `phone-last-4` | `identity.phone`, or a Text or Hidden custom field named as one (below) | its last four digits | a text, tel or number input |
 | `card-last-4` | `card.number` | its last four digits | a text, tel or number input |
 | `card-code` | `card.code` | as it is, 3 or 4 digits | a password input, or a text or tel input with `maxlength` 3 or 4 |
+| `card-number` | `card.number` | all its digits, 12 to 19 | a password, text, tel or number input whose `maxlength`, when set, holds it |
+| `card-expiry` | `card.expMonth` and `card.expYear` of the same card item | month and year in the input's `format` | a text, tel or number input |
+| `pin` | a Text or Hidden custom field named as a PIN (below) | its digits, 4 to 12 | a password, text, tel or number input whose `maxlength`, when set, holds it |
 | `secret-answer` | a Text or Hidden custom field of the login item named as the question (below) | as it is, trimmed, 1 to 128 characters | a text or password input |
 | `member-id` | a Text or Hidden custom field of the login item named as a member ID (below) | as it is, trimmed, 1 to 64 characters | a text, tel or number input |
 
 These rules replace the Hidden-field rule for these values: a birth date kept in a
-Hidden field may go into a text input. `format` is one of `yyyymmdd`, `yyyymm`,
-`yyyy-mm-dd`, `yyyy/mm/dd` and `mmdd`. A stored birth date is read, after NFKC, as year,
-month and day from `1990-04-01`, `1990/4/1`, `1990.04.01`, `1990年4月1日` or
-`19900401`; any other text is not a date. Digits are what is left after removing all
-but ASCII digits (after NFKC); fewer than four is not a value. The value is made in the
-service worker right after the vault read: the whole phone or card number never reaches
-the page's content script.
+Hidden field may go into a text input. A birth date's `format` is one of `yyyymmdd`,
+`yyyymm`, `yyyy-mm-dd`, `yyyy/mm/dd` and `mmdd`, a card expiry's one of `mmyy`, `mm/yy`,
+`mmyyyy` and `mm/yyyy`; the contracts refuse a format on another detail. A stored birth
+date is read, after NFKC, as year, month and day from `1990-04-01`, `1990/4/1`,
+`1990.04.01`, `1990年4月1日` or `19900401`; any other text is not a date. Digits are
+what is left after removing all but ASCII digits (after NFKC); fewer than four is not a
+value, nor more than a card number's 19 or a PIN's 12. An expiry month is 1 to 12, and a
+two-digit year is 20yy. The value is made in the service worker right after the vault
+read: a whole phone number never reaches the page's content script, and a whole card
+number reaches it only for a `card-number` input's fill. A card number, expiry date or
+PIN split over several inputs is no detail, as a split birth date is, and Pateat fills
+no selects.
+
+### Card numbers, expiry dates and PINs
+
+Added on decided 6. A `card-expiry` link reads two fields; its `source` names the card
+item and `card.expMonth`, and the extension reads `card.expYear` from the same item, so
+the link keeps the one-field shape and both fields must be allowed. A `pin` is read from
+any linked item, as a birth date is, from a Text or Hidden custom field whose name,
+after NFKC and without case, holds `pin` as a word of its own (not "shipping"), `暗証`
+or `passcode`; `member-id` never reads such a field. A card number and a PIN fill under
+their own input rule (`card-number`, `pin`), so they may go into a password input, which
+no other detail but a card code takes.
+
+Security notes:
+
+- The model picks the page input, and the content script checks only its type, its
+  `maxlength` and that it is no sign-in field. A whole card number or a PIN may
+  therefore land in a wrong input that shows it on screen, such as a second password
+  input the judge takes for a PIN's.
+- A compromised page on the same origin (XSS) can read a filled card number, expiry date
+  or PIN, as it can read a password today.
+- This ADR changes nothing about pages after a completed login: on a confirmation screen
+  after the login completes, Pateat still stops at the fill (owner, 2026-10-23).
 
 ### Secret-question answers and member IDs
 
@@ -201,13 +236,15 @@ On a `challenge` page the judge may also answer:
 ```
 
 Its instructions say what each value is, that a page asking for anything else (a whole
-number, a PIN, a password, a secret question or a code sent to the person) has no
-`details`, that a birth date split over several inputs or written in a form no `format`
-matches (a two-digit or era year, a separator it lacks) is none either, and that a
-card's security code is a detail, never a `code`. Inputs that fail the checks above are
+phone number, a password or a code sent to the person) has no `details`, that a birth
+date split over several inputs or written in a form no `format` matches (a two-digit or
+era year, a separator it lacks) is none either, nor a card number or expiry date split
+over several inputs, that a PIN is never the account's password, and that a card's
+security code is a detail, never a `code`. Inputs that fail the checks above are
 dropped and logged by reason, as `totpDropped` is. A paid run on synthetic pages
 ([results](../research/2026-10-23-detail-judge-eval.md)) gave the expected answer on
-every requested page with four model settings; the split-date line came from it.
+every requested page with four model settings; the split-date line came from it. The
+lines for decided 6's values have not been run against a model.
 
 ### Judging a page beside the sign-in form
 
@@ -235,7 +272,8 @@ The owner's settings gain `detailLinks`, one per login item, site and detail:
 }
 ```
 
-`field` is `identity.phone`, `card.number`, `card.code` or a custom field by name, as
+`field` is `identity.phone`, `card.number`, `card.code`, `card.expMonth` (for
+`card-expiry`, whose year the same card item gives) or a custom field by name, as
 binding references name them. A link is per site, not per recipe, so a new recipe for
 the origin keeps it, and it exists before the first binding is saved. It holds no item
 name: a card item's name often carries its last digits, so names are shown from the
@@ -257,9 +295,11 @@ When a `detail` handler shows and no link has a value for any of its inputs:
    and under the rules above: identity items, and Text or Hidden custom fields whose
    name contains `phone`, `tel` or `電話`, for `phone-last-4`; Text or Hidden custom
    fields whose name reads as a birth date (contains `birth`, `dob`, `生年月日` or
-   `誕生日`, in any case) for `birth-date`; card items for `card-last-4` and
-   `card-code`. A link reads only such a field, so a link edited elsewhere never types
-   another custom field, such as a PIN, into the page. An item whose name holds a run of
+   `誕生日`, in any case) for `birth-date`; card items for `card-last-4`, `card-code`
+   and `card-number`, and those whose expiry month and year are both allowed for
+   `card-expiry`; Text or Hidden custom fields named as a PIN for `pin`. A link reads
+   only such a field, so a link edited elsewhere never types another custom field, such
+   as a PIN into a member ID's input, into the page. An item whose name holds a run of
    three or more ASCII letters or digits found in the page's host name, or which appears
    whole in the page's title, comes first.
 3. The popup's "This page" section shows what the page asks for and the candidates, the
@@ -292,38 +332,35 @@ lifts it.
 ### Logs
 
 `login.handler` gains the `detail` kind and the outcomes `detail-manual` (never used
-since card codes are filled; kept for a detail that a later owner decision stops
-filling), `detail-unlinked`, `detail-unreadable` (the linked value is not a date or has
-too few digits) and `detail-unavailable` (the vault could not give the linked value at
-the fill); a login that meets either stops as a changed policy (`field-unavailable`).
-About links it gains `detail-saved` (a link filled from the popup was saved after the
-login was confirmed), `detail-not-saved` (it could not be written, as while another
-tab's login runs; it is dropped), `detail-forgotten` (a refused value's link was
-removed) and `detail-kept` (that removal could not be written now). The judge's log
-keeps `details` with each ID that is not a candidate replaced by `?`. Never a value or
-an item name.
+since every linked value is filled; kept for a detail that a later owner decision stops
+filling), `detail-unlinked`, `detail-unreadable` (the linked value is not a date or an
+expiry month and year, or has too few or too many digits) and `detail-unavailable` (the
+vault could not give the linked value at the fill); a login that meets either stops as a
+changed policy (`field-unavailable`). About links it gains `detail-saved` (a link filled
+from the popup was saved after the login was confirmed), `detail-not-saved` (it could
+not be written, as while another tab's login runs; it is dropped), `detail-forgotten` (a
+refused value's link was removed) and `detail-kept` (that removal could not be written
+now). The judge's log keeps `details` with each ID that is not a candidate replaced by
+`?`. Never a value or an item name.
 
 ## Assumed (not confirmed)
 
-1. The values are the six in the table. Secret-question answers and member IDs were
+1. Secret-question answers and member IDs are among the values in the table. They were
    added on the recipe-schema plan's §2.6 answered by assumption as its option b: filled
    after one confirmation per field in the popup, read only from the login item, with
    SMS and email codes left to the person. The owner may still drop them.
-2. Card security codes are filled after the one confirmation, as ADR 0035 and the plan
-   record. The owner's open card on which values may be filled on a page after the
-   submission was answered by assumption elsewhere as "no card code"; if the owner
-   chooses that, `card-code` joins `manualDetails` and is learned but never filled.
-3. One confirmation per link, not per login: the owner's "records the choice once the
+2. One confirmation per link, not per login: the owner's "records the choice once the
    owner confirms it".
-4. A link is per site and login item, so two accounts on one site are linked separately.
-5. The guess reads only item and field names and the page's host name and title. This
+3. A link is per site and login item, so two accounts on one site are linked separately.
+4. The guess reads only item and field names and the page's host name and title. This
    departs from the owner's example of what the guess may read (05:27 UTC: "a card name,
    brand or masked last digits"): reading masked digits or a brand needs the page's text
    and every card item's number in the worker before any confirmation, so it is left out
    of this first version; an item name holding the card's name or last digits still
    ranks it first.
-6. Birth dates split across year, month and day selects are not filled: Pateat fills no
-   selects.
+5. Birth dates split across year, month and day selects, and card expiry dates split
+   across month and year selects or inputs, are not filled: Pateat fills no selects, and
+   a handler fills one input.
 
 ## Delivery
 
@@ -332,6 +369,7 @@ an item name.
 2. Judging a page beside the sign-in form (`beside`).
 3. Links, the value rules, choice radios, the popup's proposal, and removal on refusal.
 4. Secret-question answers and member IDs.
+5. Whole card numbers, card expiry dates and PINs (decided 6).
 
 ## Not covered
 
