@@ -7375,11 +7375,6 @@ export function createLoginRuntime(
   ): Promise<void> {
     if (!generation) return;
     const base = otherless && { recipeId: otherless.id, revision: otherless.revision };
-    const page = list
-      ? ({ page: "accounts" } as const)
-      : base
-        ? ({ page: "other", recipeId: base.recipeId, baseRevision: base.revision } as const)
-        : {};
     const key = frameKey(live.document);
     let sent = false;
     try {
@@ -7424,6 +7419,43 @@ export function createLoginRuntime(
           unsent = "incomplete-observation";
           detail = accepted.detail;
         }
+        // A page offered as a list of accounts or a passkey button before its form rendered,
+        // as x.com's sign-in while it loads (2026-10-23), may show a sign-in form instead by
+        // now: it is sent as a sign-in page, only when it shows an input the document would
+        // have offered as one (ADR 0016), never for a search or newsletter field alone.
+        const shows =
+          unsent === "no-candidates" && (list || passkeyOnly)
+            ? v.safeParse(
+                entryCheckResultSchema,
+                // eslint-disable-next-line no-await-in-loop
+                await send(live, { type: "login.entry.check", starts: [], timeoutMs: 0 }).catch(
+                  () => undefined,
+                ),
+              )
+            : undefined;
+        if (documents.get(key) !== live) return;
+        if (shows?.success && shows.output.signIn) {
+          const signIn = v.safeParse(
+            extractResultSchema,
+            // eslint-disable-next-line no-await-in-loop
+            await send(live, { type: "login.extract", page: "login" }),
+          );
+          if (documents.get(key) !== live) return;
+          const accepted =
+            signIn.success && signIn.output.ok
+              ? acceptedObservation(signIn.output, {
+                  origin: live.document.origin,
+                  path: live.path,
+                  list: false,
+                })
+              : undefined;
+          if (accepted && "observation" in accepted) {
+            observation = accepted.observation;
+            list = undefined;
+            passkeyOnly = false;
+            break;
+          }
+        }
         if (unsent === "cancelled" || read >= EXTRACT_READS) {
           skipGeneration(live, unsent, otherless && "other", detail);
           return;
@@ -7432,6 +7464,11 @@ export function createLoginRuntime(
         await new Promise((resolve) => setTimeout(resolve, EXTRACT_RETRY_MS));
         if (documents.get(key) !== live) return;
       }
+      const page = list
+        ? ({ page: "accounts" } as const)
+        : base
+          ? ({ page: "other", recipeId: base.recipeId, baseRevision: base.revision } as const)
+          : {};
       // The `other` branch's first page asks for the account. A form without such a field,
       // as the password form after the person's own click on a listed profile, belongs to
       // the account branch and is never stored as `other` (ADR 0028).

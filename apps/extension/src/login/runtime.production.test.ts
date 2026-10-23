@@ -8259,6 +8259,59 @@ describe("production login document admission", () => {
           expect(generations()).not.toContainEqual(expect.objectContaining({ outcome: "skipped" }));
         });
 
+        // x.com's sign-in, offered while it loaded, showed its form by the time it was read
+        // (2026-10-23).
+        for (const [offered, announce] of [
+          ["passkey button", (h: ReturnType<typeof harness>) => passkeyListHello(h, ["Help"])],
+          ["list of accounts", (h: ReturnType<typeof harness>) => listHello(h, ["@risu729"])],
+        ] as const)
+          it(`sends a page offered as a ${offered} that shows a sign-in form by then as a sign-in page`, async () => {
+            const passkeyItems = vi.fn(async () => [{ connectionId, itemId }]);
+            const { service, h, generations } = named({ passkeyItems });
+            fake.state.extracted = { login: loginPage };
+            expect(await h.hello({}, false)).toMatchObject({ generate: true });
+            expect(await announce(h)).toEqual({ ok: false, reason: "generating" });
+            await vi.waitFor(() => expect(service.generate).toHaveBeenCalledOnce());
+            const request = service.generate.mock.calls[0]![0];
+            expect(request).not.toHaveProperty("passkeyOnly");
+            expect(request.observation).toEqual(loginPage.observation);
+            expect(request.slots.map((slot) => slot.id)).toContain("password");
+            expect(extracted()).toEqual([
+              expect.objectContaining({
+                page: offered === "passkey button" ? "passkey" : "accounts",
+              }),
+              expect.objectContaining({ page: "login" }),
+            ]);
+            // Sent as a recipe's first page, with its signed-in hint and no `page`.
+            expect(generations()).toContainEqual({
+              type: "generation",
+              tabId: 1,
+              origin,
+              outcome: "sent",
+              signedIn: false,
+            });
+          });
+
+        it("never sends a page offered as a passkey button whose only field is no sign-in input", async () => {
+          vi.useFakeTimers({ toFake: ["setTimeout"], shouldAdvanceTime: true });
+          onTestFinished(() => void vi.useRealTimers());
+          const passkeyItems = vi.fn(async () => [{ connectionId, itemId }]);
+          const { service, h, generations } = named({ passkeyItems });
+          // A search box rendered after the offer: its description would be accepted.
+          fake.state.extracted = { login: loginPage };
+          fake.state.entry.check = { ok: true, signIn: false, start: false, signUp: false };
+          expect(await h.hello({}, false)).toMatchObject({ generate: true });
+          expect(await passkeyListHello(h, ["Help"])).toEqual({ ok: false, reason: "generating" });
+          await vi.advanceTimersByTimeAsync(10_000);
+          await vi.waitFor(() =>
+            expect(generations()).toEqual([
+              { type: "generation", tabId: 1, origin, outcome: "skipped", reason: "no-candidates" },
+            ]),
+          );
+          expect(service.generate).not.toHaveBeenCalled();
+          expect(extracted()).not.toContainEqual(expect.objectContaining({ page: "login" }));
+        });
+
         it("handles the list as without the button for an item without a passkey", async () => {
           const passkeyItems = vi.fn(async () => []);
           const { service, h, generations } = named({ passkeyItems });
