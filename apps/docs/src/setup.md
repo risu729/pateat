@@ -46,9 +46,8 @@ Each connection is a row with its main action, **Sync**, or **Sign in again** wh
 vault needs a sign-in first. Its menu also holds **Disable automatic unlock**,
 **Forget sync sign-in** and **Delete connection**, which, after you confirm with
 **Delete connection** again, removes the connection, its vault copy, unlock key and sync
-sign-in from this device. Neither signs
-out your other Bitwarden sessions. You can add more than one connection, such as a
-personal and a work vault.
+sign-in from this device. None of these signs out your other Bitwarden sessions. You can
+add more than one connection, such as a personal and a work vault.
 
 ### Choose what Pateat may use
 
@@ -109,8 +108,9 @@ describes both. A mode without the service is planned.
 Once both steps are done, open the login page of a site that has an item in your vault.
 Pateat logs in when the site has a recipe for that page. When it has none, Pateat sends
 a sanitized description of the page to the service, which asks Claude to write one.
-Writing one needs Claude credentials set up on the service; without them, the service
-still keeps the description it received.
+Writing one needs Claude credentials set up on the service, as the
+[service guide](https://github.com/risu729/pateat/blob/main/services/api/README.md#claude-credentials)
+describes; without them, the service still keeps the description it received.
 
 The toolbar popup shows what Pateat did on the current page. It also lets you choose the
 account to log in with when several match, and turn **Pateat on this site** off for a
