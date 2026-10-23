@@ -268,7 +268,10 @@ chose on 2026-10-11 before its stable release
 ([decisions still requiring evidence](plan.md#decisions-still-requiring-evidence)).
 `vitepress` is pinned exactly to `2.0.0-alpha.20`, the npm `next` tag on 2026-10-15. Its
 English pages are in `apps/docs/src`: an introduction, installation, setup, permissions
-and a draft privacy policy with the Chrome Web Store Limited Use statement. The site
+and a draft privacy policy with the Chrome Web Store Limited Use statement. Their
+Japanese translations are at the same paths under `apps/docs/src/ja/`, served under
+`/ja/` with `hreflang` links when `PATEAT_DOCS_URL` is set
+([ADR 0047](adr/0047-japanese-user-docs-locales.md)). The site
 serves the extension's own `apps/extension/icons/icon.svg` through a small Vite plugin
 in `.vitepress/config.ts` instead of keeping a copy, and `.vitepress/theme/brand.css`
 sets VitePress's default theme to the icon's green, darkened where text needs 4.5:1

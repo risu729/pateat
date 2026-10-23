@@ -23,6 +23,21 @@ function extensionIcon(): Plugin {
   };
 }
 
+/**
+ * The site's public origin, such as `https://docs.example.com`, set by the deployment.
+ * Without it the build leaves out the `hreflang` links, which need absolute URLs.
+ */
+const siteUrl = process.env["PATEAT_DOCS_URL"]?.replace(/\/$/, "");
+
+/** English page path for a source file: `setup.md` and `ja/setup.md` give `/setup`. */
+function englishPath(relativePath: string) {
+  const path = relativePath
+    .replace(/^ja\//, "")
+    .replace(/(^|\/)index\.md$/, "$1")
+    .replace(/\.md$/, "");
+  return `/${path}`;
+}
+
 export default defineConfig({
   title: "Pateat",
   description:
@@ -32,28 +47,124 @@ export default defineConfig({
   cleanUrls: true,
   head: [["link", { rel: "icon", type: "image/svg+xml", href: "/icon.svg" }]],
   vite: { plugins: [extensionIcon()] },
-  themeConfig: {
-    logo: "/icon.svg",
-    nav: [
-      { text: "Guide", link: "/installation" },
-      { text: "Privacy", link: "/privacy" },
-    ],
-    sidebar: [
-      {
-        text: "Guide",
-        items: [
-          { text: "Introduction", link: "/" },
-          { text: "Installation", link: "/installation" },
-          { text: "Setup", link: "/setup" },
-          { text: "Permissions", link: "/permissions" },
+  // Each page names its other-language version for search engines; no page redirects by
+  // the browser's language (ADR 0047).
+  transformHead({ pageData }) {
+    if (!siteUrl || pageData.isNotFound) return [];
+    const english = englishPath(pageData.relativePath);
+    const japanese = english === "/" ? "/ja/" : `/ja${english}`;
+    return [
+      ["link", { rel: "alternate", hreflang: "en", href: `${siteUrl}${english}` }],
+      ["link", { rel: "alternate", hreflang: "ja", href: `${siteUrl}${japanese}` }],
+      ["link", { rel: "alternate", hreflang: "x-default", href: `${siteUrl}${english}` }],
+    ];
+  },
+  locales: {
+    root: {
+      label: "English",
+      lang: "en",
+      themeConfig: {
+        nav: [
+          { text: "Guide", link: "/installation" },
+          { text: "Privacy", link: "/privacy" },
+        ],
+        sidebar: [
+          {
+            text: "Guide",
+            items: [
+              { text: "Introduction", link: "/" },
+              { text: "Installation", link: "/installation" },
+              { text: "Setup", link: "/setup" },
+              { text: "Permissions", link: "/permissions" },
+            ],
+          },
+          { text: "Policies", items: [{ text: "Privacy policy", link: "/privacy" }] },
         ],
       },
-      {
-        text: "Policies",
-        items: [{ text: "Privacy policy", link: "/privacy" }],
+    },
+    ja: {
+      label: "日本語",
+      lang: "ja",
+      link: "/ja/",
+      description:
+        "この端末に保存した自分の Bitwarden 保管庫で、ウェブサイトにログインし、パスキーでのサインインに応答します。",
+      markdown: {
+        codeCopyButton: { tooltipText: "コードをコピー", copiedText: "コピーしました" },
       },
-    ],
-    search: { provider: "local" },
+      themeConfig: {
+        nav: [
+          { text: "使い方", link: "/ja/installation" },
+          { text: "プライバシー", link: "/ja/privacy" },
+        ],
+        sidebar: [
+          {
+            text: "使い方",
+            items: [
+              { text: "はじめに", link: "/ja/" },
+              { text: "インストール", link: "/ja/installation" },
+              { text: "初期設定", link: "/ja/setup" },
+              { text: "権限", link: "/ja/permissions" },
+            ],
+          },
+          {
+            text: "ポリシー",
+            items: [{ text: "プライバシーポリシー", link: "/ja/privacy" }],
+          },
+        ],
+        outline: { label: "目次" },
+        docFooter: { prev: "前のページ", next: "次のページ" },
+        sidebarMenuLabel: "メニュー",
+        returnToTopLabel: "ページの先頭に戻る",
+        darkModeSwitchLabel: "外観",
+        lightModeSwitchTitle: "ライトモードに切り替え",
+        darkModeSwitchTitle: "ダークモードに切り替え",
+        langMenuLabel: "言語を変更",
+        skipToContentLabel: "本文へスキップ",
+        notFound: {
+          title: "ページが見つかりません",
+          quote: "アドレスが間違っているか、ページが移動しました。",
+          linkLabel: "ホームへ移動",
+          linkText: "ホームへ",
+        },
+        editLink: {
+          pattern: `${repository}/edit/main/apps/docs/src/:path`,
+          text: "GitHub でこのページを編集",
+        },
+        footer: {
+          message: `Pateat 拡張機能のライセンスは <a href="${repository}/blob/main/LICENSING.md">GPL-3.0-only</a> です。`,
+        },
+      },
+    },
+  },
+  themeConfig: {
+    logo: "/icon.svg",
+    search: {
+      provider: "local",
+      options: {
+        locales: {
+          ja: {
+            translations: {
+              button: { buttonText: "検索", buttonAriaLabel: "ドキュメントを検索" },
+              modal: {
+                displayDetails: "詳細を表示",
+                resetButtonTitle: "検索をクリア",
+                backButtonTitle: "検索を閉じる",
+                noResultsText: "次の検索に一致する結果はありません",
+                footer: {
+                  selectText: "選択",
+                  selectKeyAriaLabel: "Enter キー",
+                  navigateText: "移動",
+                  navigateUpKeyAriaLabel: "上矢印キー",
+                  navigateDownKeyAriaLabel: "下矢印キー",
+                  closeText: "閉じる",
+                  closeKeyAriaLabel: "Esc キー",
+                },
+              },
+            },
+          },
+        },
+      },
+    },
     editLink: {
       pattern: `${repository}/edit/main/apps/docs/src/:path`,
       text: "Edit this page on GitHub",
