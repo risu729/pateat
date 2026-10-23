@@ -1672,8 +1672,8 @@ owner web UI take their colors, type, radii and focus ring from the
 Tailwind colors, with each light/dark color pair written once using `light-dark()`.
 `color-scheme: light dark` follows the browser, and the explicit theme overrides set
 only `color-scheme`; shadow colors are paired separately from their shapes. The Worker's
-script-free pages (`services/api/src/pages.ts`: `/pair/signed-in`, the Access and error
-pages and `/manage/claude`) inline a small stylesheet,
+script-free pages (`services/api/src/pages.ts`: `/pair/signed-in` and the Access and
+error pages) inline a small stylesheet,
 `services/api/src/page-styles.ts`, with the same tokens, the logo beside "Pateat" and
 the page in one panel. `tests/options/design-tokens.test.tsx` compares the three token
 copies and checks their resolved light and dark palettes, including shadows.
@@ -3081,8 +3081,7 @@ planned change. Each is current behavior that the service does not handle.
   recipe ID or revision contracts without a migration, can produce one.
 - Requests without limits. `OWNER_LIMITER` runs after authentication, so `/v1`
   requests with unknown credentials are not limited by the Worker; owner pages, their
-  assets, `/pair/signed-in` and `/manage/claude` (whose test button makes one token
-  exchange with Anthropic per post) have no per-identity limit either.
+  assets and `/pair/signed-in` have no per-identity limit either.
 - Strict request shapes. Paths match exactly: a trailing slash, another letter case or
   an unknown path under `/manage` answers the JSON 404 `not_found`, not an HTML page.
   The change feed refuses any query parameter but `after` and `limit` with 400, and a
@@ -3214,7 +3213,10 @@ delete-all action ([ADR 0012](adr/0012-inference-request-log.md)); implemented a
 tested locally, not deployed. The Dashboard tab follows the owner's approval of the
 speed dashboard on 2026-10-18 (08:38 UTC), with Recharts for its charts (08:39 UTC,
 [development](development.md#dependency-policy)); implemented and tested locally, not
-deployed. The app, its Access-checked assets and API, and the devices, sites and site
+deployed. The Claude tab (owner decision of 2026-10-23, 12:46 UTC) holds the Claude
+Console values, the WIF identifiers, the connection test and each role's models in one
+page; it replaced the temporary script-free `/manage/claude` form and the Models tab.
+The app, its Access-checked assets and API, and the devices, sites and site
 pages are implemented and tested locally; the deployed service still has the earlier
 sites, account bindings and recipes pages until the next deployment. It replaces the
 extension's settings page for the data the service holds
@@ -3225,10 +3227,10 @@ field exclusions and custom-field review, which need the device's vault catalog
 - Pages. A React app under `/manage`, built with the same approved stack as the
   extension's pages ([ADR 0004](adr/0004-library-composition.md)) and served by the
   Worker as static assets. Its header shows the logo and five tabs, Dashboard, Sites,
-  Devices, Models and Request log, and its footer the version, links to the source and
+  Devices, Claude and Request log, and its footer the version, links to the source and
   the GPL text at the built commit and to the third-party notices, and the Theme select.
   React's rendered `<title>` sets the tab title to `Dashboard – Pateat`,
-  `Devices – Pateat`, `Sites – Pateat`, `Models – Pateat`, `Request log – Pateat` or
+  `Devices – Pateat`, `Sites – Pateat`, `Claude – Pateat`, `Request log – Pateat` or
   `<origin> – Pateat`; the static HTML keeps `Pateat` before the app renders. Each page
   is its own path, a full page load that the Worker serves only for these paths:
   - Dashboard (`/manage/dashboard`): the owner's request log, login records, login
@@ -3270,12 +3272,27 @@ field exclusions and custom-field review, which need the device's vault catalog
     values are shown instead of a p90. Each chart is hidden from assistive technology
     and repeated as a table; Recharts loads only with this page.
   - Devices (`/manage`): the current list and revocation, moved into the app.
-  - Models (`/manage/models`): for recipe generation and the sign-in judge, the
-    ordered model choices (first, then fallbacks after a refusal), each a model, effort
-    and speed, from the models the owner's credential can list
+  - Claude (`/manage/claude`, owner decision of 2026-10-23, 12:46 UTC): everything the
+    service needs to call Claude for the owner, in one page. Claude Console lists the
+    values to enter there for the owner's Workload Identity Federation rule
+    ([ADR 0015](adr/0015-per-owner-claude-credentials.md)): the issuer URL, or that the
+    service has none configured; the exact subject `owner:<ownerId>`; the audience; the
+    scope. Federation identifiers is a form of the four identifiers, starting from the
+    saved ones and keeping what the owner typed across refetches, which shows each
+    field's expected shape, trims whitespace, checks each against its pattern before
+    saving, and says when a saved row no longer validates; the last save wins. Test the
+    connection exchanges one token with the saved identifiers, which calls no model and
+    costs nothing, and shows how long the token is valid for or why the exchange failed;
+    the token never reaches the page. Models holds, for recipe generation and the
+    sign-in judge, the ordered model choices (first, then fallbacks after a refusal),
+    each a model, effort and speed, from the models the owner's credential can list
     ([ADR 0014](adr/0014-claude-generation-provider.md)); a model without a price, an
     effort it does not accept and fast mode that keeps failing cannot be chosen. Saving
     writes `PUT /manage/api/models`; Use the defaults restores Opus 5.5 then Sonnet 5.5.
+    The page notes that none of the values is a secret and that archiving the federation
+    rule in the Console stops Pateat's access. It replaced the temporary script-free
+    form the owner chose on 2026-10-11 to try WIF before the web UI existed, and the
+    separate Models tab.
   - Request log (`/manage/request-log`): how many requests the
     [request log](adr/0012-inference-request-log.md) holds for the owner
     (requests answered without Claude included), and how many
@@ -3314,20 +3331,19 @@ field exclusions and custom-field review, which need the device's vault catalog
   `PUT /v1/recipes/:recipeId`. Item selection and field exclusions are not shown yet;
   once synced ([ADR 0023](adr/0023-synced-vault-policy.md)) the web UI first only lists
   them, and they are edited on the extension's settings page.
-
-  Claude credentials are entered on `/manage/claude`, a temporary script-free page
-  ([ADR 0015](adr/0015-per-owner-claude-credentials.md)). The web UI will replace it,
-  but its page for Claude credentials is not designed yet.
 - Data. The app calls a JSON API under `/manage/api/*`. It does not call `/v1`, whose
   routes accept only device credentials. The API shares the owner-scoped read and write
-  code of `/v1/settings` and `/v1/recipes/:recipeId`. Writes carry the revision the page
-  last read; a stale write changes nothing and returns the current state. The service
-  copy of settings holds no `connections`: the extension uploads none, a web write must
-  have none, and the page drops any that another client stored. A web write also stays
-  within the 120 KiB document size devices upload. An identity with no paired device has
-  no settings to edit and is told to pair one. Devices receive the change on their next
-  settings or recipe sync. The device ID columns recording who wrote a settings or
-  recipe revision are nullable; null means the web UI wrote it.
+  code of `/v1/settings` and `/v1/recipes/:recipeId`. Settings and recipe writes carry
+  the revision the page last read; a stale write changes nothing and returns the current
+  state. The service copy of settings holds no `connections`: the extension uploads
+  none, a web write must have none, and the page drops any that another client stored.
+  A web write also stays within the 120 KiB document size devices upload. An identity
+  with no paired device has no settings to edit and is told to pair one. Devices receive
+  the change on their next settings or recipe sync. The device ID columns recording who
+  wrote a settings or recipe revision are nullable; null means the web UI wrote it. The
+  Claude identifiers are written whole by `PUT /manage/api/claude` without a revision,
+  since only the owner edits them and devices never do; an identity with no paired
+  device has none either.
 - Display names. Site defaults and bindings keep display-only names beside their IDs, so
   the page can name them: `itemName`, the item's label (optional on a site default), and
   an optional `accountName`, the label the owner gave the vault connection the account

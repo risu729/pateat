@@ -427,8 +427,9 @@ than in this repository.
     page with a "Pateat on this site" switch, its default account, recipes and bindings
     ([owner web UI](architecture.md#owner-web-ui)).
   - Done: the Worker's script-free pages (`/pair/signed-in`, the Access and error pages
-    and `/manage/claude`) use the same tokens, light or dark as the browser prefers,
-    with the logo beside "Pateat" and the page in one panel. With this, every screen of
+    and the `/manage/claude` form, since moved into the owner web UI) use the same
+    tokens, light or dark as the browser prefers, with the logo beside "Pateat" and the
+    page in one panel. With this, every screen of
     the extension and the service has had its polish pass.
   - Done: the toolbar badge spins (braille frames) in a tab while a model request for
     that tab's page is in flight, and shows how the tab's last login ended: a red `!`
@@ -2174,8 +2175,9 @@ tests cover it.
   to Claude per owner through Workload Identity Federation
   ([ADR 0015](adr/0015-per-owner-claude-credentials.md)); a registered, encrypted API
   key is a later second option. The issuer metadata routes, the `inference_credentials`
-  table and `resolveClaudeCredential` exist. Owners enter identifiers on the temporary
-  `/manage/claude` page until the React web UI replaces it. On 2026-10-11 at 12:26 UTC
+  table and `resolveClaudeCredential` exist. Owners enter identifiers on the web UI's
+  Claude tab (`/manage/claude`), which replaced the temporary script-free form page; its
+  layout is proposed and awaits the owner's review. On 2026-10-11 at 12:26 UTC
   the deployed service at `pateat.takuk.me` exchanged a real assertion with Anthropic.
   The owner's federation rule is scoped to `workspace:developer`, because the Console
   offered no `workspace:inference`, and the token was valid for 10 minutes. The first
