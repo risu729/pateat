@@ -410,21 +410,27 @@ const roleButton = (element: Element) =>
   element.getAttribute("role")?.trim().toLowerCase() === "button";
 
 /**
- * Whether an `<a>` without `href`, which never navigates, shows the pointer the page
- * gives clickable things: IIJmio's login control is `<a class="pink_btn">ログイン</a>`,
- * whose click a script listener handles with no `onclick` attribute or role
- * (2026-10-23).
+ * Whether an `<a>` without `href`, which never navigates, sets the pointer the page
+ * gives clickable things itself, not inheriting it from a clickable card around it:
+ * IIJmio's login control is `<a class="pink_btn">ログイン</a>`, whose click a script
+ * listener handles with no `onclick` attribute or role (2026-10-23). The cursor is read
+ * as computed when asked, so one the page sets only on hover or after the fields are
+ * filled does not count.
  */
-const pointer = (link: HTMLAnchorElement) =>
-  link.ownerDocument.defaultView?.getComputedStyle(link).cursor === "pointer";
+function pointer(link: HTMLAnchorElement): boolean {
+  const view = link.ownerDocument.defaultView;
+  const points = (element: Element) =>
+    /(?:^|, )pointer$/u.test(view!.getComputedStyle(element).cursor);
+  return view !== null && points(link) && !(link.parentElement && points(link.parentElement));
+}
 
 /**
  * A control that only scripts make clickable: a script link (an `<a>` without `href`
- * that has an `onclick` attribute or `role="button"` or shows a pointer cursor, or an
- * `<a href>` that runs a script, see {@link scriptHref}), or another element with
- * `role="button"`. Form
- * controls, links that navigate and anything inside an `<a href>` (a click there would
- * follow the link, or reach the outer link's script) are not script buttons.
+ * that has an `onclick` attribute or `role="button"` or sets a pointer cursor, see
+ * {@link pointer}, or an `<a href>` that runs a script, see {@link scriptHref}), or
+ * another element with `role="button"`. Form controls, links that navigate and anything
+ * inside an `<a href>` (a click there would follow the link, or reach the outer link's
+ * script) are not script buttons.
  */
 export function isScriptButton(element: Element): boolean {
   if (
