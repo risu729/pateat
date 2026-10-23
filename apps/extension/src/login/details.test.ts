@@ -83,6 +83,7 @@ function policy(
     ],
     excludedSites: [],
     repromptSites: [],
+    passkeyBrowserSites: [],
     siteDefaults: [],
     bindings: [],
     ...extra,

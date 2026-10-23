@@ -13,6 +13,7 @@ test("local and remote profile site controls have unique IDs and their own descr
     connections: [],
     excludedSites: [],
     repromptSites: [],
+    passkeyBrowserSites: [],
     siteDefaults: [],
     bindings: [],
   };

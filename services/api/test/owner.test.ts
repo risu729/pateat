@@ -455,6 +455,7 @@ describe("owner web UI settings", () => {
   const settings = {
     connections: [],
     excludedSites: [{ hostname: "intranet.example", includeSubdomains: true }],
+    passkeyBrowserSites: [],
     repromptSites: [],
     siteDefaults: [],
     bindings: [],
@@ -1357,6 +1358,7 @@ describe("owner web UI request log", () => {
         settings: {
           connections: [],
           excludedSites: [],
+          passkeyBrowserSites: [],
           repromptSites: [],
           siteDefaults: [],
           bindings: [],

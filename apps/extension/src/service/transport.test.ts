@@ -506,6 +506,7 @@ describe("settings", () => {
     connections: [],
     excludedSites: [],
     repromptSites: [],
+    passkeyBrowserSites: [],
     siteDefaults: [],
     bindings: [],
   };
@@ -609,6 +610,7 @@ describe("rate limits on device-credential routes", () => {
   const document = {
     connections: [],
     excludedSites: [],
+    passkeyBrowserSites: [],
     repromptSites: [],
     siteDefaults: [],
     bindings: [],
