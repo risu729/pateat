@@ -3446,8 +3446,8 @@ describe("extractSignedInObservation", () => {
     };
     // "Send the code to: [SMS] [Email] [Continue]", however the choice is built.
     const card = (input: string) =>
-      `<form><label class="card">${input.replace("$", "sms")} Text message</label>` +
-      `<label class="card">${input.replace("$", "email")} Email</label>` +
+      `<form><label class="card">${input.replaceAll("$", "sms")} Text message</label>` +
+      `<label class="card">${input.replaceAll("$", "email")} Email</label>` +
       `<button id="continue">Continue</button></form>`;
     for (const markup of [
       card(`<input type="radio" name="via" value="$">`),
