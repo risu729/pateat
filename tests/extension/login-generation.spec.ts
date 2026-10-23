@@ -578,7 +578,7 @@ test("an optional page after the sign-in completes the login as signed in, press
         const recipe = async () =>
           (
             (await (await service.request("/v1/recipes")).json()) as {
-              changes: { recipe?: { handlers?: unknown; completion?: unknown } }[];
+              changes: { recipe?: { layouts: { handlers?: unknown; completion?: unknown }[] } }[];
             }
           ).changes.map((change) => change.recipe);
 
@@ -598,8 +598,9 @@ test("an optional page after the sign-in completes the login as signed in, press
         expect(JSON.stringify(claude.prompts)).not.toContain(password);
         // Nothing is learned on the optional page.
         const [learned] = await recipe();
-        expect(learned).not.toHaveProperty("completion");
-        expect(learned).not.toHaveProperty("handlers");
+        expect(learned?.layouts).toHaveLength(1);
+        expect(learned?.layouts[0]).not.toHaveProperty("completion");
+        expect(learned?.layouts[0]).not.toHaveProperty("handlers");
 
         // The next login that meets it is judged again, as the path may ask for a step
         // then, and completes the same way.
@@ -625,7 +626,9 @@ test("an optional page after the sign-in completes the login as signed in, press
         expect(claude.prompts.map((prompt) => prompt.observation.path).at(-1)).toBe("/account");
         await expect
           .poll(recipe)
-          .toMatchObject([{ completion: [{ target: { by: "id", value: "sign-out" } }] }]);
+          .toMatchObject([
+            { layouts: [{ completion: [{ target: { by: "id", value: "sign-out" } }] }] },
+          ]);
       },
       { args: ["--ignore-certificate-errors"] },
     );
