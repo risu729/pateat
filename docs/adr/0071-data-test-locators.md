@@ -55,10 +55,15 @@ page was incomplete (`unlocated-button`). Every control of the page carries
 
 - Duolingo's sign-in is described completely: the submit is
   `{ by: "data-test", value: "register-button" }` (live, Chrome for Testing 156,
-  2026-10-23). The value says "register" on a sign-in button; the model reads the
-  button's label and text, not the locator.
-- Pages that carry `data-test` but also stable `id`s keep their `id` locators, so
-  existing recipes do not change.
+  2026-10-23). The value says "register" on a sign-in button, and the model sees each
+  candidate's locator with the page, so such a value may push it toward abstaining as
+  a sign-up form; not checked with a paid generation run.
+- Pages that carry `data-test` but also stable `id`s keep their `id` locators. An
+  element that today gets an `autocomplete`, visible-name or text locator and carries
+  `data-test` is observed with `data-test` instead, so checks that compare an observed
+  target with a stored recipe's exactly miss it until the recipe is generated again.
+- An older extension build fails to read a synced recipe that holds the new locator;
+  Pateat keeps no backward compatibility before release.
 - A site that renames its test attributes breaks the recipe, as for `data-testid`.
 
 ## Alternatives
