@@ -304,4 +304,7 @@ export const en = {
     "Pateat: {{count}} accounts match this page. Click to choose one.",
   "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait up to 10 minutes and reload this page, to log in here.":
     "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait up to 10 minutes and reload this page, to log in here.",
+  vaultsLocked_one: "{{count}} vault is locked, so its logins and passkeys wait.",
+  vaultsLocked_other: "{{count}} vaults are locked, so their logins and passkeys wait.",
+  "Unlock in settings": "Unlock in settings",
 } as const;

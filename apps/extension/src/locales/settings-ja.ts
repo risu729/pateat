@@ -153,4 +153,32 @@ export const settingsJa = {
   "A default account takes effect at the next login.":
     "既定のアカウントは次回のログインから有効になります。",
   "{{item}} ({{method}})": "{{item}}（{{method}}）",
+  "Vault timeout": "保管庫のタイムアウト",
+  "Saved on this device.": "このデバイスに保存しました。",
+  "The vault timeout could not be saved. Try again.":
+    "保管庫のタイムアウトを保存できませんでした。もう一度お試しください。",
+  "{{count}} minute_one": "{{count}} 分",
+  "{{count}} minute_other": "{{count}} 分",
+  "{{count}} hour_one": "{{count}} 時間",
+  "{{count}} hour_other": "{{count}} 時間",
+  "Enter whole minutes from 1 to {{max}}.": "1 から {{max}} までの分数を整数で入力してください。",
+  Unavailable: "読み込めません",
+  "Loading…": "読み込み中…",
+  "On system idle": "システムのアイドル時",
+  "On system lock": "システムのロック時",
+  "On browser restart": "ブラウザの再起動時",
+  Never: "なし",
+  Custom: "カスタム",
+  Minutes: "分",
+  "Timeout action": "タイムアウト時の動作",
+  "Never keeps the unlock key on this device, so the vaults unlock by themselves after a browser restart and stay open to anyone who can use this browser profile.":
+    "「なし」ではロック解除のキーがこのデバイスに残るため、ブラウザを再起動しても保管庫は自動でロック解除され、このブラウザのプロファイルを使える人なら誰でも使えます。",
+  "The unlock key stays in memory only, so a browser restart also locks the vaults.":
+    "ロック解除のキーはメモリーにだけ置くため、ブラウザを再起動しても保管庫はロックされます。",
+  "Log out also forgets the sync sign-in; sign in again to use the vault.":
+    "ログアウトでは同期用のログイン情報も削除します。保管庫を使うにはもう一度ログインしてください。",
+  "Lock keeps the sync sign-in; unlock with the master password, without the server.":
+    "ロックでは同期用のログイン情報を残します。マスターパスワードで、サーバーに接続せずにロックを解除できます。",
+  "Time counts from the last login filled, passkey signed, unlock or sign-in; this setting stays on this device.":
+    "時間は、ログイン情報の入力、パスキーでの署名、ロック解除、ログインのうち最後のものから数えます。この設定はこのデバイスにだけ保存します。",
 } satisfies Record<keyof typeof settingsEn, string>;

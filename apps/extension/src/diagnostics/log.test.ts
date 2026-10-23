@@ -1362,6 +1362,38 @@ describe("unhandled errors", () => {
     vi.restoreAllMocks();
   });
 
+  it("logs the vault timeout's action, a failure as a warning (ADR 0075)", async () => {
+    const log = createDiagnosticsLog({
+      build: { version: "0.1.0", revision: "1c42ad3" },
+      settings: async () => {
+        throw new Error("not needed");
+      },
+      recipeCache: async () => undefined,
+      connections: async () => ({ ok: true, kind: "status", connections: [] }),
+      databaseName: `log-test-${crypto.randomUUID()}`,
+      scope: { addEventListener: () => undefined } as never,
+    });
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    log.vaultTimeout({ trigger: "minutes", action: "lock", outcome: "done" });
+    log.vaultTimeout({ trigger: "restart", action: "log-out", outcome: "failed" });
+    log.vaultTimeout({ trigger: "system-idle", action: "lock", outcome: "done" });
+    log.vaultTimeout({ trigger: "system-lock", action: "log-out", outcome: "done" });
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(4));
+    const entries = await log.logger.entries();
+    expect(entries.map((entry) => [entry.event, entry.level, entry.fields])).toEqual([
+      ["vault.timeout", "info", { trigger: "minutes", action: "lock", outcome: "done" }],
+      ["vault.timeout", "warn", { trigger: "restart", action: "log-out", outcome: "failed" }],
+      ["vault.timeout", "info", { trigger: "system-idle", action: "lock", outcome: "done" }],
+      ["vault.timeout", "info", { trigger: "system-lock", action: "log-out", outcome: "done" }],
+    ]);
+    expect(LOG_EVENTS["vault.timeout"]).toEqual({
+      level: "info",
+      fields: { trigger: "code", action: "code", outcome: "code" },
+    });
+    vi.restoreAllMocks();
+  });
+
   it("logs a failed Bitwarden refresh as a warning with its cause and status", async () => {
     const log = createDiagnosticsLog({
       build: { version: "0.1.0", revision: "1c42ad3" },

@@ -123,6 +123,8 @@ export const LOG_EVENTS = {
   },
   "vault.sign-in": { level: "info", fields: { step: "code", outcome: "code" } },
   "vault.check": { level: "info", fields: { connection: "connection", outcome: "code" } },
+  // The vault timeout locked or logged out the vaults (ADR 0075).
+  "vault.timeout": { level: "info", fields: { trigger: "code", action: "code", outcome: "code" } },
   "vault.refresh": {
     level: "info",
     fields: { connection: "connection", outcome: "code", cause: "code", status: "count" },

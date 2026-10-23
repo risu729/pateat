@@ -307,4 +307,9 @@ export const ja = {
     "Pateat：{{count}} 件のアカウントがこのページに一致します。クリックして選んでください。",
   "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait up to 10 minutes and reload this page, to log in here.":
     "Pateat：別のタブでこのサイトへのログインが進行中か、成功していません。ここでログインするには、そのタブを閉じるか、最大 10 分待ってからこのページを再読み込みしてください。",
+  vaultsLocked_one:
+    "{{count}} 個の保管庫がロック中のため、そのログインとパスキーは待機しています。",
+  vaultsLocked_other:
+    "{{count}} 個の保管庫がロック中のため、それらのログインとパスキーは待機しています。",
+  "Unlock in settings": "設定でロック解除",
 } satisfies Record<keyof typeof en, string>;
