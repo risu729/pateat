@@ -1,10 +1,13 @@
 # ADR 0070: Shadow roots are read as part of the page
 
-Status: proposed, not decided by the owner. Built on assumed decisions under the owner's
-instruction of 2026-10-23 05:28 UTC to set the phases aside, build on best guesses as
-unmerged PRs and judge them later. Implemented in the extension (local and cloud
-Chromium tests only; not yet checked on the real sites or in the owner's Chrome). Amends
-the observation contract in [the plan](../plan.md) and, for the passkey page,
+Status: proposed. Built on assumed decisions under the owner's instruction of 2026-10-23
+05:28 UTC to set the phases aside, build on best guesses as unmerged PRs and judge them
+later. On 2026-10-23 about 11:15 UTC the owner chose to go on with it, to give a
+component's control the form that holds the component, and to read another extension's
+shadow roots as Bitwarden does; the locators are not decided yet. Implemented in the
+extension (local and cloud Chromium tests only; not yet checked on the real sites or in
+the owner's Chrome). Amends the observation contract in [the plan](../plan.md) and, for
+the passkey page,
 [ADR 0053](0053-passkey-only-generation.md).
 
 Date: 2026-10-23
@@ -33,7 +36,7 @@ accepts (`SHADOW_ROOT_CANDIDATE_NODE_NAMES`), the closed root that
 
 ## Decision
 
-All of the following is assumed, not confirmed by the owner.
+What the owner has not decided (see Status) is assumed.
 
 - Every read of the page by the content script includes every shadow root in it, open or
   closed, nested ones too: the extractor's descriptions of every kind of page, the
@@ -101,7 +104,9 @@ All of the following is assumed, not confirmed by the owner.
   (`unlocated-checkbox`).
 - Another extension's UI in a closed shadow root on the page (a password manager's or a
   translator's) is read as well, as Bitwarden reads it; its fields outside the login
-  form are left out as above.
+  form are left out as above. No element records which extension made it, and skipping a
+  root that loads a `chrome-extension://` URL would also skip a site's own field that a
+  password manager decorated with its icon, so no root is skipped (owner, 2026-10-23).
 - Frames stay separate documents, each with its own content script, as before.
 
 ## Alternatives
