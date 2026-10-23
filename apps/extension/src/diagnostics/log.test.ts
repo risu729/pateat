@@ -314,12 +314,17 @@ describe("diagnostics log", () => {
     });
     for (const level of ["debug", "info", "warn"] as const)
       vi.spyOn(console, level).mockImplementation(() => undefined);
-    log.loginOutcome({ recipeId: "gen-0123", revision: 3, result: "kept" });
-    log.loginOutcome({ recipeId: "gen-0123", revision: 4, result: "failed:unreachable" });
+    log.loginOutcome({ recipeId: "gen-0123", revision: 3, branch: "1000", result: "kept" });
+    log.loginOutcome({
+      recipeId: "gen-0123",
+      revision: 4,
+      branch: "1000",
+      result: "failed:unreachable",
+    });
     log.loginOutcome({
       recipeId: "gen-0123",
       revision: 5,
-      branch: "other",
+      branch: "1000:other",
       result: "failed:unexpected-response",
     });
     await vi.waitFor(async () =>
@@ -333,14 +338,14 @@ describe("diagnostics log", () => {
     expect(entries.map(({ level, fields }) => ({ level, fields }))).toEqual([
       {
         level: "info",
-        fields: { recipe: "gen-0123", recipeRevision: 3, layout: "1000", result: "kept" },
+        fields: { recipe: "gen-0123", recipeRevision: 3, branch: "1000", result: "kept" },
       },
       {
         level: "info",
         fields: {
           recipe: "gen-0123",
           recipeRevision: 4,
-          layout: "1000",
+          branch: "1000",
           result: "failed:unreachable",
         },
       },
@@ -349,7 +354,7 @@ describe("diagnostics log", () => {
         fields: {
           recipe: "gen-0123",
           recipeRevision: 5,
-          branch: "other",
+          branch: "1000:other",
           result: "failed:unexpected-response",
         },
       },
@@ -370,9 +375,19 @@ describe("diagnostics log", () => {
     });
     for (const level of ["debug", "info", "warn"] as const)
       vi.spyOn(console, level).mockImplementation(() => undefined);
-    log.loginRecord({ recipeId: "gen-0123", revision: 3, result: "kept" });
-    log.loginRecord({ recipeId: "gen-0123", revision: 3, branch: "other", result: "refused" });
-    log.loginRecord({ recipeId: "gen-0123", revision: 4, result: "failed:invalid-record" });
+    log.loginRecord({ recipeId: "gen-0123", revision: 3, branch: "1000", result: "kept" });
+    log.loginRecord({
+      recipeId: "gen-0123",
+      revision: 3,
+      branch: "1000:other",
+      result: "refused",
+    });
+    log.loginRecord({
+      recipeId: "gen-0123",
+      revision: 4,
+      branch: "1000",
+      result: "failed:invalid-record",
+    });
     await vi.waitFor(async () =>
       expect(
         (await log.logger.entries()).filter((entry) => entry.event === "service.login"),
@@ -382,19 +397,19 @@ describe("diagnostics log", () => {
     expect(entries.map(({ level, fields }) => ({ level, fields }))).toEqual([
       {
         level: "info",
-        fields: { recipe: "gen-0123", recipeRevision: 3, layout: "1000", result: "kept" },
+        fields: { recipe: "gen-0123", recipeRevision: 3, branch: "1000", result: "kept" },
       },
       // A service without the route refuses it; that is expected, not a problem.
       {
         level: "info",
-        fields: { recipe: "gen-0123", recipeRevision: 3, branch: "other", result: "refused" },
+        fields: { recipe: "gen-0123", recipeRevision: 3, branch: "1000:other", result: "refused" },
       },
       {
         level: "warn",
         fields: {
           recipe: "gen-0123",
           recipeRevision: 4,
-          layout: "1000",
+          branch: "1000",
           result: "failed:invalid-record",
         },
       },
