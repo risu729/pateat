@@ -100,7 +100,10 @@ export type ClaudeCall<T> = {
   recipe: { recipeId: string; branch: string; baseRevision: number; page?: RecipePage };
   /** Checked under the owner's lock, before credentials are resolved. */
   gate?: (db: Db, now: number) => Promise<GenerationUnavailableReason | undefined>;
-  /** Written once a call is certain, before the first model call. */
+  /**
+   * Written just before the first model request is sent, so a request the role refuses
+   * before sending, as `input-too-large`, writes nothing (ADR 0016, ADR 0027).
+   */
   beforeSend?: (db: Db, now: number) => BatchItem<"sqlite">[];
   invoke: (model: ClaudeModel) => Promise<InferenceOutcome<T>>;
   /** The structured result to log for an `ok` outcome. */
@@ -540,6 +543,42 @@ export async function callClaude<T>(
 
 type Called<T> = Extract<ClaudeCallResult<T>, { status: "called" }>;
 
+/**
+ * A request's `beforeSend` writes, run once before its first model request. `settled`
+ * waits for a write that outlived the call, as one the role's timeout cut short; `ms` is
+ * its duration, which belongs before the model call.
+ */
+type Reservation = {
+  run: () => Promise<void>;
+  settled: () => Promise<void>;
+  ms: number;
+  error?: unknown;
+};
+
+function reserveOnce(write: () => Promise<void>): Reservation {
+  let written: Promise<void> | undefined;
+  const reservation: Reservation = {
+    run: () => {
+      written ??= (async () => {
+        const start = Date.now();
+        try {
+          await write();
+        } catch (error) {
+          reservation.error = error;
+          throw error;
+        }
+        reservation.ms = Date.now() - start;
+      })();
+      return written;
+    },
+    settled: async () => {
+      await written?.catch(() => {});
+    },
+    ms: 0,
+  };
+  return reservation;
+}
+
 /** The failures after which fast mode asks the same model at the standard speed. */
 const FAST_RETRY = new Set(["rate-limited", "provider-error", "timeout"]);
 
@@ -582,8 +621,10 @@ async function runCall<T>(
       fastFailingModels(env.DB, ownerId, Date.now()),
     ]);
     const choices = roleChoices(config, call.role, fastFailing);
-    const before = call.beforeSend?.(db, Date.now()) ?? [];
-    if (before.length > 0) await db.batch(before as [BatchItem<"sqlite">]);
+    const reservation = reserveOnce(async () => {
+      const before = call.beforeSend?.(db, Date.now()) ?? [];
+      if (before.length > 0) await db.batch(before as [BatchItem<"sqlite">]);
+    });
 
     // The role's choices in order (owner decision, 2026-10-23 11:31 UTC): a refusal asks
     // the next choice; fast mode that failed asks the same model at the standard speed; any
@@ -609,7 +650,7 @@ async function runCall<T>(
         db,
         ownerId,
         call,
-        { choice: attempt, credential: credential.credential },
+        { choice: attempt, credential: credential.credential, reservation },
         { startedAt, tokenMs: last === undefined ? tokenMs : 0 },
       );
       last = {
@@ -641,26 +682,38 @@ async function sendCall<T>(
   db: Db,
   ownerId: string,
   call: ClaudeCall<T>,
-  model: { choice: RoleChoice; credential: ClaudeCredential },
+  model: { choice: RoleChoice; credential: ClaudeCredential; reservation: Reservation },
   time: { startedAt: number; tokenMs: number },
 ): Promise<{ outcome: InferenceOutcome<T>; logId?: string; timings: ClaudeCallTimings }> {
-  const { choice } = model;
+  const { choice, reservation } = model;
   // The periods the call started in, even when it ends on the next UTC day.
   const [month, day] = periods(Date.now());
 
   let outcome: InferenceOutcome<T>;
   const modelStart = Date.now();
   try {
-    outcome = await call.invoke(createClaudeGenerationModel({ ...model.credential, choice }));
+    outcome = await call.invoke(
+      createClaudeGenerationModel({
+        ...model.credential,
+        choice,
+        beforeRequest: reservation.run,
+      }),
+    );
   } catch {
     // The roles return their errors; this only guards the spend and the log row.
     outcome = { status: "failed", error: "provider-error", calls: 1, usage: unknownUsage };
   }
-  // Date.now() advances across I/O on Workers, which is all these spans wait on.
+  // A failed write stopped the request before it was sent, so it fails as before a call.
+  await reservation.settled();
+  if (reservation.error !== undefined) throw reservation.error;
+  // Date.now() advances across I/O on Workers, which is all these spans wait on. The
+  // first call's writes count before the model call, as they did before it was sent.
+  const reservedMs = reservation.ms;
+  reservation.ms = 0;
   const timings = {
-    preModelMs: modelStart - time.startedAt,
+    preModelMs: modelStart - time.startedAt + reservedMs,
     tokenMs: time.tokenMs,
-    modelMs: Date.now() - modelStart,
+    modelMs: Date.now() - modelStart - reservedMs,
   };
   const estimate = estimateClaudeCostUsd(outcome.usage, choice.rates);
   if (outcome.calls === 0) return { outcome, timings };
