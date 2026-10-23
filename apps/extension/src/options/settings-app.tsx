@@ -1,9 +1,11 @@
 import { useTranslation } from "react-i18next";
 import { i18n } from "../i18n";
 import {
+  conflictCauses,
   localSettingsSchema,
   type ConnectionSettings,
   type LocalSettings,
+  type SettingsConflictCause,
   type SettingsResponse,
 } from "@pateat/contracts";
 import { useForm, useSelector } from "@tanstack/react-form";
@@ -128,14 +130,26 @@ export function SettingsApp({
           );
           return;
         }
+        let causes = !result.ok ? result.error.causes : undefined;
         if (
           !result.ok &&
           result.error.code === "revision-conflict" &&
           !retried.current &&
-          backgroundOnlyConflict(result.error.causes)
+          backgroundOnlyConflict(causes)
         ) {
           retried.current = true;
-          if (await rebase(epoch)) return;
+          const rebaseResult = await rebase(epoch, previous.snapshot.revision);
+          if (rebaseResult === "rebased") return;
+          if (epoch !== catalogGeneration.current) {
+            setSaveBlocked(true);
+            setMessage((translate) =>
+              translate(
+                "Vault metadata changed while settings were being saved. Your draft has been preserved. Reload saved settings before saving again. Reloading discards the draft.",
+              ),
+            );
+            return;
+          }
+          if (rebaseResult) causes = rebaseResult;
         }
         if (!result.ok) {
           const blocked =
@@ -143,7 +157,7 @@ export function SettingsApp({
           setSaveBlocked(blocked);
           setMessage((translate) =>
             result.error.code === "revision-conflict"
-              ? saveConflictMessage(result.error.causes)(translate)
+              ? saveConflictMessage(causes)(translate)
               : translate(
                   blocked
                     ? "{{error}} Your unsaved draft has been preserved. Reload saved settings to retry. Reloading discards the draft."
@@ -186,10 +200,15 @@ export function SettingsApp({
   /**
    * Applies the unsaved edits to the newest saved revision after a conflict that only
    * background work caused, such as an automatic vault sync, so the save runs once more
-   * against it (ADR 0025). False when the newest revision cannot be read for the catalog
-   * the draft was edited against.
+   * against it (ADR 0025). When the newest revision was also written by another page, or
+   * by a cause no longer recorded, it answers every cause since `expected` instead, and
+   * undefined when the newest revision cannot be read for the catalog the draft was edited
+   * against.
    */
-  async function rebase(epoch: number): Promise<boolean> {
+  async function rebase(
+    epoch: number,
+    expected: number,
+  ): Promise<"rebased" | SettingsConflictCause[] | undefined> {
     let fresh: SettingsResponse;
     try {
       fresh = await queryClient.fetchQuery({
@@ -199,9 +218,12 @@ export function SettingsApp({
         retry: false,
       });
     } catch {
-      return false;
+      return undefined;
     }
-    if (!fresh.ok || epoch !== catalogGeneration.current) return false;
+    if (!fresh.ok || epoch !== catalogGeneration.current) return undefined;
+    // Another page may have saved after the conflict was answered.
+    const since = conflictCauses(fresh.snapshot, expected);
+    if (!backgroundOnlyConflict(since)) return since;
     // Edits made while the newest revision was read are in the list too.
     const next = structuredClone(fresh);
     const value = structuredClone(next.snapshot.settings);
@@ -215,7 +237,7 @@ export function SettingsApp({
     form.setFieldValue("siteDefaults", value.siteDefaults);
     form.setFieldValue("bindings", value.bindings);
     rebased.current = true;
-    return true;
+    return "rebased";
   }
   function accept(
     result: AcceptedSettings,

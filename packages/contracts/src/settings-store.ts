@@ -32,8 +32,14 @@ function recordChange(
   return [...(snapshot.changes ?? []), { revision, cause }].slice(-SETTINGS_CHANGE_HISTORY);
 }
 
-/** Why `current` is no longer the revision a save expected, oldest cause first. */
-function conflictCauses(current: SettingsSnapshot, expected: number): SettingsConflictCause[] {
+/**
+ * Why `current` is no longer the revision a save expected, oldest cause first. The
+ * settings page also reads it from a newer snapshot before retrying a save (ADR 0025).
+ */
+export function conflictCauses(
+  current: SettingsSnapshot,
+  expected: number,
+): SettingsConflictCause[] {
   const recorded = (current.changes ?? []).filter(
     (entry) => entry.revision > expected && entry.revision <= current.revision,
   );

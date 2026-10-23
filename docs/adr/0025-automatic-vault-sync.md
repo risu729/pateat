@@ -204,14 +204,19 @@ the owner did nothing to cause the conflict, so the settings page retries by its
 reads the newest revision, applies the draft's unsaved edits to it in order, and saves
 once more against that revision. The edits are the page's own changes, such as an added
 site or a vault's item selection, so they replay on top of what the background wrote.
-Every write still goes through the store's revision check. The page shows the reason
-only when the retry also conflicts, when another settings page or the toolbar popup
-saved, or when a cause is unrecorded. It names each cause in its status line, as in
-"Saved settings changed before this save: a Bitwarden vault was synced automatically.",
-keeps the draft and asks for a reload. The owner rejected two other options: always
-asking for a reload, which is noise when the owner did nothing wrong, and reloading by
-itself, which discards the draft. The toolbar popup already reloads after a conflict and
-is unchanged.
+Every write still goes through the store's revision check. A login's saved account
+choice and a custom-field review count as background work too: the owner made them
+elsewhere, and the replayed edits change only what the page itself edited. Before
+replaying, the page checks the newest revision's own causes, so a save from another page
+after the conflict also stops the retry. The page shows the reason only when the retry
+also conflicts, when another settings page or the toolbar popup saved, when a cause is
+unrecorded, or when the newest revision cannot be read; a vault catalog change during
+the retry shows the catalog message instead. It names each cause in its status line, as
+in "Saved settings changed before this save: a Bitwarden vault was synced
+automatically.", keeps the draft and asks for a reload. The owner rejected two other
+options: always asking for a reload, which is noise when the owner did nothing wrong,
+and reloading by itself, which discards the draft. The toolbar popup already reloads
+after a conflict and is unchanged.
 
 ### Differences from the official extension
 
