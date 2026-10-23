@@ -9,7 +9,7 @@ import {
   continuesRecipe,
   createAttemptMetadata,
   defaultLoginBinding,
-  effectfulStep,
+  fillOnlyStops,
   extendsRecipe,
   fillLoginBinding,
   findLoginBinding,
@@ -31,6 +31,7 @@ import {
   loginObservationSchema,
   isEntryObservation,
   nextLoginOperation,
+  keypadStep,
   loginStepEffect,
   parseAttemptMetadata,
   passkeyAnswersRequest,
@@ -41,6 +42,7 @@ import {
   layoutShown,
   rankLayouts,
   layoutStartTargets,
+  MAX_ATTEMPT_SUBMISSIONS,
   recipeBranch,
   recipeHasRoute,
   recipeStartSteps,
@@ -132,6 +134,7 @@ import { domainKey } from "@pateat/bitwarden";
 import {
   authorizeSchema,
   destinationCheckSchema,
+  keypadPressSchema,
   type DestinationAnswer,
   entryCheckResultSchema,
   entryHostsResultSchema,
@@ -797,6 +800,11 @@ type Execution = {
    */
   inPlace?: { operationId: string; before: TargetState[] };
   /**
+   * Likewise each other layout's next step on the advance's path, by the layout's key (ADR
+   * 0060): only elements not usable then confirm a switch to that layout on that path.
+   */
+  siblingsInPlace?: { operationId: string; siblings: { layout: string; before: TargetState[] }[] };
+  /**
    * Since when the page after the final `advance` step `operationId` has shown a sign-in
    * input on `path`, so the recipe may be continued there (ADR 0018). Kept in memory only.
    */
@@ -1445,16 +1453,66 @@ function codeStep(
     : undefined;
 }
 /**
- * Whether a TOTP code's fill (see `codeStep`) went in, or may have, and its click has not
- * run (ADR 0027): a page that moved on meanwhile submitted the code by itself.
+ * Where the plan step at `index` stands in an entry the page may submit by itself: a TOTP
+ * code's (`codeStep`, ADR 0027), or a route step's fill on a software keyboard followed on
+ * the same path by its submit click, as a PIN pad that submits at its last digit
+ * (ADR 0067).
  */
-const codeAwaitsClick = (recipe: LoginRecipe, metadata: LoginAttemptMetadata) =>
+function selfSubmitStep(
+  recipe: LoginRecipe,
+  metadata: LoginAttemptMetadata,
+  index: number,
+): "fill" | "click" | undefined {
+  const code = codeStep(recipe, metadata, index);
+  if (code) return code;
+  const plan = attemptPlan(recipe, metadata);
+  type Entry = { step: LoginStep; handler?: number } | undefined;
+  const keyed = (fill: Entry, click: Entry) =>
+    fill?.handler === undefined &&
+    click?.handler === undefined &&
+    fill !== undefined &&
+    keypadStep(fill.step) &&
+    click?.step.kind === "click" &&
+    click.step.purpose === "submit" &&
+    click.step.path === fill.step.path;
+  if (keyed(plan?.[index], plan?.[index + 1])) return "fill";
+  if (keyed(plan?.[index - 1], plan?.[index])) return "click";
+  return undefined;
+}
+/**
+ * Whether a TOTP code's fill (see `codeStep`) went in, or may have, and its click has not
+ * run (ADR 0027): a page that moved on meanwhile submitted the code by itself. A fill on a
+ * software keyboard counts only after the page told of its first key press (`press`, ADR
+ * 0067), while the fill is still running or once it went in and before its click is
+ * prepared: a document that replaced the page before any press, as after the person's own
+ * link click or a reload, submitted nothing, and neither did one after a stopped fill.
+ */
+const codeAwaitsClick = (
+  recipe: LoginRecipe,
+  metadata: LoginAttemptMetadata,
+  press: KeypadPress | undefined,
+) =>
   metadata.operationId === undefined
-    ? codeStep(recipe, metadata, metadata.stepIndex) === "click"
+    ? codeStep(recipe, metadata, metadata.stepIndex) === "click" ||
+      (press?.filled === true &&
+        press.stepIndex === metadata.stepIndex - 1 &&
+        selfSubmitStep(recipe, metadata, metadata.stepIndex) === "click")
     : metadata.operationKind === "fill" &&
       metadata.operationEffect === "prepare" &&
       metadata.mutationIntent === true &&
-      codeStep(recipe, metadata, metadata.stepIndex) === "fill";
+      (codeStep(recipe, metadata, metadata.stepIndex) === "fill" ||
+        (press?.filled !== true &&
+          press?.operationId === metadata.operationId &&
+          selfSubmitStep(recipe, metadata, metadata.stepIndex) === "fill"));
+/**
+ * A keypad fill whose page told of its first key press (ADR 0067): its operation and plan
+ * step, and whether it went in.
+ */
+interface KeypadPress {
+  operationId: string;
+  stepIndex: number;
+  filled?: true;
+}
 /** The event for a code the page submitted by itself, marking a route step's code. */
 const autoSubmitted = (recipe: LoginRecipe, metadata: LoginAttemptMetadata) => ({
   type: "AUTO_SUBMITTED" as const,
@@ -1698,6 +1756,11 @@ export type LoginReport = (
       unsubmitted?: true;
       /** Why the login just changed route (ADR 0034). */
       routeChange?: RouteChange;
+      /**
+       * The layout the login ran until it just switched to `branch`'s, where the layouts of
+       * its recipe part (ADR 0060).
+       */
+      layoutFrom?: string;
       /** The login stops before the password its item lacks (ADR 0036). */
       stop?: "password";
       /** For a login that just ended, signed in or blocked: how long it took (ADR 0019). */
@@ -2302,6 +2365,7 @@ export function createLoginRuntime(
       stop?: StopCause;
       reason?: string;
       routeChange?: RouteChange;
+      layoutFrom?: string;
       /** When the login ended, if earlier than now, such as when its watch ran out. */
       endedAt?: number;
     } = {},
@@ -2351,6 +2415,12 @@ export function createLoginRuntime(
   const stepWaitMs = () => (probeMode ? probeStepWaitMs : undefined) ?? LOGIN_STEP_WAIT_MS;
   const documents = new Map<string, LiveDocument>();
   const attempts = new Map<number, Execution>();
+  /**
+   * The keypad fill of each attempt whose page told of its first key press, by attempt ID
+   * (ADR 0067), until the fill stops or the next operation answers. Kept in memory only:
+   * after a worker restart a replaced page is not taken as the keypad's own submission.
+   */
+  const keypadPresses = new Map<string, KeypadPress>();
   /**
    * By attempt ID, the document each new login of this worker began in; a resumed or
    * recovered one has none, so it never counts as unsubmitted (ADR 0066).
@@ -3352,10 +3422,13 @@ export function createLoginRuntime(
     const settled = run.metadata.settled === true && previous.settled !== true ? true : undefined;
     // An ended login no longer waits for a continuation it asked for (ADR 0018).
     if (terminal(run.metadata) || idle(run.metadata)) continuations.delete(run.metadata.id);
+    // The layout it ran before, when the login just switched layouts (ADR 0060).
+    const layoutFrom = run.metadata.layout !== previous.layout ? previous.layout : undefined;
     if (
       run.metadata.state !== previous.state ||
       settled ||
-      (routeChange && run.metadata.route !== previous.route)
+      (routeChange && run.metadata.route !== previous.route) ||
+      layoutFrom !== undefined
     )
       // The log still names the step that was withdrawn.
       reportAttempt(
@@ -3373,6 +3446,7 @@ export function createLoginRuntime(
           ...(stop ? { stop } : {}),
           ...(reason ? { reason } : {}),
           ...(routeChange && run.metadata.route !== previous.route ? { routeChange } : {}),
+          ...(layoutFrom === undefined ? {} : { layoutFrom }),
         },
       );
     if (
@@ -4696,6 +4770,15 @@ export function createLoginRuntime(
         return undefined;
       }
     }
+    // Where the recipe's layouts part, the page may show another layout's next step instead
+    // of the login's own: the login goes on with that layout (ADR 0060).
+    const ownShows =
+      next !== undefined &&
+      observed.path === next.path &&
+      nextTargets.length > 0 &&
+      observed.targets.slice(offset).every((state) => state === "unique");
+    if (!ownShows && (await switchLayout(run))) return undefined;
+    if (!current(run)) return undefined;
     let continued: Awaited<ReturnType<typeof continueOn>> = "none";
     // After a passkey answer at the stop, the sign-in form still showing means the site has
     // not signed in: it may still be checking the assertion for a while, then the login
@@ -6861,6 +6944,173 @@ export function createLoginRuntime(
     return routeOf(run, await recipes.chooser?.(pageOrigin, path, run.recipe.id, layout));
   }
   /**
+   * The other layouts of a login's recipe it may run from plan step `at` on (ADR 0060),
+   * newest first: each whose steps before `at` are the login's own, with a different step
+   * at `at`. Only a `password` login on its recipe's own steps (variant 0) has any, with no
+   * handler entered, no stop, no chooser and not only filling, past its first step: the
+   * layouts were told apart there already.
+   */
+  async function siblingsAt(run: Execution, at: number): Promise<LoginRecipe[]> {
+    const { metadata, recipe } = run;
+    if (
+      !recipes.layoutsOf ||
+      metadata.layout === undefined ||
+      metadata.route !== "password" ||
+      metadata.variant !== 0 ||
+      metadata.handlers.length > 0 ||
+      metadata.chooser !== undefined ||
+      metadata.stopAt !== undefined ||
+      metadata.fillOnly === true ||
+      at < 1
+    )
+      return [];
+    const plan = attemptPlan(recipe, metadata);
+    if (!plan || plan.length !== metadata.stepCount) return [];
+    const layouts = await Promise.resolve(recipes.layoutsOf(recipe.origin, recipe.id)).catch(
+      () => [],
+    );
+    const stepsOf = (entries: { step: LoginStep }[]) =>
+      JSON.stringify(entries.map((entry) => entry.step));
+    const before = stepsOf(plan.slice(0, at));
+    const own = plan[at] && stepsOf([plan[at]]);
+    return layouts
+      .filter((other) => {
+        if (
+          other.id !== recipe.id ||
+          other.layout === undefined ||
+          other.layout === metadata.layout ||
+          other.revision < metadata.recipeRevision ||
+          !runsLogin(other)
+        )
+          return false;
+        const steps = attemptPlan(other, metadata);
+        return (
+          steps !== undefined &&
+          steps.length > at &&
+          stepsOf(steps.slice(0, at)) === before &&
+          stepsOf([steps[at]!]) !== own
+        );
+      })
+      .sort((left, right) => Number(right.layout) - Number(left.layout));
+  }
+  /**
+   * Switches the login to another layout of its recipe at the step where they part (ADR
+   * 0060), when the page shows that layout's step there and not the login's own: after an
+   * effect step that may have advanced, the step after it, confirmed as the login's own next
+   * step would be (on its path, or on the advance's path by elements the advance made
+   * ready); with nothing in flight, the step at hand, ready to run. The account's plan must
+   * pass on that layout. Returns whether the login switched; the newest layout that fits
+   * wins.
+   */
+  // The layouts are tried in order, each against the page as it is now.
+  /* eslint-disable no-await-in-loop */
+  async function switchLayout(run: Execution): Promise<boolean> {
+    const { metadata } = run;
+    const inFlight = metadata.operationId !== undefined;
+    if (
+      inFlight &&
+      !(
+        (metadata.operationKind === "click" || metadata.operationEffect === "advance") &&
+        metadata.mutationIntent === true &&
+        metadata.submissions > 0
+      )
+    )
+      return false;
+    if (!inFlight && metadata.retryRequired === true) return false;
+    // A click left to the person is theirs to press first.
+    if (inFlight && run.heldClick === metadata.stepIndex) return false;
+    const at = inFlight ? metadata.stepIndex + 1 : metadata.stepIndex;
+    // Past the login's own last step only an advance goes on (`LAYOUT`'s guard).
+    if (at >= metadata.stepCount && metadata.operationEffect !== "advance") return false;
+    const siblings = await siblingsAt(run, at);
+    if (!current(run)) return false;
+    const done = inFlight
+      ? attemptPlan(run.recipe, metadata)?.[metadata.stepIndex]?.step
+      : undefined;
+    for (const sibling of siblings) {
+      const step = attemptPlan(sibling, metadata)![at]!.step;
+      let shows: boolean;
+      if (!inFlight) {
+        // As the step would wait for its elements before it runs; a step that needs none
+        // shows nothing of the layout.
+        const readiness = loginReadiness(step);
+        if (!readiness.targets.length) continue;
+        const waited = await waitFor(run, readiness, 1);
+        if (!current(run) || waited === "gone") return false;
+        shows = waited === "ready";
+      } else {
+        // An advance on the step's own path is confirmed only by elements it made ready, as
+        // the login's own next step is (ADR 0013).
+        const inPlace =
+          done?.path === step.path ? inPlaceNext(sibling, metadata, metadata.stepIndex) : undefined;
+        const measured =
+          run.siblingsInPlace && run.siblingsInPlace.operationId === metadata.operationId
+            ? run.siblingsInPlace.siblings.find((entry) => entry.layout === sibling.layout)
+            : undefined;
+        if (
+          done?.path === step.path &&
+          !(
+            inPlace &&
+            measured?.before.length === inPlace.targets.length &&
+            measured.before.every((state) => state === "missing" || state === "unusable")
+          )
+        )
+          continue;
+        const targets = inPlace ? inPlace.targets : stepTargets(step);
+        if (!targets.length) continue;
+        const observed = await observe(
+          run,
+          targets,
+          targets.map(() => inPlace?.require ?? "present"),
+        );
+        if (!observed) return false;
+        shows =
+          observed.path === step.path && observed.targets.every((state) => state === "unique");
+      }
+      if (!shows) continue;
+      // The account's binding and fields must fit the layout's route, as at a login's start.
+      const snapshot = await settings.handle({ version: 1, type: "settings.get" });
+      if (!current(run)) return false;
+      if (!snapshot.ok || snapshot.snapshot.revision !== run.metadata.policyRevision) return false;
+      const plan = await planFor(snapshot, run.live, sibling, {
+        route: { route: "password", variant: 0 },
+      });
+      if (!current(run) || run.metadata !== metadata) return false;
+      if (
+        !plan.ok ||
+        plan.account.connectionId !== metadata.account.connectionId ||
+        plan.account.itemId !== metadata.account.itemId
+      )
+        continue;
+      const event: LoginAttemptEvent = {
+        type: "LAYOUT",
+        layout: sibling.layout!,
+        recipeRevision: sibling.revision,
+        steps: attemptPlan(sibling, metadata)!.length,
+        // What the login holds beyond its recipe's budget, as the submissions a passkey
+        // answer spent before it fell back to the password (ADR 0034), stays with it.
+        maxSubmissions: Math.min(
+          MAX_ATTEMPT_SUBMISSIONS,
+          sibling.maxSubmissions + Math.max(0, metadata.maxSubmissions - run.recipe.maxSubmissions),
+        ),
+        document: run.live.document,
+      };
+      if (transitionLoginAttempt(metadata, event).layout !== sibling.layout) continue;
+      // The recipe is replaced before the record that names its layout is written.
+      run.recipe = sibling;
+      // The account's choice is saved for the layout the login signs in on.
+      if (plan.choice) run.choice = plan.choice;
+      else delete run.choice;
+      delete run.inPlace;
+      delete run.siblingsInPlace;
+      delete run.qualified;
+      await change(run, event);
+      return true;
+    }
+    return false;
+  }
+  /* eslint-enable no-await-in-loop */
+  /**
    * Whether the attempt's in-flight step is the final `advance` step of a recipe that can be
    * continued on the page it leads to (ADR 0018): a `password` route login on the recipe's
    * own steps (variant 0), in the tab's own page, with recipe generation configured, whose
@@ -7591,17 +7841,19 @@ export function createLoginRuntime(
       // A fill or click waits for its elements before any intent, vault read or value
       // delivery; a slow render is not a failure until the owner-approved limit passes.
       const upcoming = attemptPlan(run.recipe, run.metadata)?.[run.metadata.stepIndex]?.step;
-      // A fill-only login stops before anything that may advance or submit (ADR 0021 D).
-      if (run.metadata.fillOnly && (!upcoming || effectfulStep(upcoming))) {
+      // A fill-only login stops before anything that may advance or submit, and before a
+      // fill on a software keyboard, whose presses the page may act on (ADR 0021 D, 0067).
+      if (run.metadata.fillOnly && (!upcoming || fillOnlyStops(upcoming))) {
         await endFillOnly(run);
         return;
       }
       if (upcoming?.kind === "fill" || upcoming?.kind === "click") {
         // A code input may submit by itself once the code is in, as one that submits on
-        // its last digit does; its click then has nothing left to do (ADR 0027).
+        // its last digit does, and so may a software keyboard; its click then has nothing
+        // left to do (ADR 0027, ADR 0067).
         const afterCode =
           upcoming.kind === "click" &&
-          codeStep(run.recipe, run.metadata, run.metadata.stepIndex) === "click";
+          selfSubmitStep(run.recipe, run.metadata, run.metadata.stepIndex) === "click";
         if (afterCode && (await submittedByPage(run, upcoming))) {
           if (!current(run) || run.metadata.state !== "ready") return;
           if (await codeSubmitted(run)) continue;
@@ -7631,6 +7883,9 @@ export function createLoginRuntime(
           )
             continue;
           if (!current(run) || run.metadata.state !== "ready") return;
+          // Another layout's step may show where the layouts part (ADR 0060).
+          if (await switchLayout(run)) continue;
+          if (!current(run) || run.metadata.state !== "ready") return;
           await change(
             run,
             { type: "FAILED", reason: "structural-mismatch" },
@@ -7657,7 +7912,19 @@ export function createLoginRuntime(
       // An advance whose next step is on its path is confirmed by that step's elements
       // only if they were not usable just before it (ADR 0013).
       const inPlace = inPlaceNext(run.recipe, run.metadata, operation.stepIndex);
+      // So is a switch to another layout whose next step is on its path (ADR 0060).
+      const siblingsNext =
+        loginStepEffect(operation.step) === "advance"
+          ? (await siblingsAt(run, operation.stepIndex + 1))
+              .flatMap((sibling) => {
+                const next = inPlaceNext(sibling, run.metadata, operation.stepIndex);
+                return next ? [{ layout: sibling.layout!, next }] : [];
+              })
+              .slice(0, 2)
+          : [];
+      if (!current(run) || run.metadata.state !== "ready") return;
       delete run.inPlace;
+      delete run.siblingsInPlace;
       // Known before its intent is recorded, so a stop in between takes the intent back.
       run.operation = operation;
       run.delivered = false;
@@ -7929,6 +8196,7 @@ export function createLoginRuntime(
           // An advance whose next step is on its path has the document measure that step
           // just before its effect, in the same task (ADR 0013).
           ...(inPlace ? { next: inPlace } : {}),
+          ...(siblingsNext.length ? { siblings: siblingsNext.map(({ next }) => next) } : {}),
         });
       } finally {
         for (const entry of values) entry.value = "";
@@ -7948,6 +8216,15 @@ export function createLoginRuntime(
         result.success &&
         result.output.operationId === operation.operationId &&
         result.output.documentId === run.live.document.documentId;
+      // A keypad fill's key press counts toward the page's own submission while the fill
+      // runs, and once it went in until its click is prepared; an answered stop ends it, as
+      // does the next operation's answer (ADR 0067). A fill left unanswered, as by a page
+      // that went away during it, keeps it for the page that follows.
+      const press = keypadPresses.get(run.metadata.id);
+      if (press?.operationId === operation.operationId && matchedResult && result.output.ok)
+        press.filled = true;
+      else if (press && (press.operationId !== operation.operationId || matchedResult))
+        keypadPresses.delete(run.metadata.id);
       // A click left to the person under a CAPTCHA is then observed as Pateat's own click.
       const leftToPerson =
         matchedResult &&
@@ -7962,6 +8239,13 @@ export function createLoginRuntime(
         result.output.before?.length === inPlace.targets.length
       )
         run.inPlace = { operationId: operation.operationId, before: result.output.before };
+      if (matchedResult && (result.output.ok || leftToPerson)) {
+        const siblings = siblingsNext.flatMap(({ layout, next }, index) => {
+          const before = result.output.siblingsBefore?.[index];
+          return before?.length === next.targets.length ? [{ layout, before }] : [];
+        });
+        if (siblings.length) run.siblingsInPlace = { operationId: operation.operationId, siblings };
+      }
       if (
         matchedResult &&
         !result.output.ok &&
@@ -8015,29 +8299,41 @@ export function createLoginRuntime(
           (result.output.reason === "fill-rejected" &&
             (operation.step.effect === "prepare" || codeRefused)))
       ) {
-        await change(run, {
-          type: "VALUE_REJECTED",
-          operationId: operation.operationId,
-          document: run.live.document,
-          stage:
-            result.output.reason === "value-mismatch"
-              ? "before-fill"
-              : codeRefused
-                ? "code-refused"
-                : "after-fill",
-        });
+        // The page's detail goes to the log and the popup, as `keypad-pressed` after a key
+        // press on its keypad (ADR 0067).
+        await change(
+          run,
+          {
+            type: "VALUE_REJECTED",
+            operationId: operation.operationId,
+            document: run.live.document,
+            stage:
+              result.output.reason === "value-mismatch"
+                ? "before-fill"
+                : codeRefused
+                  ? "code-refused"
+                  : "after-fill",
+          },
+          undefined,
+          result.output.detail,
+        );
         return;
       }
       // The code page showed that it submits the code by itself, or replaced its form
       // once the code was in. A code typed as its own submission is settled as one below.
+      // A software keyboard's page moved or took its field away once a key was pressed,
+      // as a PIN pad that submits at its last digit (ADR 0067); a keypad step's other
+      // failures, as a missing key, are no submission.
       if (
         matchedResult &&
         !result.output.ok &&
-        (result.output.reason === "submitted" || result.output.reason === "structural-mismatch") &&
         result.output.mutation === "possible" &&
         operation.step.kind === "fill" &&
         operation.step.effect === "prepare" &&
-        codeStep(run.recipe, run.metadata, operation.stepIndex) === "fill" &&
+        (result.output.reason === "submitted"
+          ? selfSubmitStep(run.recipe, run.metadata, operation.stepIndex) === "fill"
+          : result.output.reason === "structural-mismatch" &&
+            codeStep(run.recipe, run.metadata, operation.stepIndex) === "fill") &&
         (await codeSubmitted(run))
       )
         continue;
@@ -11127,7 +11423,11 @@ export function createLoginRuntime(
       // The page left the document a TOTP code was filled into before its click,
       // as a code input that submits on its last digit does: the page submitted the code
       // itself, and it is never filled again (ADR 0027).
-      if (previous.document.documentId !== document.documentId && codeAwaitsClick(recipe, resumed))
+      // So did a software keyboard's page once a key was pressed (ADR 0067).
+      if (
+        previous.document.documentId !== document.documentId &&
+        codeAwaitsClick(recipe, resumed, keypadPresses.get(resumed.id))
+      )
         resumed = transitionLoginAttempt(resumed, autoSubmitted(recipe, resumed));
       metadata = transitionLoginAttempt(resumed, {
         type: "NAVIGATED",
@@ -11239,6 +11539,12 @@ export function createLoginRuntime(
       before.inPlace.operationId === metadata.operationId
     )
       run.inPlace = before.inPlace;
+    if (
+      before?.siblingsInPlace &&
+      before.metadata.id === metadata.id &&
+      before.siblingsInPlace.operationId === metadata.operationId
+    )
+      run.siblingsInPlace = before.siblingsInPlace;
     attempts.set(document.tabId, run);
     reviewRequests();
     if (!previous)
@@ -12122,6 +12428,28 @@ export function createLoginRuntime(
         return { ok: false, reason: "not-authorized" };
       const reason = await destinationRefusal(found.run, destination);
       return reason ? { ok: false, reason } : { ok: true };
+    }
+    // Keys are pressed only while the keypad fill is the attempt's own and authorized, and
+    // from then on a replaced page may be its own submission (ADR 0067).
+    const keypadPress = v.safeParse(keypadPressSchema, message);
+    if (keypadPress.success) {
+      const found = await operationRun(keypadPress.output, sender);
+      if (
+        !found ||
+        !keypadStep(found.operation.step) ||
+        !validateLoginOperation(
+          found.operation,
+          found.run.metadata,
+          found.document,
+          found.run.metadata.policyRevision,
+        )
+      )
+        return false;
+      keypadPresses.set(found.run.metadata.id, {
+        operationId: found.operation.operationId,
+        stepIndex: found.operation.stepIndex,
+      });
+      return true;
     }
     const authorization = v.safeParse(authorizeSchema, message);
     if (!authorization.success) return undefined;

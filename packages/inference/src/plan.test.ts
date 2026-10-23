@@ -169,6 +169,36 @@ describe("an accessible-name locator (ADR 0048 amendment of 2026-10-19)", () => 
   });
 });
 
+describe("a field on the page's software keyboard (ADR 0067)", () => {
+  it("is filled with the keypad the observation names, which the model never gives", () => {
+    const keypad = { by: "id", value: "soft-keys" } as const;
+    const page: LoginObservation = {
+      ...observation,
+      candidates: observation.candidates.map((entry) =>
+        entry.id === "password" ? { ...entry, keypad } : entry,
+      ),
+    };
+    const result = validatePagePlan(page, slots, {
+      fields: [
+        { slot: "username", candidate: "user" },
+        { slot: "password", candidate: "password" },
+      ],
+      action,
+    });
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.plan.steps[0]).toMatchObject({
+      kind: "fill",
+      fields: [
+        { slot: "username", target: { by: "id", value: "user" } },
+        { slot: "password", target: { by: "id", value: "password" }, keypad },
+      ],
+    });
+    expect(
+      result.plan.steps[0]!.kind === "fill" && result.plan.steps[0]!.fields[0],
+    ).not.toHaveProperty("keypad");
+  });
+});
+
 describe("custom-field slot names from the page (ADR 0027)", () => {
   it("stores a custom-field slot under its field's text and keeps the requested ID", () => {
     const page: LoginObservation = {

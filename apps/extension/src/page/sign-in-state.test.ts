@@ -172,6 +172,39 @@ describe("pageSigns", () => {
     });
   });
 
+  it("reads a read-only PIN entered on the page's software keyboard as a sign-in input (ADR 0067)", () => {
+    const keys = [..."0123456789"]
+      .map((digit) => `<button type="button">${digit}</button>`)
+      .join("");
+    document.body.innerHTML = `<form><input id="pin" type="password" readonly><div id="pad">${keys}</div></form>`;
+    // S2: the PIN page shown again after a wrong PIN still asks for a password.
+    expect(pageSigns(document)).toEqual({ ...none, password: true });
+    const pin = document.querySelector<HTMLInputElement>("#pin")!;
+    // F1 in the submitted document: the keyed PIN newly marked invalid.
+    pin.value = "****";
+    const submitted = submittedPage(document, [pin], new Set([pin]));
+    expect(pageSigns(document, { submitted })).toEqual(none);
+    pin.setAttribute("aria-invalid", "true");
+    expect(pageSigns(document, { submitted })).toEqual({ ...none, invalid: true });
+    // Without being named as keyed, a read-only input is no sign-in input.
+    expect(pageSigns(document, { submitted: submittedPage(document, [pin]) })).toEqual(none);
+    // F1 on the form shown again in a new document.
+    pin.value = "";
+    expect(pageSigns(document, { reshown: [pin], keyed: new Set([pin]) })).toEqual({
+      ...none,
+      password: true,
+      invalid: true,
+      alertMiss: "no-alert",
+    });
+    // Without a keypad, or holding a value, a read-only password input is not S2.
+    pin.removeAttribute("aria-invalid");
+    pin.value = "****";
+    expect(pageSigns(document)).toEqual(none);
+    pin.value = "";
+    document.querySelector("#pad")!.remove();
+    expect(pageSigns(document)).toEqual(none);
+  });
+
   it("never takes a site-wide banner beside a re-shown sign-in form for its answer", () => {
     const form =
       '<form action="/session"><input name="login"><input type="password" name="password"><input type="submit" value="Sign in"></form>';

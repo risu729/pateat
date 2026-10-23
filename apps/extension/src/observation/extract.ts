@@ -4,11 +4,13 @@ import {
   registersPasskey,
   loginAutocompleteTokens,
   loginObservationSchema,
+  loginKeypadTargetSchema,
   loginLinkTargetSchema,
   loginTargetSchema,
   namesPasswordControl,
   observedAutocompleteTokens,
   type LoginObservation,
+  type LoginKeypadTarget,
   type LoginMarkerTarget,
   type LoginTarget,
   type ObservedCandidate,
@@ -17,6 +19,14 @@ import * as v from "valibot";
 import { acceptsSecret, shortNumericInput } from "../login/inputs";
 import type { observationGaps } from "../login/wire";
 import { splitCodeInputs } from "../page/code-submission";
+import {
+  findKeypad,
+  findKeypads,
+  KEYPAD_MIN_KEYS,
+  keypadField,
+  keypadKeys,
+  keypadPosition,
+} from "../page/keypad";
 import { autocompleteTokens, findTargets, linkPath, namedControls } from "../page/targets";
 import { observedPath, redactsPath, tokenSegment } from "./path";
 import {
@@ -665,17 +675,19 @@ const idList = (element: Element, attribute: string) =>
 
 /**
  * Visible text of the elements `ids` name. With `skip`, the text of an element matching
- * it, or of one inside such an element, is left out.
+ * it, or of one inside such an element, is left out; with `keys`, the keys of a page's
+ * software keyboards (ADR 0067), so is their text, as the key labels and their order.
  */
 function referencedText(
   element: Element,
   ids: readonly string[],
   skip?: string,
+  keys?: ReadonlySet<Element>,
 ): string | undefined {
   const parts = ids.flatMap((id) => {
     const referenced = element.ownerDocument.getElementById(id);
     if (!referenced || (skip && referenced.closest(skip))) return [];
-    const text = uncutText(renderedText(referenced, rawLimit, skip ? { skip } : {}));
+    const text = uncutText(renderedText(referenced, rawLimit, { skip, leave: keys }));
     return text ? [text] : [];
   });
   return uncutText(parts.join(" "));
@@ -694,13 +706,18 @@ const liveRegions = [
  * description or inside it, never counts.
  * Text that repeats the label is left out.
  */
-function fieldDescription(input: HTMLInputElement, label: string | undefined) {
+function fieldDescription(
+  input: HTMLInputElement,
+  label: string | undefined,
+  keys?: ReadonlySet<Element>,
+) {
   if (input.getAttribute("aria-invalid")?.trim().toLowerCase() === "true") return undefined;
   const errors = new Set(idList(input, "aria-errormessage"));
   const text = referencedText(
     input,
     idList(input, "aria-describedby").filter((id) => !errors.has(id)),
     liveRegions,
+    keys,
   );
   return text === label ? undefined : text;
 }
@@ -1000,15 +1017,21 @@ function otherControl(node: Element, element: Element): boolean {
 /**
  * Text of a nearby element that labels a field by layout, as table and form rows do:
  * the nearest preceding sibling with rendered text, at most three levels up, never
- * across another control's area or out of the field's form.
+ * across another control's area, a software keyboard's keys (`keys`, ADR 0067) or out of
+ * the field's form.
  */
-function adjacentText(element: Element): string | undefined {
+function adjacentText(element: Element, keys?: ReadonlySet<Element>): string | undefined {
   let node: Element | null = element;
   for (let depth = 0; node && depth <= labelDepth; depth += 1) {
     if (depth > 0 && node.querySelectorAll(fields).length > 1) return undefined;
     if (node instanceof HTMLFormElement || node === node.ownerDocument.body) return undefined;
     for (let sibling = node.previousElementSibling; sibling;) {
-      if (otherControl(sibling, element)) return undefined;
+      const before: Element = sibling;
+      if (
+        otherControl(before, element) ||
+        (keys?.size && [...keys].some((key) => before.contains(key) || key.contains(before)))
+      )
+        return undefined;
       const text = visibleText(sibling);
       if (text) return text;
       sibling = sibling.previousElementSibling;
@@ -1018,16 +1041,20 @@ function adjacentText(element: Element): string | undefined {
   return undefined;
 }
 
-function fieldLabel(input: HTMLInputElement): string | undefined {
+/**
+ * A field's label. The keys of a page's software keyboards (`keys`, ADR 0067), with their
+ * labels and order, are never part of it; the rest of a label around them is.
+ */
+function fieldLabel(input: HTMLInputElement, keys?: ReadonlySet<Element>): string | undefined {
   const labels = [...(input.labels ?? [])].flatMap((label) => {
-    const text = visibleText(label);
+    const text = uncutText(renderedText(label, rawLimit, { leave: keys }));
     return text ? [text] : [];
   });
   return (
-    referencedText(input, idList(input, "aria-labelledby")) ??
+    referencedText(input, idList(input, "aria-labelledby"), undefined, keys) ??
     uncutText(input.getAttribute("aria-label")) ??
     uncutText(labels.join(" ")) ??
-    adjacentText(input) ??
+    adjacentText(input, keys) ??
     uncutText(input.title)
   );
 }
@@ -1090,15 +1117,47 @@ const actionControl = (element: HTMLElement) =>
   (element instanceof HTMLInputElement && actionTypes.has(element.type)) ||
   isScriptButton(element);
 
-function describe(element: Element): Found | undefined {
+/**
+ * A page's software keyboard (ADR 0067) and the locator that names it for every field,
+ * if any; without one, each field names it by its position from that field.
+ */
+interface Keypad {
+  readonly container: Element;
+  readonly target: LoginKeypadTarget | undefined;
+}
+
+/**
+ * The page's software keyboards (ADR 0067): each field's own (`of`), and the keys of
+ * every keyboard on the page, whatever field it serves, which are never described and
+ * whose text is never read.
+ */
+interface Keypads {
+  readonly of: (field: HTMLInputElement) => Keypad | undefined;
+  readonly keys: ReadonlySet<Element>;
+}
+
+/**
+ * Describes one element. With `keypads`, the page's software keyboards (ADR 0067), a
+ * visible, enabled, empty read-only field beside its keypad (`keypadField`) is a fill
+ * candidate entered on that keypad instead of a field that cannot be filled, and no
+ * label or description holds a key's text.
+ */
+function describe(element: Element, keypads?: Keypads): Found | undefined {
   if (!(element instanceof HTMLElement)) return undefined;
   // An action control the page keeps `inert` itself until its fields are filled stays a
   // candidate, as a disabled one does (`readOwnInert`, #853).
   const present = actionControl(element)
     ? readOwnInert(element, () => presence(element))
     : presence(element);
+  let keyed = false;
+  let keypadLocator: LoginKeypadTarget | undefined;
+  const keypad = element instanceof HTMLInputElement ? keypads?.of(element) : undefined;
   if (element instanceof HTMLInputElement && fillTypes[element.type] && present !== "absent") {
-    if (present === "faint" || element.readOnly || element.disabled)
+    keyed = keypad !== undefined && present === "visible" && keypadField(element, keypad.container);
+    if (keyed && keypad)
+      keypadLocator = keypad.target ?? keypadPositionTarget(element, keypad.container);
+    if (keyed && !keypadLocator) keyed = false;
+    if (!keyed && (present === "faint" || element.readOnly || element.disabled))
       return { kind: "unsupported", form: element.form, field: element, element };
   } else if (present !== "visible") return undefined;
   if (element instanceof HTMLInputElement) {
@@ -1108,9 +1167,9 @@ function describe(element: Element): Found | undefined {
     if (element.disabled && !actionTypes.has(type)) return undefined;
     const fillRole = fillTypes[type];
     if (fillRole) {
-      const label = fieldLabel(element);
+      const label = fieldLabel(element, keypads?.keys);
       const placeholder = uncutText(element.placeholder);
-      const description = fieldDescription(element, label);
+      const description = fieldDescription(element, label, keypads?.keys);
       const hint = autocomplete(element);
       return {
         kind: "candidate",
@@ -1123,11 +1182,12 @@ function describe(element: Element): Found | undefined {
           ...(description ? { description } : {}),
           ...(hint ? { autocomplete: hint } : {}),
           ...constraints(element, fillRole),
+          ...(keyed && keypadLocator ? { keypad: keypadLocator } : {}),
         },
       };
     }
     if (type === "checkbox" || actionTypes.has(type)) {
-      const label = type === "checkbox" ? fieldLabel(element) : actionLabel(element);
+      const label = type === "checkbox" ? fieldLabel(element, keypads?.keys) : actionLabel(element);
       return {
         kind: "candidate",
         form: element.form,
@@ -1258,8 +1318,82 @@ function leftOutInputs(document: Document): boolean {
 }
 
 /** Every element the page shows that `describe` accepts, in document order. */
-const describeAll = (document: Document) =>
-  [...document.querySelectorAll(observed)].map(describe).filter((entry) => entry !== undefined);
+const describeAll = (document: Document, keypads?: Keypads) =>
+  [...document.querySelectorAll(observed)]
+    .map((element) => describe(element, keypads))
+    .filter((entry) => entry !== undefined);
+
+/**
+ * The locator of the page's software keyboard (`findKeypad`, ADR 0067): the `id`,
+ * `data-testid` or class of the keypad or its nearest ancestor below the body that names
+ * it alone in the document, skipping an ID React generated or another load may change, a
+ * class that looks generated the same way, and, with `tokens`, a value that may be a
+ * token. Without one, each field names the keypad by its position (`keypadPositionTarget`).
+ */
+function keypadTarget(
+  container: Element,
+  index: LocatorIndex,
+  tokens: boolean,
+): LoginKeypadTarget | undefined {
+  const { body } = container.ownerDocument;
+  for (let node: Element | null = container; node && node !== body; node = node.parentElement) {
+    for (const [by, attribute] of [
+      ["id", "id"],
+      ["test-id", "data-testid"],
+    ] as const) {
+      const value = node.getAttribute(attribute);
+      if (value === null) continue;
+      if (attribute === "id" && (generatedId.test(value) || changingId(value))) continue;
+      if (tokens && tokenSegment(value)) continue;
+      const target = { by, value };
+      if (v.is(loginKeypadTargetSchema, target) && index.get(attribute)!.get(value) === 1)
+        return target;
+    }
+    for (const value of node.classList) {
+      if (generatedId.test(value) || changingId(value) || (tokens && tokenSegment(value))) continue;
+      const target = { by: "class" as const, value };
+      if (
+        v.is(loginKeypadTargetSchema, target) &&
+        container.ownerDocument.getElementsByClassName(value).length === 1
+      )
+        return target;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The page's software keyboards (ADR 0067). Each input's own is the keypad beside it
+ * (`findKeypad`), described with its locator; the keys of every keypad on the page, those
+ * beside a writable field with an optional keyboard and those of the document's key
+ * groups (`findKeypads`) included, are left out of the candidates and of every label and
+ * description, as no step presses one by name and their labels and order never reach the
+ * service.
+ */
+function pageKeypads(document: Document, index: LocatorIndex, tokens: boolean): Keypads {
+  const own = new Map<Element, Keypad>();
+  const all = keypadKeys(document);
+  if (all.length < KEYPAD_MIN_KEYS) return { of: () => undefined, keys: new Set() };
+  const containers = new Set<Element>(findKeypads(document, all));
+  const targets = new Map<Element, LoginKeypadTarget | undefined>();
+  for (const field of document.querySelectorAll("input")) {
+    const container = findKeypad(document, field, all);
+    if (!container) continue;
+    if (!targets.has(container)) targets.set(container, keypadTarget(container, index, tokens));
+    containers.add(container);
+    own.set(field, { container, target: targets.get(container) });
+  }
+  return {
+    of: (field) => own.get(field),
+    keys: new Set([...containers].flatMap((container) => keypadKeys(container))),
+  };
+}
+
+/** The keypad's position from `field` (`keypadPosition`), as a locator. */
+function keypadPositionTarget(field: Element, container: Element): LoginKeypadTarget | undefined {
+  const value = keypadPosition(field, container);
+  return value === undefined ? undefined : { by: "position", value };
+}
 
 /**
  * Why a page's description found no field, as a log code of codes only (ADR 0019): how
@@ -1425,16 +1559,25 @@ export function extractLoginObservation(
         index.get(attribute)!.get(target.value) === 1
       );
     });
+  const keypads = pageKeypads(document, index, tokens);
+  const { keys } = keypads;
   // A field both faint and disabled takes input from no one, neither the person nor a
   // widget drawn over it, so a login page leaves it out as a decoy; Bitwarden never picks
   // a disabled field as the username or password field either. The signed-in page still
   // sees it, as a code field may wait there for a timer (`describeSignedIn`).
-  const found = describeAll(document).filter(
+  const found = describeAll(document, keypads).filter(
     (entry) =>
       !(
         entry.kind === "unsupported" &&
         entry.field &&
         (filled(entry.field) || (entry.field.disabled && presence(entry.field) === "faint"))
+      ) &&
+      !(
+        entry.kind === "candidate" &&
+        ((entry.draft.keypad &&
+          entry.draft.element instanceof HTMLInputElement &&
+          filled(entry.draft.element)) ||
+          keys.has(entry.draft.element))
       ),
   );
   const fieldForms = new Set(

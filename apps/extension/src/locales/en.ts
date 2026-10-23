@@ -131,6 +131,8 @@ export const en = {
     "a value did not fit its input, so nothing was filled",
   "the page marked a filled input as invalid, so nothing was pressed":
     "the page marked a filled input as invalid, so nothing was pressed",
+  "the page's software keyboard did not show a key Pateat pressed, so nothing more was pressed":
+    "the page's software keyboard did not show a key Pateat pressed, so nothing more was pressed",
   "the page shows a different account from the one chosen":
     "the page shows a different account from the one chosen",
   "the page showed another account, so the login switched accounts":
@@ -217,6 +219,8 @@ export const en = {
   "The result of the login is not known: {{why}}.":
     "The result of the login is not known: {{why}}.",
   "This recipe is not made again automatically.": "This recipe is not made again automatically.",
+  "Pateat pressed keys on the page's software keyboard before it stopped. Reload the page before you enter the value.":
+    "Pateat pressed keys on the page's software keyboard before it stopped. Reload the page before you enter the value.",
   "This page": "This page",
   "Open the detailed log": "Open the detailed log",
   matchingAccounts: "{{count}} accounts match this page.",
