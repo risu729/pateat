@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
+import { i18n } from "../i18n";
 import {
   BUSY_FRAMES,
   BUSY_FRAME_MS,
@@ -63,6 +64,9 @@ const generation = (
 ): LoginReport => ({ type: "generation", tabId, origin, outcome, ...(reason ? { reason } : {}) });
 
 const NONE = { text: "", title: "Pateat" };
+// The tooltip of a choice after a logout in another tab, whatever the count.
+const OTHER_TAB = "Pateat: you logged out of this site in another tab. Click to choose an account.";
+const choose = (count: number) => `Pateat: ${count} accounts match this page. Click to choose one.`;
 const CHOICE = { color: "#8a5a00", textColor: "#ffffff" };
 const BUSY = { color: "#4f46e5", textColor: "#ffffff" };
 const FAILED = { text: "!", color: "#b91c1c", textColor: "#ffffff" };
@@ -281,6 +285,37 @@ describe("setActionBadge", () => {
 });
 
 describe("login badge", () => {
+  it("writes its tooltips in the extension's language, again when it changes (ADR 0043)", async () => {
+    const h = harness();
+    h.badge.choice(tabId, { count: 2 });
+    h.badge.note(
+      8,
+      "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait 5 minutes and reload this page, to log in here.",
+    );
+    await h.flush();
+    expect(h.view()).toMatchObject({ text: "2", title: choose(2) });
+    await i18n.changeLanguage("ja");
+    onTestFinished(async () => {
+      await i18n.changeLanguage("en");
+    });
+    h.badge.relabel();
+    await h.flush();
+    expect(h.view()).toMatchObject({
+      text: "2",
+      title: "Pateat：2 件のアカウントがこのページに一致します。クリックして選んでください。",
+    });
+    expect(h.view(8).title).toBe(
+      "Pateat：別のタブでこのサイトへのログインが進行中か、成功していません。ここでログインするには、そのタブを閉じるか、5 分待ってからこのページを再読み込みしてください。",
+    );
+    // An outcome code stays as the log names it inside the translated text.
+    h.badge.choice(tabId, undefined);
+    h.badge.observe(attempt({ outcome: "credential-rejected" }));
+    await h.flush();
+    expect(h.view().title).toBe(
+      "Pateat：ログインに成功しませんでした（credential-rejected）。詳しくは Pateat を開いてください。",
+    );
+  });
+
   it("shows the waiting account choice over a spin, a spin over a result, and a note otherwise", async () => {
     const h = harness();
     h.badge.note(tabId, "Pateat: held.");
@@ -296,9 +331,13 @@ describe("login badge", () => {
     await h.flush();
     expect(h.view()).toMatchObject({ text: BUSY_FRAMES[0], ...BUSY });
 
-    h.badge.choice(tabId, { count: 3, title: "Pateat: choose an account." });
+    h.badge.choice(tabId, { count: 3, logout: "this-tab" });
     await h.flush();
-    expect(h.view()).toEqual({ text: "3", ...CHOICE, title: "Pateat: choose an account." });
+    expect(h.view()).toEqual({
+      text: "3",
+      ...CHOICE,
+      title: "Pateat: you logged out of this site in this tab. Click to choose an account.",
+    });
 
     h.badge.choice(tabId, undefined);
     await h.flush();
@@ -413,19 +452,19 @@ describe("login badge", () => {
 
   it("writes only changed fields, and nothing when nothing changed", async () => {
     const h = harness();
-    h.badge.choice(tabId, { count: 2, title: "choose" });
+    h.badge.choice(tabId, { count: 2, logout: "other-tab" });
     await h.flush();
-    h.badge.choice(tabId, { count: 3, title: "choose" });
+    h.badge.choice(tabId, { count: 3, logout: "other-tab" });
     await h.flush();
-    h.badge.choice(tabId, { count: 3, title: "choose" });
+    h.badge.choice(tabId, { count: 3, logout: "other-tab" });
     await h.flush();
     expect(h.calls).toEqual([
-      { tabId, text: "2", ...CHOICE, title: "choose" },
+      { tabId, text: "2", ...CHOICE, title: OTHER_TAB },
       { tabId, text: "3" },
     ]);
     // A change that is undone before its write runs writes nothing.
-    h.badge.choice(tabId, { count: 4, title: "choose" });
-    h.badge.choice(tabId, { count: 3, title: "choose" });
+    h.badge.choice(tabId, { count: 4, logout: "other-tab" });
+    h.badge.choice(tabId, { count: 3, logout: "other-tab" });
     await h.flush();
     expect(h.calls).toHaveLength(2);
     // Removing an absent note or choice draws nothing.
@@ -439,11 +478,11 @@ describe("login badge", () => {
     const h = harness();
     h.badge.note(tabId, "held");
     h.badge.observe(attempt({ outcome: "timeout" }));
-    h.badge.choice(tabId, { count: 2, title: "choose" });
+    h.badge.choice(tabId, { count: 2 });
     h.badge.spin(8);
     await h.flush();
     expect(h.calls).toEqual([
-      { tabId, text: "2", ...CHOICE, title: "choose" },
+      { tabId, text: "2", ...CHOICE, title: choose(2) },
       { tabId: 8, text: BUSY_FRAMES[0], ...BUSY, title: "Pateat: asking the AI…" },
     ]);
   });
@@ -462,12 +501,12 @@ describe("login badge", () => {
         }
       },
     });
-    h.badge.choice(tabId, { count: 1, title: "choose" });
+    h.badge.choice(tabId, { count: 1 });
     await h.flush();
     // Draws while the first write is in flight wait for it and then write once.
-    h.badge.choice(tabId, { count: 2, title: "choose" });
-    h.badge.choice(tabId, { count: 3, title: "choose" });
-    h.badge.choice(8, { count: 1, title: "other" });
+    h.badge.choice(tabId, { count: 2 });
+    h.badge.choice(tabId, { count: 3 });
+    h.badge.choice(8, { count: 1 });
     await h.flush();
     expect(h.calls.map((call) => [call.tabId, call.text])).toEqual([
       [tabId, "1"],
@@ -480,7 +519,8 @@ describe("login badge", () => {
       [8, "1"],
       [tabId, "3"],
     ]);
-    expect(h.calls.at(-1)).toEqual({ tabId, text: "3" });
+    // Only what changed since the landed write: the count and the tooltip that names it.
+    expect(h.calls.at(-1)).toEqual({ tabId, text: "3", title: choose(3) });
   });
 
   it("rewrites every field after a failed write", async () => {
@@ -490,12 +530,12 @@ describe("login badge", () => {
         if (fail) throw new Error("No tab with id");
       },
     });
-    h.badge.choice(tabId, { count: 1, title: "choose" });
+    h.badge.choice(tabId, { count: 1 });
     await h.flush();
     fail = false;
-    h.badge.choice(tabId, { count: 2, title: "choose" });
+    h.badge.choice(tabId, { count: 2 });
     await h.flush();
-    expect(h.calls.at(-1)).toEqual({ tabId, text: "2", ...CHOICE, title: "choose" });
+    expect(h.calls.at(-1)).toEqual({ tabId, text: "2", ...CHOICE, title: choose(2) });
   });
 
   it("sends every field again when a write fails while a later one waits", async () => {
@@ -512,16 +552,16 @@ describe("login badge", () => {
         }
       },
     });
-    h.badge.choice(tabId, { count: 1, title: "choose" });
+    h.badge.choice(tabId, { count: 1 });
     await h.flush();
-    h.badge.choice(tabId, { count: 2, title: "choose" });
+    h.badge.choice(tabId, { count: 2 });
     await h.flush();
     expect(h.calls).toHaveLength(1);
     reject(new Error("tab strip busy"));
     await h.flush();
     expect(h.calls).toEqual([
-      { tabId, text: "1", ...CHOICE, title: "choose" },
-      { tabId, text: "2", ...CHOICE, title: "choose" },
+      { tabId, text: "1", ...CHOICE, title: choose(1) },
+      { tabId, text: "2", ...CHOICE, title: choose(2) },
     ]);
   });
 
@@ -664,11 +704,11 @@ describe("login badge", () => {
     await h.flush();
     expect(h.calls.at(-1)).toEqual({ tabId, text: "", ...CHOICE, title: "held" });
 
-    h.badge.choice(tabId, { count: 2, title: "choose" });
+    h.badge.choice(tabId, { count: 2 });
     await h.flush();
     h.badge.loaded(tabId, `${origin}/more`);
     await h.flush();
-    expect(h.calls.at(-1)).toEqual({ tabId, text: "2", ...CHOICE, title: "choose" });
+    expect(h.calls.at(-1)).toEqual({ tabId, text: "2", ...CHOICE, title: choose(2) });
 
     const count = h.calls.length;
     h.badge.loaded(tabId, "https://other.example/");
@@ -706,7 +746,7 @@ describe("login badge", () => {
 
   it("forgets a removed tab's choice, note, spin and result", async () => {
     const h = harness();
-    h.badge.choice(tabId, { count: 2, title: "choose" });
+    h.badge.choice(tabId, { count: 2 });
     h.badge.note(tabId, "held");
     h.badge.spin(tabId);
     h.badge.observe(attempt({ outcome: "timeout" }));
@@ -743,10 +783,10 @@ describe("login badge", () => {
     await vi.advanceTimersByTimeAsync(NOTICE_MS);
     expect(h.view(8)).toMatchObject({ text: "", title: "held" });
 
-    h.badge.choice(tabId, { count: 2, title: "choose" });
+    h.badge.choice(tabId, { count: 2 });
     h.badge.replaced(9, tabId);
     await h.flush();
-    expect(h.view(9)).toMatchObject({ text: "2", title: "choose" });
+    expect(h.view(9)).toMatchObject({ text: "2", title: choose(2) });
     const count = h.calls.length;
     h.badge.replaced(9, 9);
     await h.flush();
@@ -1612,6 +1652,19 @@ describe("site count", () => {
     });
   });
 
+  it("writes the count's sentences in Japanese without spaces between them (ADR 0043)", () => {
+    const ja = i18n.getFixedT("ja");
+    expect(countBadge(counted(2, 3, { excluded: "review", unevaluated: 1 }), ja).title).toBe(
+      "Pateat：このサイトのアカウントは 2 件です。ほかに 1 件が設定でカスタムフィールドの確認待ちです。1 件のアイテムを確認できませんでした。",
+    );
+    expect(countBadge(counted(0, 1, { excluded: "site" }), ja).title).toBe(
+      "Pateat：このサイトに一致するアカウントが 1 件ありますが、このサイトは設定で除外されているため使えません。",
+    );
+    expect(countBadge({ kind: "unchecked", reason: "locked" }, ja).title).toBe(
+      "Pateat：保管庫がロックされているため、このサイトのアカウントを数えていません。",
+    );
+  });
+
   it("caps the number at 99+ and notes items whose rules could not be checked", async () => {
     const h = harness();
     h.badge.count(tabId, origin, counted(120, 120, { unevaluated: 1 }));
@@ -1649,9 +1702,13 @@ describe("site count", () => {
   it("a waiting choice and a brief result win over the count, which comes back", async () => {
     const h = harness();
     h.badge.count(tabId, origin, counted(2));
-    h.badge.choice(tabId, { count: 2, title: "choose" });
+    h.badge.choice(tabId, { count: 2 });
     await h.flush();
-    expect(h.view()).toMatchObject({ text: "2", ...CHOICE, title: "choose" });
+    expect(h.view()).toMatchObject({
+      text: "2",
+      ...CHOICE,
+      title: "Pateat: 2 accounts match this page. Click to choose one.",
+    });
     h.badge.choice(tabId, undefined);
     await h.flush();
     expect(h.view()).toMatchObject({ text: "2", ...TEAL });

@@ -24,6 +24,7 @@ import { createPasskeyRuntime } from "../src/passkeys/runtime";
 import { createSignIns, SIGN_INS_KEY } from "../src/passkeys/sign-ins";
 import { createSignedTabs, SIGNED_TABS_KEY } from "../src/passkeys/signed-tabs";
 import { sessionValue } from "../src/storage";
+import { followLanguagePreference, i18n } from "../src/i18n";
 import { createLoginBadge, LOGIN_BADGE_KEY, setActionBadge } from "../src/login/badge";
 import {
   countedOrigin,
@@ -123,7 +124,12 @@ export default defineBackground(() => {
     setBadge: setActionBadge,
     storage: sessionValue(LOGIN_BADGE_KEY),
   });
+  // Restored at once, before the event that woke the worker saves over the stored badges.
   void loginBadge.restore();
+  // Tooltips follow the language chosen on the settings page (ADR 0043); a badge drawn
+  // before the stored choice is read is written again once it applies.
+  i18n.on("languageChanged", () => loginBadge.relabel());
+  void followLanguagePreference();
   // The popup, logins and the site count match a vault the same way, never opening it.
   const vaultUris = createVaultUriMatcher(connections);
   const vaultPasskeyFinder = createVaultPasskeyFinder(connections);

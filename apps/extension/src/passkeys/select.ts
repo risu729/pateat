@@ -13,7 +13,8 @@ export interface PasskeyCandidate {
 
 /** Display-only names: the vault item, the account stored with the passkey, the connection. */
 export interface PasskeyDisplay {
-  readonly item: string;
+  /** Absent when the vault item has no name; the picker names it in the UI language. */
+  readonly item?: string;
   readonly userName?: string;
   readonly account?: string;
 }

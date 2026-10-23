@@ -1568,6 +1568,30 @@ behind the same Access check as the page. The Worker's own HTML pages
 a `data:` URL and allow only `img-src data:`, so the icon never needs a request to a
 path that another Access application, or none, guards.
 
+## Extension UI language
+
+Every extension page (the popup, the passkey chooser, the settings page with its
+Bitwarden, sites, sync service and theme sections, and the diagnostics page) and the
+toolbar tooltips bundle English and Japanese catalogs with the owner-chosen i18next and
+react-i18next libraries (`apps/extension/src/locales/`). Labels, status explanations,
+notices, accessible names, `<html lang>` and document titles follow the language
+selected on the settings page. Vault names, usernames and hostnames are interpolated as
+text; unknown status codes remain visible as codes. The setting does not change login
+policy.
+
+As [ADR 0043](adr/0043-extension-language-preference.md) records, `chrome.storage.local`
+holds `pateat.language` as `system`, `en` or `ja`, per browser profile and outside
+service sync; `system` takes the first English or Japanese entry of
+`navigator.languages`, else English. Each page reads it before its first render and
+follows changes made on another page; the worker reads it at start and rewrites every
+tab's tooltip when it changes. A notice already on screen keeps its catalog key and
+values, so a language change translates it again without resetting drafts, focus or a
+running operation.
+
+Bug report text, exported log entries and diagnostic codes stay English. The manifest
+description comes from `public/_locales` by Chrome's own UI language. The service's
+pages, such as `/manage`, are not translated yet.
+
 ## Page styles and theme
 
 The extension's pages (settings, popup, diagnostics and the passkey chooser) and the
