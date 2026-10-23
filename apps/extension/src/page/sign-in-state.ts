@@ -358,7 +358,8 @@ function showsUsername(document: Document, username: string): boolean {
     latin && latinWord.test(name[0]!) ? /[\p{Script=Latin}\p{N}_.@-]/u : /[\p{L}\p{N}_.@-]/u;
   const blockedAfter =
     latin && latinWord.test(name.at(-1)!) ? /[\p{Script=Latin}\p{N}_@-]/u : /[\p{L}\p{N}_@-]/u;
-  const memberNumber = /^\p{Nd}+$/u.test(name) && [...name].length >= memberNumberMinDigits;
+  const memberNumber =
+    /^\p{Decimal_Number}+$/u.test(name) && [...name].length >= memberNumberMinDigits;
   // Script extensions also cover ー and 〆, which `メンバー` and `〆切` use.
   const kanaOrKanji = /[\p{scx=Han}\p{scx=Hiragana}\p{scx=Katakana}]/u;
   const blocks = (blocked: RegExp, edge: string) =>
