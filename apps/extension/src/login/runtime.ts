@@ -4958,7 +4958,9 @@ export function createLoginRuntime(
       targets,
       targets.map(() => "settable" as const),
     );
-    if (!observed || observed.path !== run.live.path) return undefined;
+    // The page's own path, as `enterHandler` matched it: a same-document URL change may
+    // not have reached `run.live.path` yet.
+    if (!observed || observed.path !== handler.path) return undefined;
     let first = 0;
     for (const entry of linked) {
       const states = observed.targets.slice(first, first + entry.targets.length);
@@ -5062,7 +5064,9 @@ export function createLoginRuntime(
     await sessionLoaded;
     detailOffers.set(run.live.document.tabId, {
       document: run.live.document,
-      path: run.live.path,
+      // The handler's path, which the page showed: `run.live.path` may lag a same-document
+      // URL change.
+      path: handler.path,
       attemptId: run.metadata.id,
       handler: index,
       account: {
@@ -5494,7 +5498,6 @@ export function createLoginRuntime(
       !offer ||
       offer.document.documentId !== request.documentId ||
       live?.document.documentId !== offer.document.documentId ||
-      live.path !== offer.path ||
       tabAttempt(request.tabId)?.id !== offer.attemptId
     )
       return { ok: false, reason: "document-gone" };
@@ -5568,6 +5571,22 @@ export function createLoginRuntime(
       observed.output.targets.some((state) => state !== "unique")
     )
       return { ok: false, reason: "document-gone" };
+    // The value goes only to the login item's account when the page shows one, as a login's
+    // fill does (owner decision, 2026-10-11); the page compares it in the content script.
+    const usernameField = loginUsernameFieldId(found.connection, offer.account.itemId);
+    let username: string | undefined;
+    if (usernameField)
+      try {
+        username = await fields({
+          account: offer.account,
+          connection: found.connection,
+          fieldId: usernameField,
+        });
+      } catch {
+        username = undefined;
+      }
+    const own = username ? { username } : undefined;
+    username = "";
     const read = await readDetail(
       offer.account,
       found.connection,
@@ -5593,9 +5612,16 @@ export function createLoginRuntime(
       type: "login.detail.fill",
       path: offer.path,
       fields: values.map((entry, at) => ({ ...entry, target: targets[at]! })),
+      ...(own ? { account: own } : {}),
     };
     const response = await send(live, command).catch(() => undefined);
     for (const entry of [...values, ...command.fields]) entry.value = "";
+    if (own) own.username = "";
+    if (
+      v.safeParse(v.object({ ok: v.literal(false), reason: v.literal("other-account") }), response)
+        .success
+    )
+      return { ok: false, reason: "other-account" };
     if (!v.safeParse(v.object({ ok: v.literal(true) }), response).success)
       return { ok: false, reason: "not-filled" };
     const link: DetailLink = {

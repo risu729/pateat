@@ -51,7 +51,7 @@ import {
 } from "../page/sign-in-state";
 import { observedPath } from "../observation/path";
 import { sendMessage } from "../messaging/protocol";
-import { acceptsSecret } from "./inputs";
+import { acceptsSecret, maskedSecret } from "./inputs";
 import { chooseFor } from "../page/choice-radio";
 import { askedQuestion } from "../page/question";
 import {
@@ -588,9 +588,11 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     if (command.type === "login.detail.fill") {
       // The popup's fill of a personal detail (ADR 0061): its input, or every input of a
       // split value, each checked before any is filled, a radio first, and nothing
-      // pressed. The values never leave this handler.
+      // pressed. The values and the username never leave this handler.
       const fields = command.fields.map((field) => ({ ...field }));
       for (const field of command.fields) field.value = "";
+      const username = command.account?.username;
+      if (command.account) command.account.username = "";
       void (async () => {
         const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
         const controls = fields.map((field) => {
@@ -609,6 +611,17 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           fields.some((field, at) => !usable(controls[at], field))
         )
           return { ok: false };
+        // A value goes only to the login item's account when the page shows one, as a
+        // login's fill does (owner decision, 2026-10-11).
+        if (
+          username !== undefined &&
+          showsOtherAccount(
+            shownAccounts(accountText(document, (controls[0] as Control).form)),
+            username,
+            { masked: fields.some((field) => maskedSecret(field.secret)) },
+          )
+        )
+          return { ok: false, reason: "other-account" };
         for (const [at, field] of fields.entries()) {
           const control = controls[at] as Control;
           // The page's handlers for the previous input run first.
@@ -1044,14 +1057,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             shownAccounts(accountText(document, form)),
             command.account.username,
             {
-              masked: command.values.some(
-                (entry) =>
-                  entry.secret === "password" ||
-                  entry.secret === "hidden" ||
-                  entry.secret === "card-code" ||
-                  entry.secret === "card-number" ||
-                  entry.secret === "pin",
-              ),
+              masked: command.values.some((entry) => maskedSecret(entry.secret)),
             },
           );
           command.account.username = "";

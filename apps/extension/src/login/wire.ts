@@ -505,6 +505,8 @@ export const commandSchema = v.variant("type", [
       v.minLength(1),
       v.maxLength(6),
     ),
+    /** The login item's username: the page must not show another account. */
+    account: v.optional(v.strictObject({ username: v.pipe(v.string(), v.maxLength(4096)) })),
   }),
   /**
    * Which of the login item's custom field names is the secret question shown beside

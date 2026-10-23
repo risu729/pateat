@@ -30,6 +30,9 @@ describe("the popup's message for a Fill that filled nothing", () => {
       "Pateat cannot read that field now. Unlock the vault and try again.",
     );
     expect(detailFillFailure("not-filled")).toBe("The page did not accept the value.");
+    expect(detailFillFailure("other-account")).toBe(
+      "This page shows another account, so nothing was filled.",
+    );
   });
 });
 

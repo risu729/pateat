@@ -74,11 +74,32 @@ const notMemberWords = [
 /** The details read only from the login item's own custom fields (ADR 0061). */
 export const ownItemDetails: readonly LoginDetail[] = ["secret-answer", "member-id"];
 
+/** Whether an item is a card: it has a card's built-in fields. */
+const isCard = (item: Pick<VaultItemMetadata, "fields">) =>
+  item.fields.some((field) => field.id.startsWith("card."));
+
+/**
+ * Whether `detail` may be read from `item` for the login item `loginItemId` (ADR 0061): an
+ * answer or member ID only from the login item; a PIN, a credential of one account, only
+ * from the login item or a card item, never an identity or another login item; any other
+ * detail from any item.
+ */
+export function readsFrom(
+  detail: LoginDetail,
+  item: Pick<VaultItemMetadata, "id" | "fields">,
+  loginItemId: string,
+): boolean {
+  if (ownItemDetails.includes(detail)) return item.id === loginItemId;
+  if (detail === "pin") return item.id === loginItemId || isCard(item);
+  return true;
+}
+
 /**
  * Whether `field` of an item may give `detail`: a built-in source, or a Text or Hidden
  * custom field whose name says it holds the detail, a birth date's, a phone number's or a
- * PIN's, so a link never reads another custom field, such as a PIN for a member ID, into a
- * page's input.
+ * PIN's. A field named as a PIN gives no other detail but an answer named after its
+ * question, so a link never reads a PIN into a birth date's, phone number's or member ID's
+ * input.
  */
 export function givesDetail(
   detail: LoginDetail,
@@ -98,6 +119,7 @@ export function givesDetail(
       !notMemberWords.some((word) => name.includes(word))
     );
   if (detail === "pin") return pinName.test(name);
+  if (pinName.test(name)) return false;
   return detail === "birth-date"
     ? birthWords.some((word) => name.includes(word))
     : /phone|tel|電話/u.test(name);
@@ -151,8 +173,9 @@ function readExpiry(month: string, year: string): { month: string; year: string 
 /**
  * The value a page's input wants for `detail`, made from the linked field's value (and,
  * for a card's expiry date, `cardYear`, its card's year): the date in `format`, the last four
- * digits, a card code of 3 or 4 digits as it is, a card number's 12 to 19 digits, a PIN's
- * 4 to 12 digits, or an answer (up to 128 characters) or member ID (up to 64) trimmed.
+ * digits, a card code of 3 or 4 digits as it is, a card number's 12 to 19 digits or a
+ * PIN's 4 to 12, written as digits alone with optional spaces or hyphens, or an answer
+ * (up to 128 characters) or member ID (up to 64) trimmed.
  * Undefined when the value is no date, has too few or too many digits, or is empty or too
  * long.
  */
@@ -195,10 +218,16 @@ export function detailValue(
       ? text
       : undefined;
   }
+  if (detail === "card-number" || detail === "pin") {
+    // Digits alone, perhaps grouped by spaces or hyphens: any other text, such as a note
+    // beside the number, is no value.
+    const text = value.normalize("NFKC").trim();
+    if (!/^[0-9]+(?:[ -]+[0-9]+)*$/u.test(text)) return undefined;
+    const grouped = text.replace(/[ -]/gu, "");
+    return (detail === "pin" ? /^\d{4,12}$/u : /^\d{12,19}$/u).test(grouped) ? grouped : undefined;
+  }
   const digits = digitsOf(value);
   if (detail === "card-code") return /^\d{3,4}$/u.test(digits) ? digits : undefined;
-  if (detail === "card-number") return /^\d{12,19}$/u.test(digits) ? digits : undefined;
-  if (detail === "pin") return /^\d{4,12}$/u.test(digits) ? digits : undefined;
   return digits.length >= 4 ? digits.slice(-4) : undefined;
 }
 
@@ -327,10 +356,15 @@ export function linkedField(
   connection: VaultConnectionMetadata,
   link: Pick<DetailLink, "detail" | "source" | "itemId">,
 ): { itemId: string; fieldId: string; name: string | null } | undefined {
-  // An answer or member ID is read from the login item itself, never another item.
-  if (ownItemDetails.includes(link.detail) && link.source.itemId !== link.itemId) return undefined;
   const item = connection.items.find((entry) => entry.id === link.source.itemId);
-  if (!item || item.inactive || connection.quarantinedItemIds?.includes(item.id)) return undefined;
+  // An answer, member ID or PIN is read only from the items `readsFrom` allows.
+  if (
+    !item ||
+    !readsFrom(link.detail, item, link.itemId) ||
+    item.inactive ||
+    connection.quarantinedItemIds?.includes(item.id)
+  )
+    return undefined;
   const eligibility = getItemEligibility(settings, catalog, connection.id, item.id);
   if (!eligibility.eligible) return undefined;
   const fieldId = resolveDetailSourceField(link.source.field, item.fields);
@@ -369,9 +403,10 @@ export type DetailCandidate = {
  * The fields of the login item's connection that could give `detail` (ADR 0061), at most
  * `limit`, under the rules of `linkedField`: identity phone numbers, card numbers, codes
  * and expiry months (with their card's year), and Text or Hidden custom fields whose name
- * reads as a birth date, a phone, a PIN or a member ID; an answer or member ID only from `loginItemId`, the login item. An item
- * whose name shares a run of three or more ASCII letters or digits with the page's host
- * name, or appears whole in its title, comes first; otherwise the catalog's order is kept.
+ * reads as a birth date, a phone, a PIN or a member ID; an answer or member ID only from
+ * `loginItemId`, the login item, and a PIN only from it or a card item. An item whose name
+ * shares a run of three or more ASCII letters or digits with the page's host name, or
+ * appears whole in its title, comes first; otherwise the catalog's order is kept.
  */
 export function detailCandidates(
   settings: LocalSettings,
@@ -384,7 +419,7 @@ export function detailCandidates(
   const found: (DetailCandidate & { near: boolean })[] = [];
   for (const item of connection.items) {
     if (item.inactive || connection.quarantinedItemIds?.includes(item.id)) continue;
-    if (ownItemDetails.includes(detail) && item.id !== page.loginItemId) continue;
+    if (!readsFrom(detail, item, page.loginItemId)) continue;
     const eligibility = getItemEligibility(settings, catalog, connection.id, item.id);
     if (!eligibility.eligible) continue;
     for (const field of item.fields) {

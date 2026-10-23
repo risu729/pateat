@@ -1,10 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { installLoginContent } from "./content";
 
-// The popup's fill of a personal detail split over several inputs (ADR 0061, owner
-// 2026-10-23 12:26 UTC): every part's input is checked before any is filled, a select's
-// part is chosen only by an option that says its number, and a digit group goes only into
-// a box of its length. Synthetic pages and values only.
+// The popup's fill of a personal detail (ADR 0061) in a real Chromium document. Synthetic
+// values only.
 type Listener = (
   message: unknown,
   sender: { id: string },
@@ -46,107 +44,106 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-type Field = { target: { by: "id"; value: string }; value: string; secret: string; group?: true };
-/** The page's answer to the popup's `login.detail.fill` of these fields. */
-async function fill(fields: Field[]) {
+/** The page's answer to the popup's `login.detail.fill` of `input` with these values. */
+async function fill({ account, ...field }: Record<string, unknown>) {
   const token = sent.find((message) => typeof message["token"] === "string")?.["token"];
-  let answer: unknown;
+  const answer: { value?: unknown } = {};
   for (const listener of listeners)
     listener(
-      { version: 1, type: "login.detail.fill", token, path: location.pathname, fields },
+      {
+        version: 1,
+        type: "login.detail.fill",
+        token,
+        path: location.pathname,
+        fields: [{ target: { by: "name", value: "asked" }, ...field }],
+        ...(account ? { account } : {}),
+      },
       { id: "synthetic-extension" },
-      (value) => (answer = value),
+      (value) => (answer.value = value),
     );
-  for (let tick = 0; tick < 100 && answer === undefined; tick += 1)
+  // Typing waits between characters.
+  for (let wait = 0; answer.value === undefined && wait < 200; wait += 1)
     // eslint-disable-next-line no-await-in-loop
-    await vi.advanceTimersByTimeAsync(100);
-  return answer;
+    await vi.advanceTimersByTimeAsync(50);
+  return answer.value;
 }
-const id = (value: string) => ({ by: "id" as const, value });
-const options = (from: number, to: number, suffix = "") =>
-  Array.from({ length: to - from + 1 }, (_, at) => from + at)
-    .map((number) => `<option value="${number}">${number}${suffix}</option>`)
-    .join("");
-const birthPage = (months = options(1, 12, "月")) =>
-  `<form><label>生年月日
-    <select id="by"><option value="">----</option>${options(1940, 2010, "年")}</select>
-    <select id="bm"><option value="">--</option>${months}</select>
-    <select id="bd"><option value="">--</option>${options(1, 31, "日")}</select></label>
-    <button id="confirm" type="button">確認</button></form>`;
-const datePart = (target: string, value: string): Field => ({
-  target: id(target),
-  value,
-  secret: "date-part",
-});
-const value = (target: string) =>
-  (document.getElementById(target) as HTMLInputElement | HTMLSelectElement).value;
+/** A page whose form asks for one value in `input`, with `text` above it. */
+async function page(input: string, text = "Confirm it's you") {
+  uninstall?.();
+  sent.length = 0;
+  listeners.length = 0;
+  document.body.innerHTML = `<main><h1>Verify</h1><form action="/verify">
+    <p>${text}</p><label>Value ${input}</label><button id="next">Next</button></form></main>`;
+  uninstall = installLoginContent();
+  await vi.advanceTimersByTimeAsync(200);
+  return document.querySelector<HTMLInputElement>('[name="asked"]')!;
+}
 
-describe("a split detail's popup fill", () => {
-  it("chooses a birth date's year, month and day by their numbers, with bubbling events", async () => {
-    document.body.innerHTML = birthPage();
-    const changes: string[] = [];
-    document.body.addEventListener("change", (event) => {
-      changes.push((event.target as HTMLSelectElement).id);
+describe("the popup's fill of a card value or a PIN (ADR 0061)", () => {
+  it("fills a whole card number into a tel input that holds it", async () => {
+    const input = await page('<input name="asked" type="tel" maxlength="19">');
+    expect(await fill({ value: "4000000000000002", secret: "card-number" })).toEqual({ ok: true });
+    expect(input.value).toBe("4000000000000002");
+  });
+
+  it("refuses a card number longer than the input's maxlength", async () => {
+    const input = await page('<input name="asked" type="tel" maxlength="12">');
+    expect(await fill({ value: "4000000000000002", secret: "card-number" })).toEqual({
+      ok: false,
     });
-    uninstall = installLoginContent();
-    await vi.advanceTimersByTimeAsync(200);
-    expect(await fill([datePart("by", "1990"), datePart("bm", "04"), datePart("bd", "5")])).toEqual(
-      { ok: true },
+    expect(input.value).toBe("");
+  });
+
+  it("fills a PIN into a password input, never into the account's password field", async () => {
+    const input = await page('<input name="asked" type="password" maxlength="4">');
+    expect(await fill({ value: "0123", secret: "pin" })).toEqual({ ok: true });
+    expect(input.value).toBe("0123");
+    const own = await page('<input name="asked" type="password" autocomplete="current-password">');
+    expect(await fill({ value: "0123", secret: "pin" })).toEqual({ ok: false });
+    expect(own.value).toBe("");
+  });
+
+  it.each([
+    ["username", "card-number", "4000000000000002"],
+    ["email", "pin", "0123"],
+    ["one-time-code", "detail", "04/31"],
+    ["new-password", "pin", "0123"],
+  ])("refuses an input marked %s for a %s", async (token, secret, value) => {
+    const input = await page(`<input name="asked" type="text" autocomplete="${token}">`);
+    expect(await fill({ value, secret })).toEqual({ ok: false });
+    expect(input.value).toBe("");
+  });
+
+  it("fills a card's expiry date as a detail into a text input, not a password input", async () => {
+    const input = await page('<input name="asked" type="text" maxlength="5">');
+    expect(await fill({ value: "04/31", secret: "detail" })).toEqual({ ok: true });
+    expect(input.value).toBe("04/31");
+    const hidden = await page('<input name="asked" type="password" maxlength="5">');
+    expect(await fill({ value: "04/31", secret: "detail" })).toEqual({ ok: false });
+    expect(hidden.value).toBe("");
+  });
+
+  it("fills nothing when the page shows another account than the login item's", async () => {
+    const input = await page(
+      '<input name="asked" type="tel" maxlength="19">',
+      "Signed in as other@example.test",
     );
-    expect([value("by"), value("bm"), value("bd")]).toEqual(["1990", "4", "5"]);
-    expect(changes).toEqual(["by", "bm", "bd"]);
-  });
-
-  it("chooses nothing when one select has no option for its part, or several", async () => {
-    // The month's values count from 0, so its option for April cannot be told.
-    const zeroBased = Array.from(
-      { length: 12 },
-      (_, at) => `<option value="${at}">${at + 1}</option>`,
-    ).join("");
-    for (const [page, parts] of [
-      [birthPage(), [datePart("by", "1939"), datePart("bm", "4"), datePart("bd", "5")]],
-      [birthPage(zeroBased), [datePart("by", "1990"), datePart("bm", "4"), datePart("bd", "5")]],
-    ] as const) {
-      document.body.innerHTML = page;
-      uninstall?.();
-      uninstall = installLoginContent();
-      // eslint-disable-next-line no-await-in-loop
-      await vi.advanceTimersByTimeAsync(200);
-      // eslint-disable-next-line no-await-in-loop
-      expect(await fill([...parts])).toEqual({ ok: false });
-      expect([value("by"), value("bm"), value("bd")]).toEqual(["", "", ""]);
-    }
-  });
-
-  it("puts no value but a date's part into a select", async () => {
-    document.body.innerHTML = birthPage();
-    uninstall = installLoginContent();
-    await vi.advanceTimersByTimeAsync(200);
     expect(
-      await fill([{ target: id("by"), value: "1990", secret: "detail" }, datePart("bm", "4")]),
-    ).toEqual({ ok: false });
-    expect([value("by"), value("bm")]).toEqual(["", ""]);
-  });
-
-  it("types a card number's groups into boxes of their length, or none of them", async () => {
-    const boxes = (fourth = 4) =>
-      `<form>${[4, 4, 4, fourth]
-        .map((length, at) => `<input id="c${at + 1}" type="tel" maxlength="${length}">`)
-        .join("")}<button id="confirm" type="button">Confirm</button></form>`;
-    const groups = ["4000", "0000", "0000", "0002"].map((group, at): Field => ({
-      target: id(`c${at + 1}`),
-      value: group,
-      secret: "card-number",
-      group: true,
-    }));
-    document.body.innerHTML = boxes();
-    uninstall = installLoginContent();
-    await vi.advanceTimersByTimeAsync(200);
-    expect(await fill(groups.map((group) => ({ ...group })))).toEqual({ ok: true });
-    expect(["c1", "c2", "c3", "c4"].map(value)).toEqual(["4000", "0000", "0000", "0002"]);
-    // A last box that takes more digits than its group is no box of that group.
-    document.body.innerHTML = boxes(7);
-    expect(await fill(groups.map((group) => ({ ...group })))).toEqual({ ok: false });
-    expect(["c1", "c2", "c3", "c4"].map(value)).toEqual(["", "", "", ""]);
+      await fill({
+        value: "4000000000000002",
+        secret: "card-number",
+        account: { username: "synthetic@example.test" },
+      }),
+    ).toEqual({ ok: false, reason: "other-account" });
+    expect(input.value).toBe("");
+    // The login item's own account is filled.
+    expect(
+      await fill({
+        value: "4000000000000002",
+        secret: "card-number",
+        account: { username: "other@example.test" },
+      }),
+    ).toEqual({ ok: true });
+    expect(input.value).toBe("4000000000000002");
   });
 });

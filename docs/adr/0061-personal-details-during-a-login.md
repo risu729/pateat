@@ -86,7 +86,7 @@ make each value. A page that asks for anything else stays `challenge`.
 | `card-code` | `card.code` | as it is, 3 or 4 digits | a password input, or a text or tel input with `maxlength` 3 or 4 |
 | `card-number` | `card.number` | all its digits, 12 to 19 | a password, text, tel or number input whose `maxlength`, when set, holds it |
 | `card-expiry` | `card.expMonth` and `card.expYear` of the same card item | month and year in the input's `format` | a text, tel or number input; a part also a select |
-| `pin` | a Text or Hidden custom field named as a PIN (below) | its digits, 4 to 12 | a password, text, tel or number input whose `maxlength`, when set, holds it |
+| `pin` | a Text or Hidden custom field of the login item or a card item named as a PIN (below) | its digits, 4 to 12 | a password, text, tel or number input whose `maxlength`, when set, holds it |
 | `secret-answer` | a Text or Hidden custom field of the login item named as the question (below) | as it is, trimmed, 1 to 128 characters | a text or password input |
 | `member-id` | a Text or Hidden custom field of the login item named as a member ID (below) | as it is, trimmed, 1 to 64 characters | a text, tel or number input |
 
@@ -95,24 +95,35 @@ Hidden field may go into a text input. A birth date's `format` is one of `yyyymm
 `yyyymm`, `yyyy-mm-dd`, `yyyy/mm/dd` and `mmdd`, a card expiry's one of `mmyy`, `mm/yy`,
 `mmyyyy` and `mm/yyyy`; the contracts refuse a format on another detail. A stored birth
 date is read, after NFKC, as year, month and day from `1990-04-01`, `1990/4/1`,
-`1990.04.01`, `1990年4月1日` or `19900401`; any other text is not a date. Digits are
-what is left after removing all but ASCII digits (after NFKC); fewer than four is not a
-value, nor more than a card number's 19 or a PIN's 12. An expiry month is 1 to 12, and a
-two-digit year is 20yy. The value is made in the service worker right after the vault
-read: a whole phone number never reaches the page's content script, and a whole card
-number reaches it only for a `card-number` input's fill. A value split over several
-inputs reaches it only as its parts ([below](#values-split-over-several-inputs)).
+`1990.04.01`, `1990年4月1日` or `19900401`; any other text is not a date. For the last
+four digits and a card code, digits are what is left after removing all but ASCII digits
+(after NFKC), and fewer than the value needs (four, or a card code's three) is no value.
+A card number or a PIN must be written, after NFKC, as digits alone, perhaps grouped by
+spaces or hyphens; any other text, such as `12ab34` or a note beside the PIN, is no
+value, and so are fewer or more digits than the table allows. An expiry month is 1 to
+12, and a two-digit year is 20yy. No value is unreadable (`detail-unreadable`). A format
+written with `/` or `-` never goes into a number input, which takes digits only. The
+value is made in the service worker right after the vault read: a whole phone number
+never reaches the page's content script, and a whole card number reaches it only for a
+`card-number` input's fill. A value split over several inputs reaches it only as its
+parts ([below](#values-split-over-several-inputs)).
 
 ### Card numbers, expiry dates and PINs
 
 Added on decided 6. A `card-expiry` link reads two fields; its `source` names the card
 item and `card.expMonth`, and the extension reads `card.expYear` from the same item, so
 the link keeps the one-field shape and both fields must be allowed. A `pin` is read from
-any linked item, as a birth date is, from a Text or Hidden custom field whose name,
-after NFKC and without case, holds `pin` as a word of its own (not "shipping"), `暗証`
-or `passcode`; `member-id` never reads such a field. A card number and a PIN fill under
-their own input rule (`card-number`, `pin`), so they may go into a password input, which
-no other detail but a card code takes.
+a Text or Hidden custom field whose name, after NFKC and without case, holds `pin` as a
+word of its own (not "shipping"), `暗証` or `passcode`; no other detail but an answer
+named after its question reads such a field, so a PIN never fills a member ID's, birth
+date's or phone number's input. Claude chose to read a PIN only from the login item
+itself or a card item, never an identity or another login item: a PIN is a credential
+of one account or card, and another item's PIN belongs to another account. A card
+number and a PIN fill under their own input rule (`card-number`, `pin`), so they may go
+into a password input, which no other detail but a card code takes. In the content
+script, as on the service, no detail goes into an input whose `autocomplete` names a
+sign-in or code field (`username`, `email`, `current-password`, `new-password`,
+`one-time-code`).
 
 Security notes:
 
@@ -284,9 +295,9 @@ Security notes:
 
 A radio button chooses an input when it belongs to a group of two or more radios with
 the same `name` in the input's form, comes before the input in document order, and no
-other radio and no text-like input or select lies between them. Filling a detail input checks its
-choosing radio first, when it has one and it is not checked, in the same task as the
-fill, with a `click` so the page's handlers run. This is a property of the fill, not a
+other radio and no text-like input or select lies between them. Filling a detail input
+checks its choosing radio first, when it has one and it is not checked, in the same task
+as the fill, with a `click` so the page's handlers run. This is a property of the fill, not a
 recipe step, and it is not a submission. A page whose radios all come before their
 inputs has no choosing radio, and its input is filled only if it is writable as it is.
 
@@ -362,22 +373,24 @@ When a `detail` handler shows and no link has a value for any of its inputs:
    watched afterwards as such a login is ([ADR 0027](0027-per-account-login-routes.md)).
 2. Pateat lists candidates locally from the catalog, in the login item's vault account
    and under the rules above: identity items, and Text or Hidden custom fields whose
-   name contains `phone`, `tel` or `電話`, for `phone-last-4`; Text or Hidden custom
-   fields whose name reads as a birth date (contains `birth`, `dob`, `生年月日` or
-   `誕生日`, in any case) for `birth-date`; card items for `card-last-4`, `card-code`
-   and `card-number`, and those whose expiry month and year are both allowed for
-   `card-expiry`; Text or Hidden custom fields named as a PIN for `pin`. A link reads
-   only such a field, so a link edited elsewhere never types another custom field, such
-   as a PIN into a member ID's input, into the page. An item whose name holds a run of
-   three or more ASCII letters or digits found in the page's host name, or which appears
-   whole in the page's title, comes first.
+   name contains `phone`, `tel` or `電話` and does not read as a PIN, for
+   `phone-last-4`; Text or Hidden custom fields whose name reads as a birth date
+   (contains `birth`, `dob`, `生年月日` or `誕生日`, in any case) and does not read as a
+   PIN for `birth-date`; card items for `card-last-4`, `card-code` and `card-number`,
+   and those whose expiry month and year are both allowed for `card-expiry`; Text or
+   Hidden custom fields named as a PIN, of the login item or a card item, for `pin`. A
+   link reads only such a field, so a link edited elsewhere never types another custom
+   field, such as a PIN into a member ID's input, into the page. An item whose name
+   holds a run of three or more ASCII letters or digits found in the page's host name,
+   or which appears whole in the page's title, comes first.
 3. The popup's "This page" section shows what the page asks for and the candidates, the
    first one selected, for example "This page asks for your birth year and month." and
    "本人 › 生年月日", with **Fill**.
 4. **Fill** fills the input, or every part's input of a split value, in the tab's
-   current document, checking its choosing radio, when that document is the login's, the tab's login is still the one that stopped
-   there, the site and the login item are still allowed, and the page still shows the
-   input writable and the button; it does not press the button. The person checks the
+   current document, checking its choosing radio, when that document is the login's,
+   the tab's login is still the one that stopped there, the site and the login item are
+   still allowed, and the page still shows the input writable and the button, and the page shows no other account than the login
+   item's, as for a login's fill; it does not press the button. The person checks the
    value and submits. One link is kept per handler: a second **Fill**, as after choosing
    the other radio, replaces the first. The link is kept for that tab in
    session storage and saved to the owner's settings only when the watched login ends

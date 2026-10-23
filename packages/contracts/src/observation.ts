@@ -502,15 +502,24 @@ export function totpCodeRefusal(
 }
 
 /**
- * The input roles each detail's fill rule admits; `card-code` also limits the length. A
- * split date's part may also be a select; nothing else is.
+ * The input roles each detail's fill rule admits; `card-code` also limits the length, and
+ * a value written with `/` or `-` never goes into a number input, which takes digits only.
+ * A split date's part may also be a select; nothing else is.
  */
 function admitsDetail(
-  detail: LoginDetail,
-  part: DatePart | number | undefined,
+  {
+    detail,
+    format,
+    part,
+  }: {
+    detail: LoginDetail;
+    format?: DetailFormat | DetailPartFormat | undefined;
+    part?: DatePart | number | undefined;
+  },
   field: ObservedCandidate,
 ): boolean {
   if (typeof part === "string") return ["text", "tel", "number", "select"].includes(field.role);
+  if (field.role === "number" && format !== undefined && /[/-]/u.test(format)) return false;
   if (detail === "card-code")
     return (
       field.role === "password" ||
@@ -528,15 +537,16 @@ function admitsDetail(
  * `entry` and the button that submits it (ADR 0061), for the log, or undefined when they
  * may. The field must be an input the detail's fill rule admits (`not-input`): a text,
  * tel or number input for a birth date, the last four digits, a card's expiry date or a
- * member ID; a password input, or a text or tel input limited to 3 or 4 characters, for
- * a card's security code; a password, text, tel or number input for a whole card number
- * or a PIN; a text or password input for a secret question's answer. No other detail
- * takes a password input, so a second password the judge takes for the last four digits
- * is not kept. It must not be located by its text (`text-locator`), an answer not by its
- * label (`label-locator`), nor be marked as a sign-in, email or code field
- * (`sign-in-field`), nor declare a `maxlength` shorter than the value (`too-short`); the
- * button must be a button (`submit-not-button`) of the field's form
- * (`submit-other-form`). The judge and the recipe assembly both check this.
+ * member ID, but no number input for a format with `/` or `-`; a password input, or a
+ * text or tel input limited to 3 or 4 characters, for a card's security code; a password,
+ * text, tel or number input for a whole card number or a PIN; a text or password input
+ * for a secret question's answer. No other detail takes a password input, so a second
+ * password the judge takes for the last four digits is not kept. It must not be located
+ * by its text (`text-locator`), an answer not by its label (`label-locator`), nor be
+ * marked as a sign-in, email or code field (`sign-in-field`), nor declare a `maxlength`
+ * shorter than the value (`too-short`); the button must be a button (`submit-not-button`)
+ * of the field's form (`submit-other-form`). The judge and the recipe assembly both
+ * check this.
  *
  * One input of a value split over several (`part`, ADR 0061): a date's year, month or
  * day goes into a text, tel or number input or a select, and a `maxlength` must hold its
@@ -554,7 +564,7 @@ export function detailInputRefusal(
   field: ObservedCandidate,
   button: ObservedCandidate,
 ): string | undefined {
-  const admitted = admitsDetail(entry.detail, entry.part, field);
+  const admitted = admitsDetail(entry, field);
   if (!admitted) return "not-input";
   if (field.target.by === "text") return "text-locator";
   // An answer's label may be the account's own question, which a shared recipe never holds.
