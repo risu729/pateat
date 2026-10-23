@@ -1,9 +1,8 @@
 # ADR 0071: Elements may be named by their `data-test` attribute
 
-Status: proposed on 2026-10-23, not accepted. The owner asked that day to build ahead
-of decisions and judge later
-("フェーズは一旦無視して、ある程度決め打ちで進め、後から判断"), so this ADR and its
-implementation wait unmerged for the owner.
+Status: accepted by the owner on 2026-10-23 at 11:32 UTC. Built ahead of the decision
+as the owner asked that day ("ある程度決め打ちで進め、後から判断"), then shown this
+proposal on a card; the owner picked the recommended option, 「採用してマージ」.
 
 Date: 2026-10-23
 

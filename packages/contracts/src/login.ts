@@ -68,7 +68,7 @@ export const loginAttributeTargetSchema = v.variant("by", [
     value: v.pipe(v.string(), v.minLength(1), v.maxLength(120), v.regex(/^[\x21-\x7e]+$/u)),
   }),
   // `data-test` is the test attribute some pages use instead (Duolingo's sign-in
-  // submit, 2026-10-23; proposed ADR 0071).
+  // submit, 2026-10-23; ADR 0071).
   v.strictObject({
     by: v.picklist(["test-id", "data-test"]),
     value: v.pipe(v.string(), v.minLength(1), v.maxLength(120), v.regex(/^[a-zA-Z0-9_.:-]+$/)),

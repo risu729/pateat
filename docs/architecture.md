@@ -2145,7 +2145,7 @@ failure only loses the sample, logged as `recipe.sample`.
 A step names its element with an allowlisted locator, never CSS: an `id` or `name` (any
 ASCII except whitespace and control characters, as in `ctl00$Main$txtUserId` or
 `user[login]`), a `data-testid` or, after it, a `data-test` (`[A-Za-z0-9_.:-]`;
-`data-test` proposed in [ADR 0071](adr/0071-data-test-locators.md)), an `<input>`'s
+`data-test` since [ADR 0071](adr/0071-data-test-locators.md)), an `<input>`'s
 `autocomplete`
 token, a fillable input's visible name
 ([ADR 0037](adr/0037-fields-by-visible-name.md), below), a `password` handler's
