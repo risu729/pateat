@@ -3,7 +3,7 @@
 Status: accepted by the owner on 2026-10-23 ([decided](#decided-by-the-owner) 6 to 11).
 Claude built it ahead of those decisions on best guesses, as the owner asked at 05:28
 UTC. The design was reviewed against the code by another AI before it was built.
-Deliveries 1 to 6 and 8 are implemented; the others are not ([Delivery](#delivery)).
+Deliveries 1 to 8, all of them, are implemented ([Delivery](#delivery)).
 Implements the
 [phase 2](../plan.md#phase-2-use-it-and-fix-what-comes-up) item on personal details
 asked for during a login. Amends [ADR 0027](0027-per-account-login-routes.md) (a fourth
@@ -93,7 +93,7 @@ catalog ([feasibility note](../research/2026-10-12-card-security-code.md)).
     UTC, 「全部入れる」). Delivery 8 builds it.
 11. The guess of the vault item also compares the masked last four digits and the card
     brand that the page shows with the vault's cards, on the device (12:26 UTC,
-    「下 4 桁とブランドも見る」). Delivery 7 builds it.
+    「下 4 桁とブランドも見る」). See [The card guess](#the-card-guess).
 
 ## Decision
 
@@ -499,10 +499,11 @@ When a `detail` handler shows and no link has a value for any of its inputs:
    link reads only such a field, so a link edited elsewhere never types another custom
    field, such as a PIN into a member ID's input, into the page. An item whose name
    holds a run of three or more ASCII letters or digits found in the page's host name,
-   or which appears whole in the page's title, comes first.
+   or which appears whole in the page's title, comes first; for a card detail, what the
+   page shows about its card ranks before that ([The card guess](#the-card-guess)).
 3. The popup's "This page" section shows what the page asks for and the candidates, the
-   first one selected, for example "This page asks for your birth year and month." and
-   "本人 › 生年月日", with **Fill**.
+   first one selected unless the guess is a tie, for example "This page asks for your
+   birth year and month." and "本人 › 生年月日", with **Fill**.
 4. **Fill** fills the input, or every part's input of a split value, in the tab's
    current document, checking its choosing radio, when that document is the login's, the
    tab's login is still the one that stopped there, the site and the login item are
@@ -516,6 +517,61 @@ When a `detail` handler shows and no link has a value for any of its inputs:
 5. The popup also lists the site's saved links, each with **Remove**.
 
 The popup shows nothing more when there is no candidate; the person types the value.
+
+### The card guess
+
+Added on decided 11. When the popup asks for the proposal and a card detail
+(`card-last-4`, `card-code`, `card-number`, `card-expiry`) has two or more candidates,
+the worker asks the input's document (`login.detail.card`). The document reads the
+rendered text of the input's region, as for a secret question (the whole page when the
+input is its only fillable input outside a form), and answers only two lists, read after
+NFKC:
+
+- Last digits, from the region and the page's title, without case: each four digits
+  after a run of two or more mask characters (`*`, `•`, `●`, `x`, `X`, `＊`; a run that
+  starts with `x` follows no Latin letter or digit) or after 末尾, 下4桁, "ending in",
+  "ends with" or "last 4 digits". Four digits followed by `-` or `/` and a digit are a
+  date or an order number, not last digits. A masked phone number such as
+  `***-****-5678` still reads as `5678`.
+- A brand, from the region only, as Bitwarden's `card.brand` spells it (Visa,
+  Mastercard, Amex, Diners Club, Discover, JCB, UnionPay): without case, but "Discover"
+  only as the brand writes it. A region that names several brands, as a list of accepted
+  cards does, names none.
+
+A page that shows neither reads nothing from the vault, nor does a vault that is not
+unlocked. Otherwise the worker reads, one at a time through the fill's vault read, the
+`card.number` and `card.brand` of the first 20 candidates, each only while its item may
+be used and the field is allowed, keeps the number's last four digits and the brand, and
+ranks:
+
+1. The one card whose last four digits the page shows comes first and is selected. Among
+   several, the one whose brand the page names too; otherwise they come first and none
+   is selected, so two cards ending in the same digits are never chosen.
+2. When the page shows last digits and no card ends in them, the cards whose digits are
+   unknown come before those whose digits differ, the brand's first, and none is
+   selected.
+3. When it shows no last digits, the only card of the brand it names comes first.
+4. Otherwise the order by name above.
+
+A field without a value, as a card without a brand, is unknown, but reads that give no
+value at all read as a locked vault. A read that fails, or a vault that locks or opens
+another snapshot or settings revision during the reads, keeps the order by name. With
+more candidates than the 20 read, none is selected. The page's answer and the values
+read are dropped after the ranking and are never logged or sent to the service or the
+AI. The popup asks again every second while it is open; the worker keeps in memory, per
+offer and input, only the order of item IDs, whether one is selected, and a key of the
+settings revision, the vault snapshot, the candidates and a SHA-256 digest of the page's
+answer. The cards are read again only when that key changes, and a poll the document
+does not answer keeps the kept order.
+
+Security notes:
+
+- Every candidate card's whole number is read in the worker before any confirmation,
+  once per offer, input, page answer, vault snapshot and settings revision (again after
+  a failed read or a service worker restart); only its last four digits and its brand
+  are compared, and nothing leaves the device.
+- A page can steer the guess by showing digits or a brand, but only the order and the
+  selection in the popup change; the owner still confirms the card with **Fill**.
 
 ### Refused values
 

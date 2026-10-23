@@ -72,6 +72,7 @@ import { sendMessage } from "../messaging/protocol";
 import { acceptsSecret, maskedSecret } from "./inputs";
 import { chooseFor } from "../page/choice-radio";
 import { askedQuestion, type AskedQuestion } from "../page/question";
+import { cardHints } from "../page/card-hints";
 import {
   commandSchema,
   destinationAnswerSchema,
@@ -892,6 +893,17 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       const input = found.length === 1 ? found[0] : undefined;
       const index = writable(input) ? askedQuestion(input, command.names) : undefined;
       respond(index === undefined ? { ok: true } : { ok: true, index });
+      return false;
+    }
+    if (command.type === "login.detail.card") {
+      // Only the hint tokens leave this handler, never the page's text (ADR 0061).
+      const found = cancelled || pagePath() !== command.path ? [] : matches(command.target);
+      const input = found.length === 1 ? found[0] : undefined;
+      respond(
+        writable(input)
+          ? { ok: true, ...cardHints(input, document.title) }
+          : { ok: true, last4: [], brands: [] },
+      );
       return false;
     }
     if (command.type === "login.detail.fill") {

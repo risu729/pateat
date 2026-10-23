@@ -7,6 +7,10 @@ import type {
   VaultItemMetadata,
 } from "@pateat/contracts";
 import {
+  cardGuessFields,
+  cardLast4,
+  rankCards,
+  type CardFacts,
   detailCandidates,
   detailFieldIds,
   detailFieldValues,
@@ -395,5 +399,119 @@ describe("values split over several inputs (owner, 2026-10-23 12:26 UTC)", () =>
     expect(
       detailFieldValues({ detail: "secret-answer", target: at("a") }, "synthetic answer"),
     ).toBeUndefined();
+  });
+});
+
+describe("the popup's guess of a card (owner 2026-10-23 12:26 UTC)", () => {
+  const candidates = ["one", "two", "three"].map((itemId) => ({ itemId }));
+  const order = (result: { candidates: { itemId: string }[]; preselect: boolean }) => [
+    result.candidates.map((entry) => entry.itemId),
+    result.preselect,
+  ];
+  const facts = new Map<string, CardFacts>([
+    ["one", { last4: "1111", brand: "Visa" }],
+    ["two", { last4: "9876", brand: "Mastercard" }],
+    ["three", { last4: "9876", brand: "Visa" }],
+  ]);
+
+  it("puts the one card ending in the shown digits first and selects it", () => {
+    expect(order(rankCards(candidates, facts, { last4: ["1111"], brands: [] }))).toEqual([
+      ["one", "two", "three"],
+      true,
+    ]);
+    expect(
+      order(rankCards(candidates.slice(0, 2).reverse(), facts, { last4: ["1111"], brands: [] })),
+    ).toEqual([["one", "two"], true]);
+  });
+
+  it("never selects one of two cards ending in the same digits, unless only one has the brand", () => {
+    expect(order(rankCards(candidates, facts, { last4: ["9876"], brands: [] }))).toEqual([
+      ["two", "three", "one"],
+      false,
+    ]);
+    expect(order(rankCards(candidates, facts, { last4: ["9876"], brands: ["Visa"] }))).toEqual([
+      ["three", "one", "two"],
+      true,
+    ]);
+    // Two shown runs that each match a card are a tie too.
+    expect(
+      order(rankCards(candidates.slice(0, 2), facts, { last4: ["1111", "9876"], brands: [] })),
+    ).toEqual([["one", "two"], false]);
+  });
+
+  it("takes the only card of a shown brand when no digits match, and keeps the name order otherwise", () => {
+    expect(order(rankCards(candidates, facts, { last4: [], brands: ["Mastercard"] }))).toEqual([
+      ["two", "one", "three"],
+      true,
+    ]);
+    // Two Visa cards: the order by name stays.
+    expect(order(rankCards(candidates, facts, { last4: [], brands: ["Visa"] }))).toEqual([
+      ["one", "two", "three"],
+      true,
+    ]);
+    // A page that names several brands, as a list of accepted cards does, names none.
+    expect(
+      order(rankCards(candidates, facts, { last4: [], brands: ["Mastercard", "Visa"] })),
+    ).toEqual([["one", "two", "three"], true]);
+  });
+
+  it("selects none when the page shows last digits no card ends in", () => {
+    // A card whose known digits differ from the shown ones is not the page's card.
+    expect(
+      order(rankCards(candidates, facts, { last4: ["5555"], brands: ["Mastercard"] })),
+    ).toEqual([["one", "two", "three"], false]);
+    // Cards whose digits are unknown, as one without a number, come first, the brand's first.
+    const partly = new Map<string, CardFacts>([
+      ["one", { last4: "1111" }],
+      ["two", { brand: "Visa" }],
+      ["three", { brand: "Mastercard" }],
+    ]);
+    expect(
+      order(rankCards(candidates, partly, { last4: ["5555"], brands: ["Mastercard"] })),
+    ).toEqual([["three", "two", "one"], false]);
+  });
+
+  it("selects none while a candidate was not read", () => {
+    const some = new Map<string, CardFacts>([
+      ["one", { last4: "1111" }],
+      ["two", { last4: "9876" }],
+    ]);
+    expect(order(rankCards(candidates, some, { last4: ["1111"], brands: [] }))).toEqual([
+      ["one", "two", "three"],
+      false,
+    ]);
+  });
+
+  it("reads only a card's number and brand, while the item and the field are allowed", () => {
+    const branded = item("branded", "Synthetic branded card", [
+      ...cardFields.map(builtin),
+      builtin("card.brand"),
+    ]);
+    const withBrand = { ...connection, items: [...connection.items, branded] };
+    const all = { connections: [withBrand] };
+    expect(cardGuessFields(policy(), all, withBrand, "branded")).toEqual([
+      "card.number",
+      "card.brand",
+    ]);
+    expect(cardGuessFields(policy(), all, withBrand, "card")).toEqual(["card.number"]);
+    expect(
+      cardGuessFields(
+        policy([{ itemId: "branded", fieldId: "card.number" }]),
+        all,
+        withBrand,
+        "branded",
+      ),
+    ).toEqual(["card.brand"]);
+    const excluded = policy();
+    excluded.connections[0]!.excludedItemIds = ["branded"];
+    expect(cardGuessFields(excluded, all, withBrand, "branded")).toEqual([]);
+    expect(cardGuessFields(policy(), all, withBrand, "login")).toEqual([]);
+    expect(cardGuessFields(policy(), all, withBrand, "missing")).toEqual([]);
+  });
+
+  it("compares a card number by its last four digits", () => {
+    expect(cardLast4("4242 4242 4242 7351")).toBe("7351");
+    expect(cardLast4("４２４２-７３５１")).toBe("7351");
+    expect(cardLast4("735")).toBeUndefined();
   });
 });

@@ -46,6 +46,14 @@ function questionRegion(input: HTMLInputElement): Element {
 }
 
 /**
+ * The rendered text of the part of the page that asks for `input` (`questionRegion`), at
+ * most 4,000 characters, or undefined when it is not shown.
+ */
+export function regionText(input: HTMLInputElement): string | undefined {
+  return renderedText(questionRegion(input), QUESTION_TEXT_LIMIT)?.slice(0, QUESTION_TEXT_LIMIT);
+}
+
+/**
  * The whole questions the region shows, in their compared form: each text block (a block
  * element's own run of text, as rendering lays it out), and the same block without a short
  * label before its first colon. A block that ends in a colon is a label, not a question,
