@@ -329,4 +329,5 @@ export const en = {
   "The page did not accept the value.": "The page did not accept the value.",
   "the answer to your secret question": "the answer to your secret question",
   "your member or customer number": "your member or customer number",
+  "ID {{id}}": "ID {{id}}",
 } as const;
