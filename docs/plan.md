@@ -1979,7 +1979,8 @@ unreadable pairing clears it. Sync runs right after pairing completes, also when
 device's sync is still running, and in the background when the worker starts, a lookup
 arrives (each page Pateat runs on looks up its recipe) or the settings page loads, and
 the last attempt is more than five minutes old; the open settings page asks again every
-10 seconds only until the first sync finishes. Saving settings or an account choice
+10 seconds only until the first sync finishes or the device is rejected or its cache is
+full. Saving settings or an account choice
 syncs at once, whatever the schedule. The attempt time is stored, so a worker restart
 does not sync again sooner, and a 429, also an edge rate-limit page that is not JSON,
 postpones background syncs, but not the one after pairing, for 15 minutes. A clock set

@@ -3116,14 +3116,17 @@ the typed code on 2026-10-11. Credential idle expiry has local tests only so far
 
 ### Sync cases Pateat does not handle
 
-Status: current behavior, read from the code on 2026-10-17; no fix is planned for any of
+Status: current behavior, read from the code on 2026-10-23; no fix is planned for any of
 these yet. Each says what a device does and how to recover.
 
 - A service database restored to an earlier point. A device keeps its recipe cursor, and
   the service answers a cursor past its newest change with an empty, complete page. So
-  the device skips new recipe changes until the service's sequence numbers pass its
-  cursor again, and keeps cached recipes that the restore removed. Settings then merge
-  without a base and nothing is removed ([plan](plan.md#service-sync-progress)).
+  the device skips every recipe change whose sequence number is not past its cursor, for
+  good unless that recipe is written again, and keeps cached recipes that the restore
+  removed. While the service's settings revision is below the device's stored base,
+  settings merge without a base and nothing is removed; once other writes pass that
+  revision, the stored base applies again and the device removes every entry the restore
+  dropped ([plan](plan.md#service-sync-progress)).
   Disconnecting and pairing each device again recovers recipes, since a new pairing
   starts from an empty cache; it does not recover settings, because local settings stay
   and the new pairing merges them without a base as well.
@@ -3136,7 +3139,9 @@ these yet. Each says what a device does and how to recover.
   is discarded and synced again from the start, and each recipe is found only once its
   page arrives. The settings base is discarded too, so the next merge has none: an entry
   that the service or another device removed since this device last synced comes back
-  from this device, and one this device removed comes back from the service.
+  from this device, and one this device removed comes back from the service. An
+  unreadable pairing record instead stops sync until the device is forgotten and paired
+  again.
 - A device credential that could not be written after `POST /pair`. It is kept only in
   the worker's memory and saved on the next request; if the worker stops first, it is
   lost. The device stays active on the service until it is revoked on the management
