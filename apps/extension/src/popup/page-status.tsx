@@ -1,3 +1,6 @@
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
+import { i18n } from "../i18n";
 import { Bug, CircleCheck, CircleX, Info, LoaderCircle, TriangleAlert } from "lucide-react";
 import type { StatusResponse } from "../login/choice-wire";
 
@@ -70,7 +73,8 @@ const NOT_SENT: Record<string, string> = {
   "nothing-offered": "the page showed no sign-in form",
 };
 
-const plain = (table: Record<string, string>, code: string) => table[code] ?? code;
+const plain = (table: Record<string, string>, code: string, t: TFunction) =>
+  Object.hasOwn(table, code) ? t(table[code] ?? code) : code;
 
 /**
  * Why a login of a vault item without a password did not go on to its passkey (ADR 0036,
@@ -106,67 +110,85 @@ const HELD_PASSKEY = new Set([
 ]);
 
 /** A refusal the badge shows as a failure, in plain words. */
-function refusalText(refused: NonNullable<Status["refused"]>): string {
+function refusalText(refused: NonNullable<Status["refused"]>, t: TFunction): string {
   const { reason, detail } = refused;
   if (reason === "no-route" && detail?.startsWith("password-empty")) {
     const why = detail.slice("password-empty:".length);
-    const text = NO_PASSWORD[why] ?? "the vault item has no password";
+    const text = t(
+      Object.hasOwn(NO_PASSWORD, why)
+        ? (NO_PASSWORD[why] ?? "the vault item has no password")
+        : "the vault item has no password",
+    );
     return HELD_PASSKEY.has(why)
-      ? `${text}. Pateat signs in with its passkey only when the passkey needs no username, and the page asks for a passkey or the recipe presses a passkey button`
+      ? t("{{text}}. Pateat signs in with its passkey only when the passkey needs no username, and the page asks for a passkey or the recipe presses a passkey button", { text })
       : text;
   }
   if (reason === "no-route")
-    return `the recipe has no way to log in with this vault item${detail ? ` (${detail})` : ""}`;
-  return plain(NOT_STARTED, reason);
+    return `${t("the recipe has no way to log in with this vault item")}${detail ? ` (${detail})` : ""}`;
+  return plain(NOT_STARTED, reason, t);
 }
 
-function recipeLines(status: Status): StatusLine[] {
+function recipeLines(status: Status, t: TFunction): StatusLine[] {
   const generation = status.generation;
   const what =
     generation?.page === "entry"
-      ? "the site's sign-in link"
+      ? t("the site's sign-in link")
       : generation?.page === "accounts"
-        ? "the site's list of accounts"
+        ? t("the site's list of accounts")
         : generation?.page === "continuation"
-          ? "the rest of the site's sign-in"
-          : "the site's sign-in page";
+          ? t("the rest of the site's sign-in")
+          : t("the site's sign-in page");
   const lines: StatusLine[] = [];
   if (status.recipe === "page")
-    lines.push({ id: "recipe", tone: "idle", text: "This site has a recipe for this page." });
+    lines.push({ id: "recipe", tone: "idle", text: t("This site has a recipe for this page.") });
   else if (status.recipe === "other-paths")
     lines.push({
       id: "recipe",
       tone: "idle",
-      text: "This site has a recipe, but none starts on this page.",
+      text: t("This site has a recipe, but none starts on this page."),
     });
-  else lines.push({ id: "recipe", tone: "idle", text: "This site has no recipe yet." });
+  else lines.push({ id: "recipe", tone: "idle", text: t("This site has no recipe yet.") });
   // Whether the request is still in flight comes from the badge's spin, which a stopped
   // worker does not leave behind.
   if (generation?.outcome === "sent" && status.asking)
-    lines.push({ id: "generation", tone: "busy", text: `The AI is making a recipe for ${what}…` });
+    lines.push({
+      id: "generation",
+      tone: "busy",
+      text: t("The AI is making a recipe for {{what}}…", { what }),
+    });
   else if (generation?.outcome === "sent")
     lines.push({
       id: "generation",
       tone: "warn",
-      text: `A page was sent to the AI for ${what}, and no answer was recorded.`,
+      text: t("A page was sent to the AI for {{what}}, and no answer was recorded.", { what }),
     });
   else if (generation?.outcome === "recipe")
-    lines.push({ id: "generation", tone: "ok", text: `The AI made a recipe for ${what}.` });
+    lines.push({
+      id: "generation",
+      tone: "ok",
+      text: t("The AI made a recipe for {{what}}.", { what }),
+    });
   else if (generation?.outcome === "abstained")
     lines.push({
       id: "generation",
       tone: "warn",
-      text: `The AI chose not to make a recipe for ${what} (${generation.reason ?? "abstained"}).`,
+      text: t("The AI chose not to make a recipe for {{what}} ({{reason}}).", {
+        what,
+        reason: generation.reason ?? "abstained",
+      }),
     });
   else if (generation)
     lines.push({
       id: "generation",
       tone: "err",
-      text: `The AI could not make a recipe for ${what} (${[generation.outcome, generation.reason].filter(Boolean).join(": ")}).`,
+      text: t("The AI could not make a recipe for {{what}} ({{reason}}).", {
+        what,
+        reason: [generation.outcome, generation.reason].filter(Boolean).join(": "),
+      }),
     });
   // Another request, such as the judge's on a login's next page.
   if (status.asking && generation?.outcome !== "sent")
-    lines.push({ id: "asking", tone: "busy", text: "Waiting for an answer from the AI…" });
+    lines.push({ id: "asking", tone: "busy", text: t("Waiting for an answer from the AI…") });
   // A site whose recipe starts elsewhere may still send this page. An older skip of this
   // page does not show beside its request in flight.
   if (
@@ -178,26 +200,28 @@ function recipeLines(status: Status): StatusLine[] {
     lines.push({
       id: "generation-skip",
       tone: "idle",
-      text: `Not sent to the AI: ${plain(NOT_SENT, status.page.generationSkip)}.`,
+      text: t("Not sent to the AI: {{why}}.", {
+        why: plain(NOT_SENT, status.page.generationSkip, t),
+      }),
     });
   return lines;
 }
 
-function loginLines(status: Status): StatusLine[] {
+function loginLines(status: Status, t: TFunction): StatusLine[] {
   // A refusal is kept only until a login of the tab moves on, so it came after any shown.
   const refusal: StatusLine[] = status.refused
     ? [
         {
           id: "refused",
           tone: "err",
-          text: `Pateat did not log in: ${refusalText(status.refused)}.`,
+          text: t("Pateat did not log in: {{why}}.", { why: refusalText(status.refused, t) }),
         },
       ]
     : [];
-  return [...attemptLines(status), ...refusal];
+  return [...attemptLines(status, t), ...refusal];
 }
 
-function attemptLines(status: Status): StatusLine[] {
+function attemptLines(status: Status, t: TFunction): StatusLine[] {
   const login = status.login;
   if (!login) {
     if (status.refused) return [];
@@ -206,13 +230,19 @@ function attemptLines(status: Status): StatusLine[] {
     const why = status.page?.state === "denied" ? status.page.reason : status.page?.notStarted;
     // A page of a site with no recipe is ordinary browsing: the recipe line says enough.
     if (!why || why === "recipe-not-found") return [];
-    return [{ id: "login", tone: "idle", text: `No login started: ${plain(NOT_STARTED, why)}.` }];
+    return [
+      {
+        id: "login",
+        tone: "idle",
+        text: t("No login started: {{why}}.", { why: plain(NOT_STARTED, why, t) }),
+      },
+    ];
   }
   if (login.state === "authenticated")
     return [
       login.unconfirmed
-        ? { id: "login", tone: "warn", text: "The sign-in could not be confirmed." }
-        : { id: "login", tone: "ok", text: "Logged in." },
+        ? { id: "login", tone: "warn", text: t("The sign-in could not be confirmed.") }
+        : { id: "login", tone: "ok", text: t("Logged in.") },
     ];
   if (login.state === "logged-out")
     return [
@@ -221,8 +251,8 @@ function attemptLines(status: Status): StatusLine[] {
         tone: "idle",
         text:
           login.outcome === "rejected"
-            ? "The site did not accept the last login; choose an account to try again."
-            : "Logged out of this site in this tab.",
+            ? t("The site did not accept the last login; choose an account to try again.")
+            : t("Logged out of this site in this tab."),
       },
     ];
   const outcome = login.outcome ?? "";
@@ -234,11 +264,11 @@ function attemptLines(status: Status): StatusLine[] {
         tone: "warn",
         text:
           outcome === "challenge"
-            ? "Waiting for you to finish the site's other step, such as a code."
-            : "The result is not known yet; the next pages are checked for it.",
+            ? t("Waiting for you to finish the site's other step, such as a code.")
+            : t("The result is not known yet; the next pages are checked for it."),
       },
     ];
-  if (login.state !== "blocked") return [{ id: "login", tone: "busy", text: "Logging in…" }];
+  if (login.state !== "blocked") return [{ id: "login", tone: "busy", text: t("Logging in…") }];
   // A login that only fills the form after a logout ends by design before anything that
   // would press a button (ADR 0021 D); a page or person that cancelled it first ends the
   // same way, so the line names the mode rather than claiming a filled form.
@@ -247,24 +277,26 @@ function attemptLines(status: Status): StatusLine[] {
       {
         id: "login",
         tone: "idle",
-        text: "After a logout, Pateat only fills the sign-in form and presses nothing; sign in when you are ready.",
+        text: t(
+          "After a logout, Pateat only fills the sign-in form and presses nothing; sign in when you are ready.",
+        ),
       },
     ];
-  const why = outcome ? plain(OUTCOMES, outcome) : "no reason was recorded";
+  const why = outcome ? plain(OUTCOMES, outcome, t) : t("no reason was recorded");
   const lines: StatusLine[] = [
     QUIET.has(outcome)
-      ? { id: "login", tone: "idle", text: `The login stopped: ${why}.` }
+      ? { id: "login", tone: "idle", text: t("The login stopped: {{why}}.", { why }) }
       : {
           id: "login",
           tone: UNSETTLED.has(outcome) ? "warn" : "err",
-          text: `The login did not succeed: ${why}.`,
+          text: t("The login did not succeed: {{why}}.", { why }),
         },
   ];
   if (RECIPE_FAILURES.has(outcome))
     lines.push({
       id: "login-recipe",
       tone: "idle",
-      text: "This recipe is not made again automatically.",
+      text: t("This recipe is not made again automatically."),
     });
   return lines;
 }
@@ -274,8 +306,8 @@ function attemptLines(status: Status): StatusLine[] {
  * for it, then the tab's last login on the page. Codes without a plain sentence show as the
  * log names them; no value, recipe step or query ever shows.
  */
-export function pageStatusLines(status: Status): StatusLine[] {
-  return [...recipeLines(status), ...loginLines(status)];
+export function pageStatusLines(status: Status, t: TFunction = i18n.t.bind(i18n)): StatusLine[] {
+  return [...recipeLines(status, t), ...loginLines(status, t)];
 }
 
 const ICONS = {
@@ -293,11 +325,12 @@ export function PageStatusSection({
   status: Status;
   onOpenDiagnostics: () => void;
 }) {
+  const { t } = useTranslation(undefined, { i18n });
   return (
     <section className="popup-section" aria-labelledby="popup-page-heading">
-      <h2 id="popup-page-heading">This page</h2>
+      <h2 id="popup-page-heading">{t("This page")}</h2>
       <ul id="popup-page-status" className="popup-lines" aria-live="polite">
-        {pageStatusLines(status).map((line) => {
+        {pageStatusLines(status, t).map((line) => {
           const Icon = ICONS[line.tone];
           return (
             <li
@@ -322,7 +355,7 @@ export function PageStatusSection({
           }}
         >
           <Bug size={16} strokeWidth={2} aria-hidden="true" />
-          Open the detailed log
+          {t("Open the detailed log")}
         </a>
       </div>
     </section>

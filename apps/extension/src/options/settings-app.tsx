@@ -18,6 +18,7 @@ import { BitwardenSetup } from "./bitwarden-setup";
 import type { ConnectionClient } from "./connection-client";
 import type { ServiceClient } from "./service-client";
 import { ServiceConnection } from "./service-connection";
+import { LanguageSelect } from "./language-select";
 import { ThemeSelect } from "./theme-select";
 import { Panel, StatusLines } from "./ui";
 
@@ -498,6 +499,7 @@ function SectionNav({ sections }: { sections: NavSection[] }) {
       </ul>
       <div className="px-3">
         <ThemeSelect />
+        <LanguageSelect />
       </div>
     </nav>
   );
