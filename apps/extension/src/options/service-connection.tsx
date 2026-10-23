@@ -9,6 +9,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { formatLocale, i18n } from "../i18n";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import * as v from "valibot";
 import { CircleCheck, CircleX, Clock, Link, Lock, TriangleAlert } from "lucide-react";
 import { Button } from "./button";
@@ -143,10 +144,14 @@ export function ServiceConnection({
     }
   }
 
-  /** Opens the sign-in page and retries once when this page is shown again. */
+  /**
+   * Opens the sign-in page and retries once when this page is shown again,
+   * unless the address or device name was edited while the tab opened.
+   */
   async function openSignIn(origin: string, name: string) {
+    const edit = edits.current;
     await client.openSignIn(origin);
-    retryOnReturn.current = { origin, label: name };
+    if (edit === edits.current) retryOnReturn.current = { origin, label: name };
   }
 
   /**
@@ -270,18 +275,21 @@ export function ServiceConnection({
             event.preventDefault();
             const origin = normalizeServiceOrigin(address);
             const name = v.safeParse(deviceLabelSchema, label);
-            // Each field shows its own error, and the first invalid one takes focus.
-            setAddressError(
-              origin ? "" : "Enter an HTTPS address such as https://pateat.example.com.",
-            );
-            setLabelError(
-              name.success
-                ? ""
-                : // A name of invisible characters alone looks empty, so it reads as missing.
-                  VISIBLE_LABEL_CHARACTER.test(label)
-                  ? "Use a device name of up to 64 characters without control characters, line breaks or text-direction marks."
-                  : "Enter a device name.",
-            );
+            // Each field shows its own error, and the first invalid one takes focus
+            // after the error is linked, so the field is announced with it.
+            flushSync(() => {
+              setAddressError(
+                origin ? "" : "Enter an HTTPS address such as https://pateat.example.com.",
+              );
+              setLabelError(
+                name.success
+                  ? ""
+                  : // A name of invisible characters alone looks empty, so it reads as missing.
+                    VISIBLE_LABEL_CHARACTER.test(label)
+                    ? "Use a device name of up to 64 characters without control characters, line breaks or text-direction marks."
+                    : "Enter a device name.",
+              );
+            });
             if (!origin) addressInput.current?.focus();
             else if (!name.success) labelInput.current?.focus();
             if (!origin || !name.success) return;

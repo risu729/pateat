@@ -114,9 +114,15 @@ test("marks only the field whose value is invalid", async () => {
   const address = page.getByLabelText("Service address", { exact: true });
   const name = page.getByLabelText("Device name", { exact: true });
   const pair = page.getByRole("button", { name: "Pair this device", exact: true });
+  // The error is linked before focus moves, so the field is announced with it.
+  const linked: (string | null)[] = [];
+  name.element().addEventListener("focus", (event) => {
+    linked.push((event.target as HTMLElement).getAttribute("aria-describedby"));
+  });
   await address.fill(ORIGIN);
   await name.fill("   ");
   await pair.click();
+  await expect.poll(() => linked.at(-1)).toBe("sync-service-label-error");
   await expect.element(name).toHaveAttribute("aria-invalid", "true");
   await expect.element(name).toHaveAccessibleDescription("Enter a device name.");
   await expect.element(name).toHaveFocus();
@@ -258,6 +264,31 @@ test("keeps no retry and opens no tab for an address edited while pairing runs",
   window.dispatchEvent(new Event("focus"));
   await new Promise((resolve) => setTimeout(resolve, 50));
   expect(client.pair).toHaveBeenCalledOnce();
+});
+
+test("keeps no retry for an address edited while the sign-in page opens", async () => {
+  const client = mockClient();
+  client.pair.mockResolvedValueOnce(failed("sign-in-needed"));
+  let opened: () => void = () => undefined;
+  client.openSignIn.mockReturnValueOnce(
+    new Promise((resolve) => {
+      opened = () => resolve(undefined);
+    }),
+  );
+  await render(<ServiceConnection client={client} pollMs={60_000} />);
+  await submitPair();
+  await expect.poll(() => client.openSignIn.mock.calls.length).toBe(1);
+  await page.getByLabelText("Service address", { exact: true }).fill("https://other.example.com");
+  opened();
+  await expect
+    .element(page.getByRole("button", { name: "Pair this device", exact: true }))
+    .toBeEnabled();
+  window.dispatchEvent(new Event("focus"));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(client.pair).toHaveBeenCalledOnce();
+  await expect
+    .element(page.getByRole("button", { name: "Try again", exact: true }))
+    .not.toBeInTheDocument();
 });
 
 test("keeps no retry and opens no tab for a name edited while site access is asked", async () => {
