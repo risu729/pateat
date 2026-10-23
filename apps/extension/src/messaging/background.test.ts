@@ -69,6 +69,7 @@ function createAreas() {
   return {
     settings: vi.fn(async (request: unknown) => ({ area: "settings", request })),
     siteAccounts: vi.fn(async (request: unknown) => ({ area: "site-accounts", request })),
+    transfer: vi.fn(async (request: unknown) => ({ area: "transfer", request })),
     service: vi.fn(async (request: unknown) => ({ area: "service", request })),
     diagnostics: vi.fn(async (request: unknown) => ({ area: "diagnostics", request })),
     chooser: vi.fn((request: unknown) => Promise.resolve({ area: "chooser", request })),
@@ -149,6 +150,22 @@ describe("background messages", () => {
     ).toBeUndefined();
     expect(await worker.send(options, "settings", "settings.get")).toBeUndefined();
     expect(worker.areas.service).not.toHaveBeenCalled();
+  });
+
+  it("answers export and import from the settings page only", async () => {
+    for (const type of ["settings.export", "settings.import"]) {
+      const request = { version: 1, type };
+      // oxlint-disable-next-line no-await-in-loop
+      expect(await worker.send(page("/options.html#transfer"), "settings", request)).toEqual({
+        area: "transfer",
+        request,
+      });
+      for (const sender of [popup, diagnosticsPage, chooserPage, content, otherExtension])
+        // oxlint-disable-next-line no-await-in-loop
+        expect(await worker.send(sender, "settings", request)).toBeUndefined();
+    }
+    expect(worker.areas.transfer).toHaveBeenCalledTimes(2);
+    expect(worker.areas.settings).not.toHaveBeenCalled();
   });
 
   it("answers service requests from the settings page only", async () => {

@@ -829,5 +829,10 @@ export function createRecipeSync(options: {
     },
   };
 
-  return { sync, refreshIfStale, clear, synced, recipes };
+  /** The recipes logins use now, as an export holds them (ADR 0040); none when unreadable. */
+  async function inUse(): Promise<readonly StoredLoginRecipe[] | undefined> {
+    return (await current(false))?.recipes;
+  }
+
+  return { sync, refreshIfStale, clear, synced, inUse, recipes };
 }

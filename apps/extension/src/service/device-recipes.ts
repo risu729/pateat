@@ -130,21 +130,31 @@ export function createDeviceRecipes(options: {
     /**
      * Keeps `recipes` here, as when a device is disconnected and keeps the service's. A
      * recipe of an ID kept here already replaces it only at a newer revision, so a login
-     * that resumes on a revision never finds other content under it. Rejects without
-     * changing anything when the result would not fit.
+     * that resumes on a revision never finds other content under it. Resolves to how many
+     * of `recipes` are now kept; rejects without changing anything when the result would
+     * not fit, or would hold more than `maxCount` recipes.
      */
-    keep(recipes: readonly StoredLoginRecipe[]): Promise<void> {
+    keep(recipes: readonly StoredLoginRecipe[], maxCount = Infinity): Promise<number> {
       return enqueue(async () => {
         const store = await load();
         const kept = new Map(store.recipes.map((recipe) => [recipe.id, recipe]));
+        let added = 0;
         for (const recipe of recipes) {
           const held = kept.get(recipe.id);
-          if (!held || recipe.revision > held.revision) kept.set(recipe.id, recipe);
+          if (!held || recipe.revision > held.revision) {
+            kept.set(recipe.id, recipe);
+            added += 1;
+          }
         }
+        if (added === 0) return 0;
         const next = [...kept.values()];
-        if (encoder.encode(JSON.stringify({ version: 1, recipes: next })).byteLength > maxBytes)
+        if (
+          next.length > maxCount ||
+          encoder.encode(JSON.stringify({ version: 1, recipes: next })).byteLength > maxBytes
+        )
           throw new DeviceRecipesTooLarge();
         await save({ ...store, recipes: next });
+        return added;
       });
     },
 
