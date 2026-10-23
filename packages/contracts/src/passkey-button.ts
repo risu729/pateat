@@ -43,8 +43,9 @@ export const registersPasskey = (button: Pick<ObservedCandidate, "label" | "targ
 const passkeyWording =
   /\b(?:pass\s*keys?|security\s*keys?|webauthn|fido\d*|face\s*id|touch\s*id|windows\s*hello|biometrics?|fingerprints?|face\s*recognition)\b|パスキー|セキュリティー?\s*キー(?![\p{sc=Katakana}ー])|生体認証|指紋|顔\s*認証/iu;
 /**
- * Whether a button's label, text or `id`, `name` or test ID locator, or a host its locator
- * looks inside (ADR 0070), names a passkey or a security key (ADR 0027). The generated passkey route and a passkey-only start page (ADR
+ * Whether a button's label, text or `id`, `name` or test ID locator names a passkey or a
+ * security key (ADR 0027); never a host its locator looks inside (ADR 0070), which may
+ * hold other buttons too. The generated passkey route and a passkey-only start page (ADR
  * 0053) keep only such a button, so a mislabelled "Sign in with Google" never becomes a
  * passkey click; the judge's `passkey` handler may use it later.
  */
@@ -52,7 +53,4 @@ export const namesPasskey = (button: Pick<ObservedCandidate, "label" | "target">
   (button.label !== undefined && passkeyWording.test(labelWords(button.label))) ||
   passkeyWording.test(
     button.target.by === "text" ? labelWords(button.target.value) : words(button.target.value),
-  ) ||
-  targetValues(button.target)
-    .slice(1)
-    .some((host) => passkeyWording.test(words(host)));
+  );

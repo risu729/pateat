@@ -60,7 +60,7 @@ What the owner has not decided (see Status) is assumed.
   tree (nested trees included), and the field the one element of the last host's tree;
   the extractor picks the fewest hosts, nearest the field first. A host's value follows
   an element's own rules (no generated or changing ID, no token, no redacted text), the
-  username check, the passkey-wording checks and the account-text refusal read it as
+  username check, the passkey registration check and the account-text refusal read it as
   well, and text, accessible-name and link-path locators take no hosts. An inner ID
   another load may change is never looked for inside hosts; the element keeps it as the
   last resort it was. The change only adds a field to the recipe format, so stored

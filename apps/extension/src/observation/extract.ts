@@ -494,22 +494,24 @@ function chainedTarget(
   for (let host = hostOf(element); host; host = hostOf(host)) hosts.unshift(host);
   const document = element.ownerDocument;
   const names = hosts.map((host) => hostNames(host, options));
-  // The chains of one more host that name each host alone, grown from the shorter ones
-  // and pruned as they grow, so a deep page costs a few lookups per host.
+  // The chains of one more host that name a host no shorter chain named alone, grown from
+  // the shorter ones, so each host is named once and a deep page costs a few lookups per
+  // host.
+  const named = new Set<number>();
   let level: { within: LoginHostChain[number][]; at: number }[] = [{ within: [], at: -1 }];
   for (let depth = 1; depth <= 3 && level.length; depth++) {
     level = level.flatMap(({ within, at }) =>
-      hosts.flatMap((host, next) =>
-        next <= at
-          ? []
-          : names[next]!.flatMap((name) => {
-              const chain = [...within, name];
-              const scopes = hostScopes(document, chain as LoginHostChain);
-              return scopes.length === 1 && scopes[0] === shadowRootOf(host)
-                ? [{ within: chain, at: next }]
-                : [];
-            }),
-      ),
+      hosts.flatMap((host, next) => {
+        if (next <= at || named.has(next)) return [];
+        for (const name of names[next]!) {
+          const chain = [...within, name];
+          const scopes = hostScopes(document, chain as LoginHostChain);
+          if (scopes.length !== 1 || scopes[0] !== shadowRootOf(host)) continue;
+          named.add(next);
+          return [{ within: chain, at: next }];
+        }
+        return [];
+      }),
     );
     // The hosts nearest the element first.
     for (const { within } of [...level].sort((left, right) => right.at - left.at))
