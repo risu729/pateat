@@ -1,4 +1,10 @@
 import { expect, test, type BrowserContext, type Page, type Worker } from "@playwright/test";
+import {
+  newLayoutKey,
+  toLoginLayout,
+  type LoginRecipe,
+  type LoginRecipeDocument,
+} from "../../packages/contracts/src/index";
 import { beginInput, settingsRequest, setupProbe, setupRequest } from "./connection-fixture";
 import { startLoginFixture } from "./login-server";
 import { startSyncService } from "./sync-service";
@@ -21,9 +27,9 @@ async function serveSite(context: BrowserContext, fixture: { origin: string }) {
   });
 }
 
-const target = (value: string) => ({ by: "id", value });
-/** The multi-page fixture flow, published the way a generated recipe is (ADR 0013). */
-const recipe = {
+const target = (value: string) => ({ by: "id" as const, value });
+/** The multi-page fixture flow as the one layout of the published recipe (ADR 0060). */
+const route: LoginRecipe = {
   version: 1,
   id: recipeId,
   revision: 1,
@@ -37,16 +43,34 @@ const recipe = {
         { slot: "branch", target: target("branch") },
         { slot: "account", target: target("account") },
       ],
+      effect: "prepare",
     },
     { kind: "assert", path: "/identity", target: target("next"), present: true },
     { kind: "click", path: "/identity", target: target("next"), purpose: "advance" },
     { kind: "wait", path: "/password", target: target("password"), present: true, timeoutMs: 3000 },
-    { kind: "fill", path: "/password", fields: [{ slot: "password", target: target("password") }] },
+    {
+      kind: "fill",
+      path: "/password",
+      fields: [{ slot: "password", target: target("password") }],
+      effect: "prepare",
+    },
     { kind: "click", path: "/password", target: target("login"), purpose: "submit" },
   ],
   completion: [{ target: target("authenticated") }],
   rejection: target("rejected"),
   maxSubmissions: 2,
+};
+/**
+ * The recipe published the way a generated one is stored (ADR 0013, ADR 0060): one layout,
+ * created now so the service never finds it idle.
+ */
+const createdAt = Date.now();
+const recipe: LoginRecipeDocument = {
+  version: 1,
+  id: recipeId,
+  revision: 1,
+  origin: site,
+  layouts: [toLoginLayout(route, { key: newLayoutKey(createdAt, []), createdAt })],
 };
 
 function storedRecipes(background: Worker) {
