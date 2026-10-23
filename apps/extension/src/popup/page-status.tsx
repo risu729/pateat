@@ -232,6 +232,18 @@ function attemptLines(status: Status): StatusLine[] {
       },
     ];
   if (login.state !== "blocked") return [{ id: "login", tone: "busy", text: "Logging in…" }];
+  // A login that only fills the form while the tab asks for an account ends by design
+  // before anything that would press a button (ADR 0021 D); a page or person that cancelled
+  // it first ends the same way, so the line names the mode rather than claiming a filled
+  // form.
+  if (login.fillOnly && outcome === "cancelled" && !login.cause)
+    return [
+      {
+        id: "login",
+        tone: "idle",
+        text: "While this tab asks for an account, Pateat only fills the sign-in form and presses nothing; sign in when you are ready.",
+      },
+    ];
   const why =
     outcome === "policy-changed" && login.cause === "paused"
       ? "automatic login of this site was paused" // ADR 0062

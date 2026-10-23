@@ -83,12 +83,17 @@ export type BadgeDetails = {
 export type PageStatus = {
   /** The tab's top page origin when they were recorded, else the reporting document's. */
   origin: string;
-  /** `started` until the login's first state change, then its state and outcome. */
+  /**
+   * `started` until the login's first state change, then its state and outcome. `fillOnly`
+   * for a login that only fills the form while its tab asks for an account and never
+   * presses anything (ADR 0021 D).
+   */
   login?: {
     state: string;
     outcome?: string;
     cause?: string;
     unconfirmed?: true;
+    fillOnly?: true;
   };
   /** A refusal that shows a failure badge, until a login of the tab moves on. */
   refused?: { reason: string; detail?: string };
@@ -340,6 +345,7 @@ export function createLoginBadge(deps: {
           ...(report.outcome ? { outcome: report.outcome } : {}),
           ...(report.cause ? { cause: report.cause } : {}),
           ...(report.unconfirmed ? { unconfirmed: true as const } : {}),
+          ...(report.reason === "fill-only" ? { fillOnly: true as const } : {}),
         },
       };
     else if (report.type === "generation" && report.outcome !== "skipped") {
@@ -615,6 +621,7 @@ const storedSchema = v.object({
             outcome: v.exactOptional(v.string()),
             cause: v.exactOptional(v.string()),
             unconfirmed: v.exactOptional(v.literal(true)),
+            fillOnly: v.exactOptional(v.literal(true)),
           }),
         ),
         refused: v.exactOptional(
