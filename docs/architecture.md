@@ -617,7 +617,10 @@ up to 45 seconds for the site's matching vault items. When the search has not an
 by then, as while the vault is busy right after the extension restarts, the popup stops
 waiting and says to reopen it a little later, while the worker finishes the search, and
 the saved default shows by its saved labels. Under the header, a "This page" section
-([ADR 0038](adr/0038-login-status-badge.md#popup);
+(its status and log link shown unless the synced `popupPageSection` setting is `false`,
+set by the settings page's **Show "This page" in the popup** checkbox under the Theme
+select, while the personal details a page asks for still show;
+[ADR 0038](adr/0038-login-status-badge.md#popup) and its 2026-10-23 amendment;
 `apps/extension/src/popup/page-status.tsx`) asks the worker every second with
 `login.status.get` and says whether the site has a recipe that starts on the page (a
 later step a login may start at counts, ADR 0049), one on other paths only, or none; the

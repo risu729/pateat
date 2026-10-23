@@ -14,6 +14,7 @@ import {
   parseLocalSettings,
   parseSettingsResponse,
   parseSiteUrl,
+  popupPageSectionShown,
   resolveSiteAccount,
   SETTINGS_CHANGE_HISTORY,
   siteDefaultConnection,
@@ -460,6 +461,18 @@ describe("scoped metadata eligibility and next-login defaults", () => {
 });
 
 describe("strict settings schema", () => {
+  it("shows the popup's This page section unless the settings hide it", () => {
+    const settings = createDefaultSettings();
+    expect(popupPageSectionShown(settings)).toBe(true);
+    expect(popupPageSectionShown(parseLocalSettings({ ...settings, popupPageSection: true }))).toBe(
+      true,
+    );
+    expect(
+      popupPageSectionShown(parseLocalSettings({ ...settings, popupPageSection: false })),
+    ).toBe(false);
+    expect(() => parseLocalSettings({ ...settings, popupPageSection: "hidden" })).toThrow();
+  });
+
   it("rejects secret-shaped extras, duplicates, ambiguous hosts and non-origin defaults", () => {
     expect(parseLocalSettings(createDefaultSettings())).toEqual(createDefaultSettings());
     const settings = createDefaultSettings();

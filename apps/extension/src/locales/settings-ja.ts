@@ -76,6 +76,7 @@ export const settingsJa = {
   "Licenses and source": "ライセンスとソースコード",
   "GPL-3.0-only, no warranty": "GPL-3.0-only、無保証",
   Theme: "テーマ",
+  'Show "This page" in the popup': "ポップアップに「このページ」を表示",
   Light: "ライト",
   Dark: "ダーク",
   "Stored settings are invalid. They were not replaced.":
