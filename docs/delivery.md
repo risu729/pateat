@@ -29,26 +29,33 @@ every library Chromium links, the tests are headless, and in that run apt spent 
 slow Azure mirror (45 kB/s), against 2 seconds in the other shards. The `Verify` job
 runs the rest of the graph (lint, typecheck, unit and component tests with
 [coverage](development.md#test-coverage), build checks) with `PATEAT_SKIP_E2E=1` (any
-non-empty value), which turns `//tests/extension:test` into a no-op there. Both jobs
-pull the pinned Vaultwarden and Mailpit images from `ghcr.io` and run them with the
-runner's Docker: `Verify` for the
-[Vaultwarden self-check](development.md#vaultwarden-test-server) and the Browser shard
-that holds `vaultwarden.spec.ts` for its sign-ins. Without that variable, as in a local
-`mise run check`, the suite runs whole. With four shards the first sharded runs took 4
-to 7 minutes (mean 4m41s over 37 runs on 2026-10-11 and 12), where each shard still
-repeated the rest of the graph; `Verify` and the shards run side by side now. With six
-shards and `Verify` split out, 16 PR runs on 2026-10-12 between 06:11 and 07:24 UTC (JST
-15:11 to 16:24) took 4m06s on average (3m19s to 5m28s) and 11 successful main runs 4m44s
-(3m28s to 8m00s); the slowest ones overlapped other runs. Every run is 9 jobs
-(`Changes`, `Verify`, six `Browser` shards, `CI Check`), or 3 for a documentation-only
-PR (`Changes`, `Verify`, `CI Check`); a main push adds a tenth, `Deploy tested server`,
-which a pull request skips. The owner decided on 2026-10-12 that CI runs no Windows job
-at all: the tests drive Playwright's Chromium, not the owner's Chrome, no extension code
-branches on the platform, and no Pateat defect was ever found only on Windows (the
-Windows failures seen were a local missing SideBySide assembly, system-drive I/O stalls
-and a 30 s timeout of unknown cause). Installed-Chrome behaviour on Windows is covered
-by the real-Chrome checks, not by CI. `CI Check` requires `Changes` and `Verify` to
-succeed and `Browser` to be `success`, or `skipped` exactly when `Changes` reported a
+non-empty value), which turns `//tests/extension:test` into a no-op there, and with
+`PATEAT_SKIP_ORDERS=1`, which leaves out the walks over every order of events of a small
+login (`packages/contracts/src/*.orders-*.test.ts`). An `Event orders` job runs those
+walks alone (`mise run //packages/contracts:test:orders`, no coverage): they take a few
+seconds of CPU each, and beside the rest of the graph in `Verify` they took about 50 s
+each and hit Vitest's 5 s test timeout
+([run 40034957203](https://github.com/risu729/pateat/actions/runs/40034957203)); in
+their own job they add nothing to the run's time. Both jobs pull the pinned Vaultwarden
+and Mailpit images from `ghcr.io` and run them with the runner's Docker: `Verify` for
+the [Vaultwarden self-check](development.md#vaultwarden-test-server) and the Browser
+shard that holds `vaultwarden.spec.ts` for its sign-ins. Without those variables, as in
+a local `mise run check`, the browser suite and the walks run with the rest. With four
+shards the first sharded runs took 4 to 7 minutes (mean 4m41s over 37 runs on 2026-10-11
+and 12), where each shard still repeated the rest of the graph; `Verify` and the shards
+run side by side now. With six shards and `Verify` split out, 16 PR runs on 2026-10-12
+between 06:11 and 07:24 UTC (JST 15:11 to 16:24) took 4m06s on average (3m19s to 5m28s)
+and 11 successful main runs 4m44s (3m28s to 8m00s); the slowest ones overlapped other
+runs. Every run is 10 jobs (`Changes`, `Verify`, `Event orders`, six `Browser` shards,
+`CI Check`), or 4 for a documentation-only PR (`Changes`, `Verify`, `Event orders`,
+`CI Check`); a main push adds an eleventh, `Deploy tested server`, which a pull request
+skips. The owner decided on 2026-10-12 that CI runs no Windows job at all: the tests
+drive Playwright's Chromium, not the owner's Chrome, no extension code branches on the
+platform, and no Pateat defect was ever found only on Windows (the Windows failures seen
+were a local missing SideBySide assembly, system-drive I/O stalls and a 30 s timeout of
+unknown cause). Installed-Chrome behaviour on Windows is covered by the real-Chrome
+checks, not by CI. `CI Check` requires `Changes`, `Verify` and `Event orders` to succeed
+and `Browser` to be `success`, or `skipped` exactly when `Changes` reported a
 documentation-only PR; it runs even when an upstream job failed. A `Changes` job (no
 checkout, on `ubuntu-slim`) decides whether a PR needs the browser tests: a PR whose
 changed files are all under `docs/` or `apps/docs/` (the
@@ -72,10 +79,11 @@ setting that allows GitHub Actions to create pull requests. Linux jobs pin
 `ubuntu-26.04`; the `CI Check` aggregate only compares results, so it runs on the
 single-CPU `ubuntu-slim` runner. CodeQL needs no Actions cache: dependency caching is
 off by default in advanced setup and its TRAP cache is disabled, so the workflow sets
-`cache-mode: none`. In `ci.yml` the `Verify`, `Browser` and `Deploy tested server` jobs
-share their checkout, mise and aube install steps through YAML anchors (`&checkout`,
-`&mise`, `&install`), so those pins appear once in `ci.yml`; zizmor warns that it audits
-anchored workflows on a best-effort basis. GitHub Code Quality is not used: since its
+`cache-mode: none`. In `ci.yml` the `Verify`, `Event orders`, `Browser` and
+`Deploy tested server` jobs share their checkout, mise and aube install steps through
+YAML anchors (`&checkout`, `&mise`, `&install`), so those pins appear once in `ci.yml`;
+zizmor warns that it audits anchored workflows on a best-effort basis. GitHub Code
+Quality is not used: since its
 [2026-07-20 general availability](https://github.blog/changelog/2026-06-16-github-code-quality-generally-available-july-20-2026)
 it is a paid product for GitHub Team and Enterprise Cloud organizations, and this
 repository is user-owned. On 2026-10-11 the owner removed its ruleset rule here and in
