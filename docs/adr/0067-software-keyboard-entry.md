@@ -123,14 +123,16 @@ their character by `aria-label`, by an image's `alt`, or only as an image.
   submission then counts as the step's click, as a code that submits itself does
   ([ADR 0027](0027-per-account-login-routes.md)): the login records the submission, is
   settled and judged as after a click, and is never typed again. So does a new document
-  that replaces the page while the fill is still running, but only after the page told
-  of the first key press: one before it, as after the person's own link click, a
-  redirect or a reload, submitted nothing. After the step and before its click, a page
-  that moved to another path, or shows a signed-in marker or the rejection without the
-  button, counts the same, as for a code. A field the page only redraws, hides or moves
-  to another form is no submission: the step stops with `keypad-pressed`. A stop never
-  presses again, never presses a clear key and never clicks the submit button. A key
-  that shows its character only as an image without `alt` is never used.
+  that replaces the page while the fill is still running, or once it went in and before
+  its click is prepared, but only after the page told of the first key press: one before
+  it, as after the person's own link click, a redirect or a reload, submitted nothing,
+  and so did one after a stop the fill answered, as the reload the person is asked for.
+  After the step and before its click, a page that moved to another path, or shows a
+  signed-in marker or the rejection without the button, counts the same, as for a code.
+  A field the page only redraws, hides or moves to another form is no submission: the
+  step stops with `keypad-pressed`. A stop never presses again, never presses a clear
+  key and never clicks the submit button. A key that shows its character only as an
+  image without `alt` is never used.
 - **A fill-only login presses no key.** A fill-only login after a logout (ADR 0021 D)
   ends before a fill on a keypad, as before a step with an effect, since a press may
   submit, as a PIN pad does at its last digit; the contracts refuse such a step for it.

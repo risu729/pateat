@@ -884,6 +884,82 @@ describe("production login document admission", () => {
         expect(executed().map((step) => step.kind)).toEqual(["fill"]);
       },
     );
+    /** Tells the runtime of the keypad fill's first key press, as the page does. */
+    const press = (h: ReturnType<typeof harness>, message: Record<string, unknown>) => {
+      const operation = message["operation"] as { attemptId: string; operationId: string };
+      return h.login.handle(
+        {
+          version: 1,
+          type: "login.keypad.press",
+          token: "synthetic-token",
+          attemptId: operation.attemptId,
+          operationId: operation.operationId,
+        },
+        sender(),
+      );
+    };
+    it.each([false, true])(
+      "takes a page replaced after the keypad fill went in and before its click for its submission only after a key press (%s)",
+      async (pressed) => {
+        const h = harness();
+        h.recipes.recipe.mockResolvedValue(keypadRecipe);
+        fake.state.onExecute = async (message) => {
+          if (pressed) await press(h, message);
+        };
+        // The fill answered; the click's wait for its button holds, and the page that
+        // submitted at its last digit is replaced meanwhile.
+        let waiting = false;
+        fake.state.awaitReply = () => {
+          if (executed().length === 0) return undefined;
+          waiting = true;
+          return new Promise(() => undefined) as never;
+        };
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(waiting).toBe(true));
+        expect(attempts()).toMatchObject([{ stepIndex: 1, submissions: 0 }]);
+        fake.state.onExecute = undefined;
+        fake.state.awaitReply = undefined;
+        expect(await h.hello({ documentId: "next-page" })).toEqual({ ok: true });
+        await vi.waitFor(() =>
+          expect(attempts()).toMatchObject([
+            pressed
+              ? { submissions: 1, operationKind: "click" }
+              : { submissions: 0, outcome: "interrupted" },
+          ]),
+        );
+        if (pressed) expect(executed().map((step) => step.kind)).toEqual(["fill"]);
+      },
+    );
+    it("takes no page after a keypad stop that pressed keys for a submission", async () => {
+      // The fill stopped after a key press, as when the page redrew its field; the person
+      // reloads the page as told while the login still waits for the page's result.
+      fake.state.executeReply = {
+        ok: false,
+        reason: "structural-mismatch",
+        mutation: "possible",
+        detail: "keypad-pressed",
+      };
+      const h = harness();
+      h.recipes.recipe.mockResolvedValue(keypadRecipe);
+      const answers: unknown[] = [];
+      fake.state.onExecute = async (message) => {
+        answers.push(await press(h, message));
+      };
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(attempts()).toMatchObject([
+          { state: "reconciling", outcome: "structural-mismatch" },
+        ]),
+      );
+      expect(answers).toEqual([true]);
+      fake.state.onExecute = undefined;
+      expect(await h.hello({ documentId: "reloaded" })).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(attempts()).toMatchObject([{ document: { documentId: "reloaded" } }]),
+      );
+      expect(attempts()).toMatchObject([{ submissions: 0 }]);
+      expect(executed().map((step) => step.kind)).toEqual(["fill"]);
+    });
     it("refuses a key press notice for a step that is no keypad fill", async () => {
       const h = harness();
       const answers: unknown[] = [];

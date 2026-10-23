@@ -1460,22 +1460,37 @@ function selfSubmitStep(
 /**
  * Whether a TOTP code's fill (see `codeStep`) went in, or may have, and its click has not
  * run (ADR 0027): a page that moved on meanwhile submitted the code by itself. A fill on a
- * software keyboard counts only while it is still running and after the page told of its
- * first key press (`keyPressed`, ADR 0067): a document that replaced the page before any
- * press, as after the person's own link click or a reload, submitted nothing.
+ * software keyboard counts only after the page told of its first key press (`press`, ADR
+ * 0067), while the fill is still running or once it went in and before its click is
+ * prepared: a document that replaced the page before any press, as after the person's own
+ * link click or a reload, submitted nothing, and neither did one after a stopped fill.
  */
 const codeAwaitsClick = (
   recipe: LoginRecipe,
   metadata: LoginAttemptMetadata,
-  keyPressed: boolean,
+  press: KeypadPress | undefined,
 ) =>
   metadata.operationId === undefined
-    ? codeStep(recipe, metadata, metadata.stepIndex) === "click"
+    ? codeStep(recipe, metadata, metadata.stepIndex) === "click" ||
+      (press?.filled === true &&
+        press.stepIndex === metadata.stepIndex - 1 &&
+        selfSubmitStep(recipe, metadata, metadata.stepIndex) === "click")
     : metadata.operationKind === "fill" &&
       metadata.operationEffect === "prepare" &&
       metadata.mutationIntent === true &&
       (codeStep(recipe, metadata, metadata.stepIndex) === "fill" ||
-        (keyPressed && selfSubmitStep(recipe, metadata, metadata.stepIndex) === "fill"));
+        (press?.filled !== true &&
+          press?.operationId === metadata.operationId &&
+          selfSubmitStep(recipe, metadata, metadata.stepIndex) === "fill"));
+/**
+ * A keypad fill whose page told of its first key press (ADR 0067): its operation and plan
+ * step, and whether it went in.
+ */
+interface KeypadPress {
+  operationId: string;
+  stepIndex: number;
+  filled?: true;
+}
 /** The event for a code the page submitted by itself, marking a route step's code. */
 const autoSubmitted = (recipe: LoginRecipe, metadata: LoginAttemptMetadata) => ({
   type: "AUTO_SUBMITTED" as const,
@@ -2374,10 +2389,10 @@ export function createLoginRuntime(
   const attempts = new Map<number, Execution>();
   /**
    * The keypad fill of each attempt whose page told of its first key press, by attempt ID
-   * (ADR 0067). Kept in memory only: after a worker restart a replaced page is not taken
-   * as the keypad's own submission.
+   * (ADR 0067), until the fill stops or the next operation answers. Kept in memory only:
+   * after a worker restart a replaced page is not taken as the keypad's own submission.
    */
-  const keypadPresses = new Map<string, string>();
+  const keypadPresses = new Map<string, KeypadPress>();
   /**
    * By attempt ID, the document each new login of this worker began in; a resumed or
    * recovered one has none, so it never counts as unsubmitted (ADR 0066).
@@ -7750,6 +7765,15 @@ export function createLoginRuntime(
         result.success &&
         result.output.operationId === operation.operationId &&
         result.output.documentId === run.live.document.documentId;
+      // A keypad fill's key press counts toward the page's own submission while the fill
+      // runs, and once it went in until its click is prepared; an answered stop ends it, as
+      // does the next operation's answer (ADR 0067). A fill left unanswered, as by a page
+      // that went away during it, keeps it for the page that follows.
+      const press = keypadPresses.get(run.metadata.id);
+      if (press?.operationId === operation.operationId && matchedResult && result.output.ok)
+        press.filled = true;
+      else if (press && (press.operationId !== operation.operationId || matchedResult))
+        keypadPresses.delete(run.metadata.id);
       // A click left to the person under a CAPTCHA is then observed as Pateat's own click.
       const leftToPerson =
         matchedResult &&
@@ -10944,12 +10968,7 @@ export function createLoginRuntime(
       // So did a software keyboard's page once a key was pressed (ADR 0067).
       if (
         previous.document.documentId !== document.documentId &&
-        codeAwaitsClick(
-          recipe,
-          resumed,
-          resumed.operationId !== undefined &&
-            keypadPresses.get(resumed.id) === resumed.operationId,
-        )
+        codeAwaitsClick(recipe, resumed, keypadPresses.get(resumed.id))
       )
         resumed = transitionLoginAttempt(resumed, autoSubmitted(recipe, resumed));
       metadata = transitionLoginAttempt(resumed, {
@@ -11962,7 +11981,10 @@ export function createLoginRuntime(
         )
       )
         return false;
-      keypadPresses.set(found.run.metadata.id, found.operation.operationId);
+      keypadPresses.set(found.run.metadata.id, {
+        operationId: found.operation.operationId,
+        stepIndex: found.operation.stepIndex,
+      });
       return true;
     }
     const authorization = v.safeParse(authorizeSchema, message);

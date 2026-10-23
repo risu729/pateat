@@ -69,10 +69,11 @@ shown with it, and only when its text names a password choice (implemented).
 Amended on 2026-10-23 by [ADR 0067](0067-software-keyboard-entry.md): a route step's
 fill on a page's software keyboard, followed on its path by its submit click, is taken
 as submitted by the page as a code is: while the fill runs, when the page moves to
-another path or takes the field out of the document after a key press, or a new document
-replaces it after the page told the background of its first key press; after the fill
-and before the click, when the page moved to another path or shows a signed-in marker or
-the rejection without the button.
+another path or takes the field out of the document after a key press; when a new
+document replaces it after the page told the background of its first key press, while
+the fill runs or once it went in and before the click is prepared, but not after a stop
+the fill answered; and after the fill and before the click, when the page moved to
+another path or shows a signed-in marker or the rejection without the button.
 
 Amended on 2026-10-18 by [ADR 0049](0049-start-at-a-later-step.md) (owner, 01:40 UTC,
 implemented): a later step a login may start at releases a watched login as its first
