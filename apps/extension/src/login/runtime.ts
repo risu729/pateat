@@ -2492,7 +2492,7 @@ export function createLoginRuntime(
   function showHeld(tabId: number): void {
     badge.note(
       tabId,
-      "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait 5 minutes and reload this page, to log in here.",
+      "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait up to 5 minutes and reload this page, to log in here.",
     );
   }
   /** The attempt a tab runs, else the one it last recorded. */

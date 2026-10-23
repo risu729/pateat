@@ -8,16 +8,26 @@ const ja = i18n.getFixedT("ja");
 
 describe("the popup's reason for asking (ADR 0021)", () => {
   it("names why the tab asks after a logout", () => {
-    expect(choiceReason("this-tab", 2, en)).toBe("You logged out of this site in this tab");
-    expect(choiceReason("other-tab", 2, en)).toBe("You logged out of this site in another tab");
+    expect(choiceReason("this-tab", 2, en)).toBe("You were logged out of this site in this tab.");
+    // Another tab's logout and another tab's rejected login both ask with `other-tab`.
+    expect(choiceReason("other-tab", 2, en)).toBe(
+      "You were logged out of this site in another tab, or the site did not accept a login there.",
+    );
+    // The popup names the rejection when another tab still asks after one.
+    expect(choiceReason("other-tab", 2, en, true)).toBe(
+      "The site did not accept a login in another tab.",
+    );
     // The site did not accept this tab's last login (ADR 0021 D, 2026-10-13).
     expect(choiceReason("rejected", 3, en)).toBe(
-      "The site did not accept the last login in this tab",
+      "The site did not accept the last login in this tab.",
+    );
+    expect(choiceReason("rejected", 3, en, true)).toBe(
+      "The site did not accept the last login in this tab.",
     );
     // A login that stopped after a submission, or a watched login that ended before it
     // signed in (ADR 0027), asks in this tab only.
     expect(choiceReason("stopped-login", 1, en)).toBe(
-      "The last login on this site stopped in this tab",
+      "The last login on this site stopped in this tab.",
     );
   });
 
@@ -32,31 +42,37 @@ describe("the popup's reason for asking (ADR 0021)", () => {
       "The page changed, so nothing was started. Example was not made the default. Reload it to choose again.",
     );
     expect(pickFailure("origin-busy", "Example", false, en)).toBe(
-      "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. Close that tab or wait up to 5 minutes, then choose again.",
+      "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. Close that tab, or wait up to 5 minutes, then choose again.",
     );
     expect(pickFailure("no-choice", "Example", false, en)).toBe(
-      "This page is no longer waiting for a choice",
+      "This page no longer waits for an account choice.",
     );
     expect(pickFailure("not-a-candidate", "Example", true, en)).toBe(
-      "This page is no longer waiting for a choice. Example was not made the default.",
+      "This page no longer waits for an account choice. Example was not made the default.",
     );
   });
 
   it("counts the matches outside a logout", () => {
-    expect(choiceReason(undefined, 3, en)).toBe("3 accounts match this page");
-    expect(choiceReason(undefined, 1, en)).toBe("1 account matches this page");
+    expect(choiceReason(undefined, 3, en)).toBe("3 accounts match this page.");
+    expect(choiceReason(undefined, 1, en)).toBe("1 account matches this page.");
   });
 
   it("says the same in Japanese, with the account name kept as written", () => {
     expect(choiceReason("rejected", 3, ja)).toBe(
-      "このタブでの前回のログインはサイトに受け付けられませんでした",
+      "このタブでの前回のログインはサイトに受け付けられませんでした。",
     );
-    expect(choiceReason(undefined, 3, ja)).toBe("3 件のアカウントがこのページに一致します");
+    expect(choiceReason("other-tab", 2, ja)).toBe(
+      "別のタブでこのサイトからログアウトされたか、そのタブでのログインがサイトに受け付けられませんでした。",
+    );
+    expect(choiceReason("other-tab", 2, ja, true)).toBe(
+      "別のタブでのログインがサイトに受け付けられませんでした。",
+    );
+    expect(choiceReason(undefined, 3, ja)).toBe("3 件のアカウントがこのページに一致します。");
     expect(pickFailure("document-gone", "<b>Example</b>", true, ja)).toBe(
       "ページが変わったため、ログインを開始しませんでした。<b>Example</b> は既定のアカウントになっていません。もう一度選ぶには、ページを再読み込みしてください。",
     );
     expect(pickFailure("no-choice", "Example", false, ja)).toBe(
-      "このページはアカウントの選択を待っていません",
+      "このページはアカウントの選択を待っていません。",
     );
   });
 

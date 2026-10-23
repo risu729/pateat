@@ -36,7 +36,7 @@ function errorMessage(error: ServiceErrorCode, origin?: string): ServiceMessage 
     case "storage-corrupt":
       return "Pateat cannot read its saved service connection. Forget it here, then revoke the old device on the service's management page if it was paired.";
     case "site-access-needed":
-      return "Chrome is not letting Pateat reach this service. Allow site access when Chrome asks, or in the extension's site access settings.";
+      return "Chrome does not let Pateat reach this service. Allow site access when Chrome asks, or in Pateat's site access settings in Chrome.";
     case "unreachable":
       return "The service could not be reached. Check the address, then try again.";
     case "rate-limited":
@@ -123,7 +123,7 @@ export function ServiceConnection({
     try {
       await run();
     } catch {
-      if (mounted.current) setMessage("The extension did not answer. Reload this page to retry.");
+      if (mounted.current) setMessage("Pateat did not answer. Reload this page to try again.");
     } finally {
       acting.current = false;
       if (mounted.current) setBusy(false);
@@ -170,7 +170,7 @@ export function ServiceConnection({
     mounted.current = true;
     void client.get().then(
       (response) => receive(response),
-      () => setMessage("The extension did not answer. Reload this page to retry."),
+      () => setMessage("Pateat did not answer. Reload this page to try again."),
     );
     return () => {
       mounted.current = false;
@@ -321,7 +321,7 @@ export function ServiceConnection({
                 tone: "idle",
                 icon: Lock,
                 text: t(
-                  "Syncs recipes, site exclusions, saved accounts and account bindings. Never sends vault values, passwords or keys.",
+                  "Syncs recipes, site exclusions, default accounts and account bindings. Never sends vault values, passwords or keys.",
                 ),
               },
             ]}
@@ -383,7 +383,7 @@ export function ServiceConnection({
                           tone: "err",
                           icon: CircleX,
                           text: t(
-                            "The service no longer accepts this device. Login keeps using the recipes synced before; disconnect and pair again to sync.",
+                            "The service no longer accepts this device. Logins keep using the recipes synced before; disconnect and pair again to sync.",
                           ),
                         }
                       : state.cacheFull
@@ -391,14 +391,14 @@ export function ServiceConnection({
                             tone: "warn",
                             icon: TriangleAlert,
                             text: t(
-                              "Your recipes or settings no longer fit, so newer changes are not applied. Login keeps using what was synced before.",
+                              "Your recipes or settings no longer fit on this device, so newer changes are not applied. Logins keep using what was synced before.",
                             ),
                           }
                         : state.syncedAt === undefined
                           ? {
                               tone: "idle",
                               icon: Clock,
-                              text: t("Recipes and settings have not finished syncing yet"),
+                              text: t("Recipes and settings not synced yet"),
                             }
                           : {
                               tone: "ok",

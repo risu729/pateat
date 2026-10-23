@@ -37,20 +37,20 @@ const originSchema = v.pipe(
     const origin = value.trim();
     const url = parseSiteUrl(origin);
     return Boolean(url && url.origin === origin && normalizeHostname(url.hostname));
-  }, "Enter an exact HTTP(S) origin without a path or trailing slash."),
+  }, "Enter an origin such as https://bank.example, without a path or trailing slash."),
 );
 
 function unavailableReason(reason: string): string {
   const descriptions: Record<string, string> = {
     "invalid-url": "The destination is invalid.",
     "site-excluded": "This site is excluded.",
-    "default-not-set": "No default account is configured.",
+    "default-not-set": "No default account is set.",
     "item-origin-mismatch": "This account does not match the exact origin.",
     "connection-missing": "The vault connection is unavailable.",
     "account-ambiguous": "This vault account is connected more than once.",
     "vault-unavailable": "The vault is locked or unavailable.",
-    "connection-disabled": "The vault connection is disabled.",
-    "item-missing": "The account is unavailable.",
+    "connection-disabled": "The vault connection is turned off.",
+    "item-missing": "This account is no longer in its vault.",
     "item-excluded": "This account is excluded.",
     "item-not-selected": "This account is outside the selected groups and items.",
     "fields-excluded": "All fields in this account are excluded.",
@@ -477,7 +477,7 @@ export function SitePolicy({
       line = {
         tone: "ok",
         icon: CircleCheck,
-        text: t("Matches this origin by {{method}}; checked again on each login", {
+        text: t("Matches this origin by {{method}}. It is checked again at each login.", {
           method: t(matchedBy({ uri: match.uri, passkey: match.passkey })),
         }),
       };
@@ -486,7 +486,7 @@ export function SitePolicy({
         tone: "warn",
         icon: TriangleAlert,
         text: t(
-          "No URI rule or passkey of this item matches this origin; a URI rule on a longer path is checked on each login",
+          "No URI rule or passkey of this item matches this origin. A URI rule on a longer path is checked at each login.",
         ),
       };
     else
@@ -494,7 +494,7 @@ export function SitePolicy({
         tone: "idle",
         icon: Info,
         text: t(
-          "Whether it matches the page is checked against the vault's URI rules or passkeys on each login",
+          "Whether it matches a page is checked against its URI rules or passkeys at each login.",
         ),
       };
     const unavailable = !resolved.ok && (!liveItem || resolved.reason !== "item-origin-mismatch");
@@ -598,9 +598,12 @@ export function SitePolicy({
                 {
                   tone: "idle",
                   icon: Info,
-                  text: t("Default for {{origin}} kept, unused while excluded", {
-                    origin: entry.origin,
-                  }),
+                  text: t(
+                    "The default for {{origin}} is kept but not used while the site is excluded.",
+                    {
+                      origin: entry.origin,
+                    },
+                  ),
                 },
               ]}
             />
@@ -784,11 +787,11 @@ export function SitePolicy({
       <StatusLines
         muted
         lines={[
-          { tone: "idle", icon: Ban, text: t("Excluding a site covers every scheme and port") },
+          { tone: "idle", icon: Ban, text: t("Excluding a site covers every scheme and port.") },
           {
             tone: "idle",
             icon: Clock,
-            text: t("A default account takes effect at the next login"),
+            text: t("A default account takes effect at the next login."),
           },
         ]}
       />
