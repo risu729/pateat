@@ -58,9 +58,12 @@ export function createServiceRuntime(options: {
   onPaired?: (connection: { origin: string; deviceId: string }) => void;
   /** The recipes this device holds as its own (ADR 0040). */
   deviceRecipes?: {
-    /** How many; undefined when they cannot be read. */
+    /** How many: -1 when they cannot be read, undefined while storage is unavailable. */
     count(): Promise<number | undefined>;
-    /** Keeps the paired device's synced recipes as its own; rejects when they do not fit. */
+    /**
+     * Keeps the paired device's synced recipes as its own; rejects when they cannot be
+     * read or do not fit.
+     */
     keepSynced(): Promise<void>;
     clear(): Promise<void>;
   };
@@ -224,8 +227,8 @@ export function createServiceRuntime(options: {
   async function withKeptRecipes(response: ServiceResponse): Promise<ServiceResponse> {
     if (response.state?.kind !== "disconnected" || !options.deviceRecipes) return response;
     const kept = await options.deviceRecipes.count();
-    if (kept === 0) return response;
-    return { ...response, state: { kind: "disconnected", keptRecipes: kept ?? -1 } };
+    if (kept === undefined || kept === 0) return response;
+    return { ...response, state: { kind: "disconnected", keptRecipes: kept } };
   }
 
   function enqueue<T>(task: () => Promise<T>): Promise<T> {

@@ -552,10 +552,16 @@ describe("recipes this device keeps as its own (ADR 0040)", () => {
       ok: true,
       state: { kind: "disconnected" },
     });
-    deviceRecipes.count.mockResolvedValue(undefined);
+    deviceRecipes.count.mockResolvedValue(-1);
     expect(await runtime.handle({ version: 1, type: "service.get" })).toEqual({
       ok: true,
       state: { kind: "disconnected", keptRecipes: -1 },
+    });
+    // Storage that is unavailable for now shows no count rather than offering deletion.
+    deviceRecipes.count.mockResolvedValue(undefined);
+    expect(await runtime.handle({ version: 1, type: "service.get" })).toEqual({
+      ok: true,
+      state: { kind: "disconnected" },
     });
   });
 

@@ -166,6 +166,7 @@ export function createRecipeSync(options: {
   device?: {
     list(): Promise<readonly StoredLoginRecipe[]>;
     upload(connection: ServiceConnection, stale: () => boolean): Promise<DeviceRecipeUpload>;
+    forget(held: ReadonlySet<string>, stale: () => boolean): Promise<void>;
   };
   /** Receives the outcome of each sync run and what it changed, for the local log. */
   report?: (outcome: RecipeSyncOutcome, changes: RecipeSyncChanges) => void;
@@ -261,6 +262,13 @@ export function createRecipeSync(options: {
     if (withSettings && options.device)
       await options.device.upload(connection, () => generation !== started).catch(() => undefined);
     const recipesOutcome = await pullRecipes(connection, started, changed);
+    if (withSettings && options.device && generation === started) {
+      const cache = await load(connection);
+      if (cache)
+        await options.device
+          .forget(new Set(cache.recipes.map((recipe) => recipe.id)), () => generation !== started)
+          .catch(() => undefined);
+    }
     if (["not-connected", "rejected", "unreachable", "rate-limited"].includes(recipesOutcome))
       return recipesOutcome;
     // Recipes alone do not complete a sync, so nothing is recorded for them.
@@ -606,11 +614,25 @@ export function createRecipeSync(options: {
     return load(connection);
   }
   type Held = { recipes: readonly StoredLoginRecipe[] };
-  /** The paired device's synced recipes, as a disconnect keeps them; none unpaired. */
+  /**
+   * The paired device's synced recipes, as a disconnect keeps them; none unpaired. It
+   * first stops a running sync, so the device's own store forgets nothing that this copy
+   * misses (ADR 0040), and rejects when the cache cannot be read.
+   */
   async function synced(): Promise<readonly StoredLoginRecipe[] | undefined> {
     const connection = await service.connection();
     if (!connection) return undefined;
-    return (await load(connection))?.recipes;
+    generation += 1;
+    if (!memory) {
+      const stored = await storage.read();
+      if (stored === undefined) return [];
+      const parsed = v.safeParse(cacheSchema, stored);
+      if (!parsed.success) throw new Error("The synced recipes cannot be read");
+      memory ??= parsed.output;
+    }
+    return memory.origin === connection.origin && memory.deviceId === connection.deviceId
+      ? memory.recipes
+      : [];
   }
   const choosersOf = (cache: Held, origin: string) =>
     cache.recipes.filter(

@@ -117,19 +117,27 @@ describe("recipes this device holds as its own (ADR 0040)", () => {
 
   it("counts a copy it cannot read as unreadable, and deletes it", async () => {
     const { recipes, storage } = setup({ version: 1, recipes: [{ id: "broken" }] });
-    expect(await recipes.count()).toBeUndefined();
+    expect(await recipes.count()).toBe(-1);
     await expect(recipes.list()).rejects.toThrow();
     await recipes.clear();
     expect(storage.value()).toBeUndefined();
     expect(await recipes.count()).toBe(0);
   });
 
-  it("uploads each recipe once as a new one at revision 1, and forgets those the service holds", async () => {
-    const held = [recipe("a"), recipe("b")];
+  it("counts nothing while storage is unavailable, which may pass", async () => {
+    const { recipes, storage } = setup({ version: 1, recipes: [recipe("a")] });
+    vi.mocked(storage.read).mockRejectedValueOnce(new Error("unavailable"));
+    expect(await recipes.count()).toBeUndefined();
+    expect(await recipes.count()).toBe(1);
+  });
+
+  it("uploads each recipe as a new one at revision 1, and forgets one the service revoked", async () => {
+    const held = [recipe("a"), recipe("b"), recipe("c")];
     const { recipes, writeRecipe, storage } = setup({ version: 1, recipes: held }, [
       { kind: "written", change: change(recipe("a")) },
-      // The service already holds `b`, also revoked: its copy wins.
+      // The service already holds `b` revoked: its copy wins.
       { kind: "conflict", current: { recipeId: "b", revision: 2, state: "revoked" } },
+      { kind: "conflict", current: change(recipe("c")) },
     ]);
     expect(await recipes.upload(CONNECTION, () => false)).toBe("done");
     expect(writeRecipe.mock.calls.map(([, , id, write]) => [id, write])).toEqual([
@@ -141,7 +149,17 @@ describe("recipes this device holds as its own (ADR 0040)", () => {
         "b",
         { version: 1, expectedRevision: 0, state: "active", recipe: { ...held[1], revision: 1 } },
       ],
+      [
+        "c",
+        { version: 1, expectedRevision: 0, state: "active", recipe: { ...held[2], revision: 1 } },
+      ],
     ]);
+    // Those the service holds active stay until the synced cache holds them too, so a
+    // disconnect that keeps the synced recipes cannot miss them.
+    expect(await recipes.list()).toEqual([recipe("a"), recipe("c")]);
+    await recipes.forget(new Set(["a", "c", "other"]), () => true);
+    expect(await recipes.count()).toBe(2);
+    await recipes.forget(new Set(["a", "c", "other"]), () => false);
     expect(storage.value()).toBeUndefined();
   });
 
@@ -151,6 +169,7 @@ describe("recipes this device holds as its own (ADR 0040)", () => {
       { kind: "written", change: change(recipe("b")) },
     ]);
     expect(await recipes.upload(CONNECTION, () => false)).toBe("done");
+    await recipes.forget(new Set(["b"]), () => false);
     expect(await recipes.list()).toEqual([recipe("a")]);
     expect(await recipes.upload(CONNECTION, () => false)).toBe("done");
     expect(writeRecipe).toHaveBeenCalledTimes(2);
@@ -159,6 +178,7 @@ describe("recipes this device holds as its own (ADR 0040)", () => {
     writeRecipe.mockResolvedValueOnce({ kind: "written", change: change(recipe("a")) });
     expect(await recipes.upload(CONNECTION, () => false)).toBe("done");
     expect(writeRecipe).toHaveBeenCalledTimes(3);
+    await recipes.forget(new Set(["a"]), () => false);
     expect(await recipes.count()).toBe(0);
   });
 
@@ -175,21 +195,23 @@ describe("recipes this device holds as its own (ADR 0040)", () => {
     ]);
     expect(await recipes.upload(CONNECTION, () => false)).toBe(outcome);
     expect(writeRecipe).toHaveBeenCalledTimes(2);
-    expect(await recipes.list()).toEqual([recipe("b")]);
+    expect(await recipes.list()).toEqual([recipe("a"), recipe("b")]);
   });
 
   it("forgets nothing when the device was disconnected meanwhile", async () => {
     let stale = false;
     const { recipes } = setup({ version: 1, recipes: [recipe("a")] }, () => {
       stale = true;
-      return { kind: "written", change: change(recipe("a")) };
+      return { kind: "conflict", current: { recipeId: "a", revision: 2, state: "revoked" } };
     });
     await recipes.upload(CONNECTION, () => stale);
     expect(await recipes.list()).toEqual([recipe("a")]);
   });
 
   it("keeps a copy kept under the ID while it was uploading", async () => {
-    const { recipes } = setup({ version: 1, recipes: [recipe("a")] });
+    const { recipes } = setup({ version: 1, recipes: [recipe("a")] }, [
+      { kind: "conflict", current: { recipeId: "a", revision: 2, state: "revoked" } },
+    ]);
     const uploading = recipes.upload(CONNECTION, () => false);
     await recipes.keep([recipe("a", 9)]);
     await uploading;

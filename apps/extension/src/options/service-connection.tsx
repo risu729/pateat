@@ -164,6 +164,9 @@ export function ServiceConnection({
     // Any response carrying a state proves the stored record is readable.
     if (response.ok || response.state) setCorrupt(false);
     else if (response.error === "storage-corrupt") setCorrupt(true);
+    // A disconnect from elsewhere drops the pending choice, so a later pairing never
+    // shows it unasked.
+    if (response.state && response.state.kind !== "connected") setConfirmingDisconnect(false);
     if (response.ok) {
       setState(response.state);
       if (success !== undefined) setMessage(success);

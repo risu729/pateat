@@ -2006,6 +2006,9 @@ describe("recipes this device holds as its own (ADR 0040)", () => {
       upload: vi.fn<NonNullable<Parameters<typeof createRecipeSync>[0]["device"]>["upload"]>(
         async () => "done",
       ),
+      forget: vi.fn<NonNullable<Parameters<typeof createRecipeSync>[0]["device"]>["forget"]>(
+        async () => undefined,
+      ),
     };
   }
 
@@ -2076,5 +2079,51 @@ describe("recipes this device holds as its own (ADR 0040)", () => {
     const { sync, transport } = setup({ device: own });
     expect(await sync.sync()).toBe("synced");
     expect(transport.recipeChanges).toHaveBeenCalled();
+  });
+
+  it("forgets those the synced cache holds after the pull", async () => {
+    const own = device();
+    const { sync } = setup({ device: own, pages: [page([active(held)], 3)] });
+    expect(await sync.sync()).toBe("synced");
+    expect(own.forget).toHaveBeenCalledExactlyOnceWith(
+      new Set(["bank-held"]),
+      expect.any(Function),
+    );
+    expect(own.forget.mock.calls[0]![1]()).toBe(false);
+  });
+
+  it("stops a running sync before a disconnect copies the synced recipes", async () => {
+    const own = device();
+    const signin = recipe("bank-signin", "/login");
+    const h = setup({
+      device: own,
+      stored: { version: 2, origin: SERVICE, deviceId: DEVICE, cursor: 2, recipes: [signin] },
+    });
+    let release: (result: RecipeChangesResult) => void = () => undefined;
+    h.transport.recipeChanges.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    const running = h.sync.sync();
+    await vi.waitFor(() => expect(h.transport.recipeChanges).toHaveBeenCalledOnce());
+    expect(await h.sync.synced()).toEqual([signin]);
+    const [, stale] = own.upload.mock.calls[0]!;
+    expect(stale()).toBe(true);
+    release(page([active(held)], 3));
+    expect(await running).toBe("not-connected");
+    expect(own.forget).not.toHaveBeenCalled();
+  });
+
+  it("refuses to copy a synced cache it cannot read", async () => {
+    const h = setup({ device: device(), stored: { version: 2, broken: true } });
+    await expect(h.sync.synced()).rejects.toThrow();
+    const down = setup({ device: device() });
+    down.storage.read.mockRejectedValueOnce(new Error("unavailable"));
+    await expect(down.sync.synced()).rejects.toThrow();
+    // No cache yet: nothing to keep.
+    await expect(setup({ device: device() }).sync.synced()).resolves.toEqual([]);
+    expect(await setup({ device: device(), connection: undefined }).sync.synced()).toBeUndefined();
   });
 });

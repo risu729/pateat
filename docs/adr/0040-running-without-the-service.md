@@ -140,27 +140,32 @@ A device keeps its own recipes apart from the synced cache, in trusted local sto
 paired, logins use only the service's recipes.
 
 - **Unpairing** (card, 13:04 UTC): **Disconnect this device** asks whether to keep the
-  synced recipes. **Disconnect and keep recipes** copies the synced cache into the
-  device's store before the device is revoked; **Disconnect and delete recipes** leaves
-  the store as it is and deletes the cache, as before. Settings stay on the device
-  either way, as they did before this change, so the choice is about recipes only.
-  Chosen by an agent: a recipe already kept under the same ID is replaced only by a
-  newer revision; the store holds at most 2 MiB, the synced cache's share; when the
-  recipes cannot be kept (too large or storage failed) the device stays paired and the
-  page says so (`recipes-not-kept`). While disconnected, the settings page shows how
-  many recipes are kept, or that they cannot be read, with
-  **Delete recipes on this device** (`service.delete-recipes`, refused while paired).
+  synced recipes. **Disconnect and keep recipes** stops a running sync and copies the
+  synced cache into the device's store before the device is revoked;
+  **Disconnect and delete recipes** leaves the store as it is and deletes the cache, as
+  before. Settings stay on the device either way, as they did before this change, so the
+  choice is about recipes only. Chosen by an agent: a recipe already kept under the same
+  ID is replaced only by a newer revision; the store holds at most 2 MiB, the synced
+  cache's share; when the recipes cannot be kept (too large, or the cache or the store
+  cannot be read or written) the device stays paired and the page says so
+  (`recipes-not-kept`). While disconnected, the settings page shows how many recipes are
+  kept, or that their stored copy cannot be read (not while storage is only
+  unavailable), with **Delete recipes on this device** (`service.delete-recipes`,
+  refused while paired).
 - **Upload once after pairing** (card, 12:36 UTC): each full sync of a paired device
   first uploads the kept recipes (`PUT /v1/recipes/:id` with `expectedRevision: 0`, as
   revision 1) and then pulls, so the pull brings them back from the service. A recipe
-  the service wrote, or already holds under its ID (revoked included, whose copy wins),
-  is removed from the store. A 400, 405, 413, or a 409 other than `recipe_limit` that
-  names no recipe of that ID, keeps the recipe on the device, and it is not sent again
-  until a newer revision is kept under its ID. `recipe_limit`, 429, a 5xx answer, any
-  other answer or no connection stops the upload until the next full sync; a 401 stops
-  it, and the pull then marks the device rejected. Chosen by an agent: a recipes-only
-  sync after a judged page ([ADR 0027](0027-per-account-login-routes.md)) uploads
-  nothing, and a device disconnected during the upload removes nothing from its store.
+  the service holds revoked under its ID is removed from the store at once, as the
+  service's copy wins; one it wrote or holds active is removed once the pull has put
+  that ID in the synced cache, so a disconnect that keeps the synced recipes cannot miss
+  it, and until then each full sync sends it again and gets a 409. A 400, 405, 413, or a
+  409 other than `recipe_limit` that names no recipe of that ID, keeps the recipe on the
+  device, and it is not sent again until a newer revision is kept under its ID.
+  `recipe_limit`, 429, a 5xx answer, any other answer or no connection stops the upload
+  until the next full sync; a 401 stops it, and the pull then marks the device rejected.
+  Chosen by an agent: a recipes-only sync after a judged page
+  ([ADR 0027](0027-per-account-login-routes.md)) uploads nothing, and a device
+  disconnected during the upload removes nothing from its store.
 
 ### Running without the service (later pull requests)
 

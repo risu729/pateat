@@ -108,11 +108,14 @@ export function createDeviceRecipes(options: {
       return (await load()).recipes;
     },
 
-    /** How many recipes are kept here, or undefined when they cannot be read. */
+    /**
+     * How many recipes are kept here: -1 when the stored copy cannot be read, and
+     * undefined while storage is unavailable, which may pass.
+     */
     count(): Promise<number | undefined> {
       return load().then(
         (store) => store.recipes.length,
-        () => undefined,
+        (error: unknown) => (error instanceof DeviceRecipesCorrupt ? -1 : undefined),
       );
     },
 
@@ -150,11 +153,13 @@ export function createDeviceRecipes(options: {
 
     /**
      * Uploads the recipes kept here to the paired service (owner, 2026-10-23 12:36 UTC),
-     * each as a new recipe at revision 1, and forgets each one the service now holds:
-     * written, or already held under its ID (also revoked), whose service copy wins. A
-     * recipe the service refuses for good stays here and is not sent again; a full
-     * service, a refused rate, a server error or no connection stops the upload until the
-     * next full sync. A device disconnected meanwhile (`stale`) forgets nothing.
+     * each as a new recipe at revision 1. One the service holds revoked under its ID is
+     * forgotten, as the service's copy wins; one written or held active stays until the
+     * synced cache holds it (`forget`), so a disconnect that keeps the synced recipes
+     * never misses it. A recipe the service refuses for good stays here and is not sent
+     * again; a full service, a refused rate, a server error or no connection stops the
+     * upload until the next full sync. A device disconnected meanwhile (`stale`) forgets
+     * nothing.
      */
     async upload(connection: ServiceConnection, stale: () => boolean): Promise<DeviceRecipeUpload> {
       const store = await load().catch(() => undefined);
@@ -162,7 +167,7 @@ export function createDeviceRecipes(options: {
       const refused = new Set(
         (store.refused ?? []).map((entry) => `${entry.id}\n${entry.revision}`),
       );
-      const settled = new Map<string, StoredLoginRecipe>();
+      const revoked = new Map<string, StoredLoginRecipe>();
       const newlyRefused: StoredLoginRecipe[] = [];
       let outcome: DeviceRecipeUpload = "done";
       for (const recipe of store.recipes) {
@@ -180,20 +185,22 @@ export function createDeviceRecipes(options: {
           // at 1.
           { version: 1, expectedRevision: 0, state: "active", recipe: { ...recipe, revision: 1 } },
         );
-        if (result.kind === "written" || result.kind === "conflict") settled.set(recipe.id, recipe);
-        else if (result.kind === "refused") newlyRefused.push(recipe);
+        if (result.kind === "written") continue;
+        if (result.kind === "conflict") {
+          if (result.current.state === "revoked") revoked.set(recipe.id, recipe);
+        } else if (result.kind === "refused") newlyRefused.push(recipe);
         else {
           outcome = result.kind === "rejected" ? "rejected" : "retry";
           break;
         }
       }
-      if ((settled.size > 0 || newlyRefused.length > 0) && !stale())
+      if ((revoked.size > 0 || newlyRefused.length > 0) && !stale())
         await enqueue(async () => {
           if (stale()) return;
           const held = await load();
           // Only the copies that were sent; one kept since under the ID stays.
           const left = held.recipes.filter((recipe) => {
-            const uploaded = settled.get(recipe.id);
+            const uploaded = revoked.get(recipe.id);
             return !uploaded || !sameRecipe(uploaded, recipe);
           });
           await save({
@@ -206,6 +213,20 @@ export function createDeviceRecipes(options: {
           });
         }).catch(() => undefined);
       return outcome;
+    },
+
+    /**
+     * Forgets the recipes whose IDs the paired service's synced cache now holds (`held`):
+     * the service's copy is the one logins use and a disconnect keeps. A device
+     * disconnected meanwhile (`stale`) forgets nothing.
+     */
+    forget(held: ReadonlySet<string>, stale: () => boolean): Promise<void> {
+      return enqueue(async () => {
+        if (stale()) return;
+        const store = await load();
+        const left = store.recipes.filter((recipe) => !held.has(recipe.id));
+        if (left.length !== store.recipes.length) await save({ ...store, recipes: left });
+      });
     },
   };
 }
