@@ -3406,8 +3406,10 @@ describe("production login document admission", () => {
           await navigate(h, `${www}/signin`, "signin-document", false);
           expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
           expect(judge).toHaveBeenCalledTimes(1);
-          // No branch, no partial description and no `beside`.
-          expect(judge.mock.calls[0]!.slice(5)).toEqual([undefined]);
+          // No branch, no partial description, no stop and no `beside`; the account's
+          // slots come last.
+          expect(judge.mock.calls[0]).toHaveLength(9);
+          expect(judge.mock.calls[0]!.slice(5, 8)).toEqual([undefined, undefined, undefined]);
         }, 15_000);
         it("ends left-origin when the page shows a password field once the answer is back", async () => {
           const { h } = await judged(async () => {
@@ -12407,11 +12409,12 @@ describe("production login document admission", () => {
           "password",
           besidePage.observation,
         ]);
-        // No branch and no partial description; only `beside`.
+        // No branch and no partial description; the account's slots, then `beside`.
         expect(service.judge.mock.calls[0]!.slice(5)).toEqual([
           undefined,
           undefined,
           undefined,
+          expect.any(Array),
           true,
         ]);
         // It counts as any judged page of the step.

@@ -692,7 +692,14 @@ describe("page judgement contracts (ADR 0027)", () => {
   });
 
   it("marks a page beside the sign-in form only as true, never with a stop (ADR 0061)", () => {
-    const request = { version: 1, revision: 2, route: "password", branch: "1000", observation };
+    const request = {
+      version: 1,
+      revision: 2,
+      route: "password",
+      branch: "1000",
+      observation,
+      slots: [],
+    };
     expect(v.is(recipeCompletionRequestSchema, { ...request, beside: true })).toBe(true);
     expect(v.is(recipeCompletionRequestSchema, { ...request, beside: true, partial: true })).toBe(
       true,
@@ -710,7 +717,7 @@ describe("page judgement contracts (ADR 0027)", () => {
   });
 
   it("carries the account's slots as a generation request does (owner 2026-10-23)", () => {
-    const request = { version: 1, revision: 2, route: "password", observation };
+    const request = { version: 1, revision: 2, route: "password", branch: "1000", observation };
     const accountSlots = [
       builtInLoginSlots.username,
       {

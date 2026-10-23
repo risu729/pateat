@@ -4029,7 +4029,8 @@ describe("page judgement (ADR 0027)", () => {
         replies.push(judgeReply(paired));
         const response = await asked(change.recipeId, 2);
         expect(response.status).toBe(200);
-        const body = (await response.json()) as RecipeCompletionResult;
+        // The change's recipe as the judged layout's route (ADR 0060).
+        const body = projected((await response.json()) as RecipeCompletionResult);
         expect(body).toMatchObject({
           status: "challenge",
           change: {
@@ -4570,6 +4571,7 @@ describe("page judgement (ADR 0027)", () => {
         revision,
         route: "password",
         observation: page,
+        slots: [],
         beside: true,
         ...extra,
       });
@@ -7635,6 +7637,7 @@ describe("recipe layouts (ADR 0060)", () => {
         route: "password",
         branch,
         observation: homePage,
+        slots: [],
       }).then(async (response) => (await response.json()) as RecipeCompletionResult);
     replies.push(judgeReply({ decision: "signed-in", marker: "logout" }));
     expect(await judge("2000")).toMatchObject({ status: "signed-in", change: { revision: 2 } });
@@ -8372,6 +8375,7 @@ describe("generation provenance (ADR 0060)", () => {
       route: "password",
       branch: "2000",
       observation: page,
+      slots: [],
       beside: true,
     });
     expect(await response.json()).toMatchObject({ status: "challenge", change: { revision: 2 } });
@@ -8446,6 +8450,7 @@ describe("generation provenance (ADR 0060)", () => {
       route: "password",
       branch: "account",
       observation: observation("/login/webauthn", [element("key", "button", "Use security key")]),
+      slots: [],
     });
     expect(await judged.json()).toMatchObject({ status: "challenge", change: { revision: 5 } });
     expect(await summary(device.ownerId, recipeId)).toEqual(

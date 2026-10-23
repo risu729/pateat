@@ -1000,7 +1000,7 @@ describe("handlers and code fields in generation requests (ADR 0027)", () => {
         undefined,
         slots,
       ),
-    ).toEqual({ verdict: "challenge", recipe: handled.recipe, questions });
+    ).toEqual({ verdict: "challenge", recipe: handledRuns, questions });
     // The page shows no code field, so `totp` stays out (ADR 0027).
     expect(h.transport.judgeCompletion).toHaveBeenLastCalledWith(
       connection.origin,
@@ -1010,6 +1010,7 @@ describe("handlers and code fields in generation requests (ADR 0027)", () => {
         version: 1,
         revision: 1,
         route: "password",
+        branch: KEY,
         observation: webauthn,
         slots: [slots[0], slots[2]],
       },
