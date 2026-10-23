@@ -17,7 +17,8 @@ export default defineConfig({
   shard: shardMatch ? { current: Number(shardMatch[1]), total: Number(shardMatch[2]) } : null,
   forbidOnly: Boolean(process.env["CI"]),
   retries: 0,
-  reporter: "list",
+  // shard-reporter.ts replaces the built-in split of `shard` with a round-robin one.
+  reporter: [["list"], ["./shard-reporter.ts"]],
   outputDir: "../../test-results/extension",
   timeout: 30_000,
 });

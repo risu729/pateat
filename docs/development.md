@@ -208,15 +208,16 @@ Focused tasks are available for diagnosis:
 | `mise run check:docs` | Check local documentation links |
 | `mise run check:sdk-source` | Validate installed SDK metadata against its pin and render [exact source notices](sdk-source.md#pinned-upstream-source) without writing files |
 
-On Linux, `mise run browser:install --with-deps` also installs the browser's
-system dependencies. Server type checking and the artifact checks depend on the server
-build, whose generated files they read. Set `PATEAT_REVISION` before the build
-and artifact check to verify a particular source revision. Without it, local
-builds use `development`. The default extension build excludes the test probe;
-neither variant grants vault or real-site login capability. Both the extension and
-`/manage` set Vite's `build.cssTarget` to `chrome145`, matching their supported minimum,
-so production CSS preserves native `light-dark()` theme colors without fallback
-custom properties. The Worker's inline `PAGE_CSS` string is not transformed.
+On Linux, `mise run browser:install --with-deps` also installs the browser's system
+dependencies; CI omits it ([delivery](delivery.md#current-foundation-workflows)). Server
+type checking and the artifact checks depend on the server build, whose generated files
+they read. Set `PATEAT_REVISION` before the build and artifact check to verify a
+particular source revision. Without it, local builds use `development`. The default
+extension build excludes the test probe; neither variant grants vault or real-site login
+capability. Both the extension and `/manage` set Vite's `build.cssTarget` to
+`chrome145`, matching their supported minimum, so production CSS preserves native
+`light-dark()` theme colors without fallback custom properties. The Worker's inline
+`PAGE_CSS` string is not transformed.
 
 Local success is scoped to the tested component. Worker tests and artifact
 checks have passed locally; they do not establish production deployment or
