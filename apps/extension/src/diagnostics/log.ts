@@ -192,6 +192,8 @@ export const LOG_EVENTS = {
       // Nothing submitted yet, in the document the login began in (ADR 0066).
       unsubmitted: "flag",
       routeChange: "code",
+      layout: "code",
+      layoutFrom: "code",
       stop: "code",
       // How long a login that ended took (ADR 0019, amended 2026-10-18).
       totalMs: "count",

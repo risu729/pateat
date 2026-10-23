@@ -108,6 +108,27 @@ accounts in another language fails the same way.
 - A login that starts at a later step ([ADR 0049](0049-start-at-a-later-step.md))
   chooses among the layouts of the recipe that owns the step by how many of their later
   steps show, then the plan, the page's language and age as above.
+- Where layouts part after the start page, a running login switches at the step where
+  they part (added on 2026-10-23 so that a wrong repair of a later step cannot break the
+  accounts that still see the original pages; proposed after the owner asked whether
+  repair could follow such a change, not confirmed by the owner). A sibling of the
+  running layout is another `sign-in` layout of the recipe, of the same or a newer
+  revision, whose plan steps before that step equal the login's and whose step there
+  differs. When the login's own step does not show and a sibling's does, the login runs
+  that sibling from there on (attempt event `LAYOUT`): after an effect step that may
+  have advanced, the step after it, confirmed as the login's own next step would be (on
+  its path, or on the advance's own path only by elements that were not usable just
+  before the advance, which the document measures for each sibling as it does for the
+  login's own next step, [ADR 0013](0013-service-held-recipes-and-settings.md)); with
+  nothing in flight, the step at hand once its own wait ran out and the sibling's step
+  is ready. The account's plan must pass on the sibling as at a start, and the newest
+  sibling that fits wins. The attempt then records the sibling's key, step count and
+  submission budget, a resumed login loads it, and its login record names it.
+  Only a `password` login on its recipe's own steps (variant 0) switches, with no
+  handler entered, no stop ([ADR 0036](0036-passkey-after-the-identifier.md)), no
+  chooser and not only filling. When no sibling's step shows, the login goes on as
+  before: its page is continued, judged or settled as unknown. The log names both
+  layouts (`login.attempt` with `layout` and `layoutFrom`).
 - A new chooser login ranks the layouts by their list buttons (`other`, `continue`) as
   a start page's elements, all of them being its first step, then by the page's
   language, then the newest. The account's plan does not take part, since which account
@@ -314,7 +335,7 @@ Recorded on 2026-10-23 from the owner; not designed or decided here:
 
 - Contracts: `packages/contracts/src/login.ts` (layouts, projection, branch helpers),
   `recipes.ts` (`rankLayouts`, selection), `generation.ts`, `sync.ts`, `manage.ts`,
-  `login-attempt.ts` (`layout` on the attempt).
+  `login-attempt.ts` (`layout` on the attempt, the `LAYOUT` event).
 - Extension: the recipe cache (`apps/extension/src/service/recipes.ts`, version 2),
   the login runtime (`apps/extension/src/login/runtime.ts`), the page's language
   (`observation/extract.ts`, `login/content.ts`), and the service senders that now name
