@@ -1985,19 +1985,22 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           element = choice.click === command.list.click ? choice.element : undefined;
           if (!element) return fail("structural-mismatch", "target-missing");
         } else {
-          // A control named by its accessible name is only ever a `password` handler's
-          // button, which may be a link to a fragment of the page (ADR 0048 amendment of
-          // 2026-10-19).
+          // A control named by its accessible name may be a link to a fragment of the page
+          // only as a `password` handler's button (ADR 0048 amendment of 2026-10-19); a route
+          // step's click by that name presses a native button alone (ADR 0048 amendment of
+          // 2026-10-23).
           const named = step.target.by === "accessible-name";
-          if (named && !command.passwordChoice)
-            return fail("structural-mismatch", "target-missing");
+          const fragment = named && command.passwordChoice === true;
           const found = matches(step.target);
           const only = found.length === 1 ? found[0] : undefined;
-          if (!clickable(only, { fragment: named }))
+          if (
+            !clickable(only, { fragment }) ||
+            (named && !command.passwordChoice && !isButton(only))
+          )
             return fail("structural-mismatch", "target-missing");
           // A `password` handler's button whose text no longer names the password, as one
           // the page rendered again with other text, is never pressed (ADR 0048).
-          if (command.passwordChoice && !passwordChoice(only, { fragment: named }))
+          if (command.passwordChoice && !passwordChoice(only, { fragment }))
             return fail("structural-mismatch", "target-missing");
           element = only;
         }

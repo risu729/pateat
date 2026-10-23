@@ -502,19 +502,24 @@ describe("extractLoginObservation", () => {
       { by: "name", value: "password" },
       { by: "text", value: "Sign in" },
     ]);
-    // With no other locator the ID is still used, so the form stays complete.
+    // With no other locator the ID is still used, so the form stays complete; a button
+    // named by its accessible name takes that name first (ADR 0048 amendment of
+    // 2026-10-23).
     page(
       `<form><input id="mantine-ypxwydcwg"><input id="mantine-r5" type="password">
         <button id="mantine-qwhxkbtfz" aria-label="Sign in"></button></form>`,
     );
     const observation = observe();
     expect(observation.complete).toBe(true);
-    expect(observation.candidates.map(({ target }) => target)).toEqual(
-      ["mantine-ypxwydcwg", "mantine-r5", "mantine-qwhxkbtfz"].map((value) => ({
-        by: "id",
-        value,
-      })),
+    expect(observation.candidates.map(({ target }) => target)).toEqual([
+      ...["mantine-ypxwydcwg", "mantine-r5"].map((value) => ({ by: "id", value })),
+      { by: "accessible-name", value: "Sign in" },
+    ]);
+    page(
+      `<form><input id="mantine-ypxwydcwg"><input id="mantine-r5" type="password">
+        <button id="mantine-qwhxkbtfz"></button></form>`,
     );
+    expect(observe().candidates.at(-1)?.target).toEqual({ by: "id", value: "mantine-qwhxkbtfz" });
   });
 
   it("locates by an ID holding a random-looking run only when nothing else is unique", () => {
@@ -529,19 +534,24 @@ describe("extractLoginObservation", () => {
       { by: "autocomplete", value: "current-password" },
       { by: "text", value: "Sign in" },
     ]);
-    // With no other locator the ID is still used, so the form stays complete.
+    // With no other locator the ID is still used, so the form stays complete; a button
+    // named by its accessible name takes that name first (ADR 0048 amendment of
+    // 2026-10-23).
     page(
       `<form><input id="mantine-4p5f7ku4o"><input id="mantine-7pri31duh" type="password">
         <button id="mantine-a1b2c3d4e" aria-label="Sign in"></button></form>`,
     );
     const observation = observe();
     expect(observation.complete).toBe(true);
-    expect(observation.candidates.map(({ target }) => target)).toEqual(
-      ["mantine-4p5f7ku4o", "mantine-7pri31duh", "mantine-a1b2c3d4e"].map((value) => ({
-        by: "id",
-        value,
-      })),
+    expect(observation.candidates.map(({ target }) => target)).toEqual([
+      ...["mantine-4p5f7ku4o", "mantine-7pri31duh"].map((value) => ({ by: "id", value })),
+      { by: "accessible-name", value: "Sign in" },
+    ]);
+    page(
+      `<form><input id="mantine-4p5f7ku4o"><input id="mantine-7pri31duh" type="password">
+        <button id="mantine-a1b2c3d4e"></button></form>`,
     );
+    expect(observe().candidates.at(-1)?.target).toEqual({ by: "id", value: "mantine-a1b2c3d4e" });
     // Only a run of eight or more lower-case letters and digits that no other letter or
     // digit touches looks random: not a shorter one, nor one beside an upper-case letter.
     page(
@@ -1297,7 +1307,7 @@ describe("extractLoginObservation", () => {
     ]);
     // Without another button to submit with, it may be the script-run submit itself,
     // and so it may beside the fields even when a button elsewhere is located.
-    const submit = `<button aria-label="Sign in" style="width:16px;height:16px"></button>`;
+    const submit = `<button style="width:16px;height:16px"></button>`;
     for (const other of ["", `<header><button id="menu">Menu</button></header>`])
       for (const fields of [
         `<div><input id="u"><input id="p" type="password">${submit}</div>`,
@@ -1307,10 +1317,21 @@ describe("extractLoginObservation", () => {
         page(`${other}<main><section>${fields}</section></main>`);
         expect(observe().complete, other + fields).toBe(false);
       }
+    // One with an accessible name is named by it (ADR 0048 amendment of 2026-10-23).
+    page(
+      `<main><section><div><input id="u"><input id="p" type="password">
+        <button aria-label="Sign in" style="width:16px;height:16px"></button></div></section></main>`,
+    );
+    observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(observation.candidates.at(-1)?.target).toEqual({
+      by: "accessible-name",
+      value: "Sign in",
+    });
     // Inside a form, a textless submit button still counts beside another located one.
     page(
       `<form><input name="mail"><input name="pass" type="password">${toggle}
-        <button aria-label="Go" style="width:16px;height:16px"></button></form>`,
+        <button style="width:16px;height:16px"></button></form>`,
     );
     expect(observe().complete).toBe(false);
     // An icon button may be the form's only, script-run submit, so there it still does.
@@ -1711,6 +1732,55 @@ describe("extractLoginObservation", () => {
       ],
     ] as const)
       expect(gap(html, inShadow), html).toEqual([false, expected]);
+  });
+
+  it("names a login form's button by its accessible name when nothing else does (ADR 0048 amendment of 2026-10-23)", () => {
+    // A submit input without a value, laid over the text that labels it (Amazon.co.jp,
+    // 2026-10-23).
+    const submit = (label: string, extra = "") =>
+      `<form id="f"><input id="email" type="email" autocomplete="username">
+        <span style="position:relative;display:inline-block">
+          <input type="submit" aria-labelledby="say" style="position:absolute;inset:0;opacity:0.01">
+          <span id="say" aria-hidden="true">${label}</span>
+        </span>${extra}</form>`;
+    page(submit("次に進む"));
+    const named = { by: "accessible-name", value: "次に進む" } as const;
+    const observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(summary(observation).find((candidate) => candidate.role === "button")).toMatchObject({
+      role: "button",
+      target: named,
+    });
+    expect(findTargets(document, named)).toEqual([document.querySelector("input[type=submit]")]);
+    const gap = (html: string) => {
+      page(html);
+      const result = extractLoginObservation();
+      return result.ok ? [result.observation.complete, result.gap] : result.reason;
+    };
+    // Never a name holding a number, one another control shares, or one redaction changes.
+    for (const html of [
+      submit("Step 2 next"),
+      submit("次に進む", `<button type="button" aria-label="次に進む">›</button>`),
+      submit("taro@example.com"),
+    ])
+      expect(gap(html), html).toEqual([false, "unlocated-button"]);
+    // A unique text or ID names it first.
+    page(submit("次に進む").replace(`type="submit"`, `type="submit" id="continue"`));
+    expect(summary(observe()).find((candidate) => candidate.role === "button")?.target).toEqual({
+      by: "id",
+      value: "continue",
+    });
+    // It comes before an ID another load may change, as a field's visible name does.
+    page(submit("次に進む").replace(`type="submit"`, `type="submit" id="mantine-4p5f7ku4o"`));
+    expect(summary(observe()).find((candidate) => candidate.role === "button")?.target).toEqual(
+      named,
+    );
+    // A script button or an icon button that nothing else names is still left out or flaws
+    // its form as before.
+    expect(
+      gap(`<form id="f"><input id="u"><input id="p" type="password">
+        <button type="button" aria-label="Log in"><svg width="16" height="16"></svg></button></form>`),
+    ).toEqual([false, "unlocated-button"]);
   });
 
   it("counts a control outside every form only near the sign-in fields outside one", () => {

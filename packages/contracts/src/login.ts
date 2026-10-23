@@ -158,11 +158,14 @@ export const loginLabelTargetSchema = v.strictObject({
  * empty, with whitespace collapsed to single spaces and format characters removed, and
  * at most 120 characters. A control is a button or a script button, as a text locator
  * matches them, or a link to a fragment of its own document that opens in the same tab
- * and downloads nothing (`<a href="#">`); fields never match. It names only a `password`
+ * and downloads nothing (`<a href="#">`); fields never match. It names a `password`
  * handler's button, such as `<a href="#" aria-label="Select Password.">Select</a>` beside
- * another "Select" for a phone, when no `id`, `name`, `data-testid` or unique text names
- * it: route steps, the `passkey` route, other handlers, signed-in markers, the rejection
- * and the account switch never use it.
+ * another "Select" for a phone, or a route step's click on a login form's button (ADR 0048
+ * amendment of 2026-10-23), such as an `<input type="submit">` without a `value` labelled
+ * by the text beside it, when no `id`, `name`, `data-testid` or unique text names it; a
+ * route step's click never presses a fragment link by it. Wait and assert steps, the
+ * `passkey` route, other handlers, signed-in markers, the rejection and the account
+ * switch never use it.
  */
 export const loginAccessibleNameTargetSchema = v.strictObject({
   by: v.literal("accessible-name"),
@@ -190,7 +193,8 @@ export const loginFieldTargetSchema = v.variant("by", [
 ]);
 /**
  * An allowlisted element locator; recipes cannot supply CSS, code, URLs or values. A recipe
- * uses an accessible-name locator only for a `password` handler's button.
+ * uses an accessible-name locator only for a `password` handler's button or a route step's
+ * click.
  */
 export const loginTargetSchema = v.variant("by", [
   ...loginAttributeTargetSchema.options,
@@ -1005,13 +1009,15 @@ const routeRules: readonly (readonly [(recipe: RouteBody) => boolean, string])[]
     "A password handler's button is a route step target",
   ],
   // A control named by its accessible name is only ever a `password` handler's button
-  // (ADR 0048 amendment of 2026-10-19), never another element the executor presses or
-  // checks.
+  // (ADR 0048 amendment of 2026-10-19) or a route step's click (ADR 0048 amendment of
+  // 2026-10-23), never another element the executor presses or checks.
   [
     (recipe) =>
       ![
         ...variantsOf(recipe).flatMap((variant) =>
-          variant.steps.flatMap((step) => (step.kind === "fill" ? [] : [step.target])),
+          variant.steps.flatMap((step) =>
+            step.kind === "fill" || step.kind === "click" ? [] : [step.target],
+          ),
         ),
         ...(recipe.passkey ? [recipe.passkey.target] : []),
         ...(recipe.completion ?? []).flatMap((marker) => [marker.target, ...(marker.absent ?? [])]),
@@ -1021,7 +1027,7 @@ const routeRules: readonly (readonly [(recipe: RouteBody) => boolean, string])[]
           handler.kind === "password" ? [] : handlerTargets(handler),
         ),
       ].some((target) => target.by === "accessible-name"),
-    "Only a password handler's button is named by its accessible name",
+    "Only a password handler's button or a click step is named by its accessible name",
   ],
   // The passkey route starts on the start page, beside the password route.
   [
@@ -1158,7 +1164,7 @@ export const loginRecipeDocumentSchema = v.pipe(
  * Only an `<a href>` link is to be pressed, which a `text` target names by its rendered
  * text as an `accountSwitch` does; its target is an `id`, `name`, `test-id` or `text`
  * locator, never `autocomplete` or `label`, which name only inputs, nor `accessible-name`,
- * which names only a `password` handler's button.
+ * which names only a `password` handler's button or a route step's click.
  *
  * The service generates it for an entry request (`entryGenerationRequestSchema`) and
  * stores it; devices cache it, but nothing sends such a request or presses it yet, it
@@ -1172,7 +1178,7 @@ export const loginEntryRecipeSchema = v.strictObject({
   entry: v.strictObject({
     path,
     // A link or button locator; `autocomplete` and `label` name only inputs, which are never
-    // pressed, and `accessible-name` only a `password` handler's button.
+    // pressed, and `accessible-name` only a `password` handler's button or a route click.
     target: v.variant("by", [
       loginAttributeTargetSchema.options[0],
       loginAttributeTargetSchema.options[1],
@@ -1182,7 +1188,7 @@ export const loginEntryRecipeSchema = v.strictObject({
 });
 /**
  * A list control's locator: never `autocomplete` or `label`, which name only inputs, nor
- * `accessible-name`, which names only a `password` handler's button.
+ * `accessible-name`, which names only a `password` handler's button or a route step's click.
  */
 const chooserTargetSchema = v.variant("by", [
   loginAttributeTargetSchema.options[0],
@@ -1424,9 +1430,10 @@ export type LoginMarkerTarget = v.InferOutput<typeof loginMarkerTargetSchema>;
 export const isLoginTarget = (target: LoginMarkerTarget): target is LoginTarget =>
   target.by !== "href";
 /**
- * Whether a locator may name a route step's element, or a handler's other than a
+ * Whether a locator may name any route step's element, or a handler's other than a
  * `password` handler's button: neither a link's path (ADR 0029) nor an accessible name
- * (ADR 0048 amendment of 2026-10-19).
+ * (ADR 0048 amendment of 2026-10-19), which a route step's click alone may also use
+ * (ADR 0048 amendment of 2026-10-23).
  */
 export const isStepTarget = (
   target: LoginMarkerTarget,

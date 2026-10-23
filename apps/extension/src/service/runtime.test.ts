@@ -44,6 +44,7 @@ function setup(
     transport?: Pick<ServiceTransport, "pair" | "revoke">;
     hasSiteAccess?: (origin: string) => Promise<boolean>;
     onPaired?: (connection: { origin: string; deviceId: string }) => void;
+    deviceRecipes?: Parameters<typeof createServiceRuntime>[0]["deviceRecipes"];
   } = {},
 ) {
   const storage = options.storage ?? memoryStorage();
@@ -53,6 +54,7 @@ function setup(
     transport,
     hasSiteAccess: options.hasSiteAccess ?? (async () => true),
     ...(options.onPaired ? { onPaired: options.onPaired } : {}),
+    ...(options.deviceRecipes ? { deviceRecipes: options.deviceRecipes } : {}),
   });
   return { storage, transport, runtime };
 }
@@ -486,5 +488,91 @@ describe("storage failures", () => {
       state: { kind: "connected" },
     });
     expect(storage.value()).toEqual(connected);
+  });
+});
+
+describe("recipes this device keeps as its own (ADR 0040)", () => {
+  function heldRecipes(count = 0) {
+    let held: number | undefined = count;
+    return {
+      count: vi.fn(async () => held),
+      keepSynced: vi.fn(async () => {
+        held = 3;
+      }),
+      clear: vi.fn(async () => {
+        held = 0;
+      }),
+    };
+  }
+
+  it("keeps the synced recipes before it disconnects, when asked", async () => {
+    const deviceRecipes = heldRecipes();
+    const { runtime, transport } = setup({ deviceRecipes });
+    await runtime.handle(pair);
+    expect(
+      await runtime.handle({ version: 1, type: "service.disconnect", keepRecipes: true }),
+    ).toEqual({ ok: true, state: { kind: "disconnected", keptRecipes: 3 }, revoked: true });
+    expect(deviceRecipes.keepSynced).toHaveBeenCalledOnce();
+    expect(deviceRecipes.keepSynced.mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(transport.revoke).mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it("keeps nothing without being asked", async () => {
+    const deviceRecipes = heldRecipes();
+    const { runtime } = setup({ deviceRecipes });
+    await runtime.handle(pair);
+    expect(await runtime.handle({ version: 1, type: "service.disconnect" })).toEqual({
+      ok: true,
+      state: { kind: "disconnected" },
+      revoked: true,
+    });
+    expect(deviceRecipes.keepSynced).not.toHaveBeenCalled();
+  });
+
+  it("stays paired when the recipes cannot be kept", async () => {
+    const deviceRecipes = heldRecipes();
+    deviceRecipes.keepSynced.mockRejectedValue(new Error("too large"));
+    const { runtime, transport } = setup({ deviceRecipes });
+    await runtime.handle(pair);
+    expect(
+      await runtime.handle({ version: 1, type: "service.disconnect", keepRecipes: true }),
+    ).toMatchObject({ ok: false, error: "recipes-not-kept", state: { kind: "connected" } });
+    expect(transport.revoke).not.toHaveBeenCalled();
+  });
+
+  it("says how many it holds, or that they cannot be read, and deletes them unpaired", async () => {
+    const deviceRecipes = heldRecipes(2);
+    const { runtime } = setup({ deviceRecipes });
+    expect(await runtime.handle({ version: 1, type: "service.get" })).toEqual({
+      ok: true,
+      state: { kind: "disconnected", keptRecipes: 2 },
+    });
+    expect(await runtime.handle({ version: 1, type: "service.delete-recipes" })).toEqual({
+      ok: true,
+      state: { kind: "disconnected" },
+    });
+    deviceRecipes.count.mockResolvedValue(-1);
+    expect(await runtime.handle({ version: 1, type: "service.get" })).toEqual({
+      ok: true,
+      state: { kind: "disconnected", keptRecipes: -1 },
+    });
+    // Storage that is unavailable for now shows no count rather than offering deletion.
+    deviceRecipes.count.mockResolvedValue(undefined);
+    expect(await runtime.handle({ version: 1, type: "service.get" })).toEqual({
+      ok: true,
+      state: { kind: "disconnected" },
+    });
+  });
+
+  it("deletes them only while unpaired", async () => {
+    const deviceRecipes = heldRecipes(2);
+    const { runtime } = setup({ deviceRecipes });
+    await runtime.handle(pair);
+    expect(await runtime.handle({ version: 1, type: "service.delete-recipes" })).toMatchObject({
+      ok: false,
+      error: "wrong-state",
+    });
+    expect(deviceRecipes.clear).not.toHaveBeenCalled();
   });
 });

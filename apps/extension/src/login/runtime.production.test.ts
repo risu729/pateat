@@ -492,6 +492,8 @@ function harness(
     passkeys?: (account: unknown) => Promise<{ passkey: boolean; discoverable: boolean }>;
     /** The items holding a discoverable passkey for an origin (ADR 0034). */
     passkeyItems?: (origin: string) => Promise<readonly PasskeyItem[]>;
+    /** A hostname chosen "Always for this site" whose write still waits (ADR 0007). */
+    pendingBrowserSite?: (origin: string) => boolean;
     /** Automatic vault sync (ADR 0025). */
     vault?: Parameters<typeof createLoginRuntime>[1]["vault"];
     /** Receives the runtime's reports for the local log, without page URLs unless `urls`. */
@@ -542,6 +544,7 @@ function harness(
       },
     ],
     excludedSites: [],
+    passkeyBrowserSites: [],
     repromptSites: [],
     siteDefaults: [{ origin, provider: "bitwarden", userId, itemId }],
     bindings: [savedBinding],
@@ -674,6 +677,7 @@ function harness(
     ...(live.repairs ? { repairs: live.repairs } : {}),
     ...(live.passkeys ? { passkeys: live.passkeys } : {}),
     ...(live.passkeyItems ? { passkeyItems: live.passkeyItems } : {}),
+    ...(live.pendingBrowserSite ? { pendingBrowserSite: live.pendingBrowserSite } : {}),
     ...(live.vault ? { vault: live.vault } : {}),
     ...(live.signedIn ? { signedIn: live.signedIn } : {}),
     ...(live.askMasterPassword ? { askMasterPassword: live.askMasterPassword } : {}),
@@ -15288,6 +15292,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         const settings = (excludedSites: { hostname: string; includeSubdomains: boolean }[]) => ({
           connections: [],
           excludedSites,
+          passkeyBrowserSites: [],
           repromptSites: [],
           siteDefaults: [],
           bindings: [],
@@ -18982,6 +18987,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
     const passkeyOnlySetup = (
       passkeyItems: (origin: string) => Promise<readonly PasskeyItem[]>,
       candidates = uriMatch().candidates,
+      overrides: Partial<LocalSettings> = {},
     ) => {
       const service = {
         available: vi.fn(async (): Promise<true> => true),
@@ -18993,7 +18999,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       const report = vi.fn<(report: LoginReport) => void>();
       const lookup = vi.fn(passkeyItems);
       const h = harness(
-        { siteDefaults: [], bindings: [] },
+        { siteDefaults: [], bindings: [], ...overrides },
         {
           uris: async () => ({ ok: true as const, data: uriMatch({ candidates }) }),
           passkeyItems: lookup,
@@ -19028,6 +19034,21 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       ]);
       expect(service.generate).not.toHaveBeenCalled();
       expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.extract");
+    });
+
+    it("does not generate on a site whose passkey requests go to the browser (ADR 0007)", async () => {
+      const { h, service, lookup, skipped } = passkeyOnlySetup(
+        async () => [{ connectionId, itemId }],
+        uriMatch().candidates,
+        { passkeyBrowserSites: [{ hostname: new URL(origin).hostname }] },
+      );
+      expect(await showPasskey(h)).not.toEqual({ ok: false, reason: "generating" });
+      // Pateat answers no passkey request there, so no item holds one it may use.
+      expect(lookup).not.toHaveBeenCalled();
+      expect(skipped()).toEqual([
+        expect.objectContaining({ reason: "no-vault-match", detail: "no-passkey" }),
+      ]);
+      expect(service.generate).not.toHaveBeenCalled();
     });
 
     it("refuses a page announced as both an identifier page and a passkey page", async () => {
@@ -21691,6 +21712,70 @@ describe("the start page's passkey route (ADR 0027)", () => {
     expect(fills()).toBe(1);
     expect(clicks(button.value)).toBe(0);
     expect(clicks("login")).toBe(1);
+  });
+
+  it("fills the password route on a site whose passkey requests go to the browser (ADR 0007)", async () => {
+    fake.state.present = new Set(["password", "login", "Sign in with a passkey", "logout"]);
+    fake.state.observedPath = "/home";
+    const passkeys = discoverable();
+    const { h } = start(
+      learned,
+      { passkeys },
+      { passkeyBrowserSites: [{ hostname: new URL(origin).hostname }] },
+    );
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
+    expect(status()![0]).toMatchObject({
+      route: "password",
+      variant: 0,
+      facts: { passkey: false, discoverablePasskey: false },
+    });
+    expect(fills()).toBe(1);
+    expect(clicks(button.value)).toBe(0);
+    // The item's passkeys are not even looked up there.
+    expect(passkeys).not.toHaveBeenCalled();
+  });
+
+  it('treats a hostname chosen "Always" as listed while its write waits (ADR 0007)', async () => {
+    fake.state.present = new Set(["password", "login", "Sign in with a passkey", "logout"]);
+    fake.state.observedPath = "/home";
+    const passkeys = discoverable();
+    const pendingBrowserSite = vi.fn((page: string) => page === origin);
+    const { h } = start(learned, { passkeys, pendingBrowserSite });
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
+    expect(status()![0]).toMatchObject({ route: "password", facts: { passkey: false } });
+    expect(clicks(button.value)).toBe(0);
+    expect(passkeys).not.toHaveBeenCalled();
+    expect(pendingBrowserSite).toHaveBeenCalledWith(origin);
+  });
+
+  it("never takes the passkey route on such a site, even for an item without a password", async () => {
+    // As in the test below, only the passkey route could sign this item in.
+    const custom = parseLoginRecipe({
+      ...learned,
+      slots: ["member-number", "password"],
+      steps: [
+        {
+          kind: "fill",
+          path: "/signin",
+          fields: [
+            { slot: "member-number", target: target("member") },
+            { slot: "password", target: target("password") },
+          ],
+        },
+        recipe.steps[1]!,
+      ],
+    });
+    const passkeys = discoverable();
+    const { h } = start(
+      custom,
+      { passkeys },
+      { bindings: [], passkeyBrowserSites: [{ hostname: new URL(origin).hostname }] },
+    );
+    expect(await h.hello()).toEqual({ ok: false, reason: "binding-not-found" });
+    expect(clicks(button.value)).toBe(0);
+    expect(passkeys).not.toHaveBeenCalled();
   });
 
   it("takes the passkey route for an item without a password or a fitting binding", async () => {
@@ -30093,6 +30178,25 @@ describe("an item without a password, up to its password (ADR 0036)", () => {
     );
     expect(executed()).toEqual([]);
     expect(h.fields).not.toHaveBeenCalled();
+  });
+
+  it("refuses a passkey-only item on a site whose passkey requests go to the browser, naming the list", async () => {
+    // ADR 0007: the item holds a passkey, which Pateat does not use there.
+    const passkeys = vi.fn(async () => ({ passkey: true, discoverable: true }));
+    const { h, report } = start(
+      { passkeys },
+      { overrides: { passkeyBrowserSites: [{ hostname: new URL(origin).hostname }] } },
+    );
+    expect(await h.hello()).toEqual({ ok: false, reason: "no-route" });
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "refused",
+        reason: "no-route",
+        detail: "password-empty:passkey-browser-site",
+      }),
+    );
+    expect(passkeys).not.toHaveBeenCalled();
+    expect(executed()).toEqual([]);
   });
 
   // Netflix in the owner's Chrome: the only item has neither a password nor a passkey, and

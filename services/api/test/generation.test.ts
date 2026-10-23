@@ -2309,7 +2309,13 @@ describe("slot names carried from the saved bindings (ADR 0027, 2026-10-19)", ()
       {
         version: 1,
         expectedRevision: 0,
-        settings: { connections: [], excludedSites: [], siteDefaults: [], bindings },
+        settings: {
+          connections: [],
+          excludedSites: [],
+          passkeyBrowserSites: [],
+          siteDefaults: [],
+          bindings,
+        },
       },
       "PUT",
     );

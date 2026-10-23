@@ -20,6 +20,7 @@ import {
   handlerTargets,
   heldRouteMissing,
   isGeneratedRecipeId,
+  isPasskeyBrowserSite,
   isSiteExcluded,
   loginFieldFacts,
   loginFieldSource,
@@ -2408,6 +2409,11 @@ export function createLoginRuntime(
      * keeps a page's own conditional request waiting.
      */
     passkeyItems?: (origin: string) => Promise<readonly PasskeyItem[]>;
+    /**
+     * Whether the origin's hostname was just chosen "Always for this site" and its settings
+     * write still waits (ADR 0007): the login treats it as listed already.
+     */
+    pendingBrowserSite?: (origin: string) => boolean;
     /** Receives each attempt state change, refusal and generation result. */
     report?: (report: LoginReport) => void;
     /**
@@ -2460,6 +2466,9 @@ export function createLoginRuntime(
     }) => Promise<"verified" | "closed" | "unavailable">;
   },
 ) {
+  /** A hostname whose passkey requests go to the browser, listed or just chosen (ADR 0007). */
+  const listedBrowserSite = (saved: LocalSettings, origin: string) =>
+    isPasskeyBrowserSite(saved, origin) || options.pendingBrowserSite?.(origin) === true;
   const { fields, sites, recipes = noLoginRecipes, uris, generation, repairs } = options;
   const badge =
     options.badge ?? createLoginBadge({ setBadge: setActionBadge, storage: memoryBadgeStorage() });
@@ -4325,11 +4334,14 @@ export function createLoginRuntime(
   /**
    * The item's facts for a new login (ADR 0027): its password and TOTP fields from the
    * catalog's value-free flags and the account's allowed fields, and its passkeys from one
-   * vault search. Read once per login; never sent anywhere.
+   * vault search. Read once per login; never sent anywhere. Without `passkeys`, as on a site
+   * whose passkey requests go to the browser (ADR 0007), the item holds no passkey here and
+   * the vault is not searched.
    */
   async function itemFacts(
     connection: VaultConnectionMetadata,
     owner: { origin: string; connectionId: string; itemId: string; fieldIds: string[] },
+    passkeys = true,
   ): Promise<LoginItemFacts> {
     const item = connection.items.find((entry) => entry.id === owner.itemId);
     const fieldFacts = item
@@ -4341,6 +4353,7 @@ export function createLoginRuntime(
     // Its synthetic `totp` field counts as a TOTP secret only when the probe says so.
     if (probeMode && owner.origin === origin && probeTotp && owner.fieldIds.includes("totp"))
       fieldFacts.totp = true;
+    if (!passkeys) return { ...fieldFacts, passkey: false, discoverablePasskey: false };
     // The synthetic item's configured passkey stands in for the vault search.
     if (probeMode && owner.origin === origin && probePasskey)
       return {
@@ -4580,13 +4593,21 @@ export function createLoginRuntime(
     // A running or resumed login checks its recorded route alone.
     if (request.route) return resolveRoute(request.route);
     let facts: LoginItemFacts | undefined;
+    // Only a page the passkey scripts run on can answer a passkey request (ADR 0050), and
+    // none on a site whose passkey requests go to the browser (ADR 0007): there the item
+    // holds no passkey, so the login takes a password route or none.
+    const passkeyScripts = passkeyScriptsRun(live.document.origin, probeMode);
+    const browserSite =
+      passkeyScripts && listedBrowserSite(snapshot.snapshot.settings, live.document.origin);
+    const passkeyPage = passkeyScripts && !browserSite;
     const factsOf = async (
       resolved: Extract<Awaited<ReturnType<typeof resolveRoute>>, { ok: true }>,
     ): Promise<LoginItemFacts> => {
-      const read = await itemFacts(resolved.connection, {
-        ...resolved.account,
-        origin: live.document.origin,
-      });
+      const read = await itemFacts(
+        resolved.connection,
+        { ...resolved.account, origin: live.document.origin },
+        passkeyPage,
+      );
       // The `totp` fact describes the field a `totp` handler makes its code from: a custom
       // field the saved binding names, or the one flagged as holding a key when the built-in
       // TOTP holds no value, counts when the account may read it, and the built-in TOTP then
@@ -4606,11 +4627,7 @@ export function createLoginRuntime(
       request.pageRequest === true && !chosen?.fillOnly && passkeyAnswersRequest(recipe);
     const { passkey: _button, ...buttonless } = recipe;
     const routeRecipe: LoginRecipe = request.later ? buttonless : recipe;
-    // Only a page the passkey scripts run on can answer a passkey request (ADR 0050).
-    if (
-      passkeyScriptsRun(live.document.origin, probeMode) &&
-      (recipeHasRoute(routeRecipe, "passkey") || pageRequest)
-    ) {
+    if (passkeyPage && (recipeHasRoute(routeRecipe, "passkey") || pageRequest)) {
       const resolved = await resolveRoute({ route: "passkey" });
       if (resolved.ok) {
         facts = await factsOf(resolved);
@@ -4678,6 +4695,9 @@ export function createLoginRuntime(
         if (miss !== "password-empty") return undefined;
         if (live.document.frameId !== 0) return { miss: "frame" as const };
         const result = passwordStopOrMiss(recipe, route, known, passwordSlots, lacking);
+        // The item's passkey is not used there, so the copy names the list (ADR 0007).
+        if (browserSite && "miss" in result && result.miss === "no-passkey")
+          return { miss: "passkey-browser-site" as const };
         return passwordField && ("stop" in result || result.miss === "no-password-step")
           ? { miss: "password-field" as const }
           : result;
@@ -4770,7 +4790,7 @@ export function createLoginRuntime(
       // that may happen.
       const unfit =
         facts && refusals.every((reason) => reason === "no-route")
-          ? heldRouteMissing(recipe, facts, passkeyScriptsRun(live.document.origin, probeMode))
+          ? heldRouteMissing(recipe, facts, passkeyPage)
           : undefined;
       const marked = unfit ? { unfit } : {};
       return routes.length === 1
@@ -9274,12 +9294,16 @@ export function createLoginRuntime(
     }
     // A passkey-only page also needs a usable discoverable passkey held by one of the
     // matching items (ADR 0053), looked up only once an item matched; passwords and
-    // unrelated RP matches never authorize generation.
+    // unrelated RP matches never authorize generation. On a site whose passkey requests go
+    // to the browser no item holds one Pateat may use (ADR 0007).
     if (passkeyOnly) {
-      const leave = await options.vault?.enter(false).catch(() => undefined);
+      const browserSite = listedBrowserSite(snapshot.snapshot.settings, live.document.origin);
+      const leave = browserSite
+        ? undefined
+        : await options.vault?.enter(false).catch(() => undefined);
       let held: readonly PasskeyItem[] = [];
       try {
-        held = (await options.passkeyItems?.(live.document.origin)) ?? [];
+        if (!browserSite) held = (await options.passkeyItems?.(live.document.origin)) ?? [];
       } catch {
         held = [];
       } finally {

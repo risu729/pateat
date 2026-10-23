@@ -1,15 +1,15 @@
 # ADR 0070: Shadow roots are read as part of the page
 
-Status: proposed. Built on assumed decisions under the owner's instruction of 2026-10-23
-05:28 UTC to set the phases aside, build on best guesses as unmerged PRs and judge them
-later. On 2026-10-23 about 11:15 UTC the owner chose to go on with it, to give a
-component's control the form that holds the component, to read another extension's
-shadow roots as Bitwarden does, at 11:53 UTC to add a locator that names the hosts a
-field sits inside, and at 12:14 UTC to use it only when no other locator names the
-field; the rest is assumed. Implemented in the
-extension (local and cloud Chromium tests only; not yet checked on the real sites or in
-the owner's Chrome). Amends the observation contract in [the plan](../plan.md) and, for
-the passkey page,
+Status: accepted by the owner on 2026-10-23 at 22:04 UTC, who chose to merge it once CI
+passed. Built ahead of the decision under the owner's instruction of 2026-10-23 05:28
+UTC to set the phases aside and build on best guesses. Earlier the same day the owner
+chose to go on with it (about 11:15 UTC), to give a component's control the form that
+holds the component and to read another extension's shadow roots as Bitwarden does, at
+11:53 UTC to add a locator that names the hosts a field sits inside, and at 12:14 UTC to
+use it only when no other locator names the field. Checked on Rakuten's real sign-in
+from a cloud browser (complete, 2026-10-23 about 21:55 UTC); Reddit blocks cloud
+browsers and is not yet checked on the real page. Amends the observation contract in
+[the plan](../plan.md) and, for the passkey page,
 [ADR 0053](0053-passkey-only-generation.md).
 
 Date: 2026-10-23
@@ -37,8 +37,6 @@ accepts (`SHADOW_ROOT_CANDIDATE_NODE_NAMES`), the closed root that
 `chrome.dom.openOrClosedShadowRoot` gives a content script.
 
 ## Decision
-
-What the owner has not decided (see Status) is assumed.
 
 - Every read of the page by the content script includes every shadow root in it, open or
   closed, nested ones too: the extractor's descriptions of every kind of page, the
@@ -106,8 +104,10 @@ What the owner has not decided (see Status) is assumed.
   labels read from the shadow trees, complete. The packaged-extension test's
   `?button=shadow` sign-in, with the password input in an open shadow root and the login
   button in a closed one, is generated, filled and judged signed in by the synthetic
-  service in cloud Chromium. Neither Reddit nor Rakuten has been checked on the real
-  site yet.
+  service in cloud Chromium. Rakuten's real sign-in
+  (`login.account.rakuten.com/sso/authorize`), observed from a cloud browser on
+  2026-10-23, is complete with `{ by: "id", value: "user_id" }` and its button
+  `cta001`; Reddit's blocks cloud browsers and has not been checked on the real site.
 - A query reads every shadow tree, and asking an element for a closed root costs more
   than reading `shadowRoot`. One read of the page (an extraction, the page watch's
   check, the offer's decision, or the executor's observation of its targets) asks each

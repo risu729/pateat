@@ -29,6 +29,10 @@ export const ja = {
   "Unnamed item": "名前のないアイテム",
   Default: "既定",
   "Use the browser or another extension": "ブラウザーまたは別の拡張機能を使う",
+  "Just once": "今回のみ",
+  "Always for this site": "このサイトでは常に",
+  "Pateat leaves passkeys on {{hostname}} to the browser. Undo it in Pateat's settings.":
+    "{{hostname}} のパスキーは今後ブラウザーに任せます。Pateat の設定で元に戻せます。",
   "Bitwarden asks for your master password before this item is used.":
     "このアイテムは、使う前にマスターパスワードの入力が必要です (Bitwarden の再入力の設定)。",
   "Other passkeys": "ほかのパスキー",
@@ -208,6 +212,8 @@ export const ja = {
   "the page showed no sign-in form": "ページにログインフォームが表示されていませんでした",
   "the vault item has neither a password nor a passkey":
     "保管庫のアイテムにパスワードもパスキーもありません",
+  "the vault item has no password, and Pateat leaves passkey requests on this site to the browser, as listed in its settings":
+    "保管庫のアイテムにパスワードがなく、設定に登録されたこのサイトでは、Pateat はパスキーのリクエストをブラウザーに任せています",
   "the vault item has no password, and the recipe has no way on without one":
     "保管庫のアイテムにパスワードがなく、パスワードなしで進める手順がレシピにありません",
   "the vault item has no password": "保管庫のアイテムにパスワードがありません",
