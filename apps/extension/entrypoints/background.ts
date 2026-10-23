@@ -68,6 +68,7 @@ import { createLoginRecords } from "../src/service/login-records";
 import { createLoginOutcomes } from "../src/service/outcomes";
 import { createProblemReports } from "../src/service/problems";
 import { createRecipeUse } from "../src/service/recipe-use";
+import { createDeviceRecipes } from "../src/service/device-recipes";
 import { createRecipeSync } from "../src/service/recipes";
 import { createServiceRuntime } from "../src/service/runtime";
 import { createSettingsSync, MAX_SETTINGS_DEFER_MS } from "../src/service/settings-sync";
@@ -76,6 +77,7 @@ import {
   createBrowserGenerationAttemptStorage,
   createBrowserLoginOutcomeStorage,
   createBrowserPageSampleStorage,
+  createBrowserDeviceRecipeStorage,
   createBrowserRecipeCacheStorage,
   createBrowserRecipeReplacementStorage,
   createBrowserRecipeRepairStorage,
@@ -234,6 +236,11 @@ export default defineBackground(() => {
   });
   const settings = connections.settings;
   const serviceTransport = createServiceTransport();
+  // ADR 0040: the recipes this device holds as its own, used while no service is paired.
+  const deviceRecipes = createDeviceRecipes({
+    storage: createBrowserDeviceRecipeStorage(),
+    transport: serviceTransport,
+  });
   const service = createServiceRuntime({
     storage: createBrowserServiceStorage(),
     transport: serviceTransport,
@@ -242,6 +249,15 @@ export default defineBackground(() => {
       browser.permissions.contains({ origins: [`https://${new URL(origin).hostname}/*`] }),
     // ADR 0066: a new device's lines start at its pairing.
     onPaired: (connection) => void problemReports?.paired(connection),
+    deviceRecipes: {
+      count: () => deviceRecipes.count(),
+      // Called only after the recipe sync below exists.
+      keepSynced: async () => {
+        const synced = await recipeSync.synced();
+        if (synced?.length) await deviceRecipes.keep(synced);
+      },
+      clear: () => deviceRecipes.clear(),
+    },
   });
   const settingsBaseStorage = createBrowserSettingsBaseStorage();
   const settingsHoldStorage = createBrowserSettingsHoldStorage();
@@ -307,6 +323,7 @@ export default defineBackground(() => {
     storage: recipeCacheStorage,
     schedule: recipeScheduleStorage,
     settings: settingsSync,
+    device: deviceRecipes,
     build: PATEAT_BUILD_REVISION,
     report: (outcome, changes) => {
       diagnosticsLog.recipeSync(outcome, changes);
