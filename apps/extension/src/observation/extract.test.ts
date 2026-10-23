@@ -1142,6 +1142,39 @@ describe("extractLoginObservation", () => {
       <form><input name="u2"><input name="p2" type="password"><input type="button" value="Login"></form>`,
     );
     expect(observe().complete).toBe(false);
+    // A textless button outside every form submits nothing, whatever its type, as a
+    // cookie banner's close button beside Bank of America's formless sign-in fields.
+    page(
+      `<main><section><div><input id="u"><input id="p" type="password">
+        <button type="button">Sign in</button></div></section></main>
+      <div id="banner"><div><div><button aria-label="Close" style="width:16px;height:16px">
+      </button></div></div></div>`,
+    );
+    observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(observation.candidates.map((candidate) => candidate.target.value)).toEqual([
+      "u",
+      "p",
+      "Sign in",
+    ]);
+    // Without another button to submit with, it may be the script-run submit itself,
+    // and so it may beside the fields even when a button elsewhere is located.
+    const submit = `<button aria-label="Sign in" style="width:16px;height:16px"></button>`;
+    for (const other of ["", `<header><button id="menu">Menu</button></header>`])
+      for (const fields of [
+        `<div><input id="u"><input id="p" type="password">${submit}</div>`,
+        `<div><div><input id="u"></div><div><input id="p" type="password"></div>
+          <div><span><span>${submit}</span></span></div></div>`,
+      ]) {
+        page(`${other}<main><section>${fields}</section></main>`);
+        expect(observe().complete, other + fields).toBe(false);
+      }
+    // Inside a form, a textless submit button still counts beside another located one.
+    page(
+      `<form><input name="mail"><input name="pass" type="password">${toggle}
+        <button aria-label="Go" style="width:16px;height:16px"></button></form>`,
+    );
+    expect(observe().complete).toBe(false);
     // An icon button may be the form's only, script-run submit, so there it still does.
     page(`<form><input name="mail"><input name="pass" type="password">${toggle}</form>`);
     expect(observe().complete).toBe(false);
@@ -1384,6 +1417,40 @@ describe("extractLoginObservation", () => {
         expect(getComputedStyle(container()).opacity, animation).toBe("0");
       }
     });
+  });
+  it("reads an input transparent only under its own shown label as visible (Airbnb, 2026-10-23)", () => {
+    // A floating label: the label's text shows, its input appears once focused.
+    const field = (label: string, input = "") =>
+      `<label for="email" style="display:block;position:relative">${label}
+        <div style="opacity:0"><input id="email" type="email" ${input}></div></label>`;
+    const rest = `<input id="p" type="password"><button id="go">Log in</button>`;
+    page(`<form id="f">${field("<div style='position:absolute'>Email</div>")}${rest}</form>`);
+    let observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(observation.candidates.map((candidate) => candidate.target.value)).toEqual([
+      "email",
+      "p",
+      "go",
+    ]);
+    // A label whose text is transparent too, an input at opacity 0 itself, or a
+    // transparent input outside its label is still faint, as a trap.
+    for (const html of [
+      `<div style="opacity:0">${field("Email")}</div>`,
+      field("Email", `style="opacity:0"`),
+      field("<span style='opacity:0'>Email</span>"),
+      `<label for="email">Email</label><div style="opacity:0"><input id="email" type="email"></div>`,
+      field(" "),
+      // A label clipped to one pixel, as a screen-reader-only one.
+      `<label for="email" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">
+        Email<div style="opacity:0"><input id="email" type="email"></div></label>`,
+      // A label naming another field holds no label of this one.
+      `<label for="other">Email<div style="opacity:0"><input id="email" type="email"></div></label>
+        <input id="other">`,
+    ]) {
+      page(`<form id="f">${html}${rest}</form>`);
+      observation = observe();
+      expect(observation.complete, html).toBe(false);
+    }
   });
 
   it("names the first cause of an incomplete observation, without page text (ADR 0019)", () => {
