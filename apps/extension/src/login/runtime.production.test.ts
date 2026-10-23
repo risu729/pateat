@@ -838,6 +838,75 @@ describe("production login document admission", () => {
       );
       expect(executed().map((step) => step.kind)).toEqual(["fill"]);
     });
+    it.each([false, true])(
+      "takes a page replaced during the keypad fill for its submission only after the page told of a key press (%s)",
+      async (pressed) => {
+        const h = harness();
+        h.recipes.recipe.mockResolvedValue(keypadRecipe);
+        const answers: unknown[] = [];
+        let held = false;
+        fake.state.onExecute = async (message) => {
+          const operation = message["operation"] as {
+            attemptId: string;
+            operationId: string;
+            step: LoginStep;
+          };
+          if (operation.step.kind !== "fill") return;
+          if (pressed)
+            answers.push(
+              await h.login.handle(
+                {
+                  version: 1,
+                  type: "login.keypad.press",
+                  token: "synthetic-token",
+                  attemptId: operation.attemptId,
+                  operationId: operation.operationId,
+                },
+                sender(),
+              ),
+            );
+          // The document is replaced before the fill answers, as by a PIN pad that
+          // submits at its last digit, or by the person's own link click.
+          held = true;
+          await new Promise(() => undefined);
+        };
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(held).toBe(true));
+        expect(answers).toEqual(pressed ? [true] : []);
+        fake.state.onExecute = undefined;
+        expect(await h.hello({ documentId: "next-page" })).toEqual({ ok: true });
+        await vi.waitFor(() =>
+          expect(attempts()).toMatchObject([
+            pressed ? { submissions: 1, operationKind: "click" } : { submissions: 0, stepIndex: 0 },
+          ]),
+        );
+        // The page's own click is never pressed after a replaced keypad page.
+        expect(executed().map((step) => step.kind)).toEqual(["fill"]);
+      },
+    );
+    it("refuses a key press notice for a step that is no keypad fill", async () => {
+      const h = harness();
+      const answers: unknown[] = [];
+      fake.state.onExecute = async (message) => {
+        const operation = message["operation"] as { attemptId: string; operationId: string };
+        answers.push(
+          await h.login.handle(
+            {
+              version: 1,
+              type: "login.keypad.press",
+              token: "synthetic-token",
+              attemptId: operation.attemptId,
+              operationId: operation.operationId,
+            },
+            sender(),
+          ),
+        );
+        fake.state.onExecute = undefined;
+      };
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(answers).toHaveLength(1));
+      expect(answers).toEqual([false]);
+    });
     it("takes no missing key for a submission", async () => {
       fake.state.executeReply = {
         ok: false,

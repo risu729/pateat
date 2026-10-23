@@ -2,10 +2,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   besideKeypad,
   findKeypad,
+  findKeypads,
   keyLabel,
   keypadCovers,
   keypadField,
   keypadKeys,
+  keypadOpen,
   keypadPosition,
   keysFor,
   locateKeypad,
@@ -138,9 +140,38 @@ describe("findKeypad", () => {
     expect(findKeypad(document)).toBeUndefined();
   });
 
-  it("finds none when a key elsewhere on the page puts them all under the body", () => {
+  it("leaves out a one-character control outside the keys' smallest group", () => {
     document.body.innerHTML = `${pad(digits)}<button>?</button>`;
+    expect(findKeypad(document)).toBe(document.getElementById("pad"));
+    // A help button in the form beside a keypad that opens later is no key: the keypad
+    // is not open while only the help button shows.
+    document.body.innerHTML = `<main><form><input type="password" readonly><button type="button">?</button>${pad(digits, "hidden")}</form></main>`;
+    const field = document.querySelector("input")!;
+    const keypad = document.getElementById("pad")!;
+    expect(findKeypad(document, field)).toBe(keypad);
+    expect(keypadOpen(keypad)).toBe(false);
+    keypad.hidden = false;
+    expect(keypadOpen(keypad)).toBe(true);
+  });
+
+  it("finds a keypad for each of two fields, and no one keypad of the document", () => {
+    const upper = [..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"];
+    document.body.innerHTML = `<main><form id="one"><input id="pin" type="password" readonly>${pad(digits)}</form>
+      <form id="two"><input id="word" type="password" readonly>${pad(upper).replace('id="pad"', 'id="letters"')}</form></main>`;
+    const digitsPad = document.getElementById("pad")!;
+    const lettersPad = document.getElementById("letters")!;
+    expect(findKeypads(document)).toEqual([digitsPad, lettersPad]);
     expect(findKeypad(document)).toBeUndefined();
+    expect(findKeypad(document, document.getElementById("pin")!)).toBe(digitsPad);
+    expect(findKeypad(document, document.getElementById("word")!)).toBe(lettersPad);
+  });
+
+  it("takes a keypad split into a group of digits and one of letters as one for its field", () => {
+    const upper = [..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"];
+    document.body.innerHTML = `<main><form><input type="password" readonly><div id="keys">${pad(digits)}${pad(upper).replace('id="pad"', 'id="letters"')}</div><button type="button">?</button></form></main>`;
+    expect(findKeypad(document, document.querySelector("input")!)).toBe(
+      document.getElementById("keys"),
+    );
   });
 
   it("finds a keyboard of every digit or of at least 26 letters, and none of fewer", () => {
@@ -241,14 +272,13 @@ describe("findKeypad", () => {
       <main><div><form><input type="password" readonly>${pad(digits)}</form></div></main>`;
     const field = document.querySelector("input")!;
     expect(findKeypad(document, field)).toBe(document.getElementById("pad"));
-    // Without the field, every key of the document counts, so the page has none.
-    expect(findKeypad(document)).toBeUndefined();
+    // Without the field, the keys' own group is the keypad too.
+    expect(findKeypad(document)).toBe(document.getElementById("pad"));
     // So is a help button that only the body shares with the form.
     document.body.innerHTML = `<main><form><input type="password" readonly>${pad(digits)}</form></main><button>?</button>`;
     expect(findKeypad(document, document.querySelector("input")!)).toBe(
       document.getElementById("pad"),
     );
-    expect(findKeypad(document)).toBeUndefined();
   });
 });
 
@@ -346,6 +376,15 @@ describe("typeOnKeypad", () => {
     expect(input.value).toBe("****");
   });
 
+  it("opens a hidden keypad beside a shown help button by pressing the field", async () => {
+    const { input, typed } = keypadPage({ open: false });
+    input.insertAdjacentHTML("afterend", '<button type="button">?</button>');
+    await expect(
+      typeOnKeypad(input, "40", () => findKeypad(document, input)),
+    ).resolves.toBeUndefined();
+    expect(typed).toEqual(["4", "0"]);
+  });
+
   it("presses nothing for a full-width character of the value, though the keys show full-width labels", async () => {
     const { input, typed } = keypadPage({ characters: [..."０１２３４５６７８９"] });
     const keypad = document.getElementById("pad")!;
@@ -356,7 +395,10 @@ describe("typeOnKeypad", () => {
   });
 
   it("presses nothing when a character has no key, or the field already holds characters", async () => {
-    const { input, typed } = keypadPage({ characters: digits.slice(1) });
+    // A keyboard of 26 letters and every digit but 0.
+    const { input, typed } = keypadPage({
+      characters: [...digits.slice(1), ..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"],
+    });
     const keypad = document.getElementById("pad")!;
     await expect(typeOnKeypad(input, "120", () => keypad)).resolves.toBe("key-missing");
     expect(typed).toEqual([]);

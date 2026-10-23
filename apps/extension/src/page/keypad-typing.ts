@@ -12,6 +12,8 @@ export const KEYPAD_OPEN_MS = 2_000;
 const openPollMs = 50;
 /** How long a press may take to show its character in the field. */
 export const KEYPAD_PRESS_MS = 1_000;
+/** How often the field is read again while a press has not shown yet. */
+const pressPollMs = 25;
 
 /** Why typing on a keypad stopped, besides the caller's own causes. */
 export type KeypadStop =
@@ -34,14 +36,15 @@ const valueProperty = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype
  * nothing is pressed. The keypad and each key are looked up again just before its press,
  * since some keypads shuffle or redraw their keys after each one, and the typing stops at
  * the first character without exactly one key. After each press, the field must come to
- * hold one more character, masked or not, within {@link KEYPAD_PRESS_MS}, read after each
- * of the page's pauses (`gap`); more characters, or none in time, stop the typing as
+ * hold one more character, masked or not, within {@link KEYPAD_PRESS_MS}, read after the
+ * page's pause (`gap`) and then every 25 ms; more characters, or none in time, stop the typing as
  * `refused`: a keypad
  * that ignored the press, as one that checks `isTrusted` would, or that keeps the value
  * elsewhere, is never submitted with a value Pateat cannot see. Nothing is ever pressed
  * again after a stop. Each press stops before its click when the key no longer shows its
  * character or cannot be pressed, as a keypad that relabels its keys on `pointerdown`.
- * `between` runs after each wait, as `typeValue`'s does, and `onPress` after each press
+ * `between` runs after each wait, as `typeValue`'s does, `beforePress` once just before
+ * the first key press, which a cause it gives prevents, and `onPress` after each press
  * that reached its key's `pointerdown`. Resolves to the cause when the typing stopped,
  * else `undefined`.
  */
@@ -51,11 +54,13 @@ export async function typeOnKeypad<Cause extends string>(
   keypad: () => Element | undefined,
   {
     between,
+    beforePress,
     onPress,
     openMs = KEYPAD_OPEN_MS,
     pressMs = KEYPAD_PRESS_MS,
   }: {
     between?: (() => Cause | undefined) | undefined;
+    beforePress?: (() => Promise<Cause | undefined>) | undefined;
     onPress?: () => void;
     openMs?: number;
     pressMs?: number;
@@ -85,6 +90,11 @@ export async function typeOnKeypad<Cause extends string>(
   }
   const shown = keypad();
   if (!shown || !keypadCovers(shown, value)) return "key-missing";
+  // The caller may still refuse, as when the background no longer holds the operation.
+  const refused = await beforePress?.();
+  if (refused) return refused;
+  const settled = between?.();
+  if (settled) return settled;
   for (const [index, character] of characters.entries()) {
     const container = keypad();
     const keys = container ? keysFor(container, character) : [];
@@ -101,9 +111,10 @@ export async function typeOnKeypad<Cause extends string>(
     if (cause) return cause;
     if (pressed !== "clicked") return "refused";
     const until = Date.now() + pressMs;
-    for (;;) {
+    // The page's own pause first, then a timer, so a hidden tab never spins for the wait.
+    for (let wait = 0; ; wait++) {
       // eslint-disable-next-line no-await-in-loop
-      await gap();
+      await (wait === 0 ? gap() : new Promise((resolve) => setTimeout(resolve, pressPollMs)));
       const stopped = between?.();
       if (stopped) return stopped;
       const length = [...current()].length;

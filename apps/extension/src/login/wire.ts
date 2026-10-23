@@ -313,6 +313,20 @@ export const authorizeSchema = v.strictObject({
   operationId: id,
 });
 /**
+ * Tells the background, just before the first key press of a fill on a page's software
+ * keyboard, that keys are pressed from now on (ADR 0067). The background answers `true`
+ * while the operation is still the attempt's own and still authorized, and only then is a
+ * key pressed; only then may a document that replaces the page count as the page's own
+ * submission of the fill.
+ */
+export const keypadPressSchema = v.strictObject({
+  version: v.literal(1),
+  type: v.literal("login.keypad.press"),
+  token: id,
+  attemptId: id,
+  operationId: id,
+});
+/**
  * Asks whether a step's form may submit to `destination`, an HTTP(S) URL off the document's
  * origin (ADR 0051). The background answers with {@link destinationAnswerSchema}.
  */

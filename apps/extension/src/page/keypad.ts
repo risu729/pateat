@@ -116,9 +116,13 @@ export function keysFor(container: Element, character: string): HTMLElement[] {
   return typingKeys(container).filter((key) => keyLabel(key) === character && pressable(key));
 }
 
-/** Whether the keypad in `container` shows a key a person can press now. */
+/**
+ * Whether the keypad in `container` is open: it shows enough keys a person can press now
+ * for a keypad (`enoughKeys`), so a shown "?" help button beside hidden keys is no open
+ * keypad.
+ */
 export function keypadOpen(container: Element): boolean {
-  return typingKeys(container).some(pressable);
+  return enoughKeys(typingKeys(container).filter(pressable));
 }
 
 /** Whether every character of `value` has exactly one key in `container` a person can press now. */
@@ -234,40 +238,142 @@ function keysAround(field: Element, keys: readonly HTMLElement[]): HTMLElement[]
 }
 
 /**
- * The page's keypad: the nearest element that holds every key, when there are at least
- * {@link KEYPAD_MIN_KEYS}, they include a key for each of the ten digits or at least
- * {@link KEYPAD_MIN_LETTERS} letters (a letters-only keyboard, owner's choice, 2026-10-23
- * 13:01 UTC), and that element is neither the body nor the root. With `field`, only the
- * keys in the nearest box around it that holds enough count (`keysAround`); without, every
- * key of the document does. Controls drawn for something else (`otherControl`), as an
- * `A`-`Z` index bar's jump links or pagination, are not keys, and an element that shows
- * what a date picker or pagination shows (`datesOrPages`), or whose box (its parent below
- * the body) holds such a control, is no keypad. These guards read the page's structure,
- * never a site (ADR 0033). A single-character control in the box with the keys, such as a
- * "?" help button, counts as one of them; without `field`, one anywhere else on the page
- * leaves it with no keypad, which leaves it to the person as before. A keypad that
- * switches between letters and digits, whose other half is not on the page, is not
- * supported: it is no keypad, or its missing half has no keys (`key-missing`).
+ * The smallest groups of `keys` that are enough for a keypad (`enoughKeys`): for each key,
+ * the nearest element above it, below the body, whose keys are enough, kept when it holds
+ * no other such element. Groups never nest; a key in none, as a "?" help button beside the
+ * keys, is no key of any keypad.
  */
-export function findKeypad(document: Document, field?: Element): Element | undefined {
-  const all = keypadKeys(document);
-  const typing = all.filter((key) => !otherControl(key));
-  const keys = field ? keysAround(field, typing) : typing;
+function keyGroups(keys: readonly HTMLElement[]): HTMLElement[][] {
+  if (keys.length === 0) return [];
+  const { body, documentElement } = keys[0]!.ownerDocument;
+  const enough = new Map<Element, boolean>();
+  const boxes = new Set<Element>();
+  for (const key of keys)
+    for (
+      let box = key.parentElement;
+      box && box !== body && box !== documentElement;
+      box = box.parentElement
+    ) {
+      const holds = enough.getOrInsertComputed(box, (inside) =>
+        enoughKeys(keys.filter((other) => inside.contains(other))),
+      );
+      if (holds) {
+        boxes.add(box);
+        break;
+      }
+    }
+  return [...boxes]
+    .filter((box) => ![...boxes].some((other) => other !== box && box.contains(other)))
+    .map((box) => keys.filter((key) => box.contains(key)));
+}
+
+/**
+ * The keypad that holds `keys`, the nearest element that holds them all, unless it is the
+ * body or the root, or it or its box (its parent below the body) shows what a date picker
+ * or pagination shows (`datesOrPages`) or holds a control drawn for something else
+ * (`otherControl`) among `all`, the document's one-character controls.
+ */
+function keypadOf(keys: readonly HTMLElement[], all: readonly HTMLElement[]): Element | undefined {
   if (!enoughKeys(keys)) return undefined;
+  const { body, documentElement } = keys[0]!.ownerDocument;
   let container = keys[0]!.parentElement;
   while (container && !keys.every((key) => container!.contains(key)))
     container = container.parentElement;
-  if (!container || container === document.body || container === document.documentElement)
-    return undefined;
+  if (!container || container === body || container === documentElement) return undefined;
   const parent = container.parentElement;
-  const around =
-    parent && parent !== document.body && parent !== document.documentElement ? parent : container;
+  const around = parent && parent !== body && parent !== documentElement ? parent : container;
   if (
     datesOrPages(container, around) ||
     all.some((key) => otherControl(key) && around.contains(key))
   )
     return undefined;
   return container;
+}
+
+/**
+ * The page's keypad for `field`, or, without `field`, the document's one keypad: the
+ * nearest element that holds the keys of the smallest groups of one-character controls
+ * (`keyGroups`) that have at least {@link KEYPAD_MIN_KEYS}, with a key for each of the ten
+ * digits or at least {@link KEYPAD_MIN_LETTERS} letters (a letters-only keyboard, owner's
+ * choice, 2026-10-23 13:01 UTC), when that element is neither the body nor the root. With
+ * `field`, only the keys in the nearest box around it that holds enough count
+ * (`keysAround`), and a keypad split into a group of digits and one of letters is one
+ * keypad; without, the document's groups must make exactly one keypad (`findKeypads`).
+ * A one-character control outside every group, such as a "?" help button in the form, is
+ * no key. Controls drawn for something else (`otherControl`), as an `A`-`Z` index bar's
+ * jump links or pagination, are not keys, and an element that shows what a date picker or
+ * pagination shows (`datesOrPages`), or whose box holds such a control, is no keypad.
+ * These guards read the page's structure, never a site (ADR 0033). A keypad that switches
+ * between letters and digits, whose other half is not on the page, is not supported: it
+ * is no keypad, or its missing half has no keys (`key-missing`).
+ */
+export function findKeypad(
+  document: Document,
+  field?: Element,
+  all: readonly HTMLElement[] = keypadKeys(document),
+): Element | undefined {
+  if (!field) {
+    const found = findKeypads(document, all);
+    return found.length === 1 ? found[0] : undefined;
+  }
+  const typing = all.filter((key) => !otherControl(key));
+  const groups = keyGroups(keysAround(field, typing));
+  return keypadOf(groups.length > 1 ? fieldGroup(field, groups) : (groups[0] ?? []), all);
+}
+
+/** The inputs a person types in, other than buttons, checkboxes and radios. */
+const entryInputs =
+  "input:not([type='hidden' i], [type='button' i], [type='submit' i], [type='reset' i], [type='image' i], [type='checkbox' i], [type='radio' i]), textarea";
+
+/**
+ * Of several groups of keys around `field`, those of its keypad: all of them when the
+ * nearest element that holds them holds no input, as a keypad drawn as a group of digits
+ * and one of letters, else the nearest group after the field with no input between, or
+ * the nearest before it, as when each of two fields has its own keypad in one form; none
+ * when no group is the field's alone.
+ */
+function fieldGroup(field: Element, groups: readonly HTMLElement[][]): HTMLElement[] {
+  const keys = groups.flat();
+  let common = keys[0]!.parentElement;
+  while (common && !keys.every((key) => common!.contains(key))) common = common.parentElement;
+  if (common && !common.querySelector(entryInputs)) return keys;
+  const inputs = [...field.ownerDocument.querySelectorAll(entryInputs)];
+  const at = inputs.indexOf(field);
+  const between = (from: Node, to: Node) =>
+    inputs.some(
+      (input) =>
+        input !== field &&
+        from.compareDocumentPosition(input) & Node.DOCUMENT_POSITION_FOLLOWING &&
+        input.compareDocumentPosition(to) & Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+  if (at < 0) return [];
+  const after = groups.find(
+    (group) =>
+      field.compareDocumentPosition(group[0]!) & Node.DOCUMENT_POSITION_FOLLOWING &&
+      !between(field, group[0]!),
+  );
+  if (after) return after;
+  const before = groups.findLast(
+    (group) =>
+      group.at(-1)!.compareDocumentPosition(field) & Node.DOCUMENT_POSITION_FOLLOWING &&
+      !between(group.at(-1)!, field),
+  );
+  return before ?? [];
+}
+
+/**
+ * Every keypad of the document, one for each smallest group of keys (`keyGroups`), so a
+ * page with a keypad for each of two fields has two. The observation leaves all their keys
+ * and key labels out (ADR 0067). `all` is the document's `keypadKeys`, read once by a
+ * caller that looks for several keypads.
+ */
+export function findKeypads(
+  document: Document,
+  all: readonly HTMLElement[] = keypadKeys(document),
+): Element[] {
+  return keyGroups(all.filter((key) => !otherControl(key)))
+    .map((keys) => keypadOf(keys, all))
+    .filter((container) => container !== undefined);
 }
 
 /**

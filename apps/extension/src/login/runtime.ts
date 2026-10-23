@@ -133,6 +133,7 @@ import { domainKey } from "@pateat/bitwarden";
 import {
   authorizeSchema,
   destinationCheckSchema,
+  keypadPressSchema,
   type DestinationAnswer,
   entryCheckResultSchema,
   entryHostsResultSchema,
@@ -1457,17 +1458,24 @@ function selfSubmitStep(
   return undefined;
 }
 /**
- * Whether a fill the page may submit by itself (`selfSubmitStep`), a TOTP code's or one
- * on a software keyboard, went in, or may have, and its click has not run (ADR 0027,
- * ADR 0067): a page that moved on meanwhile submitted it by itself.
+ * Whether a TOTP code's fill (see `codeStep`) went in, or may have, and its click has not
+ * run (ADR 0027): a page that moved on meanwhile submitted the code by itself. A fill on a
+ * software keyboard counts only while it is still running and after the page told of its
+ * first key press (`keyPressed`, ADR 0067): a document that replaced the page before any
+ * press, as after the person's own link click or a reload, submitted nothing.
  */
-const codeAwaitsClick = (recipe: LoginRecipe, metadata: LoginAttemptMetadata) =>
+const codeAwaitsClick = (
+  recipe: LoginRecipe,
+  metadata: LoginAttemptMetadata,
+  keyPressed: boolean,
+) =>
   metadata.operationId === undefined
-    ? selfSubmitStep(recipe, metadata, metadata.stepIndex) === "click"
+    ? codeStep(recipe, metadata, metadata.stepIndex) === "click"
     : metadata.operationKind === "fill" &&
       metadata.operationEffect === "prepare" &&
       metadata.mutationIntent === true &&
-      selfSubmitStep(recipe, metadata, metadata.stepIndex) === "fill";
+      (codeStep(recipe, metadata, metadata.stepIndex) === "fill" ||
+        (keyPressed && selfSubmitStep(recipe, metadata, metadata.stepIndex) === "fill"));
 /** The event for a code the page submitted by itself, marking a route step's code. */
 const autoSubmitted = (recipe: LoginRecipe, metadata: LoginAttemptMetadata) => ({
   type: "AUTO_SUBMITTED" as const,
@@ -2364,6 +2372,12 @@ export function createLoginRuntime(
   const stepWaitMs = () => (probeMode ? probeStepWaitMs : undefined) ?? LOGIN_STEP_WAIT_MS;
   const documents = new Map<string, LiveDocument>();
   const attempts = new Map<number, Execution>();
+  /**
+   * The keypad fill of each attempt whose page told of its first key press, by attempt ID
+   * (ADR 0067). Kept in memory only: after a worker restart a replaced page is not taken
+   * as the keypad's own submission.
+   */
+  const keypadPresses = new Map<string, string>();
   /**
    * By attempt ID, the document each new login of this worker began in; a resumed or
    * recovered one has none, so it never counts as unsubmitted (ADR 0066).
@@ -10927,7 +10941,16 @@ export function createLoginRuntime(
       // The page left the document a TOTP code was filled into before its click,
       // as a code input that submits on its last digit does: the page submitted the code
       // itself, and it is never filled again (ADR 0027).
-      if (previous.document.documentId !== document.documentId && codeAwaitsClick(recipe, resumed))
+      // So did a software keyboard's page once a key was pressed (ADR 0067).
+      if (
+        previous.document.documentId !== document.documentId &&
+        codeAwaitsClick(
+          recipe,
+          resumed,
+          resumed.operationId !== undefined &&
+            keypadPresses.get(resumed.id) === resumed.operationId,
+        )
+      )
         resumed = transitionLoginAttempt(resumed, autoSubmitted(recipe, resumed));
       metadata = transitionLoginAttempt(resumed, {
         type: "NAVIGATED",
@@ -11922,6 +11945,25 @@ export function createLoginRuntime(
         return { ok: false, reason: "not-authorized" };
       const reason = await destinationRefusal(found.run, destination);
       return reason ? { ok: false, reason } : { ok: true };
+    }
+    // Keys are pressed only while the keypad fill is the attempt's own and authorized, and
+    // from then on a replaced page may be its own submission (ADR 0067).
+    const keypadPress = v.safeParse(keypadPressSchema, message);
+    if (keypadPress.success) {
+      const found = await operationRun(keypadPress.output, sender);
+      if (
+        !found ||
+        !keypadStep(found.operation.step) ||
+        !validateLoginOperation(
+          found.operation,
+          found.run.metadata,
+          found.document,
+          found.run.metadata.policyRevision,
+        )
+      )
+        return false;
+      keypadPresses.set(found.run.metadata.id, found.operation.operationId);
+      return true;
     }
     const authorization = v.safeParse(authorizeSchema, message);
     if (!authorization.success) return undefined;

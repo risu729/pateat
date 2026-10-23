@@ -1506,6 +1506,18 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
               let pressed = false;
               // eslint-disable-next-line no-await-in-loop
               const stopped = await typeOnKeypad(input, value.value, () => keypadOf(index), {
+                // The background learns of the presses before the first one, so only a
+                // page replaced after it may count as the page's own submission.
+                beforePress: async () =>
+                  (await sendMessage("login", {
+                    version: 1,
+                    type: "login.keypad.press",
+                    token,
+                    attemptId: operation.attemptId,
+                    operationId: operation.operationId,
+                  })) === true
+                    ? undefined
+                    : ("not-authorized" as const),
                 onPress: () => {
                   pressed = true;
                   keyPressed = true;

@@ -1837,6 +1837,88 @@ describe("extractLoginObservation", () => {
     }
   });
 
+  it("never sends the keys of an optional keyboard beside a writable field, or of a keypad for each of two fields (ADR 0067)", () => {
+    const order = "QWERTYUIOPASDFGHJKLZXCVBNM";
+    const digits = "7391028465";
+    const runs = (keys: string) => {
+      const result = extractLoginObservation();
+      if (!result.ok) throw new Error(result.reason);
+      const text = JSON.stringify(result.observation).replaceAll(/\s/gu, "");
+      return {
+        observation: result.observation,
+        runs: [...keys].slice(0, -2).flatMap((_, at) => {
+          const run = keys.slice(at, at + 3);
+          return text.includes(run) ? [run] : [];
+        }),
+      };
+    };
+    // A writable password field with an optional keyboard: full-width input buttons in a
+    // shuffled order, as SMBC Direct's, and links in a list, as MUFG's.
+    const full = (character: string) =>
+      /\d/u.test(character) ? String.fromCodePoint(character.codePointAt(0)! + 0xfee0) : character;
+    for (const [keys, pad] of [
+      [
+        digits + order,
+        `<div id="soft">${[...(digits + order)].map((key) => `<input type="button" value="${full(key)}">`).join("")}</div>`,
+      ],
+      [
+        order,
+        `<ul id="soft">${[...order].map((key) => `<li><a href="#">${key}</a></li>`).join("")}</ul>`,
+      ],
+    ] as const) {
+      page(
+        `<form id="f">${pad}<div><input id="pw" type="password"></div><button id="go" type="button">Log in</button></form>`,
+      );
+      const { observation, runs: found } = runs(keys);
+      expect(found, pad).toEqual([]);
+      expect(
+        observation.candidates.map((candidate) => [candidate.target.value, candidate.label]),
+        pad,
+      ).toEqual([
+        ["pw", undefined],
+        ["go", "Log in"],
+      ]);
+    }
+    // Two read-only fields, each beside its own keypad: each field names its own.
+    page(
+      `<form id="f"><label>PIN<input id="pin" type="password" readonly></label><div id="digits">${[...digits].map((key) => `<a href="#">${key}</a>`).join("")}</div>
+      <label>Word<input id="word" type="password" readonly></label><div id="letters">${[...order].map((key) => `<a href="#">${key}</a>`).join("")}</div>
+      <button id="go" type="button">Log in</button></form>`,
+    );
+    expect(runs(digits).runs).toEqual([]);
+    expect(runs(order).runs).toEqual([]);
+    expect(
+      summary(observe()).map((candidate) => [
+        candidate.target.value,
+        candidate.label,
+        candidate.keypad,
+      ]),
+    ).toEqual([
+      ["pin", "PIN", { by: "id", value: "digits" }],
+      ["word", "Word", { by: "id", value: "letters" }],
+      ["go", "Log in", undefined],
+    ]);
+  });
+
+  it("keeps the other labels of a form whose keys sit in the form itself (ADR 0067)", () => {
+    const keys = [..."7391028465"].map((key) => `<a href="#">${key}</a>`).join("");
+    page(
+      `<form id="f"><label>Customer number <input id="customer" inputmode="numeric"></label><label>PIN <input id="pin" type="password" readonly></label>${keys}<button id="go" type="button">Log in</button></form>`,
+    );
+    expect(
+      summary(observe()).map((candidate) => [
+        candidate.target.value,
+        candidate.label,
+        candidate.keypad,
+      ]),
+    ).toEqual([
+      ["customer", "Customer number", undefined],
+      ["pin", "PIN", expect.anything()],
+      ["go", "Log in", undefined],
+    ]);
+    expect(JSON.stringify(observe())).not.toMatch(/7\s*3\s*9/u);
+  });
+
   it("names a keypad without an id or test ID by a class only it has, else by its position from the field (ADR 0067)", () => {
     const keys = (characters: string) =>
       [...characters].map((character) => `<input type="button" value="${character}">`).join("");

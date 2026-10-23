@@ -49,17 +49,21 @@ their character by `aria-label`, by an image's `alt`, or only as an image.
 ## Decision
 
 - **The observation names the keypad, never its keys.** A field's keypad is the nearest
-  element holding every control whose label is one character in the nearest box around
-  the field, below the body, that holds enough of them for a keypad (a button, a
-  submit, button or image input, a script button, a link to a fragment of its own page,
-  or an element with an `onclick` attribute; the label is its visible text, else its
-  `aria-label`, else its one image's `alt`, with full-width forms folded), when there
-  are at least 10, they include a key for each of the ten digits or at least 26 letters
-  of any script (a letters-only keyboard, owner, 13:01 UTC), and that element is not the
-  body. A one-character control outside that box, such as a text-size switch's 小, 中
-  and 大 in the header, is not one of its keys. Guards read the page's structure, never
-  a site
-  ([ADR 0033](0033-no-site-specific-features.md)):
+  element holding the smallest groups of controls whose label is one character in the
+  nearest box around the field, below the body, that holds enough of them for a keypad
+  (a button, a submit, button or image input, a script button, a link to a fragment of
+  its own page, or an element with an `onclick` attribute; the label is its visible
+  text, else its `aria-label`, else its one image's `alt`, with full-width forms
+  folded), when there are at least 10, they include a key for each of the ten digits or
+  at least 26 letters of any script (a letters-only keyboard, owner, 13:01 UTC), and
+  that element is not the body. A group is the nearest element above a control whose
+  controls are enough, when it holds no smaller such group. A one-character control in
+  no group, such as a "?" help button in the form or a text-size switch's 小, 中 and 大
+  in the header, is not a key. Several groups around a field make one keypad when the
+  element holding them holds no input, as digits and letters drawn apart; otherwise the
+  field takes the nearest group after it, or before it, with no input between, so two
+  fields in one form each take their own keypad. Guards read the page's structure, never
+  a site ([ADR 0033](0033-no-site-specific-features.md)):
   - A control inside navigation (`nav`, `role="navigation"`), a grid, a tab bar or a
     menu bar, one marked `aria-current`, a `rel` next or previous link, and a link that
     jumps to an element of its own page by `id` or `name` (an `A`-`Z` index bar's `#A`)
@@ -77,14 +81,15 @@ their character by `aria-label`, by an image's `alt`, or only as an image.
   by child indexes (owner, 13:01 UTC). A visible, enabled, empty read-only password
   input, or one marked `current-password` or `one-time-code`, that shares the keypad's
   form or a container below the body with it is described as a fill candidate with
-  `keypad` set to that locator; the keys are left out of the candidates. Fields beside
-  different keypads leave the page without one. A read-only field that holds a value, as
-  a date or an email address shown again, and a read-only text input, as a search box
+  `keypad` set to its own keypad's locator. A read-only field that holds a value, as a
+  date or an email address shown again, and a read-only text input, as a search box
   beside an `A`-`Z` filter bar of buttons, stay unfillable, and so does any field
-  without a keypad, as before. Text inside the keypad is never part of a field's label
-  or description: a label by layout stops at the keypad, and a `<label>` or the element
-  `aria-labelledby` or `aria-describedby` names is read without it, so the key labels
-  and their order never reach the service.
+  without a keypad, as before. The keys of every keypad on the page, also an optional
+  keyboard beside a writable field and the document's own key groups, are left out of
+  the candidates, and their text is never part of a field's label or description: a
+  label by layout stops at a key, and a `<label>` or the element `aria-labelledby` or
+  `aria-describedby` names is read without the keys and keeps the rest of its text. So
+  the key labels and their order never reach the service.
 - **The recipe carries only the keypad's locator.** A fill field may name `keypad`
   (`id`, `test-id`, `class` or `position`), only in a preparing fill. Any locator names
   the keypad only while the one element it finds holds the field's keypad, read again
@@ -101,25 +106,31 @@ their character by `aria-label`, by an image's `alt`, or only as an image.
   before any field of the step is typed; otherwise the step ends as `value-mismatch`
   with nothing done. Only key labels are folded: a value's own full-width character, as
   `Ａ` in a stored password, has no key. Otherwise the executor focuses the field and,
-  when no key shows, presses the field, waits up to 2 seconds for the keys, and checks
-  the same before the first key press (`keypad-key-missing` in the log). A field that
-  already holds characters is refused. The keypad and each key are looked up again just
-  before its press, since a keypad may shuffle or redraw itself after each one, and a
-  key is pressed with a person's mouse events (`pressElement`); the press stops before
-  its click when the key no longer shows its character, as a keypad that relabels its
-  keys on `mousedown`. After each press the field must come to hold exactly one more
-  character, masked or not, within 1 second, read after each of the page's pauses; more
-  characters, or none in time, stop the step as `fill-rejected`. A page that moves to
-  another path, or takes the field out of the document, after a key press may have taken
-  the characters so far as the whole value, as a PIN pad that submits at its last digit
-  or partway. Its own submission then counts as the step's click, as a code that submits
-  itself does ([ADR 0027](0027-per-account-login-routes.md)): the login records the
-  submission, is settled and judged as after a click, and is never typed again. So does
-  a page that leaves the document after the keypad step and before its click. A field
-  the page only redraws, hides or moves to another form is no submission: the step stops
-  with `keypad-pressed`. A stop never presses again, never presses a clear key and never
-  clicks the submit button. A key that shows its character only as an image without
-  `alt` is never used.
+  when the keypad does not show enough keys a person can press for a keypad, presses the
+  field, waits up to 2 seconds for the keys, and checks the same before the first key
+  press (`keypad-key-missing` in the log). A field that already holds characters is
+  refused. The keypad and each key are looked up again just before its press, since a
+  keypad may shuffle or redraw itself after each one, and a key is pressed with a
+  person's mouse events (`pressElement`); the press stops before its click when the key
+  no longer shows its character, as a keypad that relabels its keys on `mousedown`.
+  After each press the field must come to hold exactly one more character, masked or
+  not, within 1 second, read after the page's pause and then every 25 ms; more
+  characters, or none in time, stop the step as `fill-rejected`. Just before the first
+  key press the page tells the background, which allows the presses only while the fill
+  is still the attempt's own and authorized. A page that moves to another path, or takes
+  the field out of the document, after a key press may have taken the characters so far
+  as the whole value, as a PIN pad that submits at its last digit or partway. Its own
+  submission then counts as the step's click, as a code that submits itself does
+  ([ADR 0027](0027-per-account-login-routes.md)): the login records the submission, is
+  settled and judged as after a click, and is never typed again. So does a new document
+  that replaces the page while the fill is still running, but only after the page told
+  of the first key press: one before it, as after the person's own link click, a
+  redirect or a reload, submitted nothing. After the step and before its click, a page
+  that moved to another path, or shows a signed-in marker or the rejection without the
+  button, counts the same, as for a code. A field the page only redraws, hides or moves
+  to another form is no submission: the step stops with `keypad-pressed`. A stop never
+  presses again, never presses a clear key and never clicks the submit button. A key
+  that shows its character only as an image without `alt` is never used.
 - **A fill-only login presses no key.** A fill-only login after a logout (ADR 0021 D)
   ends before a fill on a keypad, as before a step with an effect, since a press may
   submit, as a PIN pad does at its last digit; the contracts refuse such a step for it.
@@ -137,8 +148,8 @@ their character by `aria-label`, by an image's `alt`, or only as an image.
   document and in a sign-in form shown again beside a keypad, and an empty read-only
   password input beside a keypad counts for S2, so a wrong PIN ends the login as
   `credential-rejected` and other tabs never type it again (ADR 0021 D).
-- Nothing new leaves the device: the keypad's `id` or test ID goes to the service as
-  any locator does; the value, the key labels, their order and which keys were pressed
+- Nothing new leaves the device: the keypad's locator goes to the service as any locator
+  does; the value, the key labels, their order and which keys were pressed
   do not. Logs and the outcome report (ADR 0019) carry the codes `keypad-missing`,
   `keypad-key-missing` and `keypad-pressed` only.
 
@@ -149,9 +160,11 @@ their character by `aria-label`, by an image's `alt`, or only as an image.
 - A keypad whose keys check `isTrusted`, or that keeps the value elsewhere and leaves
   the field unchanged, stops after its first press without submitting, as the owner
   chose (13:01 UTC); the person is told to reload and enters the value. A
-  single-character control in the keypad's box, such as a "?" help button, counts as one
-  of its keys, so a value with that character presses it and stops at the check after
-  the press.
+  single-character control inside the keys' own group, such as a "?" drawn among the
+  keys, counts as one of them, so a value with that character presses it and stops at
+  the check after the press. A keypad drawn as a group of digits and one of letters in
+  an element that also holds an input is taken as its group nearest the field alone, so
+  a value that needs the other group is refused before the first press.
 - A keypad that switches between letters and digits, showing one half at a time, is not
   supported: the half not shown has no keys, so a value that needs it is refused before
   the first press, or, when the shown half lacks every digit and 26 letters, the page
