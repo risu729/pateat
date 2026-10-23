@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "587aeb35-cb1f-4310-a776-a722175e8b94",
+  "id": "df02d796-1040-4281-a9a8-0510c9a76597",
   "prevId": "c2798ba5-050a-4ecd-bceb-8fadf5e25a9c",
   "tables": {
     "devices": {
@@ -393,6 +393,27 @@
         },
         "recipe_page": {
           "name": "recipe_page",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "signed_in": {
+          "name": "signed_in",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "page_kind": {
+          "name": "page_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "irreversible": {
+          "name": "irreversible",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -1068,59 +1089,6 @@
           "value": "\"recipe_heads\".\"state\" IN ('active', 'revoked')"
         }
       }
-    },
-    "recipe_layout_uses": {
-      "name": "recipe_layout_uses",
-      "columns": {
-        "owner_id": {
-          "name": "owner_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "recipe_id": {
-          "name": "recipe_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "layout": {
-          "name": "layout",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "last_used_at": {
-          "name": "last_used_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "recipe_layout_uses_owner_id_recipe_id_recipe_heads_owner_id_recipe_id_fk": {
-          "name": "recipe_layout_uses_owner_id_recipe_id_recipe_heads_owner_id_recipe_id_fk",
-          "tableFrom": "recipe_layout_uses",
-          "tableTo": "recipe_heads",
-          "columnsFrom": ["owner_id", "recipe_id"],
-          "columnsTo": ["owner_id", "recipe_id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "recipe_layout_uses_owner_id_recipe_id_layout_pk": {
-          "columns": ["owner_id", "recipe_id", "layout"],
-          "name": "recipe_layout_uses_owner_id_recipe_id_layout_pk"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {}
     },
     "recipe_revisions": {
       "name": "recipe_revisions",

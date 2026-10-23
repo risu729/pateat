@@ -9,6 +9,7 @@ import {
 import type { D1Migration } from "cloudflare:test";
 import { env, exports } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
+import { app } from "../src/app";
 import { createDeviceToken, hashDeviceToken } from "../src/auth";
 import {
   KEPT_RECIPE_REVISIONS,
@@ -18,7 +19,7 @@ import {
 } from "../src/limits";
 import { writeRecipe } from "../src/recipe-store";
 import { documentBytes, seedRecipeBytes, storedRecipeBytes } from "./recipe-byte-helpers";
-import { awaitRoomInMinute } from "./limiter";
+import { OWNER_LIMIT, withLimiter } from "./limiter";
 
 // Synthetic owners, devices and recipes only. Each test creates its own owner so
 // results never depend on storage shared with another test.
@@ -86,6 +87,7 @@ function recipe(id: string, revision: number): LoginRecipeDocument {
         key: "1000",
         language: "en",
         createdAt: 1000,
+        pageKind: "sign-in",
         slots: ["username", "password"],
         steps: [
           {
@@ -1006,16 +1008,21 @@ describe("per-owner limits", () => {
   });
 
   it("rate limits requests per owner across its devices, before reading bodies", async () => {
+    const limitedEnv = withLimiter("OWNER_LIMITER", OWNER_LIMIT);
+    const send = (device: Device, path: string, init: RequestInit = {}) => {
+      const headers = new Headers(init.headers);
+      headers.set("Authorization", `Bearer ${device.token}`);
+      return app.request(`https://pateat.invalid${path}`, { ...init, headers }, limitedEnv);
+    };
     const first = await enrollOwner();
     const second = await addDevice(first.ownerId);
-    await awaitRoomInMinute();
     const statuses: number[] = [];
-    for (let request = 0; request < 120; request += 1)
+    for (let request = 0; request < OWNER_LIMIT; request += 1)
       // oxlint-disable-next-line no-await-in-loop -- the limiter counts sequential calls
-      statuses.push((await api(request % 2 === 0 ? first : second, "/v1/settings")).status);
+      statuses.push((await send(request % 2 === 0 ? first : second, "/v1/settings")).status);
     expect(statuses.every((status) => status === 200)).toBe(true);
 
-    const limited = await api(second, "/v1/settings", {
+    const limited = await send(second, "/v1/settings", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: "{",
@@ -1023,10 +1030,10 @@ describe("per-owner limits", () => {
     expect(limited.status).toBe(429);
     expect(limited.headers.get("Retry-After")).toBe("60");
     expect(await limited.json()).toEqual({ error: "rate_limited" });
-    expect((await api(first, "/v1/recipes")).status).toBe(429);
+    expect((await send(first, "/v1/recipes")).status).toBe(429);
     expect(
       (
-        await api(first, "/v1/recipes/bank-login/outcome", {
+        await send(first, "/v1/recipes/bank-login/outcome", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: "{",
@@ -1034,8 +1041,8 @@ describe("per-owner limits", () => {
       ).status,
     ).toBe(429);
     // Another owner is not counted against this one.
-    expect((await api(await enrollOwner(), "/v1/settings")).status).toBe(200);
-  }, 20_000);
+    expect((await send(await enrollOwner(), "/v1/settings")).status).toBe(200);
+  });
 });
 
 // ADR 0019 and ADR 0012, amended 2026-10-18: how the first login of a revision ended.
@@ -1548,6 +1555,35 @@ describe("unused recipe revocation (ADR 0058)", () => {
       { recipeId: "bank-login", revision: 2, state: "revoked" },
     ]);
     expect(await activeIds(device.ownerId)).toEqual(["bank-entry"]);
+  });
+
+  it("never revokes a recipe generated as confirm or unclear (ADR 0035), which never runs", async () => {
+    const device = await enrollOwner();
+    for (const [id, pageKind] of [
+      ["bank-confirm", "confirm"],
+      ["bank-unclear", "unclear"],
+    ] as const) {
+      // oxlint-disable-next-line no-await-in-loop -- Each write takes the next sequence.
+      const written = await put(device, `/v1/recipes/${id}`, {
+        version: 1,
+        expectedRevision: 0,
+        state: "active",
+        recipe: { ...recipe(id, 1), pageKind },
+      });
+      expect(written.status).toBe(200);
+    }
+    expect((await publish(device, "bank-login", 0)).status).toBe(200);
+    await env.DB.batch([
+      lastUsedAgo(device.ownerId, "bank-confirm", 10 * RECIPE_IDLE_LIMIT_MS),
+      lastUsedAgo(device.ownerId, "bank-unclear", 10 * RECIPE_IDLE_LIMIT_MS),
+      lastUsedAgo(device.ownerId, "bank-login", RECIPE_IDLE_LIMIT_MS + DAY_MS),
+    ]);
+    expect((await sync(device)).changes).toMatchObject([
+      { recipeId: "bank-confirm", revision: 1, state: "active" },
+      { recipeId: "bank-unclear", revision: 1, state: "active" },
+      { recipeId: "bank-login", revision: 2, state: "revoked" },
+    ]);
+    expect(await activeIds(device.ownerId)).toEqual(["bank-confirm", "bank-unclear"]);
   });
 
   it("counts a reported login, also on an older revision, as use", async () => {

@@ -24,6 +24,7 @@ function recipe(id: string, revision: number): LoginRecipeDocument {
         key: LAYOUT,
         language: "en",
         createdAt: Number(LAYOUT),
+        pageKind: "sign-in",
         slots: ["username", "password"],
         steps: [
           {
@@ -135,6 +136,7 @@ test("shows a recipe's steps, targets and JSON, then revokes it", async () => {
   const details = recipeItem("bank-signin");
   for (const text of [
     "Revision2, updated 2026-10-11 08:15 UTC",
+    "Page kindSign-in",
     'Fill "username" into id "username", "password" into name "pass" (prepare)',
     'Click test-id "go" to submit',
     'id "welcome" on any page',
@@ -180,6 +182,27 @@ test("shows a recipe's steps, targets and JSON, then revokes it", async () => {
     .element(revoked)
     .toMatchTextContent("old-signinRevision 3, revoked 2026-10-11 08:15 UTC");
   await expect.element(revoked).not.toMatchTextContent("shop-signin");
+});
+
+test("shows that devices never log in on a page generated as a verification (ADR 0035)", async () => {
+  const kinds = [
+    ["confirm", "Verification while signed in; devices never log in here"],
+    ["unclear", "Unclear, handled as a verification; devices never log in here"],
+  ] as const;
+  const client = mockClient({
+    version: 1,
+    // Each layout keeps its own page kind (ADR 0060).
+    recipes: kinds.map(([pageKind]) => {
+      const entry = active(`bank-${pageKind}`);
+      const { recipe: stored } = entry.change;
+      const layouts = stored.layouts.map((layout) => ({ ...layout, pageKind }));
+      return { ...entry, change: { ...entry.change, recipe: { ...stored, layouts } } };
+    }),
+  });
+  await mount(client);
+  for (const [pageKind, text] of kinds)
+    // oxlint-disable-next-line no-await-in-loop -- one element per kind, checked in order
+    await expect.element(recipeItem(`bank-${pageKind}`)).toMatchTextContent(`Page kind${text}`);
 });
 
 test("lists recipes the service can no longer read on the Sites list and revokes them", async () => {
@@ -313,6 +336,7 @@ test("shows a passkey-only recipe and its one click (ADR 0053)", async () => {
       {
         key: LAYOUT,
         createdAt: Number(LAYOUT),
+        pageKind: "sign-in",
         slots: [],
         passkeyOnly: true,
         passkey: { path: "/login", target: button },

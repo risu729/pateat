@@ -1,5 +1,6 @@
 import {
   MAX_ACTIVE_RECIPE_BYTES,
+  runsLogin,
   storedLayouts,
   syncRecipeChangeSchema,
   type StoredLoginRecipe,
@@ -392,8 +393,10 @@ export async function readLayoutUses(
 
 /**
  * The stored recipe without its layouts unused since `unusedBefore` (ADR 0060): a layout
- * counts as used when it was created and at its last reported use. `undefined` when none is
- * unused, or every one is, which the recipe's own idle check revokes instead.
+ * counts as used when it was created and at its last reported use. A layout generated as
+ * `confirm` or `unclear` never runs, so never reports use, and stays (ADR 0035); a chooser's
+ * layouts are `sign-in`. `undefined` when none is unused, or every one is, which the
+ * recipe's own idle check revokes instead.
  */
 export function withoutUnusedLayouts(
   recipe: StoredLoginRecipe,
@@ -401,7 +404,10 @@ export function withoutUnusedLayouts(
   unusedBefore: number,
 ): StoredLoginRecipe | undefined {
   const idle = new Set(
-    storedLayouts(recipe)
+    [
+      ...("layouts" in recipe ? recipe.layouts.filter(runsLogin) : []),
+      ...("chooser" in recipe ? recipe.chooser.layouts : []),
+    ]
       .filter((layout) => Math.max(layout.createdAt, uses.get(layout.key) ?? 0) < unusedBefore)
       .map((layout) => layout.key),
   );
@@ -429,7 +435,9 @@ export function withoutUnusedLayouts(
  * Revokes the owner's active recipes unused for `RECIPE_IDLE_LIMIT_MS` (ADR 0058), at most
  * `MAX_IDLE_REVOCATIONS` per call and oldest first, as ordinary tombstone writes by the
  * service. Entry recipes (ADR 0031) stay: pressing an entry reports nothing to the service.
- * A recipe used after this read keeps its head. Returns how many were revoked.
+ * So do login recipes with a layout generated as `confirm` or `unclear` (ADR 0035, ADR
+ * 0060), which never runs, so never reports use. A recipe used after this read keeps its head. Returns how many were
+ * revoked.
  */
 export async function revokeUnusedRecipes(
   db: D1Database,
@@ -443,6 +451,9 @@ export async function revokeUnusedRecipes(
     eq(recipeHeads.state, "active"),
     lt(recipeHeads.lastUsedAt, unusedBefore),
     sql`json_extract(${recipeRevisions.document}, '$.entry') IS NULL`,
+    // Every layout of a login recipe was generated as `sign-in` (ADR 0060).
+    sql`NOT EXISTS (SELECT 1 FROM ${layoutRows("$.layouts")}
+      WHERE json_extract(layout_row.value, '$.pageKind') <> 'sign-in')`,
   )
     .orderBy(asc(recipeHeads.lastUsedAt))
     .limit(MAX_IDLE_REVOCATIONS);
@@ -475,6 +486,7 @@ async function removeUnusedLayouts(db: D1Database, ownerId: string, unusedBefore
   const idleLayout = (path: string) =>
     sql`EXISTS (SELECT 1 FROM ${layoutRows(path)}
       WHERE json_extract(layout_row.value, '$.createdAt') < ${unusedBefore}
+        AND coalesce(json_extract(layout_row.value, '$.pageKind'), 'sign-in') = 'sign-in'
         AND NOT EXISTS (SELECT 1 FROM ${recipeLayoutUses}
           WHERE ${recipeLayoutUses.ownerId} = ${recipeHeads.ownerId}
             AND ${recipeLayoutUses.recipeId} = ${recipeHeads.recipeId}

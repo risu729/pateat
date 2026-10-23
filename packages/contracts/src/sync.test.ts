@@ -23,6 +23,7 @@ function recipe(revision: number): LoginRecipeDocument {
       {
         key: "1760000000000",
         createdAt: 1760000000000,
+        pageKind: "sign-in",
         slots: ["password"],
         steps: [
           {

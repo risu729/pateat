@@ -773,6 +773,7 @@ describe("revokeRecipe (ADR 0058 A)", () => {
         {
           key: "1760000000000",
           createdAt: 1760000000000,
+          pageKind: "sign-in",
           slots: ["password"],
           steps: [
             {

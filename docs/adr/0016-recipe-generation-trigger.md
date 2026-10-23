@@ -15,8 +15,8 @@ extension ([Background execution](../architecture.md#background-execution)), inc
 that amendment; the service route enforces the retry window as well
 ([API README](../../services/api/README.md#recipe-generation)). Amended on 2026-10-13 by
 ADR 0021's [site count badge](0021-account-choice-outside-settings.md#site-count-badge)
-(not implemented): condition 2's vault match is no longer the only vault access a page
-without a recipe gets. Amended on 2026-10-16 by
+(implemented on 2026-10-23): condition 2's vault match is no longer the only vault
+access a page without a recipe gets. Amended on 2026-10-16 by
 [ADR 0039](0039-redacted-token-path-segments.md) (owner, 14:10 UTC, implemented): a page
 whose path may carry a token is observed and sent with `[id]` in place of each such
 segment, replacing the 2026-10-11 choice below that such a page is never observed.
@@ -50,9 +50,8 @@ Amended on 2026-10-19 by [ADR 0058](0058-automatic-recipe-removal.md) (owner, 20
 implemented): a page whose recipe the chosen item cannot run is generated again, its
 recipe revoked first, though a recipe starts there.
 
-Amended on 2026-10-23 by [ADR 0060](0060-recipe-layouts.md) (proposed by Claude; its
-shape and the discarding of existing recipes are assumed, pending the owner's answers;
-implemented on a branch, local tests only): a recipe holds up to three layouts, a
+Amended on 2026-10-23 by [ADR 0060](0060-recipe-layouts.md) (accepted by the owner on
+2026-10-23 at 11:41 UTC; implemented on a branch, local tests only): a recipe holds up to three layouts, a
 continuation and a page judgement name the layout they continue or judge in `branch`,
 and generated pages, judged pages and the signed-in page sample of the ADR 0029
 amendment are kept per layout. A page where any layout's first step shows is a page

@@ -1,5 +1,5 @@
 -- Recipes are stored as up to three layouts from here on (ADR 0060). Existing recipes are
--- discarded rather than migrated (owner decision assumed in ADR 0060): their revisions and
+-- discarded rather than migrated (the owner's decision in ADR 0060): their revisions and
 -- heads go, and with them the judged pages, generation attempts and first-login results
 -- whose `branch` named a chooser branch alone. Devices of this build drop their cached
 -- recipes and sync again from the start; the request log and login records stay.

@@ -30,7 +30,11 @@ async function serveSite(context: BrowserContext, fixture: { origin: string }) {
 type RecipeChanges = { changes: { recipe?: LoginRecipeDocument }[] };
 
 type Candidate = { id: string; role: string; target: { by: string; value: string } };
-type Prompt = { task: string; observation: { path: string; candidates: Candidate[] } };
+type Prompt = {
+  task: string;
+  signedIn?: boolean;
+  observation: { path: string; candidates: Candidate[] };
+};
 
 /**
  * Answers the Worker's token exchange and Messages API calls the way Claude would for
@@ -114,13 +118,25 @@ function syntheticClaude({ abstainOnPassword = false }: { abstainOnPassword?: bo
             : passwordPage
               ? {
                   decision: "plan",
+                  pageKind: "sign-in",
+                  irreversible: "no",
                   fields: [{ slot: "password", candidate: byTarget("password") }],
                   action: { candidate: login(), purpose: "submit" },
                 }
               : {
                   decision: "plan",
+                  pageKind: "sign-in",
+                  irreversible: "no",
                   fields: [{ slot: "username", candidate: byTarget("account") }],
-                  action: { candidate: byTarget("next"), purpose: "advance" },
+                  // A form that shows no button is submitted after its last field (ADR 0064).
+                  action: {
+                    candidate: prompt.observation.candidates.some(
+                      ({ target }) => target.by === "id" && target.value === "next",
+                    )
+                      ? byTarget("next")
+                      : byTarget("account"),
+                    purpose: "advance",
+                  },
                 };
     return {
       id: "msg_synthetic",
@@ -234,6 +250,9 @@ for (const [button, marker] of [
             ["generate", "/sign-in"],
             ["judge-sign-in", "/account"],
           ]);
+          // The sign-in page went out with the hint that it shows no one signed in, and its
+          // recipe is stored as a sign-in page (ADR 0035).
+          expect(claude.prompts[0]).toMatchObject({ signedIn: false });
           expect(JSON.stringify(claude.prompts)).not.toContain(password);
           // The judgement learned the marker into the recipe's one layout.
           const recipes = (await (await service.request("/v1/recipes")).json()) as RecipeChanges;
@@ -242,6 +261,7 @@ for (const [button, marker] of [
               revision: 2,
               layouts: [
                 {
+                  pageKind: "sign-in",
                   completion: [
                     {
                       target:
@@ -398,8 +418,17 @@ for (const { name, start, query, passwordPath } of [
     query: "?email",
     passwordPath: "/identifier/password",
   },
+  // The form shows no Next button until the account is typed, beside a "Use phone" button:
+  // the plan's action is the account field, and Enter in it submits the form (ADR 0064).
+  {
+    name: "form without a button",
+    start: "/identifier",
+    query: "?no-button",
+    passwordPath: "/identifier/password",
+  },
 ])
   test(`a generated identifier page is continued on the password page it leads to (${name}, ADR 0018)`, async () => {
+    const noButton = query === "?no-button";
     // An identifier input without `autocomplete="username"` waits for the offer wait.
     test.setTimeout(90_000);
     const fixture = await startLoginFixture(0, { password, accountName: username });
@@ -447,7 +476,14 @@ for (const { name, start, query, passwordPath } of [
                 {
                   steps: [
                     { kind: "fill", path: start },
-                    { kind: "click", path: start, purpose: "advance" },
+                    {
+                      kind: "click",
+                      path: start,
+                      purpose: "advance",
+                      ...(noButton
+                        ? { target: { by: "id", value: "account" }, press: "enter" }
+                        : {}),
+                    },
                     { kind: "fill", path: passwordPath },
                     { kind: "click", path: passwordPath, purpose: "submit" },
                   ],
@@ -456,6 +492,8 @@ for (const { name, start, query, passwordPath } of [
               ],
             },
           ]);
+          // The "Use phone" button beside the account was never pressed.
+          expect(await page.evaluate(() => sessionStorage.getItem("phoneClicks"))).toBeNull();
 
           // The next visit runs all four steps of the stored recipe with no model call.
           await page.close();

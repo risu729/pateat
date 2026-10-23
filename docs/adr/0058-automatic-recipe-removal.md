@@ -11,9 +11,8 @@ Amends [ADR 0013](0013-service-held-recipes-and-settings.md) (only the owner rev
 recipes) and [ADR 0016](0016-recipe-generation-trigger.md) (a page with a recipe is not
 generated again).
 
-Amended on 2026-10-23 by [ADR 0060](0060-recipe-layouts.md) (proposed by Claude; its
-shape and the discarding of existing recipes are assumed, pending the owner's answers;
-implemented on a branch, local tests only): part B counts use per layout of a recipe
+Amended on 2026-10-23 by [ADR 0060](0060-recipe-layouts.md) (accepted by the owner on
+2026-10-23 at 11:41 UTC; implemented on a branch, local tests only): part B counts use per layout of a recipe
 ([Amendment: use per layout](#amendment-2026-10-23-use-per-layout)). Part A is unchanged
 here; the proposal to repair instead of revoking waits for the repair work.
 
@@ -118,8 +117,8 @@ Claude's choices beyond the owner's answer, not confirmed by the owner:
 
 ### Amendment 2026-10-23: use per layout
 
-Proposed with [ADR 0060](0060-recipe-layouts.md), pending the owner's answers. A recipe
-now holds up to three layouts, and the service keeps each layout's last use in
+Accepted with [ADR 0060](0060-recipe-layouts.md) by the owner on 2026-10-23 at 11:41
+UTC. A recipe now holds up to three layouts, and the service keeps each layout's last use in
 `recipe_layout_uses`: a login that starts on it (the use report names the layout), a
 login on it that ends, and a continuation, handler or marker the service writes into it.
 A write that changes one layout is no use of the others. A layout's last use is the

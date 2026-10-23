@@ -9,6 +9,7 @@ import {
   type SettingsClient,
 } from "../../apps/extension/src/options/client";
 import { SettingsApp } from "../../apps/extension/src/options/settings-app";
+import { SITE_ACCOUNTS_DELAY_MS } from "../../apps/extension/src/options/site-policy";
 import {
   createDefaultSettings,
   DUMMY_VAULT_CATALOG,
@@ -112,6 +113,8 @@ function deferred<T>() {
 }
 
 afterEach(async () => {
+  // Real timers first, so a failing cleanup cannot leave fake ones to later tests.
+  vi.useRealTimers();
   await cleanup();
   focusManager.setFocused(undefined);
 });
@@ -298,6 +301,10 @@ test("edits during a pending save are saved after it, and reloads cannot overlap
 });
 
 test("the add form validates locally and keeps focus on the origin after adds and removals", async () => {
+  // The search for an entered origin's matches waits until typing pauses; advance that
+  // pause on a fake clock that otherwise follows real time, since the query cache
+  // delivers its results on zero-delay timeouts.
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"], shouldAdvanceTime: true });
   const client = mockClient();
   await mount(client);
   await control("site-origin").fill("https://invalid.example/path");
@@ -319,6 +326,7 @@ test("the add form validates locally and keeps focus on the origin after adds an
   // Only items matching the entered origin are offered.
   await expect.element(control("default-account")).toBeDisabled();
   await control("site-origin").fill("https://mail.example");
+  await vi.advanceTimersByTimeAsync(SITE_ACCOUNTS_DELAY_MS);
   await expect.element(control("default-account-note")).toMatchTextContent("1 matching item");
   await expect
     .poll(() =>
@@ -328,6 +336,7 @@ test("the add form validates locally and keeps focus on the origin after adds an
     )
     .toEqual([JSON.stringify(["demo-personal", "secondary"])]);
   await control("site-origin").fill("https://none.example");
+  await vi.advanceTimersByTimeAsync(SITE_ACCOUNTS_DELAY_MS);
   await expect.element(control("default-account-note")).toMatchTextContent("No vault item matches");
   await expect.element(control("default-account")).toBeDisabled();
   // A rule on a longer path does not match the origin, so every item can still be listed.
@@ -336,6 +345,7 @@ test("the add form validates locally and keeps focus on the origin after adds an
   await expect.element(control("default-account")).toMatchTextContent("no match for this origin");
   await control("default-account-all").click();
   await control("site-origin").fill("https://bank.example");
+  await vi.advanceTimersByTimeAsync(SITE_ACCOUNTS_DELAY_MS);
   await control("default-account").selectOptions(JSON.stringify(["demo-personal", "primary"]));
   await control("site-origin").fill("https://bank.example/path");
   await control("site-origin").click();

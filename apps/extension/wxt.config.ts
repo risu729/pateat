@@ -33,8 +33,10 @@ export default defineConfig({
   }),
   manifest: ({ mode }) => ({
     name: "Pateat",
-    description:
-      "Logs in to websites and answers passkey sign-ins from your own password vault, kept on this device.",
+    // Chrome picks the description from public/_locales by its own UI language; the
+    // language setting cannot reach the manifest (ADR 0043).
+    description: "__MSG_extDescription__",
+    default_locale: "en",
     // Chrome 145 is the first with Map.prototype.getOrInsertComputed; native Temporal
     // needs 144, and the standard Uint8Array base64 and hex methods and RegExp.escape need 140.
     minimum_chrome_version: "145",

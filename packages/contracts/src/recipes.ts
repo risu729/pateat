@@ -5,6 +5,7 @@ import {
   passwordVariants,
   recipeLayouts,
   routeSteps,
+  runsLogin,
   sameLoginTarget,
   type LoginRecipe,
   type LoginTarget,
@@ -24,8 +25,10 @@ import {
 // bindings come from the service cache; these functions only read them.
 
 /**
- * Every login recipe for one exact origin, in cache order. An entry recipe (ADR 0031) or a
- * chooser recipe (ADR 0028) is left out: neither is a login recipe with layouts.
+ * Every login recipe for one exact origin with a layout that may start a login, in cache
+ * order. An entry recipe (ADR 0031) or a chooser recipe (ADR 0028) is left out: neither is
+ * a login recipe with layouts. So is a recipe whose every layout was generated as `confirm`
+ * or `unclear` (ADR 0035).
  */
 export function loginRecipesForOrigin(
   recipes: readonly StoredLoginRecipe[],
@@ -33,7 +36,9 @@ export function loginRecipesForOrigin(
 ): LoginRecipeDocument[] {
   return recipes.filter(
     (recipe): recipe is LoginRecipeDocument =>
-      isLoginRecipeDocument(recipe) && recipe.origin === origin,
+      isLoginRecipeDocument(recipe) &&
+      recipe.origin === origin &&
+      recipe.layouts.some((layout) => runsLogin(layout)),
   );
 }
 
@@ -44,13 +49,24 @@ export type LayoutCandidate<Recipe> = {
   createdAt: number;
 };
 
-/** Each layout of a stored login recipe as a candidate, in stored order. */
+/**
+ * Each layout of a stored login recipe that may start a login as a candidate, in stored
+ * order: a layout generated as `confirm` or `unclear` never runs (ADR 0035).
+ */
 export function loginLayoutCandidates(recipe: LoginRecipeDocument): LayoutCandidate<LoginRecipe>[] {
-  return recipeLayouts(recipe).map((projected, index) => ({
-    recipe: projected,
-    ...(recipe.layouts[index]!.language ? { language: recipe.layouts[index]!.language } : {}),
-    createdAt: recipe.layouts[index]!.createdAt,
-  }));
+  return recipeLayouts(recipe).flatMap((projected, index) =>
+    runsLogin(projected)
+      ? [
+          {
+            recipe: projected,
+            ...(recipe.layouts[index]!.language
+              ? { language: recipe.layouts[index]!.language }
+              : {}),
+            createdAt: recipe.layouts[index]!.createdAt,
+          },
+        ]
+      : [],
+  );
 }
 
 /**

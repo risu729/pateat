@@ -40,6 +40,7 @@ function recipe(id: string, firstPath: string, revision = 1, at = origin): Login
     id,
     revision,
     origin: at,
+    pageKind: "sign-in",
     slots: ["username", "password"],
     steps: [
       { kind: "fill", path: firstPath, fields: [{ slot: "username", target: target("user") }] },
@@ -195,6 +196,38 @@ describe("recipe selection", () => {
     expect(order([1, 1, 1], "en")).toEqual(["2000", "3000", "1000"]);
     expect(order([1, 1, 1], "mixed")).toEqual(["3000", "2000", "1000"]);
     expect(order([0, 0, 0])).toEqual(["3000", "2000", "1000"]);
+  });
+
+  it("never lists or starts a recipe generated as confirm or unclear (ADR 0035)", () => {
+    const confirm = stored({ ...recipe("bank-transfer", "/transfer"), pageKind: "confirm" });
+    const unclear = stored({ ...recipe("bank-secret", "/secret"), pageKind: "unclear" });
+    const all = [...recipes, confirm, unclear];
+    expect(loginRecipesForOrigin(all, origin).map(({ id }) => id)).toEqual([
+      "bank-signin",
+      "bank-admin",
+    ]);
+    expect(selectLoginRecipe(all, origin, "/transfer")).toEqual({
+      ok: false,
+      reason: "recipe-not-found",
+    });
+  });
+
+  it("offers only the layouts generated as sign-in (ADR 0035, ADR 0060)", () => {
+    const route = recipe("bank-signin", "/login");
+    const mixed: LoginRecipeDocument = {
+      ...stored(route, 1000),
+      layouts: [
+        toLoginLayout(route, { key: "1000", createdAt: 1000 }),
+        toLoginLayout({ ...route, pageKind: "confirm" }, { key: "2000", createdAt: 2000 }),
+      ],
+    };
+    expect(loginLayoutCandidates(mixed).map((candidate) => candidate.recipe.layout)).toEqual([
+      "1000",
+    ]);
+    expect(selectLoginRecipe([mixed], origin, "/login")).toMatchObject({
+      ok: true,
+      recipe: { layout: "1000" },
+    });
   });
 
   it("never lists or starts an entry recipe (ADR 0031)", () => {

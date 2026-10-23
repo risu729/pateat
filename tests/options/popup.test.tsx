@@ -115,7 +115,27 @@ async function mount(
   return host;
 }
 
-afterEach(() => cleanup());
+/** The popup asks the worker for the tab's choice and page status again each second. */
+const POLL_MS = 1000;
+
+/** Runs that poll on a fake clock, so a test advances it instead of waiting it out. */
+function fakePolls() {
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+}
+
+/**
+ * Runs the listing deadline on a fake clock that also follows real time, since the
+ * query cache delivers its results on zero-delay timeouts.
+ */
+function fakeDeadline() {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"], shouldAdvanceTime: true });
+}
+
+afterEach(async () => {
+  // Real timers first, so a failing cleanup cannot leave fake ones to later tests.
+  vi.useRealTimers();
+  await cleanup();
+});
 
 test("only HTTP(S) pages with a valid hostname are a site the popup edits", () => {
   expect(popupOrigin("https://bank.example/login?next=1")).toBe("https://bank.example");
@@ -498,10 +518,12 @@ test("a search for the site's matches that does not finish ends with the saved d
   });
   const { client } = store(saved(1, settings));
   client.findSiteAccounts.mockImplementation(() => new Promise(() => {}));
+  fakeDeadline();
   await mount(client, "https://bank.example/", noChoice(), false, 300);
   await expect
     .element(page.getByText("Finding the vault items that match this site…", { exact: true }))
     .toBeVisible();
+  await vi.advanceTimersByTimeAsync(300);
   await expect
     .element(
       page.getByText(
@@ -528,10 +550,12 @@ test("a waiting account choice shows its candidates when the site's matches do n
       { connectionId: "demo-work", itemId: "primary" },
     ],
   });
+  fakeDeadline();
   await mount(client, "https://bank.example/login", choices, false, 300);
   await expect
     .element(page.getByText("Listing the accounts that match this page…", { exact: true }))
     .toBeVisible();
+  await vi.advanceTimersByTimeAsync(300);
   await expect.element(page.getByRole("heading", { name: "Choose an account" })).toBeVisible();
   await expect
     .element(page.getByRole("group", { name: "Account to log in with" }).getByRole("radio"))
@@ -640,10 +664,12 @@ test("an excluded site offers no account choice, even one that waited before", a
       { connectionId: "demo-work", itemId: "primary" },
     ],
   });
+  fakePolls();
   await mount(client, "https://bank.example/login", choices);
   await expect.element(page.getByText("No logins or passkey answers on this site")).toBeVisible();
-  // Give the choice time to be asked for and drawn, as it would be on a site that is on.
-  await new Promise((resolve) => setTimeout(resolve, 300));
+  // Give the choice time to be asked for and drawn, as it would be on a site that is on,
+  // past the popup's next poll too.
+  await vi.advanceTimersByTimeAsync(POLL_MS);
   expect(choices.get).not.toHaveBeenCalled();
   // The worker keeps a choice from before the exclusion; Log in would only be refused.
   await expect
@@ -690,6 +716,7 @@ test("a choice that starts waiting after the popup opened is shown while it stay
         answer = resolve;
       }),
   );
+  fakePolls();
   await mount(client, "https://bank.example/login", choices);
   await expect
     .element(page.getByText("Checking whether this page waits for an account choice…"))
@@ -709,9 +736,10 @@ test("a choice that starts waiting after the popup opened is shown while it stay
       { connectionId: "demo-work", itemId: "primary" },
     ],
   });
+  await vi.advanceTimersByTimeAsync(POLL_MS);
   await expect.element(page.getByRole("heading", { name: "Choose an account" })).toBeVisible();
   const calls = choices.get.mock.calls.length;
-  await new Promise((resolve) => setTimeout(resolve, 1500));
+  await vi.advanceTimersByTimeAsync(3 * POLL_MS);
   // Once a choice is shown it is not asked for again.
   expect(choices.get.mock.calls.length).toBe(calls);
 });
@@ -759,6 +787,7 @@ test("a site another tab's login holds says so until that tab lets it go", async
     ],
   };
   choices.get.mockResolvedValue({ ...offer, held: true });
+  fakePolls();
   await mount(client, "https://bank.example/login", choices);
   await expect
     .element(page.getByText(/^Another tab's login to this site is running or did not succeed\./))
@@ -771,6 +800,7 @@ test("a site another tab's login holds says so until that tab lets it go", async
     );
   // Closing that tab lets the site go; the open popup asks again and enables the pick.
   choices.get.mockResolvedValue(offer);
+  await vi.advanceTimersByTimeAsync(POLL_MS);
   await expect.element(page.getByRole("button", { name: "Log in" })).toBeEnabled();
   expect(page.getByText(/^Another tab's login to this site/).query()).toBeNull();
   // The hold may start again before the pick reaches the page.
@@ -1082,6 +1112,7 @@ test("the page section follows a request to the AI while the popup stays open", 
     page: { state: "generating" },
     generation: { outcome: "sent" },
   });
+  fakePolls();
   await mount(client, "https://bank.example/login", choices);
   await expect
     .poll(() => lineText("generation"))
@@ -1093,8 +1124,9 @@ test("the page section follows a request to the AI while the popup stays open", 
     page: { state: "generating" },
     generation: { outcome: "recipe" },
   });
+  await vi.advanceTimersByTimeAsync(POLL_MS);
   await expect
-    .poll(() => lineText("generation"), { timeout: 3000 })
+    .poll(() => lineText("generation"))
     .toBe("The AI made a recipe for the site's sign-in page.");
   await expect.poll(() => lineText("recipe")).toBe("This site has a recipe for this page.");
 });
@@ -1168,10 +1200,12 @@ test("the page section says a vault item without a password or passkey stopped t
 test("the page section is hidden for a page the worker does not describe", async () => {
   const { client } = store();
   const choices = noChoice();
+  fakePolls();
   await mount(client, "https://bank.example/login", choices);
   await expect.element(page.getByRole("group", { name: "Default account" })).toBeVisible();
   // The second read follows the first answer, so that answer has been rendered.
-  await expect.poll(() => choices.status.mock.calls.length, { timeout: 3000 }).toBeGreaterThan(1);
+  await vi.advanceTimersByTimeAsync(POLL_MS);
+  await expect.poll(() => choices.status.mock.calls.length).toBeGreaterThan(1);
   expect(page.getByRole("heading", { name: "This page" }).query()).toBeNull();
   expect(document.querySelector("#popup-page-status")).toBeNull();
 });
@@ -1186,10 +1220,12 @@ test("the page section is hidden for another origin than the popup's", async () 
     recipe: "page",
     login: { state: "authenticated" },
   });
+  fakePolls();
   await mount(client, "https://bank.example/login", other);
   await expect.element(page.getByRole("group", { name: "Default account" })).toBeVisible();
   // The second read follows the first answer, so that answer has been rendered.
-  await expect.poll(() => other.status.mock.calls.length, { timeout: 3000 }).toBeGreaterThan(1);
+  await vi.advanceTimersByTimeAsync(POLL_MS);
+  await expect.poll(() => other.status.mock.calls.length).toBeGreaterThan(1);
   expect(page.getByRole("heading", { name: "This page" }).query()).toBeNull();
   expect(document.querySelector("#popup-page-status")).toBeNull();
 });
@@ -1265,6 +1301,7 @@ test("the page section says why a page of a site whose recipe starts elsewhere w
 test("the page section follows a logout of the tab", async () => {
   const { client } = store();
   const choices = onPage({ recipe: "page", login: { state: "logged-out" } });
+  fakePolls();
   await mount(client, "https://bank.example/login", choices);
   await expect.poll(() => lineText("login")).toBe("Logged out of this site in this tab.");
   choices.status.mockResolvedValue({
@@ -1273,8 +1310,9 @@ test("the page section follows a logout of the tab", async () => {
     recipe: "page",
     login: { state: "logged-out", outcome: "rejected" },
   });
+  await vi.advanceTimersByTimeAsync(POLL_MS);
   await expect
-    .poll(() => lineText("login"), { timeout: 3000 })
+    .poll(() => lineText("login"))
     .toBe("The site did not accept the last login; choose an account to try again.");
 });
 

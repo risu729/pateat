@@ -316,6 +316,76 @@ describe("login runtime with a live vault field source", () => {
       expect(await run.attempt()).toMatchObject({ state: "authenticated" }),
     );
   });
+  it("a site count's job delays a page's login without refusing it, and stops for it", async () => {
+    const login = createLoginRuntime(settingsFor({}), {
+      fields: vi.fn<LoginFieldSource>(async () => "synthetic-secret"),
+      vault: { refreshIfStale: () => undefined, enter: async () => () => undefined },
+    });
+    expect(
+      await login.handle(
+        {
+          version: 1,
+          type: "login.probe.configure",
+          origin,
+          account: {
+            connectionId,
+            itemId,
+            slots: [{ slot: "password", fieldId: "login.password" }],
+          },
+        },
+        trusted as never,
+      ),
+    ).toEqual({ ok: true });
+    let finish!: () => void;
+    const job = new Promise<void>((resolve) => (finish = resolve));
+    const sent = vi.fn(() => job);
+    const counted = login.siteCount.step(sent);
+    // The job is sent before the page announces.
+    await vi.waitFor(() => expect(sent).toHaveBeenCalled());
+    let answered = false;
+    const ready = login
+      .handle(
+        {
+          version: 1,
+          type: "login.document.ready",
+          token: "synthetic-token",
+          start: { path: new URL(fake.pageUrl).pathname },
+        },
+        page,
+      )
+      .finally(() => (answered = true));
+    // While the page is being admitted, the count's next job does not start.
+    const next = vi.fn(async () => "next");
+    expect(await login.siteCount.step(next)).toBeUndefined();
+    expect(next).not.toHaveBeenCalled();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(answered).toBe(false);
+    finish();
+    expect(await counted).toEqual({ value: undefined });
+    expect(await ready).toEqual({ ok: true });
+    // Nor while the login it admitted runs.
+    expect(await login.active()).toBe(true);
+    expect(await login.siteCount.step(next)).toBeUndefined();
+    expect(next).not.toHaveBeenCalled();
+    await vi.waitFor(async () => expect(await login.active()).toBe(false));
+  });
+  it("tells the site count once a top frame's announcement is handled", async () => {
+    const events: string[] = [];
+    const login = createLoginRuntime(settingsFor({}), {
+      fields: vi.fn<LoginFieldSource>(async () => "synthetic-secret"),
+      vault: {
+        refreshIfStale: () => undefined,
+        enter: async () => () => events.push("admitted"),
+      },
+      announced: (tabId, url) => events.push(`announced ${tabId} ${url}`),
+    });
+    const hello = { version: 1, type: "login.document.ready", token: "synthetic-token" };
+    await login.handle(hello, page);
+    await login.handle(hello, { ...(page as object), frameId: 3 } as never);
+    await vi.waitFor(() => expect(events).toContain(`announced 1 ${fake.pageUrl}`));
+    expect(events.indexOf("admitted")).toBeLessThan(events.indexOf(`announced 1 ${fake.pageUrl}`));
+    expect(events.filter((event) => event.startsWith("announced"))).toHaveLength(1);
+  });
   it("a hello waiting on a vault check is stale once a later hello from the frame arrives", async () => {
     let open!: () => void;
     const blocked = new Promise<void>((resolve) => (open = resolve));

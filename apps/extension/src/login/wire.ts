@@ -117,7 +117,13 @@ export function loginReadiness(step: LoginStep): LoginReadiness {
         : [];
   return {
     path: step.path,
-    require: step.kind === "fill" ? "writable" : step.kind === "click" ? "clickable" : "present",
+    // Enter goes into a field (ADR 0064).
+    require:
+      step.kind === "fill" || (step.kind === "click" && step.press === "enter")
+        ? "writable"
+        : step.kind === "click"
+          ? "clickable"
+          : "present",
     targets,
   };
 }

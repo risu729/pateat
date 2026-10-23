@@ -5,7 +5,9 @@ Status: accepted in PR #1; implementation follows the milestone plan. Amended by
 initially and is the source of truth; local-only use is later scope. AI input may
 include the names of fields allowed for automatic fill.
 [ADR 0014](0014-claude-generation-provider.md) selects Claude Opus 5.5 for recipe
-generation; Jev and Clef are not required.
+generation; Jev and Clef are not required. ADR 0014 also asks Claude Sonnet 5.5 once
+when Opus 5.5 refuses a request (owner, 2026-10-23), the one exception to the rule below
+against falling back to another model.
 Date: 2026-10-10
 
 Proposed 2026-10-10 amendment: the inference section incorporates the October 9 Clef
@@ -70,7 +72,8 @@ trip for known recipes or declare a winner without task-specific tests. Keep the
 finite-choice adapter contract separate from recipe generation. A Clef adapter may use
 the Workers AI binding or REST; no agent orchestration layer is implied. Preserve
 refusal/unavailable/abstention outcomes. A configured provider/model failure is returned
-as an error; do not automatically fall back to another provider or model.
+as an error; do not automatically fall back to another provider or model, except for the
+refusal retry ADR 0014 sets.
 
 Decision adapters include an explicit unknown/none option, validate returned IDs
 and probability shapes, and map unsuitable or low-confidence results to abstention.

@@ -38,6 +38,7 @@ const request: RecipeGenerationRequest = {
   version: 1,
   observation,
   slots: [{ id: "password", kind: "secret", description: "account password" }],
+  signedIn: false,
 };
 /** The layout key of the synthetic recipes: their creation time (ADR 0060). */
 const KEY = "1760000000000";
@@ -87,6 +88,7 @@ const route = {
   id: "gen-0123456789abcdef0123456789abcdef",
   revision: 1,
   origin: "https://shop.example",
+  pageKind: "sign-in" as const,
   slots: ["password"],
   steps: [
     {

@@ -94,6 +94,7 @@ function recipeDocument(id: string, revision: number) {
       {
         key: "1000",
         createdAt: 1000,
+        pageKind: "sign-in",
         slots: ["username", "password"],
         steps: [
           {

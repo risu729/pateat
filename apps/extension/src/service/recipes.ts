@@ -10,6 +10,7 @@ import {
   newestLayout,
   recipeLayouts,
   recipeStartSteps,
+  runsLogin,
   selectLoginRecipe,
   serviceOriginSchema,
   storedLoginRecipeSchema,
@@ -580,9 +581,10 @@ export function createRecipeSync(options: {
       if (recipeId !== undefined) {
         const stored = documentOf(cache, origin, recipeId);
         if (!stored) return undefined;
-        return layout === undefined
-          ? newestLayout(loginLayoutCandidates(stored))?.recipe
-          : findLayoutRecipe(stored, layout);
+        if (layout === undefined) return newestLayout(loginLayoutCandidates(stored))?.recipe;
+        // A layout generated as `confirm` or `unclear` never runs (ADR 0035).
+        const found = findLayoutRecipe(stored, layout);
+        return found && runsLogin(found) ? found : undefined;
       }
       const selection = selectLoginRecipe(cache.recipes, origin, path);
       return selection.ok ? selection.recipe : undefined;
@@ -634,7 +636,8 @@ export function createRecipeSync(options: {
       // counts its path as a start for generation through `entries` instead.
       return [
         ...loginRecipesForOrigin(cache.recipes, origin).map((stored) => {
-          const layouts = recipeLayouts(stored);
+          // A layout generated as `confirm` or `unclear` never starts (ADR 0035).
+          const layouts = loginLayoutCandidates(stored).map((candidate) => candidate.recipe);
           // A later step a login may start at when no first step shows (ADR 0049).
           const later = once(
             layouts.flatMap((recipe) => laterStartSteps(recipe).map(({ step }) => step)),
@@ -681,8 +684,29 @@ export function createRecipeSync(options: {
       // click on its list, which the page alone does not tell (ADR 0049). Each layout with
       // such a step is a candidate; the runtime chooses among one recipe's (ADR 0060).
       return loginRecipesForOrigin(cache.recipes, origin)
-        .flatMap(recipeLayouts)
+        .flatMap((stored) => loginLayoutCandidates(stored).map((candidate) => candidate.recipe))
         .filter((recipe) => laterStartSteps(recipe).some(({ step }) => step.path === path));
+    },
+    async routes(origin: string) {
+      const connection = await service.connection().catch(() => undefined);
+      if (!connection) return [];
+      const cache = await load(connection);
+      if (!cache) return [];
+      // Every layout of each login recipe whatever its kind, and every chooser layout's
+      // branches (ADR 0060).
+      return cache.recipes.flatMap((recipe) =>
+        recipe.origin !== origin
+          ? []
+          : "layouts" in recipe
+            ? recipeLayouts(recipe)
+            : "chooser" in recipe
+              ? chooserLayouts(recipe).flatMap((projected) =>
+                  [projected.chooser.afterAccount, projected.chooser.afterOther].filter(
+                    (branch) => branch !== undefined,
+                  ),
+                )
+              : [],
+      );
     },
     async entries(origin: string) {
       const cache = await current(false);

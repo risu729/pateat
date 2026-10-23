@@ -33,6 +33,7 @@ const stored = (body: Record<string, unknown>) => ({
   layouts: [{ key: "1000", createdAt: 1000, ...body }],
 });
 const route = {
+  pageKind: "sign-in",
   slots: ["email"],
   steps: [
     {
@@ -48,7 +49,9 @@ const recipe = stored(route);
 
 describe("recipe generation contracts", () => {
   it("accepts a page with slots and an optional base revision", () => {
-    expect(v.is(recipeGenerationRequestSchema, { version: 1, observation, slots })).toBe(true);
+    expect(
+      v.is(recipeGenerationRequestSchema, { version: 1, observation, slots, signedIn: false }),
+    ).toBe(true);
     const base = { recipeId: "gen-1", revision: 1 };
     // A base names the layout it continues (ADR 0060).
     expect(
@@ -66,7 +69,11 @@ describe("recipe generation contracts", () => {
     ).toBe(true);
     for (const invalid of [
       { version: 1, observation, slots, base: { recipeId: "gen-1", revision: 0 }, branch: "1000" },
-      { version: 1, observation, slots: [] },
+      { version: 1, observation, slots: [], signedIn: false },
+      // A first page carries the signedIn hint (ADR 0035), and only a first page does.
+      { version: 1, observation, slots },
+      { version: 1, observation, slots, base, branch: "1000", signedIn: false },
+      { version: 1, observation: { ...observation, accounts: ["[email]"] }, slots, signedIn: true },
       { version: 1, observation, slots, item: "vault-item" },
       { version: 1, observation, slots, base },
       { version: 1, observation, slots, branch: "1000:account" },
@@ -243,7 +250,9 @@ describe("entry requests and answers (ADR 0031)", () => {
     expect(v.is(generationRequestSchema, request)).toBe(true);
     // A request without slots is never a page request, and a page request still needs one.
     expect(v.is(recipeGenerationRequestSchema, request)).toBe(false);
-    expect(v.is(generationRequestSchema, { version: 1, observation, slots })).toBe(true);
+    expect(v.is(generationRequestSchema, { version: 1, observation, slots, signedIn: true })).toBe(
+      true,
+    );
     expect(v.is(entryGenerationRequestSchema, { version: 1, observation, slots })).toBe(false);
     const withField = {
       ...topPage,

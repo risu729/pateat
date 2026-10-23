@@ -16,6 +16,7 @@ const passkeyOnly = {
   id: "synthetic-passkey-only",
   revision: 1,
   origin: "https://login.example",
+  pageKind: "sign-in",
   slots: [],
   passkeyOnly: true,
   passkey: { path: "/signin", target: button },
@@ -105,10 +106,12 @@ describe("a passkey-only generation request (ADR 0053)", () => {
     v.safeParse(recipeGenerationRequestSchema, value).issues?.map((issue) => issue.message) ?? [];
 
   it("refuses an ordinary request without slots with its own message", () => {
-    expect(requestIssues({ version: 1, observation, slots: [] })).toEqual([
+    expect(requestIssues({ version: 1, observation, slots: [], signedIn: false })).toEqual([
       "A request has at least one slot",
     ]);
-    expect(requestIssues({ version: 1, observation, slots: [], passkeyOnly: true })).toEqual([]);
+    expect(
+      requestIssues({ version: 1, observation, slots: [], passkeyOnly: true, signedIn: false }),
+    ).toEqual([]);
   });
 
   it("refuses a passkey-only request for a later page or a page with fields", () => {

@@ -386,9 +386,13 @@ export async function startLoginFixture(
       // `?again` opens /identifier/again instead, which shows the identifier form again
       // with an unknown-account error, as a site that did not know the account. `?email`
       // marks the account input for an email address and `?login` names it only `login`,
-      // without `autocomplete` and with a label that names no identifier (ADR 0016). Only
-      // these known flags are read, and the query is never written into the page.
+      // without `autocomplete` and with a label that names no identifier (ADR 0016).
+      // `?no-button` shows no Next button until the account input has a value, as x.com's
+      // sign-in does, and only beside a "Use phone" trap: Pressing Enter submits the form
+      // (ADR 0064). Only these known flags are read, and the query is never written into
+      // the page.
       const again = fixtureUrl.searchParams.has("again");
+      const noButton = fixtureUrl.searchParams.has("no-button");
       const account = fixtureUrl.searchParams.has("email")
         ? '<input id="account" autocomplete="email">'
         : fixtureUrl.searchParams.has("login")
@@ -396,12 +400,25 @@ export async function startLoginFixture(
           : '<input id="account" autocomplete="username">';
       response.end(
         html(
-          `<h1>Synthetic identifier page</h1>${path === "/identifier/again" ? '<p id="account-error">Unknown account</p>' : ""}<form><label>${fixtureUrl.searchParams.has("login") ? "Your handle" : "Username"}${account}</label><button id="next" type="button">Next</button></form>`,
-          `document.getElementById('next').addEventListener('click', () => {
+          `<h1>Synthetic identifier page</h1>${path === "/identifier/again" ? '<p id="account-error">Unknown account</p>' : ""}<form>${noButton ? '<button id="phone" type="button">Use phone</button>' : ""}<label>${fixtureUrl.searchParams.has("login") ? "Your handle" : "Username"}${account}</label>${noButton ? '<div id="next-placeholder">Next</div>' : '<button id="next" type="button">Next</button>'}</form>`,
+          `function next(event) {
+          event?.preventDefault();
           sessionStorage.setItem('identityClicks', String(Number(sessionStorage.getItem('identityClicks') || 0) + 1));
           sessionStorage.setItem('identityMatched', String(document.getElementById('account').value === ${JSON.stringify(accountName)}));
           location.href = ${again || path === "/identifier/again" ? "'/identifier/again'" : "'/identifier/password'"};
-        });`,
+        }
+        ${
+          noButton
+            ? `document.getElementById('phone').addEventListener('click', () => {
+          sessionStorage.setItem('phoneClicks', String(Number(sessionStorage.getItem('phoneClicks') || 0) + 1));
+        });
+        document.getElementById('account').addEventListener('input', (event) => {
+          if (!event.target.value || document.getElementById('next')) return;
+          document.getElementById('next-placeholder').replaceWith(Object.assign(document.createElement('button'), { id: 'next', type: 'submit', textContent: 'Next' }));
+        });
+        document.querySelector('form').addEventListener('submit', next);`
+            : "document.getElementById('next').addEventListener('click', next);"
+        }`,
         ),
       );
     } else if (path === "/identifier/password") {
@@ -716,6 +733,42 @@ export async function startLoginFixture(
           document.body.insertAdjacentHTML('beforeend', sessionStorage.getItem('passwordMatched') === 'true' ? '<p id="authenticated">Authenticated</p>' : '<p id="rejected">Credentials rejected</p>');
           updateFixtureStatus();
         }));`,
+        ),
+      );
+    } else if (path === "/enter-submit") {
+      // A form that shows no button to press (ADR 0064). `?late` adds a submit button once
+      // the password has a value, as x.com's sign-in does; `?shown` shows a "Sign up"
+      // submit button from the start, and `?image` a "Sign up" image input, which Enter
+      // would press and Pateat never does.
+      const variant = fixtureUrl.searchParams.has("late")
+        ? "late"
+        : fixtureUrl.searchParams.has("shown")
+          ? "shown"
+          : fixtureUrl.searchParams.has("image")
+            ? "image"
+            : "none";
+      response.end(
+        html(
+          `<h1>Synthetic form without a button</h1><form>${variant === "shown" ? '<button id="sign-up" type="submit">Sign up</button>' : variant === "image" ? '<input id="sign-up" type="image" src="data:," alt="Sign up" width="60" height="20">' : ""}<label>Password<input id="password" type="password"></label></form>`,
+          `const form = document.querySelector('form');
+          const count = (key) => sessionStorage.setItem(key, String(Number(sessionStorage.getItem(key) || 0) + 1));
+          ${
+            variant === "late"
+              ? `document.getElementById('password').addEventListener('input', () => {
+            if (document.getElementById('login')) return;
+            form.append(Object.assign(document.createElement('button'), { id: 'login', type: 'submit', textContent: 'Log in' }));
+            document.getElementById('login').addEventListener('click', () => count('buttonClicks'));
+          });`
+              : ""
+          }
+          form.addEventListener('submit', (event) => {
+            event.preventDefault();
+            count('submitClicks');
+            if (event.submitter?.id === 'sign-up') count('signUpClicks');
+            sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === ${JSON.stringify(password)}));
+            document.body.insertAdjacentHTML('beforeend', sessionStorage.getItem('passwordMatched') === 'true' ? '<p id="authenticated">Authenticated</p>' : '<p id="rejected">Credentials rejected</p>');
+            updateFixtureStatus();
+          });`,
         ),
       );
     } else if (path === "/delayed") {

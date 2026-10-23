@@ -29,6 +29,7 @@ import {
   type LoginRecipe,
   type LoginMarkerTarget,
   type LoginRoute,
+  type PageKind,
   type RecipeCompletionRequest,
   type RecipeCompletionResult,
   type RecipeGenerationRequest,
@@ -248,6 +249,8 @@ export type LayoutPage = {
   startPage: boolean;
   /** Custom-field names the owner's saved bindings of the recipe carry (ADR 0027). */
   carriedNames: ReadonlyMap<string, string>;
+  /** The page's kind (ADR 0035); a continuation keeps the layout's own. */
+  pageKind: PageKind;
 };
 /**
  * Builds the layout a model's answer for one page makes (ADR 0060), without writing it:
@@ -308,6 +311,7 @@ export function buildLoginLayout(
     ...(value.switchTarget ? { accountSwitch: value.switchTarget } : {}),
     ...(passkey ? { passkey } : {}),
     ...(value.passkeyOnly && startPage ? { passkeyOnly: true } : {}),
+    pageKind: page.pageKind,
   });
   // A page that fills one of the recipe's slots again, as its identifier form shown again
   // where it posted, is refused before anything is stored (ADR 0018).
@@ -434,7 +438,7 @@ export async function generateRecipe(
   request: RecipeGenerationRequest,
   trace: RequestTrace,
 ): Promise<RecipeGenerationResult | undefined> {
-  const { observation, slots, base, branch, passkeyOnly } = request;
+  const { observation, slots, base, branch, passkeyOnly, signedIn } = request;
   const { origin, path } = observation;
   // A first page starts its own recipe; a later page continues the one in `base`.
   const recipeId = base?.recipeId ?? (await generatedRecipeId(origin, path));
@@ -464,6 +468,8 @@ export async function generateRecipe(
           : generationInstructions,
       slots,
       ...(passkeyOnly ? { passkeyOnly } : {}),
+      // The device's hint for the page's kind, sent to the model as well (ADR 0035).
+      ...(signedIn === undefined ? {} : { signedIn }),
       observation,
     },
     // A recipe generated again after its revocation has a tombstone but no base: its page
@@ -604,6 +610,7 @@ export async function generateRecipe(
         startPage,
         carriedNames,
         ...(passkeyOnly ? { passkeyOnly } : {}),
+        ...(signedIn === undefined ? {} : { signedIn }),
       }),
     logValue: (value) => {
       if ("accountList" in value)
@@ -612,8 +619,12 @@ export async function generateRecipe(
           ...(value.other ? { other: value.other.candidate } : {}),
           ...(value.continue ? { continue: value.continue.candidate } : {}),
         };
-      const { fields, action, accountSwitch, alternatives, passkeyButton } = value;
+      const { pageKind, irreversible, fields, action, accountSwitch, alternatives, passkeyButton } =
+        value;
       return {
+        // The answered kind and the evaluation answer, which no recipe keeps (ADR 0035).
+        pageKind,
+        irreversible,
         fields,
         action,
         ...(accountSwitch ? { accountSwitch } : {}),
@@ -721,7 +732,18 @@ export async function generateRecipe(
   }
   const built = buildLoginLayout(
     baseRecipe,
-    { id: recipeId, origin, observation, slots, value, startPage, carriedNames },
+    {
+      id: recipeId,
+      origin,
+      observation,
+      slots,
+      value,
+      startPage,
+      carriedNames,
+      // The first page's kind (ADR 0035): a continuation keeps the layout's own, and every
+      // page of a chooser branch follows a list of accounts, a sign-in page.
+      pageKind: chooserSide ? "sign-in" : value.pageKind,
+    },
     meta,
   );
   if (!built.ok) return built.answer;

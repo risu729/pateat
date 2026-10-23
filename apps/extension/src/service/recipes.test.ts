@@ -36,6 +36,7 @@ function route(id: string, firstPath: string, revision = 1, origin = SITE): Logi
     id,
     revision,
     origin,
+    pageKind: "sign-in",
     slots: ["username", "password"],
     steps: [
       { kind: "fill", path: firstPath, fields: [{ slot: "username", target: target("user") }] },

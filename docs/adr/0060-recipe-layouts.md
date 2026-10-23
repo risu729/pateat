@@ -1,13 +1,12 @@
 # ADR 0060: A recipe holds up to three layouts of its sign-in pages
 
-Status: proposed by Claude on 2026-10-23, pending the owner's answers. The decisions
-marked "assumed" below follow the recommended option (case B) of the recipe-schema
-proposal shown to the owner, whose decision cards had not been answered when this was
-written. The owner asked on 2026-10-23 not to defer implementation unless it is very
-large, and to go ahead on fixed assumptions and decide later, as with the open PRs. If
-the owner chooses differently, this ADR and its implementation change with the answer.
-Implemented on `claude/review-issue-prs-j7hli2` (local tests only, not tried on real
-sites, not deployed); see [Delivery](#delivery). Amends
+Status: proposed by Claude on 2026-10-23 and accepted by the owner on 2026-10-23 at 11:41
+UTC, who approved recipe layouts as proposed (the recommended option, case B, of the
+recipe-schema proposal), including keeping the layouts in the recipe document and
+discarding existing recipes. Chooser layouts are part of the decision. The owner's
+wording is not quoted here; the notes under [Later](#later) record two further wishes,
+not decided by this ADR. Implemented on `claude/review-issue-prs-j7hli2` (local tests
+only, not tried on real sites, not deployed); see [Delivery](#delivery). Amends
 [ADR 0016](0016-recipe-generation-trigger.md) (what a continuation and a judgement
 name), [ADR 0028](0028-account-chooser-login-pages.md) (the chooser's shape and branch
 names), [ADR 0049](0049-start-at-a-later-step.md) (which recipe a later step starts) and
@@ -28,13 +27,19 @@ accounts in another language fails the same way.
 
 ## Decision
 
-### Shape (assumed)
+### Shape
 
 - A stored login recipe is a document: `version`, `id`, `revision`, `origin` and
   `layouts`, one to three (`MAX_RECIPE_LAYOUTS`). Each layout is the former recipe body
   (`slots`, `steps`, the route members, `handlers`, `completion`, `maxSubmissions`) plus
   a `key`, its `createdAt` in milliseconds, and the `language` of the page it was
   generated from, left out when the page was `mixed`.
+- Each layout keeps the kind of its start page (`pageKind`,
+  [ADR 0035](0035-page-kinds-per-site.md)), which ADR 0035 put on the recipe: only a
+  `sign-in` layout is chosen for a login or counts as a logout, and a layout generated as
+  `confirm` or `unclear` never reports use, so it is never removed as idle and its recipe
+  is never revoked as idle. A chooser branch's route is `sign-in`, as in ADR 0035. (Added
+  when ADR 0035's first delivery was merged in; not confirmed by the owner.)
 - The key never changes and is the decimal creation time, made unique within the
   document. Every record refers to a layout by its key, never by its place in the array,
   which removals shift.
@@ -97,12 +102,12 @@ accounts in another language fails the same way.
   generation writes the recipe's first layout only, and `withLoginLayout` refuses a
   fourth layout.
 
-### Existing recipes (assumed)
+### Existing recipes
 
 Existing recipes are discarded, not converted. The rule of
 [Compatibility before release](../development.md#compatibility-before-release) forbids
 a migration whose only purpose is older data, and wrapping each recipe as
-`layouts: [body]` would be one. Migration 0022 deletes every recipe revision and head,
+`layouts: [body]` would be one. Migration 0027 deletes every recipe revision and head,
 with the judged pages, generation attempts and first-login results that named a branch
 the old way. The request log and login records stay. The device's recipe cache moves to
 version 2, so a version 1 cache is ignored and the device syncs from the start.
@@ -139,6 +144,15 @@ is replaced), repairing a later step, the change of
 [ADR 0058](0058-automatic-recipe-removal.md) part A from revoking to repairing, and the
 rewrite of ADR 0041. The repair work builds on this ADR.
 
+### Later
+
+Recorded on 2026-10-23 from the owner; neither is designed or decided here:
+
+- The owner wants layouts from trusted users to be mergeable into a canonical recipe kept
+  by the server later, once several users share recipes.
+- Generation provenance (which generation made each layout) is being added in the same PR
+  as this ADR's implementation; its details are recorded with that change.
+
 ## Consequences
 
 - Each site generates its recipe again on its next visit (about $0.02 with the first
@@ -171,7 +185,7 @@ rewrite of ADR 0041. The repair work builds on this ADR.
   the layout.
 - Service: `services/api/src/recipes/generate.ts`, `recipe-store.ts` (`markLayoutUsed`,
   `removeUnusedLayouts`), `routes/recipes.ts`, `routes/manage-api.ts`, `db/schema.ts`,
-  migration `0022_recipe_layouts.sql`, and the management page
+  migration `0027_recipe_layouts.sql`, and the management page
   (`services/api/web/recipes.tsx`).
 
 ## Alternatives

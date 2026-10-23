@@ -108,6 +108,15 @@ function recipeFacts(recipe: LoginRecipe | LoginChooserRecipe): {
   }
   return {
     facts: [
+      [
+        "Page kind",
+        // ADR 0035: only a sign-in layout runs (ADR 0060).
+        recipe.pageKind === "sign-in"
+          ? "Sign-in"
+          : recipe.pageKind === "confirm"
+            ? "Verification while signed in; devices never log in here"
+            : "Unclear, handled as a verification; devices never log in here",
+      ],
       // A passkey-only start page (ADR 0053) fills nothing and has no password route.
       recipe.passkeyOnly
         ? [

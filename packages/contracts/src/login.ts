@@ -54,7 +54,7 @@ export const loginAutocompleteTokens = [
   "webauthn",
 ] as const;
 /**
- * An attribute locator: the element whose `id`, `name` or `data-testid` equals the
+ * An attribute locator: the element whose `id`, `name`, `data-testid` or `data-test` equals the
  * value, or the `<input>` whose `autocomplete` attribute holds the token among its
  * whitespace-separated tokens, ignoring case (for fields with no `id` or `name`, such as
  * `autocomplete="username webauthn"`). `id` and `name` take any ASCII except whitespace
@@ -67,8 +67,10 @@ export const loginAttributeTargetSchema = v.variant("by", [
     by: v.picklist(["id", "name"]),
     value: v.pipe(v.string(), v.minLength(1), v.maxLength(120), v.regex(/^[\x21-\x7e]+$/u)),
   }),
+  // `data-test` is the test attribute some pages use instead (Duolingo's sign-in
+  // submit, 2026-10-23; ADR 0071).
   v.strictObject({
-    by: v.literal("test-id"),
+    by: v.picklist(["test-id", "data-test"]),
     value: v.pipe(v.string(), v.minLength(1), v.maxLength(120), v.regex(/^[a-zA-Z0-9_.:-]+$/)),
   }),
   v.strictObject({ by: v.literal("autocomplete"), value: v.picklist(loginAutocompleteTokens) }),
@@ -184,12 +186,26 @@ export const loginStepSchema = v.variant("kind", [
       "Effectful fill requires one field and one trigger event",
     ),
   ),
-  v.strictObject({
-    kind: v.literal("click"),
-    path,
-    target: loginTargetSchema,
-    purpose: v.picklist(["advance", "submit"]),
-  }),
+  v.pipe(
+    v.strictObject({
+      kind: v.literal("click"),
+      path,
+      target: loginTargetSchema,
+      purpose: v.picklist(["advance", "submit"]),
+      /**
+       * For a form that shows no button to press (ADR 0064): the target is the field the
+       * fill just before typed last, and the step submits that field's form as pressing
+       * Enter there does instead of clicking anything.
+       */
+      press: v.optional(v.literal("enter")),
+    }),
+    v.check(
+      (step) =>
+        step.press === undefined ||
+        (step.target.by !== "text" && step.target.by !== "accessible-name"),
+      "Enter is pressed in a field",
+    ),
+  ),
   v.strictObject({
     kind: v.literal("wait"),
     path,
@@ -245,7 +261,29 @@ const recipeSlotList = v.pipe(
   v.maxLength(20),
   v.check(unique, "Duplicate recipe slots"),
 );
-const routeStepList = v.pipe(v.array(loginStepSchema), v.minLength(1), v.maxLength(32));
+const routeStepList = v.pipe(
+  v.array(loginStepSchema),
+  v.minLength(1),
+  v.maxLength(32),
+  // Enter goes into the field the fill just before typed last, never a code (ADR 0064).
+  v.check(
+    (steps) =>
+      steps.every((step, index) => {
+        if (step.kind !== "click" || step.press === undefined) return true;
+        const before = steps[index - 1];
+        const last = before?.kind === "fill" ? before.fields.at(-1) : undefined;
+        return (
+          before?.kind === "fill" &&
+          before.effect === "prepare" &&
+          before.path === step.path &&
+          last !== undefined &&
+          last.slot !== TOTP_HANDLER_SLOT &&
+          sameLoginTarget(last.target, step.target)
+        );
+      }),
+    "Enter is pressed only in the field the fill before typed last",
+  ),
+);
 /** At most 3 alternatives, so a password route has at most 4 variants (ADR 0027). */
 export const MAX_PASSWORD_ALTERNATIVES = 3;
 /** A recipe learns at most four signed-in markers (ADR 0029). */
@@ -290,6 +328,14 @@ const passkeyStep = (passkey: {
   purpose: "submit",
 });
 /**
+ * The kind of page a route recipe starts on (ADR 0035), as generation answered it from the
+ * page's structure: `sign-in` for a login and the pages that continue it, `confirm` for a
+ * verification asked while signed in, before an action, and `unclear` when the model could
+ * not tell, which is handled as `confirm`.
+ */
+export const pageKindSchema = v.picklist(["sign-in", "confirm", "unclear"]);
+export type PageKind = v.InferOutput<typeof pageKindSchema>;
+/**
  * The most layouts one recipe holds (ADR 0060): versions of the same start page, such as
  * the page in another language or after the site changed it.
  */
@@ -310,6 +356,13 @@ const layoutCreatedAt = v.pipe(
 );
 /** The members of one login route: what a recipe's layout and a chooser branch hold. */
 const routeEntries = {
+  /**
+   * The start page's kind (ADR 0035), kept by each layout (ADR 0060). Generation stores it
+   * on every layout it makes; a continuation keeps the layout's own, and a chooser branch
+   * is `sign-in`. Only a `sign-in` layout starts a login, counts as a logout or is filled
+   * after one.
+   */
+  pageKind: pageKindSchema,
   /** The slots of the password route's first variant (variant 0). */
   slots: v.pipe(
     v.array(recipeSlotIdSchema),
@@ -1042,6 +1095,13 @@ export const isLoginRouteRecipe = (
 export const isLoginRecipeDocument = (recipe: StoredLoginRecipe): recipe is LoginRecipeDocument =>
   "layouts" in recipe;
 /**
+ * Whether a route recipe may start a login (ADR 0035): only one generated as `sign-in`. A
+ * `confirm` or `unclear` recipe is never run, never taken as a logout and never filled
+ * after one.
+ */
+export const runsLogin = (recipe: Pick<LoginRecipe, "pageKind">): boolean =>
+  recipe.pageKind === "sign-in";
+/**
  * The path a stored recipe starts on: its entry's (ADR 0031), its chooser's (ADR 0028)
  * or its layouts' first step's, which every layout shares (ADR 0060). The service keeps one
  * generated recipe per origin and start path either way. Each kind of stored recipe is
@@ -1404,6 +1464,8 @@ export function chooserRoute(
       revision: recipe.revision,
       origin: recipe.origin,
       ...(recipe.layout === undefined ? {} : { layout: recipe.layout }),
+      // A list of accounts is always a sign-in page (ADR 0035).
+      pageKind: "sign-in",
     });
     return parsed.success ? parsed.output : undefined;
   }
@@ -1424,6 +1486,7 @@ export function chooserRoute(
     revision: recipe.revision,
     origin: recipe.origin,
     ...(recipe.layout === undefined ? {} : { layout: recipe.layout }),
+    pageKind: "sign-in",
     slots: [...new Set(["username", ...(branch?.slots ?? [])])],
     steps: [
       { kind: "click", path: recipe.chooser.path, target, purpose: "advance" },
@@ -1815,10 +1878,11 @@ export function refillsLoginSlot(
  * 0018): a newer revision of the same recipe and layout (ADR 0060) whose steps are
  * `previous`'s steps followed by at least one more, none of which fills a slot
  * `previous`'s steps already fill. `previous` has no completion and no alternatives and
- * ends in an advance; `next` has no alternatives. The `passkey` route and the rejection
- * are unchanged, the handlers extend the old ones in order, the account switch is
- * unchanged or newly added, and signed-in markers may be new. A running login at its final
- * advance takes over only such a revision, so the steps it ran keep their meaning.
+ * ends in an advance; `next` has no alternatives. The page kind (ADR 0035), the `passkey`
+ * route and the rejection are unchanged, the handlers extend the old ones in order, the
+ * account switch is unchanged or newly added, and signed-in markers may be new. A running
+ * login at its final advance takes over only such a revision, so the steps it ran keep
+ * their meaning.
  */
 export function continuesRecipe(previous: LoginRecipe, next: LoginRecipe): boolean {
   const last = previous.steps.at(-1);
@@ -1843,6 +1907,7 @@ export function continuesRecipe(previous: LoginRecipe, next: LoginRecipe): boole
     !refillsLoginSlot(previous.steps, next.steps.slice(previous.steps.length)) &&
     previous.slots.every((slot) => next.slots.includes(slot)) &&
     next.maxSubmissions >= previous.maxSubmissions &&
+    previous.pageKind === next.pageKind &&
     previous.passkeyOnly === next.passkeyOnly &&
     same(previous.passkey ?? null, next.passkey ?? null) &&
     same(previous.rejection ?? null, next.rejection ?? null) &&
