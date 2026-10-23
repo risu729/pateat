@@ -277,14 +277,17 @@ and fragment in the built HTML resolves; it is one of the `//...:test` tasks, so
 changes only `docs/` or `apps/docs/` skips the browser shards
 ([CI](delivery.md#current-foundation-workflows)).
 
-Claude's defaults, pending the owner's confirmation (2026-10-15): the site lives in
-`apps/docs` as a workspace package, and its tasks run VitePress with the mise-pinned
-Node like the other projects, where biwa runs it with Bun. The site is not deployed yet:
-there is no Worker, Cloudflare or Access change, and biwa's assets-only Worker and
-per-PR previews come with the deployment. The installation page assumes a release is a
-ZIP file on GitHub Releases, loaded with **Load unpacked**. `apps/docs/package.json` has
-no `license` field, like `services/api`, until the owner decides whether
-[LICENSING.md](../LICENSING.md)'s installation material covers the site.
+The owner decided on 2026-10-23 that the site is deployed as a public Cloudflare Worker
+that serves only static assets, with a preview for each pull request, as biwa does
+(12:36 UTC), and that its publishing and deployment follow the owner's other
+repositories, whose setup the owner was changing at the time; that deployment is a
+separate pull request. The privacy policy's contact is `pateat@takuk.me` (owner, 12:37
+UTC). Claude's defaults, pending the owner's confirmation (2026-10-15): the site lives
+in `apps/docs` as a workspace package, and its tasks run VitePress with the mise-pinned
+Node like the other projects, where biwa runs it with Bun. The installation page assumes
+a release is a ZIP file on GitHub Releases, loaded with **Load unpacked**.
+`apps/docs/package.json` has no `license` field, like `services/api`, until the owner
+decides whether [LICENSING.md](../LICENSING.md)'s installation material covers the site.
 
 ### Test coverage
 

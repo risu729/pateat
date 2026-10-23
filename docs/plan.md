@@ -1011,12 +1011,12 @@ Once the fixes have settled:
   user-facing pages for installation, setup and permissions, plus the M6 operational
   docs. Started: [`apps/docs`](development.md#docs-website) builds in CI with English
   pages for installation, setup, permissions and a draft privacy policy with the Chrome
-  Web Store Limited Use statement. Still to do: deploying it (biwa's assets-only Worker
-  and per-PR previews), the M6 operational docs, the Japanese pages, and updating the
-  installation page once releases exist. The [operations runbook](operations.md) now
-  documents current retry/revert procedures and the unverified D1 restore and
-  rollback-automation boundaries; this does not complete installed-Chrome or
-  disaster-recovery acceptance.
+  Web Store Limited Use statement. Still to do: deploying it (a public assets-only
+  Worker with per-PR previews, owner 2026-10-23), the M6 operational docs, the Japanese
+  pages, and updating the installation page once releases exist. The
+  [operations runbook](operations.md) now documents current retry/revert procedures and
+  the unverified D1 restore and rollback-automation boundaries; this does not complete
+  installed-Chrome or disaster-recovery acceptance.
 - A mode without the service. Where recipes, settings and AI calls come from without the
   service, which [ADR 0013](adr/0013-service-held-recipes-and-settings.md) makes their
   source of truth, needs a design the owner approves before implementation.

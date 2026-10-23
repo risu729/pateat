@@ -9,10 +9,13 @@ unpacked extension. Until then, [build it from source](#build-from-source).
 
 ## Requirements
 
-- Google Chrome 144 or later on a desktop computer. Pateat targets Chrome installed on
+- Google Chrome 145 or later on a desktop computer. Pateat targets Chrome installed on
   your own computer; other Chromium browsers and hosted browsers are not tested.
-- A Bitwarden account on Bitwarden Cloud (US or EU) or on a self-hosted Bitwarden server
-  reached over HTTPS. Only one Bitwarden Cloud US account has been tested so far.
+- A Bitwarden account on Bitwarden Cloud (US or EU), on a self-hosted Bitwarden server,
+  or on the latest release of [Vaultwarden](https://github.com/dani-garcia/vaultwarden),
+  reached over HTTPS (or plain HTTP on `localhost` or `127.0.0.1`). Of the Bitwarden
+  servers, only one Bitwarden Cloud US account has been tested so far; Vaultwarden is
+  tested on every change.
 - A Pateat service to pair with, which holds your settings and recipes. See
   [the Pateat service](./setup.md#the-pateat-service) before you install.
 
@@ -29,8 +32,8 @@ unpacked extension. Until then, [build it from source](#build-from-source).
    you can see what it did on each page.
 
 Chrome does not show its usual permission prompt for an unpacked extension: Pateat gets
-access to every HTTPS site as soon as it is loaded. [Permissions](./permissions.md)
-explains what that access is for and how to limit it.
+access to every HTTPS and plain HTTP site as soon as it is loaded.
+[Permissions](./permissions.md) explains what that access is for and how to limit it.
 
 Pateat's extension ID is fixed by the key in its manifest, so every release keeps the
 same ID and the same data in Chrome.
@@ -43,7 +46,9 @@ same ID and the same data in Chrome.
 
 Do not press **Remove**: removing the extension deletes everything it stored in Chrome,
 including the vault connection and the service pairing, and you would have to
-[set it up](./setup.md) again.
+[set it up](./setup.md) again. Removing it does not revoke its device on the Pateat
+service; that record stays until you revoke it on the service or it expires after 90
+days unused.
 
 ## Build from source
 

@@ -39,7 +39,7 @@ features:
 
 ::: warning Not released yet
 Pateat is in development. There is no release to download yet, and some parts have only
-been tested with one Bitwarden account. The
+been tested with one Bitwarden Cloud account. The
 [implementation plan](https://github.com/risu729/pateat/blob/main/docs/plan.md) lists
 what has been verified.
 :::
@@ -50,9 +50,10 @@ Pateat is a Chrome extension that completes the login forms of the sites you cho
 using the accounts in your own [Bitwarden](https://bitwarden.com/) vault. It supports
 only Bitwarden for the time being.
 
-- On an HTTPS login page that matches an item in your vault, Pateat follows the site's
-  recipe: it fills the username, password and other fields, enters a one-time code and
-  presses the buttons, page after page.
+- On a login page that matches an item in your vault, Pateat follows the site's recipe:
+  it fills the username, password and other fields, enters a one-time code and presses
+  the buttons, page after page. On a plain HTTP page, only an item saved with an
+  `http://` address is used ([permissions](./permissions.md#plain-http-pages)).
 - When a site asks for a passkey, Pateat can answer with a passkey stored in your vault.
 - When a site has no recipe yet, Pateat sends a sanitized description of the page, never
   your vault values, to your Pateat service, which asks Claude to write one.

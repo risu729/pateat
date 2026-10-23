@@ -5,18 +5,25 @@ then pair the extension with a Pateat service. Open the settings page with the t
 popup's **Open settings** button (the sliders icon), or through **Details** then
 **Extension options** on Pateat's card in `chrome://extensions`.
 
+Pateat's pages follow Chrome's language, English or Japanese, and the settings page has
+a **Language** setting to choose one. This page quotes the English labels.
+
 ## Connect Bitwarden
 
 1. Under **Add a connection**, choose the **Server**: **Bitwarden Cloud US**,
-   **Bitwarden Cloud EU** or **Self-hosted HTTPS**. For a self-hosted server, enter its
-   address, such as `https://vault.example.com`.
+   **Bitwarden Cloud EU** or **Self-hosted**, which covers your own Bitwarden server and
+   the latest Vaultwarden. For a self-hosted server, enter its **Server address**, such
+   as `https://vault.example.com`. It must use HTTPS, except on `localhost` or
+   `127.0.0.1`.
 2. Give the connection a **Name**, such as `Personal`, and enter your Bitwarden
    **Email** and **Master password**.
 3. Leave **Use this connection** on, then press **Connect Bitwarden**.
-4. If Bitwarden asks for verification, a **Manual verification** form appears. Enter the
-   code from your authenticator app, an email code you already received, or the
-   new-device verification code that Bitwarden emailed you, then press **Verify code**.
-   Pateat cannot ask Bitwarden to send an email code, and other two-step login methods
+4. If Bitwarden asks for verification, a **Manual verification** form appears. Choose
+   the **Verification method**: **Authenticator code** for the code from your
+   authenticator app, or **Email code**, which asks the server to email you a code
+   (**Resend code** asks for another). For a new device, Bitwarden emails a
+   new-device verification code by itself. Enter the code within 5 minutes, without
+   closing the settings page, then press **Verify code**. Other two-step login methods
    are not supported yet.
 
 Pateat signs in to the Bitwarden server directly from your browser, syncs the vault and
@@ -33,13 +40,13 @@ system's key store. Anyone who can read your Chrome profile's files can use it t
 decrypt the vault copy. If you do not want that, choose **Disable automatic unlock** in
 the connection's menu. Pateat needs the unlock key to use and sync the vault, so this
 also forgets the sync sign-in, and the connection stops working at once until you sign
-in again with
-**Enable automatic unlock on this device** checked.
+in again with **Enable automatic unlock on this device** checked.
 
 Each connection is a row with its main action, **Sync**, or **Sign in again** when the
-vault needs a sign-in first. Its menu also holds **Forget sync sign-in** and
-**Delete connection**, which, after you press **Confirm delete**, removes the
-connection, its vault copy, unlock key and sync sign-in from this device. Neither signs
+vault needs a sign-in first. Its menu also holds **Disable automatic unlock**,
+**Forget sync sign-in** and **Delete connection**, which, after you confirm with
+**Delete connection** again, removes the connection, its vault copy, unlock key and sync
+sign-in from this device. Neither signs
 out your other Bitwarden sessions. You can add more than one connection, such as a
 personal and a work vault.
 
@@ -75,13 +82,20 @@ settings and recipes from the service and keeps a copy on this device.
 The service gives this device its own credential, which the extension keeps in its own
 storage and sends only to the service. It expires after 90 days without use. You can
 press **Disconnect this device** on the settings page, or revoke it on the service's
-**Devices** page, for example when a computer is lost.
+**Devices** page, for example when a computer is lost. Revoking a lost computer stops it
+from reaching the service, but cannot erase the vault copy, unlock key and recipes
+already on it.
 
 ### The Pateat service
 
-The service is a small Cloudflare Worker behind Cloudflare Access. It stores your
+The service is a small Cloudflare Worker. Its pairing and management pages are behind
+Cloudflare Access; the extension reaches it with its device credential. It stores your
 settings, site defaults and recipes, and asks Claude to write a recipe for a login page
-that has none. It never receives vault values or keys.
+that has none. It also keeps, for one year, the page descriptions it receives and a
+record of each login that followed a recipe; the
+[privacy policy](./privacy.md#your-pateat-service) lists them. It never receives vault
+values or keys. Its pages are **Dashboard**, **Sites**, **Devices**, **Models** (which
+Claude model to use) and **Request log**.
 
 Today each service is run by its owner for themselves: the service at `pateat.takuk.me`
 belongs to Pateat's developer and is not open to other people. A service accepts
@@ -94,8 +108,9 @@ describes both. A mode without the service is planned.
 
 Once both steps are done, open the login page of a site that has an item in your vault.
 Pateat logs in when the site has a recipe for that page. When it has none, Pateat sends
-a sanitized description of the page to the service, which asks Claude to write one; this
-needs Claude credentials set up on the service.
+a sanitized description of the page to the service, which asks Claude to write one.
+Writing one needs Claude credentials set up on the service; without them, the service
+still keeps the description it received.
 
 The toolbar popup shows what Pateat did on the current page. It also lets you choose the
 account to log in with when several match, and turn **Pateat on this site** off for a

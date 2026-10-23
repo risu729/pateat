@@ -5,26 +5,31 @@ its manifest and what Pateat does with it.
 
 | Permission | What Pateat uses it for |
 | --- | --- |
-| Access to all HTTPS sites (`https://*/*`) | Finding and completing login pages, answering passkey requests, and reaching your Bitwarden server and Pateat service |
+| Access to all sites (`https://*/*` and `http://*/*`) | Finding and completing login pages, answering passkey requests, and reaching your Bitwarden server and Pateat service |
 | `storage` | Keeping its settings, recipe copy, vault connection records and service pairing in Chrome |
 | `offscreen` | Running the Bitwarden SDK in a hidden extension page, where it decrypts the vault and signs passkey requests |
 | `alarms` | Checking every 5 minutes, even while its service worker sleeps, whether the vault is due to sync again |
 
 Pateat does not request `tabs`, `scripting`, `activeTab`, `cookies`, `webRequest`,
-`history`, `nativeMessaging` or any other permission. It never acts on plain HTTP pages.
+`history`, `nativeMessaging` or any other permission.
 
-## Access to all HTTPS sites
+## Access to all sites
 
-Pateat declares access to every HTTPS site when it is installed, rather than asking for
-each site later
-([ADR 0009](https://github.com/risu729/pateat/blob/main/docs/adr/0009-install-time-https-site-access.md)).
+Pateat declares access to every HTTPS and plain HTTP site when it is installed, rather
+than asking for each site later
+([ADR 0009](https://github.com/risu729/pateat/blob/main/docs/adr/0009-install-time-https-site-access.md),
+[ADR 0050](https://github.com/risu729/pateat/blob/main/docs/adr/0050-http-pages-for-http-items.md)).
 Adding a site therefore needs no further Chrome prompt. In exchange, Chrome warns that
 Pateat can read and change your data on all websites, and Pateat's scripts load on every
-HTTPS page:
+HTTP and HTTPS page:
 
-- A login script runs in every HTTPS page and frame. It only announces the page to
-  Pateat's service worker until the page is admitted for a login.
-- Two passkey scripts run at the start of every top-level HTTPS page. One wraps the
+- A login script runs in every page and frame. It only announces the page to Pateat's
+  service worker until the page is admitted for a login. A second, smaller script runs
+  beside it in the page's own context; it reads nothing from the page and only follows a
+  `javascript:` link when the login script asks it to, so that the link runs under the
+  page's own security policy.
+- Two passkey scripts run at the start of every top-level HTTPS page and every page on
+  `http://localhost`, where browsers also allow passkeys. One wraps the
   page's passkey requests (`navigator.credentials.get` and `create`); the other relays a
   request to Pateat's service worker. A request that Pateat does not answer goes on to
   Chrome unchanged, so Chrome, your phone or another passkey provider can still answer
@@ -41,8 +46,26 @@ the fields its recipe names for that exact origin, in that tab, frame and page. 
 without a recipe can be described to your Pateat service so that one is written; what
 that description holds is in the [privacy policy](./privacy.md).
 
+To show on its toolbar icon how many of your vault's items match the current tab, Pateat
+compares the tab's address with your vault on your device. That needs no recipe, sends
+nothing, and also happens on sites you excluded.
+
 The same access lets Pateat reach your Bitwarden server and your Pateat service. Even
 so, Pateat calls only the fixed Bitwarden endpoints it needs, on the server you chose.
+
+## Plain HTTP pages
+
+On a plain HTTP page, Pateat logs in only with an item whose website is saved in your
+vault with an explicit `http://` address, such as `http://192.168.1.1`. An item saved as
+`https://example.com` or as a bare `example.com` is never used there, even on the same
+site. That is stricter than Bitwarden, which also fills such an item after a warning:
+an automatic login has no one to answer the warning. A login on an HTTP page fills and
+submits as on HTTPS, but answers no passkey requests, except on `http://localhost`.
+
+On plain HTTP, what Pateat fills, including the password, travels unencrypted: anyone on
+the network between you and the site can read it, or change the page so that Pateat
+fills a form they inserted. Save an item with `http://` only for a site that you trust
+on that network, such as your router.
 
 ## Limiting site access
 

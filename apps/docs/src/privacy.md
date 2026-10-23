@@ -8,7 +8,8 @@ a lawyer, and is not in effect yet.
 
 Pateat is a Chrome extension that logs in to websites with the accounts in your own
 Bitwarden vault. It is developed by [risu729](https://github.com/risu729) as open source
-software; its source code is on [GitHub](https://github.com/risu729/pateat).
+software; its source code is on [GitHub](https://github.com/risu729/pateat). Questions
+about this policy can be sent to [pateat@takuk.me](mailto:pateat@takuk.me).
 
 Pateat has no analytics, advertising or tracking, and the developer receives no data
 from the extension. Data leaves your device only to reach the services below: your
@@ -32,9 +33,10 @@ read it, and removing the extension deletes it.
   you set for each vault, and the pairing credential for the service.
 - **Login records**: for each tab and site, how far a login went, kept so that a login
   is not repeated or resumed by mistake.
-- **A diagnostics log** of what Pateat did, for bug reports. It records sites and page
-  addresses with their parameter names but not their values, and never vault values. It
-  stays on your device unless you download it and share it yourself.
+- **A diagnostics log** of what Pateat did, for bug reports. It records sites, page
+  addresses with their parameter names but not their values, and Chrome's numbers for
+  the tabs, and never vault values. Entries are kept for 14 days. It stays on your
+  device unless you download it and share it yourself.
 
 Vault values are decrypted only on your device, by the official Bitwarden SDK running in
 the extension. A value leaves the extension only into a login page of a site where that
@@ -43,11 +45,13 @@ the item for.
 
 ## Your Bitwarden server
 
-Pateat talks to the Bitwarden server you chose (Bitwarden Cloud US, Bitwarden Cloud EU
-or your own server) directly from your browser, the way Bitwarden's own apps do: to look
-up your account's key settings, to sign in with your email, a hash derived from your
-master password, any verification code you enter and a device identifier and name (so
-Pateat appears in Bitwarden's list of your devices), and to sync your encrypted vault.
+Pateat talks to the Bitwarden server you chose (Bitwarden Cloud US, Bitwarden Cloud EU,
+your own Bitwarden server or Vaultwarden) directly from your browser, the way
+Bitwarden's own apps do: to look up your account's key settings, to sign in with your
+email, a hash derived from your master password, any verification code you enter and a
+device identifier and name (so Pateat appears in Bitwarden's list of your devices), to
+ask the server to email you a verification code when you choose that method, to sync
+your encrypted vault, and to read the server's version for the diagnostics page.
 Bitwarden's [privacy policy](https://bitwarden.com/privacy/) covers what that server
 keeps.
 
@@ -63,63 +67,108 @@ its owner for their own use. The extension sends the service:
 - **Settings**: the sites you excluded, the default account for each site and which
   vault field fills which part of a site's login, identified by vault item and account
   IDs with the item's and the connection's names and the names of custom fields.
-- **Login page descriptions**, when a site has no recipe yet or a login needs the next
-  page described: the site's address without its query string, and the page's title,
-  headings, the labels, names and placeholders of its form fields, and the text of its
-  buttons, its links and the accounts it lists. Field values, hidden fields, the page's
-  HTML and screenshots are never sent. Email addresses, masked text and long numbers in
-  the page are replaced with placeholders before sending, and so are your usernames for
-  that site where they appear in the page's text. A username stays visible when it is
-  shorter than three characters, when only the part of an email address before the `@`
-  is shown, when it is part of the site's address, when the vault holding it could not
-  be read, or on a page that only offers a link to the sign-in page. Other names shown
-  on the page, such as a display name, cannot be detected and are sent as shown. After a
-  login, the page shown is described the same way, together with its header text, any
-  open dialog and the texts near a code field or the buttons, with every number
-  replaced, so that the service can judge whether the login worked.
-- **What the login needs from your vault**, alongside a page description: the names of
-  the custom fields that could fill the page and, for the username and for text custom
-  fields, their shape: the length, which kinds of characters occur (such as digits or
-  letters) and whether it is an email address. The values themselves are never sent.
+- **Page descriptions**, when a site has no recipe yet or a login needs the next page
+  described. Pateat describes a login page, a page that lists accounts to choose from,
+  and a page that only offers a way to the sign-in page, such as a site's home page with
+  a **Sign in** button. A description holds the site's address without its query string
+  or fragment, with parts of the path that look like IDs or tokens replaced by `[id]`;
+  the page's title, language and headings; and, for its form fields, buttons and links,
+  their labels, names, placeholders, descriptions, input hints (such as an expected
+  length or `autocomplete` value), their `id`, `name`, `data-testid` and `data-test`
+  attributes, and their text. Field values, hidden fields, the page's HTML and
+  screenshots are never sent.
+- **What is hidden before sending**: email addresses, masked text and long numbers in
+  the page are replaced with placeholders, and so are your usernames for that site
+  wherever they appear in the page's text. A link or button whose address or name holds
+  such a username is left out, and a page whose address holds one is not sent. A
+  username stays visible when it is shorter than three characters, when only the part
+  of an email address before the `@` is shown, when you excluded it from Pateat, or
+  when the vault holding it could not be read. Other names shown on the page, such as a
+  display name, cannot be detected and are sent as shown.
+- **What the login needs from your vault**, alongside a login page's description: the
+  names of the custom fields that could fill the page and, for the username and for
+  text custom fields, their shape: the length, which kinds of characters occur (such as
+  digits or letters) and whether it is an email address. The values themselves are
+  never sent. A page that lists accounts or only leads to the sign-in page is sent
+  without them.
+- **Signed-in pages.** After a login, the page shown is described the same way,
+  together with its header text, the addresses of its links, any open dialog and the
+  texts near a code field or the buttons, with every number replaced, so that the
+  service can judge whether the login worked. Once a site's recipe works, Pateat still
+  sends its signed-in page at most once every 30 days, to check later that the recipe
+  keeps signing in.
+- **Login records**
+  ([ADR 0055](https://github.com/risu729/pateat/blob/main/docs/adr/0055-login-records-sent-to-the-service.md)):
+  when a login that follows a recipe starts, the recipe and its revision; when it ends,
+  how it ended (a fixed code such as signed in or blocked, and why), the extension's
+  version and how long it took, split into the time spent waiting for the service, for
+  the network, for the site, and for you, such as while you typed a verification code.
+  No address, page text, username or value is sent with a record, but the service knows
+  the site from the recipe, so these records show when and on which sites you log in.
 
-The service stores the recipes it writes and keeps each request it sent to Claude, with
-Claude's answer, to evaluate and improve recipe writing. Requests are kept for 90 days;
-they are removed when a later sync reaches the service after that. These records show
-which sites you log in to. A service's owner may publish reviewed page descriptions from
-their own service's log as evaluation data, with names and shapes from the vault
-replaced by made-up ones; the developer does this only with the developer's own service.
+The service stores the recipes it writes. It removes a recipe that has not been used
+for 90 days, and keeps a record that a removed recipe existed. It keeps every page
+description it receives, with Claude's answer when it asked Claude, and every login
+record, to show you on its dashboard and to evaluate and improve recipe writing. These
+are kept for one year. There is no scheduled removal: older entries are removed when a
+later request or sync reaches the service. A service's owner may publish reviewed page
+descriptions from their own service's log as evaluation data, with names and shapes
+from the vault replaced by made-up ones; the developer does this only with the
+developer's own service.
+
+The device credential the service gives the extension expires after 90 days without
+use.
 
 ## Cloudflare
 
 A Pateat service runs on Cloudflare: its code on Cloudflare Workers, its data in
-Cloudflare D1, and its sign-in through Cloudflare Access. Everything the extension sends
-to the service passes through and is stored at Cloudflare, under the terms of the
-service owner's Cloudflare account, and Cloudflare keeps the service's request logs.
+Cloudflare D1, and the sign-in to its pairing and management pages through Cloudflare
+Access. Everything the extension sends to the service passes through and is stored at
+Cloudflare, under the terms of the service owner's Cloudflare account, and Cloudflare
+keeps the service's request logs, with the query part of each address removed.
 
 ## Anthropic
 
 To write a recipe or judge a login, your Pateat service sends the page description and
 what the login needs from your vault, as above, to Claude, Anthropic's AI model, using
-the Claude credentials its owner set up. Anthropic never receives vault values, and
-handles what it receives under the terms of that owner's Anthropic account.
+the Claude credentials its owner set up. The owner chooses the Claude model on the
+service's **Models** page; without a choice the service uses Claude Opus 5.5, and asks
+Claude Sonnet 5.5 once when Opus 5.5 declines a request. Anthropic never receives vault
+values, login records or the signed-in pages sent every 30 days, and handles what it
+receives under the terms of that owner's Anthropic account.
 
 ## The websites you log in to
 
 To log in, Pateat fills your username, password, one-time codes and other vault fields
 into the site's login form, and answers the site's passkey requests with a passkey
 signature. The site receives these as it would from you, under its own privacy policy.
+On a plain HTTP page, which Pateat uses only for items saved with an `http://` address,
+what it fills travels unencrypted
+([permissions](./permissions.md#plain-http-pages)).
+
+## Connection information
+
+The services above, and the websites you log in to, receive your IP address and other
+connection information whenever Pateat contacts them, as for any web request. They may
+keep it in their own operational logs under their own policies; Pateat cannot delete it
+there.
 
 ## Deleting your data
 
 - **On your device**: delete a vault connection on the settings page, or remove the
-  extension from Chrome.
+  extension from Chrome. Removing the extension does not revoke its device on the
+  service; disconnect it on the settings page first, or revoke it on the service's
+  **Devices** page.
 - **On the service**: its pages let you remove excluded sites, default accounts and
   field choices, and revoke recipes, though a revoked recipe leaves a record that it was
-  revoked. Disconnecting or revoking a device stops it from syncing but keeps its
-  record. Requests sent to Claude stay until their 90 days run out. There is no page yet
-  to delete device records or the request log; the service's owner can delete them from
-  its database.
-- **At Bitwarden and Anthropic**: under their own policies.
+  revoked. **Delete all** on the **Request log** page deletes every stored page
+  description and login record. Disconnecting or revoking a device stops it from
+  syncing but keeps its record. There is no page to delete everything the service holds
+  about you at once, such as device records and the record of spending on Claude; the
+  service's owner can delete those from its database.
+- **On a lost device**: revoking it on the service stops it from reaching the service,
+  but cannot erase the vault copy, unlock key and recipes already on it.
+- **At Bitwarden, Cloudflare and Anthropic**: under their own policies.
 
 ## Chrome Web Store Limited Use
 
@@ -133,16 +182,17 @@ requirements. In particular:
   provide and improve its single purpose: logging you in to the sites you choose and
   showing you what it did.
 - It transfers that information only as this policy describes, for that purpose: vault
-  sign-in and sync to your Bitwarden server, settings and login page descriptions to the
-  Pateat service you paired with, which runs on Cloudflare, and through that service to
-  Anthropic.
+  sign-in and sync to your Bitwarden server; settings, page descriptions and login
+  records to the Pateat service you paired with, which runs on Cloudflare; and page
+  descriptions through that service to Anthropic.
 - It does not sell user data, does not use or transfer it for advertising, and does not
   use or transfer it to determine creditworthiness or for lending.
-- The developer reads no user data. A Pateat service's owner can read what their own
-  service stores.
+- The developer receives and reads no data from other people's use of Pateat. A Pateat
+  service's owner can read what their own service stores, which is their own data while
+  each service serves only its owner.
 
 ## Changes
 
 Changes to this policy are made in Pateat's public repository, where its history shows
-every earlier version. Questions can be asked on
-[GitHub](https://github.com/risu729/pateat).
+every earlier version. Send questions to
+[pateat@takuk.me](mailto:pateat@takuk.me).
