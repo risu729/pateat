@@ -3046,9 +3046,14 @@ planned change. Each is current behavior that the service does not handle.
 - Clock skew. Access tokens get no leeway: a token whose `iat` or `nbf` is ahead of
   the Worker's clock, or one forwarded in the second before its `exp`, is refused with
   403 rather than "sign in first".
-- Device labels. A label refuses every `\p{C}` character, which includes format
-  characters such as the zero-width joiner of emoji sequences and bidirectional marks,
-  and counts 64 UTF-16 code units, so an emoji takes two.
+- Device labels. A label is 1 to 64 UTF-16 code units after trimming, so an emoji
+  takes two and a joined emoji sequence more. Format and private-use characters, such
+  as the zero-width joiner of emoji sequences, the zero-width space and the soft
+  hyphen, are accepted when the label also has a letter, digit, punctuation mark or
+  symbol (owner, 2026-10-23 12:57 UTC); control characters, line and paragraph
+  separators and text-direction marks are refused (`deviceLabelSchema` in
+  `packages/contracts/src/pairing.ts`). The settings page answers a name of invisible
+  characters alone with "Enter a device name.".
 - Upper-case IDs. Device IDs in management paths are compared exactly, so
   `/manage/api/devices/<ID in upper case>/revoke` answers 404 for an existing device.
 - Unaddressable recipe IDs. The recipe ID contract accepts `.`, `..` and `generate`,
@@ -3104,10 +3109,8 @@ steady-state API calls carry no cookie.
   try again later.
 - Pairing. **Pair this device** on the settings page asks for site access to the
   service, then the extension's background service worker sends one `POST /pair` with
-  the device label (1 to 64 UTF-16 code units after trimming; emoji with joiners are
-  accepted, while control characters, line and paragraph separators, text-direction
-  marks and a name of invisible characters alone are refused; other invisible format
-  characters inside a name are kept), `credentials: "include"`, `redirect: "manual"` and
+  the device label ([device labels](#unsupported-service-edge-cases)),
+  `credentials: "include"`, `redirect: "manual"` and
   `X-Requested-With: XMLHttpRequest`, so the browser's Access session travels with it.
   The route sits behind Access; the Worker verifies the token (the host-wide
   application's audience, or "pateat pair"'s, which also admits browsers without WARP,

@@ -14,6 +14,9 @@ export const deviceIdSchema = v.pipe(v.string(), v.uuid());
  * use renews it. There is no absolute lifetime.
  */
 export const DEVICE_IDLE_LIMIT_MS = 90 * 24 * 60 * 60 * 1000;
+/** A letter, digit, punctuation or symbol: what keeps a device name from showing as blank. */
+export const VISIBLE_LABEL_CHARACTER = /[\p{L}\p{N}\p{P}\p{S}]/u;
+
 export const deviceLabelSchema = v.pipe(
   v.string(),
   v.trim(),
@@ -26,7 +29,7 @@ export const deviceLabelSchema = v.pipe(
     "Labels cannot contain control characters, line breaks or text-direction marks",
   ),
   // A name of invisible characters alone would show as blank.
-  v.regex(/[\p{L}\p{N}\p{P}\p{S}]/u, "Labels need a visible character"),
+  v.regex(VISIBLE_LABEL_CHARACTER, "Labels need a visible character"),
 );
 
 /** A Chrome extension ID: the first 128 bits of the key's SHA-256 as letters `a`-`p`. */
