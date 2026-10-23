@@ -295,8 +295,8 @@ export const en = {
   "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait 5 minutes and reload this page, to log in here.":
     "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait 5 minutes and reload this page, to log in here.",
   "This page asks for {{detail}}.": "This page asks for {{detail}}.",
-  "Fill": "Fill",
-  "Remove": "Remove",
+  Fill: "Fill",
+  Remove: "Remove",
   "Personal details Pateat fills on this site": "Personal details Pateat fills on this site",
   "Filled from {{field}}": "Filled from {{field}}",
   "Filled from {{field}} (not saved yet)": "Filled from {{field}} (not saved yet)",

@@ -299,8 +299,8 @@ export const ja = {
   "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait 5 minutes and reload this page, to log in here.":
     "Pateat：別のタブでこのサイトへのログインが進行中か、成功していません。ここでログインするには、そのタブを閉じるか、5 分待ってからこのページを再読み込みしてください。",
   "This page asks for {{detail}}.": "このページは{{detail}}の入力を求めています。",
-  "Fill": "入力",
-  "Remove": "解除",
+  Fill: "入力",
+  Remove: "解除",
   "Personal details Pateat fills on this site": "Pateat がこのサイトで入力する個人情報",
   "Filled from {{field}}": "{{field}} から入力",
   "Filled from {{field}} (not saved yet)": "{{field}} から入力（未保存）",
@@ -326,7 +326,8 @@ export const ja = {
   "your card's security code": "カードのセキュリティコード",
   "The page changed, so nothing was filled.": "ページが変わったため、何も入力しませんでした。",
   "This page no longer asks for it.": "このページはもうこの情報を求めていません。",
-  "That field does not hold a value Pateat can use here.": "そのフィールドには、ここで Pateat が使える値がありません。",
+  "That field does not hold a value Pateat can use here.":
+    "そのフィールドには、ここで Pateat が使える値がありません。",
   "Pateat cannot read that field now. Unlock the vault and try again.":
     "Pateat は今そのフィールドを読み取れません。保管庫のロックを解除して、もう一度お試しください。",
   "The page did not accept the value.": "ページが値を受け付けませんでした。",
