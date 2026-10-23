@@ -1462,10 +1462,11 @@ login ends (`WATCH_ENDED` with `abandoned`) as `blocked` with `challenge-abandon
 a `challenge`, or `watch-abandoned` from a result settled as unknown, and its record is
 forgotten. Only that tab asks (`pateat.login-stopped-asks.v1`, as after a login stopped
 after a submission) and, with one account to use, fills without pressing anything; the
-site's other tabs log in as before. A first step ready in a new top-level document of
-another tab of the site, first seen by the worker after the watch began, ends it the
-same way, so a person who starts over in a new tab logs in there rather than being
-refused `origin-busy`, and the watched tab asks if its own first step shows again. When
+site's other tabs log in as before. Until then, the watched login holds the site against
+its other tabs for the whole watch, also past the 5-minute hold, so a new tab is refused
+`origin-busy` instead of sending a second code (owner, 2026-10-23); only the watched
+tab's own first step ends the watch. Holds and asks never cross between a tab in an
+incognito window and one outside, which keep separate cookies. When
 the watch is over, the next page of the tab ends the login where it stopped
 (`WATCH_ENDED`: `blocked` with `challenge` or `unknown-submit`) without changing the
 record's last change time, so it holds the site only until 5 minutes after that time; a

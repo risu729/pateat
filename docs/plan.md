@@ -521,8 +521,8 @@ than in this repository.
     owner's Chrome, vault and a service-generated recipe for an `http:` origin are still
     unchecked.
   - On 三菱UFJ銀行, after an expired QR code, the sign-in page in the same tab is filled
-    without pressing anything, while a new tab logs in as before (owner, 2026-10-13:
-    「このタブだけ」; ADR 0027).
+    without pressing anything (owner, 2026-10-13: 「このタブだけ」; ADR 0027). Since
+    2026-10-23 a new tab waits until the old tab closes or its 10-minute watch ends.
   - M3's password login on a real site, and M4's sync against the deployed service:
     `https://www.npmjs.com` logs in with no action from the owner through a recipe the
     service generated, and a later login makes no Claude call (after
@@ -3261,23 +3261,23 @@ stopped after a submission asks the same way, in that tab only, once a later pag
 the login form after the record's 5-minute hold on other tabs has ended
 (`pateat.login-stopped-asks.v1`). Since 2026-10-13 (owner, after Oracle Cloud and Sony
 Bank) a watched login (ADR 0027) whose first step shows again never signed in, so it is
-no logout: it ends `challenge-abandoned` or `watch-abandoned`, only its tab asks that
-way, and the site's other tabs log in (local tests only). Since 2026-10-13 a tab asks at
-once, on any path, without filling that page again, when the site answers the password
-submission with its sign-in form again (its password input and no other sign, even when
-the result stays unknown) or the login ends `credential-rejected`; its record is
-released then, so other tabs of the site ask instead of being held, and the badge and
-popup say the site did not accept the login (`pateat.login-rejected-asks.v1`). Frame
-logins are not detected. Since 2026-10-18 (owner, 01:40 UTC;
-[ADR 0049](adr/0049-start-at-a-later-step.md); local tests only, not yet on a real site)
-a later password step a login may start at counts as the first step does, so a site
-whose logout page shows only a password step is detected. By the
-owner's constraint (2026-10-12) a session that only expired never needs a manual press,
-so a logout of a session carried over from another tab's login or an earlier browser
-session is not detected by the form alone. Since 2026-10-16 (owner, after
-dash.cloudflare.com) a click on a control whose name or nearby text says log out makes
-the tab's next first step of that site within 10 minutes ask the same way
-(`pateat.login-logout-clicks.v1`, ADR 0021 D); otherwise Pateat logs in again there.
+no logout: it ends `challenge-abandoned` or `watch-abandoned` and only its tab asks that
+way; since 2026-10-23 the site's other tabs sharing its cookies wait for the watch to
+end (local tests only). Since 2026-10-13 a tab asks at once, on any path, without
+filling that page again, when the site answers the password submission with its sign-in
+form again (its password input and no other sign, even when the result stays unknown) or
+the login ends `credential-rejected`; its record is released then, so other tabs of the
+site ask instead of being held, and the badge and popup say the site did not accept the
+login (`pateat.login-rejected-asks.v1`). Frame logins are not detected. Since 2026-10-18
+(owner, 01:40 UTC; [ADR 0049](adr/0049-start-at-a-later-step.md); local tests only, not
+yet on a real site) a later password step a login may start at counts as the first step
+does, so a site whose logout page shows only a password step is detected. By the owner's
+constraint (2026-10-12) a session that only expired never needs a manual press, so a
+logout of a session carried over from another tab's login or an earlier browser session
+is not detected by the form alone. Since 2026-10-16 (owner, after dash.cloudflare.com) a
+click on a control whose name or nearby text says log out makes the tab's next first
+step of that site within 10 minutes ask the same way (`pateat.login-logout-clicks.v1`,
+ADR 0021 D); otherwise Pateat logs in again there.
 
 Later work includes independently permitted vault create/update operations, nonzero
 passkey counter writeback and passkey creation; Bitwarden provider login with passkeys,
