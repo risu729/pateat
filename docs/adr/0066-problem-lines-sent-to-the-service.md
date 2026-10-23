@@ -52,7 +52,12 @@ condition that no value leaves.
   `login.refused`, a `login.entry` with outcome `refused`, and a `recipe.generate` with
   outcome `skipped`, `abstained` or `unavailable`. `debug` entries and other `info`
   entries never leave. Passkey reports (`passkey.request`, `passkey.create`) and
-  fill-only logins stay local.
+  fill-only logins stay local, at any level: the events are `LOCAL_ONLY_EVENTS` in
+  `packages/contracts/src/problems.ts`, and every line of a fill-only login that may be
+  a `warn` (`login.attempt`, `login.exception`, `recipe.judge`), and its `login.start`,
+  carries the local log's `fillOnly` flag (`LOCAL_ONLY_FLAG`). Neither is in
+  `PROBLEM_EVENT_FIELDS`, so the service refuses them too. The tab's asking after the
+  fill (`login.refused` `logged-out`) is not the login's line and still leaves.
 - What leaves (`problemLine` in `apps/extension/src/diagnostics/log.ts`): the event,
   level and device time, and the fields a log download carries with sites shown that
   the contract lists for the event, which is the log's allowlist less the item and
@@ -98,7 +103,7 @@ condition that no value leaves.
 - The contract (`problemReportSchema`) takes at most 100 lines, and checks each line's
   fields against the event's own list (`PROBLEM_EVENT_FIELDS`) by kind: codes, error
   names, counts, flags, builds, recipe IDs, origins (a configured site's or an `origin:`
-  pseudonym), RP IDs, script positions and page paths. No string but a stack holds
+  pseudonym), script positions and page paths. No string but a stack holds
   whitespace, none `@`, `?` or `#`, only an origin `://`, and no path `;` or `=`, so
   free text, a URL with a query or parameters or an email address is refused even if the
   extension ever let one through. An `info` line passes only for an event and outcome of

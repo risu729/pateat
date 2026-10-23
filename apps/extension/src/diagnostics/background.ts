@@ -555,6 +555,7 @@ export function createDiagnosticsLog(options: {
             state: report.state,
             step: report.stepIndex,
             unsubmitted: report.unsubmitted,
+            fillOnly: report.fillOnly,
             name: report.name,
             // Engine messages can quote input; only Pateat's own codes are kept.
             message:
@@ -609,6 +610,7 @@ export function createDiagnosticsLog(options: {
             verdict: report.verdict,
             reason: report.reason,
             takenOver: report.takenOver,
+            fillOnly: report.fillOnly,
             watched: report.watched,
             completed: report.completed,
             disabledLeftOut: report.disabledLeftOut,
@@ -816,6 +818,7 @@ export function createDiagnosticsLog(options: {
             settled: report.settled,
             unconfirmed: report.unconfirmed,
             unsubmitted: report.unsubmitted,
+            fillOnly: report.fillOnly,
             routeChange: report.routeChange,
             // A switch of layouts names both (ADR 0060).
             layout: report.layoutFrom === undefined ? undefined : report.branch,

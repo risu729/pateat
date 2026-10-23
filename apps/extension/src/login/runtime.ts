@@ -1850,6 +1850,11 @@ export type LoginReport = (
        * the page is the one it started on or the same document after a fill (ADR 0066).
        */
       unsubmitted?: true;
+      /**
+       * A fill-only login after a logout (ADR 0021 D), whose log lines stay on the device
+       * (ADR 0066). Its `reason` is `fill-only` too, unless a stop names another.
+       */
+      fillOnly?: true;
       /** Why the login just changed route (ADR 0034). */
       routeChange?: RouteChange;
       /**
@@ -2040,6 +2045,8 @@ export type LoginReport = (
       stepIndex: number;
       /** As for `attempt`: nothing was submitted yet, in the document the login began in. */
       unsubmitted?: true;
+      /** As for `attempt`: a fill-only login after a logout (ADR 0021 D, ADR 0066). */
+      fillOnly?: true;
       name: string;
       /** Logged only when it is one of Pateat's own error codes. */
       message?: string;
@@ -2126,6 +2133,8 @@ export type LoginReport = (
       reason?: string;
       /** For a returned revision: whether this login took it over. */
       takenOver?: boolean;
+      /** As for `attempt`: a fill-only login after a logout (ADR 0021 D, ADR 0066). */
+      fillOnly?: true;
       /** A page of a watched login, judged from the watch's own pages (ADR 0027). */
       watched?: true;
       /**
@@ -2499,6 +2508,9 @@ export function createLoginRuntime(
       // A report must never change the answer.
     }
   };
+  /** A fill-only login's mark, which keeps its log lines on the device (ADR 0066). */
+  const fillOnlyMark = (metadata: LoginAttemptMetadata) =>
+    metadata.fillOnly ? { fillOnly: true as const } : {};
   const reportAttempt = (
     metadata: LoginAttemptMetadata,
     recipe: LoginRecipe | undefined,
@@ -2542,7 +2554,7 @@ export function createLoginRuntime(
       ...(metadata.unconfirmed ? { unconfirmed: true as const } : {}),
       ...(metadata.watch ? { watched: true as const } : {}),
       ...(unsubmitted(metadata) ? { unsubmitted: true as const } : {}),
-      ...(metadata.fillOnly ? { reason: "fill-only" } : {}),
+      ...(metadata.fillOnly ? { fillOnly: true as const, reason: "fill-only" } : {}),
       ...(metadata.stopAt === undefined ? {} : { stop: "password" as const }),
       ...(policy && metadata.outcome === "policy-changed" ? policy : {}),
       ...(stop ? { cause: stop } : {}),
@@ -7075,6 +7087,7 @@ export function createLoginRuntime(
       route: run.metadata.route,
       verdict: "not-sent",
       reason,
+      ...fillOnlyMark(run.metadata),
       ...(run.metadata.watch ? { watched: true as const } : {}),
     });
     return false;
@@ -7433,6 +7446,7 @@ export function createLoginRuntime(
         route: metadata.route,
         verdict,
         ...detail,
+        ...fillOnlyMark(run.metadata),
         ...(watchedPage ? { watched: true as const } : {}),
         ...(disabledLeftOut ? { disabledLeftOut: true as const } : {}),
         ...(beside ? { beside: true as const } : {}),
@@ -8448,6 +8462,7 @@ export function createLoginRuntime(
             state: run.metadata.state,
             stepIndex: run.metadata.stepIndex,
             ...(unsubmitted(run.metadata) ? { unsubmitted: true as const } : {}),
+            ...fillOnlyMark(run.metadata),
             name: error instanceof Error ? error.name : typeof error,
             ...(error instanceof Error ? { message: error.message } : {}),
             ...(error instanceof Error && error.stack ? { stack: error.stack } : {}),
@@ -14068,6 +14083,7 @@ export function createLoginRuntime(
         route: record.route,
         verdict,
         ...(reason ? { reason } : {}),
+        ...fillOnlyMark(record),
         moved: true,
         ...(disabledLeftOut ? { disabledLeftOut: true as const } : {}),
         ...timed,
@@ -15051,6 +15067,7 @@ export function createLoginRuntime(
         route: run.metadata.route,
         verdict: "not-sent",
         reason,
+        ...fillOnlyMark(run.metadata),
         stop: "password",
       });
       return false;
@@ -15094,6 +15111,7 @@ export function createLoginRuntime(
         route: "password",
         verdict,
         ...detail,
+        ...fillOnlyMark(run.metadata),
         ...(disabledLeftOut ? { disabledLeftOut: true as const } : {}),
         stop: "password",
         ...timed,

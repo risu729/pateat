@@ -27976,6 +27976,9 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
           state: "blocked",
           reason: "fill-only",
         });
+        // Every line of the login carries the mark that keeps it on the device (ADR 0066).
+        expect(attemptReports(reports).length).toBeGreaterThan(0);
+        for (const entry of attemptReports(reports)) expect(entry).toHaveProperty("fillOnly", true);
         expect(reports.at(-1)).toMatchObject({ type: "refused", reason: "logged-out" });
         expect(executed()).toEqual([]);
         expect(fake.state.messages.some((entry) => entry.type === "login.choose")).toBe(false);
