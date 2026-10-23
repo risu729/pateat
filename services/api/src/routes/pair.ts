@@ -41,7 +41,7 @@ export async function createPairedDevice(
     const owned = await listProfiles(c.env.DB, existing);
     if (newProfile !== undefined) {
       if (await profileNameTaken(c.env.DB, existing, newProfile))
-        return c.json({ error: "profile_name_taken" as const }, 409);
+        return c.json({ error: "profile_name_taken" as const, profiles: owned }, 409);
       profileId = newId();
       // No document: the device's first sync keeps its own entries in it.
       createProfile.push(
@@ -50,7 +50,7 @@ export async function createPairedDevice(
     } else if (requestedProfile === undefined)
       return c.json({ error: "profile_required" as const, profiles: owned }, 409);
     else if (owned.some((profile) => profile.id === requestedProfile)) profileId = requestedProfile;
-    else return c.json({ error: "profile_not_found" as const }, 404);
+    else return c.json({ error: "profile_not_found" as const, profiles: owned }, 404);
   } else if (requestedProfile) return c.json({ error: "profile_not_found" as const }, 404);
   const deviceId = newId();
   const credential = createDeviceToken();

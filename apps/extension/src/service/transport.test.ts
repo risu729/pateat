@@ -31,6 +31,7 @@ function respond(status: number, body?: unknown, init: ResponseInit = {}) {
 
 describe("pair", () => {
   const LABEL = "Work laptop";
+  const PROFILE = { id: "00000000-0000-4000-8000-000000000010", name: "Default" };
   const issued = {
     version: 1,
     deviceId: "6f1d3c1e-5d0b-4a52-9d55-3d7a8f0e2b41",
@@ -59,6 +60,17 @@ describe("pair", () => {
       "X-Requested-With": "XMLHttpRequest",
     });
     expect(JSON.parse(init!.body as string)).toEqual({ version: 1, label: LABEL });
+  });
+
+  it("sends the chosen profile or the new profile's name", async () => {
+    const fetch = json(201, issued);
+    const transport = createServiceTransport({ fetch });
+    await transport.pair(ORIGIN, LABEL, { profileId: PROFILE.id });
+    await transport.pair(ORIGIN, LABEL, { newProfile: "Agent browser" });
+    expect(fetch.mock.calls.map(([, init]) => JSON.parse(init!.body as string))).toEqual([
+      { version: 1, label: LABEL, profileId: PROFILE.id },
+      { version: 1, label: LABEL, newProfile: "Agent browser" },
+    ]);
   });
 
   it("accepts JSON with a charset", async () => {
@@ -156,6 +168,30 @@ describe("pair", () => {
       { kind: "failed", error: "access-keys-unavailable" },
     ],
     ["a rate limit", 429, { error: "rate_limited" }, { kind: "failed", error: "rate-limited" }],
+    [
+      "a missing profile choice",
+      409,
+      { error: "profile_required", profiles: [PROFILE] },
+      { kind: "profile", error: "profile-required", profiles: [PROFILE] },
+    ],
+    [
+      "a deleted profile",
+      404,
+      { error: "profile_not_found", profiles: [PROFILE] },
+      { kind: "profile", error: "profile-not-found", profiles: [PROFILE] },
+    ],
+    [
+      "a taken profile name",
+      409,
+      { error: "profile_name_taken", profiles: [PROFILE] },
+      { kind: "profile", error: "profile-name-taken", profiles: [PROFILE] },
+    ],
+    [
+      "a profile choice without profiles",
+      409,
+      { error: "profile_required" },
+      { kind: "failed", error: "unexpected-response" },
+    ],
     ["an unknown 403", 403, { error: "other" }, { kind: "failed", error: "unexpected-response" }],
     [
       "a bad request",

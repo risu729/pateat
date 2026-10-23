@@ -294,17 +294,24 @@ export function createSettingsSync(options: {
     let catalog: Promise<VaultCatalog | undefined> | undefined;
     const serviceCopy = (state: SyncSettingsState) =>
       state.settings ? syncedSettings(state.settings) : emptySynced;
-    // A matching profile base preserves local edits. A new pairing adopts existing
-    // service policy below; only an uninitialized profile starts from local policy.
+    // A matching profile base preserves local edits. A new pairing or a profile switch
+    // adopts the profile's own parts below (ADR 0075); only a profile no device has
+    // written yet (`newProfile`, or the owner's first settings) starts from local policy.
+    // Bindings belong to the owner, not a profile, so they keep merging either way.
     let base: SyncBase = { service: emptySynced, local: emptySynced };
+    let bindingBase = base;
     if (
       stored &&
-      stored.profileId === service.profileId &&
       (service.revision > stored.revision ||
         (service.revision === stored.revision &&
           equalSynced(serviceCopy(service), syncedSettings(stored.settings))))
-    )
-      base = { service: syncedSettings(stored.settings), local: syncedSettings(stored.local) };
+    ) {
+      bindingBase = {
+        service: syncedSettings(stored.settings),
+        local: syncedSettings(stored.local),
+      };
+      if (stored.profileId === service.profileId) base = bindingBase;
+    }
     async function record(next: SyncBase) {
       if (stale()) return;
       // Best effort: a lost write leaves the older base, which merges to the same result
@@ -322,9 +329,10 @@ export function createSettingsSync(options: {
         .catch(() => undefined);
     }
     // A profile switch must never reinterpret the previous profile cache as edits.
-    let switchingProfile = stored
-      ? stored.profileId !== service.profileId
-      : service.settings !== null;
+    const adopts = (state: SyncSettingsState) =>
+      !state.newProfile &&
+      (stored ? stored.profileId !== state.profileId : state.settings !== null);
+    let switchingProfile = adopts(service);
     // Keep the old identity until the replacement is applied: a deferred or failed
     // local write must still recognize the switch on the next worker run.
     for (let attempt = 0; attempt < MAX_SETTINGS_SYNC_ATTEMPTS; attempt += 1) {
@@ -338,7 +346,10 @@ export function createSettingsSync(options: {
       const localSynced = syncedSettings(local.settings);
       const serviceSynced = serviceCopy(service);
       const mergedEntries = switchingProfile
-        ? serviceSynced
+        ? {
+            ...serviceSynced,
+            bindings: mergeSyncedSettings(bindingBase, localSynced, serviceSynced).bindings,
+          }
         : mergeSyncedSettings(base, localSynced, serviceSynced);
       // Named after the merge, so the names are uploaded and written like any change.
       if (unnamed(mergedEntries)) catalog ??= options.catalog?.().catch(() => undefined);
@@ -363,7 +374,8 @@ export function createSettingsSync(options: {
         if (saved.kind === "rejected") return "rejected";
         if (saved.kind === "failed") return saved.error;
         if (saved.kind === "conflict") {
-          switchingProfile ||= service.profileId !== saved.current.profileId;
+          switchingProfile ||=
+            service.profileId !== saved.current.profileId && adopts(saved.current);
           service = saved.current;
           continue;
         }

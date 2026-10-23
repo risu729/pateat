@@ -89,7 +89,11 @@ export const pairErrorCodeSchema = v.picklist([
   "unsupported_media_type",
   "internal_error",
 ]);
-export const pairErrorSchema = v.strictObject({ error: pairErrorCodeSchema });
+export const pairErrorSchema = v.strictObject({
+  error: pairErrorCodeSchema,
+  /** With the three profile errors: the owner's profiles to choose from. */
+  profiles: v.optional(v.array(profileSchema)),
+});
 
 export type DevicePairRequest = v.InferOutput<typeof devicePairRequestSchema>;
 export type DevicePairResult = v.InferOutput<typeof devicePairResultSchema>;

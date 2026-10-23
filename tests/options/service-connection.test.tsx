@@ -1,6 +1,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { page } from "vitest/browser";
 import { cleanup, render } from "vitest-browser-react";
+import type { SettingsClient } from "../../apps/extension/src/options/client";
 import type { ServiceClient } from "../../apps/extension/src/options/service-client";
 import {
   ServiceConnection,
@@ -326,33 +327,124 @@ test("tells the owner when the service could not confirm a disconnect", async ()
   expect(client.pair).not.toHaveBeenCalled();
 });
 
-test("requires an explicit profile choice before retrying a multi-profile pairing", async () => {
+const LOCAL_PROFILE = "00000000-0000-4000-8000-000000000010";
+const AGENT_PROFILE = "00000000-0000-4000-8000-000000000011";
+const profileRequired: ServiceResponse = {
+  ok: false,
+  error: "profile-required",
+  profiles: [
+    { id: LOCAL_PROFILE, name: "Local browser" },
+    { id: AGENT_PROFILE, name: "Agent browser" },
+  ],
+};
+/** Local settings holding two site exclusions and one saved account. */
+function localSettings(excludedSites = 2, siteDefaults = 1) {
+  const settings = {
+    connections: [],
+    excludedSites: Array.from({ length: excludedSites }, (_, index) => ({
+      hostname: `site-${index}.example`,
+      includeSubdomains: false,
+    })),
+    siteDefaults: Array.from({ length: siteDefaults }, () => ({})),
+    bindings: [],
+  };
+  return {
+    getSettings: vi.fn(async () => ({ ok: true, snapshot: { version: 1, revision: 1, settings } })),
+  } as unknown as SettingsClient;
+}
+
+test("asks which profile to use before pairing an owner's further device", async () => {
   const client = mockClient();
-  const local = "00000000-0000-4000-8000-000000000010";
-  const agent = "00000000-0000-4000-8000-000000000011";
-  client.pair.mockResolvedValueOnce({
-    ok: false,
-    error: "profile-required",
-    state: { kind: "disconnected" },
-    profiles: [
-      { id: local, name: "Local browser" },
-      { id: agent, name: "Agent browser" },
-    ],
-  });
-  await render(<ServiceConnection client={client} pollMs={60_000} />);
+  client.pair.mockResolvedValueOnce(profileRequired);
+  await render(
+    <ServiceConnection client={client} pollMs={60_000} settingsClient={localSettings(0, 0)} />,
+  );
   await submitPair();
-  const choices = page.getByRole("combobox", { name: "Settings profile", exact: true });
-  await expect.element(choices).toHaveValue("");
-  const retry = page.getByRole("button", { name: "Pair this device", exact: true });
-  await expect.element(retry).toBeDisabled();
-  expect(client.pair).toHaveBeenCalledOnce();
+  await expect
+    .element(page.getByRole("group", { name: "Settings profile", exact: true }))
+    .toBeVisible();
+  const pairButton = page.getByRole("button", { name: "Pair this device", exact: true });
+  // Coming back from another tab retries nothing: the choice is the user's.
   window.dispatchEvent(new Event("focus"));
   await new Promise((resolve) => setTimeout(resolve, 30));
   expect(client.pair).toHaveBeenCalledOnce();
-  await choices.selectOptions(agent);
-  await expect.element(retry).toBeEnabled();
-  await retry.click();
-  expect(client.pair).toHaveBeenLastCalledWith(ORIGIN, "Chrome", agent);
+  await pairButton.click();
+  await expect
+    .element(
+      page.getByRole("alert").getByText("Choose a profile for this device.", { exact: true }),
+    )
+    .toBeVisible();
+  expect(client.pair).toHaveBeenCalledOnce();
+  // Without site settings on this device there is nothing to replace, so no warning.
+  await page.getByRole("radio", { name: "Agent browser", exact: true }).click();
+  await pairButton.click();
+  expect(client.pair).toHaveBeenLastCalledWith(ORIGIN, "Chrome", { profileId: AGENT_PROFILE });
   await expect.element(page.getByText("This device is paired.", { exact: true })).toBeVisible();
   expect(client.openSignIn).not.toHaveBeenCalled();
+});
+
+test("warns before an existing profile replaces this device's site settings", async () => {
+  const client = mockClient();
+  client.pair.mockResolvedValueOnce(profileRequired);
+  await render(
+    <ServiceConnection client={client} pollMs={60_000} settingsClient={localSettings()} />,
+  );
+  await submitPair();
+  await page.getByRole("radio", { name: "Local browser", exact: true }).click();
+  await page.getByRole("button", { name: "Pair this device", exact: true }).click();
+  const warning = page.getByRole("group", {
+    name: "Replace this device's site settings with Local browser's?",
+    exact: true,
+  });
+  await expect
+    .element(warning)
+    .toHaveAccessibleDescription(
+      "This device's site exclusions (2) and saved accounts (1) are removed and Local browser's are used instead. Account bindings are kept. To keep them, create a new profile from this device instead.",
+    );
+  expect(client.pair).toHaveBeenCalledOnce();
+  await warning.getByRole("button", { name: "Back", exact: true }).click();
+  await expect.element(warning).not.toBeInTheDocument();
+  await page.getByRole("button", { name: "Pair this device", exact: true }).click();
+  await warning.getByRole("button", { name: "Pair and replace", exact: true }).click();
+  expect(client.pair).toHaveBeenLastCalledWith(ORIGIN, "Chrome", { profileId: LOCAL_PROFILE });
+  await expect.element(page.getByText("This device is paired.", { exact: true })).toBeVisible();
+});
+
+test("creates a new profile from the warning, named after the device by default", async () => {
+  const client = mockClient();
+  client.pair.mockResolvedValueOnce(profileRequired).mockResolvedValueOnce({
+    ...profileRequired,
+    error: "profile-name-taken",
+  });
+  await render(
+    <ServiceConnection client={client} pollMs={60_000} settingsClient={localSettings()} />,
+  );
+  await page.getByLabelText("Device name", { exact: true }).fill("Agent browser");
+  await submitPair();
+  await page.getByRole("radio", { name: "Local browser", exact: true }).click();
+  await page.getByRole("button", { name: "Pair this device", exact: true }).click();
+  await page.getByRole("button", { name: "Create a new profile instead", exact: true }).click();
+  await expect
+    .element(page.getByRole("radio", { name: "New profile with this device's site settings" }))
+    .toBeChecked();
+  const name = page.getByLabelText("New profile name", { exact: true });
+  await expect.element(name).toHaveValue("Agent browser");
+  await page.getByRole("button", { name: "Pair this device", exact: true }).click();
+  expect(client.pair).toHaveBeenLastCalledWith(ORIGIN, "Agent browser", {
+    newProfile: "Agent browser",
+  });
+  await expect
+    .element(
+      page.getByText(
+        "Another profile already has that name. Choose that profile or another name.",
+        { exact: true },
+      ),
+    )
+    .toBeVisible();
+  await name.fill("Agent browser 2");
+  await page.getByRole("button", { name: "Pair this device", exact: true }).click();
+  expect(client.pair).toHaveBeenLastCalledWith(ORIGIN, "Agent browser", {
+    newProfile: "Agent browser 2",
+  });
+  await expect.element(page.getByText("This device is paired.", { exact: true })).toBeVisible();
 });

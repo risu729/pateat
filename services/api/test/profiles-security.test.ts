@@ -128,7 +128,19 @@ describe("settings profile isolation", () => {
     // Names are unique per owner, ignoring case.
     const taken = await pair(by, undefined, { newProfile: "agent BROWSER" });
     expect(taken.status).toBe(409);
-    expect(await taken.json()).toEqual({ error: "profile_name_taken" });
+    expect(await taken.json()).toEqual({
+      error: "profile_name_taken",
+      profiles: expect.arrayContaining([
+        { id: settings.profileId, name: "Default" },
+        { id: state.profileId, name: "Agent browser" },
+      ]),
+    });
+    const gone = await pair(by, "00000000-0000-4000-8000-0000000000ff");
+    expect(gone.status).toBe(404);
+    expect(await gone.json()).toMatchObject({
+      error: "profile_not_found",
+      profiles: expect.any(Array),
+    });
   });
 
   it("renames a profile and refuses a name another profile has", async () => {

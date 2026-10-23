@@ -1,6 +1,7 @@
 import {
   deviceLabelSchema,
   normalizeServiceOrigin,
+  profileNameSchema,
   type ServiceErrorCode,
   type ServiceResponse,
   type ServiceState,
@@ -16,6 +17,7 @@ import type { SettingsClient } from "./client";
 import type { ServiceClient } from "./service-client";
 import {
   Badge,
+  checkClass,
   controlClass,
   fieldClass,
   Panel,
@@ -34,7 +36,11 @@ type ServiceMessage = string | { key: string; values?: Record<string, string | n
 function errorMessage(error: ServiceErrorCode, origin?: string): ServiceMessage {
   switch (error) {
     case "profile-required":
-      return "Choose the settings profile for this device, then pair again.";
+      return "This account already has settings. Choose which profile this device uses, then pair.";
+    case "profile-not-found":
+      return "That profile was deleted. Choose another one, then pair.";
+    case "profile-name-taken":
+      return "Another profile already has that name. Choose that profile or another name.";
     case "storage-unavailable":
       return "Pateat could not read or save its service connection on this device.";
     case "storage-corrupt":
@@ -70,6 +76,21 @@ function errorMessage(error: ServiceErrorCode, origin?: string): ServiceMessage 
 /** A pairing the user asked for that has not succeeded yet. */
 type Attempt = { origin: string; label: string; error: ServiceErrorCode };
 
+/** The radio value that creates a new profile instead of taking an existing one. */
+const NEW_PROFILE = "new";
+
+/**
+ * A pairing to an existing profile that would replace this device's own site settings
+ * (ADR 0075): the counts are what this device holds now.
+ */
+type Replacement = {
+  origin: string;
+  label: string;
+  profile: { id: string; name: string };
+  exclusions: number;
+  defaults: number;
+};
+
 export function ServiceConnection({
   client,
   pollMs = SYNC_POLL_MS,
@@ -99,7 +120,12 @@ export function ServiceConnection({
   const [busy, setBusy] = useState(false);
   const [address, setAddress] = useState("");
   const [profiles, setProfiles] = useState<{ id: string; name: string }[]>([]);
-  const [profileId, setProfileId] = useState("");
+  // An existing profile's ID, NEW_PROFILE, or "" before the user chose.
+  const [profileChoice, setProfileChoice] = useState("");
+  const [profileName, setProfileName] = useState("");
+  const [replacement, setReplacement] = useState<Replacement | undefined>();
+  // The profile whose replacement the user confirmed; retries do not ask again.
+  const confirmedProfile = useRef("");
   const [label, setLabel] = useState("Chrome");
   const [addressError, setAddressError] = useState("");
   const [corrupt, setCorrupt] = useState(false);
@@ -122,8 +148,12 @@ export function ServiceConnection({
     } else {
       if (response.state) setState(response.state);
       if (response.profiles) {
-        setProfiles(response.profiles);
-        setProfileId("");
+        const listed = response.profiles;
+        setProfiles(listed);
+        // Keep a choice that still exists; a deleted one must be chosen again.
+        setProfileChoice((choice) =>
+          choice === NEW_PROFILE || listed.some((profile) => profile.id === choice) ? choice : "",
+        );
       }
       setMessage(errorMessage(response.error));
     }
@@ -154,15 +184,30 @@ export function ServiceConnection({
    */
   async function pair(origin: string, name: string, signInTab: boolean) {
     retryOnReturn.current = undefined;
-    const response = await client.pair(origin, name, profileId || undefined);
+    const response = await client.pair(
+      origin,
+      name,
+      profileChoice === NEW_PROFILE
+        ? { newProfile: profileName.trim() }
+        : profileChoice
+          ? { profileId: profileChoice }
+          : undefined,
+    );
     if (!mounted.current) return;
     if (response.ok) {
       setAttempt(undefined);
+      setProfiles([]);
+      setProfileChoice("");
       receive(response, "This device is paired.");
       return;
     }
     receive(response);
     if (response.state && response.state.kind !== "disconnected") {
+      setAttempt(undefined);
+      return;
+    }
+    // The profile choice below answers these; there is nothing to retry as it was.
+    if (response.profiles) {
       setAttempt(undefined);
       return;
     }
@@ -176,6 +221,27 @@ export function ServiceConnection({
           values: { origin },
         });
     } else setMessage(errorMessage("sign-in-needed", origin));
+  }
+
+  /**
+   * Pairs, unless the chosen existing profile would replace site settings this device
+   * holds: then the warning below asks first (ADR 0075). A new profile keeps them.
+   */
+  async function pairOrWarn(origin: string, name: string, signInTab: boolean) {
+    const profile = profiles.find((entry) => entry.id === profileChoice);
+    if (profile && confirmedProfile.current !== profile.id) {
+      const local = await settingsClient?.getSettings().catch(() => undefined);
+      if (!mounted.current) return;
+      // Unreadable local settings still warn: they may hold entries.
+      const settings = local?.ok ? local.snapshot.settings : undefined;
+      const exclusions = settings ? settings.excludedSites.length : -1;
+      const defaults = settings ? settings.siteDefaults.length : -1;
+      if (exclusions !== 0 || defaults !== 0) {
+        setReplacement({ origin, label: name, profile, exclusions, defaults });
+        return;
+      }
+    }
+    await pair(origin, name, signInTab);
   }
 
   useEffect(() => {
@@ -280,6 +346,21 @@ export function ServiceConnection({
               );
               return;
             }
+            if (profiles.length > 0 && !profileChoice) {
+              setAddressError("Choose a profile for this device.");
+              return;
+            }
+            if (
+              profileChoice === NEW_PROFILE &&
+              !v.safeParse(profileNameSchema, profileName.trim()).success
+            ) {
+              setAddressError(
+                profileName.trim()
+                  ? "Use a profile name of up to 64 characters without control characters."
+                  : "Enter a name for the new profile.",
+              );
+              return;
+            }
             setAddressError("");
             void act(async () => {
               // Requested before any other await so Chrome still sees the click.
@@ -287,7 +368,7 @@ export function ServiceConnection({
                 if (mounted.current) setMessage(errorMessage("site-access-needed"));
                 return;
               }
-              await pair(origin, name.output, true);
+              await pairOrWarn(origin, name.output, true);
             });
           }}
         >
@@ -322,21 +403,138 @@ export function ServiceConnection({
             </label>
           </div>
           {profiles.length > 0 && (
-            <label className={fieldClass}>
-              Settings profile
-              <select
-                className={controlClass}
-                value={profileId}
-                onChange={(event) => setProfileId(event.target.value)}
+            <fieldset
+              className="m-0 flex min-w-0 flex-col gap-2 border-0 p-0"
+              aria-describedby="sync-service-profile-hint"
+              disabled={busy || replacement !== undefined}
+            >
+              <legend className="mb-1.5 p-0 text-sm font-semibold">{t("Settings profile")}</legend>
+              <p id="sync-service-profile-hint" className="m-0 text-sm text-ink-muted">
+                {t(
+                  "A profile holds site exclusions and saved accounts. Devices that share one share them; account bindings are shared by every profile.",
+                )}
+              </p>
+              {profiles.map((profile) => (
+                <label key={profile.id} className={checkClass}>
+                  <input
+                    type="radio"
+                    name="sync-service-profile"
+                    value={profile.id}
+                    checked={profileChoice === profile.id}
+                    onChange={() => setProfileChoice(profile.id)}
+                  />
+                  {profile.name}
+                </label>
+              ))}
+              <label className={checkClass}>
+                <input
+                  type="radio"
+                  name="sync-service-profile"
+                  value={NEW_PROFILE}
+                  checked={profileChoice === NEW_PROFILE}
+                  onChange={() => {
+                    setProfileChoice(NEW_PROFILE);
+                    setProfileName((current) => current || label.trim());
+                  }}
+                />
+                {t("New profile with this device's site settings")}
+              </label>
+              {profileChoice === NEW_PROFILE && (
+                <label className={`${fieldClass} sm:max-w-[50%]`}>
+                  {t("New profile name")}
+                  <input
+                    id="sync-service-profile-name"
+                    className={controlClass}
+                    type="text"
+                    maxLength={64}
+                    autoComplete="off"
+                    value={profileName}
+                    onChange={(event) => setProfileName(event.target.value)}
+                  />
+                </label>
+              )}
+            </fieldset>
+          )}
+          {replacement && (
+            <div
+              role="group"
+              aria-labelledby="sync-service-replace-heading"
+              aria-describedby="sync-service-replace-detail"
+              className="flex flex-col gap-3 rounded-xl bg-warning-tint px-4 py-3 text-sm/5"
+            >
+              <p
+                id="sync-service-replace-heading"
+                className="m-0 flex items-start gap-2 font-semibold"
               >
-                <option value="">Choose a profile</option>
-                {profiles.map((profile) => (
-                  <option key={profile.id} value={profile.id}>
-                    {profile.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+                <TriangleAlert
+                  aria-hidden
+                  size={16}
+                  strokeWidth={2}
+                  className="mt-0.5 shrink-0 text-warning"
+                />
+                {t("Replace this device's site settings with {{profile}}'s?", {
+                  profile: replacement.profile.name,
+                })}
+              </p>
+              <p id="sync-service-replace-detail" className="m-0">
+                {replacement.exclusions < 0
+                  ? t(
+                      "This device's site exclusions and saved accounts are removed and {{profile}}'s are used instead. Account bindings are kept.",
+                      { profile: replacement.profile.name },
+                    )
+                  : t(
+                      "This device's site exclusions ({{exclusions}}) and saved accounts ({{defaults}}) are removed and {{profile}}'s are used instead. Account bindings are kept.",
+                      {
+                        profile: replacement.profile.name,
+                        exclusions: replacement.exclusions,
+                        defaults: replacement.defaults,
+                      },
+                    )}{" "}
+                {t("To keep them, create a new profile from this device instead.")}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  id="sync-service-replace"
+                  type="button"
+                  variant="danger"
+                  disabled={busy}
+                  onClick={() => {
+                    const confirmed = replacement;
+                    confirmedProfile.current = confirmed.profile.id;
+                    setReplacement(undefined);
+                    void act(async () => {
+                      if (!(await client.requestSiteAccess(confirmed.origin))) {
+                        if (mounted.current) setMessage(errorMessage("site-access-needed"));
+                        return;
+                      }
+                      await pair(confirmed.origin, confirmed.label, true);
+                    });
+                  }}
+                >
+                  {t("Pair and replace")}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => {
+                    setReplacement(undefined);
+                    setProfileChoice(NEW_PROFILE);
+                    setProfileName((current) => current || label.trim());
+                  }}
+                >
+                  {t("Create a new profile instead")}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  disabled={busy}
+                  onClick={() => setReplacement(undefined)}
+                >
+                  {t("Back")}
+                </Button>
+              </div>
+            </div>
           )}
           {addressError && (
             <p id="sync-service-error" className="validation-error m-0" role="alert">
@@ -359,7 +557,7 @@ export function ServiceConnection({
             <Button
               id="sync-service-pair"
               type="submit"
-              disabled={busy || (profiles.length > 0 && !profileId)}
+              disabled={busy || replacement !== undefined}
             >
               {t("Pair this device")}
             </Button>
@@ -376,7 +574,7 @@ export function ServiceConnection({
                       if (mounted.current) setMessage(errorMessage("site-access-needed"));
                       return;
                     }
-                    await pair(attempt.origin, attempt.label, false);
+                    await pairOrWarn(attempt.origin, attempt.label, false);
                   })
                 }
               >

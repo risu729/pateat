@@ -222,6 +222,49 @@ describe("settings sync on a new pairing", () => {
     expect(applied).toHaveBeenCalledOnce();
   });
 
+  it("keeps this device's bindings when it adopts a profile's site settings", async () => {
+    // Bindings belong to the owner, not to a profile (ADR 0075).
+    const local = settingsOf({
+      excludedSites: [site("local-only.example")],
+      bindings: [binding("https://local.example")],
+    });
+    const remote = settingsOf({
+      excludedSites: [site("intranet.example")],
+      bindings: [binding("https://bank.example")],
+    });
+    const { sync, service, local: after } = setup({ local, service: state(3, remote) });
+    expect(await sync.run(CONNECTION, never)).toBe("synced");
+    const merged = {
+      excludedSites: [site("intranet.example")],
+      siteDefaults: [],
+      bindings: [binding("https://bank.example"), binding("https://local.example")],
+    };
+    expect(service()).toEqual(state(4, { connections: [], ...merged }));
+    expect(after()?.settings).toEqual({ connections: [], ...merged });
+  });
+
+  it("uploads this device's site settings to a profile created for it", async () => {
+    const local = settingsOf({
+      excludedSites: [site("local-only.example")],
+      siteDefaults: [account("https://bank.example")],
+    });
+    // A profile created while pairing has no settings of its own yet; the bindings
+    // already on the service are the owner's.
+    const remote = settingsOf({ bindings: [binding("https://bank.example")] });
+    const {
+      sync,
+      service,
+      local: after,
+    } = setup({
+      local,
+      service: { ...state(3, remote), newProfile: true },
+    });
+    expect(await sync.run(CONNECTION, never)).toBe("synced");
+    const merged = { ...local, bindings: [binding("https://bank.example")] };
+    expect(service()).toEqual(state(4, merged));
+    expect(after()?.settings).toEqual(merged);
+  });
+
   it("ignores the base of another pairing", async () => {
     const { sync, local: after } = setup({
       local: settingsOf({ excludedSites: [site("local-only.example")] }),

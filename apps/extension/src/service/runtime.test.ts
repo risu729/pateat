@@ -105,6 +105,25 @@ describe("pairing", () => {
     expect(transport.pair).not.toHaveBeenCalled();
   });
 
+  it("passes the chosen or new profile and returns the profiles to choose from", async () => {
+    const profiles = [{ id: "00000000-0000-4000-8000-000000000010", name: "Default" }];
+    const transport = fakeTransport({ kind: "profile", error: "profile-name-taken", profiles });
+    const { storage, runtime } = setup({ transport });
+    expect(await runtime.handle({ ...pair, newProfile: "Agent browser" })).toEqual({
+      ok: false,
+      error: "profile-name-taken",
+      profiles,
+    });
+    expect(transport.pair).toHaveBeenLastCalledWith(ORIGIN, "Work laptop", {
+      newProfile: "Agent browser",
+    });
+    await runtime.handle({ ...pair, profileId: profiles[0]?.id });
+    expect(transport.pair).toHaveBeenLastCalledWith(ORIGIN, "Work laptop", {
+      profileId: profiles[0]?.id,
+    });
+    expect(storage.write).not.toHaveBeenCalled();
+  });
+
   it("stores nothing when the service asks for a sign-in", async () => {
     const { storage, runtime } = setup({ transport: fakeTransport({ kind: "sign-in-needed" }) });
     expect(await runtime.handle(pair)).toEqual({
