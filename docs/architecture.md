@@ -615,9 +615,11 @@ requests Pateat leaves to the browser
 ([ADR 0007](adr/0007-existing-passkey-assertions.md), amended 2026-10-23). The passkey
 chooser's "Always for this site" adds the page's hostname, and the extension's settings
 page only removes one. On a listed host every bridged `get` (modal, conditional or
-Immediate UI) and `create` is handed on before any login, vault or chooser step, and a
-login there treats its item as holding no passkey, so it takes a password route or none;
-observation, filling and recipe generation for passwords are unaffected.
+Immediate UI) and `create` is handed on: nothing is signed, chosen or left to a login
+before the list is known, which the worker keeps in memory until the settings change,
+and a hostname just chosen holds at once, before its write lands. A login there treats
+its item as holding no passkey, so it takes a password route or none; observation,
+filling and recipe generation for passwords are unaffected.
 
 The account choice is a saved site default applied on the next login. A default names
 the provider account and item, not this device's connection. Without one, a single

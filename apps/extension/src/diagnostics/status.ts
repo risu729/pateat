@@ -562,6 +562,7 @@ export async function collectDiagnostics(
             excludedSites: settings.excludedSites.length,
             siteDefaults: settings.siteDefaults.length,
             bindings: settings.bindings.length,
+            passkeyBrowserSites: settings.passkeyBrowserSites.length,
           },
         }
       : {}),

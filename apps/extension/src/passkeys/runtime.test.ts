@@ -1867,7 +1867,7 @@ describe("sites whose passkey requests go to the browser (ADR 0007)", () => {
       "a request naming its credentials",
       withRequest({ allowCredentials: [{ type: "public-key", id: "AQID" }] }),
     ],
-  ])("hands %s on at once, before any login, vault or chooser step", async (_name, message) => {
+  ])("hands %s on, never signing, choosing or waiting for a login", async (_name, message) => {
     const backing = several();
     const choose = vi.fn<PasskeyChooser["choose"]>();
     const conditional = vi.fn<() => Promise<ConditionalDecision>>();
@@ -1891,12 +1891,9 @@ describe("sites whose passkey requests go to the browser (ADR 0007)", () => {
       reason: "browser-site",
     });
     expect(browserSite).toHaveBeenCalledWith(origin);
-    expect(backing.candidates).not.toHaveBeenCalled();
     expect(backing.sign).not.toHaveBeenCalled();
     expect(choose).not.toHaveBeenCalled();
     expect(conditional).not.toHaveBeenCalled();
-    expect(reverification).not.toHaveBeenCalled();
-    expect(hold).not.toHaveBeenCalled();
     await vi.waitFor(() =>
       expect(report).toHaveBeenCalledWith(
         expect.objectContaining({ outcome: "delegate", reason: "browser-site" }),
@@ -1923,12 +1920,40 @@ describe("sites whose passkey requests go to the browser (ADR 0007)", () => {
       kind: "delegate",
       reason: "assertion-failed",
     });
-    expect(backing.candidates).not.toHaveBeenCalled();
+    expect(backing.sign).not.toHaveBeenCalled();
     await vi.waitFor(() =>
       expect(report).toHaveBeenCalledWith(
         expect.objectContaining({ reason: "assertion-failed", cause: "browser-site-lookup" }),
       ),
     );
+  });
+
+  it.each([
+    ["signs once the list shows no such site", false, { kind: "assertion" }],
+    ["hands on once the list shows the site", true, { kind: "delegate", reason: "browser-site" }],
+  ])("looks the passkey up while the list is read, and %s", async (_name, isListed, outcome) => {
+    // The request's deadline runs as without the list: the lookup does not wait for it.
+    const backing = source();
+    const { promise: list, resolve } = Promise.withResolvers<boolean>();
+    const runtime = createPasskeyRuntime(backing, { extensionId, browserSite: () => list });
+    const pending = runtime.handle(get(), sender());
+    await vi.waitFor(() => expect(backing.candidates).toHaveBeenCalled());
+    await new Promise((done) => setTimeout(done, 10));
+    expect(backing.sign).not.toHaveBeenCalled();
+    resolve(isListed);
+    expect(await pending).toMatchObject(outcome);
+    expect(backing.sign).toHaveBeenCalledTimes(isListed ? 0 : 1);
+  });
+
+  it("hands on a listed site's request whose lookup failed", async () => {
+    const runtime = createPasskeyRuntime(
+      source({ candidates: vi.fn(async () => Promise.reject(new Error("vault"))) }),
+      { extensionId, browserSite: async () => true },
+    );
+    expect(await runtime.handle(get(), sender())).toEqual({
+      kind: "delegate",
+      reason: "browser-site",
+    });
   });
 
   it("adds the site after handing the request on when the person chooses always", async () => {

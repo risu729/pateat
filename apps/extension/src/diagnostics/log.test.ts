@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { createDefaultSettings } from "@pateat/contracts";
 import { createDiagnosticsLog } from "./background";
 import {
   DEBUG_LOGGING_MS,
@@ -247,6 +248,42 @@ describe("diagnostics log", () => {
       sinceSignIn: 301,
       tab: 4,
     });
+    vi.restoreAllMocks();
+  });
+
+  it("names a site whose passkey requests go to the browser, as it names an excluded one", async () => {
+    const settings = createDefaultSettings({ connections: [] });
+    settings.passkeyBrowserSites = [{ hostname: "login.example" }];
+    const log = createDiagnosticsLog({
+      build: { version: "0.1.0", revision: "1c42ad3" },
+      settings: async () => ({ version: 1, revision: 1, settings }),
+      recipeCache: async () => undefined,
+      connections: async () => ({ ok: true, kind: "status", connections: [] }),
+      databaseName: `log-test-${crypto.randomUUID()}`,
+      scope: { addEventListener: () => undefined } as never,
+    });
+    for (const level of ["debug", "info", "warn"] as const)
+      vi.spyOn(console, level).mockImplementation(() => undefined);
+    for (const origin of ["https://login.example", "https://sub.login.example"])
+      log.passkeyCreate({
+        tabId: 4,
+        origin,
+        outcome: "delegate",
+        reason: "browser-site",
+        rpId: "login.example",
+        mediation: "other",
+        excludeCredentials: 0,
+      });
+    await vi.waitFor(async () =>
+      expect(
+        (await log.logger.entries()).filter((entry) => entry.event === "passkey.create"),
+      ).toHaveLength(2),
+    );
+    const origins = (await log.logger.entries())
+      .filter((entry) => entry.event === "passkey.create")
+      .map((entry) => entry.fields["origin"]);
+    // The exact hostname only, without its subdomains.
+    expect(origins).toEqual(["https://login.example", expect.stringMatching(/^origin:/u)]);
     vi.restoreAllMocks();
   });
 

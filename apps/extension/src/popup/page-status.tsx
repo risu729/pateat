@@ -84,6 +84,9 @@ const plain = (table: Record<string, string>, code: string, t: TFunction) =>
  */
 const NO_PASSWORD: Record<string, string> = {
   "no-passkey": "the vault item has neither a password nor a passkey",
+  // ADR 0007: the item's passkey is not used on a site listed by "Always for this site".
+  "passkey-browser-site":
+    "the vault item has no password, and Pateat leaves passkey requests on this site to the browser, as listed in its settings",
   "no-advance": "the vault item has no password, and the recipe has no way on without one",
   alternatives:
     "the vault item has no password, and Pateat goes on to a passkey only on a recipe with one way to sign in",

@@ -24735,6 +24735,25 @@ describe("an item without a password, up to its password (ADR 0036)", () => {
     expect(h.fields).not.toHaveBeenCalled();
   });
 
+  it("refuses a passkey-only item on a site whose passkey requests go to the browser, naming the list", async () => {
+    // ADR 0007: the item holds a passkey, which Pateat does not use there.
+    const passkeys = vi.fn(async () => ({ passkey: true, discoverable: true }));
+    const { h, report } = start(
+      { passkeys },
+      { overrides: { passkeyBrowserSites: [{ hostname: new URL(origin).hostname }] } },
+    );
+    expect(await h.hello()).toEqual({ ok: false, reason: "no-route" });
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "refused",
+        reason: "no-route",
+        detail: "password-empty:passkey-browser-site",
+      }),
+    );
+    expect(passkeys).not.toHaveBeenCalled();
+    expect(executed()).toEqual([]);
+  });
+
   // Netflix in the owner's Chrome: the only item has neither a password nor a passkey, and
   // the refusal left no badge and nothing in the popup.
   it("badges the refusal of an item without a passkey and tells the popup why", async () => {

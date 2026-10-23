@@ -209,6 +209,9 @@ export function senderOrigin(sender: Sender, extensionId: string): string | unde
   return senderDocumentOrigin(sender);
 }
 
+/** Thrown once the list shows the request's hostname as one whose requests go to the browser. */
+class ListedSite extends Error {}
+
 /** Settles with `pending`, or rejects with the signal's reason once it aborts. */
 export function abortable<T>(pending: Promise<T>, signal: AbortSignal): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -223,7 +226,8 @@ export function abortable<T>(pending: Promise<T>, signal: AbortSignal): Promise<
  * Background coordinator for bridged `get()` requests. Every outcome but an assertion delegates,
  * except a chooser window left unanswered until the request's wait ran out, which fails, and a
  * conditional request withheld after a login of its page signed in (ADR 0034). A request of a
- * hostname whose requests go to the browser is handed on before anything else (ADR 0007).
+ * hostname whose requests go to the browser is handed on, and nothing is signed, chosen or
+ * waited for by a login before the list is known (ADR 0007).
  */
 export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
   source: PasskeySource<TCandidate>,
@@ -238,8 +242,9 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
     chooser?: PasskeyChooser;
     /**
      * Whether the origin's hostname is one whose passkey requests go to the browser, added by
-     * the chooser's "Always for this site" (ADR 0007). Such a request is handed on at once,
-     * whatever its mediation, before any login, vault or chooser step.
+     * the chooser's "Always for this site" (ADR 0007). Such a request is handed on whatever
+     * its mediation. The list is read alongside the first lookups, so the request's deadline
+     * runs as it would without it, and is awaited before any signing, chooser or login wait.
      */
     browserSite?: (origin: string) => Promise<boolean> | boolean;
     /**
@@ -386,7 +391,21 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
     // A conditional request gets its budget once a login answers it (ADR 0034).
     let timer = conditional ? undefined : setTimeout(expire, budget());
     // The step running when something threw, for the report.
-    let step: PasskeyStopCause = "browser-site-lookup";
+    let step: PasskeyStopCause = "account-lookup";
+    // "Always for this site": Pateat answers nothing there, not even through a login. Read
+    // alongside the lookups, so the deadline runs as without it; a failed read hands on.
+    const listed = options.browserSite
+      ? Promise.try(() => options.browserSite!(origin))
+      : Promise.resolve(false);
+    // Awaited by `unlisted`; a rejection is never left unhandled.
+    listed.catch(() => undefined);
+    /** Throws ListedSite on a listed hostname; called before anything answers the request. */
+    const unlisted = async (signal: AbortSignal) => {
+      const current = step;
+      step = "browser-site-lookup";
+      if (await abortable(listed, signal)) throw new ListedSite();
+      step = current;
+    };
     // Vault replacement waits while the vault is read for this request, never while a
     // conditional request waits for a login (ADR 0025, ADR 0034).
     let leave: (() => void) | undefined;
@@ -445,7 +464,8 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       const again = signedBefore || loggedOut;
       if (signedBefore) detail.signedBefore = true;
       if (loggedOut) detail.logoutClicked = true;
-      const signWith = (candidate: TCandidate) => {
+      const signWith = async (candidate: TCandidate) => {
+        await unlisted(signal);
         step = "signing";
         return abortable(
           createPasskeyAssertion(admission.request, candidate, (data, hash) =>
@@ -479,7 +499,7 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
           const candidate = same[0]!;
           return { credential: candidate, assertion: await signWith(candidate) };
         } catch (error) {
-          if (signal.aborted || !retry) throw error;
+          if (signal.aborted || !retry || error instanceof ListedSite) throw error;
           return signCurrent(credentialId, false);
         }
       };
@@ -524,6 +544,7 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
         // The window waits for a person, so the lookup budget no longer applies.
         clearTimeout(timer);
         timer = setTimeout(expire, remaining);
+        await unlisted(signal);
         operation.asked = true;
         operation.choosing = true;
         step = "chooser";
@@ -577,6 +598,7 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
     // A conditional request waits for the login of its page, if one starts or runs, which
     // answers it with its own item, hands it on or withholds it (ADR 0034).
     const waitForLogin = async (signal: AbortSignal): Promise<RuntimeResult> => {
+      await unlisted(signal);
       step = "login-wait";
       operation.parked = true;
       const decision = await abortable(
@@ -596,7 +618,7 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       try {
         result = await answer(decision.item, signal);
       } catch (error) {
-        if (signal.aborted) throw error;
+        if (signal.aborted || error instanceof ListedSite) throw error;
         detail.cause = step;
         result = { kind: "delegate", reason: "assertion-failed" };
       }
@@ -613,17 +635,8 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       leave = undefined;
       return waitForLogin(signal);
     };
-    try {
-      const signal = controller.signal;
-      // "Always for this site": Pateat answers nothing there, not even through a login.
-      if (
-        options.browserSite &&
-        (await abortable(
-          Promise.try(() => options.browserSite!(origin)),
-          signal,
-        ))
-      )
-        return { kind: "delegate", reason: "browser-site" };
+    /** Finds the answer: a re-verification, a login's wait, or the vault's passkeys. */
+    const lookUp = async (signal: AbortSignal): Promise<RuntimeResult> => {
       step = conditional ? "login-wait" : "account-lookup";
       // A re-verification after Pateat's login in the tab: answering it completes the
       // verification as a press would, so it goes to the browser or Bitwarden, as
@@ -643,8 +656,22 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       await hold(signal);
       // A failed lookup fails closed: the catch below delegates.
       return await answer(await options.loginAccount?.(context.tabId, origin), signal);
-    } catch {
+    };
+    try {
+      const signal = controller.signal;
+      const result = await lookUp(signal);
+      // Whatever the lookup decided, a listed hostname's request is handed on as such.
+      await unlisted(signal);
+      return result;
+    } catch (error) {
       answered?.(false);
+      if (error instanceof ListedSite) return { kind: "delegate", reason: "browser-site" };
+      // A lookup that failed on a listed hostname is handed on as such too.
+      if (
+        !controller.signal.aborted &&
+        (await abortable(listed, controller.signal).catch(() => false))
+      )
+        return { kind: "delegate", reason: "browser-site" };
       const reason = controller.signal.reason as unknown;
       const timedOut = reason instanceof DOMException && reason.name === "TimeoutError";
       if (operation.choosing && controller.signal.aborted) {

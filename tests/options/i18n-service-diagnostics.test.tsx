@@ -43,7 +43,7 @@ const status: DiagnosticsStatus = {
   cryptoHost: { ready: false, sessions: 0 },
   connections: [],
   service: { kind: "not-configured" },
-  settings: { excludedSites: 0, siteDefaults: 0, bindings: 0 },
+  settings: { excludedSites: 0, siteDefaults: 0, bindings: 0, passkeyBrowserSites: 0 },
   storage: { localBytes: 100 },
   logs: { entries: 2, bytes: 100, recentErrors: 0, recentWarnings: 0 },
   checks: [

@@ -25,7 +25,7 @@ export const settingsJa = {
   "an account used to sign in on a site was saved for that site":
     "サイトでのサインインに使ったアカウントの保存",
   "a site was set to hand its passkey requests to the browser":
-    "サイトのパスキー要求をブラウザに任せる設定",
+    "サイトのパスキーのリクエストをブラウザーに任せる設定",
   "settings changed for a reason no longer recorded": "理由の記録が残っていない変更",
   "{{error}} Your unsaved draft has been preserved.":
     "{{error}} 未保存の編集内容は保持されています。",

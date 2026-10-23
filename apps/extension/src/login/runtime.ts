@@ -3836,9 +3836,10 @@ export function createLoginRuntime(
     // Only a page the passkey scripts run on can answer a passkey request (ADR 0050), and
     // none on a site whose passkey requests go to the browser (ADR 0007): there the item
     // holds no passkey, so the login takes a password route or none.
-    const passkeyPage =
-      passkeyScriptsRun(live.document.origin, probeMode) &&
-      !isPasskeyBrowserSite(snapshot.snapshot.settings, live.document.origin);
+    const passkeyScripts = passkeyScriptsRun(live.document.origin, probeMode);
+    const browserSite =
+      passkeyScripts && isPasskeyBrowserSite(snapshot.snapshot.settings, live.document.origin);
+    const passkeyPage = passkeyScripts && !browserSite;
     const factsOf = (resolved: Extract<Awaited<ReturnType<typeof resolveRoute>>, { ok: true }>) =>
       itemFacts(
         resolved.connection,
@@ -3917,6 +3918,9 @@ export function createLoginRuntime(
         if (miss !== "password-empty") return undefined;
         if (live.document.frameId !== 0) return { miss: "frame" as const };
         const result = passwordStopOrMiss(recipe, route, known, passwordSlots, lacking);
+        // The item's passkey is not used there, so the copy names the list (ADR 0007).
+        if (browserSite && "miss" in result && result.miss === "no-passkey")
+          return { miss: "passkey-browser-site" as const };
         return passwordField && ("stop" in result || result.miss === "no-password-step")
           ? { miss: "password-field" as const }
           : result;

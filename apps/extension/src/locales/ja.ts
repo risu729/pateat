@@ -176,6 +176,8 @@ export const ja = {
   "the page showed no sign-in form": "ページにログインフォームが表示されていませんでした",
   "the vault item has neither a password nor a passkey":
     "保管庫のアイテムにパスワードもパスキーもありません",
+  "the vault item has no password, and Pateat leaves passkey requests on this site to the browser, as listed in its settings":
+    "保管庫のアイテムにパスワードがなく、設定に登録されたこのサイトでは、Pateat はパスキーのリクエストをブラウザーに任せています",
   "the vault item has no password, and the recipe has no way on without one":
     "保管庫のアイテムにパスワードがなく、パスワードなしで進める手順がレシピにありません",
   "the vault item has no password": "保管庫のアイテムにパスワードがありません",

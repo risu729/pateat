@@ -174,6 +174,8 @@ export const en = {
   "the page showed no sign-in form": "the page showed no sign-in form",
   "the vault item has neither a password nor a passkey":
     "the vault item has neither a password nor a passkey",
+  "the vault item has no password, and Pateat leaves passkey requests on this site to the browser, as listed in its settings":
+    "the vault item has no password, and Pateat leaves passkey requests on this site to the browser, as listed in its settings",
   "the vault item has no password, and the recipe has no way on without one":
     "the vault item has no password, and the recipe has no way on without one",
   "the vault item has no password": "the vault item has no password",

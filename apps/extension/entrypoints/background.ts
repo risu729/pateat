@@ -1,5 +1,4 @@
 import { BITWARDEN_READ_PROTOCOL } from "@pateat/bitwarden";
-import { isPasskeyBrowserSite } from "@pateat/contracts";
 import { browser } from "wxt/browser";
 import { defineBackground } from "wxt/utils/define-background";
 import { createProbeCatalog } from "../src/login/dummy";
@@ -18,13 +17,17 @@ import { createSiteAccountsHandler } from "../src/vault/site-accounts";
 import { actionIconState, createActionIcon } from "../src/connections/action-icon";
 import { createConnectionRuntime } from "../src/connections/runtime";
 import { createConnectionProbeTransport } from "../src/connections/probe";
-import { addPasskeyBrowserSite } from "../src/passkeys/browser-sites";
+import {
+  createPasskeyBrowserSites,
+  PENDING_BROWSER_SITES_KEY,
+} from "../src/passkeys/browser-sites";
 import { CHOOSER_PAGE, createPasskeyChooser } from "../src/passkeys/chooser";
 import { createPasskeyCreateHandler } from "../src/passkeys/create";
 import { createProbePasskeySource } from "../src/passkeys/probe";
 import { createPasskeyRuntime } from "../src/passkeys/runtime";
 import { createSignIns, SIGN_INS_KEY } from "../src/passkeys/sign-ins";
 import { createSignedTabs, SIGNED_TABS_KEY } from "../src/passkeys/signed-tabs";
+import { SETTINGS_STORAGE_KEY } from "../src/settings";
 import { sessionValue } from "../src/storage";
 import { followLanguagePreference, i18n } from "../src/i18n";
 import { createLoginBadge, LOGIN_BADGE_KEY, setActionBadge } from "../src/login/badge";
@@ -189,6 +192,7 @@ export default defineBackground(() => {
     hold: settingsHoldStorage,
     // Synced changes replace the policy that running attempts were authorized under.
     applied: () => {
+      browserSites.changed();
       login.settingsChanged("synced");
       void siteCounter.refresh();
       passkeys.settingsChanged();
@@ -380,22 +384,24 @@ export default defineBackground(() => {
   };
   // ADR 0007: the chooser's "Always for this site" hands every later passkey request of the
   // page's hostname to the browser, until the site is removed on the settings page.
-  const passkeyBrowserSite = async (origin: string) =>
-    isPasskeyBrowserSite((await settings.read()).settings, origin);
-  const addBrowserSite = async (origin: string) => {
-    const added = await keepAlive(
-      addPasskeyBrowserSite({
-        // settingsSaved() below recounts and uploads, as loginSettings would.
-        settings,
-        origin,
-        // Waits for a running login, which the write would stop, as a settings sync does.
-        loginActive: () => login.active(),
-        maxWaitMs: MAX_SETTINGS_DEFER_MS,
-      }),
-    );
+  // A chosen hostname holds at once, while its write waits for a running login.
+  const browserSites = createPasskeyBrowserSites({
+    // settingsSaved() below recounts and uploads, as loginSettings would.
+    settings,
+    pending: sessionValue(PENDING_BROWSER_SITES_KEY),
+    // Waits for a running login, which the write would stop, as a settings sync does.
+    loginActive: () => login.active(),
+    maxWaitMs: MAX_SETTINGS_DEFER_MS,
+    keepAlive,
     // The person changed a setting, as a save on the settings page does.
-    if (added) settingsSaved();
-  };
+    added: () => settingsSaved(),
+  });
+  // Every write of the settings, from any path, is read again by the next request.
+  browser.storage.local.onChanged.addListener((changes) => {
+    if (SETTINGS_STORAGE_KEY in changes) browserSites.changed();
+  });
+  const passkeyBrowserSite = (origin: string) => browserSites.has(origin);
+  const addBrowserSite = (origin: string) => browserSites.add(origin);
   const passkeyProbe =
     import.meta.env.MODE === "probe"
       ? createProbePasskeySource(vaultPasskeys, rememberPasskey)
@@ -556,6 +562,7 @@ export default defineBackground(() => {
   });
   /** Settings this device changed: running work follows them, and they are uploaded. */
   function settingsSaved() {
+    browserSites.changed();
     login.settingsChanged("saved");
     void siteCounter.refresh();
     passkeys.settingsChanged();

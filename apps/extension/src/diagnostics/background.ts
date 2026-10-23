@@ -107,7 +107,14 @@ export function createDiagnosticsLog(options: {
           ...(settings?.bindings.map((binding) => binding.origin) ?? []),
           ...(recipes.success ? recipes.output.recipes.map((recipe) => recipe.origin) : []),
         ]),
-        hosts: settings?.excludedSites ?? [],
+        hosts: [
+          ...(settings?.excludedSites ?? []),
+          // ADR 0007: exact hostnames, as the list matches them.
+          ...(settings?.passkeyBrowserSites.map(({ hostname }) => ({
+            hostname,
+            includeSubdomains: false,
+          })) ?? []),
+        ],
       };
     },
   });
