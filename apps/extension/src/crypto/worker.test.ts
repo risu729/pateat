@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
     data: cipher as unknown,
   })),
   snapshots: new Map<string, CapturedSnapshot[]>(),
+  verify: vi.fn((_input: unknown) => ({ ok: true as const, data: { matches: true } })),
   // Unless a test answers, every Regex URI stays unevaluated, as when no Worker can start.
   regexRun: vi.fn(async (_patterns: readonly string[], _url: string) => new Map<string, boolean>()),
 }));
@@ -26,6 +27,7 @@ vi.mock("@pateat/bitwarden", async (importOriginal) => {
         metadata: { accountVersion: 1 },
         decryptCipher: mocks.decrypt,
         decryptCatalogGroups: async () => ({ ok: true, data: [] }),
+        verifyMasterPassword: mocks.verify,
       },
     })),
     createLocalFieldSnapshot: (input: unknown) => {
@@ -60,6 +62,7 @@ const worker = {
   postMessage: vi.fn<(message: { result: unknown }) => void>(),
 };
 let session: HostSessionRef;
+const syntheticUnlock = { kdf: { pBKDF2: { iterations: 600_000 } }, salt: "synthetic" };
 /** The first items' saved URIs: Domain, Host and StartsWith rules, then unevaluable ones. */
 const savedUris = [
   [{ uri: "https://router.example", match: 0 }],
@@ -185,6 +188,7 @@ async function openWorker(
           : []),
       ],
       uriMatchContext: { equivalentDomains: [], defaultMatch },
+      masterPasswordUnlock: syntheticUnlock,
     },
   });
   expect(opened).toMatchObject({ ok: true });
@@ -195,6 +199,7 @@ async function openWorker(
 
 beforeEach(async () => {
   mocks.decrypt.mockClear();
+  mocks.verify.mockClear();
   mocks.regexRun.mockReset();
   mocks.regexRun.mockImplementation(async () => new Map());
   worker.postMessage.mockReset();
@@ -207,6 +212,26 @@ beforeEach(async () => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+describe("crypto Worker master password check", () => {
+  it("checks the password against the unlock data retained from the opened account", async () => {
+    expect(
+      await command({ kind: "verify-password", session, password: "synthetic-guess" }),
+    ).toEqual({ ok: true, data: { matches: true } });
+    expect(mocks.verify).toHaveBeenCalledExactlyOnceWith({
+      password: "synthetic-guess",
+      masterPasswordUnlock: syntheticUnlock,
+    });
+  });
+
+  it("answers only for the session it opened", async () => {
+    const other = { ...session, sessionId: "30000000-0000-4000-8000-000000000009" };
+    expect(
+      await command({ kind: "verify-password", session: other, password: "synthetic-guess" }),
+    ).toEqual({ ok: false, error: { code: "crypto-locked" } });
+    expect(mocks.verify).not.toHaveBeenCalled();
+  });
 });
 
 describe("crypto Worker URI matching on plain HTTP pages (ADR 0050)", () => {

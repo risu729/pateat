@@ -45,6 +45,8 @@ let owned:
       ciphers: Map<string, unknown>;
       verified: boolean;
       metadataContext: PreparedBitwardenAccount["encryptedMetadata"];
+      /** The account's encrypted master-password unlock data, for re-prompt checks. */
+      masterPasswordUnlock: PreparedBitwardenAccount["masterPasswordUnlock"];
       catalog?: LocalVaultMetadata;
       uriContext?: BitwardenUriMatchContext;
       /**
@@ -151,6 +153,7 @@ async function execute(command: HostCommand) {
       ciphers,
       verified: false,
       metadataContext: prepared.encryptedMetadata,
+      masterPasswordUnlock: prepared.masterPasswordUnlock,
       ...(uriContext ? { uriContext } : {}),
       loginUris: new Map(),
     };
@@ -236,6 +239,11 @@ async function execute(command: HostCommand) {
     if (!owned.verified) return fail("invalid-request");
     return owned.session.exportUnlockMaterial();
   }
+  if (op.kind === "verify-password")
+    return owned.session.verifyMasterPassword({
+      password: op.password,
+      masterPasswordUnlock: owned.masterPasswordUnlock,
+    });
   if (op.kind === "catalog")
     return owned.verified && owned.catalog
       ? { ok: true as const, data: owned.catalog }
