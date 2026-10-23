@@ -943,3 +943,299 @@ describe("sign-in judge beside the sign-in form", () => {
     expect(model.doGenerateCalls).toHaveLength(0);
   });
 });
+
+describe("personal-detail inputs on a challenge page (ADR 0061)", () => {
+  // A synthetic bank page after the password that asks for the birth year and month or the
+  // last four digits of the registered phone. No real site or account data.
+  const birth = {
+    id: "birth",
+    role: "text",
+    target: { by: "id", value: "birth_ym" },
+    label: "Year and month of birth",
+    inputMode: "numeric",
+    maxLength: 6,
+    group: "form-1",
+  };
+  const phone = {
+    id: "phone",
+    role: "tel",
+    target: { by: "name", value: "tel_last4" },
+    label: "Last 4 digits of your phone",
+    maxLength: 4,
+    group: "form-1",
+  };
+  const next = {
+    id: "next",
+    role: "button",
+    target: { by: "id", value: "next" },
+    label: "Next",
+    group: "form-1",
+  };
+  const judged = (candidates: Record<string, unknown>[], result: Record<string, unknown>) =>
+    judgeReturning(result).judge({
+      ...request,
+      observation: {
+        ...signedIn,
+        path: "/login/confirm",
+        title: "Confirm it's you",
+        headings: ["Enter one of the following"],
+        candidates,
+      },
+    });
+  const both = [
+    { field: "birth", value: "birth-date", format: "yyyymm" },
+    { field: "phone", value: "phone-last-4" },
+  ];
+  const answer = (details: unknown[] = both, detailSubmit = "next") => ({
+    decision: "challenge",
+    details,
+    detailSubmit,
+  });
+  const kept = {
+    detail: "birth-date",
+    format: "yyyymm",
+    target: { by: "id", value: "birth_ym" },
+  };
+  const keptPhone = { detail: "phone-last-4", target: { by: "name", value: "tel_last4" } };
+  const hasDetail = (outcome: Awaited<ReturnType<typeof judged>>) =>
+    outcome.status === "ok" && "detail" in outcome.value;
+
+  it("names each input, the detail it asks for, and the button that submits them", async () => {
+    const outcome = await judged([birth, phone, next], answer());
+    expect(outcome).toEqual(
+      expect.objectContaining({
+        status: "ok",
+        value: {
+          decision: "challenge",
+          detail: { fields: [kept, keptPhone], target: { by: "id", value: "next" } },
+        },
+      }),
+    );
+    // The answer is logged as the model gave it.
+    expect(outcome.answer).toEqual(answer());
+  });
+
+  it("keeps a detail beside a code and a passkey button", async () => {
+    const code = {
+      id: "code",
+      role: "text",
+      target: { by: "id", value: "otp" },
+      autocomplete: "one-time-code",
+      group: "form-2",
+    };
+    const verify = {
+      ...next,
+      id: "verify",
+      target: { by: "id", value: "verify" },
+      group: "form-2",
+    };
+    const key = { id: "key", role: "button", target: { by: "id", value: "key" }, label: "Key" };
+    expect(
+      await judged([birth, phone, next, code, verify, key], {
+        ...answer([both[1]]),
+        passkeyButton: "key",
+        code: { field: "code", submit: "verify", source: "authenticator-app" },
+      }),
+    ).toMatchObject({
+      status: "ok",
+      value: {
+        decision: "challenge",
+        passkey: { by: "id", value: "key" },
+        totp: { field: { by: "id", value: "otp" }, target: { by: "id", value: "verify" } },
+        detail: { fields: [keptPhone], target: { by: "id", value: "next" } },
+      },
+    });
+  });
+
+  it("drops the input the page's code is typed into, even a code sent to the person", async () => {
+    expect(
+      await judged([birth, phone, next], {
+        ...answer(),
+        code: { field: "phone", submit: "next", source: "sms" },
+      }),
+    ).toEqual(
+      expect.objectContaining({
+        status: "ok",
+        value: {
+          decision: "challenge",
+          totpDropped: "source-sms",
+          detail: { fields: [kept], target: { by: "id", value: "next" } },
+          detailsDropped: ["code-field"],
+        },
+      }),
+    );
+  });
+
+  it.each([
+    [
+      "an input the page lacks",
+      [birth, phone, next],
+      answer([{ field: "missing", value: "phone-last-4" }, both[0]]),
+      ["unknown-field"],
+      [kept],
+    ],
+    [
+      "a birth date without a format",
+      [birth, phone, next],
+      answer([{ field: "birth", value: "birth-date" }, both[1]]),
+      ["format"],
+      [keptPhone],
+    ],
+    [
+      "another detail with a format",
+      [birth, phone, next],
+      answer([both[0], { field: "phone", value: "phone-last-4", format: "mmdd" }]),
+      ["format"],
+      [kept],
+    ],
+    [
+      "an input named twice",
+      [birth, phone, next],
+      answer([...both, { field: "phone", value: "card-last-4" }]),
+      ["duplicate"],
+      [kept, keptPhone],
+    ],
+    [
+      "an input shorter than its value",
+      [birth, { ...phone, maxLength: 3 }, next],
+      answer(),
+      ["too-short"],
+      [kept],
+    ],
+    [
+      "a sign-in field",
+      [birth, { ...phone, autocomplete: "one-time-code" }, next],
+      answer(),
+      ["sign-in-field"],
+      [kept],
+    ],
+    [
+      "a card's security code in a text input without a length",
+      [birth, { ...phone, role: "text", maxLength: undefined }, next],
+      answer([both[0], { field: "phone", value: "card-code" }]),
+      ["not-input"],
+      [kept],
+    ],
+    [
+      "an input of another form",
+      [birth, { ...phone, group: "form-2" }, next],
+      answer(),
+      ["submit-other-form"],
+      [kept],
+    ],
+  ])("drops %s, saying why", async (_label, candidates, result, why, fields) => {
+    expect(await judged(candidates, result)).toEqual(
+      expect.objectContaining({
+        status: "ok",
+        value: {
+          decision: "challenge",
+          detail: { fields, target: { by: "id", value: "next" } },
+          detailsDropped: why,
+        },
+      }),
+    );
+  });
+
+  it.each([
+    ["a button the page lacks", [birth, phone, next], answer(both, "missing"), "unknown-submit"],
+    [
+      "a button named by its accessible name",
+      [
+        birth,
+        phone,
+        { ...next, target: { by: "accessible-name", value: "Next, confirm the details." } },
+      ],
+      answer(),
+      "step-locator",
+    ],
+    [
+      "a link as the button",
+      [birth, phone, { ...next, role: "link" }],
+      answer(),
+      "submit-not-button",
+    ],
+    [
+      "the input as its own button",
+      [birth, phone, next],
+      answer(both, "phone"),
+      "submit-not-button",
+    ],
+  ])("keeps no detail for %s", async (_label, candidates, result, why) => {
+    const outcome = await judged(candidates, result);
+    expect(outcome).toEqual(
+      expect.objectContaining({
+        status: "ok",
+        value: { decision: "challenge", detailsDropped: [why, why] },
+      }),
+    );
+    expect(hasDetail(outcome)).toBe(false);
+  });
+
+  it("keeps a plain challenge for details without a button, or a button without details", async () => {
+    for (const [result, dropped] of [
+      [{ decision: "challenge", details: both }, ["unknown-submit", "unknown-submit"]],
+      [{ decision: "challenge", detailSubmit: "next" }, undefined],
+      [{ decision: "challenge", details: [], detailSubmit: "next" }, undefined],
+    ] as const) {
+      // oxlint-disable-next-line no-await-in-loop -- Each answer is judged on its own.
+      const outcome = await judged([birth, phone, next], result);
+      expect(outcome).toEqual(
+        expect.objectContaining({
+          status: "ok",
+          value: { decision: "challenge", ...(dropped ? { detailsDropped: dropped } : {}) },
+        }),
+      );
+      expect(hasDetail(outcome)).toBe(false);
+    }
+  });
+
+  it("fails closed on an unknown detail or format, more than three, or details beside another decision", async () => {
+    for (const result of [
+      answer([{ field: "phone", value: "pin" }]),
+      answer([{ field: "birth", value: "birth-date", format: "ddmmyyyy" }]),
+      answer([...both, both[0], both[1]]),
+      { decision: "rejected", details: both, detailSubmit: "next" },
+      { decision: "signed-in", marker: "next", detailSubmit: "next" },
+    ])
+      // oxlint-disable-next-line no-await-in-loop -- Each answer is judged on its own.
+      expect(await judged([birth, phone, next], result)).toMatchObject({
+        status: "failed",
+        error: "invalid-output",
+      });
+  });
+
+  it("logs the answer with IDs the page lacks as ?", async () => {
+    const outcome = await judged(
+      [birth, phone, next],
+      answer(
+        [
+          { field: "birth", value: "birth-date", format: "yyyymm" },
+          { field: "Phone number", value: "phone-last-4" },
+        ],
+        "Next",
+      ),
+    );
+    expect(outcome.answer).toEqual({
+      decision: "challenge",
+      details: [
+        { field: "birth", value: "birth-date", format: "yyyymm" },
+        { field: "?", value: "phone-last-4" },
+      ],
+      detailSubmit: "?",
+    });
+  });
+
+  it("tells the model the four details, their formats, and that a security code is never code", () => {
+    expect(completionInstructions).toMatch(
+      /A challenge that asks for a fact about the person instead of a code fills details and detailSubmit\./u,
+    );
+    expect(completionInstructions).toMatch(
+      /value is birth-date for a birth date asked in one input, whole or as its year and month or its month and day, with format yyyymmdd, yyyymm, yyyy-mm-dd, yyyy\/mm\/dd or mmdd as the page says or shows; a birth date split over several inputs, or written in a form none of these formats match, such as a two-digit or era year or a separator the format lacks, is no detail; phone-last-4 for the last four digits of a phone number; card-last-4 for the last four digits of a card number; card-code for a card's security code\./u,
+    );
+    expect(completionInstructions).toMatch(
+      /Any other fact, a whole phone or card number, a PIN, a password, a secret question or a code sent to the person is no detail\. A card's security code is a detail, never code\./u,
+    );
+    // The stop's instructions extend them.
+    expect(completionStopInstructions.startsWith(completionInstructions)).toBe(true);
+  });
+});

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   builtInLoginSlots,
   customSlotIdSchema,
+  detailInputRefusal,
   loginObservationSchema,
   semanticSlotsSchema,
   isCodeField,
@@ -324,6 +325,126 @@ describe("code fields on a generated page (ADR 0027)", () => {
     const branch = { id: "branch", kind: "identifier", description: "bank branch number" } as const;
     expect(slotsForPage(page as never, [branch, builtInLoginSlots.totp])).toEqual([branch]);
     expect(slotsForPage(page as never, [builtInLoginSlots.totp])).toEqual([]);
+  });
+});
+
+describe("personal-detail inputs (ADR 0061)", () => {
+  // A synthetic page that asks for a birth year and month or a phone's last four digits.
+  const input = (extra: object = {}) =>
+    ({
+      id: "x",
+      role: "text",
+      target: { by: "id", value: "x" },
+      group: "form-1",
+      ...extra,
+    }) as never;
+  const button = (extra: object = {}) =>
+    ({
+      id: "confirm",
+      role: "button",
+      target: { by: "id", value: "confirm" },
+      group: "form-1",
+      ...extra,
+    }) as never;
+  const birth = { detail: "birth-date", format: "yyyymm" } as const;
+  const phone = { detail: "phone-last-4" } as const;
+  const cardLast = { detail: "card-last-4" } as const;
+  const code = { detail: "card-code" } as const;
+  const refusal = (entry: Parameters<typeof detailInputRefusal>[0], field: object, submit = {}) =>
+    detailInputRefusal(entry, input(field), button(submit));
+
+  it("accepts the inputs each detail's fill rule admits", () => {
+    expect(refusal(birth, { maxLength: 6 })).toBeUndefined();
+    for (const role of ["text", "tel", "number"]) {
+      expect(refusal(birth, { role })).toBeUndefined();
+      expect(refusal({ detail: "birth-date", format: "yyyymmdd" }, { role })).toBeUndefined();
+    }
+    for (const role of ["text", "tel", "number"]) {
+      expect(refusal(phone, { role, maxLength: 4 })).toBeUndefined();
+      expect(refusal(cardLast, { role })).toBeUndefined();
+    }
+    // Elements outside any form are one form.
+    expect(refusal(phone, { group: undefined }, { group: undefined })).toBeUndefined();
+    // A personal-data hint is no sign-in field.
+    expect(refusal(birth, { autocomplete: "bday" })).toBeUndefined();
+    expect(refusal(phone, { autocomplete: "tel" })).toBeUndefined();
+  });
+
+  it("takes a card's security code in a password input, or a text or tel input of 3 or 4", () => {
+    expect(refusal(code, { role: "password" })).toBeUndefined();
+    expect(refusal(code, { role: "password", maxLength: 4 })).toBeUndefined();
+    for (const role of ["text", "tel"])
+      for (const maxLength of [3, 4]) expect(refusal(code, { role, maxLength })).toBeUndefined();
+    for (const field of [
+      { role: "text" },
+      { role: "tel" },
+      { role: "text", maxLength: 2 },
+      { role: "text", maxLength: 5 },
+      { role: "tel", maxLength: 6 },
+      { role: "number" },
+      { role: "email", maxLength: 3 },
+    ])
+      expect(refusal(code, field)).toBe("not-input");
+    // A password input shorter than the code is too short.
+    expect(refusal(code, { role: "password", maxLength: 2 })).toBe("too-short");
+  });
+
+  it.each([
+    ["a birth date in a password input", birth, { role: "password" }, {}, "not-input"],
+    ["a birth date in an email input", birth, { role: "email" }, {}, "not-input"],
+    ["the last four in an email input", phone, { role: "email" }, {}, "not-input"],
+    ["the last four in a button", cardLast, { role: "button" }, {}, "not-input"],
+    ["the last four in a checkbox", phone, { role: "checkbox" }, {}, "not-input"],
+    [
+      "an input located by its text",
+      phone,
+      { target: { by: "text", value: "Phone" } },
+      {},
+      "text-locator",
+    ],
+    ["a username input", phone, { autocomplete: "username" }, {}, "sign-in-field"],
+    // Only a card's security code goes into a password input, so a PIN or a second
+    // password the judge takes for the last four digits is not kept.
+    ["the phone's last four in a password input", phone, { role: "password" }, {}, "not-input"],
+    ["the card's last four in a password input", cardLast, { role: "password" }, {}, "not-input"],
+    [
+      "a password input",
+      code,
+      { role: "password", autocomplete: "current-password" },
+      {},
+      "sign-in-field",
+    ],
+    [
+      "a new password input",
+      code,
+      { role: "password", autocomplete: "new-password" },
+      {},
+      "sign-in-field",
+    ],
+    ["an email input", phone, { autocomplete: "email" }, {}, "sign-in-field"],
+    ["a one-time code input", birth, { autocomplete: "one-time-code" }, {}, "sign-in-field"],
+    ["a year and month in 5 characters", birth, { maxLength: 5 }, {}, "too-short"],
+    [
+      "a full birth date in 6 characters",
+      { detail: "birth-date", format: "yyyymmdd" },
+      { maxLength: 6 },
+      {},
+      "too-short",
+    ],
+    [
+      "a dashed birth date in 8 characters",
+      { detail: "birth-date", format: "yyyy-mm-dd" },
+      { maxLength: 8 },
+      {},
+      "too-short",
+    ],
+    ["the last four in 3 characters", phone, { maxLength: 3 }, {}, "too-short"],
+    ["a submit that is a link", phone, {}, { role: "link" }, "submit-not-button"],
+    ["a submit that is an input", phone, {}, { role: "text" }, "submit-not-button"],
+    ["a submit in another form", phone, {}, { group: "form-2" }, "submit-other-form"],
+    ["a loose submit", phone, {}, { group: undefined }, "submit-other-form"],
+  ] as const)("refuses %s", (_label, entry, field, submit, why) => {
+    expect(refusal(entry, field, submit)).toBe(why);
   });
 });
 

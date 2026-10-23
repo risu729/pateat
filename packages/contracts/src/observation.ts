@@ -500,10 +500,11 @@ export function totpCodeRefusal(
  * Why `field` and `button` of this page may not be a `detail` handler's input for
  * `entry` and the button that submits it (ADR 0061), for the log, or undefined when they
  * may. The field must be an input the detail's fill rule admits (`not-input`): a text,
- * tel or number input for a birth date; any of those or a password input for the last
- * four digits; a password input, or a text or tel input limited to 3 or 4 characters,
- * for a card's security code. It must not be located by its text (`text-locator`) or
- * marked as a sign-in or code field (`sign-in-field`), nor declare a `maxlength` shorter
+ * tel or number input for a birth date or the last four digits; a password input, or a
+ * text or tel input limited to 3 or 4 characters, for a card's security code, the only
+ * detail a password input takes, so a PIN or second password the judge mislabels is not
+ * kept. It must not be located by its text (`text-locator`) or marked as a sign-in,
+ * email or code field (`sign-in-field`), nor declare a `maxlength` shorter
  * than the value (`too-short`); the button must be a button (`submit-not-button`) of the
  * field's form (`submit-other-form`). The judge and the recipe assembly both check this.
  */
@@ -519,11 +520,12 @@ export function detailInputRefusal(
         ? field.role === "password" ||
           ((field.role === "text" || field.role === "tel") &&
             (field.maxLength === 3 || field.maxLength === 4))
-        : ["text", "tel", "number", "password"].includes(field.role);
+        : ["text", "tel", "number"].includes(field.role);
   if (!admitted) return "not-input";
   if (field.target.by === "text") return "text-locator";
   if (
     field.autocomplete === "username" ||
+    field.autocomplete === "email" ||
     field.autocomplete === "current-password" ||
     field.autocomplete === "new-password" ||
     field.autocomplete === "one-time-code"

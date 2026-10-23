@@ -14855,6 +14855,107 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
     }, 10_000);
   });
 
+  describe("the detail handler (ADR 0061)", () => {
+    // A synthetic page after the password that asks for the birth year and month or the
+    // last four digits of a phone.
+    const detailHandler = {
+      kind: "detail" as const,
+      path: "/confirm",
+      fields: [
+        { detail: "birth-date" as const, format: "yyyymm" as const, target: target("birth") },
+        { detail: "phone-last-4" as const, target: target("phone") },
+      ],
+      target: target("confirm"),
+    };
+    const detailed = parseLoginRecipe({
+      ...unlearned,
+      completion: home,
+      handlers: [detailHandler],
+    });
+    const toConfirm = { path: "/confirm", present: ["birth", "phone", "confirm"] };
+    const noPasskey = vi.fn(async () => ({ passkey: false, discoverable: false }));
+    const detailFills = () =>
+      fake.state.messages.filter(
+        (entry) =>
+          entry.type === "login.execute" && entry.values?.some((value) => value.slot === "detail"),
+      );
+    const handlerReports = (report: ReturnType<typeof vi.fn<(report: LoginReport) => void>>) =>
+      report.mock.calls.flatMap(([value]) =>
+        value.type === "handler" ? [[value.handler, value.kind, value.outcome, value.steps]] : [],
+      );
+
+    it("ends as a challenge without a read, fill or click while no login links the details", async () => {
+      onClick({ login: toConfirm, confirm: toHome });
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness({}, { passkeys: noPasskey, report });
+      h.recipes.recipe.mockResolvedValue(detailed);
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(status()).toMatchObject([{ state: "watching", outcome: "challenge" }]),
+      );
+      expect(status()![0]).toMatchObject({ handlers: [] });
+      expect(h.fields.mock.calls.map(([request]) => request.fieldId)).toEqual(["login.password"]);
+      expect(detailFills()).toEqual([]);
+      expect(clicks("confirm")).toBe(0);
+      expect(report).toHaveBeenCalledWith({
+        type: "handler",
+        tabId: 1,
+        origin,
+        recipeId: detailed.id,
+        recipeRevision: detailed.revision,
+        handler: 0,
+        kind: "detail",
+        outcome: "detail-unlinked",
+        steps: 2,
+      });
+      expect(handlerReports(report)).toEqual([[0, "detail", "detail-unlinked", 2]]);
+      // Its inputs and button are observed apart from the recipe's own result targets.
+      expect(fake.state.messages).toContainEqual(
+        expect.objectContaining({
+          type: "login.observe",
+          targets: [target("birth"), target("phone"), target("confirm")],
+        }),
+      );
+    });
+
+    it("is shown while one of its inputs is disabled, as a choice page may disable it", async () => {
+      onClick({ login: toConfirm, confirm: toHome });
+      fake.state.unusable = new Set(["phone"]);
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness({}, { passkeys: noPasskey, report });
+      h.recipes.recipe.mockResolvedValue(detailed);
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(status()).toMatchObject([{ state: "watching", outcome: "challenge" }]),
+      );
+      expect(handlerReports(report)).toEqual([[0, "detail", "detail-unlinked", 2]]);
+      expect(detailFills()).toEqual([]);
+      expect(clicks("confirm")).toBe(0);
+    });
+
+    it.each([
+      ["its inputs", ["birth", "phone"]],
+      ["its button and one input", ["birth", "confirm"]],
+    ])(
+      "is not entered while only %s show",
+      async (_label, present) => {
+        onClick({ login: { path: "/confirm", present } });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness({}, { passkeys: noPasskey, report });
+        h.recipes.recipe.mockResolvedValue(detailed);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(
+          () =>
+            expect(status()).toMatchObject([{ state: "reconciling", outcome: "unknown-submit" }]),
+          { timeout: 6_000 },
+        );
+        expect(detailFills()).toEqual([]);
+        expect(handlerReports(report)).toEqual([]);
+      },
+      10_000,
+    );
+  });
+
   describe("generation slots", () => {
     const unsaved = { siteDefaults: [], bindings: [] };
     const loginPage = observation("/signin", [
