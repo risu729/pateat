@@ -989,6 +989,9 @@ Once the fixes have settled:
   language, where a text or label locator no longer matches though the recipe is still
   right, and a maintenance page that replaces the login page on the same URL without a
   redirect, which must not be taken as a changed login page.
+  [ADR 0041](adr/0041-repair-stale-recipes.md) (accepted) is that design: a recipe
+  holds up to three layouts ([ADR 0060](adr/0060-recipe-layouts.md)), and a repair adds
+  one, at most once a UTC day per recipe and device.
 - First among the text work, a review of the wording of Pateat's UI text: the popup, the
   toolbar icon's title, the options page and the in-page prompts. It includes the reason
   line the popup and the icon's title show when another tab of the site logged out or

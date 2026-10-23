@@ -222,6 +222,11 @@ export async function writeRecipe(
     /** The layouts the write removes as idle, which must still be unused since `before`. */
     idleLayouts?: { keys: readonly string[]; before: number };
     sources?: UnitSources;
+    /**
+     * Rows a layout the write adds takes over from another one, as the pages a later step's
+     * repair copies from the stale layout (ADR 0041): copied before `from` may be dropped.
+     */
+    copied?: { from: string; to: string; units: readonly string[] };
   } = {},
 ): Promise<
   | { ok: true; change: SyncRecipeChange }
@@ -357,7 +362,7 @@ export async function writeRecipe(
   // won. A device's document does not say where its pages end, so it is split where the
   // recorded pages start; a write that wins finds these rows unchanged, since every write
   // of them changes the head.
-  const { sources } = options;
+  const { sources, copied } = options;
   const device = sources?.origin === "device";
   const call = sources && sources.origin !== "device" ? sources : undefined;
   const units =
@@ -432,11 +437,49 @@ export async function writeRecipe(
         ),
       ]
     : [];
+  // Drizzle fills INSERT ... SELECT positionally, as below.
+  const copiedSources =
+    document !== null && copied?.units.length
+      ? [
+          orm.insert(recipeUnitSources).select(
+            orm
+              .select({
+                ownerId: recipeUnitSources.ownerId,
+                recipeId: recipeUnitSources.recipeId,
+                layout: sql`${copied.to}`.as("layout"),
+                unit: recipeUnitSources.unit,
+                digest: recipeUnitSources.digest,
+                revision: recipeUnitSources.revision,
+                origin: recipeUnitSources.origin,
+                provider: recipeUnitSources.provider,
+                model: recipeUnitSources.model,
+                effort: recipeUnitSources.effort,
+                speed: recipeUnitSources.speed,
+                promptVersion: recipeUnitSources.promptVersion,
+                build: recipeUnitSources.build,
+                deviceId: recipeUnitSources.deviceId,
+                logId: recipeUnitSources.logId,
+                createdAt: recipeUnitSources.createdAt,
+              })
+              .from(recipeUnitSources)
+              .where(
+                and(
+                  eq(recipeUnitSources.ownerId, ownerId),
+                  eq(recipeUnitSources.recipeId, recipeId),
+                  won,
+                  eq(recipeUnitSources.layout, copied.from),
+                  inArray(recipeUnitSources.unit, [...copied.units]),
+                ),
+              ),
+          ),
+        ]
+      : [];
   const [claimed, recorded] = await orm.batch([
     claim,
     history,
     pruned,
     unusedLayouts,
+    ...copiedSources,
     staleSources,
     ...writtenSources,
   ]);

@@ -295,7 +295,15 @@ export const PROBLEM_EVENT_FIELDS = {
     modelMs: "count",
     url: "path",
   },
-  "recipe.revoke": {
+  "recipe.repair": {
+    origin: "origin",
+    recipe: "recipe",
+    recipeRevision: "count",
+    outcome: "code",
+    reason: "code",
+    url: "path",
+  },
+  "recipe.unfit": {
     origin: "origin",
     recipe: "recipe",
     recipeRevision: "count",
@@ -303,9 +311,6 @@ export const PROBLEM_EVENT_FIELDS = {
     outcome: "code",
     reason: "code",
     detail: "code",
-    roundTripMs: "count",
-    serverMs: "count",
-    networkMs: "count",
     url: "path",
   },
   "recipe.sample": {

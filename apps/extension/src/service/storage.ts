@@ -9,6 +9,7 @@ import type {
 import type { LoginOutcomeStorage } from "./outcomes";
 import type { RecipeCacheStorage, RecipeScheduleStorage } from "./recipes";
 import type { SettingsBaseStorage, SettingsHoldStorage } from "./settings-sync";
+import type { RepairStorage } from "../login/repair";
 import { trustedRecord } from "../storage";
 
 /** The service record holds the device credential: trusted contexts only. */
@@ -69,6 +70,11 @@ export function createBrowserLoginOutcomeStorage(): LoginOutcomeStorage {
 /** When this device last sent each recipe's signed-in page sample (ADR 0029). */
 export function createBrowserPageSampleStorage(): PageSampleStorage {
   return trustedRecord("pateat.page-samples.v1");
+}
+
+/** Which generated recipes' start pages this device sent for repair (ADR 0041). */
+export function createBrowserRecipeRepairStorage(): RepairStorage {
+  return trustedRecord("pateat.recipe-repairs.v1");
 }
 
 /** When this device last revoked each recipe its chosen item could not run (ADR 0058 A). */
