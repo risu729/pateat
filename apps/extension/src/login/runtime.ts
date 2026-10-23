@@ -562,10 +562,10 @@ type LiveDocument = {
   /** A single-match account choice, valid while every connection's snapshot is unchanged. */
   autoChoice?: { snapshots: string; connectionId: string; itemId: string };
   /**
-   * The account the page's own value in its account input picked among several matches
-   * (ADR 0028 amendment of 2026-10-23), valid while every connection's snapshot is unchanged.
+   * The document's content script compared the value the page set in its account input
+   * (ADR 0028 amendment of 2026-10-23), which it answers only once.
    */
-  siteChoice?: { snapshots: string; connectionId: string; itemId: string };
+  siteAsked?: true;
   /** A provider URI match for `topUrl`, valid while its snapshot is unchanged. */
   topMatch?: { connectionId: string; itemId: string; snapshotId: string };
   /** Why generation last skipped this document, so each reason is logged once. */
@@ -709,6 +709,12 @@ const pickedAccountSchema = v.strictObject({
   makeDefault: v.boolean(),
   /** How long the popup offered the choice before the pick: the person's time (ADR 0019). */
   waitedMs: v.pipe(v.number(), v.integer(), v.minValue(0)),
+  /**
+   * Chosen by the value the page set in its account input, not in the popup (ADR 0028
+   * amendment of 2026-10-23): kept like a pick so the login's later pages use it too, and
+   * never saved as the default.
+   */
+  site: v.optional(v.literal(true)),
 });
 type PickedAccount = v.InferOutput<typeof pickedAccountSchema>;
 /**
@@ -3991,7 +3997,7 @@ export function createLoginRuntime(
         connectionId: pick.connectionId,
         itemId: pick.itemId,
         saved: false,
-        source: "pick",
+        source: pick.site ? "site-value" : "pick",
         pick,
       };
     const saved = snapshot.snapshot.settings.siteDefaults.find(
@@ -4068,21 +4074,32 @@ export function createLoginRuntime(
     const { candidates } = found;
     if (candidates.length > 1) {
       // The account the page itself put into the recipe's account input picks one of them,
-      // for this document only and never saved (ADR 0028 amendment of 2026-10-23).
+      // for this document and the login it starts only, and is never saved (ADR 0028
+      // amendment of 2026-10-23). It is kept as a pick, which the login's later pages use.
       const shown =
-        live.siteChoice?.snapshots === snapshots
-          ? live.siteChoice
-          : accountTargets.length > 0
-            ? await siteAccount(snapshot, live, candidates, accountTargets)
-            : undefined;
+        accountTargets.length > 0 && !live.siteAsked
+          ? await siteAccount(snapshot, live, candidates, accountTargets)
+          : undefined;
       if (shown) {
-        live.siteChoice = { snapshots, connectionId: shown.connectionId, itemId: shown.itemId };
+        const site: PickedAccount = {
+          tabId: live.document.tabId,
+          origin: live.document.origin,
+          documentId: live.document.documentId,
+          connectionId: shown.connectionId,
+          itemId: shown.itemId,
+          makeDefault: false,
+          waitedMs: 0,
+          site: true,
+        };
+        picked.set(live.document.tabId, site);
+        await quietly(saveSession);
         return {
           connectionId: shown.connectionId,
           itemId: shown.itemId,
           saved: false,
           source: "site-value",
           candidates: candidates.length,
+          pick: site,
         };
       }
     }
@@ -4165,7 +4182,15 @@ export function createLoginRuntime(
           usernames,
         }).catch(() => undefined),
       );
-      return parsed.success && parsed.output.ok ? candidates[parsed.output.index] : undefined;
+      if (!parsed.success) return undefined;
+      // The document compared its value and answers no more (ADR 0028 amendment of
+      // 2026-10-23), so it is not asked again.
+      if (!parsed.output.ok) {
+        if (parsed.output.spent) live.siteAsked = true;
+        return undefined;
+      }
+      live.siteAsked = true;
+      return candidates[parsed.output.index];
     } finally {
       usernames.fill("");
     }

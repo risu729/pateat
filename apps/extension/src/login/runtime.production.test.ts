@@ -31427,6 +31427,7 @@ describe("a login that starts at a later step its page shows (ADR 0049)", () => 
     fake.state.executeReply = undefined;
     fake.state.switchReply = { ok: true };
     fake.state.chosen = { ok: true, click: "entry" };
+    fake.state.siteAccount = { ok: false };
     fake.state.gone = new Set();
     fake.state.extracted = {};
     fake.state.signs = undefined;
@@ -31519,6 +31520,68 @@ describe("a login that starts at a later step its page shows (ADR 0049)", () => 
     Object.assign(h.recipes, { later });
     return { h, reports, later };
   }
+
+  it("keeps the item the page's own value picked for the login's next document", async () => {
+    // ADR 0028 amendment of 2026-10-23: the email page's value picks the other item; the
+    // password page, a new document without that input, logs in with it too.
+    fake.state.siteAccount = { ok: true, index: 1 };
+    fake.state.pageUrl = "https://login.example/signin/id";
+    fake.state.observedPath = "/signin/id";
+    const used = twoPages();
+    shows(["email", "next"]);
+    const submitted = fake.state.onExecute!;
+    const { h, reports } = start([used], { siteDefaults: [], bindings: [] }, [], {
+      allowedOrigins: [],
+      otherUsername: true,
+      uris: async () => ({
+        ok: true,
+        data: uriMatch({
+          candidates: [
+            { itemId, matches: [{ uriIndex: 0, match: 0 }] },
+            { itemId: otherItemId, matches: [{ uriIndex: 0, match: 0 }] },
+          ],
+        }),
+      }),
+    });
+    h.fields.mockImplementation(async ({ account, fieldId }) =>
+      fieldId === "login.username"
+        ? account.itemId === itemId
+          ? "a@example.com"
+          : "b@example.com"
+        : "synthetic-secret",
+    );
+    h.recipes.recipe.mockResolvedValue(used);
+    fake.state.onExecute = async (message) => {
+      const step = (message["operation"] as { step: LoginStep }).step;
+      if (step.kind === "click" && step.target.value === "next") {
+        fake.state.observedPath = "/signin/pwd";
+        fake.state.pageUrl = "https://login.example/signin/pwd";
+        fake.state.present = new Set(["password", "login"]);
+        fake.state.gone.add("synthetic-document");
+        setTimeout(() => void h.hello({ documentId: "password-page" }, false), 0);
+        return;
+      }
+      await submitted(message);
+    };
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+      timeout: 10_000,
+    });
+    expect(executed()).toEqual(["fill:email", "click:next", "fill:password", "click:login"]);
+    const passwords = h.fields.mock.calls
+      .filter(([request]) => request.fieldId === "login.password")
+      .map(([request]) => request.account.itemId);
+    expect(passwords.length).toBeGreaterThan(0);
+    expect(passwords.every((id) => id === otherItemId)).toBe(true);
+    // The page was asked once, and the choice was never saved.
+    expect(fake.state.messages.filter((entry) => entry.type === "login.site.account")).toHaveLength(
+      1,
+    );
+    expect(reports).toContainEqual(
+      expect.objectContaining({ type: "start", account: "site-value", itemId: otherItemId }),
+    );
+    expect(h.settings.settings.siteDefaults).toEqual([]);
+  }, 20_000);
 
   describe("a generated layout whose later step no longer shows (ADR 0041)", () => {
     const layoutOf = (passwordPath: string) =>

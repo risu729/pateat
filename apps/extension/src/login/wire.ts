@@ -478,7 +478,11 @@ export const siteAccountResultSchema = v.variant("ok", [
     ok: v.literal(true),
     index: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(31)),
   }),
-  v.strictObject({ ok: v.literal(false) }),
+  v.strictObject({
+    ok: v.literal(false),
+    /** The document compared its inputs' value and answers no more. */
+    spent: v.optional(v.literal(true)),
+  }),
 ]);
 /** Hosts the content script asks the worker about at most (ADR 0031). */
 const hostList = v.pipe(v.array(v.pipe(v.string(), v.maxLength(253))), v.maxLength(256));

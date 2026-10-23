@@ -1100,23 +1100,29 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       return false;
     }
     if (command.type === "login.site.account") {
-      // Answered once per document, so a page cannot try one value after another to learn
-      // which accounts the vault holds (ADR 0028 amendment of 2026-10-23).
-      const asked = siteAccountAsked;
-      siteAccountAsked = true;
+      // Answered once per document, once its inputs are there to compare, so a page
+      // cannot try one value after another to learn which accounts the vault holds (ADR
+      // 0028 amendment of 2026-10-23).
       const inputs =
-        asked || cancelled || pagePath() !== command.path
+        siteAccountAsked || cancelled || pagePath() !== command.path
           ? []
           : command.targets.map((target) => {
               const found = matches(target);
               return found.length === 1 ? found[0]! : undefined;
             });
-      const index =
-        inputs.length > 0 && inputs.every(Boolean)
-          ? siteValueChoice(window, inputs as Element[], command.usernames)
-          : undefined;
+      const compared = inputs.length > 0 && inputs.every(Boolean);
+      const index = compared
+        ? siteValueChoice(window, inputs as Element[], command.usernames)
+        : undefined;
+      if (compared) siteAccountAsked = true;
       command.usernames.fill("");
-      respond(index === undefined ? { ok: false } : { ok: true, index });
+      respond(
+        index !== undefined
+          ? { ok: true, index }
+          : siteAccountAsked
+            ? { ok: false, spent: true }
+            : { ok: false },
+      );
       return false;
     }
     if (command.type === "login.switch") {

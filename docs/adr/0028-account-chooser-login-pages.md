@@ -623,11 +623,18 @@ the document's path. The item it names logs in, for that document only:
 - The worker reads every matching item's username, at most 32 items, one at a time, and
   sends them with the inputs' locators (`login.site.account`). An item whose username
   cannot be read or is excluded by the person compares nothing. Only the item's index
-  comes back. The content script answers once per document, so a page cannot try one
-  value after another to learn which accounts the vault holds.
+  comes back. The content script compares once per document, the first time every
+  such input is there, and answers nothing after that, so a page cannot try one value
+  after another to learn which accounts the vault holds.
+- The chosen item is kept as a popup pick for this document would be (ADR 0021), without
+  "make default": the login it starts uses it on its later pages, such as the password
+  page that no longer shows the email.
 - The values and usernames stay in the extension and are never stored, logged or sent.
   The choice is never saved as the site default, unlike the single match, and the log's
   `login.start` names it as `account` `site-value` with the item's ID.
+- Another password manager that fills on load with untrusted events, on a page whose
+  framework copies the value into the attribute, is recorded as the page's value: it is
+  still the person's saved username, not typed text.
 
 This is an exception to the rule that logins never read what the person types
 ([architecture](../architecture.md)). It lets the page, not the person, choose which of
