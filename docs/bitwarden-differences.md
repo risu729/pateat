@@ -119,6 +119,25 @@ Pateat's rule is in [Background execution](architecture.md#background-execution)
   `script-src 'self'`), so only forms whose own handlers sign in work;
   `action="javascript:doLogin()"` does not.
 
+## Submit button outside the form
+
+Official code is pinned at
+[`abccf1e`](https://github.com/bitwarden/clients/tree/abccf1e342dccba06a3cc635cd4c706defa64a32).
+Pateat's rule is `besideForm` in `packages/inference/src/plan.ts`
+([plan](plan.md#ai-evaluation-harness-progress)).
+
+- For filled fields inside a form, the official auto-submit looks for a login button
+  only inside that form and otherwise calls the form's `requestSubmit()`
+  ([auto-submit-login.ts](https://github.com/bitwarden/clients/blob/abccf1e342dccba06a3cc635cd4c706defa64a32/apps/browser/src/autofill/content/auto-submit-login.ts#L133-L142)).
+  Pateat's generated recipe may click a button outside the form (owner's choice,
+  2026-10-23 11:47 UTC). It does so only when every filled field is in that
+  one form, that form holds the page's only password field and has no button the page's
+  description lists (a script or icon button without a locator is not listed), no field
+  outside every form is on the page, and the button is the only one outside every form
+  and names no passkey, so it is the one the extractor keeps beside that form. Sakura
+  Internet's login button is a script `type="button"` just after its form: submitting
+  the form would post nothing the page handles.
+
 ## Frames
 
 - When a frame's URL does not match the item, the official clients ask with `confirm()`
