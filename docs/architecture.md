@@ -3057,14 +3057,18 @@ steady-state API calls carry no cookie.
   application with a Bypass policy exempts the paths that cannot pass an interactive
   login: the `/v1` sync routes, which accept only device credentials; `/health`; and the
   two `/.well-known` issuer routes that Anthropic fetches anonymously. The Worker
-  verifies the `Cf-Access-Jwt-Assertion` JWT itself:
-  signature against the team JWKS, configured audience tag and issuer, and expiry. It
-  never trusts the plain identity headers. The owner key is the issuer plus the token
-  subject, not the email address. Verification uses Hono's JWT utility with the team
-  JWKS, allowing only RS256; Hono's JWK middleware reads only `Bearer` values, and a
-  dedicated JWT library would need its own owner decision. Tokens without an expiry or a
-  user subject, such as service tokens, are refused. The public keys are edge-cached for
-  five minutes, so a rotated key may be refused briefly.
+  verifies the `Cf-Access-Jwt-Assertion` JWT itself: signature against the team JWKS,
+  configured audience tag and issuer, and expiry. It never trusts the plain identity
+  headers. The owner key is the issuer plus the token subject, not the email address.
+  Verification uses Hono's JWT utility with the team JWKS, allowing only RS256; Hono's
+  JWK middleware reads only `Bearer` values, and a dedicated JWT library would need its
+  own owner decision. Tokens without an expiry or a user subject, such as service
+  tokens, are refused. The public keys are edge-cached for five minutes, so a rotated
+  key may be refused briefly. When they cannot be fetched (an error, an answer that is
+  not a key set, or no answer within five seconds), the request fails as an outage
+  (owner pages 503 asking to try again later, JSON routes 503 `access_keys_unavailable`)
+  rather than as a refused sign-in; the extension's settings page and the web UI ask to
+  try again later.
 - Pairing. **Pair this device** on the settings page asks for site access to the
   service, then the extension's background service worker sends one `POST /pair` with
   the device label, `credentials: "include"`, `redirect: "manual"` and
@@ -3084,8 +3088,8 @@ steady-state API calls carry no cookie.
   settings page opens `<service>/pair/signed-in` in a new tab once per click, where
   Access signs the browser in and the page asks the user to return; it retries once when
   it is shown or focused again, and offers **Try again** and **Open sign-in page**. A
-  refused sign-in, an unlisted extension ID and a service without pairing settings each
-  have their own message.
+  refused sign-in, an unlisted extension ID, a service without pairing settings and a
+  service that could not fetch Access's signing keys each have their own message.
 - Lifetime and recovery. A credential expires once it has gone unused for 90 days, and
   each authenticated use renews it; there is no absolute lifetime and no rotation (owner
   decision, 2026-10-11). The service records a device's last use at most once a day
