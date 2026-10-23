@@ -1715,6 +1715,15 @@ colors of their own (owner, 2026-10-23 12:57 UTC): the selected card has a 2px
 track with a `HighlightText` knob when on, and `GrayText` while disabled. Both keep
 their sizes.
 
+The settings page's section list marks one section with `aria-current="location"`
+(owner, 2026-10-23 12:59 UTC): the last section whose top has passed 40% of the window
+height, or, once the page has scrolled to its bottom, where short last sections never
+get there, the last one shown. A clicked link stays marked while the page jumps to its
+section, until the person turns the wheel, presses a key or presses the pointer
+(`wheel`, `keydown`, `pointerdown`), or the address changes to another fragment, such as
+by Back. Chrome sends `pointerdown` for a press on the page's scrollbar too, which
+`tests/extension/foundation.spec.ts` checks with the scrollbar shown.
+
 Deleting a Bitwarden connection in settings asks in a modal Base UI `AlertDialog`. It
 names the connection and explains removal of its local vault cache, unlock key and sync
 sign-in. Focus starts on **Keep connection**; Keep and Escape close without deleting,
