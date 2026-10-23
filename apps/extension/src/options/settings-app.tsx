@@ -347,7 +347,7 @@ export function SettingsApp({
     setMessage((translate) => translate("Loading saved settings…"));
     const epoch = catalogGeneration.current;
     // Only an edited draft has unsaved changes to keep, which reloading would drop.
-    const dirty = dirtyRef.current;
+    const unsaved = dirtyRef.current;
     try {
       const result = await queryClient.fetchQuery({
         queryKey: SETTINGS_QUERY_KEY,
@@ -358,7 +358,7 @@ export function SettingsApp({
       if (epoch !== catalogGeneration.current) {
         setMessage((translate) =>
           translate(
-            dirty
+            unsaved
               ? "Your vaults changed while the settings were loading. Your unsaved changes are kept. Reload saved settings again; reloading drops them."
               : "Your vaults changed while the settings were loading. Reload saved settings again.",
           ),
@@ -368,7 +368,7 @@ export function SettingsApp({
       if (!result.ok) {
         setMessage((translate) =>
           translate(
-            dirty
+            unsaved
               ? "{{error}} Your unsaved changes are kept. Reload saved settings to try again; reloading drops them."
               : "{{error}} Reload saved settings to try again.",
             { error: translate(result.error.message) },
@@ -387,7 +387,7 @@ export function SettingsApp({
     } catch {
       setMessage((translate) =>
         translate(
-          dirty
+          unsaved
             ? "Pateat could not read the saved settings. Your unsaved changes are kept. Reload saved settings to try again; reloading drops them."
             : "Pateat could not read the saved settings. Reload saved settings to try again.",
         ),
@@ -434,10 +434,10 @@ export function SettingsApp({
     if (dirtyRef.current || operation.current || saveBlockedRef.current) {
       setSaveBlocked(true);
       // Only an edited draft has unsaved changes to keep, which reloading would drop.
-      const dirty = dirtyRef.current;
+      const unsaved = dirtyRef.current;
       setMessage((translate) =>
         translate(
-          dirty
+          unsaved
             ? "Your vaults changed. Your unsaved changes are kept. Reload saved settings to see the current vaults before you change anything else; reloading drops them."
             : "Your vaults changed. Reload saved settings to see the current vaults before you change anything else.",
         ),
