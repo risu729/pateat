@@ -1,6 +1,7 @@
 import {
   INFERENCE_LOG_RETENTION_MS,
   PAGE_SAMPLE_INTERVAL_MS,
+  pageKindSchema,
   type GenerationUnavailableReason,
   type RecipeGenerationResult,
 } from "@pateat/contracts";
@@ -8,10 +9,12 @@ import {
   claudeGeneration,
   createClaudeGenerationModel,
   estimateClaudeCostUsd,
+  irreversibleSchema,
   outputRejection,
   unknownUsage,
   type InferenceOutcome,
 } from "@pateat/inference";
+import * as v from "valibot";
 import { and, count, eq, gt, gte, inArray, isNull, lt, lte, ne, notExists, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
@@ -312,6 +315,7 @@ export async function logUnsent(
       branch,
       baseRevision,
       recipePage: page ?? null,
+      ...pageKindColumns(unsent.request, null),
       build: PATEAT_BUILD_REVISION,
       observationHash: await observationHash(unsent.request.observation),
       inputTokens: null,
@@ -395,6 +399,9 @@ export async function logPageSample(
           baseRevision: sql`${baseRevision}`.as("base_revision"),
           revision: sql`NULL`.as("revision"),
           recipePage: sql`NULL`.as("recipe_page"),
+          signedIn: sql`NULL`.as("signed_in"),
+          pageKind: sql`NULL`.as("page_kind"),
+          irreversible: sql`NULL`.as("irreversible"),
           build: sql`${PATEAT_BUILD_REVISION}`.as("build"),
           observationHash: sql`${hash}`.as("observation_hash"),
           inputTokens: sql`NULL`.as("input_tokens"),
@@ -444,6 +451,25 @@ const credentialUnavailable = {
   issuer_unavailable: "issuer-unavailable",
   failed: "token-exchange-failed",
 } as const;
+
+/**
+ * The request log's ADR 0035 columns of a generation request: the `signedIn` hint the
+ * request carried, and the page kind and `irreversible` answer of the model's plan, read
+ * from its logged answer, so a plan the local checks refused keeps them too.
+ */
+function pageKindColumns(request: UnsentRequest["request"], answer: unknown) {
+  const plan = v.safeParse(answeredPlanSchema, answer);
+  return {
+    signedIn: typeof request["signedIn"] === "boolean" ? request["signedIn"] : null,
+    pageKind: plan.success ? plan.output.pageKind : null,
+    irreversible: plan.success ? plan.output.irreversible : null,
+  };
+}
+const answeredPlanSchema = v.object({
+  decision: v.literal("plan"),
+  pageKind: pageKindSchema,
+  irreversible: irreversibleSchema,
+});
 
 /**
  * What the request log keeps of a call's result: the structured result for `ok`, the
@@ -565,6 +591,7 @@ async function runCall<T>(
         branch,
         baseRevision,
         recipePage: page ?? null,
+        ...pageKindColumns(call.request, outcome.answer),
         build: PATEAT_BUILD_REVISION,
         observationHash: await observationHash(call.request.observation),
         inputTokens: outcome.usage.inputTokens,

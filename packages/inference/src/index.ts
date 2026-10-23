@@ -14,10 +14,13 @@ export {
   generatedPlanSchema,
   generationInstructions,
   generationPromptVersion,
+  irreversibleSchema,
   passkeyOnlyGenerationInstructions,
   passkeyOnlyGenerationPromptVersion,
   type EntryGenerationRequest,
+  type GeneratedPage,
   type GenerationRequest,
+  type Irreversible,
 } from "./generation";
 export { buildFieldQuestions, createFieldMappingDecider, type FiniteChoiceModel } from "./decision";
 export { evaluationCorpus, type EvaluationCase, type ExpectedResult } from "./corpus/cases";

@@ -42,7 +42,7 @@
         "@tanstack/react-query": "5.104.5",
         "@webext-core/messaging": "4.0.0",
         "idb": "8.0.4",
-        "lucide-react": "1.59.0",
+        "lucide-react": "1.60.0",
         "react": "19.3.1",
         "react-dom": "19.3.1",
         "tldts": "7.4.18",
@@ -60,7 +60,7 @@
       "name": "@pateat/bitwarden",
       "version": "0.1.0",
       "dependencies": {
-        "@bitwarden/sdk-internal": "0.2.0-main.1131",
+        "@bitwarden/sdk-internal": "0.2.0-main.1134",
         "cbor2": "2.4.0",
         "otpauth": "9.5.2",
         "tldts": "7.4.18",
@@ -100,7 +100,7 @@
         "@tanstack/react-query": "5.104.5",
         "drizzle-orm": "0.45.4",
         "hono": "4.13.13",
-        "lucide-react": "1.59.0",
+        "lucide-react": "1.60.0",
         "react": "19.3.1",
         "react-dom": "19.3.1",
         "react-is": "19.3.1",
@@ -154,7 +154,7 @@
 
     "@bcoe/v8-coverage": ["@bcoe/v8-coverage@1.0.2", "", {}, "sha512-6zABk/ECA/QYSCQ1NGiVwwbQerUCZ+TQbp64Q3AgmfNvurHH0j8TtXa1qbShXA6qqkpAj4V5W8pP6mLe1mcMqA=="],
 
-    "@bitwarden/sdk-internal": ["@bitwarden/sdk-internal@0.2.0-main.1131", "", { "dependencies": { "type-fest": "^5.0.0" } }, "sha512-H2DbrmeQH8JxJelt9eSJbj/iI5nzVUiIdaqinqnaMV0u7vyov5b8zxWGBq+lyNZnjwK8n52nViXlVYluU3NhTw=="],
+    "@bitwarden/sdk-internal": ["@bitwarden/sdk-internal@0.2.0-main.1134", "", { "dependencies": { "type-fest": "^5.0.0" } }, "sha512-5LJHYlHcIFjTXf744HKmf4jK9yKMxQiZ7f63FmCYL1waC+yPckT1VguFx2wYHZs9HsGQ3re6bxl3LpqKT3HOIg=="],
 
     "@blazediff/core": ["@blazediff/core@1.10.0", "", {}, "sha512-AOQff0zgR7cGsZL+4E7hVkmujoPUpm0J9xzWGWZj5wCjd3gmxESXAPfKyuzs93VdpQNFhHlBhfOjrcZ+XTERtQ=="],
 
@@ -774,7 +774,7 @@
 
     "lodash.merge": ["lodash.merge@4.6.2", "", {}, "sha512-0KpjqXRVvrYyCsX1swR/XTK0va6VQkQM6MNo7PqW77ByjAhoARA8EfrP1N4+KlKj8YS0ZUCtRT/YUuhyYDujIQ=="],
 
-    "lucide-react": ["lucide-react@1.59.0", "", { "peerDependencies": { "@types/react": "*", "react": "^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0" }, "optionalPeers": ["@types/react"] }, "sha512-5qgMyyCPU6OvnKpLS2t693+ZtiqA8oaSweWoUows0BLFKFf6V75m4+CptpmohZHpD5IuOVIBXHBBiv2vpLJmtw=="],
+    "lucide-react": ["lucide-react@1.60.0", "", { "peerDependencies": { "@types/react": "*", "react": "^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0" }, "optionalPeers": ["@types/react"] }, "sha512-UqxOW0FgAfDyb9VmjKb6/BkOzW6yfhf/QNboKtS2NDsscnNRW2CDzlyhbMKBQ1ontmcxuIDqHJ2AVgFR3NI+GA=="],
 
     "magic-string": ["magic-string@1.4.3", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.6.0" } }, "sha512-z12OxmaPGE0F4xlpGdjuAUckipLpQlTAuAmyGhNoD7ODpYUzvDfvtxUbjM/jwznyP178oju/KDdyi220wNJ0RQ=="],
 

@@ -123,6 +123,8 @@ const plan = (fields: [string, string][], action: string, purpose: "advance" | "
   JSON.stringify({
     result: {
       decision: "plan",
+      pageKind: "sign-in",
+      irreversible: "no",
       fields: fields.map(([slot, candidate]) => ({ slot, candidate })),
       action: { candidate: action, purpose },
     },
@@ -229,7 +231,8 @@ async function generate(device: Device, page: LoginObservation, base?: unknown) 
     version: 1,
     observation: page,
     slots,
-    ...(base === undefined ? {} : { base }),
+    // A first page that lists no accounts carries the signedIn hint (ADR 0035).
+    ...(base === undefined ? (page.accounts === undefined ? { signedIn: false } : {}) : { base }),
   });
   expect(response.status).toBe(200);
   return (await response.json()) as RecipeGenerationResult;
@@ -335,6 +338,67 @@ async function twoPageRecipe(device: Device) {
 }
 
 describe("recipe generation", () => {
+  it("stores the first page's kind, which a continuation keeps (ADR 0035)", async () => {
+    const device = await owner();
+    replies.push({
+      text: JSON.stringify({
+        result: {
+          ...JSON.parse(plan([["email", "email"]], "next", "advance")).result,
+          pageKind: "confirm",
+          irreversible: "yes",
+        },
+      }),
+    });
+    const response = await post(device, "/v1/recipes/generate", {
+      version: 1,
+      observation: emailPage,
+      slots,
+      signedIn: true,
+    });
+    const first = (await response.json()) as RecipeGenerationResult;
+    if (first.status !== "recipe") throw new Error(first.status);
+    expect(route(first.change.recipe).pageKind).toBe("confirm");
+    // The hint reaches the model beside the page; `irreversible` is never stored.
+    expect(JSON.stringify(sent[0]!.body)).toContain(String.raw`\"signedIn\":true`);
+    expect(JSON.stringify(first.change.recipe)).not.toContain("irreversible");
+    replies.push({ text: plan([["password", "password"]], "sign-in", "submit") });
+    const second = await generate(device, passwordPage, {
+      recipeId: first.change.recipeId,
+      revision: first.change.revision,
+    });
+    if (second.status !== "recipe") throw new Error(second.status);
+    expect(route(second.change.recipe).pageKind).toBe("confirm");
+    expect(
+      await rows(
+        "SELECT signed_in, page_kind, irreversible FROM inference_log WHERE owner_id = ? ORDER BY base_revision",
+        device.ownerId,
+      ),
+    ).toEqual([
+      { signed_in: 1, page_kind: "confirm", irreversible: "yes" },
+      { signed_in: null, page_kind: "sign-in", irreversible: "no" },
+    ]);
+  });
+
+  it("generates a recipe stored without a page kind again rather than reading it as sign-in (ADR 0035)", async () => {
+    const device = await owner();
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    const stored = await generate(device, emailPage);
+    if (stored.status !== "recipe") throw new Error(stored.status);
+    // Stands in for a recipe stored before page kinds: its document no longer validates.
+    const { pageKind: _kind, ...old } = route(stored.change.recipe);
+    await env.DB.prepare("UPDATE recipe_revisions SET document = ? WHERE owner_id = ?")
+      .bind(JSON.stringify(old), device.ownerId)
+      .run();
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    const again = await generate(device, emailPage);
+    expect(again).toMatchObject({
+      status: "recipe",
+      change: { recipeId: stored.change.recipeId, revision: stored.change.revision + 1 },
+    });
+    if (again.status !== "recipe") return;
+    expect(route(again.change.recipe).pageKind).toBe("sign-in");
+  });
+
   it("builds a recipe page by page, learns its completion and logs every call", async () => {
     const device = await owner();
     const recipeId = await generatedRecipeId(ORIGIN, "/login");
@@ -556,6 +620,8 @@ describe("recipe generation", () => {
     const refused = JSON.stringify({
       result: {
         decision: "plan",
+        pageKind: "sign-in",
+        irreversible: "no",
         fields: [
           { slot: "email", candidate: "email" },
           { slot: "password", candidate: "password" },
@@ -576,6 +642,8 @@ describe("recipe generation", () => {
       text: JSON.stringify({
         result: {
           decision: "plan",
+          pageKind: "sign-in",
+          irreversible: "no",
           fields: [{ slot: "email", candidate: "email" }],
           action: { candidate: "sign-in", purpose: "Sign in now" },
         },
@@ -596,7 +664,7 @@ describe("recipe generation", () => {
       await Promise.all(
         [device, other, third].map((each) =>
           rows(
-            "SELECT outcome, prompt_version, input_tokens, output_tokens, result FROM inference_log WHERE owner_id = ?",
+            "SELECT outcome, prompt_version, input_tokens, output_tokens, result, signed_in, page_kind, irreversible FROM inference_log WHERE owner_id = ?",
             each.ownerId,
           ),
         ),
@@ -608,11 +676,17 @@ describe("recipe generation", () => {
         prompt_version: version,
         input_tokens: 2_900,
         output_tokens: 78,
+        // The refused plan's answered kind is kept for evaluation (ADR 0035).
+        signed_in: 0,
+        page_kind: "sign-in",
+        irreversible: "no",
         result: {
           rejection: { check: "plan", reason: "incompatible-role" },
           // The action's text is not a candidate of the page, so it is not kept.
           output: {
             result: {
+              pageKind: "sign-in",
+              irreversible: "no",
               fields: [
                 { slot: "email", candidate: "email" },
                 { slot: "password", candidate: "password" },
@@ -627,6 +701,9 @@ describe("recipe generation", () => {
         prompt_version: version,
         input_tokens: 3_000,
         output_tokens: 900,
+        signed_in: 0,
+        page_kind: null,
+        irreversible: null,
         result: {
           rejection: { check: "schema", issue: "picklist", path: "result.action.purpose" },
         },
@@ -636,6 +713,9 @@ describe("recipe generation", () => {
         prompt_version: version,
         input_tokens: 3_000,
         output_tokens: 900,
+        signed_in: 0,
+        page_kind: null,
+        irreversible: null,
         result: { rejection: { check: "json" } },
       },
     ]);
@@ -770,6 +850,8 @@ describe("recipe generation", () => {
         recipe_page: "first",
         answer: {
           decision: "plan",
+          pageKind: "sign-in",
+          irreversible: "no",
           fields: [{ slot: "email", candidate: "email" }],
           action: { candidate: "next", purpose: "advance" },
         },
@@ -781,6 +863,8 @@ describe("recipe generation", () => {
         recipe_page: "continuation",
         answer: {
           decision: "plan",
+          pageKind: "sign-in",
+          irreversible: "no",
           fields: [{ slot: "password", candidate: "password" }],
           action: { candidate: "sign-in", purpose: "submit" },
         },
@@ -799,8 +883,26 @@ describe("recipe generation", () => {
       await Promise.all(all.map((row) => hashOf(row.request.observation))),
     );
     expect(new Set(all.map((row) => row.observation_hash)).size).toBe(3);
-    // `request` stays the instructions and input as sent.
-    expect(Object.keys(generated[0]!.request)).toEqual(["instructions", "slots", "observation"]);
+    // `request` stays the instructions and input as sent: a first page with the device's
+    // signedIn hint (ADR 0035), a continuation without it.
+    expect(Object.keys(generated[0]!.request)).toEqual([
+      "instructions",
+      "slots",
+      "signedIn",
+      "observation",
+    ]);
+    expect(Object.keys(generated[1]!.request)).toEqual(["instructions", "slots", "observation"]);
+    expect(
+      await rows(
+        "SELECT signed_in, page_kind, irreversible FROM inference_log WHERE owner_id = ? ORDER BY base_revision",
+        device.ownerId,
+      ),
+    ).toEqual([
+      { signed_in: 0, page_kind: "sign-in", irreversible: "no" },
+      { signed_in: null, page_kind: "sign-in", irreversible: "no" },
+      // A judgement answers no page kind.
+      { signed_in: null, page_kind: null, irreversible: null },
+    ]);
   });
 
   it("logs no revision for a call that wrote none, and a refused judgement's answer", async () => {
@@ -897,6 +999,7 @@ describe("recipe generation", () => {
       version: 1,
       observation: emailPage,
       slots,
+      signedIn: false,
     });
     expect(await again.json()).toMatchObject({ status: "recipe", change: { revision: 2 } });
   });
@@ -999,6 +1102,7 @@ describe("recipe generation", () => {
       version: 1,
       observation: big,
       slots: bigSlots,
+      signedIn: false,
     });
     expect(await response.json()).toEqual({
       version: 1,
@@ -1037,7 +1141,12 @@ describe("recipe generation", () => {
         build: "test-revision",
         observation_hash: await hashOf(logged[0]!.request.observation),
         answer: null,
-        request: { instructions: generationInstructions, slots: bigSlots, observation: big },
+        request: {
+          instructions: generationInstructions,
+          slots: bigSlots,
+          signedIn: false,
+          observation: big,
+        },
       },
     ]);
     expect(
@@ -1063,6 +1172,7 @@ describe("recipe generation", () => {
       id: recipeId,
       revision: 1,
       origin: "https://other.example.test",
+      pageKind: "sign-in",
       slots: ["email"],
       steps: [
         {
@@ -1362,6 +1472,8 @@ describe("recipe generation", () => {
       text: JSON.stringify({
         result: {
           decision: "plan",
+          pageKind: "sign-in",
+          irreversible: "no",
           fields: [{ slot: "password", candidate: "password" }],
           action: { candidate: "sign-in", purpose: "submit" },
           accountSwitch: "switch",
@@ -1575,14 +1687,20 @@ describe("custom-field slots (ADR 0027)", () => {
     purpose: "advance" | "submit",
   ) =>
     JSON.stringify({
-      result: { decision: "plan", fields, action: { candidate: action, purpose } },
+      result: {
+        decision: "plan",
+        pageKind: "sign-in",
+        irreversible: "no",
+        fields,
+        action: { candidate: action, purpose },
+      },
     });
   async function generateCustom(device: Device, page: LoginObservation, base?: unknown) {
     const response = await post(device, "/v1/recipes/generate", {
       version: 1,
       observation: page,
       slots: customSlots,
-      ...(base === undefined ? {} : { base }),
+      ...(base === undefined ? (page.accounts ? {} : { signedIn: false }) : { base }),
     });
     expect(response.status).toBe(200);
     return (await response.json()) as RecipeGenerationResult;
@@ -1652,6 +1770,8 @@ describe("custom-field slots (ADR 0027)", () => {
       text: JSON.stringify({
         result: {
           decision: "plan",
+          pageKind: "sign-in",
+          irreversible: "no",
           fields: [{ slot: "custom-2", candidate: "pin" }],
           action: { candidate: "sign-in", purpose: "submit" },
           alternatives: [
@@ -1720,6 +1840,7 @@ describe("custom-field slots (ADR 0027)", () => {
       id: recipeId,
       revision: 1,
       origin: ORIGIN,
+      pageKind: "sign-in",
       slots: ["email", "Branch"],
       steps: [
         {
@@ -1799,7 +1920,13 @@ describe("slot names carried from the saved bindings (ADR 0027, 2026-10-19)", ()
     purpose: "advance" | "submit",
   ) =>
     JSON.stringify({
-      result: { decision: "plan", fields: filled, action: { candidate: action, purpose } },
+      result: {
+        decision: "plan",
+        pageKind: "sign-in",
+        irreversible: "no",
+        fields: filled,
+        action: { candidate: action, purpose },
+      },
     });
   const branchField = { custom: "Synthetic branch field" };
   const pinField = { custom: "Synthetic PIN field" };
@@ -1837,7 +1964,7 @@ describe("slot names carried from the saved bindings (ADR 0027, 2026-10-19)", ()
       version: 1,
       observation: page,
       slots: customSlots,
-      ...(base === undefined ? {} : { base }),
+      ...(base === undefined ? (page.accounts ? {} : { signedIn: false }) : { base }),
       ...(branchName === undefined ? {} : { branch: branchName }),
     });
     expect(response.status).toBe(200);
@@ -2060,6 +2187,7 @@ describe("slot names carried from the saved bindings (ADR 0027, 2026-10-19)", ()
       version: 1,
       observation: branchPage(),
       slots: customSlots,
+      signedIn: false,
     });
     expect(response.status).toBe(500);
     expect(sent).toHaveLength(0);
@@ -3680,6 +3808,8 @@ describe("password route variants (ADR 0027)", () => {
     JSON.stringify({
       result: {
         decision: "plan",
+        pageKind: "sign-in",
+        irreversible: "no",
         fields: byBranch,
         action: { candidate: "sign-in", purpose: "submit" },
         alternatives: [{ fields: alternative, action: { candidate: "sign-in", purpose } }],
@@ -3690,6 +3820,7 @@ describe("password route variants (ADR 0027)", () => {
       version: 1,
       observation: twoSetsPage,
       slots: variantSlots,
+      signedIn: false,
     });
     expect(response.status).toBe(200);
     return (await response.json()) as RecipeGenerationResult;
@@ -3725,6 +3856,8 @@ describe("password route variants (ADR 0027)", () => {
     );
     const [branch, account, password] = byBranch;
     expect(JSON.parse(String(logged!.result))).toEqual({
+      pageKind: "sign-in",
+      irreversible: "no",
       fields: [{ ...branch, name: "Branch" }, { ...account, name: "Account" }, password],
       action: { candidate: "sign-in", purpose: "submit" },
       alternatives: [
@@ -3872,6 +4005,7 @@ describe("password route variants (ADR 0027)", () => {
           id: recipeId,
           revision: 1,
           origin: ORIGIN,
+          pageKind: "sign-in",
           slots: ["email"],
           steps: [fill("/login", "email"), click("/login", "sign-in", "submit")],
           alternatives: [
@@ -3929,6 +4063,8 @@ describe("the passkey route (ADR 0027)", () => {
     JSON.stringify({
       result: {
         decision: "plan",
+        pageKind: "sign-in",
+        irreversible: "no",
         fields:
           purpose === "submit"
             ? [
@@ -3992,6 +4128,8 @@ describe("the passkey route (ADR 0027)", () => {
     expect(JSON.parse(String(logged!.result))).not.toHaveProperty("passkeyButton");
     expect(row!.answer).toMatchObject({
       decision: "plan",
+      pageKind: "sign-in",
+      irreversible: "no",
       passkeyButton: button === "missing" ? "?" : button,
     });
   });
@@ -4002,6 +4140,8 @@ describe("the passkey route (ADR 0027)", () => {
       text: JSON.stringify({
         result: {
           decision: "plan",
+          pageKind: "sign-in",
+          irreversible: "no",
           fields: [{ slot: "email", candidate: "email" }],
           action: { candidate: "next", purpose: "advance" },
           passkeyButton: "passkey",
@@ -4055,6 +4195,8 @@ describe("the passkey route (ADR 0027)", () => {
       text: JSON.stringify({
         result: {
           decision: "plan",
+          pageKind: "sign-in",
+          irreversible: "no",
           fields: [{ slot: "password", candidate: "password" }],
           action: { candidate: "sign-in", purpose: "submit" },
           passkeyButton: "passkey",
@@ -4224,6 +4366,36 @@ describe("account lists and chooser branches (ADR 0028)", () => {
     return answer.change;
   }
 
+  it("stores a branch's page as sign-in whatever kind the model answers (ADR 0035)", async () => {
+    const device = await owner();
+    const change = await chooser(device);
+    replies.push({
+      text: JSON.stringify({
+        result: {
+          ...JSON.parse(plan([["email", "email"]], "next", "advance")).result,
+          pageKind: "confirm",
+          irreversible: "unclear",
+        },
+      }),
+    });
+    const answer = await branchGenerate(
+      device,
+      emailPage,
+      { recipeId: change.recipeId, revision: change.revision },
+      "other",
+    );
+    if (answer.status !== "recipe" || !("chooser" in answer.change.recipe))
+      throw new Error(answer.status);
+    expect(answer.change.recipe.chooser.afterOther?.pageKind).toBe("sign-in");
+    // The log keeps what the model answered.
+    expect(
+      await rows(
+        "SELECT signed_in, page_kind, irreversible FROM inference_log WHERE owner_id = ? AND recipe_page = 'continuation'",
+        device.ownerId,
+      ),
+    ).toEqual([{ signed_in: null, page_kind: "confirm", irreversible: "unclear" }]);
+  });
+
   it("stores a list of accounts as a chooser recipe and logs its controls by reference", async () => {
     const device = await owner();
     const recipeId = await generatedRecipeId(ORIGIN, "/login");
@@ -4372,6 +4544,7 @@ describe("account lists and chooser branches (ADR 0028)", () => {
       id: recipeId,
       revision: 2,
       origin: ORIGIN,
+      pageKind: "sign-in",
       slots: ["password"],
       steps: [
         {
@@ -4889,6 +5062,8 @@ describe("sign-in entry pages (ADR 0031)", () => {
           rejection: { check: "plan", reason: "unexpected-plan" },
           output: {
             result: {
+              pageKind: "sign-in",
+              irreversible: "no",
               fields: [{ slot: "?", candidate: "c2" }],
               action: { candidate: "c3", purpose: "submit" },
             },
@@ -5152,7 +5327,12 @@ describe("requests answered without a model call (ADR 0012)", () => {
         base_revision: 0,
         recipe_page: "first",
         observation_hash: await hashOf(emailPage),
-        request: { instructions: generationInstructions, slots, observation: emailPage },
+        request: {
+          instructions: generationInstructions,
+          slots,
+          signedIn: false,
+          observation: emailPage,
+        },
       },
     ]);
     expect(
@@ -5247,6 +5427,24 @@ describe("requests answered without a model call (ADR 0012)", () => {
       slots,
     });
     expect(invalid.status).toBe(400);
+    // Only a recipe's first page that lists no accounts carries the signedIn hint (ADR 0035).
+    for (const body of [
+      {
+        version: 1,
+        observation: emailPage,
+        slots,
+        base: { recipeId: "gen-1", revision: 1 },
+        signedIn: false,
+      },
+      {
+        version: 1,
+        observation: { ...emailPage, accounts: ["[email]"] },
+        slots,
+        signedIn: true,
+      },
+    ])
+      // oxlint-disable-next-line no-await-in-loop -- Each body is refused on its own.
+      expect((await post(device, "/v1/recipes/generate", body)).status).toBe(400);
     const unknownRoute = await post(
       device,
       `/v1/recipes/${await generatedRecipeId(ORIGIN, "/login")}/completion`,
@@ -5305,11 +5503,17 @@ describe("requests answered without a model call (ADR 0012)", () => {
       version: 1,
       observation: emailPage,
       slots: otherSlots,
+      signedIn: false,
     });
     expect(await response.json()).toMatchObject({ reason: "busy" });
     expect((await unsentRows(device.ownerId)).map((row) => row.request)).toEqual([
-      { instructions: generationInstructions, slots, observation: emailPage },
-      { instructions: generationInstructions, slots: otherSlots, observation: emailPage },
+      { instructions: generationInstructions, slots, signedIn: false, observation: emailPage },
+      {
+        instructions: generationInstructions,
+        slots: otherSlots,
+        signedIn: false,
+        observation: emailPage,
+      },
     ]);
   });
 
@@ -5444,7 +5648,7 @@ describe("request timing", () => {
     during = () => new Promise((resolve) => setTimeout(resolve, 40));
   };
   const generateResponse = (device: Device, page: LoginObservation) =>
-    post(device, "/v1/recipes/generate", { version: 1, observation: page, slots });
+    post(device, "/v1/recipes/generate", { version: 1, observation: page, slots, signedIn: false });
 
   it("logs and reports each call's times, for ok, abstained and failed calls", async () => {
     const device = await owner();
@@ -5877,13 +6081,15 @@ describe("passkey-only authenticated recipe generation", () => {
       text: JSON.stringify({
         result: {
           decision: "plan",
+          pageKind: "sign-in",
+          irreversible: "no",
           fields: [],
           action: { candidate: "login-key", purpose: "submit" },
           passkeyButton: "login-key",
         },
       }),
     });
-    const body = { version: 1, observation: page, slots: [], passkeyOnly: true };
+    const body = { version: 1, observation: page, slots: [], passkeyOnly: true, signedIn: false };
     const response = await post(device, "/v1/recipes/generate", body);
     expect(response.status).toBe(200);
     const first = (await response.json()) as RecipeGenerationResult;
