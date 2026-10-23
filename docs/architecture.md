@@ -1535,27 +1535,25 @@ path that another Access application, or none, guards.
 
 ## Extension UI language
 
-The popup, passkey chooser, service connection settings and diagnostics page bundle
-English and Japanese translations with the
-owner-chosen i18next and react-i18next libraries. Their labels, status explanations,
-accessible names and document titles follow the language selected in the extension
-settings. Vault names, usernames and hostnames are interpolated as text; unknown
-status codes remain visible as codes. The setting does not change login policy.
+Every extension page (the popup, the passkey chooser, the settings page with its
+Bitwarden, sites, sync service and theme sections, and the diagnostics page) and the
+toolbar tooltips bundle English and Japanese catalogs with the owner-chosen i18next and
+react-i18next libraries (`apps/extension/src/locales/`). Labels, status explanations,
+notices, accessible names, `<html lang>` and document titles follow the language selected
+on the settings page. Vault names, usernames and hostnames are interpolated as text;
+unknown status codes remain visible as codes. The setting does not change login policy.
 
-The storage and default choices in [ADR 0043](adr/0043-extension-language-preference.md)
-are provisional: the extension origin's `localStorage` holds `pateat.language` as
-`system`, `en` or `ja`, per browser profile and independent of service sync. The default
-uses the first English or Japanese browser preference, falling back to English.
-An open translated page follows another extension page's change. With storage
-unavailable, the choice applies to the current page until it closes.
+As [ADR 0043](adr/0043-extension-language-preference.md) proposes, `chrome.storage.local`
+holds `pateat.language` as `system`, `en` or `ja`, per browser profile and outside service
+sync; `system` takes the first English or Japanese entry of `navigator.languages`, else
+English. Each page reads it before its first render and follows changes made on another
+page; the worker reads it at start and rewrites every tab's tooltip when it changes. A
+notice already on screen keeps its catalog key and values, so a language change
+translates it again without resetting drafts, focus or a running operation.
 
-This is a partial rollout. The settings page's Bitwarden connections, vault-access
-controls, setup, verification, field review and connection notices follow the selected
-language; the rest of its content and HTML language remain English. Saved notices
-translate when rendered, without reloading clients or clearing drafts. Sync timestamps
-use the selected language with the browser's time zone. Diagnostics, background toolbar
-titles, manifest metadata, service pages and user documentation still need translation.
-The phase 3 wording review and complete Japanese-language acceptance gate remain open.
+Bug report text, exported log entries and diagnostic codes stay English. The manifest
+description comes from `public/_locales` by Chrome's own UI language. The service's pages,
+such as `/manage`, are not translated yet.
 
 ## Page styles and theme
 

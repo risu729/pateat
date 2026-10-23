@@ -1,8 +1,11 @@
 // The toolbar badge tells, per tab, what Pateat is doing or just did there (ADR 0038): a
 // waiting account choice, a model request in flight, and how the last login ended. It also
 // keeps the tab's last login and model request for the popup's page section.
+import type { TFunction } from "i18next";
 import * as v from "valibot";
 import { browser } from "wxt/browser";
+import { i18n } from "../i18n";
+import type { LogoutReason } from "./choice-wire";
 import type { LoginReport } from "./runtime";
 
 export const LOGIN_BADGE_KEY = "session:pateat.login-badge.v1";
@@ -104,7 +107,8 @@ export type PageStatus = {
 };
 
 type Shown = Required<Omit<BadgeDetails, "tabId">>;
-type Choice = { count: number; title: string };
+/** A waiting account choice: how many accounts match, and why the tab asks after a logout. */
+type Choice = { count: number; logout?: LogoutReason };
 type Stored = v.InferOutput<typeof storedSchema>;
 
 const STYLES = {
@@ -117,11 +121,33 @@ const STYLES = {
 
 const RESULT_TEXT = { failed: "!", succeeded: "✓", unsettled: "!" } as const;
 
-function resultTitle(result: BadgeResult): string {
-  if (result.kind === "succeeded") return "Pateat: logged in.";
+function resultTitle(result: BadgeResult, t: TFunction): string {
+  if (result.kind === "succeeded") return t("Pateat: logged in.");
   if (result.kind === "unsettled")
-    return `Pateat: the login's result is not known (${result.reason}). Open Pateat for details.`;
-  return `Pateat: the login did not succeed (${result.reason}). Open Pateat for details.`;
+    return t("Pateat: the login's result is not known ({{reason}}). Open Pateat for details.", {
+      reason: result.reason,
+    });
+  return t("Pateat: the login did not succeed ({{reason}}). Open Pateat for details.", {
+    reason: result.reason,
+  });
+}
+
+/** The tooltip of a tab whose login waits for an account choice (ADR 0021). */
+function choiceTitle({ count, logout }: Choice, t: TFunction): string {
+  return logout
+    ? t(
+        {
+          "this-tab":
+            "Pateat: you logged out of this site in this tab. Click to choose an account.",
+          rejected:
+            "Pateat: the site did not accept the last login in this tab. Click to choose an account.",
+          "stopped-login":
+            "Pateat: the last login on this site stopped in this tab. Click to choose an account.",
+          "other-tab":
+            "Pateat: you logged out of this site in another tab. Click to choose an account.",
+        }[logout],
+      )
+    : t("Pateat: {{count}} accounts match this page. Click to choose one.", { count });
 }
 
 /**
@@ -197,9 +223,13 @@ export function createLoginBadge(deps: {
   setBadge: (details: BadgeDetails) => Promise<void>;
   storage: { getValue(): Promise<unknown>; setValue(value: unknown): Promise<void> };
   now?: () => number;
+  /** Translates the tooltips into the extension's language, read at each draw. */
+  t?: TFunction;
 }) {
   const now = deps.now ?? Date.now;
+  const t: TFunction = deps.t ?? i18n.t.bind(i18n);
   const choices = new Map<number, Choice>();
+  // Each tab's tooltip key, translated when drawn.
   const notes = new Map<number, string>();
   const results = new Map<number, BadgeResult>();
   // Spins in flight; a tab spins while one names it. A replaced tab's spins move with it.
@@ -227,19 +257,24 @@ export function createLoginBadge(deps: {
   const spinning = (tabId: number) => [...spins].some((spin) => spin.tabId === tabId);
   function wanted(tabId: number): Shown {
     const choice = choices.get(tabId);
-    if (choice) return { text: String(choice.count), ...STYLES.choice, title: choice.title };
+    if (choice)
+      return { text: String(choice.count), ...STYLES.choice, title: choiceTitle(choice, t) };
     if (spinning(tabId))
-      return { text: BUSY_FRAMES[frame] ?? "", ...STYLES.busy, title: "Pateat: asking the AI…" };
+      return { text: BUSY_FRAMES[frame] ?? "", ...STYLES.busy, title: t("Pateat: asking the AI…") };
     const result = results.get(tabId);
     if (result && (result.until === undefined || result.until > now()))
-      return { text: RESULT_TEXT[result.kind], ...STYLES[result.kind], title: resultTitle(result) };
+      return {
+        text: RESULT_TEXT[result.kind],
+        ...STYLES[result.kind],
+        title: resultTitle(result, t),
+      };
     // Colours stay as they were; Chrome shows none without text.
     const last = shown.get(tabId);
     return {
       text: "",
       color: last?.color ?? STYLES.choice.color,
       textColor: last?.textColor ?? STYLES.choice.textColor,
-      title: notes.get(tabId) ?? "Pateat",
+      title: t(notes.get(tabId) ?? "Pateat"),
     };
   }
   function draw(tabId: number): void {
@@ -401,7 +436,10 @@ export function createLoginBadge(deps: {
       else if (!choices.delete(tabId)) return;
       draw(tabId);
     },
-    /** A tooltip for a tab that shows no badge, such as why its login is held. */
+    /**
+     * A tooltip for a tab that shows no badge, such as why its login is held, as a catalog
+     * key that is translated when drawn.
+     */
     note(tabId: number, title: string | undefined): void {
       if (title) notes.set(tabId, title);
       else if (!notes.delete(tabId)) return;
@@ -480,6 +518,10 @@ export function createLoginBadge(deps: {
     },
     removed(tabId: number): void {
       forget(tabId);
+    },
+    /** The extension's language changed: every tab's tooltip is written again. */
+    relabel(): void {
+      for (const tabId of shown.keys()) draw(tabId);
     },
     /** The tab's last login and model request, for the popup's page section. */
     status(tabId: number): PageStatus | undefined {

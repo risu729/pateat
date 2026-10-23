@@ -237,4 +237,22 @@ export const ja = {
     "このページでは {{name}} でログインできませんでした。{{name}} は既定のアカウントになっていません。もう一度選ぶには、ページを再読み込みしてください。",
   "This page is no longer waiting for a choice. {{name}} was not made the default.":
     "このページはアカウントの選択を待っていません。{{name}} は既定のアカウントになっていません。",
+  "Pateat: logged in.": "Pateat：ログインしました。",
+  "Pateat: the login's result is not known ({{reason}}). Open Pateat for details.":
+    "Pateat：ログインの結果が分かりません（{{reason}}）。詳しくは Pateat を開いてください。",
+  "Pateat: the login did not succeed ({{reason}}). Open Pateat for details.":
+    "Pateat：ログインに成功しませんでした（{{reason}}）。詳しくは Pateat を開いてください。",
+  "Pateat: asking the AI…": "Pateat：AI に問い合わせています…",
+  "Pateat: you logged out of this site in this tab. Click to choose an account.":
+    "Pateat：このタブでこのサイトからログアウトしました。クリックしてアカウントを選んでください。",
+  "Pateat: the site did not accept the last login in this tab. Click to choose an account.":
+    "Pateat：このタブでの前回のログインはサイトに受け付けられませんでした。クリックしてアカウントを選んでください。",
+  "Pateat: the last login on this site stopped in this tab. Click to choose an account.":
+    "Pateat：このタブでのこのサイトへの前回のログインは中断されました。クリックしてアカウントを選んでください。",
+  "Pateat: you logged out of this site in another tab. Click to choose an account.":
+    "Pateat：別のタブでこのサイトからログアウトしました。クリックしてアカウントを選んでください。",
+  "Pateat: {{count}} accounts match this page. Click to choose one.":
+    "Pateat：{{count}} 件のアカウントがこのページに一致します。クリックして選んでください。",
+  "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait 5 minutes and reload this page, to log in here.":
+    "Pateat：別のタブでこのサイトへのログインが進行中か、成功していません。ここでログインするには、そのタブを閉じるか、5 分待ってからこのページを再読み込みしてください。",
 } satisfies Record<keyof typeof en, string>;

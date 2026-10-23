@@ -233,4 +233,22 @@ export const en = {
     "Pateat could not log in with {{name}} on this page. {{name}} was not made the default. Reload the page to choose again.",
   "This page is no longer waiting for a choice. {{name}} was not made the default.":
     "This page is no longer waiting for a choice. {{name}} was not made the default.",
+  "Pateat: logged in.": "Pateat: logged in.",
+  "Pateat: the login's result is not known ({{reason}}). Open Pateat for details.":
+    "Pateat: the login's result is not known ({{reason}}). Open Pateat for details.",
+  "Pateat: the login did not succeed ({{reason}}). Open Pateat for details.":
+    "Pateat: the login did not succeed ({{reason}}). Open Pateat for details.",
+  "Pateat: asking the AI…": "Pateat: asking the AI…",
+  "Pateat: you logged out of this site in this tab. Click to choose an account.":
+    "Pateat: you logged out of this site in this tab. Click to choose an account.",
+  "Pateat: the site did not accept the last login in this tab. Click to choose an account.":
+    "Pateat: the site did not accept the last login in this tab. Click to choose an account.",
+  "Pateat: the last login on this site stopped in this tab. Click to choose an account.":
+    "Pateat: the last login on this site stopped in this tab. Click to choose an account.",
+  "Pateat: you logged out of this site in another tab. Click to choose an account.":
+    "Pateat: you logged out of this site in another tab. Click to choose an account.",
+  "Pateat: {{count}} accounts match this page. Click to choose one.":
+    "Pateat: {{count}} accounts match this page. Click to choose one.",
+  "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait 5 minutes and reload this page, to log in here.":
+    "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait 5 minutes and reload this page, to log in here.",
 } as const;

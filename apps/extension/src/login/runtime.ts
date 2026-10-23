@@ -1837,26 +1837,12 @@ class DocumentGone extends Error {
   }
 }
 
-/** The badge and tooltip of a tab whose login waits for an account choice (ADR 0021). */
+/** The badge of a tab whose login waits for an account choice (ADR 0021). */
 function choiceBadge(
   candidates: readonly unknown[],
   logout: LogoutReason | undefined,
-): { count: number; title: string } {
-  return {
-    count: candidates.length,
-    title: logout
-      ? {
-          "this-tab":
-            "Pateat: you logged out of this site in this tab. Click to choose an account.",
-          rejected:
-            "Pateat: the site did not accept the last login in this tab. Click to choose an account.",
-          "stopped-login":
-            "Pateat: the last login on this site stopped in this tab. Click to choose an account.",
-          "other-tab":
-            "Pateat: you logged out of this site in another tab. Click to choose an account.",
-        }[logout]
-      : `Pateat: ${candidates.length} accounts match this page. Click to choose one.`,
-  };
+): { count: number; logout?: LogoutReason } {
+  return logout ? { count: candidates.length, logout } : { count: candidates.length };
 }
 
 export function createLoginRuntime(
@@ -2435,7 +2421,7 @@ export function createLoginRuntime(
         key !== recordKey(tabId, siteOrigin) && key.endsWith(` ${siteOrigin}`) && logouts.has(key),
     );
   }
-  /** Tells the tab why it does not log in while another tab's login holds the site. */
+  /** Tells the tab why it does not log in while another tab's login holds the site (a key). */
   function showHeld(tabId: number): void {
     badge.note(
       tabId,

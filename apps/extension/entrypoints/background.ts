@@ -24,6 +24,7 @@ import { createPasskeyRuntime } from "../src/passkeys/runtime";
 import { createSignIns, SIGN_INS_KEY } from "../src/passkeys/sign-ins";
 import { createSignedTabs, SIGNED_TABS_KEY } from "../src/passkeys/signed-tabs";
 import { sessionValue } from "../src/storage";
+import { followLanguagePreference, i18n } from "../src/i18n";
 import { createLoginBadge, LOGIN_BADGE_KEY, setActionBadge } from "../src/login/badge";
 import {
   createVaultPasskeyFinder,
@@ -114,6 +115,10 @@ export default defineBackground(() => {
     storage: sessionValue(LOGIN_BADGE_KEY),
   });
   void loginBadge.restore();
+  // Tooltips follow the language chosen on the settings page (ADR 0043); a badge drawn
+  // before the stored choice is read is written again once it applies.
+  i18n.on("languageChanged", () => loginBadge.relabel());
+  void followLanguagePreference();
   // Chrome resets a tab's badge when its page commits a navigation, which a url change
   // marks; the url shows only on pages Pateat can read.
   browser.tabs.onUpdated.addListener((tabId, change, tab) => {

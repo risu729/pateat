@@ -16,7 +16,8 @@ import "./style.css";
 
 // The theme is set before the first render, and follows changes made on another page.
 followThemePreference();
-followLanguagePreference();
+// The stored language is read before the first render, so no English text flashes.
+await followLanguagePreference();
 followLanguageMetadata("Pateat");
 
 const root = document.getElementById("root");

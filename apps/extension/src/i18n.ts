@@ -1,5 +1,6 @@
 import { createInstance } from "i18next";
 import * as v from "valibot";
+import { storage } from "wxt/utils/storage";
 import { en } from "./locales/en";
 import { ja } from "./locales/ja";
 
@@ -28,14 +29,6 @@ export function parseLanguagePreference(value: unknown): LanguagePreference {
   return v.is(preferenceSchema, value) ? value : "system";
 }
 
-export function readLanguagePreference(): LanguagePreference {
-  try {
-    return parseLanguagePreference(localStorage.getItem(LANGUAGE_STORAGE_KEY));
-  } catch {
-    return "system";
-  }
-}
-
 /** Follow the first supported browser language; regional variants use the base language. */
 export function resolveLanguage(
   preference: LanguagePreference,
@@ -60,46 +53,101 @@ export function formatLocale(
   return languages.find((tag) => tag.toLowerCase().split("-")[0] === language) ?? language;
 }
 
+/**
+ * Where the preference is kept. Extension pages and the service worker share
+ * `chrome.storage.local` (`extensionLanguageStore`), so the worker's toolbar titles follow
+ * it too; tests and pages without one use memory.
+ */
+export type LanguageStore = {
+  get(): Promise<unknown>;
+  set(preference: LanguagePreference): Promise<void>;
+  /** Calls back with each stored value written elsewhere; returns the unwatch. */
+  watch(changed: (value: unknown) => void): () => void;
+};
+
+/** The extension's store: `local:pateat.language` through WXT's storage wrapper. */
+export function extensionLanguageStore(): LanguageStore {
+  const item = storage.defineItem<unknown>(`local:${LANGUAGE_STORAGE_KEY}`);
+  return {
+    get: () => item.getValue(),
+    set: (preference) => item.setValue(preference),
+    watch: (changed) => item.watch(changed),
+  };
+}
+
+export function memoryLanguageStore(initial?: unknown): LanguageStore {
+  let value = initial;
+  const watchers = new Set<(value: unknown) => void>();
+  return {
+    get: async () => value,
+    set: async (preference) => {
+      value = preference;
+      for (const watcher of watchers) watcher(preference);
+    },
+    watch(changed) {
+      watchers.add(changed);
+      return () => watchers.delete(changed);
+    },
+  };
+}
+
+let store = memoryLanguageStore();
 let activePreference: LanguagePreference = "system";
+// Counts applied preferences, so a read that finishes after a newer choice is dropped.
+let applied = 0;
+const preferenceWatchers = new Set<(preference: LanguagePreference) => void>();
 
 function applyLanguagePreference(preference: LanguagePreference): void {
+  applied += 1;
   activePreference = preference;
   void i18n.changeLanguage(resolveLanguage(preference));
+  for (const watcher of preferenceWatchers) watcher(preference);
 }
 
-/** Retain the selected language on this page even if localStorage is unavailable. */
-export function saveLanguagePreference(preference: LanguagePreference): void {
-  try {
-    localStorage.setItem(LANGUAGE_STORAGE_KEY, preference);
-  } catch {
-    // The applied choice lasts until the page closes.
-  }
-  applyLanguagePreference(preference);
+/** The preference this program applies now. */
+export function currentLanguagePreference(): LanguagePreference {
+  return activePreference;
 }
 
-/** Initialize a page and follow changes from other extension pages and the browser. */
-export function followLanguagePreference(
-  onChange?: (preference: LanguagePreference) => void,
+/** Calls back with each later preference this program applies; returns the unwatch. */
+export function watchLanguagePreference(
+  changed: (preference: LanguagePreference) => void,
 ): () => void {
-  const update = () => {
-    const preference = readLanguagePreference();
-    applyLanguagePreference(preference);
-    onChange?.(preference);
-  };
-  const storageChanged = (event: StorageEvent) => {
-    if (event.key === null || event.key === LANGUAGE_STORAGE_KEY) update();
-  };
-  const browserChanged = () => {
-    // An explicit choice still applies when localStorage rejected the write.
-    applyLanguagePreference(activePreference);
-    onChange?.(activePreference);
-  };
-  update();
-  window.addEventListener("storage", storageChanged);
-  window.addEventListener("languagechange", browserChanged);
+  preferenceWatchers.add(changed);
+  return () => preferenceWatchers.delete(changed);
+}
+
+/** Apply the choice at once; it lasts until the program ends if the store rejects it. */
+export function saveLanguagePreference(preference: LanguagePreference): void {
+  applyLanguagePreference(preference);
+  void store.set(preference).catch(() => undefined);
+}
+
+/**
+ * Read the stored preference before the first render, then follow changes made on other
+ * extension pages and the browser's own language list. An unreadable store is the
+ * browser setting.
+ */
+export async function followLanguagePreference(
+  next: LanguageStore = extensionLanguageStore(),
+): Promise<() => void> {
+  store = next;
+  const before = applied;
+  let stored: unknown;
+  try {
+    stored = await store.get();
+  } catch {
+    stored = undefined;
+  }
+  // A choice made here while the read ran is newer than what was read.
+  if (applied === before) applyLanguagePreference(parseLanguagePreference(stored));
+  const unwatch = store.watch((value) => applyLanguagePreference(parseLanguagePreference(value)));
+  // Pages and the service worker both see `languagechange` when the browser's list changes.
+  const browserChanged = () => applyLanguagePreference(activePreference);
+  globalThis.addEventListener("languagechange", browserChanged);
   return () => {
-    window.removeEventListener("storage", storageChanged);
-    window.removeEventListener("languagechange", browserChanged);
+    unwatch();
+    globalThis.removeEventListener("languagechange", browserChanged);
   };
 }
 

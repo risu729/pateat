@@ -986,19 +986,12 @@ Once the fixes have settled:
   chose i18next with react-i18next (2026-10-12 14:31 UTC), so that the language can be
   chosen in Pateat's settings
   ([comparison](research/2026-10-12-extension-ui-translation.md),
-  [dependency policy](development.md#dependency-policy)); the provisional implementation
-  in [ADR 0043](adr/0043-extension-language-preference.md) keeps the language preference
-  local to the browser profile, outside service sync. The extension infrastructure,
-  language selector, popup and passkey chooser are implemented in
-  [draft PR 661](https://github.com/risu729/pateat/pull/661); the Bitwarden settings
-  connection, vault-access, setup, MFA and field-review flows have a further EN/JA
-  implementation using that infrastructure in
-  [draft PR 722](https://github.com/risu729/pateat/pull/722) (48 synthetic browser cases
-  pass; independent review completed without findings). Other options sections,
-  diagnostics, toolbar background titles, manifest metadata and user docs remain
-  untranslated. These partial slices do not complete the preceding wording review or
-  this phase's translation gate. The owner chose (2026-10-12 14:14 UTC) that "the docs"
-  means the README and the user-facing pages, including those the docs website below
+  [dependency policy](development.md#dependency-policy)). The owner chose on 2026-10-18 to
+  translate now. The extension's pages, toolbar tooltips and manifest description are
+  translated on the proposed storage in
+  [ADR 0043](adr/0043-extension-language-preference.md), whose storage question the owner
+  has not answered yet; the README and user-facing docs are not. The owner chose
+  (2026-10-12 14:14 UTC) that "the docs" means the README and the user-facing pages, including those the docs website below
   adds; ADRs, this plan and research notes stay in English. AGENTS.md's English rule
   gets an exception for the Japanese pages when they land.
 - The docs website (VitePress 2, see
