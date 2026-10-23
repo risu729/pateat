@@ -1,0 +1,16 @@
+{
+  "name": "@pateat/generation",
+  "version": "0.1.0",
+  "private": true,
+  "license": "GPL-3.0-only",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./backend": "./src/backend.ts"
+  },
+  "dependencies": {
+    "@pateat/contracts": "workspace:*",
+    "@pateat/inference": "workspace:*",
+    "valibot": "1.5.0"
+  }
+}
