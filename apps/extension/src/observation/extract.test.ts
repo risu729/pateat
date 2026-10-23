@@ -1395,6 +1395,55 @@ describe("extractLoginObservation", () => {
       expect(gap(html, shadow), html).toEqual([false, expected]);
   });
 
+  it("counts a control outside every form only near the sign-in fields outside one", () => {
+    const outcome = (html: string) => {
+      page(html);
+      const result = extractLoginObservation();
+      if (!result.ok) throw new Error(`no observation: ${result.reason}`);
+      return [result.observation.complete, result.gap];
+    };
+    const login = `<div><div><dl><dt>ID</dt><dd><input id="u" autocomplete="username"></dd></dl>
+      <div><button id="next">Next</button></div></div></div>`;
+    const picker = `<select id="lang"><option>日本語</option></select>`;
+    // A language picker in the page's footer, without footer markup, as on dアカウント's
+    // login page (2026-10-23).
+    expect(
+      outcome(`<div><div>${login}</div><div><ul><li><div>${picker}</div></li></ul></div></div>`),
+    ).toEqual([true, undefined]);
+    // Beside the fields, the same select is one the sign-in may need.
+    expect(
+      outcome(`<div><div><dl><dd><input id="u" autocomplete="username"></dd>
+        <dd>${picker}</dd></dl><button id="next">Next</button></div></div>`),
+    ).toEqual([false, "unsupported-control"]);
+    // When the fields' area would take the whole page, every control outside a form counts.
+    expect(
+      outcome(`<input id="u" autocomplete="username">${picker}<button id="n">Next</button>`),
+    ).toEqual([false, "unsupported-control"]);
+    // Rows of a grid layout: the select's row sits beside the fields' rows.
+    const row = (cell: string) => `<div class="row"><div class="col">${cell}</div></div>`;
+    expect(
+      outcome(`<div><main><div class="container">${row(`<input id="u" autocomplete="username">`)}
+        ${row(`<input id="p" type="password">`)}${row(picker)}${row(`<button id="go">Log in</button>`)}
+        </div></main></div>`),
+    ).toEqual([false, "unsupported-control"]);
+    expect(
+      outcome(`<div><main><div class="container">${row(`<input id="u" autocomplete="username">`)}
+        ${row(`<input type="radio" id="kind">`)}${row(`<button id="go">Log in</button>`)}</div></main></div>`),
+    ).toEqual([false, "unsupported-control"]);
+    // A text area far from two fields, such as a feedback box at the page's foot.
+    expect(
+      outcome(`<div><div><div><div><div><div><input id="u"><input id="p" type="password">
+        <button id="go">Log in</button></div></div></div></div></div>
+        <div><div><div><textarea id="feedback"></textarea></div></div></div></div>`),
+    ).toEqual([true, undefined]);
+    // A field that cannot be filled counts anywhere outside a form.
+    expect(
+      outcome(
+        `<div><div>${login}</div><div><div><div><input id="r" readonly></div></div></div></div>`,
+      ),
+    ).toEqual([false, "unfillable-field"]);
+  });
+
   it("leaves out a field the continued recipe already fills when it is read-only or disabled", () => {
     // An email address shown again, read-only, beside the password (ADR 0018).
     const email = { by: "id" as const, value: "email" };

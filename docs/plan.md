@@ -2610,8 +2610,8 @@ Remaining M4 AI work:
   name the page's `accountSwitch`, so a generated recipe carries it
   ([Background execution](architecture.md#background-execution)).
 - More Japanese pages. The owner chose on 2026-10-11 to take them from both public
-  login pages opened in Chrome on the owner's PC and the request log; 71 public pages
-  are in (below), 65 of them from 2026-10-23, plus 18 English ones. Pages that answer a
+  login pages opened in Chrome on the owner's PC and the request log; 108 public pages
+  are in (below), 102 of them from 2026-10-23, plus 45 English ones. Pages that answer a
   cloud session with 403 or a bot check (Rakuten Card, SMBC Card, JAL, Eki-net,
   Mercari and others) still need a browser on the owner's PC. On 2026-10-11 the request
   log held one Japanese row, a MyJCB generation that abstained
@@ -2838,6 +2838,18 @@ extractor gap: Rakuten's login (`shadow-control`), Amazon's `/ax/claim`
 (`URL.parse` replaced by the page) and American Express (`eval` disabled) the probe
 failed in the page's own world, where the extension's content script would not.
 
+A second pass the same day observed about 280 more pages (Japanese shops, hosting,
+job and travel sites; English SaaS, banks, universities and streaming services) with
+the same build and added 39 Japanese and 31 English cases, after an independent review
+of every label. Pages whose email step only sends a sign-in link or code, with no
+password (Slack, Vercel, Claude Platform, Instacart, Loom, Temu), are left out, as no
+login item fits them; Slack and Vercel were removed from the first pass for that
+reason. Sakura Internet's login page is left out too: its login button sits outside
+the form of its fields, so the correct plan fails the plan check (`mixed-groups`), a
+case for that check rather than for the corpus. The Japanese set now has 108 cases (15
+abstain, 11 passkey buttons, 27 `advance`) and the English set 45 (5 abstain, 3 passkey
+buttons, 13 `advance`); the heuristic scores 0.73 (18 false submits) and 0.64 (7).
+
 The same import measured the extractor on real markup (2026-10-11, main `9cf8356`). Of
 the 241 pages with an annotated login form, 6 gave no observation and 109 an incomplete
 one, which inference rejects without a call; 126 were complete. These totals were the
@@ -2948,7 +2960,15 @@ left out entirely, so every form the observation describes is complete. On the 2
 observed Formasaurus login pages of the real-page corpus (2026-10-11), this cut the
 incomplete ones from 108 to 52: 55 became complete, each still showing the form
 Formasaurus labels as the login form, and one whose login form has no locatable control
-now gives no observation. A field in any open shadow root marks it incomplete too, as it
+now gives no observation. Fields outside every form count as one more form, whose
+controls are those outside every form; since 2026-10-23 a control the executor cannot
+act on that is not a field counts there only inside the fields' area, their nearest
+common ancestor (a lone field itself) and up to four levels above it (never the body or
+the root element), so a language picker in a page footer without footer markup, as on
+dアカウント's login page
+(`cfg.smt.docomo.ne.jp`, read in cloud Chromium on main `381116f`), no longer makes the
+page incomplete (agent fix, local tests only; not checked in the owner's Chrome). A
+field in any open shadow root marks it incomplete too, as it
 may be the real login. Links are context only: the plan check accepts only a button as
 the page action. Known limits: a read-only username shown again on a password step makes
 that step incomplete, and honeypot inputs moved to the right or clipped by
