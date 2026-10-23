@@ -468,6 +468,7 @@ describe("manual challenges and isolated caller lifetime", () => {
       ok: true,
       kind: "new-device-verification-required",
       invalidOtp: false,
+      expiresAt: accountNow * 1000 + 300_000,
     });
     expect(h.fetch).toHaveBeenCalledTimes(2);
     if (!result.ok || result.kind !== "new-device-verification-required")
@@ -522,6 +523,74 @@ describe("manual challenges and isolated caller lifetime", () => {
     expect(form.get("twoFactorProvider")).toBe("1");
     expect(h.host.deriveAuthentication).toHaveBeenCalledTimes(1);
     noSecrets(completed);
+  });
+  it("keeps the sign-in waiting after a refused code, as the official two-step page does", async () => {
+    const h = harness();
+    h.tokenResponses.push(
+      {
+        status: 400,
+        body: { error: "invalid_grant", TwoFactorProviders2: { "0": null, "1": {} } },
+      },
+      // Bitwarden's answer to a wrong code; Vaultwarden's forms are parsed the same way.
+      {
+        status: 400,
+        body: {
+          error: "invalid_grant",
+          error_description: "invalid_username",
+          ErrorModel: { Message: "Two-step token is invalid. Try again.", Object: "error" },
+        },
+      },
+    );
+    const challenge = await h.caller.begin(newInput());
+    if (!challenge.ok || challenge.kind !== "mfa-required")
+      throw new Error("Synthetic MFA challenge failed");
+    const refused = await h.caller.continue({
+      flowId: challenge.flowId,
+      twoFactor: { provider: 1, code: "000111" },
+    });
+    expect(refused).toEqual({
+      ok: true,
+      kind: "mfa-required",
+      flowId: challenge.flowId,
+      providers: [0, 1],
+      expiresAt: challenge.expiresAt,
+      invalidCode: true,
+    });
+    noSecrets(refused);
+    expect(await h.caller.keepAlive(challenge.flowId)).toEqual({
+      ok: true,
+      kind: "waiting",
+      flowId: challenge.flowId,
+    });
+    const completed = await h.caller.continue({
+      flowId: challenge.flowId,
+      twoFactor: { provider: 1, code: "000123" },
+    });
+    expect(completed).toMatchObject({ ok: true, kind: "ready" });
+    const tokens = h.fetch.mock.calls.filter(([url]) => url.endsWith("/token"));
+    expect(tokens).toHaveLength(3);
+    expect(new URLSearchParams(String(tokens[2]![1].body)).get("twoFactorToken")).toBe("000123");
+    // The password was derived once; the retry sent the same hash.
+    expect(h.host.deriveAuthentication).toHaveBeenCalledTimes(1);
+  });
+  it("answers a code the flow's end stopped mid-request as expired, not cancelled", async () => {
+    const h = harness();
+    h.tokenResponses.push({
+      status: 400,
+      body: { error: "invalid_grant", TwoFactorProviders2: { "0": null } },
+    });
+    const challenge = await h.caller.begin(newInput());
+    if (!challenge.ok || challenge.kind !== "mfa-required")
+      throw new Error("Synthetic MFA challenge failed");
+    const real = h.fetch.getMockImplementation()!;
+    // The 5 minutes run out while the code's token request is on its way.
+    h.fetch.mockImplementationOnce(async (url, init) => {
+      h.advance(300_000);
+      return real(url, init);
+    });
+    expect(
+      await h.caller.continue({ flowId: challenge.flowId, twoFactor: { provider: 0, code: "1" } }),
+    ).toEqual({ ok: false, error: { code: "setup-expired" } });
   });
   it("emails a code with the hash the password grant sent, and the sign-in still waits", async () => {
     const h = harness();
@@ -582,6 +651,8 @@ describe("manual challenges and isolated caller lifetime", () => {
     const challenge = await h.caller.begin(newInput());
     if (!challenge.ok || challenge.kind !== "mfa-required")
       throw new Error("Synthetic MFA challenge failed");
+    // The page shows this end on the code screen.
+    expect(challenge.expiresAt).toBe(accountNow * 1000 + 300_000);
     const waiting = { ok: true, kind: "waiting", flowId: challenge.flowId };
     expect(await h.caller.keepAlive(challenge.flowId)).toEqual(waiting);
     // It does not take the page's one running request, so it answers during a send.
@@ -596,7 +667,9 @@ describe("manual challenges and isolated caller lifetime", () => {
     const other = h.service.createCaller();
     closers.push(() => other.dispose());
     expect(await other.keepAlive(challenge.flowId)).toEqual(expired);
-    h.advance(300_000);
+    h.advance(299_999);
+    expect(await h.caller.keepAlive(challenge.flowId)).toEqual(waiting);
+    h.advance(1);
     expect(await h.caller.keepAlive(challenge.flowId)).toEqual(expired);
     other.dispose();
     expect(await other.keepAlive(challenge.flowId)).toEqual({

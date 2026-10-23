@@ -434,19 +434,48 @@ guess:
   official login page.
 - A sign-in or sync that takes longer than 120 seconds: the settings page's request
   times out and closes its connection to the worker, which cancels the work. A
-  verification challenge expires after 5 minutes without a countdown, as the official
+  verification challenge expires 5 minutes after the sign-in started, as the official
   clients' pending sign-in does
   ([`LOGIN_SESSION_TIMEOUT_LENGTH`](https://github.com/bitwarden/clients/blob/86f41566aebe5a024796df8abfb3d4d89ec509c1/libs/auth/src/common/services/login-strategies/default-login-strategy-session-timeout.service.ts#L14)).
-  The waiting sign-in, password included, lives only in the service worker, which Chrome
-  stops after 30 seconds without an event, so the settings page sends the worker a
+  The challenge reply carries that end as `expiresAt`, and the code screen says "Enter
+  the code by 8:26 PM. After that the sign-in ends and needs the master password again."
+  A code the server refuses (Bitwarden's "Two-step token is invalid. Try again.",
+  Vaultwarden's invalid or expired TOTP and email token messages) keeps the sign-in
+  waiting, as the official two-step page does
+  ([two-factor-auth.component.ts](https://github.com/bitwarden/clients/blob/86f41566aebe5a024796df8abfb3d4d89ec509c1/libs/auth/src/angular/two-factor-auth/two-factor-auth.component.ts#L338-L353)):
+  the reply is the same challenge with `invalidCode: true`, and the code screen keeps
+  the chosen method and the sent email and says "The code was not accepted: it is wrong
+  or no longer valid." A refused new-device code does the same through `invalidOtp`.
+  Before 2026-10-23 a refused code ended the sign-in and the form asked for the master
+  password again; the owner asked for this change that day (11:50 UTC). The waiting
+  sign-in, password included, lives only in the service worker, which Chrome stops after
+  30 seconds without an event, so the settings page sends the worker a
   `connection.keep-alive` message as soon as a challenge shows and every 20 seconds
-  after (the interval of Chrome's own heartbeat examples). An answer that the flow is
-  gone (its 5 minutes ended, or Chrome restarted the worker anyway) ends the challenge
-  with "This verification session expired"; a first sign-in then offers "Sign in again".
-  Closing the settings page ends the sign-in. Before this, on 2026-10-22 in the owner's
+  after (the interval of Chrome's own heartbeat examples). A tab Chrome froze or slowed,
+  or a computer that slept, hears late, so the page also sends one at `expiresAt` and
+  whenever it becomes visible; of several answers that find the end at once, only the
+  first ends the challenge. A provider request that the end itself aborts answers
+  `setup-expired`, not `cancelled`; the vault download and unlock after an accepted code
+  still count against the 5 minutes, and work the end stops there answers `cancelled`,
+  which the form shows as "The sign-in reached its 5-minute end before it finished." An
+  answer that the flow is gone ends the challenge, a first sign-in then offers "Sign in
+  again", and the sign-in form says why next to the master password (the field's
+  `aria-describedby`): "The sign-in timed out at 8:26 PM: no code was entered within 5
+  minutes." once `expiresAt` passed, else "The sign-in ended early, by 8:24 PM, before
+  its 5 minutes. This usually means Chrome stopped Pateat's background." (the time is
+  when the page found out; Chrome restarting the worker is the usual cause, but a
+  permission removal or a second settings page's Disable automatic unlock ends it the
+  same way); any other error that ends a waiting sign-in is said there too; the panel
+  status says "The sign-in timed out waiting for the code." or "The sign-in ended before
+  the code was entered." The local log records it as `vault.sign-in` with step
+  `keep-alive`, `continue` or `send-email-code` and outcome `setup-expired`. Closing the
+  settings page ends the sign-in. Before the heartbeat, on 2026-10-22 in the owner's
   Chrome with a local Vaultwarden and email two-step, diagnostics recorded four worker
   starts while the code was fetched, and the sign-in asked for the master password
-  again.
+  again. With it, on 2026-10-23 the owner left the code screen for about 10 minutes, and
+  the form asked for the master password again; the only explanation was "This
+  verification session expired. Start sign-in again." in the panel status above the
+  connection rows.
 - A second sign-in step or sync from one settings page while one runs, a new sign-in
   or sync while that page's verification challenge waits (the challenge stays usable),
   a sign-in or sync of a connection that already has one, or a fifth at once across
@@ -1742,6 +1771,7 @@ be told apart
 | `runtime.updated` | info | previous and new build revision, version |
 | `vault.state` | warn for `unavailable`, `review-required` or `reauthentication-required`, even at a worker's first sight; else debug at the first sight, then info | connection pseudonym, state, previous state, sync sign-in, `synced` when a new snapshot was accepted |
 | `vault.sync` | info for a result, including `unchanged` since the person pressed Sync, and for `cancelled`, else warn | connection pseudonym, the settings-page Sync's result kind or error code, and the account mismatch check when there is one |
+| `vault.sign-in` | info, except warn for an error other than `cancelled` and `setup-expired` and for an email code that was not sent | the settings-page sign-in step (`begin` for the password, `continue` for the code, `send-email-code`, or `keep-alive` only when the heartbeat found the sign-in gone) and its result kind, `code-refused` when the server refused the code and the sign-in still waits, email send result or error code. No connection: a new connection's challenge shows before its ID is listed |
 | `vault.check` | debug for `unchanged`, `skipped` and the same outcome as the connection's last stored check other than `synced`, also after the worker restarted (such as a sign-in that still needs the password, where no request is sent); otherwise info for `synced` and `deferred` (the replacement waits for a login or passkey request), else warn | connection pseudonym and the automatic check's outcome (ADR 0025): `unchanged`, `synced`, `deferred`, `rate-limited`, `failed`, `reauthentication-required`, `account-deleted` or `skipped` |
 | `vault.refresh` | debug for `refreshed`, info for `not-sent`, else warn | connection pseudonym; `not-sent` when no usable session was refreshed and no refresh was sent, with why: `no-session`, `no-refresh-token`, `claimed` (another refresh in this worker holds it), `provider-permission-required`, `cancelled` or the store's error code; `refreshed`, `restored` (the session was put back after a network failure, timeout, 429 or 5xx), `rejected`, `account-mismatch` or `failed` (a non-retryable error drops the claim's refresh token so the sync sign-in needs the password; a store error leaves the claim to resume; a conflict means forget or a password sign-in replaced it); the transport or store error code and HTTP status when there is one |
 | `service.sync` | debug for `synced`, `incomplete`, `not-connected` unless a recipe was added, updated or removed, then info; info for `unreachable`, since a device offline for a while would otherwise fill the warnings, and `busy` (a settings write that waits for a login, a sync superseded by a later one, or attempts that ran out); else warn | recipe and settings sync outcome; `full`, or `recipes` for a recipes-only run after a judged page; recipes added, updated and removed in the cache; how long the run's requests took, added up ([timing](#request-and-login-timing)): `roundTripMs`, and `serverMs` and `networkMs` when every answer named the service's time |
