@@ -263,21 +263,28 @@ describe("the live field a link reads (ADR 0061)", () => {
     expect(
       linkedField(policy(), catalog, connection, {
         detail: "phone-last-4",
+        itemId: "login",
         source: { itemId: "identity", field: "identity.phone" },
       }),
-    ).toEqual({ itemId: "identity", fieldId: "identity.phone" });
+    ).toEqual({ itemId: "identity", fieldId: "identity.phone", name: null });
     expect(
       linkedField(policy(), catalog, connection, {
         detail: "birth-date",
+        itemId: "login",
         source: { itemId: "identity", field: { custom: "Date of birth" } },
       }),
-    ).toEqual({ itemId: "identity", fieldId: `custom.${snapshot}.0` });
+    ).toEqual({
+      itemId: "identity",
+      fieldId: `custom.${snapshot}.0`,
+      name: "Date of birth",
+    });
     expect(
       linkedField(policy(), catalog, connection, {
         detail: "card-code",
+        itemId: "login",
         source: { itemId: "card", field: "card.code" },
       }),
-    ).toEqual({ itemId: "card", fieldId: "card.code" });
+    ).toEqual({ itemId: "card", fieldId: "card.code", name: null });
   });
 
   it("reads an item with no URIs, as a linked item has none", () => {
@@ -285,9 +292,10 @@ describe("the live field a link reads (ADR 0061)", () => {
     expect(
       linkedField(policy(), catalog, connection, {
         detail: "card-last-4",
+        itemId: "login",
         source: { itemId: "card", field: "card.number" },
       }),
-    ).toEqual({ itemId: "card", fieldId: "card.number" });
+    ).toEqual({ itemId: "card", fieldId: "card.number", name: null });
   });
 
   it("picks one of several custom fields of a name by its position", () => {
@@ -296,11 +304,13 @@ describe("the live field a link reads (ADR 0061)", () => {
     const at = (field: Exclude<DetailLink["source"]["field"], string>) =>
       linkedField(policy(), live.catalog, live.connection, {
         detail: "birth-date",
+        itemId: "login",
         source: { itemId: "twice", field },
       });
     expect(at({ custom: "Birthday", position: 2, count: 2 })).toEqual({
       itemId: "twice",
       fieldId: `custom.${snapshot}.1`,
+      name: "Birthday",
     });
     // Without a position the name is ambiguous, and with another count it needs review.
     expect(at({ custom: "Birthday" })).toBeUndefined();
@@ -313,7 +323,11 @@ describe("the live field a link reads (ADR 0061)", () => {
     ["a custom field the item lacks", { itemId: "identity", field: { custom: "Phone" } }],
   ])("reads nothing from %s", (_label, source) => {
     expect(
-      linkedField(policy(), catalog, connection, { detail: "phone-last-4", source }),
+      linkedField(policy(), catalog, connection, {
+        detail: "phone-last-4",
+        itemId: "login",
+        source,
+      }),
     ).toBeUndefined();
   });
 
@@ -322,12 +336,14 @@ describe("the live field a link reads (ADR 0061)", () => {
     expect(
       linkedField(policy(), catalog, connection, {
         detail: "birth-date",
+        itemId: "login",
         source: { itemId: "identity", field: { custom: "Membership" } },
       }),
     ).toBeUndefined();
     expect(
       linkedField(policy(), catalog, connection, {
         detail: "card-code",
+        itemId: "login",
         source: { itemId: "card", field: "card.number" },
       }),
     ).toBeUndefined();
@@ -335,6 +351,7 @@ describe("the live field a link reads (ADR 0061)", () => {
     expect(
       linkedField(policy(), flagged.catalog, flagged.connection, {
         detail: "birth-date",
+        itemId: "login",
         source: { itemId: "flags", field: { custom: "Birthday" } },
       }),
     ).toBeUndefined();
@@ -347,6 +364,7 @@ describe("the live field a link reads (ADR 0061)", () => {
     expect(
       linkedField(policy(), live.catalog, live.connection, {
         detail: "card-code",
+        itemId: "login",
         source: { itemId: "card", field: "card.code" },
       }),
     ).toBeUndefined();
@@ -364,6 +382,7 @@ describe("the live field a link reads (ADR 0061)", () => {
     expect(
       linkedField(settings, catalog, connection, {
         detail: "card-code",
+        itemId: "login",
         source: { itemId: "card", field: "card.code" },
       }),
     ).toBeUndefined();
@@ -375,14 +394,18 @@ describe("the live field a link reads (ADR 0061)", () => {
         policy({ excludedFields: [{ itemId: "card", fieldId: "card.code" }] }),
         catalog,
         connection,
-        { detail: "card-last-4", source: { itemId: "card", field: "card.number" } },
+        {
+          detail: "card-last-4",
+          itemId: "login",
+          source: { itemId: "card", field: "card.number" },
+        },
       ),
-    ).toEqual({ itemId: "card", fieldId: "card.number" });
+    ).toEqual({ itemId: "card", fieldId: "card.number", name: null });
   });
 });
 
 describe("the fields the popup proposes for a detail (ADR 0061)", () => {
-  const page = { host: "www.shop.example" };
+  const page = { host: "www.shop.example", loginItemId: "login" };
   const ids = (found: { itemId: string; fieldId: string }[]) =>
     found.map((entry) => `${entry.itemId} ${entry.fieldId}`);
 
@@ -475,6 +498,7 @@ describe("the fields the popup proposes for a detail (ADR 0061)", () => {
         detailCandidates(policy(), catalog, connection, "card-code", {
           host: "www.example.jp",
           title,
+          loginItemId: "login",
         }),
       );
     expect(found("ログイン | ゴールドカード会員")).toEqual(["titled card.code", "plain card.code"]);
