@@ -536,6 +536,7 @@ export function createDiagnosticsLog(options: {
             route: report.route,
             state: report.state,
             step: report.stepIndex,
+            unsubmitted: report.unsubmitted,
             name: report.name,
             // Engine messages can quote input; only Pateat's own codes are kept.
             message:
@@ -782,6 +783,7 @@ export function createDiagnosticsLog(options: {
             reason: report.reason,
             settled: report.settled,
             unconfirmed: report.unconfirmed,
+            unsubmitted: report.unsubmitted,
             routeChange: report.routeChange,
             stop: report.stop,
             ...report.times,

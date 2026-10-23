@@ -189,6 +189,8 @@ export const LOG_EVENTS = {
       reason: "code",
       settled: "flag",
       unconfirmed: "flag",
+      // Nothing submitted yet, in the document the login began in (ADR 0066).
+      unsubmitted: "flag",
       routeChange: "code",
       stop: "code",
       // How long a login that ended took (ADR 0019, amended 2026-10-18).
@@ -373,6 +375,7 @@ export const LOG_EVENTS = {
       route: "code",
       state: "code",
       step: "count",
+      unsubmitted: "flag",
       name: "name",
       message: "code",
       stack: "stack",
@@ -1287,7 +1290,8 @@ export function sentToService(entry: Pick<LogEntry, "level" | "event" | "fields"
  * Blocked outcomes of a login that filled and clicked nothing at its step (`login.attempt`):
  * a wrong account, a value that does not fit, a fill the page refused, an account its list
  * does not show. Every other outcome may follow a submit, such as a challenge, a watch that
- * ended, a cancel or a move to another origin.
+ * ended, a cancel or a move to another origin. These may too at a later step, as a wrong
+ * account on the password page after Next, so the line must also be `unsubmitted`.
  */
 const PRE_SUBMIT_BLOCKS: ReadonlySet<unknown> = new Set([
   "wrong-account",
@@ -1353,20 +1357,20 @@ function pathAllowed(entry: LogEntry): boolean {
     case "login.start":
     case "recipe.revoke":
       return true;
-    // A login that stopped at a step it neither filled nor clicked, outside a handler (as a
-    // code page after the password) and before any result was watched or settled.
+    // A login that stopped at a step it neither filled nor clicked, before it submitted
+    // anything and in the document it began in (`unsubmitted`), outside a handler (as a code
+    // page) and before any result was watched or settled.
     case "login.attempt":
       return (
+        fields["unsubmitted"] === true &&
         fields["state"] === "blocked" &&
         PRE_SUBMIT_BLOCKS.has(fields["outcome"]) &&
         fields["handler"] === undefined &&
         fields["settled"] === undefined
       );
-    // An exception before the login's first step ran.
+    // An exception before the login submitted anything, in the document it began in.
     case "login.exception":
-      return (
-        fields["state"] === "detected" || (fields["state"] === "ready" && fields["step"] === 0)
-      );
+      return fields["unsubmitted"] === true;
     case "login.entry":
       return fields["outcome"] === "refused" && PRE_PRESS_ENTRY_REFUSALS.has(fields["reason"]);
     // A new login's page where a recipe starts but its first step is not found. Other

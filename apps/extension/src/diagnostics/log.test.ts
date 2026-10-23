@@ -3003,6 +3003,7 @@ describe("problem lines (ADR 0066)", () => {
         recipeRevision: 2,
         state: "blocked",
         outcome: "wrong-account",
+        unsubmitted: true,
         url: "https://bank.example/u/aus1a2b3c4d5e6f7g8h9/alice@example.com/b%2540c.example/login?user=alice@example.com#/step?code=1",
       },
       { level: "warn", source: { tabId: 9, origin: "https://bank.example" } },
@@ -3034,6 +3035,7 @@ describe("problem lines (ADR 0066)", () => {
         recipeRevision: 2,
         state: "blocked",
         outcome: "wrong-account",
+        unsubmitted: true,
         // The token, the email address and the doubly encoded one become `[id]`.
         url: "/u/[id]/[id]/[id]/login",
         tab: 9,
@@ -3055,15 +3057,21 @@ describe("problem lines (ADR 0066)", () => {
     const { logger } = setup();
     const page = { origin: "https://bank.example", url: "https://bank.example/users/alice/home" };
     const blocked = { ...page, state: "blocked" };
+    // Nothing submitted yet, in the document the login began in.
+    const fresh = { ...blocked, unsubmitted: true };
     // Lines known to come before a submit keep their path.
     const before: [LogEventName, Record<string, unknown>][] = [
       ["login.start", { ...page, route: "password" }],
-      ["login.attempt", { ...blocked, outcome: "wrong-account", step: 0, steps: 3 }],
-      ["login.attempt", { ...blocked, outcome: "value-mismatch", step: 1, steps: 3 }],
-      ["login.attempt", { ...blocked, outcome: "fill-rejected", step: 2, steps: 3 }],
-      ["login.attempt", { ...blocked, outcome: "account-not-listed", step: 0, steps: 2 }],
-      ["login.exception", { ...page, state: "detected", name: "TypeError" }],
-      ["login.exception", { ...page, state: "ready", step: 0, name: "TypeError" }],
+      ["login.attempt", { ...fresh, outcome: "wrong-account", step: 0, steps: 4 }],
+      ["login.attempt", { ...fresh, outcome: "value-mismatch", step: 0, steps: 4 }],
+      ["login.attempt", { ...fresh, outcome: "fill-rejected", step: 0, steps: 4 }],
+      ["login.attempt", { ...fresh, outcome: "account-not-listed", step: 0, steps: 2 }],
+      ["login.attempt", { ...fresh, outcome: "account-switched", step: 0, steps: 2 }],
+      ["login.exception", { ...page, state: "detected", unsubmitted: true, name: "TypeError" }],
+      [
+        "login.exception",
+        { ...page, state: "executing", step: 0, unsubmitted: true, name: "TypeError" },
+      ],
       ["login.entry", { ...page, outcome: "refused", reason: "target-missing" }],
       [
         "login.refused",
@@ -3097,14 +3105,24 @@ describe("problem lines (ADR 0066)", () => {
       ["login.attempt", { ...blocked, outcome: "unknown-submit", step: 2, steps: 3 }],
       ["login.attempt", { ...blocked, outcome: "structural-mismatch", step: 2, steps: 3 }],
       ["login.attempt", { ...blocked, outcome: "timeout", step: 2, steps: 3 }],
-      ["login.attempt", { ...blocked, outcome: "value-mismatch", handler: 0, step: 3 }],
-      ["login.attempt", { ...blocked, outcome: "wrong-account", settled: true }],
+      ["login.attempt", { ...fresh, outcome: "value-mismatch", handler: 0, step: 3 }],
+      ["login.attempt", { ...fresh, outcome: "wrong-account", settled: true }],
+      // The same outcomes after an earlier submit, as a wrong account on the password page
+      // after Next, or in a resumed login's later document: not `unsubmitted`.
+      ["login.attempt", { ...blocked, outcome: "wrong-account", step: 2, steps: 4 }],
+      ["login.attempt", { ...blocked, outcome: "value-mismatch", step: 2, steps: 4 }],
+      ["login.attempt", { ...blocked, outcome: "fill-rejected", step: 2, steps: 4 }],
+      ["login.attempt", { ...blocked, outcome: "account-not-listed", step: 0, steps: 2 }],
+      ["login.attempt", { ...fresh, outcome: "challenge" }],
       ["login.attempt", { ...blocked }],
       ["login.exception", { ...page, state: "reconciling", step: 3, name: "TypeError" }],
       ["login.exception", { ...page, state: "awaiting-result", step: 3, name: "TypeError" }],
       ["login.exception", { ...page, state: "watching", step: 3, name: "TypeError" }],
       ["login.exception", { ...page, state: "executing", step: 2, name: "TypeError" }],
       ["login.exception", { ...page, state: "ready", step: 1, name: "TypeError" }],
+      // A passkey answer that fell back to the password route is back at step 0.
+      ["login.exception", { ...page, state: "ready", step: 0, name: "TypeError" }],
+      ["login.exception", { ...page, state: "detected", name: "TypeError" }],
       ["login.exception", { ...page, name: "TypeError" }],
       ["login.refused", { ...page, reason: "not-started", detail: "logged-in" }],
       ["login.refused", { ...page, reason: "not-started", detail: "stopped-login" }],
@@ -3149,6 +3167,7 @@ describe("problem lines (ADR 0066)", () => {
         origin: "https://bank.example",
         state: "blocked",
         outcome: "value-mismatch",
+        unsubmitted: true,
         reason: "x".repeat(600),
         url: `https://bank.example/${"a/".repeat(300)}partial`,
       },
@@ -3216,14 +3235,16 @@ describe("problem lines (ADR 0066)", () => {
   });
 
   it("carries only what the contract lets each event carry", () => {
-    // Each log event and its fields, less vault pseudonyms and with a URL as a path, is
-    // what `PROBLEM_EVENT_FIELDS` lists, so the contract refuses nothing the log keeps.
+    // Each log event and its fields, less vault pseudonyms and any other page than the
+    // line's own (`previousUrl`), with that URL as a path, is what `PROBLEM_EVENT_FIELDS`
+    // lists, so the contract refuses nothing that leaves and accepts nothing more.
     const fromLog = Object.fromEntries(
       Object.entries(LOG_EVENTS).map(([event, definition]) => [
         event,
         Object.fromEntries(
           Object.entries(definition.fields as Record<string, string>)
             .filter(([, kind]) => kind !== "item" && kind !== "connection")
+            .filter(([field, kind]) => kind !== "url" || field === "url")
             .map(([field, kind]) => [field, kind === "url" ? "path" : kind]),
         ),
       ]),

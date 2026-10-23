@@ -61,29 +61,32 @@ condition that no value leaves.
   `[id]` as in an observation ([ADR 0039](0039-redacted-token-path-segments.md)), each
   segment holding `@` (an email address, also percent-encoded up to three times) too,
   and a last segment the log's 512-character cut may have left partial.
-- Only a line's own page (`url`) may leave as a path, never another page's, such as
-  the tab's previous page (`previousUrl`). It leaves only on an allowlist
-  (`pathAllowed`) of event and state, outcome or
-  reason known to come before a login's submit, where the path is a recipe's own or one
-  already sent for generation: a login's start (`login.start`); a login blocked at a
-  step it neither filled nor clicked, outside a handler and not settled (`login.attempt`
-  `blocked` with `wrong-account`, `account-switched`, `value-mismatch`, `fill-rejected`
-  or `account-not-listed`); an exception before the first step ran (`login.exception` in
-  `detected`, or `ready` at step 0); a sign-in entry press refused by one of the checks
-  before the press, on the entry recipe's own path (`login.entry` `refused`; not
-  `unconfirmed`, `exception` or `page-changed`); a new login's page where a recipe
-  starts but its first step is missing (`login.refused` `not-started` with
-  `first-step-missing`); a page sent for generation and not read as signed in
-  (`recipe.generate` `abstained`, `unavailable`, `failed`, or `skipped` as `sending` or
-  `sent`); and a recipe revoked at a new login's first page (`recipe.revoke`).
-  Everything else sends no path: a watched, settled, reconciling or awaited login, one
-  blocked by a challenge, an ended watch, a cancel, a move to another origin, a rejected
-  or unknown submit or a handler step; every other refusal, as one of a resumed login
-  may come from its page after a submit; generation skipped on another page, as after a
-  sign-in, while signed in elsewhere or when a username shows; every other event; and
-  any event, outcome or reason added to the log later until it is listed. The log cannot
-  read the vault, so unlike an observation a plain username in the path of a configured
-  site's page before a submit (a sign-in page under `/u/<name>/login`) still leaves.
+- Only a line's own page (`url`) may leave as a path, never another page's, such as the
+  tab's previous page (`previousUrl`). It leaves only on an allowlist (`pathAllowed`) of
+  event and state, outcome or reason known to come before a login's submit, where the
+  path is a recipe's own or one already sent for generation: a login's start
+  (`login.start`); a login blocked at a step it neither filled nor clicked, before it
+  submitted anything and in the document it began in, outside a handler and not settled
+  (`login.attempt` `blocked` with `unsubmitted` and `wrong-account`, `account-switched`,
+  `value-mismatch`, `fill-rejected` or `account-not-listed`); an exception under the
+  same `unsubmitted` flag (`login.exception`), which the runtime sets when the attempt's
+  submissions are 0 and it is still in the document this worker began it in, so never
+  for a resumed or recovered login or after a passkey answer fell back; a sign-in entry
+  press refused by one of the checks before the press, on the entry recipe's own path
+  (`login.entry` `refused`; not `unconfirmed`, `exception` or `page-changed`); a new
+  login's page where a recipe starts but its first step is missing (`login.refused`
+  `not-started` with `first-step-missing`); a page sent for generation and not read as
+  signed in (`recipe.generate` `abstained`, `unavailable`, `failed`, or `skipped` as
+  `sending` or `sent`); and a recipe revoked at a new login's first page
+  (`recipe.revoke`). Everything else sends no path: a watched, settled, reconciling or
+  awaited login, one blocked by a challenge, an ended watch, a cancel, a move to another
+  origin, a rejected or unknown submit or a handler step; every other refusal, as one of
+  a resumed login may come from its page after a submit; generation skipped on another
+  page, as after a sign-in, while signed in elsewhere or when a username shows; every
+  other event; and any event, outcome or reason added to the log later until it is
+  listed. The log cannot read the vault, so unlike an observation a plain username in
+  the path of a configured site's page before a submit (a sign-in page under
+  `/u/<name>/login`) still leaves.
 - Origins of sites not set up stay pseudonyms the service cannot reverse. Exception
   messages stay limited to Pateat's own error codes; a value the log cut leaves out.
   Each entry records the build that wrote it, and a request carries only one build's

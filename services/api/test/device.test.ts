@@ -1,4 +1,4 @@
-import { syncDeviceStateSchema } from "@pateat/contracts";
+import { problemEntrySchema, syncDeviceStateSchema } from "@pateat/contracts";
 import { env, exports } from "cloudflare:workers";
 import * as v from "valibot";
 import { describe, expect, it } from "vitest";
@@ -278,6 +278,15 @@ describe("problem reports (ADR 0066)", () => {
 
   it("refuses free text, other levels and anything beyond the contract, without echoing it", async () => {
     const device = await owner();
+    const refusal = {
+      seq: 1,
+      time: LOGGED_AT,
+      level: "info",
+      event: "login.refused",
+      fields: { origin: "https://bank.example", reason: "not-started", detail: "logged-in" },
+    };
+    // The same line without another page's path passes.
+    expect(v.is(problemEntrySchema, refusal)).toBe(true);
     const refused = [
       report(),
       report({ ...line(1), level: "info" }),
@@ -293,6 +302,8 @@ describe("problem reports (ADR 0066)", () => {
       report(line(1, { origin: "https://bank.example/login" })),
       report(line(1, { label: "x" })),
       report(line(1, { item: "item:0123abcd" })),
+      // Only a line's own page may leave, never the tab's previous one.
+      report({ ...refusal, fields: { ...refusal.fields, previousUrl: "/home" } }),
       report({ ...line(1), event: "login.unknown" }),
       report(line(1, { nested: { value: "x" } })),
       report(line(1, { long: "a".repeat(513) })),

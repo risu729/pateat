@@ -36,6 +36,7 @@ const blocked = (fields: LogEntry["fields"] = {}): LogEntry => ({
     state: "blocked",
     outcome: "wrong-account",
     cause: "step-timeout",
+    unsubmitted: true,
     url: "/login?user=",
     tab: 12,
     ...fields,
@@ -171,6 +172,7 @@ describe("problem reports (ADR 0066)", () => {
             state: "blocked",
             outcome: "wrong-account",
             cause: "step-timeout",
+            unsubmitted: true,
             // The path alone, its token-like segment redacted as in an observation.
             url: "/oauth2/[id]/v1/authorize",
             tab: 12,
