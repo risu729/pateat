@@ -1,5 +1,6 @@
 import {
   detailLength,
+  loginKeypadTargetSchema,
   loginMarkerTargetSchema,
   loginOriginSchema,
   loginStepSchema,
@@ -118,31 +119,42 @@ export const observedAutocompleteTokens = [
 ] as const;
 
 /** One allowlisted, value-free page element. The ID is local to this observation. */
-export const observedCandidateSchema = v.strictObject({
-  id: identifier,
-  role: candidateRoleSchema,
-  // A link may be named by its path (`href`) on a signed-in page, as a marker only, and a
-  // button by its accessible name there, as a `password` handler's button only.
-  target: loginMarkerTargetSchema,
-  label: v.optional(observedText),
-  placeholder: v.optional(observedText),
-  // Text the page ties to a fill-role field with `aria-describedby`, such as a hint that
-  // the field takes three digits; left out when it repeats the label.
-  description: v.optional(observedText),
-  autocomplete: v.optional(v.picklist([...observedAutocompleteTokens, "off"])),
-  group: v.optional(identifier),
-  // Page-declared input constraints. Lengths are UTF-16 code units, as HTML counts them.
-  // The extractor omits a length outside 1-1024 (0, absent or effectively unbounded
-  // values such as 524288), omits both when minlength exceeds maxlength, and omits
-  // lengths on number inputs, where browsers ignore them, so one odd attribute never
-  // rejects the whole observation. Constraints appear only on fill roles. `pattern` is deliberately absent:
-  // evaluating a page-supplied expression locally could hang the caller.
-  maxLength: v.optional(textLength),
-  minLength: v.optional(textLength),
-  inputMode: v.optional(
-    v.picklist(["none", "text", "decimal", "numeric", "tel", "search", "email", "url"]),
+export const observedCandidateSchema = v.pipe(
+  v.strictObject({
+    id: identifier,
+    role: candidateRoleSchema,
+    // A link may be named by its path (`href`) on a signed-in page, as a marker only, and a
+    // button by its accessible name there, as a `password` handler's button only.
+    target: loginMarkerTargetSchema,
+    label: v.optional(observedText),
+    placeholder: v.optional(observedText),
+    // Text the page ties to a fill-role field with `aria-describedby`, such as a hint that
+    // the field takes three digits; left out when it repeats the label.
+    description: v.optional(observedText),
+    autocomplete: v.optional(v.picklist([...observedAutocompleteTokens, "off"])),
+    group: v.optional(identifier),
+    // Page-declared input constraints. Lengths are UTF-16 code units, as HTML counts them.
+    // The extractor omits a length outside 1-1024 (0, absent or effectively unbounded
+    // values such as 524288), omits both when minlength exceeds maxlength, and omits
+    // lengths on number inputs, where browsers ignore them, so one odd attribute never
+    // rejects the whole observation. Constraints appear only on fill roles. `pattern` is deliberately absent:
+    // evaluating a page-supplied expression locally could hang the caller.
+    maxLength: v.optional(textLength),
+    minLength: v.optional(textLength),
+    inputMode: v.optional(
+      v.picklist(["none", "text", "decimal", "numeric", "tel", "search", "email", "url"]),
+    ),
+    // A read-only fill-role field that takes its characters from the page's software
+    // keyboard, located by its container (proposed ADR 0067). The keys and their labels
+    // are never described.
+    keypad: v.optional(loginKeypadTargetSchema),
+  }),
+  v.check(
+    (candidate) =>
+      candidate.keypad === undefined || (fillRoles as readonly string[]).includes(candidate.role),
+    "Only a fill-role field has a keypad",
   ),
-});
+);
 
 /**
  * Proposed sanitized pre-fill observation for inference. It carries structure and

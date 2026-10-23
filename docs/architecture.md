@@ -939,7 +939,9 @@ ms check of [ADR 0010](adr/0010-inference-field-hints.md) follows the last field
 that advances or submits through the page's own event sets the value and sends that one
 `input` or `change` event alone, with no focus, keys or blur that could run its effect
 again. Known limits: the events are not trusted (`isTrusted` is false), so a page that
-checks that, or opens a software keyboard on focus, can still refuse a fill
+checks that, or opens a software keyboard on focus, can still refuse a fill (a
+read-only field on a page's software keyboard is typed by pressing its keys instead, as
+proposed in [ADR 0067](adr/0067-software-keyboard-entry.md))
 (`chrome.debugger` is the only extension API that sends trusted events, and the rule
 above keeps Pateat's own debugger detached); no `compositionstart`, `compositionupdate`
 or `compositionend` events are sent, so a page that takes a value only when an input

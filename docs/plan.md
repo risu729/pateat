@@ -1230,9 +1230,11 @@ items the owner mentioned and gates still open on 2026-10-11.
   not trusted (`isTrusted` is false), which some keypads check
   ([architecture](architecture.md#background-execution)). A page that only offers a
   software keyboard beside an ordinary input, as SMBC Direct does with its software
-  keyboard button, is typed into as usual. The design is still to come: how a recipe
-  names a keypad's keys, keys that change position or show their character only as an
-  image, and keeping the value's characters out of what reaches the service and the AI.
+  keyboard button, is typed into as usual. Proposed and implemented pending the owner's
+  decision ([ADR 0067](adr/0067-software-keyboard-entry.md), proposed): the observation
+  names the keypad's container, never its keys; the executor presses the key that shows
+  each character, looked up again before each press, and stops without submitting when
+  a character has no single key or the field does not take a press.
   A PIN or card code asked in an ordinary input is the
   [phase 2](#phase-2-use-it-and-fix-what-comes-up) item on personal details asked
   during a login.

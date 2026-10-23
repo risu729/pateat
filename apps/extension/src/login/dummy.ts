@@ -40,6 +40,7 @@ const PROBE_PATHS = [
   "/method-choice",
   "/method-choice-named",
   "/shared-input",
+  "/keypad",
 ];
 /** Where every synthetic recipe starts, which a fixture document watches for. */
 export function probeStarts(origin: string): LoginRecipeStart[] {
@@ -188,8 +189,33 @@ function sharedInputRecipe(origin: string, path: string): LoginRecipe {
     maxSubmissions: 1,
   });
 }
+/**
+ * A read-only password input that takes its characters only from the page's shuffled
+ * software keyboard in `#keypad` (proposed ADR 0067).
+ */
+function keypadRecipe(origin: string, path: string): LoginRecipe {
+  return parseLoginRecipe({
+    version: 1,
+    id: "demo-keypad",
+    revision: 1,
+    origin,
+    slots: ["password"],
+    steps: [
+      {
+        kind: "fill",
+        path,
+        fields: [{ slot: "password", target: target("password"), keypad: target("keypad") }],
+      },
+      { kind: "click", path, target: target("login"), purpose: "submit" },
+    ],
+    completion: [{ target: target("authenticated") }],
+    rejection: target("rejected"),
+    maxSubmissions: 1,
+  });
+}
 export function probeRecipe(origin: string, path: string): LoginRecipe | undefined {
   if (!PROBE_PATHS.includes(path)) return undefined;
+  if (path === "/keypad") return keypadRecipe(origin, path);
   if (path === "/method-choice") return methodChoiceRecipe(origin, path);
   if (path === "/method-choice-named") return namedMethodChoiceRecipe(origin, path);
   if (path === "/shared-input") return sharedInputRecipe(origin, path);

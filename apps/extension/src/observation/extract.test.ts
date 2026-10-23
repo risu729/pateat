@@ -1728,6 +1728,51 @@ describe("extractLoginObservation", () => {
     ).toEqual([false, "unfillable-field"]);
   });
 
+  it("describes a read-only field beside a software keyboard with the keypad's locator and leaves its keys out (proposed ADR 0067)", () => {
+    const keys = (characters: string) =>
+      [...characters].map((character) => `<input type="button" value="${character}">`).join("");
+    page(
+      `<form id="f"><label>暗証番号<input id="pin" type="password" readonly></label>
+      <div id="soft-keys" hidden><div>${keys("７３９１０２８４６５")}</div><button type="button">クリア</button></div>
+      <button id="go" type="button">ログイン</button></form>`,
+    );
+    const observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(summary(observation)).toEqual([
+      {
+        role: "password",
+        target: { by: "id", value: "pin" },
+        label: "暗証番号",
+        keypad: { by: "id", value: "soft-keys" },
+        group: "f1",
+      },
+      { role: "button", target: { by: "id", value: "go" }, label: "ログイン", group: "f1" },
+    ]);
+    // A shown keypad's keys are left out too, and its locator may be an ancestor's test ID.
+    page(
+      `<form id="f"><input id="pin" type="password" readonly>
+      <section data-testid="pad"><div>${keys("0123456789")}</div></section>
+      <button id="go" type="button">Log in</button></form>`,
+    );
+    expect(
+      summary(observe()).map((candidate) => [candidate.target.value, candidate.keypad]),
+    ).toEqual([
+      ["pin", { by: "test-id", value: "pad" }],
+      ["go", undefined],
+    ]);
+    // Without a keypad, or without a locator for it or an ancestor below the body, a
+    // read-only field is still unfillable.
+    for (const html of [
+      `<input id="pin" type="password" readonly><div id="pad">${keys("012345678")}</div>`,
+      `<input id="pin" type="password" readonly><div>${keys("0123456789")}</div>`,
+      `<input id="pin" type="password" readonly disabled><div id="pad">${keys("0123456789")}</div>`,
+    ]) {
+      page(`<form>${html}<button id="go" type="button">Log in</button></form>`);
+      const result = extractLoginObservation();
+      expect(result.ok && result.observation.complete, html).toBe(false);
+    }
+  });
+
   it("leaves out a field the continued recipe already fills when it is read-only or disabled", () => {
     // An email address shown again, read-only, beside the password (ADR 0018).
     const email = { by: "id" as const, value: "email" };

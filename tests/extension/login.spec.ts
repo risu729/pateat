@@ -728,6 +728,68 @@ test("fills the second identifier set when the account maps only that one (ADR 0
   }
 });
 
+test("types a read-only password on the page's shuffled software keyboard, one press per character (proposed ADR 0067)", async () => {
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, _worker, id) => {
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin);
+      const page = await context.newPage();
+      await page.goto(`${fixture.origin}/keypad`);
+      await expect(page.locator("#authenticated")).toBeVisible();
+      const evidence = await page.evaluate(() => ({
+        presses: Number(sessionStorage.getItem("keypadPresses")),
+        foreignWrites: Number(sessionStorage.getItem("foreignWrites")),
+        submitClicks: Number(sessionStorage.getItem("submitClicks") || 0),
+        passwordMatched: sessionStorage.getItem("passwordMatched"),
+      }));
+      expect(evidence).toEqual({
+        presses: [..."Pateat-synthetic-only!"].length,
+        foreignWrites: 0,
+        submitClicks: 1,
+        passwordMatched: "true",
+      });
+      await expect(page.locator("#password")).toHaveValue("●".repeat(22));
+      await expect
+        .poll(async () =>
+          JSON.stringify(await send(options, { version: 1, type: "login.probe.status" })),
+        )
+        .toContain('"authenticated"');
+      const status = JSON.stringify(
+        await send(options, { version: 1, type: "login.probe.status" }),
+      );
+      expect(status).toContain('"recipeId":"demo-keypad"');
+      expect(status).not.toContain("Pateat-synthetic-only!");
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("a software keyboard without a key for a character of the value gets no press and no submission (proposed ADR 0067)", async () => {
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, _worker, id) => {
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin);
+      const page = await context.newPage();
+      await page.goto(`${fixture.origin}/keypad?missing=!`);
+      await expect
+        .poll(async () =>
+          JSON.stringify(await send(options, { version: 1, type: "login.probe.status" })),
+        )
+        .toContain("keypad-key-missing");
+      // Cover the click the attempt would have made next.
+      await page.waitForTimeout(500);
+      expect(await page.evaluate(() => Number(sessionStorage.getItem("keypadPresses")))).toBe(0);
+      await expect(page.locator("#password")).toHaveValue("");
+      expect(await clicks(page)).toBe(0);
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
 for (const [name, query] of [
   ["in place", ""],
   ["after a pushState URL change", "?push=1"],

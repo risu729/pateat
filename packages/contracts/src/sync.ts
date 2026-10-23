@@ -226,6 +226,8 @@ export const loginOutcomeCauseSchema = v.picklist([
   "code-watch-failed",
   "form-off-origin",
   "form-destination-unchecked",
+  "keypad-missing",
+  "keypad-key-missing",
   // Flags of the attempt itself.
   "settled",
   "unconfirmed",

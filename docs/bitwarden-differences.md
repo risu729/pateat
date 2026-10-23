@@ -307,3 +307,15 @@ Pateat's side is [ADR 0075](adr/0075-vault-lock-and-timeout.md) and
 - Log out keeps Pateat's encrypted vault cache and forgets only the unlock key and the
   sync sign-in, so the connection and its field settings stay; the official logout
   removes the account from the extension.
+
+## Software keyboards
+
+Proposed, pending the owner's decision
+([ADR 0067](adr/0067-software-keyboard-entry.md)).
+
+- The official extension never fills a read-only or disabled field
+  ([insert-autofill-content.service.ts](https://github.com/bitwarden/clients/blob/abccf1e342dccba06a3cc635cd4c706defa64a32/apps/browser/src/autofill/services/insert-autofill-content.service.ts#L208-L212))
+  and has no rule for a page's own keys. Pateat types a read-only field whose recipe
+  names the page's keypad by pressing the key that shows each character, and stops
+  without submitting when a character has no single key or the field does not take a
+  press. Such pages would otherwise always be left to the person.

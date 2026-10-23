@@ -96,6 +96,11 @@ export const loginReadinessSchema = v.strictObject({
   require: v.picklist(["writable", "clickable", "present"]),
   targets: v.pipe(v.array(loginTargetSchema), v.maxLength(20)),
   /**
+   * Those of a `fill` step's `targets` that are entered on the page's software keyboard
+   * (proposed ADR 0067): ready when shown and enabled, read-only or not.
+   */
+  keypad: v.optional(v.pipe(v.array(loginTargetSchema), v.minLength(1), v.maxLength(20))),
+  /**
    * A chooser recipe's start (ADR 0028): ready on its path, without a sign-in input, once
    * one of `targets` shows or the page lists an account by its email, masked or not.
    */
@@ -115,6 +120,10 @@ export function loginReadiness(step: LoginStep): LoginReadiness {
       : step.kind === "click" || (step.kind === "assert" && step.present)
         ? [step.target]
         : [];
+  const keypad =
+    step.kind === "fill"
+      ? step.fields.flatMap((field) => (field.keypad ? [field.target] : []))
+      : [];
   return {
     path: step.path,
     // Enter goes into a field (ADR 0064).
@@ -125,6 +134,7 @@ export function loginReadiness(step: LoginStep): LoginReadiness {
           ? "clickable"
           : "present",
     targets,
+    ...(keypad.length ? { keypad } : {}),
   };
 }
 /**
@@ -620,6 +630,9 @@ export const executionResultSchema = v.strictObject({
   mutation: v.picklist(["none", "possible"]),
   /**
    * `value-mismatch`: a value does not fit its input, and nothing was filled.
+   * `keypad-missing`: a keypad field's keypad is not on the page; `keypad-key-missing`: it
+   * showed no key, or a character of the value had no key or several, so no further key
+   * was pressed (proposed ADR 0067).
    * `fill-rejected`: after a preparing fill the page marked a filled input invalid or
    * showed a new alert (ADR 0010), or while typing it kept a character out so the input
    * does not hold the value.
@@ -674,6 +687,8 @@ export const executionResultSchema = v.strictObject({
       "code-watch-failed",
       "form-off-origin",
       "form-destination-unchecked",
+      "keypad-missing",
+      "keypad-key-missing",
     ]),
   ),
   /**

@@ -160,6 +160,34 @@ describe("declarative login boundaries", () => {
     expect(parseLoginRecipe(recipe())).toEqual(recipe());
     expect(parseLoginAccountBinding(binding())).toEqual(binding());
   });
+  it("names a keypad only by its container's id or test ID, on a preparing fill (proposed ADR 0067)", () => {
+    const withKeypad = (keypad: unknown, extra: object = {}) => {
+      const value = recipe();
+      value.steps[2] = {
+        kind: "fill",
+        effect: "prepare",
+        path: "/password",
+        fields: [{ slot: "password", target: { by: "id", value: "password" }, keypad }],
+        ...extra,
+      } as LoginRecipe["steps"][number];
+      return () => parseLoginRecipe(value);
+    };
+    expect(withKeypad({ by: "id", value: "soft-keys" })().steps[2]).toMatchObject({
+      fields: [{ keypad: { by: "id", value: "soft-keys" } }],
+    });
+    expect(withKeypad({ by: "test-id", value: "pad" })).not.toThrow();
+    for (const keypad of [
+      { by: "name", value: "pad" },
+      { by: "text", value: "1" },
+      { by: "label", value: "Keys" },
+      { by: "id", value: "two words" },
+    ])
+      expect(withKeypad(keypad), JSON.stringify(keypad)).toThrow();
+    // An effectful fill's one event never goes through a keypad.
+    expect(
+      withKeypad({ by: "id", value: "soft-keys" }, { effect: "submit", event: "input" }),
+    ).toThrow();
+  });
   it("bounds the elements a completion requires to be absent", () => {
     const base = recipe();
     const absent = (count: number) =>

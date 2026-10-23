@@ -432,6 +432,80 @@ export async function startLoginFixture(
         });`,
         ),
       );
+    } else if (path === "/keypad") {
+      // A read-only password input that takes its characters only from a software keyboard
+      // that opens when the input is pressed (proposed ADR 0067). Its keys change order on
+      // load and after every press, show digits in full-width forms, and come as buttons,
+      // input buttons and links; an image key without `alt` types nothing. Each press adds
+      // a mask character to the input and the character to the page's own value. Keys only
+      // count a press that comes with `pointerdown`, as a person's does. `?missing=X` leaves
+      // out the key for X. Typed input is ignored, and the page records any change to the
+      // input's value that it did not make itself.
+      const missing = fixtureUrl.searchParams.get("missing") ?? "";
+      const characters = [
+        ..."ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-!@",
+      ].filter((character) => character !== missing);
+      response.end(
+        html(
+          '<h1>Synthetic software keyboard</h1><form><label>Password<input id="password" type="password" readonly></label><div id="keypad" hidden><div class="keys"></div><button type="button" id="keypad-clear">Clear</button><button type="button" class="key"><img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" width="20" height="20"></button></div><button id="login" type="button">Log in</button></form>',
+          `const characters = ${JSON.stringify(characters)};
+          const input = document.getElementById('password');
+          const keypad = document.getElementById('keypad');
+          const keys = keypad.querySelector('.keys');
+          let typed = '';
+          let armed = null;
+          const full = (character) => /[0-9]/.test(character) ? String.fromCharCode(character.charCodeAt(0) + 0xfee0) : character;
+          function render() {
+            const order = characters.slice();
+            for (let i = order.length - 1; i > 0; i--) {
+              const j = Math.floor(Math.random() * (i + 1));
+              [order[i], order[j]] = [order[j], order[i]];
+            }
+            keys.replaceChildren(...order.map((character, index) => {
+              let key;
+              if (/[0-9]/.test(character)) {
+                key = document.createElement('input');
+                key.type = 'button';
+                key.value = full(character);
+              } else if (index % 2) {
+                key = document.createElement('a');
+                key.href = '#';
+                key.textContent = character;
+              } else {
+                key = document.createElement('button');
+                key.type = 'button';
+                key.textContent = character;
+              }
+              key.dataset.character = character;
+              key.className = 'key';
+              return key;
+            }));
+          }
+          render();
+          sessionStorage.setItem('keypadPresses', '0');
+          sessionStorage.setItem('foreignWrites', '0');
+          input.addEventListener('click', () => { keypad.hidden = false; });
+          input.addEventListener('input', () => sessionStorage.setItem('foreignWrites', String(Number(sessionStorage.getItem('foreignWrites')) + 1)));
+          keypad.addEventListener('pointerdown', (event) => { armed = event.target.closest('.key'); });
+          keypad.addEventListener('click', (event) => {
+            event.preventDefault();
+            const key = event.target.closest('.key');
+            if (!key || key !== armed || !key.dataset.character) return;
+            armed = null;
+            typed += key.dataset.character;
+            input.value = '\u25cf'.repeat(typed.length);
+            sessionStorage.setItem('keypadPresses', String(Number(sessionStorage.getItem('keypadPresses')) + 1));
+            render();
+          });
+          document.getElementById('keypad-clear').addEventListener('click', () => { typed = ''; input.value = ''; });
+          document.getElementById('login').addEventListener('click', () => {
+          sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
+          sessionStorage.setItem('passwordMatched', String(typed === ${JSON.stringify(password)}));
+          document.body.insertAdjacentHTML('beforeend', typed === ${JSON.stringify(password)} ? '<p id="authenticated">Authenticated</p>' : '<p id="rejected">Credentials rejected</p>');
+          updateFixtureStatus();
+        });`,
+        ),
+      );
     } else if (path === "/variants") {
       // Two identifier sets for one sign-in (ADR 0027): a contract number, or a branch and
       // account number, each with the password. The demo account maps only the second.

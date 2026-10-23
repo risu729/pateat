@@ -4,11 +4,13 @@ import {
   registersPasskey,
   loginAutocompleteTokens,
   loginObservationSchema,
+  loginKeypadTargetSchema,
   loginLinkTargetSchema,
   loginTargetSchema,
   namesPasswordControl,
   observedAutocompleteTokens,
   type LoginObservation,
+  type LoginKeypadTarget,
   type LoginMarkerTarget,
   type LoginTarget,
   type ObservedCandidate,
@@ -17,6 +19,7 @@ import * as v from "valibot";
 import { acceptsSecret, shortNumericInput } from "../login/inputs";
 import type { observationGaps } from "../login/wire";
 import { splitCodeInputs } from "../page/code-submission";
+import { findKeypad, keypadKeys } from "../page/keypad";
 import { autocompleteTokens, findTargets, linkPath, namedControls } from "../page/targets";
 import { observedPath, redactsPath, tokenSegment } from "./path";
 import {
@@ -1090,15 +1093,22 @@ const actionControl = (element: HTMLElement) =>
   (element instanceof HTMLInputElement && actionTypes.has(element.type)) ||
   isScriptButton(element);
 
-function describe(element: Element): Found | undefined {
+/**
+ * Describes one element. With `keypad`, the page's software keyboard (proposed ADR 0067),
+ * a visible enabled read-only field is a fill candidate entered on that keypad instead of
+ * a field that cannot be filled.
+ */
+function describe(element: Element, keypad?: LoginKeypadTarget): Found | undefined {
   if (!(element instanceof HTMLElement)) return undefined;
   // An action control the page keeps `inert` itself until its fields are filled stays a
   // candidate, as a disabled one does (`readOwnInert`, #853).
   const present = actionControl(element)
     ? readOwnInert(element, () => presence(element))
     : presence(element);
+  let keyed = false;
   if (element instanceof HTMLInputElement && fillTypes[element.type] && present !== "absent") {
-    if (present === "faint" || element.readOnly || element.disabled)
+    keyed = keypad !== undefined && present === "visible" && element.readOnly && !element.disabled;
+    if (!keyed && (present === "faint" || element.readOnly || element.disabled))
       return { kind: "unsupported", form: element.form, field: element, element };
   } else if (present !== "visible") return undefined;
   if (element instanceof HTMLInputElement) {
@@ -1123,6 +1133,7 @@ function describe(element: Element): Found | undefined {
           ...(description ? { description } : {}),
           ...(hint ? { autocomplete: hint } : {}),
           ...constraints(element, fillRole),
+          ...(keyed && keypad ? { keypad } : {}),
         },
       };
     }
@@ -1258,8 +1269,38 @@ function leftOutInputs(document: Document): boolean {
 }
 
 /** Every element the page shows that `describe` accepts, in document order. */
-const describeAll = (document: Document) =>
-  [...document.querySelectorAll(observed)].map(describe).filter((entry) => entry !== undefined);
+const describeAll = (document: Document, keypad?: LoginKeypadTarget) =>
+  [...document.querySelectorAll(observed)]
+    .map((element) => describe(element, keypad))
+    .filter((entry) => entry !== undefined);
+
+/**
+ * The locator of the page's software keyboard (`findKeypad`, proposed ADR 0067): the `id`
+ * or `data-testid` of the keypad or its nearest ancestor below the body that names it
+ * alone in the document, skipping an ID React generated or another load may change, and,
+ * with `tokens`, a value that may be a token.
+ */
+function keypadTarget(
+  container: Element,
+  index: LocatorIndex,
+  tokens: boolean,
+): LoginKeypadTarget | undefined {
+  const { body } = container.ownerDocument;
+  for (let node: Element | null = container; node && node !== body; node = node.parentElement)
+    for (const [by, attribute] of [
+      ["id", "id"],
+      ["test-id", "data-testid"],
+    ] as const) {
+      const value = node.getAttribute(attribute);
+      if (value === null) continue;
+      if (attribute === "id" && (generatedId.test(value) || changingId(value))) continue;
+      if (tokens && tokenSegment(value)) continue;
+      const target = { by, value };
+      if (v.is(loginKeypadTargetSchema, target) && index.get(attribute)!.get(value) === 1)
+        return target;
+    }
+  return undefined;
+}
 
 /**
  * Why a page's description found no field, as a log code of codes only (ADR 0019): how
@@ -1425,16 +1466,28 @@ export function extractLoginObservation(
         index.get(attribute)!.get(target.value) === 1
       );
     });
+  // A page's software keyboard (proposed ADR 0067): its read-only fields are described
+  // with its locator, and its keys are left out, as no step presses one by name.
+  const container = findKeypad(document);
+  const keypad = container && keypadTarget(container, index, tokens);
+  const keys = new Set<Element>(container && keypad ? keypadKeys(container) : []);
   // A field both faint and disabled takes input from no one, neither the person nor a
   // widget drawn over it, so a login page leaves it out as a decoy; Bitwarden never picks
   // a disabled field as the username or password field either. The signed-in page still
   // sees it, as a code field may wait there for a timer (`describeSignedIn`).
-  const found = describeAll(document).filter(
+  const found = describeAll(document, keypad).filter(
     (entry) =>
       !(
         entry.kind === "unsupported" &&
         entry.field &&
         (filled(entry.field) || (entry.field.disabled && presence(entry.field) === "faint"))
+      ) &&
+      !(
+        entry.kind === "candidate" &&
+        ((entry.draft.keypad &&
+          entry.draft.element instanceof HTMLInputElement &&
+          filled(entry.draft.element)) ||
+          keys.has(entry.draft.element))
       ),
   );
   const fieldForms = new Set(

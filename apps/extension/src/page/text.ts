@@ -349,6 +349,17 @@ export function collapseText(raw: string): string {
     .trim();
 }
 
+/**
+ * `text` with its full-width and half-width forms (U+3000 and U+FF01 to U+FFEF) folded
+ * as Unicode NFKC folds them, and composed, so `ｶﾞ`, `ガ` and `１Ａ`, `1A` fold alike.
+ * Other compatibility characters, such as `①` or `ﬁ`, stay as they are.
+ */
+export function widthFolded(text: string): string {
+  return text
+    .replace(/[\u3000\uFF01-\uFFEF]/gu, (character) => character.normalize("NFKC"))
+    .normalize("NFC");
+}
+
 const buttonInputTypes = new Set(["submit", "button", "image"]);
 const buttonTextLimit = 120;
 

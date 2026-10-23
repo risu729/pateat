@@ -179,8 +179,27 @@ export const loginMarkerTargetSchema = v.variant("by", [
   ...loginTargetSchema.options,
   loginLinkTargetSchema,
 ]);
+/**
+ * The element that holds a page's software keyboard (proposed ADR 0067): an `id` or
+ * `data-testid` locator of the keypad's container. A fill field that names one takes its
+ * characters only from the keypad's keys, one press per character, and may be read-only.
+ * The recipe carries no key, label or layout: the executor reads the keys on the page.
+ */
+export const loginKeypadTargetSchema = v.variant("by", [
+  v.strictObject({
+    by: v.literal("id"),
+    value: loginAttributeTargetSchema.options[0].entries.value,
+  }),
+  loginAttributeTargetSchema.options[1],
+]);
 const fields = v.pipe(
-  v.array(v.strictObject({ slot: recipeSlotIdSchema, target: loginFieldTargetSchema })),
+  v.array(
+    v.strictObject({
+      slot: recipeSlotIdSchema,
+      target: loginFieldTargetSchema,
+      keypad: v.optional(loginKeypadTargetSchema),
+    }),
+  ),
   v.minLength(1),
   v.maxLength(20),
   v.check((entries) => unique(entries.map((entry) => entry.slot)), "Duplicate fill slots"),
@@ -204,6 +223,10 @@ export const loginStepSchema = v.variant("kind", [
           ? step.event === undefined
           : step.fields.length === 1 && step.event !== undefined,
       "Effectful fill requires one field and one trigger event",
+    ),
+    v.check(
+      (step) => step.effect === "prepare" || step.fields.every((field) => !field.keypad),
+      "A keypad field is entered by a preparing fill",
     ),
   ),
   v.pipe(
@@ -1217,6 +1240,7 @@ export const sameLoginTarget = (left: LoginMarkerTarget, right: LoginMarkerTarge
   left.by === right.by && left.value === right.value;
 export type LoginAttributeTarget = v.InferOutput<typeof loginAttributeTargetSchema>;
 export type LoginFieldTarget = v.InferOutput<typeof loginFieldTargetSchema>;
+export type LoginKeypadTarget = v.InferOutput<typeof loginKeypadTargetSchema>;
 export type LoginStep = v.InferOutput<typeof loginStepSchema>;
 export type LoginEffect = "prepare" | "advance" | "submit";
 export function loginStepEffect(step: LoginStep): LoginEffect | undefined {
