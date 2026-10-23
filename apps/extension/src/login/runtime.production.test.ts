@@ -28525,12 +28525,13 @@ describe("a login that starts at a later step its page shows (ADR 0049)", () => 
         };
         const { h, reports } = laid(layouts);
         // A resumed login asks for its own layout by ID.
-        h.recipes.recipe.mockImplementation(async (_origin, path, id, layout) =>
-          id === undefined
-            ? path === "/signin/id"
-              ? layouts.at(-1)
-              : undefined
-            : layouts.find((entry) => entry.layout === layout),
+        h.recipes.recipe.mockImplementation(
+          async (_origin: string, path: string, id?: string, layout?: string) =>
+            id === undefined
+              ? path === "/signin/id"
+                ? layouts.at(-1)
+                : undefined
+              : layouts.find((entry) => entry.layout === layout),
         );
         return { h, reports };
       };
