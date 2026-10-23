@@ -92,7 +92,7 @@ async function verify(options: Page, code: string) {
   await options.getByRole("button", { name: "Verify code", exact: true }).click();
 }
 
-const ready = "Vault verified and copied to this device. Check the automatic unlock line below.";
+const ready = "Vault verified, unlocked and copied to this device.";
 
 test("signs in over http://localhost and lists every item, an imported passkey's included", async () => {
   const account = await seedAccount();

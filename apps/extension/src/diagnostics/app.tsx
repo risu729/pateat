@@ -27,7 +27,7 @@ import {
   syncSignIn,
 } from "./labels";
 import { DEBUG_STAYS_ON, DEBUG_UNTIL_TURNED_OFF, LOG_RETENTION_MS } from "./log";
-import { formatReport, shortRevision, type BrowserInfo } from "./report";
+import { formatReport, shortRevision, vaultTimeoutText, type BrowserInfo } from "./report";
 import type {
   DiagnosticsCheck,
   DiagnosticsResponse,
@@ -287,6 +287,11 @@ function Local({ status }: { status: DiagnosticsStatus }) {
                 bindings: status.settings.bindings,
               },
             )}
+          </Row>
+        )}
+        {status.vaultTimeout && (
+          <Row term="Vault timeout">
+            {vaultTimeoutText(status.vaultTimeout, (value) => diagnosticsCode(value, t))}
           </Row>
         )}
         <Row term="storage.local">

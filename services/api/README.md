@@ -41,9 +41,10 @@ and `generation.ts`.
 | `POST /v1/recipes/:recipeId/page-sample` | Log a repeat login's signed-in page for evaluation, without a model call; 201 when kept, 204 when a sample of the recipe and branch is from the last 30 days |
 | `GET /v1/device` | The calling device's paired time, the owner's live recipe count and settings revision, and whether recipe generation would run now, for the diagnostics page |
 | `DELETE /v1/device` | Revoke the calling device's own credential |
+| `POST /v1/device/problems` | Keep the calling device's `warn` and `error` local log lines, and `info` lines that say why Pateat did nothing, as it lets them leave (ADR 0066), each line checked on its own; 204, or 429 past the owner's 2,000 lines in 24 hours |
 | `POST /pair` | Create a device for the signed-in owner from an allowed extension; 201 with the credential, once |
 | `GET /pair/signed-in` | The page the extension opens when pairing needs a sign-in; it asks the user to go back to Pateat's settings |
-| `GET /manage/dashboard`, `/manage`, `/manage/sites`, `/manage/sites/:scheme/:host`, `/manage/claude`, `/manage/request-log` | Owner web UI (React app): the dashboard of login and request speed, counts, spend and failures; devices; the sites list with excluded sites, unreadable and revoked recipes; one origin's default account, recipes and bindings; Claude credentials, the connection test and each role's models; the request log with Delete all |
+| `GET /manage/dashboard`, `/manage`, `/manage/sites`, `/manage/sites/:scheme/:host`, `/manage/claude`, `/manage/problems`, `/manage/request-log` | Owner web UI (React app): the dashboard of login and request speed, counts, spend and failures; devices; the sites list with excluded sites, unreadable and revoked recipes; one origin's default account, recipes and bindings; Claude credentials, the connection test and each role's models; the newest problem lines devices sent; the request log with Delete all |
 | `GET /manage/assets/*` | The web UI's built script, styles and notices |
 | `GET /manage/api/dashboard?range=24h\|7d\|30d` | The dashboard's aggregates over the range ending now (default `7d`; another value is 400 `bad_request`), computed in the Worker from only the owner's rows: login time (total less the person's) of the signed-in login records, apart for those that waited on the service, with the median of each part (network, the rest of the service, waiting for the site, the rest, and the person apart) and per site and extension build; model, token, pre-model and server times per role, site and build (of requests that called the model; a request answered without a call counts only as a request and, unless its outcome is `recipe`, a failure; a signed-in page sample, outcome `sampled`, is left out), the median login and model time per UTC day (null on a day without one), the 10 slowest requests, counts, every login's result with how many signed in (in total and per day), the first-login result codes apart, tokens, this UTC day's and month's spend with the limits, active recipes, recipes generated, and failures by code with their latest 20; every set of durations has `n`, and below 20 its values instead of a p90 |
 | `GET /manage/api/devices` | The owner's devices with their last use, newest first |
@@ -54,8 +55,9 @@ and `generation.ts`.
 | `POST /manage/api/recipes/:recipeId/revoke` | Revoke one recipe if `expectedRevision` is its head; otherwise 409 with the current head |
 | `GET /manage/api/models` | The owner's model choices per role (`config`, the defaults while `saved` is false) and the models they may name (`models`): from the Models API with the owner's credential (`catalog: "models-api"`), else the pricing page (`"pricing"`), each with its efforts, rates and fast mode state (`none`, `available`, `failing`) |
 | `PUT /manage/api/models` | Save `{ version: 1, config }`; a choice the list does not offer (a model, effort or speed, or fast mode while failing) answers 400 `model_unavailable` |
-| `GET /manage/api/request-log` | How many request log rows (`entries`), login result codes (`outcomes`) and login records (`logins`) the owner has, and the oldest one's time (`oldestAt`, null when none) |
-| `DELETE /manage/api/request-log` | Delete every request log row, login result code and login record of the owner, and nothing else; answers how many (`deleted`, `outcomes`, `logins`) |
+| `GET /manage/api/request-log` | How many request log rows (`entries`), login result codes (`outcomes`), login records (`logins`) and problem lines (`problems`) the owner has, and the oldest one's time (`oldestAt`, null when none) |
+| `DELETE /manage/api/request-log` | Delete every request log row, login result code, login record and problem line of the owner, and nothing else; answers how many (`deleted`, `outcomes`, `logins`, `problems`) |
+| `GET /manage/api/problems` | The owner's newest 200 problem lines, newest first, with each device's label (ADR 0066) |
 | `GET /manage/api/claude` | The Claude Console values for this owner and their saved WIF identifiers; 404 `not_paired` without a paired device |
 | `PUT /manage/api/claude` | Replace the owner's four WIF identifiers |
 | `POST /manage/api/claude/test` | Exchange one assertion and return only the outcome, never the token |
@@ -571,6 +573,43 @@ logins and the logins that stop before an item's missing password, which send no
 head's `last_used_at` to the service's time when the head is active and the revision is
 at most its head, and answers 204; a recipe the owner does not hold, a revision above
 its head or a revoked recipe answers 404. Nothing else is stored.
+
+`POST /v1/device/problems` takes `{ version: 1, extensionBuild, logId, entries }` with 1
+to 100 entries `{ seq, time, level, event, fields }`: the calling device's `warn` and
+`error` local log lines, and `info` lines that say why Pateat did nothing
+(`PROBLEM_INFO_LINES`), it has not sent yet
+([ADR 0066](../../docs/adr/0066-problem-lines-sent-to-the-service.md)).
+`extensionBuild` is the build that wrote every line, `logId` the device log's random ID
+(32 hex digits), `seq` the local log's key, `time` the device's, `level` `warn`, `error`
+or, for an event and outcome of `PROBLEM_INFO_LINES`, `info`, `event` a log event name
+of `PROBLEM_EVENT_FIELDS` (`packages/contracts/src/problems.ts`), and `fields` only the
+fields that event lists, each of its kind (`PROBLEM_FIELD_KINDS`): codes, error names,
+counts, flags, builds, recipe IDs, origins (a configured site's or an `origin:`
+pseudonym), RP IDs, script positions and page paths. No string but a stack holds
+whitespace, none `@`, `?` or `#`, only an origin `://`, and no path `;` or `=`, so free
+text, a URL with a query or parameters or an email address does not pass. Each entry is
+checked on its own (`problemReportEnvelopeSchema`): one that does not pass is left out
+and the others are kept, so a newer extension's line an older service does not know
+costs only that line; a report with no entry that passes, or whose envelope does not
+pass, answers 400, and a body over 64 KiB answers 413. Each kept line is one
+`problem_log` row: the owner, the device, the log ID, `seq`, the build, the level, the
+event, the fields as JSON, the device's time and the service's own time. A line whose
+device, log ID and `seq` are already stored is ignored and not counted, so a retry
+changes nothing, and a log made again on the device never collides with the old one's
+rows. A report whose new lines would take the owner past 2,000 lines received in the
+last 24 hours is refused whole with 429 and `Retry-After: 3600`; the count is read
+before the insert, so two reports at once may pass it by up to one report's lines. Rows
+are kept a year, like the request log (deleted with its expired rows, also on each
+report), and go with the request log's Delete all.
+
+A Claude session reads them through the read-only D1 query tool, for example:
+
+```sql
+SELECT datetime(logged_at / 1000, 'unixepoch') AS at, event, level,
+  json_extract(fields, '$.origin') AS origin, json_extract(fields, '$.outcome') AS outcome,
+  fields, extension_build
+FROM problem_log ORDER BY created_at DESC, seq DESC LIMIT 50;
+```
 
 ## Schema and tests
 

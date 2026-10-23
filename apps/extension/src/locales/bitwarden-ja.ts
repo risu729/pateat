@@ -8,8 +8,6 @@ export const bitwardenJa = {
     "Pateat には Bitwarden サーバーへのアクセス許可がありません。もう一度接続または同期し、Chrome で確認されたらアクセスを許可してください。",
   "Sign in again to sync. The saved local vault can still unlock independently.":
     "同期するには再ログインしてください。保存済みのローカル保管庫は、同期とは別に引き続きロックを解除できます。",
-  "Automatic unlock is off for this connection, and Sync needs it. To turn it back on, sign in again with Enable automatic unlock on this device checked.":
-    "この接続では自動ロック解除がオフのため、同期できません。オンに戻すには、「このデバイスで自動ロック解除を有効にする」を選択して再ログインしてください。",
   "The vault is locked. Refresh to check recovery options.":
     "保管庫がロックされています。復旧方法を確認するには、更新してください。",
   "The operation reached a resource limit. Refresh to check the current vault status before trying again.":
@@ -46,7 +44,6 @@ export const bitwardenJa = {
   "Vault synced {{time}}": "保管庫の同期日時：{{time}}",
   "at an unknown time": "日時不明",
   "Automatic unlock on": "自動ロック解除は有効です",
-  "Automatic unlock off": "自動ロック解除は無効です",
   "Automatic unlock unknown": "自動ロック解除の状態は不明です",
   "Review changed fields in {{item}}": "{{item}} の変更されたフィールドを確認",
   "All current custom fields start excluded. Save this review before the item can be used; other saved exclusions stay in place.":
@@ -86,8 +83,6 @@ export const bitwardenJa = {
     "メールで受信した新しいデバイスの確認コードを入力してください。",
   "Vault accepted. {{count}} item needs its field settings reviewed before use.":
     "保管庫を受け付けました。{{count}} 件のアイテムは使用前にフィールド設定の確認が必要です。",
-  "Vault verified and copied to this device. Check the automatic unlock line below.":
-    "保管庫を検証し、このデバイスにコピーしました。以下の自動ロック解除の行を確認してください。",
   "Setup is incomplete: Bitwarden asks for a step Pateat does not support ({{reason}}).":
     "設定は未完了です：Pateat が対応していない手順を Bitwarden が求めています（{{reason}}）。",
   "Setup cancelled.": "設定をキャンセルしました。",
@@ -95,8 +90,6 @@ export const bitwardenJa = {
     "同期用のログイン情報をこのデバイスから削除しました。ほかのセッションからはログアウトしません。ローカル保管庫のロック解除は引き続き利用できます。",
   "Connection deleted from this device, with its local vault copy, unlock key and sync sign-in. This does not sign out other sessions. Saved settings that referred to it now show it as unavailable.":
     "接続、ローカル保管庫のコピー、ロック解除キー、同期用のログイン情報をこのデバイスから削除しました。ほかのセッションからはログアウトしません。この接続を参照する保存済みの設定は、利用不可と表示されます。",
-  "Automatic unlock is off. To turn it back on, sign in again with Enable automatic unlock on this device checked.":
-    "自動ロック解除はオフです。オンに戻すには、「このデバイスで自動ロック解除を有効にする」を選択して再ログインしてください。",
   "Pateat could not confirm the result. Refresh, then reload saved settings.":
     "結果を確認できませんでした。更新してから、保存済みの設定を再読み込みしてください。",
   "Enter a name, a valid email and the master password. A self-hosted server address is an HTTPS address such as https://vault.example.com, or HTTP on localhost or 127.0.0.1, with no path, credentials, query or fragment.":
@@ -110,8 +103,6 @@ export const bitwardenJa = {
   "Syncing {{name}}…": "{{name}} を同期しています…",
   "Chrome did not grant access to the Bitwarden server, so nothing was synced.":
     "Chrome で Bitwarden サーバーへのアクセスが許可されなかったため、同期していません。",
-  "Enter the master password to sign in again. Automatic unlock stays as it is unless you check Enable automatic unlock on this device.":
-    "再ログインするにはマスターパスワードを入力してください。「このデバイスで自動ロック解除を有効にする」を選択しない限り、自動ロック解除の設定は変わりません。",
   "Cancel setup": "設定をキャンセル",
   Bitwarden: "Bitwarden",
   "Stopped. Refresh to see the current state.":
@@ -127,8 +118,6 @@ export const bitwardenJa = {
   "More for {{name}}": "{{name}} のその他の操作",
   "{{name}}: Sync": "{{name}}：同期",
   "{{name}}: Sign in again": "{{name}}：再ログイン",
-  "{{name}}: Turn off automatic unlock": "{{name}}：自動ロック解除をオフにする",
-  "Turn off automatic unlock": "自動ロック解除をオフにする",
   "{{name}}: Forget sync sign-in": "{{name}}：同期用のログイン情報を削除",
   "Forget sync sign-in": "同期用のログイン情報を削除",
   "{{name}}: Delete connection": "{{name}}：接続を削除",
@@ -163,9 +152,6 @@ export const bitwardenJa = {
   Personal: "個人用",
   Email: "メールアドレス",
   "Master password": "マスターパスワード",
-  "Enable automatic unlock on this device": "このデバイスで自動ロック解除を有効にする",
-  "The master password and verification codes are not saved. An unlock key, an encrypted vault copy and a sync sign-in stay on this device.":
-    "マスターパスワードと確認コードは保存しません。ロック解除キー、暗号化された保管庫のコピー、同期用のログイン情報はこのデバイスに保存されます。",
   "Chrome asks for access to {{hosts}}.": "Chrome が {{hosts}} へのアクセス許可を求めます。",
   "Enter an HTTPS server address, or HTTP on localhost or 127.0.0.1.":
     "HTTPS のサーバーのアドレスを入力してください（localhost と 127.0.0.1 では HTTP も可）。",
@@ -232,7 +218,34 @@ export const bitwardenJa = {
   "The code email could not be requested. Resend to try again.":
     "コードのメール送信を依頼できませんでした。もう一度お試しいただくには、再送信してください。",
   "Loading stopped.": "読み込みを停止しました。",
-  "Enter the master password to finish setting up this connection. Automatic unlock is turned on, as when adding it.":
-    "この接続の設定を完了するには、マスターパスワードを入力してください。追加するときと同じく、自動ロック解除はオンになります。",
   "Resend code": "コードを再送信",
+  "This connection is logged out on this device. Sign in again to use and sync it.":
+    "この接続はこのデバイスでログアウトしています。使うにはもう一度ログインしてください。",
+  "The vault is locked. Unlock it with the master password first.":
+    "保管庫はロックされています。先にマスターパスワードでロックを解除してください。",
+  "Vault locked": "保管庫はロック中",
+  "Logged out on this device": "このデバイスではログアウトしています",
+  "Locks at the vault timeout": "保管庫のタイムアウトでロックされます",
+  "Logged out on this device. Sign in again to use this vault.":
+    "このデバイスでログアウトしました。この保管庫を使うにはもう一度ログインしてください。",
+  "Vault locked. Unlock it with the master password; the sync sign-in stays.":
+    "保管庫をロックしました。マスターパスワードで解除できます。同期用のログイン情報はそのまま残ります。",
+  "Vault unlocked.": "保管庫のロックを解除しました。",
+  "Enter the master password to finish setting up this connection.":
+    "この接続の設定を終えるには、マスターパスワードを入力してください。",
+  "Enter the master password to sign in again.":
+    "再ログインするには、マスターパスワードを入力してください。",
+  "Unlocking {{name}}…": "{{name}} のロックを解除しています…",
+  "Invalid master password.": "マスターパスワードが正しくありません。",
+  "The vault could not be unlocked. Refresh and try again.":
+    "保管庫のロックを解除できませんでした。更新してからもう一度お試しください。",
+  Unlock: "ロック解除",
+  "{{name}}: Lock": "{{name}}：ロック",
+  Lock: "ロック",
+  "{{name}}: Log out": "{{name}}：ログアウト",
+  "Log out": "ログアウト",
+  "The master password and verification codes are not saved. An encrypted vault copy and a sync sign-in stay on this device, and its unlock key too while the vault timeout is Never.":
+    "マスターパスワードと確認コードは保存しません。暗号化した保管庫のコピーと同期用のログイン情報はこのデバイスに残ります。保管庫のタイムアウトが「なし」のときは、ロック解除のキーも残ります。",
+  "Vault verified, unlocked and copied to this device.":
+    "保管庫を検証してロックを解除し、このデバイスにコピーしました。",
 } satisfies Record<keyof typeof bitwardenEn, string>;

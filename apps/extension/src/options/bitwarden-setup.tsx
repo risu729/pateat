@@ -17,6 +17,7 @@ import {
   Globe,
   Info,
   Lock,
+  LockOpen,
   LogIn,
   LogOut,
   Pause,
@@ -32,6 +33,7 @@ import { providerPermissionOrigins } from "../connections/permissions";
 import { localClockTime, localSyncTime } from "../time";
 import { Button } from "./button";
 import type { ConnectionClient } from "./connection-client";
+import { UnlockForm, type UnlockResult } from "./unlock-form";
 import {
   checkClass,
   controlClass,
@@ -117,7 +119,8 @@ function errorMessage(code: string, check?: string): Message {
     "setup-reauthentication-required":
       "Sign in again to sync. The saved local vault can still unlock independently.",
     "auto-unlock-disabled":
-      "Automatic unlock is off for this connection, and Sync needs it. To turn it back on, sign in again with Enable automatic unlock on this device checked.",
+      "This connection is logged out on this device. Sign in again to use and sync it.",
+    "vault-locked": "The vault is locked. Unlock it with the master password first.",
     "crypto-locked": "The vault is locked. Refresh to check recovery options.",
     "resource-limit":
       "The operation reached a resource limit. Refresh to check the current vault status before trying again.",
@@ -167,8 +170,15 @@ function statusLines(connection: Connection, t: TFunction, language: string): Li
     case "unavailable":
       lines.push({ tone: "err", icon: CircleX, text: t("Vault unavailable") });
       break;
+    case "locked":
+      lines.push({
+        tone: "warn",
+        icon: Lock,
+        text: t("Vault locked"),
+      });
+      break;
     case "disabled":
-      // The automatic-unlock line below says it.
+      lines.push({ tone: "idle", icon: LogOut, text: t("Logged out on this device") });
       break;
   }
   switch (connection.providerSession) {
@@ -202,10 +212,12 @@ function statusLines(connection: Connection, t: TFunction, language: string): Li
       }),
     });
   }
+  // A locked or logged-out vault has no unlock to describe.
+  if (connection.state === "locked" || connection.state === "disabled") return lines;
   if (connection.autoUnlock === "enabled")
     lines.push({ tone: "ok", icon: CircleCheck, text: t("Automatic unlock on") });
   else if (connection.autoUnlock === "disabled")
-    lines.push({ tone: "idle", icon: Pause, text: t("Automatic unlock off") });
+    lines.push({ tone: "idle", icon: Clock, text: t("Locks at the vault timeout") });
   else lines.push({ tone: "idle", icon: Info, text: t("Automatic unlock unknown") });
   return lines;
 }
@@ -304,7 +316,8 @@ export function BitwardenSetup({
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [enabled, setEnabled] = useState(true);
-  const [enableUnlock, setEnableUnlock] = useState(false);
+  // The connection whose unlock form is open in its row.
+  const [unlocking, setUnlocking] = useState<string>();
   const [challenge, setChallenge] = useState<Challenge>();
   const menuTriggers = useRef(new Map<string, HTMLButtonElement>());
   const keepConnectionButton = useRef<HTMLButtonElement>(null);
@@ -483,7 +496,7 @@ export function BitwardenSetup({
                 "Vault accepted. {{count}} item needs its field settings reviewed before use.",
                 { count: result.policyReviewItemIds.length },
               )
-          : "Vault verified and copied to this device. Check the automatic unlock line below.",
+          : "Vault verified, unlocked and copied to this device.",
       );
       setExisting(undefined);
       catalogChanged.current();
@@ -516,9 +529,16 @@ export function BitwardenSetup({
       catalogChanged.current();
       await readConnections(epoch);
     } else if (result.kind === "disabled") {
-      say(
-        "Automatic unlock is off. To turn it back on, sign in again with Enable automatic unlock on this device checked.",
-      );
+      say("Logged out on this device. Sign in again to use this vault.");
+      catalogChanged.current();
+      await readConnections(epoch);
+    } else if (result.kind === "locked") {
+      say("Vault locked. Unlock it with the master password; the sync sign-in stays.");
+      catalogChanged.current();
+      await readConnections(epoch);
+    } else if (result.kind === "unlocked") {
+      say("Vault unlocked.");
+      setUnlocking(undefined);
       catalogChanged.current();
       await readConnections(epoch);
     }
@@ -558,12 +578,7 @@ export function BitwardenSetup({
       return;
     }
     const input: SetupBegin = existing
-      ? {
-          kind: "existing",
-          connectionId: existing.connectionId,
-          password,
-          autoUnlock: enableUnlock ? "enable" : "preserve",
-        }
+      ? { kind: "existing", connectionId: existing.connectionId, password }
       : {
           kind: "new",
           environment: profile.data.environment,
@@ -729,22 +744,45 @@ export function BitwardenSetup({
     });
   }
   function signInAgain(connection: Connection, explain = true) {
-    // A connection that never unlocked has no automatic unlock to keep, and accepting its vault
-    // without enabling it is refused, so finishing its setup enables it as adding would have.
-    // "unknown" with an unreadable record may hide a choice to keep it off, so that stays unchecked.
+    // A connection that never unlocked has no record yet; its first sign-in finishes the setup.
     const unfinished = connection.autoUnlock === "unknown" && connection.state !== "unavailable";
     clearSecrets();
     setExisting(connection);
-    setEnableUnlock(unfinished);
+    setUnlocking(undefined);
     if (explain) setEnded(undefined);
     setAddOpen(true);
     focusNext.current = passwordInput;
     if (!explain) return;
     say(
       unfinished
-        ? "Enter the master password to finish setting up this connection. Automatic unlock is turned on, as when adding it."
-        : "Enter the master password to sign in again. Automatic unlock stays as it is unless you check Enable automatic unlock on this device.",
+        ? "Enter the master password to finish setting up this connection."
+        : "Enter the master password to sign in again.",
     );
+  }
+  /** Unlocks a locked vault offline; the form shows a wrong password itself. */
+  function unlockConnection(connection: Connection, masterPassword: string): Promise<UnlockResult> {
+    return new Promise((resolve) => {
+      if (operation.current) {
+        resolve({ ok: false, error: "unavailable" });
+        return;
+      }
+      say((translate) => translate("Unlocking {{name}}…", { name: connection.label }));
+      let answer: UnlockResult = { ok: false, error: "unavailable" };
+      start(async (epoch) => {
+        try {
+          const result = await client.unlock(connection.connectionId, masterPassword);
+          if (!result.ok && result.error.code === "crypto-failed") {
+            answer = { ok: false, error: "wrong-password" };
+            if (epoch === generation.current) say("Invalid master password.");
+            return;
+          }
+          if (result.ok) answer = { ok: true };
+          await receive(result, epoch);
+        } finally {
+          resolve(answer);
+        }
+      });
+    });
   }
   useEffect(() => {
     // The first load is not the person's operation and must not take focus.
@@ -842,6 +880,7 @@ export function BitwardenSetup({
       <RowList id="bitwarden-connections">
         {connections.map((connection) => {
           const signInFirst = needsSignIn(connection);
+          const locked = connection.state === "locked";
           const blocked = busy || !!challenge;
           return (
             <Row
@@ -861,26 +900,48 @@ export function BitwardenSetup({
               }
               actions={
                 <>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={blocked}
-                    focusableWhenDisabled={busy}
-                    aria-label={t("{{name}}: {{action}}", {
-                      name: connection.label,
-                      action: t(signInFirst ? "Sign in again" : "Sync"),
-                    })}
-                    onClick={() =>
-                      signInFirst ? signInAgain(connection) : syncConnection(connection)
-                    }
-                  >
-                    {signInFirst ? (
-                      <LogIn aria-hidden size={16} strokeWidth={2} />
-                    ) : (
-                      <RefreshCw aria-hidden size={16} strokeWidth={2} />
-                    )}
-                    {t(signInFirst ? "Sign in again" : "Sync")}
-                  </Button>
+                  {locked ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={blocked}
+                      focusableWhenDisabled={busy}
+                      aria-expanded={unlocking === connection.connectionId}
+                      aria-label={t("{{name}}: {{action}}", {
+                        name: connection.label,
+                        action: t("Unlock"),
+                      })}
+                      onClick={() =>
+                        setUnlocking((open) =>
+                          open === connection.connectionId ? undefined : connection.connectionId,
+                        )
+                      }
+                    >
+                      <LockOpen aria-hidden size={16} strokeWidth={2} />
+                      {t("Unlock")}
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={blocked}
+                      focusableWhenDisabled={busy}
+                      aria-label={t("{{name}}: {{action}}", {
+                        name: connection.label,
+                        action: t(signInFirst ? "Sign in again" : "Sync"),
+                      })}
+                      onClick={() =>
+                        signInFirst ? signInAgain(connection) : syncConnection(connection)
+                      }
+                    >
+                      {signInFirst ? (
+                        <LogIn aria-hidden size={16} strokeWidth={2} />
+                      ) : (
+                        <RefreshCw aria-hidden size={16} strokeWidth={2} />
+                      )}
+                      {t(signInFirst ? "Sign in again" : "Sync")}
+                    </Button>
+                  )}
                   <Menu.Root>
                     <Menu.Trigger
                       ref={(element: HTMLButtonElement | null) => {
@@ -917,12 +978,29 @@ export function BitwardenSetup({
                           )}
                           <Menu.Item
                             className={menuItemClass}
-                            aria-label={t("{{name}}: Turn off automatic unlock", {
-                              name: connection.label,
-                            })}
-                            disabled={connection.autoUnlock === "disabled"}
+                            aria-label={t("{{name}}: Lock", { name: connection.label })}
+                            disabled={
+                              locked ||
+                              connection.state === "disabled" ||
+                              connection.autoUnlock === "unknown"
+                            }
                             onClick={() =>
                               start(async (epoch) => {
+                                setUnlocking(undefined);
+                                await receive(await client.lock(connection.connectionId), epoch);
+                              })
+                            }
+                          >
+                            <Lock aria-hidden size={16} strokeWidth={2} />
+                            {t("Lock")}
+                          </Menu.Item>
+                          <Menu.Item
+                            className={menuItemClass}
+                            aria-label={t("{{name}}: Log out", { name: connection.label })}
+                            disabled={connection.state === "disabled"}
+                            onClick={() =>
+                              start(async (epoch) => {
+                                setUnlocking(undefined);
                                 await receive(
                                   await client.disableAutoUnlock(connection.connectionId),
                                   epoch,
@@ -930,8 +1008,8 @@ export function BitwardenSetup({
                               })
                             }
                           >
-                            <Pause aria-hidden size={16} strokeWidth={2} />
-                            {t("Turn off automatic unlock")}
+                            <LogOut aria-hidden size={16} strokeWidth={2} />
+                            {t("Log out")}
                           </Menu.Item>
                           <Menu.Item
                             className={menuItemClass}
@@ -968,6 +1046,18 @@ export function BitwardenSetup({
                 </>
               }
             >
+              {locked && unlocking === connection.connectionId && (
+                <div className="basis-full">
+                  <UnlockForm
+                    // The form opens because the person pressed Unlock to type into it.
+                    // oxlint-disable-next-line jsx-a11y/no-autofocus
+                    autoFocus
+                    disabled={blocked}
+                    accountLabel={connection.email}
+                    onSubmit={(value) => unlockConnection(connection, value)}
+                  />
+                </div>
+              )}
               {renderAccess?.(connection.connectionId)}
             </Row>
           );
@@ -1352,17 +1442,7 @@ export function BitwardenSetup({
                 />
               </label>
             </div>
-            {existing ? (
-              <label className={checkClass}>
-                <input
-                  id="bitwarden-enable-auto-unlock"
-                  type="checkbox"
-                  checked={enableUnlock}
-                  onChange={(event) => setEnableUnlock(event.target.checked)}
-                />
-                {t("Enable automatic unlock on this device")}
-              </label>
-            ) : (
+            {!existing && (
               <label className={checkClass}>
                 <input
                   id="bitwarden-enabled"
@@ -1392,7 +1472,7 @@ export function BitwardenSetup({
                   tone: "idle",
                   icon: Lock,
                   text: t(
-                    "The master password and verification codes are not saved. An unlock key, an encrypted vault copy and a sync sign-in stay on this device.",
+                    "The master password and verification codes are not saved. An encrypted vault copy and a sync sign-in stay on this device, and its unlock key too while the vault timeout is Never.",
                   ),
                 },
                 origins.ok
@@ -1469,6 +1549,9 @@ function needsSignIn(connection: Connection): boolean {
     connection.state === "configured" ||
     connection.state === "unavailable" ||
     connection.state === "disabled" ||
-    (connection.providerSession !== "active" && connection.providerSession !== "refresh-required")
+    // A locked vault unlocks offline first; its sync sign-in waits for that.
+    (connection.state !== "locked" &&
+      connection.providerSession !== "active" &&
+      connection.providerSession !== "refresh-required")
   );
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { accountProfile } from "../../../../packages/bitwarden/src/__fixtures__/account";
-import { activeEntry, disabledEntry } from "./__fixtures__/vault";
+import { activeEntry, disabledEntry, lockedEntry } from "./__fixtures__/vault";
 import {
   admitVaultEntry,
   MAX_VAULT_RECORD_BYTES,
@@ -61,6 +61,26 @@ describe("durable vault record admission", () => {
   );
   it("rejects a key-bearing disabled record", () => {
     const entry = { ...disabledEntry(), userKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" };
+    expect(admitVaultEntry(entry, accountProfile)).toEqual({
+      ok: false,
+      error: { code: "invalid-cache-record" },
+    });
+  });
+  it.each(["v1", "v2"] as const)(
+    "admits a locked %s record: its encrypted context without a key (ADR 0075)",
+    (kind) => {
+      const entry = lockedEntry(kind);
+      expect(admitVaultEntry(entry, accountProfile)).toEqual({ ok: true, data: entry });
+      expect(Object.hasOwn(entry, "userKey")).toBe(false);
+    },
+  );
+  it.each([
+    ["key-bearing", ["userKey"], activeEntry().userKey],
+    ["context-free", ["accepted"], undefined],
+    ["identity mismatch", ["accepted", "userId"], "50000000-0000-4000-8000-000000000001"],
+  ] as const)("rejects a %s locked record", (_label, path, value) => {
+    const entry = lockedEntry();
+    changeAt(entry, [...path], value);
     expect(admitVaultEntry(entry, accountProfile)).toEqual({
       ok: false,
       error: { code: "invalid-cache-record" },

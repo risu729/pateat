@@ -14,6 +14,7 @@ import {
   type EntryGenerationResult,
   type LoginOutcomeReport,
   type LoginRecord,
+  type ProblemReport,
   type RecipeCompletionRequest,
   type RecipeCompletionResult,
   type RecipeGenerationRequest,
@@ -189,7 +190,8 @@ export type OutcomeResult =
   | { kind: "kept" }
   | { kind: "refused" }
   | { kind: "rejected" }
-  | { kind: "failed"; error: TransportFailure };
+  /** `retryAfterMs` when a 429 said how long to wait, by `Retry-After` in seconds. */
+  | { kind: "failed"; error: TransportFailure; retryAfterMs?: number };
 
 /**
  * `POST /v1/recipes/:recipeId/page-sample`'s answer (ADR 0029): `kept` when the service
@@ -267,6 +269,11 @@ export interface ServiceTransport {
     recipeId: string,
     report: RecipeUseReport,
   ): Promise<OutcomeResult>;
+  /**
+   * `POST /v1/device/problems`: the device's `warn` and `error` log lines, and `info` lines
+   * saying why Pateat did nothing, not sent yet, as they may leave the device (ADR 0066).
+   */
+  reportProblems(origin: string, credential: string, report: ProblemReport): Promise<OutcomeResult>;
   /**
    * A conditional `PUT /v1/recipes/:recipeId` that revokes the recipe whose head is
    * `expectedRevision`, as the owner's revoke on `/manage` does: for a recipe the chosen
@@ -430,7 +437,15 @@ export function createServiceTransport(
       // page that is not JSON, such as Cloudflare's rate-limit page.
       if (response.status === 429) {
         void response.body?.cancel().catch(() => undefined);
-        return { status: 429, body: undefined, timing: timing() };
+        const retryAfter = response.headers.get("Retry-After");
+        return {
+          status: 429,
+          body: undefined,
+          timing: timing(),
+          ...(retryAfter && /^\d{1,6}$/u.test(retryAfter)
+            ? { retryAfterMs: Number(retryAfter) * 1000 }
+            : {}),
+        };
       }
       const text = await readBounded(response, limit);
       if (text === undefined) return { failed: "unexpected-response" as const, timing: timing() };
@@ -610,6 +625,10 @@ export function createServiceTransport(
     reportUse(origin, credential, recipeId, report) {
       return post(origin, credential, `/v1/recipes/${encodeURIComponent(recipeId)}/use`, report);
     },
+    reportProblems(origin, credential, report) {
+      // Until the service has the route, its 404 keeps the lines for a later run.
+      return post(origin, credential, "/v1/device/problems", report, true);
+    },
     async revokeRecipe(origin, credential, recipeId, expectedRevision) {
       const response = await call(
         origin,
@@ -673,12 +692,17 @@ export function createServiceTransport(
     },
   };
 
-  /** A small report the service answers with 204 and no body. */
+  /**
+   * A small report the service answers with 204 and no body. With `routeMissingFails`, a
+   * 404 or 405, as from a service not yet deployed with the route, is a failure to retry
+   * rather than a refusal.
+   */
   async function post(
     origin: string,
     credential: string,
     path: string,
     body: unknown,
+    routeMissingFails = false,
   ): Promise<OutcomeResult> {
     const response = await call(
       origin,
@@ -693,7 +717,16 @@ export function createServiceTransport(
     if ("failed" in response) return { kind: "failed", error: response.failed };
     if (response.status === 204) return { kind: "kept" };
     if (rejected(response)) return { kind: "rejected" };
-    if (response.status === 429) return { kind: "failed", error: "rate-limited" };
+    if (response.status === 429)
+      return {
+        kind: "failed",
+        error: "rate-limited",
+        ...("retryAfterMs" in response && response.retryAfterMs !== undefined
+          ? { retryAfterMs: response.retryAfterMs }
+          : {}),
+      };
+    if (routeMissingFails && (response.status === 404 || response.status === 405))
+      return { kind: "failed", error: "unexpected-response" };
     if (response.status >= 400 && response.status < 500) return { kind: "refused" };
     return { kind: "failed", error: "unexpected-response" };
   }

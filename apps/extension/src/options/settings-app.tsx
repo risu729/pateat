@@ -10,7 +10,7 @@ import {
 } from "@pateat/contracts";
 import { useForm, useSelector } from "@tanstack/react-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bug, Globe, Info, Link, Shield, Vault, type LucideIcon } from "lucide-react";
+import { Bug, Globe, Info, Link, Shield, Timer, Vault, type LucideIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as v from "valibot";
 import { Logo } from "../logo";
@@ -25,6 +25,7 @@ import type { ServiceClient } from "./service-client";
 import { ServiceConnection } from "./service-connection";
 import { LanguageSelect } from "./language-select";
 import { ThemeSelect } from "./theme-select";
+import { VaultTimeoutPanel, type VaultTimeoutClient } from "./vault-timeout";
 import { Panel, StatusLines, type LocalizedMessage } from "./ui";
 
 type AcceptedSettings = Extract<SettingsResponse, { ok: true }>;
@@ -39,10 +40,13 @@ export function SettingsApp({
   client,
   connectionClient,
   serviceClient,
+  vaultTimeoutClient,
 }: {
   client: SettingsClient;
   connectionClient?: ConnectionClient;
   serviceClient?: ServiceClient;
+  /** This device's vault timeout (ADR 0075), shown with a real Bitwarden connection. */
+  vaultTimeoutClient?: VaultTimeoutClient;
 }) {
   const { t } = useTranslation(undefined, { i18n });
   const queryClient = useQueryClient();
@@ -468,6 +472,9 @@ export function SettingsApp({
     connectionClient
       ? { id: "bitwarden", label: "Bitwarden", icon: Shield }
       : { id: "demo-vaults", label: t("Demo vaults"), icon: Vault },
+    ...(vaultTimeoutClient
+      ? [{ id: "vault-timeout", label: t("Vault timeout"), icon: Timer }]
+      : []),
     { id: "sites", label: t("Sites"), icon: Globe },
     ...(serviceClient ? [{ id: "sync", label: t("Sync service"), icon: Link }] : []),
   ];
@@ -566,6 +573,7 @@ export function SettingsApp({
               )}
             />
           )}
+          {vaultTimeoutClient && <VaultTimeoutPanel client={vaultTimeoutClient} />}
           <fieldset
             id="settings-controls"
             className="m-0 flex min-w-0 flex-col gap-6 border-0 p-0"

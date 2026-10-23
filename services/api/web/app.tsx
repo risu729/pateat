@@ -4,6 +4,7 @@ import type { ManageClient } from "./api";
 import { ClaudePage } from "./claude";
 import { DashboardPage } from "./dashboard";
 import { DevicesPage } from "./devices";
+import { ProblemsPage } from "./problems";
 import { RequestLogPage } from "./request-log";
 import { SitePage } from "./site";
 import { siteOrigin, SitesPage } from "./sites";
@@ -25,6 +26,7 @@ const PAGES = [
   { path: "/manage/sites", title: "Sites", Page: SitesPage },
   { path: "/manage", title: "Devices", Page: DevicesPage },
   { path: "/manage/claude", title: "Claude", Page: ClaudePage },
+  { path: "/manage/problems", title: "Problems", Page: ProblemsPage },
   { path: "/manage/request-log", title: "Request log", Page: RequestLogPage },
 ] as const;
 
