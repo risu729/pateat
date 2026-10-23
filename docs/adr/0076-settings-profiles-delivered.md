@@ -64,8 +64,8 @@ extension's merge.
 - Deleting is refused while any device that is not revoked uses the profile, and the
   refusal names those devices (owner, Q5); the owner's last profile cannot be deleted
   (implementation). Deleting removes the profile's document, so its exclusions,
-  master-password sites, passkey sites and saved accounts leave the service; only the row
-  stays, with its name and `deleted_at`, so revoked devices still name it
+  master-password sites, passkey sites and saved accounts leave the service; only the
+  row stays, with its name and `deleted_at`, so revoked devices still name it
   (implementation).
 - Names follow device labels' rules and are unique per owner, ignoring case
   (implementation).
