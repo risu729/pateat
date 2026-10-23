@@ -6195,6 +6195,32 @@ describe("production login document admission", () => {
           await vi.waitFor(() => expect(attempts()).toHaveLength(2));
           expect(logouts()).toEqual([]);
         });
+        it("never asks in an incognito tab, which keeps its own cookies", async () => {
+          const h = await loggedOut();
+          const before = steps().length;
+          // An incognito window's session did not log out (owner, 2026-10-23).
+          fake.state.tabUrls[2] = fake.state.pageUrl;
+          expect(
+            await h.hello({ tab: { id: 2, incognito: true }, documentId: "incognito" }),
+          ).toEqual({ ok: true });
+          await vi.waitFor(() =>
+            expect(attempts()).toContainEqual(
+              expect.objectContaining({
+                state: "authenticated",
+                document: expect.objectContaining({ tabId: 2 }),
+              }),
+            ),
+          );
+          expect(
+            steps()
+              .slice(before)
+              .map((step) => step.kind),
+          ).toContain("click");
+          expect(fake.state.badges[2]?.title).not.toBe(
+            "Pateat: you logged out of this site in another tab. Click to choose an account.",
+          );
+          expect(logouts()).toEqual([{ tabId: 1, origin }]);
+        });
       });
     });
     it("needs a manual binding when the recipe has a slot other than the built-ins", async () => {
@@ -15726,6 +15752,20 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       // Once the watch's 10 minutes are over, the other tab logs in as before.
       await vi.advanceTimersByTimeAsync(5 * 60_000);
       expect(await signInPage(h, 2, "other-tab-after")).toEqual({ ok: true });
+      expect(
+        executed()
+          .slice(steps)
+          .map((step) => step.kind),
+      ).toEqual(["fill", "click"]);
+    });
+
+    it("lets another tab log in once the watched tab closes", async () => {
+      const { h } = await watched();
+      const steps = executed().length;
+      expect(await signInPage(h, 2, "other-tab")).toEqual({ ok: false, reason: "origin-busy" });
+      for (const listener of fake.state.removed) listener(1);
+      await vi.waitFor(() => expect(status() ?? []).toEqual([]));
+      expect(await signInPage(h, 2, "other-tab-again")).toEqual({ ok: true });
       expect(
         executed()
           .slice(steps)

@@ -2484,7 +2484,7 @@ export function createLoginRuntime(
   /** The tab of a `recordKey`. */
   const keyTab = (key: string) => Number(key.slice(0, key.indexOf(" ")));
   /**
-   * Whether another tab's login of the origin authenticated within the last hour. A list of
+   * Whether another tab sharing its cookies logged in to the origin within the last hour. A list of
    * accounts showing then is most likely the signed-in site's own, such as its accounts or
    * workspaces, so it is not sent for generation (ADR 0028, owner 2026-10-17). The record
    * stays until that tab shows the recipe's first step again or closes, so the hour bounds
@@ -2497,6 +2497,7 @@ export function createLoginRuntime(
       return (
         entry.account.origin === siteOrigin &&
         entry.document.tabId !== tabId &&
+        sharesCookies(entry.document.tabId, tabId) &&
         entry.state === "authenticated" &&
         // A clock set back ends the skip rather than prolonging it.
         age >= 0 &&
@@ -9459,9 +9460,14 @@ export function createLoginRuntime(
         .some((entry) => entry.document.tabId === tabId && siteOf(entry.account.origin) === site)
     );
   }
-  /** Whether any tab keeps a logout state for an origin of `site` (ADR 0021 D). */
-  const siteLoggedOut = (site: string) =>
-    scopes(logouts).some((entry) => siteOf(entry.origin) === site);
+  /**
+   * Whether `tabId`, or a tab sharing its cookies, keeps a logout state for an origin of
+   * `site` (ADR 0021 D).
+   */
+  const siteLoggedOut = (tabId: number, site: string) =>
+    scopes(logouts).some(
+      (entry) => siteOf(entry.origin) === site && sharesCookies(entry.tabId, tabId),
+    );
   /** Whether another tab's login of an origin of `site` holds it (ADR 0022). */
   function siteHeldElsewhere(tabId: number, site: string): boolean {
     const now = Date.now();
@@ -9802,7 +9808,7 @@ export function createLoginRuntime(
     if (afterSignIn.get(live.document.tabId) === live.document.documentId)
       return { refusal: "after-sign-in" };
     if (siteRecorded(live.document.tabId, site)) return { refusal: "site-record" };
-    if (siteLoggedOut(site)) return { refusal: "logged-out" };
+    if (siteLoggedOut(live.document.tabId, site)) return { refusal: "logged-out" };
     const matched = await vaultMatches(live).catch(() => undefined);
     return matched?.items.length ? { matched } : { refusal: "no-vault-match" };
   }
@@ -9951,7 +9957,7 @@ export function createLoginRuntime(
     if (site === undefined) return "no-site";
     if (siteRecorded(tabId, site)) return "site-record";
     if (siteHeldElsewhere(tabId, site)) return "site-held";
-    if (siteLoggedOut(site)) return "logged-out";
+    if (siteLoggedOut(tabId, site)) return "logged-out";
     // The person just logged out in this tab and may want another account (ADR 0021 D).
     if (pendingClick(tabId, site)) return "logout-clicked";
     const last = entryPresses.get(tabId);
@@ -10410,7 +10416,6 @@ export function createLoginRuntime(
   });
   /** Forgets a closed tab, or the gone page of a replaced one. */
   function forgetTab(tabId: number): void {
-    incognitoTabs.delete(tabId);
     passwordSubmits.delete(tabId);
     passwordFills.delete(tabId);
     afterSignIn.delete(tabId);
@@ -10461,6 +10466,8 @@ export function createLoginRuntime(
         if (click.tabId === tabId) changed = logoutClicks.delete(key) || changed;
       for (const key of noted.keys())
         if (key.startsWith(`${tabId} `)) changed = noted.delete(key) || changed;
+      // Kept until here, so `elsewhere` above compares the closed tab's window.
+      incognitoTabs.delete(tabId);
       if (changed) await quietly(saveSession);
       return undefined;
     });
