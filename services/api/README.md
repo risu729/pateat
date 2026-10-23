@@ -665,25 +665,26 @@ to 100 entries `{ seq, time, level, event, fields }`: the calling device's `warn
 `extensionBuild` is the build that wrote every line, `logId` the device log's random ID
 (32 hex digits), `seq` the local log's key, `time` the device's, `level` `warn`, `error`
 or, for an event and outcome of `PROBLEM_INFO_LINES`, `info`, `event` a log event name
-of `PROBLEM_EVENT_FIELDS` (`packages/contracts/src/problems.ts`), and `fields` only the
-fields that event lists, each of its kind (`PROBLEM_FIELD_KINDS`): codes, error names,
-counts, flags, builds, recipe IDs, origins (a configured site's or an `origin:`
-pseudonym), RP IDs, script positions and page paths. No string but a stack holds
-whitespace, none `@`, `?` or `#`, only an origin `://`, and no path `;` or `=`, so free
-text, a URL with a query or parameters or an email address does not pass. Each entry is
-checked on its own (`problemReportEnvelopeSchema`): one that does not pass is left out
-and the others are kept, so a newer extension's line an older service does not know
-costs only that line; a report with no entry that passes, or whose envelope does not
-pass, answers 400, and a body over 64 KiB answers 413. Each kept line is one
-`problem_log` row: the owner, the device, the log ID, `seq`, the build, the level, the
-event, the fields as JSON, the device's time and the service's own time. A line whose
-device, log ID and `seq` are already stored is ignored and not counted, so a retry
-changes nothing, and a log made again on the device never collides with the old one's
-rows. A report whose new lines would take the owner past 2,000 lines received in the
-last 24 hours is refused whole with 429 and `Retry-After: 3600`; the count is read
-before the insert, so two reports at once may pass it by up to one report's lines. Rows
-are kept a year, like the request log (deleted with its expired rows, also on each
-report), and go with the request log's Delete all.
+of `PROBLEM_EVENT_FIELDS` (`packages/contracts/src/problems.ts`), never a passkey report
+(`LOCAL_ONLY_EVENTS`) or a fill-only login's line (`LOCAL_ONLY_FLAG`), and `fields` only
+the fields that event lists, each of its kind (`PROBLEM_FIELD_KINDS`): codes, error
+names, counts, flags, builds, recipe IDs, origins (a configured site's or an `origin:`
+pseudonym), script positions and page paths. No string but a stack holds whitespace,
+none `@`, `?` or `#`, only an origin `://`, and no path `;` or `=`, so free text, a URL
+with a query or parameters or an email address does not pass. Each entry is checked on
+its own (`problemReportEnvelopeSchema`): one that does not pass is left out and the
+others are kept, so a newer extension's line an older service does not know costs only
+that line; a report with no entry that passes, or whose envelope does not pass, answers
+400, and a body over 64 KiB answers 413. Each kept line is one `problem_log` row: the
+owner, the device, the log ID, `seq`, the build, the level, the event, the fields as
+JSON, the device's time and the service's own time. A line whose device, log ID and
+`seq` are already stored is ignored and not counted, so a retry changes nothing, and a
+log made again on the device never collides with the old one's rows. A report whose new
+lines would take the owner past 2,000 lines received in the last 24 hours is refused
+whole with 429 and `Retry-After: 3600`; the count is read before the insert, so two
+reports at once may pass it by up to one report's lines. Rows are kept a year, like the
+request log (deleted with its expired rows, also on each report), and go with the
+request log's Delete all.
 
 A Claude session reads them through the read-only D1 query tool, for example:
 
