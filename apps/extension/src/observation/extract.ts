@@ -196,9 +196,16 @@ const changingId = (value: string) => libraryId.test(value) || randomId(value);
  * more digits, ASCII or fullwidth, become `[number]`.
  */
 const redactions: readonly (readonly [RegExp, string])[] = [
-  // Fullwidth letters, digits and punctuation count too: `ｔａｒｏ＠ｅｘａｍｐｌｅ．ｃｏｍ`.
+  // Fullwidth letters, digits and punctuation count too: `ｔａｒｏ＠ｅｘａｍｐｌｅ．ｃｏｍ`. A
+  // local part holds what HTML's valid email address allows, such as `'` and `#`
+  // (`o'brien@`, `taro#1@`), except `/`, `=`, `?` and `&`, so `youtube.com/@pateat` and
+  // `price=100@shop` stay. A domain's labels may be internationalized (`taro@例え.jp`).
+  // An ASCII last label ends the address, so text right after it stays:
+  // `taro@example.comでログイン` becomes `[email]でログイン`. A last label that is not ASCII
+  // (`taro@例え.日本`, `taro@mail.例え.日本`) cannot be told apart from text glued to it,
+  // so the address and that text go together.
   [
-    /[A-Za-z0-9._%+\-*●•＊Ａ-Ｚａ-ｚ０-９．＿％＋－]+[@＠][A-Za-z0-9.\-*●•＊Ａ-Ｚａ-ｚ０-９．－]+/gu,
+    /[A-Za-z0-9.!#$%'*+^_`{|}~\-●•＊Ａ-Ｚａ-ｚ０-９．＿％＋－]+[@＠](?:(?:[\p{L}\p{M}\p{N}\-*●•＊－]+[.．])*[A-Za-z0-9\-*●•＊Ａ-Ｚａ-ｚ０-９－]+(?![A-Za-z0-9\-*●•＊Ａ-Ｚａ-ｚ０-９－]|[.．][\p{L}\p{M}\p{N}\-*●•＊－])|(?:[\p{L}\p{M}\p{N}\-*●•＊－]+[.．])+[\p{L}\p{M}\p{N}\-－]+)/gu,
     "[email]",
   ],
   [/[*●•＊]{3,}/gu, "[masked]"],
@@ -1164,6 +1171,27 @@ const describeAll = (document: Document) =>
   [...document.querySelectorAll(observed)].map(describe).filter((entry) => entry !== undefined);
 
 /**
+ * Why a page's description found no field, as a log code of codes only (ADR 0019): how
+ * many inputs other than hidden ones the page holds (`n`), how many fields `describe`
+ * accepted (`d`), and the first three such inputs as `type-presence`, the presence being
+ * `shown` or {@link presenceMiss}'s reason, with `-out` for one outside every form. Added
+ * after x.com's sign-in was described without its field in the owner's Chrome only
+ * (2026-10-23).
+ */
+export function fieldsMissDetail(document: Document): string {
+  const inputs = [...document.querySelectorAll<HTMLInputElement>("input:not([type='hidden'])")];
+  const described = describeAll(document).filter(
+    (entry) =>
+      (entry.kind === "candidate" && fillTypes[entry.draft.role]) ||
+      (entry.kind === "unsupported" && entry.field),
+  ).length;
+  const first = inputs
+    .slice(0, 3)
+    .map((input) => `${input.type}-${presenceMiss(input) ?? "shown"}${input.form ? "" : "-out"}`);
+  return [`n${inputs.length}`, `d${described}`, ...first].join(".");
+}
+
+/**
  * An icon button that never submits a form on its own, such as the eye that shows the
  * password: `type="button"` and no text of its own, so no text locator either. One with
  * text, such as an `<input type="button" value="Login">` that submits by script, is not.
@@ -1428,7 +1456,9 @@ export function extractLoginObservation(
   // Links and script buttons without a locator are left out without flawing their form.
   // A `role="button"` element is named by its text only inside a login form or beside a
   // password form, where it is the form's own control rather than a widget elsewhere; a
-  // search form beside the login form names none.
+  // search form beside the login form names none. A link never takes the text of such an
+  // element, whatever its form, since one observation's candidates need distinct targets
+  // and the login's own control needs that text more.
   let unlocated = false;
   const located = (entries: typeof required, { optional = false, near = false } = {}) =>
     entries.flatMap((entry) => {
@@ -1436,7 +1466,10 @@ export function extractLoginObservation(
         tokens,
         links: true,
         labels: true,
-        roles: near || (entry.form !== null && loginForms.has(entry.form)),
+        roles:
+          near ||
+          entry.draft.role === "link" ||
+          (entry.form !== null && loginForms.has(entry.form)),
       });
       if (!target) unlocated = true;
       if (!target && !optional) flaw(entry.form, unlocatedGap(entry.draft.role));

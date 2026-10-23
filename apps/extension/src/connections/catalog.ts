@@ -20,13 +20,14 @@ export function catalogEntry(
       allowedOrigins: [],
       ...(item.inactive ? { inactive: true as const } : {}),
       groupIds: item.groupIds,
-      fields: item.fields.map(({ id, label, name, kind, linkedFieldId, empty }) => ({
+      fields: item.fields.map(({ id, label, name, kind, linkedFieldId, empty, totpSeed }) => ({
         id,
         label,
         name,
         kind,
         ...(linkedFieldId ? { linkedFieldId } : {}),
         ...(empty ? { empty } : {}),
+        ...(totpSeed ? { totpSeed } : {}),
       })),
     })),
   };

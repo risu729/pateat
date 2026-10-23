@@ -632,10 +632,18 @@ export function SiteApp({
       } else if (response.error.code === "revision-conflict") {
         await settings.refetch();
         say(
-          (translate) => translate("Changed elsewhere and reloaded. Nothing was changed."),
+          (translate) =>
+            translate(
+              "The settings changed elsewhere, so this change was not saved. The popup now shows them.",
+            ),
           "error",
         );
-      } else say((translate) => translate("The change could not be saved"), "error");
+      } else
+        say(
+          (translate) =>
+            translate("The change could not be saved. Reopen this popup and try again."),
+          "error",
+        );
     } catch {
       // The store may still have saved it; reopening shows the saved settings.
       say(
@@ -678,7 +686,7 @@ export function SiteApp({
                     name: selected.name,
                   },
                 )
-              : translate("Logging in with {{name}}", { name: selected.name }),
+              : translate("Logging in with {{name}}.", { name: selected.name }),
           "success",
         );
         // The login runs in the page from here; the popup has nothing left to show.
@@ -794,7 +802,7 @@ export function SiteApp({
     body = (
       <p id="popup-error" className="popup-notice popup-notice--error" role="alert">
         <CircleX size={16} strokeWidth={2} aria-hidden="true" />
-        <span>{t("Pateat settings could not be loaded")}</span>
+        <span>{t("Pateat's settings could not be loaded.")}</span>
       </p>
     );
   else {
@@ -811,8 +819,8 @@ export function SiteApp({
             (value) => site.set(value, on),
             (translate) =>
               on
-                ? translate("{{hostname}} is no longer excluded", { hostname })
-                : translate("{{hostname}} is now excluded", { hostname }),
+                ? translate("{{hostname}} is no longer excluded.", { hostname })
+                : translate("{{hostname}} is now excluded.", { hostname }),
           );
         }}
       />
@@ -896,16 +904,19 @@ export function SiteApp({
       accountsNote = {
         tone: "err",
         text: t(
-          "Finding the vault items that match this site took too long. Wait a moment, then reopen this popup",
+          "Finding the vault items that match this site took too long. Wait a moment, then reopen this popup.",
         ),
       };
     else if (!found)
-      accountsNote = { tone: "err", text: t("The matching accounts could not be listed") };
+      accountsNote = {
+        tone: "err",
+        text: t("The matching accounts could not be listed. Reopen this popup to try again."),
+      };
     else if (!options.length)
       accountsNote = {
         tone: "idle",
         text: t(
-          "No vault item matches this site. Add the site's URI or passkey to the item in your vault, then sync",
+          "No vault item matches this site. Add the site's URI or passkey to the item in your vault, then sync.",
         ),
       };
 
@@ -945,7 +956,7 @@ export function SiteApp({
           value.siteDefaults.push(entry);
         },
         (translate) =>
-          translate("{{name}} is now the default for this site", {
+          translate("{{name}} is now the default for this site.", {
             name: accountName(selected, found?.accounts),
           }),
       );
@@ -956,7 +967,7 @@ export function SiteApp({
         (value) => {
           value.siteDefaults = value.siteDefaults.filter((item) => item.origin !== origin);
         },
-        (translate) => translate("The default account for this site was removed"),
+        (translate) => translate("The default account for this site was removed."),
       );
     const removeDefaultButton = current && (
       <Button
@@ -1012,7 +1023,7 @@ export function SiteApp({
             <div className="popup-section-head">
               <h2 id="popup-choice-heading">{t("Choose an account")}</h2>
               <p id="popup-choice-reason" className="popup-muted popup-reason">
-                {choiceReason(offered.logout, pickOptions.length, t)}
+                {choiceReason(offered.logout, pickOptions.length, t, offered.rejectedElsewhere)}
               </p>
             </div>
             {offered.held && (
@@ -1020,7 +1031,7 @@ export function SiteApp({
                 <TriangleAlert size={16} strokeWidth={2} aria-hidden="true" />
                 <span>
                   {t(
-                    "Another tab's login to this site is running or did not succeed. Close that tab or wait up to 5 minutes.",
+                    "Another tab's login to this site is running or did not succeed. Close that tab, or wait up to 10 minutes.",
                   )}
                 </span>
               </p>
@@ -1084,7 +1095,7 @@ export function SiteApp({
                   )}
                   {missingFromChoice && (
                     <Line tone="warn" id="popup-default">
-                      {t("The saved default, {{title}} ({{sub}}), is not one of these accounts", {
+                      {t("The saved default, {{title}} ({{sub}}), is not one of these accounts.", {
                         title: missingFromChoice.title,
                         sub: missingFromChoice.sub,
                       })}
@@ -1093,7 +1104,7 @@ export function SiteApp({
                   {found && !found.complete && (
                     <Line tone="warn" id="popup-accounts-incomplete">
                       {t(
-                        "Some vaults or items could not be checked, so the site's matches may be incomplete",
+                        "Some vaults or items could not be checked, so the site's matches may be incomplete.",
                       )}
                     </Line>
                   )}
@@ -1129,17 +1140,17 @@ export function SiteApp({
               )}
               {!current && (
                 <Line tone="idle" id="popup-no-default">
-                  {t("No default account. With exactly one matching item, Pateat uses that item")}
+                  {t("No default account. With exactly one matching item, Pateat uses that item.")}
                 </Line>
               )}
               {found && !found.complete && (
                 <Line tone="warn" id="popup-accounts-incomplete">
-                  {t("Some vaults or items could not be checked, so this list may be incomplete")}
+                  {t("Some vaults or items could not be checked, so this list may be incomplete.")}
                 </Line>
               )}
               <li className="popup-line popup-line--idle">
                 <Clock size={16} strokeWidth={2} aria-hidden="true" />
-                <span>{t("Takes effect at the next login")}</span>
+                <span>{t("A default takes effect at the next login.")}</span>
               </li>
             </ul>
             {(options.length > 0 || current) && (
@@ -1163,7 +1174,9 @@ export function SiteApp({
           <div className="popup-section">
             {!site.editable && (
               <>
-                <p id="popup-site-shared">{t("Excluded by a rule for other sites too")}</p>
+                <p id="popup-site-shared">
+                  {t("Excluded by a rule that also covers other sites.")}
+                </p>
                 <ul className="popup-rules">
                   {site.shared.map((rule) => (
                     <li key={`${rule.hostname} ${rule.includeSubdomains}`}>
@@ -1188,7 +1201,7 @@ export function SiteApp({
             )}
             <p id="popup-site-status" className="popup-muted popup-status">
               <Ban size={16} strokeWidth={2} aria-hidden="true" />
-              {t("No logins or passkey answers on this site")}
+              {t("Pateat does not log in or answer passkey requests on this site.")}
             </p>
           </div>
         )}

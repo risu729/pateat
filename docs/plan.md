@@ -390,10 +390,10 @@ than in this repository.
     structure; only its visuals and copy change.
   - Done: the toolbar popup. Its header shows the toolbar icon's mark, the hostname, the
     "Pateat on this site" switch and an Open settings icon button (a `lucide-react`
-    icon). Turning the switch off adds an exclusion rule for the exact
-    hostname without subdomains, and turning it on removes that rule. Whenever a rule
-    for a parent domain, or one that includes subdomains, covers the hostname, the
-    switch is disabled, "Excluded by a rule for other sites too" names the reason, and
+    icon). Turning the switch off adds an exclusion rule for the exact hostname without
+    subdomains, and turning it on removes that rule. Whenever a rule for a parent
+    domain, or one that includes subdomains, covers the hostname, the switch is
+    disabled, "Excluded by a rule that also covers other sites." names the reason, and
     each such rule has a "Change in settings" link; before, the popup could remove the
     site's own exact rule while a parent rule kept it excluded. Default accounts and the
     account choice are native radios shown as cards: the username as the title, the item
@@ -411,9 +411,9 @@ than in this repository.
     removed, and one that is not among the choice's accounts is named. The "Pateat on
     this site" switch is a row of its own under the hostname, with its label on the left
     and the switch on the right, and the sections use one spacing scale.
-  - Done: the passkey chooser window is restyled with the same behavior: "Sign in to"
+  - Done: the passkey chooser window is restyled with the same behavior: "Log in to"
     the site, each passkey as a choice led by its user name, the site default marked
-    **Default**, a one-line note after a Pateat sign-in from the tab, and the save
+    **Default**, a one-line note after a Pateat passkey answer in the tab, and the save
     checkbox above the list.
   - Done: the `/manage` header shows the logo beside "Pateat" and the sections as tabs;
     Devices is a list with a Revoke button, a Revoked or Expired badge and the idle
@@ -427,8 +427,9 @@ than in this repository.
     page with a "Pateat on this site" switch, its default account, recipes and bindings
     ([owner web UI](architecture.md#owner-web-ui)).
   - Done: the Worker's script-free pages (`/pair/signed-in`, the Access and error pages
-    and `/manage/claude`) use the same tokens, light or dark as the browser prefers,
-    with the logo beside "Pateat" and the page in one panel. With this, every screen of
+    and the `/manage/claude` form, since moved into the owner web UI) use the same
+    tokens, light or dark as the browser prefers, with the logo beside "Pateat" and the
+    page in one panel. With this, every screen of
     the extension and the service has had its polish pass.
   - Done: the toolbar badge spins (braille frames) in a tab while a model request for
     that tab's page is in flight, and shows how the tab's last login ended: a red `!`
@@ -456,21 +457,20 @@ than in this repository.
 ### Phase 2: use it and fix what comes up
 
 - First, right after phase 1 (owner, 2026-10-12 21:29 UTC):
-  [ADR 0035](adr/0035-page-kinds-per-site.md) delivery 1. Generation answers each
-  page's kind, recipes generated as `confirm` neither run nor count as logouts, a
-  passkey re-verification after Pateat's login in the tab is handed on, and the logs for
-  judging whether `confirm` can be split are kept. The request log's recipe ID and
-  revision landed ahead of it, and every row is kept one year (owner, 2026-10-18 06:08
-  UTC,
+  [ADR 0035](adr/0035-page-kinds-per-site.md) delivery 1. Generation answers each page's
+  kind, recipes generated as `confirm` neither run nor count as logouts, a passkey
+  re-verification after Pateat's login in the tab is handed on, and the logs for judging
+  whether `confirm` can be split are kept. The request log's recipe ID and revision
+  landed ahead of it, and every row is kept one year (owner, 2026-10-18 06:08 UTC,
   [ADR 0012](adr/0012-inference-request-log.md#amendment-2026-10-18-rows-for-a-real-page-corpus)),
   so its retention rule needs no work. The first login result of each revision reaches
   the service as codes
   ([ADR 0035](adr/0035-page-kinds-per-site.md#amendment-2026-10-18-login-results-on-the-service)).
   Implemented on 2026-10-23
-  ([ADR 0035](adr/0035-page-kinds-per-site.md#implementation-of-delivery-1)) except the
-  local evaluation fields of `confirm-unsupported` pages beyond the recipe and its kind,
-  and the counts of pages not sent, which come next. Covered by unit, Worker and
-  fake-model tests only; no real site or paid generation checked it.
+  ([ADR 0035](adr/0035-page-kinds-per-site.md#implementation-of-delivery-1)), with the
+  local evaluation fields of `confirm-unsupported` pages and the counts of pages not
+  sent following the same day. Covered by unit, Browser Mode, Worker and fake-model
+  tests only; no real site or paid generation checked it.
 - Done: the toolbar badge counts the matching items on every HTTP(S) site (on an `http:`
   page only items saved with an `http://` URI;
   [ADR 0050](adr/0050-http-pages-for-http-items.md)): teal with the usable count, light
@@ -523,8 +523,8 @@ than in this repository.
     owner's Chrome, vault and a service-generated recipe for an `http:` origin are still
     unchecked.
   - On 三菱UFJ銀行, after an expired QR code, the sign-in page in the same tab is filled
-    without pressing anything, while a new tab logs in as before (owner, 2026-10-13:
-    「このタブだけ」; ADR 0027).
+    without pressing anything (owner, 2026-10-13: 「このタブだけ」; ADR 0027). Since
+    2026-10-23 a new tab waits until the old tab closes or its 10-minute watch ends.
   - M3's password login on a real site, and M4's sync against the deployed service:
     `https://www.npmjs.com` logs in with no action from the owner through a recipe the
     service generated, and a later login makes no Claude call (after
@@ -989,10 +989,20 @@ Once the fixes have settled:
   line the popup and the icon's title show when another tab of the site logged out or
   the site did not accept that tab's login: both say "You logged out of this site in
   another tab" (`choiceReason` in `apps/extension/src/login/choice-wire.ts`, the
-  `other-tab` title in `apps/extension/src/login/runtime.ts`), which reads wrong after a
-  rejection. The review comes before the Japanese text below, so that the English text
-  is settled before it is translated (owner, 2026-10-13 15:17 UTC). Not started without
-  the owner's confirmation (owner, 2026-10-13 15:10 UTC).
+  `other-tab` title, now `choiceTitle` in `apps/extension/src/login/badge.ts`), which
+  reads wrong after a rejection. The review comes before the Japanese text below, so
+  that the English text is settled before it is translated (owner, 2026-10-13 15:17
+  UTC). The owner gave the go-ahead on 2026-10-15 at 00:44 UTC.
+  - Done (2026-10-23): the popup, the icon's title, the settings page and the passkey
+    chooser follow the [UI text](architecture.md#ui-text) rules, which the owner
+    accepted on 2026-10-23 at 12:46 UTC
+    ([#601](https://github.com/risu729/pateat/pull/601), rebuilt on the i18next
+    catalogs, Japanese included). The reason line now says "You were logged out of this
+    site in another tab, or the site did not accept a login there.", and "The site did
+    not accept a login in another tab." when the popup knows another tab still asks
+    after a rejection. Pateat shows no prompt inside a page; the passkey chooser window
+    is the only prompt outside the popup. The diagnostics page, a developer page, and
+    the settings store's messages keep their text.
 - Before publishing, turn off or remove `DEBUG_STAYS_ON` in
   `apps/extension/src/diagnostics/log.ts`, which keeps debug logging on until it is
   turned off, or keep it only behind a feature flag (owner, 2026-10-18 01:50 UTC;
@@ -1159,19 +1169,14 @@ separately (owner, 2026-10-14 07:24 UTC), and the adopted
 be started from the issue alone (owner, 2026-10-14 08:40 UTC). The list below names
 items the owner mentioned and gates still open on 2026-10-11.
 
-- From the [external review](research/2026-10-13-external-review.md): decrypted item
-  copies in the crypto Worker that hold only the fields a request needs instead of the
-  whole item; a scheduled purge of the inference log, which since 2026-10-18 keeps
-  every row one year (a trigger is a deployment change the owner approves); and syncing
-  which recipes exist and which are revoked separately from their bodies, if
+- From the [external review](research/2026-10-13-external-review.md): a scheduled purge
+  of the inference log, which since 2026-10-18 keeps every row one year (a trigger is a
+  deployment change the owner approves); and syncing which recipes exist and which are
+  revoked separately from their bodies, if
   [#544](https://github.com/risu729/pateat/issues/544) and the recipe limits are not
   enough.
 - Signing in through an identity provider
   ([ADR 0026](adr/0026-sign-in-through-identity-providers.md), ADR 0027 delivery 5).
-- [ADR 0027](adr/0027-per-account-login-routes.md) delivery 4's deferred part: a `totp`
-  handler that reads a custom field a saved binding names for the code, once Pateat can
-  make a code from one. Until then such a binding ends `challenge`. The owner moved it
-  from phase 1 on 2026-10-12 (14:26 UTC).
 - Signing in with a code or link sent by email, which
   [ADR 0027](adr/0027-per-account-login-routes.md) does not handle today (such a code
   page ends `challenge`). It has the same priority as signing in through an identity
@@ -1261,7 +1266,7 @@ items the owner mentioned and gates still open on 2026-10-11.
   (18:35 UTC), since few users are expected to need them; each needs the owner's
   approval for real-account use.
 - Proposed: the remaining checks, namely pairing while signed out of Access and the
-  Access cookie settings, real sites that wrap `get`, and a navigation during signing.
+  Access cookie settings, and real sites that wrap `get`.
   The packaged synthetic browser suite also covers a page-owned `get` wrapper that
   clones request options: Pateat answers an eligible request once, native fallback
   remains reachable, and caller cancellation survives the copied options. This added
@@ -1484,6 +1489,13 @@ checks. The account mapper below prepares encrypted sync responses for these
 sessions. Extension connection setup and the persistent cache layer have separate
 progress sections below.
 
+Admission covers the whole Argon2id memory range Bitwarden's server allows, up to
+1024 MiB, with at most 20 iterations and 16 lanes; PBKDF2 stays at most 2,000,000
+iterations. At the server's own maximum of 10 iterations and 1024 MiB one derivation
+took about 25 seconds in Node on a cloud container (2026-10-17), so Argon2id
+derivations, and only those, get a 60-second budget instead of 30 (owner's choice
+2026-10-23, [Architecture](architecture.md)).
+
 The pinned SDK's V2 version export also rewraps and re-signs an in-memory copy of
 verified key state. Pateat keeps only its version and does not send or persist
 the export. This adds transient sensitive copies and computation. Invalid blobs
@@ -1597,9 +1609,13 @@ default. `steam://` gives a five-character Steam code. Any character outside the
 alphabet, `=` included, is skipped, and the bits after the last whole byte are dropped,
 so a short secret gives an empty key, which still yields a code. Only an empty key, an
 `otpauth://` URI that does not parse or has no `secret`, and a key over 8,192 characters
-(a memory bound) give `invalid-totp`. OTP seeds are not field values or
-inference inputs. Independent RFC 6238 and pinned upstream answers, clock boundaries and
-the packaged MV3 probe are the verification gates for this slice.
+(a memory bound) give `invalid-totp`. OTP seeds are not field values or inference
+inputs: a Text or Hidden custom field shaped like a key (`isTotpSeed`, a stricter test
+than the generator's) is flagged in the catalog, gives only codes for the `totp` slot
+and is never offered to generation or filled as text
+([ADR 0027 amendment](adr/0027-per-account-login-routes.md#amendment-2026-10-23-a-totp-code-from-a-custom-field),
+owner 2026-10-23). Independent RFC 6238 and pinned upstream answers, clock boundaries
+and the packaged MV3 probe are the verification gates for this slice.
 
 Connection setup, cache adoption and custom-field exclusion rebinding are now
 integrated, as described below. The remaining M3 integration gaps are listed after
@@ -2179,8 +2195,9 @@ tests cover it.
   to Claude per owner through Workload Identity Federation
   ([ADR 0015](adr/0015-per-owner-claude-credentials.md)); a registered, encrypted API
   key is a later second option. The issuer metadata routes, the `inference_credentials`
-  table and `resolveClaudeCredential` exist. Owners enter identifiers on the temporary
-  `/manage/claude` page until the React web UI replaces it. On 2026-10-11 at 12:26 UTC
+  table and `resolveClaudeCredential` exist. Owners enter identifiers on the web UI's
+  Claude tab (`/manage/claude`), which replaced the temporary script-free form page; its
+  layout is proposed and awaits the owner's review. On 2026-10-11 at 12:26 UTC
   the deployed service at `pateat.takuk.me` exchanged a real assertion with Anthropic.
   The owner's federation rule is scoped to `workspace:developer`, because the Console
   offered no `workspace:inference`, and the token was valid for 10 minutes. The first
@@ -2266,8 +2283,20 @@ no content script posts a message to the page, and that with no vault connected 
 request goes to the browser. A claimed assertion from a vault passkey is tested only
 through the probe build, which wraps the same vault source. The real-site and
 real-account results are listed below, including a primary sign-in with a discoverable
-passkey on `https://my.jcb.co.jp`; a navigation during signing relies on Chrome dropping
-the response to the replaced document.
+passkey on `https://my.jcb.co.jp`. A document left while Pateat answers its request gets
+no assertion: the relay sends a cancel on `pagehide`, the background ends the operation
+as `cancelled` (`page-cancelled`) even while the Worker still signs, releases the vault
+hold, closes an open chooser window and records no sign-in, so the tab's next document
+is answered without asking again. Unit tests in `runtime.test.ts`, `relay.test.ts` and
+`page.test.ts` cover this, the relay's also on entering the back/forward cache, and a
+probe-build Playwright test in `tests/extension/passkeys.spec.ts` navigates during a
+delayed signature and with the chooser window open (Playwright's Chromium runs without
+the back/forward cache). A signature that finishes before the cancel arrives still
+counts as a sign-in: the tab is recorded as signed in (so its next username-less request
+asks again), the login and the registration check are told of it and a chosen default is
+saved, while the reply goes to the replaced document's closed message channel, which
+Chrome drops. The owner accepted this few-millisecond race on 2026-10-23
+([ADR 0007](adr/0007-existing-passkey-assertions.md#bridge-topology)).
 [Development](development.md#installed-chrome-synthetic-passkey-probe) describes the
 installed-Chrome acceptance procedure. Page script can detect the wrapper and read the
 extension ID from stack traces; the relay posts only the outcome of a request to the
@@ -3272,23 +3301,23 @@ stopped after a submission asks the same way, in that tab only, once a later pag
 the login form after the record's 5-minute hold on other tabs has ended
 (`pateat.login-stopped-asks.v1`). Since 2026-10-13 (owner, after Oracle Cloud and Sony
 Bank) a watched login (ADR 0027) whose first step shows again never signed in, so it is
-no logout: it ends `challenge-abandoned` or `watch-abandoned`, only its tab asks that
-way, and the site's other tabs log in (local tests only). Since 2026-10-13 a tab asks at
-once, on any path, without filling that page again, when the site answers the password
-submission with its sign-in form again (its password input and no other sign, even when
-the result stays unknown) or the login ends `credential-rejected`; its record is
-released then, so other tabs of the site ask instead of being held, and the badge and
-popup say the site did not accept the login (`pateat.login-rejected-asks.v1`). Frame
-logins are not detected. Since 2026-10-18 (owner, 01:40 UTC;
-[ADR 0049](adr/0049-start-at-a-later-step.md); local tests only, not yet on a real site)
-a later password step a login may start at counts as the first step does, so a site
-whose logout page shows only a password step is detected. By the
-owner's constraint (2026-10-12) a session that only expired never needs a manual press,
-so a logout of a session carried over from another tab's login or an earlier browser
-session is not detected by the form alone. Since 2026-10-16 (owner, after
-dash.cloudflare.com) a click on a control whose name or nearby text says log out makes
-the tab's next first step of that site within 10 minutes ask the same way
-(`pateat.login-logout-clicks.v1`, ADR 0021 D); otherwise Pateat logs in again there.
+no logout: it ends `challenge-abandoned` or `watch-abandoned` and only its tab asks that
+way; since 2026-10-23 the site's other tabs sharing its cookies wait for the watch to
+end (local tests only). Since 2026-10-13 a tab asks at once, on any path, without
+filling that page again, when the site answers the password submission with its sign-in
+form again (its password input and no other sign, even when the result stays unknown) or
+the login ends `credential-rejected`; its record is released then, so other tabs of the
+site ask instead of being held, and the badge and popup say the site did not accept the
+login (`pateat.login-rejected-asks.v1`). Frame logins are not detected. Since 2026-10-18
+(owner, 01:40 UTC; [ADR 0049](adr/0049-start-at-a-later-step.md); local tests only, not
+yet on a real site) a later password step a login may start at counts as the first step
+does, so a site whose logout page shows only a password step is detected. By the owner's
+constraint (2026-10-12) a session that only expired never needs a manual press, so a
+logout of a session carried over from another tab's login or an earlier browser session
+is not detected by the form alone. Since 2026-10-16 (owner, after dash.cloudflare.com) a
+click on a control whose name or nearby text says log out makes the tab's next first
+step of that site within 10 minutes ask the same way (`pateat.login-logout-clicks.v1`,
+ADR 0021 D); otherwise Pateat logs in again there.
 
 Later work includes independently permitted vault create/update operations, nonzero
 passkey counter writeback and passkey creation; Bitwarden provider login with passkeys,

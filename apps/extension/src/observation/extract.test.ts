@@ -8,6 +8,7 @@ import {
   extractLoginObservation,
   extractPasskeyObservation,
   extractSignedInObservation,
+  fieldsMissDetail,
 } from "./extract";
 
 // Runs in Chromium (vitest browser mode) so layout, visibility and labels are real.
@@ -929,6 +930,41 @@ describe("extractLoginObservation", () => {
     expect(observe().candidates.map((candidate) => candidate.target.value)).toEqual(["pw", "go"]);
   });
 
+  it("never gives a role=button control and a link of another form the same text locator", () => {
+    // The login form's Help widget is named by its text there; the link of a form that is
+    // no login form, such as a newsletter form beside it, is not checked against it.
+    page(
+      `<form><input id="u"><input id="p" type="password"><button>Sign in</button>
+        <div role="button" tabindex="0">Help</div></form>
+      <form><input id="news" type="text"><a href="/help">Help</a></form>`,
+    );
+    const result = extractLoginObservation();
+    // Two candidates with one locator fail the observation's check.
+    expect(result.ok ? true : result.reason).toBe(true);
+    if (!result.ok) return;
+    const targets = result.observation.candidates.map(({ target }) => JSON.stringify(target));
+    expect(new Set(targets).size).toBe(targets.length);
+    // The login form's own control keeps the text.
+    expect(targets).toContain(JSON.stringify({ by: "text", value: "Help" }));
+    expect(
+      findTargets(document, { by: "text", value: "Help" }).map((element) => element.tagName),
+    ).toEqual(["DIV"]);
+  });
+
+  it("keeps a role=button login control's text when a header link shares it", () => {
+    page(
+      `<header><a href="/accounts/login/">Log in</a></header>
+      <form><input name="email" autocomplete="username"><input name="pass" type="password">
+        <div role="button" tabindex="0">Log in</div></form>`,
+    );
+    const observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(observation.candidates.map(({ target }) => target)).toContainEqual({
+      by: "text",
+      value: "Log in",
+    });
+  });
+
   it("locates a link without an id by its text, only when no other link or button shares it", () => {
     page(
       `<form><p>my2@example.com</p><input id="pw" type="password">
@@ -1077,6 +1113,38 @@ describe("extractLoginObservation", () => {
     expect(JSON.stringify(extractLoginObservation())).not.toContain("SYNTHETIC123");
     const detached = document.implementation.createHTMLDocument();
     expect(extractLoginObservation(detached)).toEqual({ ok: false, reason: "unsupported-page" });
+  });
+
+  it("redacts a whole email address, whatever its local part or domain holds", () => {
+    // A local part may hold ' and #, as HTML's valid email address allows, and a domain may
+    // be internationalized. Repeated headings are kept once, so each one differs.
+    page(
+      `<h1>o'brien@example.com</h1><h2>taro#1@example.com さん</h2><h3>taro@例え.jp でログイン</h3>
+      <h3>連絡先 taro@例え.日本 まで</h3><h3>ID: taro@例え.日本でログイン中</h3>
+      <h3>宛先 taro@mail.例え.日本</h3>
+      <form id="f"><input id="u"><input id="pw" type="password"><button id="go">Go</button></form>`,
+    );
+    // A last label that is not ASCII takes the text glued to it along.
+    expect(observe().headings).toEqual([
+      "[email]",
+      "[email] さん",
+      "[email] でログイン",
+      "連絡先 [email] まで",
+      "ID: [email]",
+      "宛先 [email]",
+    ]);
+  });
+
+  it("keeps the text around an email address, a handle in a URL and a key=value pair", () => {
+    page(
+      `<h1>taro@example.comでログイン中</h1><h2>youtube.com/@pateat</h2><h3>price=100@shop</h3>
+      <form id="f"><input id="u"><input id="pw" type="password"><button id="go">Go</button></form>`,
+    );
+    expect(observe().headings).toEqual([
+      "[email]でログイン中",
+      "youtube.com/@pateat",
+      "price=[email]",
+    ]);
   });
 
   it("skips hidden inputs and other controls' labels when reading adjacent text", () => {
@@ -4058,5 +4126,17 @@ describe("passkey-only start observation", () => {
   ])("does not qualify registration, hidden buttons or a fill form: %s", (html) => {
     page(html);
     expect(extractPasskeyObservation(document).ok).toBe(false);
+  });
+});
+
+describe("fieldsMissDetail", () => {
+  it("names the page's inputs and how each shows, as codes only", () => {
+    page(`<form><input type="email" value="me@example.com" aria-hidden="true">
+      <input type="password" style="opacity: 0"></form>
+      <input type="text" hidden><input type="text" name="q">`);
+    expect(fieldsMissDetail(document)).toBe(
+      "n4.d2.email-hidden-attr.password-transparent.text-hidden-attr-out",
+    );
+    expect(fieldsMissDetail(document)).not.toContain("example");
   });
 });
