@@ -41,6 +41,12 @@ export const transferRequestSchema = v.variant("type", [
     type: v.literal("settings.import"),
     /** The file as read; the background parses it. */
     file: v.unknown(),
+    /**
+     * False asks what the import would change, which the page shows for the owner to
+     * confirm; true imports. A file may come from someone else, and its entries can let
+     * vault items be used on more sites.
+     */
+    apply: v.boolean(),
   }),
 ]);
 export type TransferRequest = v.InferOutput<typeof transferRequestSchema>;
@@ -48,10 +54,12 @@ export type TransferRequest = v.InferOutput<typeof transferRequestSchema>;
 /**
  * Why an export or import did not finish: `invalid-file` for a file that is not one or
  * whose settings cannot join this device's, `too-large` for recipes that do not fit with
- * those kept here, and `storage-unavailable` when the settings or recipes cannot be read
+ * those kept here or settings larger than a service holds, and `storage-unavailable` when the settings or recipes cannot be read
  * or written.
  */
 export const TRANSFER_ERRORS = ["invalid-file", "too-large", "storage-unavailable"] as const;
+
+const count = v.pipe(v.number(), v.integer(), v.minValue(0));
 
 export const transferResponseSchema = v.union([
   v.strictObject({
@@ -63,9 +71,25 @@ export const transferResponseSchema = v.union([
   v.strictObject({
     version: v.literal(1),
     ok: v.literal(true),
+    type: v.literal("settings.import-preview"),
+    /**
+     * The sites whose account choices, default accounts or personal-detail links the
+     * import adds or replaces: there, the file decides which vault item Pateat uses.
+     */
+    sites: v.pipe(v.array(v.string()), v.maxLength(3000)),
+    /** The vault policies and custom-field reviews it adds or replaces. */
+    policies: count,
+    /** The other entries it adds or replaces: site exclusions and the like. */
+    others: count,
+    /** The recipes it would keep here. */
+    recipes: count,
+  }),
+  v.strictObject({
+    version: v.literal(1),
+    ok: v.literal(true),
     type: v.literal("settings.import"),
     /** How many of the file's recipes are now kept here, newer than any held before. */
-    recipes: v.pipe(v.number(), v.integer(), v.minValue(0)),
+    recipes: count,
   }),
   v.strictObject({
     version: v.literal(1),

@@ -19,7 +19,12 @@ const owner = { provider: "bitwarden", server: "cloud-us", userId: USER };
 const demo = { provider: "dummy", server: "cloud-us", userId: "demo-personal-account" };
 const target = (value: string) => ({ by: "id" as const, value });
 const exportRequest = { version: 1, type: "settings.export" };
-const importRequest = (file: unknown) => ({ version: 1, type: "settings.import", file });
+const importRequest = (file: unknown, apply = true) => ({
+  version: 1,
+  type: "settings.import",
+  file,
+  apply,
+});
 
 function recipe(id: string, revision = 4, path = "/login"): LoginRecipeDocument {
   const route = parseLoginRecipe({
@@ -81,7 +86,14 @@ const settingsOf = (parts: Partial<LocalSettings> = {}): LocalSettings => ({
   ...parts,
 });
 
-function setup(options: { settings?: LocalSettings; recipes?: StoredLoginRecipe[] } = {}) {
+function setup(
+  options: {
+    settings?: LocalSettings;
+    recipes?: StoredLoginRecipe[];
+    /** The paired service's synced recipes; without them, no service is paired. */
+    synced?: StoredLoginRecipe[];
+  } = {},
+) {
   let stored: SettingsSnapshot | undefined = options.settings
     ? { version: 1, revision: 3, settings: options.settings }
     : undefined;
@@ -110,9 +122,11 @@ function setup(options: { settings?: LocalSettings; recipes?: StoredLoginRecipe[
     maxBytes: 64 * 1024,
   });
   const imported = vi.fn();
+  const { synced } = options;
   const transfer = createTransfer({
     settings,
-    recipes: () => device.list(),
+    recipes: async () => synced ?? device.list(),
+    paired: async () => synced !== undefined,
     device,
     imported,
     now: () => Date.UTC(2026, 9, 23, 12),
@@ -197,6 +211,76 @@ describe("export and import", () => {
     expect(other.imported).toHaveBeenCalledTimes(1);
   });
 
+  it("shows what an import would change before it changes anything", async () => {
+    const file = await exported(
+      setup({
+        settings: settingsOf({
+          accountPolicies: [policy(owner, "From the file")],
+          excludedSites: [site("shop.example"), site("news.example")],
+          bindings: [binding(SITE), binding("https://other.example", "item-2")],
+          siteDefaults: [{ origin: "https://other.example", ...owner, itemId: "item-2" }],
+        }),
+        recipes: [recipe("a", 4), recipe("b", 2), recipe("c", 1)],
+      }),
+    );
+    const device = setup({
+      settings: settingsOf({
+        accountPolicies: [policy(owner, "Kept here")],
+        excludedSites: [site("news.example")],
+        bindings: [binding(SITE)],
+      }),
+      recipes: [recipe("a", 9), recipe("b", 1)],
+    });
+    expect(await device.transfer.handle(importRequest(file, false))).toEqual({
+      version: 1,
+      ok: true,
+      type: "settings.import-preview",
+      sites: ["https://other.example"],
+      policies: 1,
+      others: 1,
+      recipes: 2,
+    });
+    expect(device.snapshot()?.revision).toBe(3);
+    expect(await device.recipes()).toEqual([recipe("a", 9), recipe("b", 1)]);
+    expect(device.imported).not.toHaveBeenCalled();
+
+    // The device's own file changes nothing.
+    const own = await exported(device);
+    expect(await device.transfer.handle(importRequest(own, false))).toMatchObject({
+      sites: [],
+      policies: 0,
+      others: 0,
+      recipes: 0,
+    });
+  });
+
+  it("leaves out the recipes a paired service already holds", async () => {
+    const file = await exported(setup({ recipes: [recipe("a", 7), recipe("b", 2)] }));
+    const device = setup({ settings: settingsOf(), synced: [recipe("a", 3)] });
+    expect(await device.transfer.handle(importRequest(file, false))).toMatchObject({
+      recipes: 1,
+    });
+    expect(await device.transfer.handle(importRequest(file))).toMatchObject({ recipes: 1 });
+    expect(await device.recipes()).toEqual([recipe("b", 2)]);
+    expect(device.imported).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses settings that would be larger than a service holds", async () => {
+    const bindings = (prefix: string) =>
+      Array.from({ length: 400 }, (_, index) => binding(`https://${prefix}-${index}.example`));
+    const file = await exported(setup({ settings: settingsOf({ bindings: bindings("file") }) }));
+    const device = setup({ settings: settingsOf({ bindings: bindings("here") }) });
+    expect(await device.transfer.handle(importRequest(file, false))).toMatchObject({
+      ok: false,
+      error: "too-large",
+    });
+    expect(await device.transfer.handle(importRequest(file))).toMatchObject({
+      ok: false,
+      error: "too-large",
+    });
+    expect(device.snapshot()?.revision).toBe(3);
+  });
+
   it("refuses a file that is not an export, or one with vault connections", async () => {
     const file = await exported(setup({ recipes: [recipe("a")] }));
     const device = setup({ settings: settingsOf({ excludedSites: [site("news.example")] }) });
@@ -255,7 +339,8 @@ describe("export and import", () => {
     const transfer = createTransfer({
       settings: { read: async () => Promise.reject(new Error("gone")), update: vi.fn() },
       recipes: async () => [],
-      device: { keep: vi.fn() },
+      paired: async () => false,
+      device: { list: vi.fn(), keep: vi.fn() },
     });
     expect(await transfer.handle(exportRequest)).toMatchObject({ error: "storage-unavailable" });
     const noRecipes = createTransfer({
@@ -264,7 +349,8 @@ describe("export and import", () => {
         update: vi.fn(),
       },
       recipes: async () => undefined,
-      device: { keep: vi.fn() },
+      paired: async () => false,
+      device: { list: vi.fn(), keep: vi.fn() },
     });
     expect(await noRecipes.handle(exportRequest)).toMatchObject({ error: "storage-unavailable" });
     expect(await transfer.handle({ version: 1, type: "settings.get" })).toBeUndefined();

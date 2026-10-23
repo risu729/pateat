@@ -746,6 +746,11 @@ export default defineBackground(() => {
   const transfer = createTransfer({
     settings,
     recipes: () => recipeSync.inUse(),
+    paired: () =>
+      service.connection().then(
+        (connection) => connection !== undefined,
+        () => true,
+      ),
     device: deviceRecipes,
     imported: settingsSaved,
   });

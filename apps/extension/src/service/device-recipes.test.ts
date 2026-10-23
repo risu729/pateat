@@ -122,6 +122,13 @@ describe("recipes this device holds as its own (ADR 0040)", () => {
     expect(await recipes.count()).toBe(2);
   });
 
+  it("keeps nothing when the result would hold more recipes than allowed", async () => {
+    const { recipes, storage } = setup({ version: 1, recipes: [recipe("a")] });
+    await expect(recipes.keep([recipe("b"), recipe("c")], 2)).rejects.toThrow();
+    expect(storage.write).not.toHaveBeenCalled();
+    expect(await recipes.keep([recipe("b")], 2)).toBe(1);
+  });
+
   it("counts a copy it cannot read as unreadable, and deletes it", async () => {
     const { recipes, storage } = setup({ version: 1, recipes: [{ id: "broken" }] });
     expect(await recipes.count()).toBe(-1);

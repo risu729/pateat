@@ -242,14 +242,38 @@ export const settingsEn = {
     "The settings or recipes are larger than an export file holds.",
   "This is not a Pateat export file, or its settings do not fit with these.":
     "This is not a Pateat export file, or its settings do not fit with these.",
-  "The recipes do not fit with the ones this device keeps. Nothing was imported.":
-    "The recipes do not fit with the ones this device keeps. Nothing was imported.",
+  "The file's settings or recipes do not fit with the ones on this device. Nothing was imported.":
+    "The file's settings or recipes do not fit with the ones on this device. Nothing was imported.",
   "Pateat could not read or write its storage. Try again.":
     "Pateat could not read or write its storage. Try again.",
   "Save or reload the settings above before you import.":
     "Save or reload the settings above before you import.",
   "The file holds what a paired sync service keeps: the site settings, the vault policies with their account and item names, the accounts chosen for sites, and the recipes logins use. It never holds vault keys or values, the sync service's sign-in or the AI key.":
     "The file holds what a paired sync service keeps: the site settings, the vault policies with their account and item names, the accounts chosen for sites, and the recipes logins use. It never holds vault keys or values, the sync service's sign-in or the AI key.",
-  "Importing keeps everything this device has; where both hold the same entry, the file's wins. A recipe replaces one kept here only at a newer revision. A paired device uploads the imported ones at its next sync.":
-    "Importing keeps everything this device has; where both hold the same entry, the file's wins. A recipe replaces one kept here only at a newer revision. A paired device uploads the imported ones at its next sync.",
+  "Importing keeps everything this device has; where both hold the same entry, the file's wins. A recipe replaces one kept here only at a newer revision. A paired device uploads the imported ones at its next sync, unless its service already holds a recipe of that ID.":
+    "Importing keeps everything this device has; where both hold the same entry, the file's wins. A recipe replaces one kept here only at a newer revision. A paired device uploads the imported ones at its next sync, unless its service already holds a recipe of that ID.",
+  "Reading the file…": "Reading the file…",
+  "This file changes nothing here.": "This file changes nothing here.",
+  "Importing this file will:": "Importing this file will:",
+  "Choose which of your vault items Pateat uses on {{count}} site:":
+    "Choose which of your vault items Pateat uses on {{count}} site:",
+  "Choose which of your vault items Pateat uses on {{count}} site:_one":
+    "Choose which of your vault items Pateat uses on {{count}} site:",
+  "Choose which of your vault items Pateat uses on {{count}} site:_other":
+    "Choose which of your vault items Pateat uses on {{count}} sites:",
+  "and {{count}} more": "and {{count}} more",
+  "Add or replace {{count}} vault limit.": "Add or replace {{count}} vault limit.",
+  "Add or replace {{count}} vault limit._one": "Add or replace {{count}} vault limit.",
+  "Add or replace {{count}} vault limit._other": "Add or replace {{count}} vault limits.",
+  "Add or replace {{count}} site rule.": "Add or replace {{count}} site rule.",
+  "Add or replace {{count}} site rule._one": "Add or replace {{count}} site rule.",
+  "Add or replace {{count}} site rule._other": "Add or replace {{count}} site rules.",
+  "Keep {{count}} new or newer recipe.": "Keep {{count}} new or newer recipe.",
+  "Keep {{count}} new or newer recipe._one": "Keep {{count}} new or newer recipe.",
+  "Keep {{count}} new or newer recipe._other": "Keep {{count}} new or newer recipes.",
+  "Import only a file you exported yourself or got from someone you trust: it can let Pateat use your vault items on the sites it names.":
+    "Import only a file you exported yourself or got from someone you trust: it can let Pateat use your vault items on the sites it names.",
+  Import: "Import",
+  "Settings were imported. Reload saved settings to see them; reloading drops your unsaved changes.":
+    "Settings were imported. Reload saved settings to see them; reloading drops your unsaved changes.",
 } as const;

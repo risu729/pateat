@@ -691,7 +691,16 @@ export function SettingsApp({
             <TransferPanel
               client={transferClient}
               blocked={dirty || busy || saving}
-              onImported={() => void reload()}
+              onImported={() => {
+                // Edits made while the file was imported stay until the owner reloads.
+                if (dirtyRef.current || operation.current)
+                  setMessage((translate) =>
+                    translate(
+                      "Settings were imported. Reload saved settings to see them; reloading drops your unsaved changes.",
+                    ),
+                  );
+                else void reload();
+              }}
             />
           )}
           <footer className="flex flex-wrap gap-4 text-[0.8125rem] leading-5 text-ink-muted">

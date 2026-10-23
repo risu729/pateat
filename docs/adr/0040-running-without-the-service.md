@@ -234,17 +234,33 @@ How it works (chosen by an agent unless noted):
   KiB and at most 1,000 recipes. Nothing on the device that pairing does not share goes
   into it: not the vault timeout, the request limits record, the diagnostics log or a
   recipe's provenance.
+- **Confirming first.** A file may come from someone else, and its entries can let the
+  owner's vault items be used on more sites: a binding, a default account or a
+  personal-detail link names a site and one of the owner's items, and the file's entry
+  wins. So the page first asks the background what the import would change
+  (`settings.import` with `apply: false`) and shows it: the sites where the file decides
+  which vault item Pateat uses (ten named, the rest counted), how many vault limits and
+  site rules it adds or replaces, and how many recipes it keeps, with a warning to
+  import only a file the owner made or trusts. Nothing changes until the owner presses
+  **Import**.
 - **Importing settings** merges the file into the device's settings as a first pairing
   merges a service's: every entry of both is kept, and the file's entry wins where both
-  hold one. Vault connections stay. The write is recorded as `settings-import` (ADR
-  0025). A page with unsaved changes cannot import; a save from another page that meets
-  an import is a conflict that is not reapplied automatically.
+  hold one. Vault connections stay. A merge that breaks a settings limit is refused
+  (`invalid-file`), and so is one whose synced document would be larger than the
+  service holds (`too-large`), since a paired device could no longer sync it. The write
+  is recorded as `settings-import` (ADR 0025), and the device syncs at once when paired.
+  A page with unsaved changes cannot import; edits made while an import runs stay, and
+  the page asks for a reload. A save from another page that meets an import is a
+  conflict that is not reapplied automatically.
 - **Importing recipes** keeps them as the device's own recipes (see
   [recipes a device keeps](#recipes-a-device-keeps)): a recipe replaces one kept under
   its ID only at a newer revision, so a login that resumes on a revision never finds
-  other content under it. A paired device uploads them at its next full sync, under the
-  upload rule above. Recipes that would not fit are refused, and then nothing is
-  imported.
+  other content under it, and the device keeps at most 1,000. A paired device leaves out
+  a recipe whose ID its synced recipes hold, since the service's copy wins under the
+  upload rule above, and uploads the rest at its next full sync. Recipes that would not
+  fit are refused, and then nothing is imported. The recipes are kept before the
+  settings are written: if that write then fails, the recipes stay and importing the
+  file again finishes the settings.
 - **Only the settings page** exports and imports, through `settings.export` and
   `settings.import`; the popup cannot.
 

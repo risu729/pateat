@@ -154,11 +154,14 @@ Under **Export and import**, **Export to a file** saves a JSON file with what a 
 Pateat service would keep: the site settings, the item and field limits of each vault
 with the vault's account and item names, the account chosen for each site, and the
 recipes this device uses. It never holds vault keys or values, the service's sign-in or
-the AI key. **Import from a file** on another device adds the file's settings to that
-device's own: everything the device has stays, and where both hold the same entry, the
-file's wins. A recipe replaces one the device keeps only when the file's is newer. A
-paired device uploads the imported recipes to its service at its next sync. Save or
-reload the settings page before you import.
+the AI key. **Import from a file** on another device first shows what the file would
+change, among them the sites where it decides which of your vault items Pateat uses;
+press **Import** to import it. Import only a file you exported yourself or got from
+someone you trust. Importing adds the file's settings to the device's own: everything
+the device has stays, and where both hold the same entry, the file's wins. A recipe
+replaces one the device keeps only when the file's is newer. A paired device uploads the
+imported recipes to its service at its next sync, except those the service already
+holds. Save or reload the settings page before you import.
 
 ## Using Pateat
 
