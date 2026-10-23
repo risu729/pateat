@@ -94,16 +94,39 @@ const emptySynced: SyncedSettings = {
 // The base of the next three-way merge. Normally both copies are the same; after an
 // upload whose local write has not happened yet, `local` is still the local copy the
 // merge started from, so the merged entries it lacks are not mistaken for local edits.
+// The base is written before each write it describes, never only after: a write whose
+// base is lost would make the next merge take an entry this device already uploaded or
+// downloaded for an edit not yet sent, and put back what another device changed since.
+const baseRevision = v.pipe(v.number(), v.integer(), v.minValue(0));
 const baseSchema = v.strictObject({
   version: v.literal(1),
   origin: serviceOriginSchema,
   deviceId: deviceIdSchema,
   profileId: profileIdSchema,
-  revision: v.pipe(v.number(), v.integer(), v.minValue(0)),
+  revision: baseRevision,
   /** The service document at `revision`, which has no connections. */
   settings: localSettingsSchema,
   /** The synced part of the local settings that `settings` already accounts for. */
   local: localSettingsSchema,
+  /**
+   * The local settings revision this sync's write of `settings` to the local settings
+   * takes. Once the local change history shows that write, the local copy holds
+   * `settings`, also when the base recorded after it was lost.
+   */
+  localWrite: v.optional(v.pipe(baseRevision, v.minValue(1))),
+  /**
+   * An upload, recorded before it is sent, as the base it makes once it commits. The
+   * service's `written` (the revision of this device's last stored write) tells the next
+   * sync whether it did, also when its answer was lost.
+   */
+  pending: v.optional(
+    v.strictObject({
+      profileId: profileIdSchema,
+      revision: v.pipe(baseRevision, v.minValue(1)),
+      settings: localSettingsSchema,
+      local: localSettingsSchema,
+    }),
+  ),
 });
 type SettingsBase = v.InferOutput<typeof baseSchema>;
 
@@ -477,15 +500,19 @@ export function createSettingsSync(options: {
     const { origin, credential, deviceId } = connection;
     // A wait that started for an earlier login does not shorten the wait for a later one.
     if (!(await options.deferred?.())) await release();
-    const stored = await loadBase(connection);
+    const loaded = await loadBase(connection);
     // A missing base would let an existing profile replace this device's entries.
-    if (stored === "unreadable") return "storage-unavailable";
+    if (loaded === "unreadable") return "storage-unavailable";
     const fetched = await transport.settings(origin, credential);
     timed?.(fetched.timing);
     if (fetched.kind === "rejected") return "rejected";
     if (fetched.kind === "failed") return fetched.error;
     if (fetched.kind !== "state") return "unexpected-response";
     let service: SyncSettingsState = fetched.state;
+    // An upload recorded as pending is the base once the service stored it, and is
+    // dropped otherwise. Every base written below starts from this one, so a committed
+    // upload is not forgotten by a later write that fails.
+    const stored = loaded && resolvePending(loaded, service.written);
     // Read only when an entry lacks a name: building the catalog restores the vaults.
     let catalog: Promise<VaultCatalog | undefined> | undefined;
     const serviceCopy = (state: SyncSettingsState) =>
@@ -495,7 +522,8 @@ export function createSettingsSync(options: {
     // written yet (`newProfile`, or the owner's first settings) starts from local policy.
     // Bindings and detail links belong to the owner, not a profile, so they keep merging
     // either way.
-    let base: SyncBase = { service: emptySynced, local: emptySynced };
+    const base0: SyncBase = { service: emptySynced, local: emptySynced };
+    let base = base0;
     let ownerBase = base;
     if (
       stored &&
@@ -509,21 +537,35 @@ export function createSettingsSync(options: {
       };
       if (stored.profileId === service.profileId) base = ownerBase;
     }
-    async function record(next: SyncBase) {
-      if (stale()) return;
-      // Best effort: a lost write leaves the older base, which merges to the same result
-      // unless this device edits the same entries again before the next sync.
-      await storage
-        .write({
-          version: 1,
-          origin,
-          deviceId,
-          profileId: service.profileId,
-          revision: service.revision,
-          settings: serviceDocument(next.service),
-          local: serviceDocument(next.local),
-        })
-        .catch(() => undefined);
+    /** Whether `next` was written; nothing is written for a device that is gone. */
+    async function save(next: SettingsBase): Promise<boolean> {
+      if (stale()) return false;
+      try {
+        await storage.write(next);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    // While a profile switch is not yet applied locally, a base keeps the profile it
+    // switches from, so the next sync still replaces the old profile's cache rather than
+    // merging it as edits (ADR 0076). Without a stored base there is none to keep.
+    const baseProfile = (): string | undefined =>
+      switchingProfile ? stored?.profileId : service.profileId;
+    /** Records `next` at the service's revision; false when it was not written. */
+    async function record(next: SyncBase, localWrite?: number): Promise<boolean> {
+      const profileId = baseProfile();
+      if (profileId === undefined) return false;
+      return save({
+        version: 1,
+        origin,
+        deviceId,
+        profileId,
+        revision: service.revision,
+        settings: serviceDocument(next.service),
+        local: serviceDocument(next.local),
+        ...(localWrite === undefined ? {} : { localWrite }),
+      });
     }
     // A profile switch must never reinterpret the previous profile cache as edits.
     const adopts = (state: SyncSettingsState) =>
@@ -541,6 +583,21 @@ export function createSettingsSync(options: {
         return "storage-unavailable";
       }
       const localSynced = syncedSettings(local.settings);
+      // The stored base's own local write landed before the base recorded after it was
+      // lost: the local copy holds the base's service copy, and only later local changes
+      // differ from it. Older than the kept change history, it counts as not written.
+      if (
+        attempt === 0 &&
+        ownerBase !== base0 &&
+        stored?.localWrite !== undefined &&
+        local.changes?.some(
+          (change) => change.revision === stored.localWrite && change.cause === "service-sync",
+        )
+      ) {
+        const written = { service: ownerBase.service, local: ownerBase.service };
+        if (base === ownerBase) base = written;
+        ownerBase = written;
+      }
       const serviceSynced = serviceCopy(service);
       const ownerParts = mergeSyncedSettings(ownerBase, localSynced, serviceSynced);
       const mergedEntries = {
@@ -563,6 +620,23 @@ export function createSettingsSync(options: {
         return "too-large";
       if (stale()) return "busy";
       if (upload) {
+        // Recorded before it is sent: an upload whose answer is lost may have committed.
+        const pendingProfile = baseProfile();
+        if (
+          stored &&
+          pendingProfile !== undefined &&
+          // oxlint-disable-next-line no-await-in-loop -- the upload waits for its record
+          !(await save({
+            ...stored,
+            pending: {
+              profileId: pendingProfile,
+              revision: service.revision + 1,
+              settings: serviceDocument(merged),
+              local: serviceDocument(localSynced),
+            },
+          }))
+        )
+          return stale() ? "busy" : "storage-unavailable";
         // oxlint-disable-next-line no-await-in-loop -- a conflict retries with its state
         const saved = await transport.saveSettings(origin, credential, {
           version: 1,
@@ -586,8 +660,9 @@ export function createSettingsSync(options: {
         // The service holds the merge; local settings still hold `localSynced`.
         base = { service: merged, local: localSynced };
         ownerBase = base;
+        // Best effort: the pending upload recorded above already makes this base.
         // oxlint-disable-next-line no-await-in-loop -- recorded before the local write
-        if (!switchingProfile) await record(base);
+        await record(base);
       }
       if (stale()) return "busy";
       if (!equalSynced(merged, localSynced)) {
@@ -595,6 +670,16 @@ export function createSettingsSync(options: {
         // oxlint-disable-next-line no-await-in-loop -- decides this attempt's write
         if (await holdForLogin(stale)) return "busy";
         if (stale()) return "busy";
+        // Recorded before the local write, which takes the next local revision: whether
+        // or not it lands, the next merge then sees which side changed since.
+        base = { service: merged, local: localSynced };
+        ownerBase = base;
+        if (
+          baseProfile() !== undefined &&
+          // oxlint-disable-next-line no-await-in-loop -- the local write waits for its record
+          !(await record(base, local.revision + 1))
+        )
+          return stale() ? "busy" : "storage-unavailable";
         try {
           // oxlint-disable-next-line no-await-in-loop -- the write must follow the merge
           await settings.update(local.revision, "service-sync", (snapshot) => ({
@@ -608,6 +693,8 @@ export function createSettingsSync(options: {
         }
         options.applied?.();
       }
+      // Both sides now hold the merge, so a profile switch is applied.
+      switchingProfile = false;
       // oxlint-disable-next-line no-await-in-loop -- both sides now hold the merge
       await Promise.all([record({ service: merged, local: merged }), release()]);
       return "synced";
@@ -650,4 +737,18 @@ export function createSettingsSync(options: {
   }
 
   return { run, clear };
+}
+
+/**
+ * `stored` with its pending upload settled: the base that upload makes when `written`,
+ * the revision of this device's last write the service stored, is the upload's, and the
+ * base before it otherwise. One sync runs at a time per device and resolves a pending
+ * upload before it sends another, so no other write of this device has that revision.
+ */
+function resolvePending(stored: SettingsBase, written: number | undefined): SettingsBase {
+  const { pending, localWrite, ...rest } = stored;
+  if (!pending) return stored;
+  if (written !== pending.revision)
+    return { ...rest, ...(localWrite === undefined ? {} : { localWrite }) };
+  return { ...rest, ...pending };
 }

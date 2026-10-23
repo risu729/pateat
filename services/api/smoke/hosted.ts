@@ -208,7 +208,7 @@ export async function runHostedSmoke(origin: string, fetch: Fetch, query: Query)
       expectedRevision: 0,
       settings,
     });
-    const stored = { version: 1, profileId: first.deviceId, revision: 1, settings };
+    const stored = { version: 1, profileId: first.deviceId, revision: 1, settings, written: 1 };
     check(written.status === 200 && same(written.json, stored), `settings write ${written.status}`);
     check(same((await api(first, "/v1/settings")).json, stored), "settings did not read back");
     passed.push("Settings round trip through D1.");

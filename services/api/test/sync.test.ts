@@ -19,6 +19,7 @@ import {
   RECIPE_IDLE_LIMIT_MS,
 } from "../src/limits";
 import { writeRecipe } from "../src/recipe-store";
+import { writeSettings } from "../src/settings-store";
 import { documentBytes, seedRecipeBytes, storedRecipeBytes } from "./recipe-byte-helpers";
 import { OWNER_LIMIT, withLimiter } from "./limiter";
 
@@ -312,6 +313,7 @@ describe("settings sync", () => {
       profileId: expect.any(String),
       revision: 1,
       settings: settings(),
+      written: 1,
     });
 
     const duplicate = await put(device, "/v1/settings", {
@@ -322,8 +324,51 @@ describe("settings sync", () => {
     expect(duplicate.status).toBe(409);
     expect(await duplicate.json()).toEqual({
       error: "settings_conflict",
-      current: { version: 1, profileId: expect.any(String), revision: 1, settings: settings() },
+      current: {
+        version: 1,
+        profileId: expect.any(String),
+        revision: 1,
+        settings: settings(),
+        written: 1,
+      },
     });
+  });
+
+  it("tells each device the revision of its own last stored write, and only its own", async () => {
+    // A device whose write got no answer learns from it whether the write committed.
+    const laptop = await enrollOwner();
+    const phone = await addDevice(laptop.ownerId);
+    const read = async (device: Device) =>
+      (await (await api(device, "/v1/settings")).json()) as {
+        revision: number;
+        written?: number;
+      };
+    expect(await read(laptop)).not.toHaveProperty("written");
+
+    const write = (device: Device, expectedRevision: number, hostname: string) =>
+      put(device, "/v1/settings", { version: 1, expectedRevision, settings: settings(hostname) });
+    expect((await write(laptop, 0, "first.example")).status).toBe(200);
+    expect((await write(phone, 1, "second.example")).status).toBe(200);
+    // A losing write changes neither the settings nor the writer's `written`.
+    expect((await write(laptop, 1, "lost.example")).status).toBe(409);
+    expect(await read(laptop)).toMatchObject({ revision: 2, written: 1 });
+    expect(await read(phone)).toMatchObject({ revision: 2, written: 2 });
+
+    // The owner's web UI writes as no device.
+    const profile = await env.DB.prepare("SELECT profile_id FROM devices WHERE id = ?")
+      .bind(laptop.deviceId)
+      .first<{ profile_id: string }>();
+    const managed = await writeSettings(
+      env.DB,
+      laptop.ownerId,
+      profile!.profile_id,
+      { version: 1, expectedRevision: 2, settings: settings("managed.example") },
+      null,
+    );
+    expect(managed).toMatchObject({ ok: true, state: { revision: 3 } });
+    expect(managed.ok && managed.state).not.toHaveProperty("written");
+    expect(await read(laptop)).toMatchObject({ revision: 3, written: 1 });
+    expect(await read(phone)).toMatchObject({ revision: 3, written: 2 });
   });
 
   it("stores personal-detail links with the owner's bindings, shared by every profile", async () => {
@@ -417,6 +462,7 @@ describe("settings sync", () => {
       profileId: expect.any(String),
       revision: 2,
       settings: expected,
+      written: 2,
     });
     // An empty list is a removal.
     const cleared = await put(device, "/v1/settings", {
@@ -525,7 +571,13 @@ describe("settings sync", () => {
     expect(stale.status).toBe(409);
     expect(await stale.json()).toEqual({
       error: "settings_conflict",
-      current: { version: 1, profileId: expect.any(String), revision: 2, settings: newer },
+      current: {
+        version: 1,
+        profileId: expect.any(String),
+        revision: 2,
+        settings: newer,
+        written: 1,
+      },
     });
   });
 
@@ -567,6 +619,7 @@ describe("settings sync", () => {
       profileId: expect.any(String),
       revision: 1,
       settings: settings(),
+      written: 1,
     });
   });
 

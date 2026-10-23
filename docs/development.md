@@ -933,7 +933,7 @@ build
 | Crypto and OTP | **Approved:** official OSS Bitwarden SDK for local crypto with GPL compliance; **selected under delegated authority:** OTPAuth | M3 Bitwarden adapter; strict format and browser compatibility gates |
 | Service and database | **Approved; implemented for sync:** Hono with Valibot validation through Hono's official `@hono/standard-validator` (`sValidator`, approved and implemented on 2026-10-13; `services/api/src/validation.ts` wraps it so that a failed check answers with a fixed error code and never echoes the rejected input or Valibot issues) and Drizzle for D1, with drizzle-kit (part of the Drizzle approval) generating migrations | M4 enrollment, sync and schema |
 | Inference transport | **Implemented offline:** AI SDK with `@ai-sdk/valibot` for generation and the SDK's experimental decision contract for finite choice; **approved:** `@ai-sdk/anthropic` for Claude generation ([ADR 0014](adr/0014-claude-generation-provider.md)); per-owner Workload Identity Federation with `hono/utils/jwt` signing, a Valibot-checked `fetch` exchange and `authToken`, no added dependency ([ADR 0015](adr/0015-per-owner-claude-credentials.md)) | M4 service route |
-| Unit/runtime tests | Existing Vitest and Cloudflare Vitest plugin; **approved:** fast-check for policy/state invariants; **approved (2026-10-12) and implemented:** `@vitest/coverage-v8` for the CI coverage summary, merged with `@vitest/istanbul-lib-coverage`, a dependency of that provider ([test coverage](#test-coverage)) | M2 onward |
+| Unit/runtime tests | Existing Vitest and Cloudflare Vitest plugin; **approved, implemented for the settings sync (2026-10-23):** fast-check for policy/state invariants; **approved (2026-10-12) and implemented:** `@vitest/coverage-v8` for the CI coverage summary, merged with `@vitest/istanbul-lib-coverage`, a dependency of that provider ([test coverage](#test-coverage)) | M2 onward |
 | Component tests | **Implemented:** Vitest Browser Mode with `vitest-browser-react` | M2 React migration |
 | Integration/accessibility | Existing Playwright; **implemented for settings:** `@axe-core/playwright` | M2 settings and executor fixtures |
 | Static checks | Existing Oxlint/Oxfmt and TypeScript with applicable React/JSX accessibility rules; **approved:** Knip | M2 React migration |
@@ -1054,11 +1054,13 @@ the environment are never read by the adapter. `@ai-sdk/anthropic` stays exact a
 version-matched to `ai`.
 
 Use the approved fast-check for invariants such as stronger exclusions never expanding
-eligibility and stale events never authorizing a new document. Where every state is
-small enough to list, walk them all instead of sampling: the
-`packages/contracts/src/*.orders-*.test.ts` files apply every event of a fixed set to
-every state a small login attempt reaches, and CI runs them in the `Event orders` job
-([CI](delivery.md#current-foundation-workflows)). Component tests
+eligibility and stale events never authorizing a new document.
+`apps/extension/src/service/settings-sync.property.test.ts` uses its scheduler to run
+two devices' syncs and edits in random orders while uploads, their answers and storage
+writes fail. Where every state is small enough to list, walk them all instead of
+sampling: the `packages/contracts/src/*.orders-*.test.ts` files apply every event of a
+fixed set to every state a small login attempt reaches, and CI runs them in the
+`Event orders` job ([CI](delivery.md#current-foundation-workflows)). Component tests
 cover drafts, conflicts, validation and keyboard behavior; Playwright covers real
 extension boundaries and lifecycle. Automated accessibility checks supplement
 manual keyboard/focus inspection. Browser component tests do not establish

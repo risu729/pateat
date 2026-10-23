@@ -34,19 +34,27 @@ export const ownerDocument = (document: LocalSettings) => ({
 /**
  * Reads the profile and the owner's shared parts at the owner's revision in one statement. A
  * profile with no document of its own yet answers `newProfile`, so the first device to
- * sync it keeps its own entries (ADR 0076).
+ * sync it keeps its own entries (ADR 0076). For a paired device, `written` is the revision
+ * of its own last stored write, read in the same statement.
  */
 export async function readSettings(
   db: D1Database,
   ownerId: string,
   profileId: string,
+  deviceId: string | null = null,
 ): Promise<SyncSettingsState> {
   const row = await db
-    .prepare(`SELECT s.revision, s.document AS shared, p.document
+    .prepare(`SELECT s.revision, s.document AS shared, p.document,
+      (SELECT settings_revision FROM devices WHERE id = ? AND owner_id = p.owner_id) AS written
     FROM profiles p LEFT JOIN settings s ON s.owner_id = p.owner_id
     WHERE p.owner_id = ? AND p.id = ? AND p.deleted_at IS NULL`)
-    .bind(ownerId, profileId)
-    .first<{ revision: number | null; shared: string | null; document: string | null }>();
+    .bind(deviceId, ownerId, profileId)
+    .first<{
+      revision: number | null;
+      shared: string | null;
+      document: string | null;
+      written: number | null;
+    }>();
   if (!row) throw new Error("profile-not-found");
   const shared: Partial<ReturnType<typeof ownerDocument>> = row.shared
     ? JSON.parse(row.shared)
@@ -73,6 +81,7 @@ export async function readSettings(
         }
       : null,
     ...(row.revision && !row.document ? { newProfile: true } : {}),
+    ...(row.written === null ? {} : { written: row.written }),
   });
 }
 
@@ -123,7 +132,8 @@ export async function writeSettings(
     ? write.settings
     : await withStoredDetailLinks(db, ownerId, write.expectedRevision, write.settings);
   // Both statements use the exact same compare-and-swap predicate. The profile write
-  // runs first; changes() gates the revision write so losing writers update neither.
+  // runs first; changes() gates the revision write so losing writers update neither, and
+  // the revision write's changes() gates the writing device's record of it (`written`).
   const results = await db.batch([
     db
       .prepare(`UPDATE profiles SET document = ? WHERE owner_id = ? AND id = ? AND deleted_at IS NULL
@@ -153,6 +163,11 @@ export async function writeSettings(
         Date.now(),
         writer,
       ),
+    db
+      .prepare(
+        "UPDATE devices SET settings_revision = ? WHERE id = ? AND owner_id = ? AND changes() = 1",
+      )
+      .bind(write.expectedRevision + 1, writer, ownerId),
   ]);
   if (results[1]?.meta.changes !== 1) {
     const currentProfile = writer
@@ -165,7 +180,7 @@ export async function writeSettings(
     return {
       ok: false,
       current: (await hasProfile(db, ownerId, target))
-        ? await readSettings(db, ownerId, target)
+        ? await readSettings(db, ownerId, target, writer)
         : undefined,
     };
   }
@@ -176,6 +191,7 @@ export async function writeSettings(
       profileId,
       revision: write.expectedRevision + 1,
       settings,
+      ...(writer === null ? {} : { written: write.expectedRevision + 1 }),
     },
   };
 }

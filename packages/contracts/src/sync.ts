@@ -49,6 +49,12 @@ export const syncSettingsStateSchema = v.pipe(
      * created during pairing: the first device then keeps its own entries (ADR 0076).
      */
     newProfile: v.optional(v.literal(true)),
+    /**
+     * For a paired device's own requests: the revision of its last write that the service
+     * stored. A device whose write got no answer learns from it whether that write
+     * committed, so its merge base never treats an uploaded entry as an edit not yet sent.
+     */
+    written: v.optional(revision),
   }),
   v.check(
     (state) => (state.revision === 0) === (state.settings === null),

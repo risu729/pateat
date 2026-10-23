@@ -541,7 +541,14 @@ describe("owner web UI settings", () => {
     expect(stale.status).toBe(409);
     expect(await stale.json()).toEqual({
       error: "settings_conflict",
-      current: { version: 1, profileId: expect.any(String), revision: 2, settings: web },
+      // The device's own last stored write was revision 1.
+      current: {
+        version: 1,
+        profileId: expect.any(String),
+        revision: 2,
+        settings: web,
+        written: 1,
+      },
     });
   });
 
@@ -620,6 +627,7 @@ describe("owner web UI settings", () => {
         profileId: expect.any(String),
         revision: 1,
         settings: policy,
+        written: 1,
       });
       const read = await request(await profileSettingsPath(by), { access: by.token });
       expect(await read.json()).toEqual({
@@ -651,6 +659,7 @@ describe("owner web UI settings", () => {
         profileId: expect.any(String),
         revision: 2,
         settings: web,
+        written: 1,
       });
       const second = await stored();
       expect(second?.revision).toBe(2);
@@ -664,7 +673,11 @@ describe("owner web UI settings", () => {
       };
       const staleDevice = await deviceWrite(1, policy);
       expect(staleDevice.status).toBe(409);
-      expect(await staleDevice.json()).toEqual(conflict);
+      // Only a device learns its own last stored write.
+      expect(await staleDevice.json()).toEqual({
+        ...conflict,
+        current: { ...conflict.current, written: 1 },
+      });
       const staleWeb = await putSettings(by, { version: 1, expectedRevision: 1, settings: policy });
       expect(staleWeb.status).toBe(409);
       expect(await staleWeb.json()).toEqual(conflict);
@@ -678,6 +691,7 @@ describe("owner web UI settings", () => {
         profileId: expect.any(String),
         revision: 3,
         settings: policy,
+        written: 3,
       });
       expect((await stored())?.updated_by_device_id).toBe(device.deviceId);
     });
