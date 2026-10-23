@@ -1914,6 +1914,14 @@ failure condition, and provenance. The vocabulary is packaged code such as fill,
 wait-for-state, and assert-state. There is no eval, remote JavaScript, arbitrary fetch,
 or model-selected secret destination.
 
+A generated page plan fills its fields and clicks the one button that advances or
+submits. When the form shows no such button, as x.com's sign-in before a username is
+typed, the plan's action is its last field, and the click step carries `press: "enter"`
+with that field as its target: the executor then submits the field's form as Enter does,
+through the form's default button or `requestSubmit()`, never through a default button
+that showed when the fill began, is disabled or sits outside the form
+([ADR 0064](adr/0064-enter-in-a-form-without-a-button.md)).
+
 A stored recipe is either a login recipe, with `slots`, `steps`, `maxSubmissions` and
 the optional route members, or an entry recipe
 ([ADR 0031](adr/0031-sign-in-entry-pages.md#recipe-contract)) whose only member besides

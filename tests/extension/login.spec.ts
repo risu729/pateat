@@ -1468,6 +1468,50 @@ test("clicks a submit button or image button named by its text, and refuses a du
   }
 });
 
+test("submits a form without a button by Enter in its last field, never through a button it showed (ADR 0064)", async () => {
+  // The refused Enter's step waits ten seconds, then twice more on its retries.
+  test.setTimeout(90_000);
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, _worker, id) => {
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin);
+      const count = (page: Page, key: string) =>
+        page.evaluate((name) => Number(sessionStorage.getItem(name) || 0), key);
+      // Without a submit button the form is submitted with `requestSubmit()`; with one that
+      // appeared as the password went in, that button is clicked, as Enter does.
+      for (const [query, buttonClicks] of [
+        ["", 0],
+        ["?late", 1],
+      ] as const) {
+        const page = await context.newPage();
+        await page.goto(`${fixture.origin}/enter-submit${query}`);
+        await expect(page.locator("#authenticated")).toBeVisible();
+        expect(await clicks(page)).toBe(1);
+        expect(await count(page, "buttonClicks")).toBe(buttonClicks);
+        await page.close();
+      }
+      // A "Sign up" submit button shown before the fill is never pressed, nor the form sent.
+      const shown = await context.newPage();
+      await shown.goto(`${fixture.origin}/enter-submit?shown`);
+      await expect
+        .poll(
+          async () =>
+            JSON.stringify(await send(options, { version: 1, type: "login.probe.status" })),
+          {
+            timeout: 45_000,
+          },
+        )
+        .toContain("retry-limit");
+      await expect(shown.locator("#password")).not.toHaveValue("");
+      expect(await clicks(shown)).toBe(0);
+      expect(await count(shown, "signUpClicks")).toBe(0);
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
 test("waits for delayed same-page success and rejection without resubmitting", async () => {
   const fixture = await startLoginFixture();
   try {

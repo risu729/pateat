@@ -27,6 +27,10 @@ import * as v from "valibot";
  */
 export type PagePlan = {
   fields: { slot: string; candidate: string }[];
+  /**
+   * The button that advances or submits, or the last field of a form that shows no button,
+   * whose form is then submitted as pressing Enter in that field does (ADR 0064).
+   */
   action: { candidate: string; purpose: "advance" | "submit" };
   /** The button or link that switches to another account, when the page offers one. */
   accountSwitch?: string | undefined;
@@ -378,8 +382,16 @@ export function validatePagePlan(
     requested.get(slot)!.fieldName === undefined ? undefined : names.get(slot);
   const action = candidates.get(plan.action.candidate);
   if (action === undefined) return { ok: false, reason: "unknown-candidate" };
-  if (usedCandidates.has(action.id)) return { ok: false, reason: "duplicate-candidate" };
-  if (!isActionRole(action.role)) return { ok: false, reason: "incompatible-role" };
+  // The plan's last field as the action submits its form as pressing Enter there does, for
+  // a form that shows no button to press (ADR 0064): only a field inside a form, never a
+  // code.
+  const submitsForm =
+    plan.fields.at(-1)!.candidate === action.id &&
+    action.group !== undefined &&
+    !isCodeField(action);
+  if (usedCandidates.has(action.id) && !submitsForm)
+    return { ok: false, reason: "duplicate-candidate" };
+  if (!submitsForm && !isActionRole(action.role)) return { ok: false, reason: "incompatible-role" };
   // One plan must stay within a single form: every filled element and the action share
   // one group, or none has a group. A grouped field with an ungrouped action fails closed.
   const groups = new Set(
@@ -422,7 +434,13 @@ export function validatePagePlan(
         target: candidates.get(field.candidate)!.target,
       })),
     },
-    { kind: "click", path: observation.path, target: action.target, purpose: plan.action.purpose },
+    {
+      kind: "click",
+      path: observation.path,
+      target: action.target,
+      purpose: plan.action.purpose,
+      ...(submitsForm ? { press: "enter" } : {}),
+    },
   ]);
   return {
     ok: true,
