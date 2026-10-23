@@ -6,6 +6,7 @@ import {
   extractAccountListObservation,
   extractEntryObservation,
   extractLoginObservation,
+  extractLogoutObservation,
   extractPasskeyObservation,
   extractSignedInObservation,
 } from "./extract";
@@ -3793,5 +3794,66 @@ describe("passkey-only start observation", () => {
   ])("does not qualify registration, hidden buttons or a fill form: %s", (html) => {
     page(html);
     expect(extractPasskeyObservation(document).ok).toBe(false);
+  });
+});
+
+describe("extractLogoutObservation (ADR 0063)", () => {
+  const logout = () => {
+    const result = extractLogoutObservation();
+    if (!result.ok) throw new Error(`no observation: ${result.reason}`);
+    return result.observation;
+  };
+
+  it("lists a signed-in page's buttons and links, never a form's or a new window's", () => {
+    page(
+      `<header>
+        <a href="/home">Home</a>
+        <button type="button" id="account-menu">Account</button>
+        <a href="/logout">Log out</a>
+        <a href="/help" target="_blank">Help</a>
+        <a href="/export.csv" download>Export</a>
+        <button type="button">Inbox 12</button>
+        <button disabled>Disabled</button>
+      </header>
+      <form role="search"><input type="search" name="q"><button>Search</button></form>
+      <form><button>Form without fields</button></form>`,
+      "Inbox (12) - Synthetic mail",
+    );
+    const observation = logout();
+    expect(observation.complete).toBe(true);
+    expect(observation.candidates.map((candidate) => [candidate.role, candidate.label])).toEqual([
+      ["link", "Home"],
+      ["button", "Account"],
+      ["link", "Log out"],
+      ["button", "Form without fields"],
+    ]);
+    expect(observation.candidates[1]?.target).toEqual({ by: "id", value: "account-menu" });
+    // A count in the title is no part of a recipe's page.
+    expect(JSON.stringify(observation)).not.toContain("12");
+  });
+
+  it("keeps an open dialog's and menu's controls first past the 48-candidate limit", () => {
+    const filler = Array.from(
+      { length: 60 },
+      (_, index) =>
+        `<button type="button" id="item-${"abcdefghij"[index % 10]}${index}">Item</button>`,
+    ).join("");
+    page(
+      `<main>${filler}</main>
+      <header><button type="button" id="menu-button">Menu</button></header>
+      <div role="menu"><a href="/logout" role="menuitem">Sign out</a></div>
+      <div role="dialog" aria-modal="true"><button type="button" id="confirm">Yes, sign out</button></div>`,
+    );
+    const observation = logout();
+    expect(observation.candidates).toHaveLength(48);
+    const labels = observation.candidates.map((candidate) => candidate.label);
+    expect(labels).toContain("Yes, sign out");
+    expect(labels).toContain("Sign out");
+    expect(labels).toContain("Menu");
+  });
+
+  it("refuses a page with no control to press", () => {
+    page(`<main><p>Nothing here</p><form><input name="q"><button>Search</button></form></main>`);
+    expect(extractLogoutObservation()).toEqual({ ok: false, reason: "no-candidates" });
   });
 });

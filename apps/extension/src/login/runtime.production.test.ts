@@ -12,9 +12,12 @@ import {
   type SettingsSnapshot,
   type LoginChooserRecipe,
   type LoginEntryRecipe,
+  type LoginLogoutRecipe,
   type LoginRecipe,
   type LoginStep,
   type LoginTarget,
+  type LogoutPurpose,
+  type LogoutTarget,
 } from "@pateat/contracts";
 import type { UriCandidates } from "../crypto/wire";
 import { vaultFailure } from "../vault/record";
@@ -35,6 +38,7 @@ import {
 } from "./badge";
 import type { GenerationOutcome, LoginGeneration, LoginRecipeStart, LoginReport } from "./runtime";
 import type { LoginFieldSource } from "./vault";
+import type { LogoutService } from "./switch";
 import type { ConditionalDecision, PasskeyItem } from "../passkeys/runtime";
 
 const fake = vi.hoisted(() => {
@@ -139,6 +143,10 @@ const fake = vi.hoisted(() => {
     },
     /** Runs when the document presses its sign-in entry. */
     onPress: undefined as undefined | (() => void),
+    /** The document's answer to an account switch's logout click (ADR 0063). */
+    logoutClick: { ok: true } as unknown,
+    /** Runs when the document presses a logout click, as the page then changes. */
+    onLogoutClick: undefined as undefined | ((message: Record<string, unknown>) => void),
   };
   const browser = {
     runtime: {
@@ -260,6 +268,10 @@ const fake = vi.hoisted(() => {
         if (message["type"] === "login.entry.hosts") return state.entry.hosts;
         if (message["type"] === "login.entry.inspect") return state.entry.inspect;
         if (message["type"] === "login.entry.check") return state.entry.check;
+        if (message["type"] === "login.logout.click") {
+          state.onLogoutClick?.(message);
+          return state.logoutClick;
+        }
         if (message["type"] === "login.entry.press") {
           state.onPress?.();
           return state.entry.press;
@@ -433,6 +445,10 @@ function harness(
     spin?: (tabId: number) => () => void;
     /** The toolbar badge, which keeps the tab's page status for the popup (ADR 0038). */
     badge?: LoginBadge;
+    /** An account switch's logout recipes and role (ADR 0063). */
+    logout?: LogoutService | undefined;
+    /** Whether automatic login is paused for a page (ADR 0062). */
+    paused?: (url: string, incognito: boolean) => boolean;
   } = {},
 ) {
   const customFields = (fields: CustomField[]) =>
@@ -580,6 +596,8 @@ function harness(
     ...(live.passkeyItems ? { passkeyItems: live.passkeyItems } : {}),
     ...(live.vault ? { vault: live.vault } : {}),
     ...(live.signedIn ? { signedIn: live.signedIn } : {}),
+    ...(live.logout ? { logout: live.logout } : {}),
+    ...(live.paused ? { paused: live.paused } : {}),
     ...(live.badge
       ? { badge: live.badge }
       : live.spin
@@ -26245,5 +26263,490 @@ describe("revoking a recipe the chosen item cannot run (ADR 0058 A)", () => {
       });
       await vi.waitFor(() => expect(generation.replace).toHaveBeenCalledTimes(1));
     });
+  });
+});
+
+describe("account switching from the popup (ADR 0063)", () => {
+  const popup = {
+    id: "synthetic-extension",
+    url: "chrome-extension://synthetic-extension/popup.html",
+  } as never;
+  const both = uriMatch({
+    candidates: [
+      { itemId, matches: [{ uriIndex: 0, match: 0 }] },
+      { itemId: otherItemId, matches: [{ uriIndex: 0, match: 0 }] },
+    ],
+  });
+  const homeUrl = `${origin}/home`;
+  const signinUrl = `${origin}/signin`;
+  const home = (h: ReturnType<typeof harness>) => {
+    fake.state.pageUrl = homeUrl;
+    return h.hello({ documentId: "home" }, false);
+  };
+  const switchTo = (h: ReturnType<typeof harness>, overrides: Record<string, unknown> = {}) =>
+    h.login.handle(
+      {
+        version: 1,
+        type: "login.switch.start",
+        tabId: 1,
+        connectionId,
+        itemId: otherItemId,
+        makeDefault: false,
+        ...overrides,
+      },
+      popup,
+    );
+  const status = async (h: ReturnType<typeof harness>) =>
+    v.parse(
+      statusResponseSchema,
+      await h.login.handle({ version: 1, type: "login.status.get", tabId: 1 }, popup),
+    );
+  const attempts = () =>
+    (fake.state.storage["pateat.login-attempts.v5"] ?? []) as {
+      account: { itemId: string };
+      document: { tabId: number; documentId: string };
+      state: string;
+    }[];
+  const clicks = () =>
+    fake.state.messages
+      .filter((entry) => entry.type === "login.logout.click")
+      .map((entry) => (entry as { target?: LoginTarget }).target);
+  const logoutRecipe = (
+    targets: { target: LogoutTarget["target"]; purpose: LogoutPurpose; path?: string }[],
+  ): LoginLogoutRecipe => ({
+    version: 1 as const,
+    id: "gen-00000000000000000000000000000001",
+    revision: targets.length,
+    origin,
+    logout: {
+      path: "/home",
+      targets: targets.map(({ path = "/home", ...entry }) => ({
+        kind: "click" as const,
+        path,
+        ...entry,
+      })),
+    },
+  });
+  const homePage = {
+    ok: true,
+    observation: {
+      version: 1,
+      origin,
+      path: "/home",
+      language: "en",
+      complete: true,
+      candidates: [
+        { id: "c1", role: "button", target: target("account-menu"), label: "Account" },
+        { id: "c2", role: "button", target: target("sign-out"), label: "Sign out" },
+      ],
+    },
+  };
+  /** The tab signs in with the saved default, then shows the site's home page. */
+  async function signedIn(
+    live: Parameters<typeof harness>[1] = {},
+    overrides: Partial<LocalSettings> = {},
+  ) {
+    const report = vi.fn<(entry: LoginReport) => void>();
+    const h = harness(overrides, {
+      uris: async () => ({ ok: true, data: both }),
+      report,
+      ...live,
+    });
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(attempts()).toMatchObject([{ account: { itemId }, state: "authenticated" }]),
+    );
+    expect(await home(h)).toMatchObject({ ok: false, reason: "logged-in" });
+    const reports = () =>
+      report.mock.calls.map(([entry]) => entry).filter((entry) => entry.type === "switch");
+    return { h, reports };
+  }
+  /** The logout click leads to the sign-in page, which announces as a new document. */
+  const leadsToSignIn = (h: ReturnType<typeof harness>, value = "sign-out") => {
+    fake.state.onLogoutClick = (message) => {
+      if ((message["target"] as LoginTarget).value !== value) return;
+      fake.state.entry.check = { ok: true, signIn: true, start: true, signUp: false };
+      fake.state.pageUrl = signinUrl;
+      void h.hello({ documentId: "signin-again" });
+    };
+  };
+
+  afterEach(() => {
+    for (const listener of fake.state.removed.splice(0))
+      for (const tabId of [1, 2, 3, 4]) listener(tabId);
+    fake.state.replaced.length = 0;
+  });
+  beforeEach(() => {
+    fake.state.storage = {};
+    fake.state.session = {};
+    fake.state.badges = {};
+    fake.state.reconnects = [];
+    fake.state.onReconnect = undefined;
+    fake.state.messages = [];
+    fake.state.granted = true;
+    fake.state.pageUrl = signinUrl;
+    fake.state.onExecute = undefined;
+    fake.state.tabUrls = {};
+    fake.state.observed = ["unique", "missing"];
+    fake.state.observedPath = "/signin";
+    fake.state.present = undefined;
+    fake.state.unusable = new Set();
+    fake.state.awaited = { ok: true };
+    fake.state.onAwait = undefined;
+    fake.state.executeReply = undefined;
+    fake.state.switchReply = { ok: true };
+    fake.state.chosen = { ok: true, click: "entry" };
+    fake.state.gone = new Set();
+    fake.state.extracted = {};
+    fake.state.signs = undefined;
+    fake.state.loaded = true;
+    fake.state.entry.check = { ok: true, signIn: false, start: false, signUp: false };
+    fake.state.logoutClick = { ok: true };
+    fake.state.onLogoutClick = undefined;
+  });
+
+  it("logs out with the stored recipe, then logs in with the picked account for the session", async () => {
+    const logout = {
+      recipes: vi.fn(async () => [
+        logoutRecipe([{ target: target("sign-out"), purpose: "logout" }]),
+      ]),
+      generate: vi.fn<LogoutService["generate"]>(),
+    };
+    const { h, reports } = await signedIn({ logout });
+    // The popup marks the account of the tab's login as used in this tab.
+    expect(await status(h)).toMatchObject({ used: { connectionId, itemId } });
+    leadsToSignIn(h);
+    expect(await switchTo(h)).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(attempts()).toMatchObject([
+        {
+          account: { itemId: otherItemId },
+          document: { documentId: "signin-again" },
+          state: "authenticated",
+        },
+      ]),
+    );
+    expect(clicks()).toEqual([target("sign-out")]);
+    // A stored recipe that ends on its logout needs no model call.
+    expect(logout.generate).not.toHaveBeenCalled();
+    expect(h.fields.mock.calls.at(-1)![0]).toMatchObject({
+      account: { connectionId, itemId: otherItemId },
+    });
+    await vi.waitFor(() =>
+      expect(reports()).toEqual([
+        { type: "switch", tabId: 1, origin, stage: "start" },
+        { type: "switch", tabId: 1, origin, stage: "click", purpose: "logout" },
+        {
+          type: "switch",
+          tabId: 1,
+          origin,
+          stage: "end",
+          outcome: "signed-out",
+          clicks: 1,
+          recipeId: "gen-00000000000000000000000000000001",
+          recipeRevision: 1,
+        },
+      ]),
+    );
+    // Not made the default: the saved default stays, and the pick is kept for the session.
+    expect(h.settings.settings.siteDefaults).toEqual([expect.objectContaining({ origin, itemId })]);
+    await vi.waitFor(() =>
+      expect(fake.state.session["pateat.login-session-picks.v1"]).toEqual([
+        {
+          site: expect.any(String),
+          incognito: false,
+          connectionId,
+          itemId: otherItemId,
+          defaults: expect.any(String),
+        },
+      ]),
+    );
+    expect(fake.state.session["pateat.login-switch-picks.v1"]).toEqual([]);
+    expect(await status(h)).toMatchObject({ used: { connectionId, itemId: otherItemId } });
+  }, 15_000);
+
+  it("opens the menu the model names, then clicks the logout it names there", async () => {
+    const menu = logoutRecipe([{ target: target("account-menu"), purpose: "menu" }]);
+    const full = logoutRecipe([
+      { target: target("account-menu"), purpose: "menu" },
+      { target: target("sign-out"), purpose: "logout" },
+    ]);
+    const logout = {
+      recipes: vi.fn(async () => []),
+      generate: vi.fn<LogoutService["generate"]>(async (request) => ({
+        outcome: "recipe",
+        recipe: request.base ? full : menu,
+      })),
+    };
+    const { h, reports } = await signedIn({ logout });
+    fake.state.extracted = { logout: homePage };
+    leadsToSignIn(h);
+    expect(await switchTo(h, { makeDefault: true })).toEqual({ ok: true });
+    await vi.waitFor(
+      () =>
+        expect(attempts()).toMatchObject([
+          { account: { itemId: otherItemId }, state: "authenticated" },
+        ]),
+      { timeout: 10_000 },
+    );
+    expect(clicks()).toEqual([target("account-menu"), target("sign-out")]);
+    expect(logout.generate.mock.calls.map(([request]) => request.base)).toEqual([
+      undefined,
+      { recipeId: menu.id, revision: 1 },
+    ]);
+    // The page sent is the logout description, without slots.
+    expect(logout.generate.mock.calls[0]![0]).toEqual({
+      version: 1,
+      observation: homePage.observation,
+    });
+    await vi.waitFor(() =>
+      expect(reports().map((entry) => [entry.stage, entry.purpose, entry.learned])).toEqual([
+        ["start", undefined, undefined],
+        ["click", "menu", true],
+        ["click", "logout", true],
+        ["end", undefined, true],
+      ]),
+    );
+    // Made the default once the login succeeded; no session pick is kept for it.
+    await vi.waitFor(() =>
+      expect(h.settings.settings.siteDefaults).toEqual([
+        expect.objectContaining({ origin, itemId: otherItemId }),
+      ]),
+    );
+    expect(fake.state.session["pateat.login-session-picks.v1"] ?? []).toEqual([]);
+  }, 20_000);
+
+  it("stops when no control logs out, and the tab keeps its account", async () => {
+    const logout = {
+      recipes: vi.fn(async () => []),
+      generate: vi.fn<LogoutService["generate"]>(async () => ({
+        outcome: "abstained",
+        reason: "no-logout-control",
+      })),
+    };
+    const { h, reports } = await signedIn({ logout });
+    fake.state.extracted = { logout: homePage };
+    expect(await switchTo(h)).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(reports().at(-1)).toMatchObject({
+        stage: "end",
+        outcome: "failed",
+        reason: "no-logout-control",
+        detail: "no-logout-control",
+        clicks: 0,
+      }),
+    );
+    expect(clicks()).toEqual([]);
+    expect(await status(h)).toMatchObject({
+      used: { connectionId, itemId },
+      switch: { state: "failed", reason: "no-logout-control", connectionId, itemId: otherItemId },
+    });
+    await vi.waitFor(() => expect(fake.state.session["pateat.login-switch-picks.v1"]).toEqual([]));
+    // The tab's login stays: the sign-in page shown later is no switch's.
+    expect(attempts()).toMatchObject([{ account: { itemId }, state: "authenticated" }]);
+  });
+
+  it("stops after three clicks when the site still shows the account", async () => {
+    const stuck = logoutRecipe([
+      { target: target("account-menu"), purpose: "menu" },
+      { target: target("more"), purpose: "menu" },
+      { target: target("account-menu"), purpose: "menu" },
+    ]);
+    const logout = {
+      recipes: vi.fn(async () => [stuck]),
+      generate: vi.fn<LogoutService["generate"]>(),
+    };
+    const { h, reports } = await signedIn({ logout });
+    expect(await switchTo(h)).toEqual({ ok: true });
+    await vi.waitFor(
+      () =>
+        expect(reports().at(-1)).toMatchObject({
+          stage: "end",
+          outcome: "failed",
+          reason: "still-signed-in",
+          clicks: 3,
+        }),
+      { timeout: 10_000 },
+    );
+    expect(clicks()).toHaveLength(3);
+    expect(await status(h)).toMatchObject({
+      switch: { state: "failed", reason: "still-signed-in" },
+    });
+  }, 15_000);
+
+  it.each<[string, () => Partial<Parameters<typeof harness>[1]>, Record<string, unknown>, string]>([
+    [
+      "an account that does not match the page",
+      () => ({}),
+      { itemId: "unlisted-item" },
+      "not-a-candidate",
+    ],
+    ["a paused site", () => ({ paused: () => true }), {}, "paused"],
+    ["a worker without the service's logout", () => ({ logout: undefined }), {}, "unavailable"],
+  ])("refuses %s", async (_name, live, overrides, reason) => {
+    const logout = { recipes: vi.fn(async () => []), generate: vi.fn<LogoutService["generate"]>() };
+    const { h } = await signedIn({ logout, ...live() });
+    expect(await switchTo(h, overrides)).toEqual({ ok: false, reason });
+    expect(fake.state.session["pateat.login-switch-picks.v1"] ?? []).toEqual([]);
+    expect(clicks()).toEqual([]);
+  });
+
+  it("refuses an excluded site, a page Pateat does not know and other senders", async () => {
+    const logout = { recipes: vi.fn(async () => []), generate: vi.fn<LogoutService["generate"]>() };
+    const { h } = await signedIn({ logout });
+    expect(
+      await h.login.handle(
+        {
+          version: 1,
+          type: "login.switch.start",
+          tabId: 1,
+          connectionId,
+          itemId: otherItemId,
+          makeDefault: false,
+        },
+        sender(),
+      ),
+    ).toBeUndefined();
+    expect(await switchTo(h, { tabId: 4 })).toEqual({ ok: false, reason: "no-page" });
+    h.settings.settings.excludedSites = [{ hostname: "login.example", includeSubdomains: false }];
+    expect(await switchTo(h)).toEqual({ ok: false, reason: "site-excluded" });
+  });
+
+  it("keeps a pick made without the default for the session, apart for incognito windows", async () => {
+    const h = harness(
+      { siteDefaults: [], bindings: [] },
+      { allowedOrigins: [], uris: async () => ({ ok: true, data: both }) },
+    );
+    expect(await h.hello()).toEqual({ ok: false, reason: "account-ambiguous" });
+    fake.state.onReconnect = () => h.hello();
+    expect(
+      await h.login.handle(
+        {
+          version: 1,
+          type: "login.choice.pick",
+          tabId: 1,
+          documentId: "synthetic-document",
+          connectionId,
+          itemId: otherItemId,
+          makeDefault: false,
+        },
+        popup,
+      ),
+    ).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(fake.state.session["pateat.login-session-picks.v1"]).toMatchObject([
+        { incognito: false, itemId: otherItemId },
+      ]),
+    );
+    // Another tab of the site logs in with the session's pick, though two items match.
+    fake.state.tabUrls[2] = signinUrl;
+    expect(await h.hello({ tab: { id: 2 }, documentId: "tab-2" })).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(attempts()).toContainEqual(
+        expect.objectContaining({
+          account: expect.objectContaining({ itemId: otherItemId }),
+          document: expect.objectContaining({ tabId: 2 }),
+        }),
+      ),
+    );
+    // An incognito window keeps its own picks: it asks, as without one.
+    fake.state.tabUrls[3] = signinUrl;
+    expect(await h.hello({ tab: { id: 3, incognito: true }, documentId: "tab-3" })).toEqual({
+      ok: false,
+      reason: "account-ambiguous",
+    });
+    // A default saved since, as in the popup, ends the session's pick.
+    h.settings.settings.siteDefaults = [{ origin, provider: "bitwarden", userId, itemId }];
+    h.settings.revision += 1;
+    fake.state.tabUrls[4] = signinUrl;
+    expect(await h.hello({ tab: { id: 4 }, documentId: "tab-4" })).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(attempts()).toContainEqual(
+        expect.objectContaining({
+          account: expect.objectContaining({ itemId }),
+          document: expect.objectContaining({ tabId: 4 }),
+        }),
+      ),
+    );
+    expect(fake.state.session["pateat.login-session-picks.v1"]).toEqual([]);
+    // A passkey request of the site reads the session's pick the same way.
+    expect(await h.login.sessionPick(origin, false)).toBeUndefined();
+  });
+
+  it.each([
+    [true, { outcome: "pressed" }],
+    [false, { outcome: "refused", reason: "no-return-target" }],
+  ] as const)(
+    "presses the site's sign-in entry on a page that names no return target only while switching (%s)",
+    async (switching, logged) => {
+      const entryRecipe: LoginEntryRecipe = {
+        version: 1,
+        id: "synthetic-entry",
+        revision: 2,
+        origin,
+        entry: { path: "/", target: { by: "text", value: "Login" } },
+      };
+      if (switching)
+        fake.state.session["pateat.login-switch-picks.v1"] = [
+          {
+            tabId: 1,
+            site: "login.example",
+            incognito: false,
+            connectionId,
+            itemId: otherItemId,
+            makeDefault: false,
+            until: Date.now() + 60_000,
+          },
+        ];
+      fake.state.pageUrl = `${origin}/`;
+      fake.state.entry.inspect = {
+        ok: true,
+        state: "unique",
+        href: "https://accounts.login.example/login",
+        url: fake.state.pageUrl,
+      };
+      const report = vi.fn<(entry: LoginReport) => void>();
+      const h = harness(
+        { siteDefaults: [], bindings: [] },
+        {
+          allowedOrigins: [],
+          uris: async () => ({ ok: true, data: uriMatch() }),
+          entries: [entryRecipe],
+          report,
+        },
+      );
+      h.recipes.recipe.mockResolvedValue(undefined);
+      h.recipes.starts.mockResolvedValue([]);
+      expect(await h.hello({}, false)).toEqual({ ok: false, reason: "entry", starts: [] });
+      await vi.waitFor(() =>
+        expect(
+          report.mock.calls.map(([entry]) => entry).filter((entry) => entry.type === "entry"),
+        ).toEqual([expect.objectContaining(logged)]),
+      );
+    },
+  );
+
+  it("answers a passkey request's session pick per window kind", async () => {
+    const { siteDefaultsMark } = await import("./switch");
+    // Stored before the worker starts, as after a restart in the same browser session.
+    fake.state.session["pateat.login-session-picks.v1"] = [
+      {
+        site: "login.example",
+        incognito: true,
+        connectionId,
+        itemId: otherItemId,
+        defaults: siteDefaultsMark(
+          [{ origin, provider: "bitwarden", userId, itemId }],
+          "login.example",
+          (value) => new URL(value).hostname,
+        ),
+      },
+    ];
+    const h = harness({}, { uris: async () => ({ ok: true, data: both }) });
+    expect(await h.login.sessionPick(origin, true)).toEqual({
+      connectionId,
+      itemId: otherItemId,
+    });
+    expect(await h.login.sessionPick(origin, false)).toBeUndefined();
   });
 });

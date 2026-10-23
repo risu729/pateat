@@ -209,7 +209,7 @@ describe("logout generation for an account switch (ADR 0063)", () => {
       "SELECT prompt_version FROM inference_log WHERE owner_id = ? LIMIT 1",
       device.ownerId,
     );
-    expect(logged!.prompt_version).toBe(await logoutPromptVersion());
+    expect(logged!["prompt_version"]).toBe(await logoutPromptVersion());
 
     // The stored recipe answers the path again without a model call, and devices sync it.
     const again = await logout(device, homePage);

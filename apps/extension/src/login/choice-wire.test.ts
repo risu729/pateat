@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { choiceReason, choiceResponseSchema, pickFailure } from "./choice-wire";
+import {
+  choiceReason,
+  choiceResponseSchema,
+  pickFailure,
+  statusResponseSchema,
+  switchRefusal,
+  switchRefusalSchema,
+  switchRequestSchema,
+  switchResponseSchema,
+  switchStatus,
+} from "./choice-wire";
 import * as v from "valibot";
 
 describe("the popup's reason for asking (ADR 0021)", () => {
@@ -50,5 +60,63 @@ describe("the popup's reason for asking (ADR 0021)", () => {
     for (const logout of ["this-tab", "rejected", "other-tab", "stopped-login"])
       expect(v.parse(choiceResponseSchema, { ...response, logout })).toMatchObject({ logout });
     expect(v.safeParse(choiceResponseSchema, { ...response, logout: true }).success).toBe(false);
+  });
+});
+
+describe("the popup's account switch (ADR 0063)", () => {
+  it("says why a switch did not start", () => {
+    expect(switchRefusal("not-a-candidate", "taro@example.com")).toBe(
+      "taro@example.com does not match this page.",
+    );
+    expect(switchRefusal("paused", "Example")).toBe(
+      "Automatic login is paused for this site, so Pateat did not switch accounts.",
+    );
+    expect(switchRefusal("site-excluded", "Example")).toBe(
+      "Pateat is off for this site, so it did not switch accounts.",
+    );
+    for (const reason of switchRefusalSchema.options)
+      expect(switchRefusal(reason, "Example")).not.toBe("");
+  });
+
+  it("follows the switch from logging out to the login, or says why it stopped", () => {
+    expect(switchStatus("running", undefined, "Example")).toBe("Logging out to switch to Example…");
+    expect(switchStatus("signed-out", undefined, "Example")).toBe(
+      "Logged out. Pateat logs in with Example on this site's login page in this tab",
+    );
+    expect(switchStatus("failed", "no-logout-control", "Example")).toBe(
+      "Pateat found no way to log out on this page, so it did not switch to Example. Log out yourself, then choose the account",
+    );
+    expect(switchStatus("failed", "still-signed-in", "Example")).toBe(
+      "The site still shows you logged in after 3 tries, so Pateat did not switch to Example. Log out yourself, then choose the account",
+    );
+    expect(switchStatus("failed", "service-unavailable", "Example")).toBe(
+      "Pateat could not log out to switch to Example. Log out yourself, then choose the account",
+    );
+  });
+
+  it("parses the switch's request, answer and status", () => {
+    const request = {
+      version: 1,
+      type: "login.switch.start",
+      tabId: 1,
+      connectionId: "connection",
+      itemId: "item",
+      makeDefault: false,
+    };
+    expect(v.parse(switchRequestSchema, request)).toEqual(request);
+    expect(v.safeParse(switchRequestSchema, { ...request, documentId: "d" }).success).toBe(false);
+    expect(v.parse(switchResponseSchema, { ok: false, reason: "paused" })).toEqual({
+      ok: false,
+      reason: "paused",
+    });
+    expect(v.safeParse(switchResponseSchema, { ok: false, reason: "other" }).success).toBe(false);
+    const status = {
+      ok: true,
+      origin: "https://login.example",
+      recipe: "page",
+      used: { connectionId: "connection", itemId: "item" },
+      switch: { state: "failed", reason: "still-signed-in", connectionId: "c", itemId: "i" },
+    };
+    expect(v.parse(statusResponseSchema, status)).toEqual(status);
   });
 });

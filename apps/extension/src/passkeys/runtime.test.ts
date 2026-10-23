@@ -1791,3 +1791,77 @@ describe("Immediate UI requests (ADR 0052)", () => {
     );
   });
 });
+
+describe("the site's account pick for the browser session (ADR 0063)", () => {
+  const picked = { connectionId: "personal", itemId: "picked-item" };
+  type Stored = (typeof candidate & { preferred?: boolean }) & { item: string };
+  const siteDefault: Stored = {
+    ...candidate,
+    credentialId: "BBBB",
+    preferred: true,
+    item: "default-item",
+  };
+  const ofPick: Stored = { ...candidate, credentialId: "CCCC", item: "picked-item" };
+  const vault = (stored: Stored[]) =>
+    source({
+      candidates: vi.fn(async (_origin: string, _rpId: string, _signal, only?: PasskeyItem) => ({
+        candidates: only
+          ? stored
+              .filter((entry) => entry.item === only.itemId)
+              .map(({ preferred: _preferred, ...entry }) => entry)
+          : stored,
+        complete: true,
+      })),
+    });
+
+  it("signs with the session's pick before the site default, per window kind", async () => {
+    const sessionPick = vi.fn(async (_origin: string, incognito: boolean) =>
+      incognito ? undefined : picked,
+    );
+    const report = vi.fn();
+    const runtime = createPasskeyRuntime(vault([siteDefault, ofPick]), {
+      extensionId,
+      sessionPick,
+      report,
+    });
+    expect(await runtime.handle(get(), sender())).toMatchObject({
+      kind: "assertion",
+      assertion: { credentialId: "CCCC" },
+    });
+    expect(sessionPick).toHaveBeenCalledWith(origin, false);
+    expect(report).toHaveBeenLastCalledWith(expect.objectContaining({ sessionPick: true }));
+    // An incognito window keeps its own picks; without one the site default signs.
+    expect(await runtime.handle(get(), sender({ tab: { id: 8, incognito: true } }))).toMatchObject({
+      kind: "assertion",
+      assertion: { credentialId: "BBBB" },
+    });
+    expect(sessionPick).toHaveBeenLastCalledWith(origin, true);
+  });
+
+  it("goes on as before when the pick's item holds no passkey for the request", async () => {
+    const runtime = createPasskeyRuntime(vault([siteDefault]), {
+      extensionId,
+      sessionPick: async () => picked,
+    });
+    expect(await runtime.handle(get(), sender())).toMatchObject({
+      kind: "assertion",
+      assertion: { credentialId: "BBBB" },
+    });
+  });
+
+  it("leaves a running login's item alone", async () => {
+    const sessionPick = vi.fn(async () => picked);
+    const runtime = createPasskeyRuntime(
+      vault([siteDefault, ofPick, { ...candidate, credentialId: "DDDD", item: "login-item" }]),
+      {
+        extensionId,
+        sessionPick,
+        loginAccount: () => ({ connectionId: "personal", itemId: "login-item" }),
+      },
+    );
+    expect(await runtime.handle(get(), sender())).toMatchObject({
+      assertion: { credentialId: "DDDD" },
+    });
+    expect(sessionPick).not.toHaveBeenCalled();
+  });
+});
