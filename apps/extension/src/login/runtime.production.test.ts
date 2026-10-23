@@ -5396,6 +5396,8 @@ describe("production login document admission", () => {
           "pateat.login-entry-presses.v1": [],
           "pateat.login-noted.v1": [["1 synthetic-document /signin", ["account-ambiguous "]]],
           "pateat.login-logout-clicks.v1": [],
+          "pateat.login-detail-offers.v1": [],
+          "pateat.login-pending-details.v1": [],
         });
         // The time the popup offered the choice is the person's, in the login's times too
         // (ADR 0019).
@@ -5417,6 +5419,8 @@ describe("production login document admission", () => {
             "pateat.login-rejected-asks.v1": [],
             "pateat.login-entry-presses.v1": [],
             "pateat.login-logout-clicks.v1": [],
+            "pateat.login-detail-offers.v1": [],
+            "pateat.login-pending-details.v1": [],
           }),
         );
       });
