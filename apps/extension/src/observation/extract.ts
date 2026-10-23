@@ -196,9 +196,11 @@ const changingId = (value: string) => libraryId.test(value) || randomId(value);
  * more digits, ASCII or fullwidth, become `[number]`.
  */
 const redactions: readonly (readonly [RegExp, string])[] = [
-  // Fullwidth letters, digits and punctuation count too: `ｔａｒｏ＠ｅｘａｍｐｌｅ．ｃｏｍ`.
+  // Fullwidth letters, digits and punctuation count too: `ｔａｒｏ＠ｅｘａｍｐｌｅ．ｃｏｍ`. A
+  // local part holds any character HTML's valid email address allows, such as `'` and
+  // `#` (`o'brien@`, `taro#1@`), and a domain may be internationalized (`taro@例え.jp`).
   [
-    /[A-Za-z0-9._%+\-*●•＊Ａ-Ｚａ-ｚ０-９．＿％＋－]+[@＠][A-Za-z0-9.\-*●•＊Ａ-Ｚａ-ｚ０-９．－]+/gu,
+    /[A-Za-z0-9.!#$%&'*+/=?^_`{|}~\-●•＊Ａ-Ｚａ-ｚ０-９．＿％＋－]+[@＠][\p{L}\p{M}\p{N}.\-*●•＊．－]+/gu,
     "[email]",
   ],
   [/[*●•＊]{3,}/gu, "[masked]"],
