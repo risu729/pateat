@@ -11,6 +11,13 @@ const WINDOW_HEIGHT = 520;
 const RESTORE_LIMIT_MS = 2_000;
 /** More would not fit a window; a request offering more still delegates. */
 export const MAX_CHOOSER_ENTRIES = 50;
+/** Longer than any master password Bitwarden's clients accept. */
+const MAX_PASSWORD_LENGTH = 4096;
+/**
+ * Wrong master passwords one window takes before its request ends. Each check costs the
+ * account's KDF, and the master password also opens the vault on other devices.
+ */
+export const MAX_WRONG_PASSWORDS = 5;
 
 const request = v.pipe(v.string(), v.uuid());
 const name = v.pipe(v.string(), v.minLength(1), v.maxLength(1024));
@@ -20,11 +27,16 @@ export const chooserViewSchema = v.strictObject({
   entries: v.pipe(
     v.array(
       v.strictObject({
-        item: name,
+        item: v.optional(name),
         userName: v.optional(name),
         account: v.optional(name),
         /** The site default; listed first. */
         preferred: v.optional(v.literal(true)),
+        /**
+         * Bitwarden asks for the master password before this item is used, and the site's
+         * settings honour that: choosing it asks for the password first.
+         */
+        reprompt: v.optional(v.literal(true)),
       }),
     ),
     v.minLength(1),
@@ -35,6 +47,11 @@ export const chooserViewSchema = v.strictObject({
   again: v.boolean(),
   /** With `again`: the person logged out of the site in this tab instead (ADR 0021 D). */
   loggedOut: v.optional(v.literal(true)),
+  /**
+   * The window asks for the master password before a password login uses its one entry,
+   * instead of choosing a passkey; absent for a passkey request.
+   */
+  purpose: v.optional(v.literal("login")),
 });
 export type ChooserView = v.InferOutput<typeof chooserViewSchema>;
 
@@ -54,9 +71,22 @@ export const chooserMessageSchema = v.variant("type", [
       v.strictObject({ kind: v.literal("browser") }),
     ]),
   }),
+  v.strictObject({
+    version: v.literal(1),
+    type: v.literal("passkey-chooser.verify"),
+    request,
+    index: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(MAX_CHOOSER_ENTRIES - 1)),
+    password: v.pipe(v.string(), v.minLength(1), v.maxLength(MAX_PASSWORD_LENGTH)),
+    makeDefault: v.boolean(),
+  }),
 ]);
 export const chooserResponseSchema = v.variant("ok", [
-  v.strictObject({ ok: v.literal(true), view: v.optional(chooserViewSchema) }),
+  v.strictObject({
+    ok: v.literal(true),
+    view: v.optional(chooserViewSchema),
+    /** The answer to a master password check; on `true` the window's choice is made. */
+    matches: v.optional(v.boolean()),
+  }),
   v.strictObject({ ok: v.literal(false) }),
 ]);
 export type ChooserResponse = v.InferOutput<typeof chooserResponseSchema>;
@@ -94,6 +124,10 @@ type Open = {
   readonly token: string;
   readonly tabId: number;
   readonly view: ChooserView;
+  readonly verify: ((index: number, password: string) => Promise<boolean>) | undefined;
+  /** A master password check is running; another waits for none and is refused. */
+  checking: boolean;
+  wrong: number;
   windowId?: number;
   readonly opened: Promise<number | undefined>;
   /** `windowGone` when the window was already closed by the user. */
@@ -146,16 +180,21 @@ export function createPasskeyChooser(browser: ChooserBrowser): PasskeyChooser & 
         origin: input.origin,
         rpId: input.rpId,
         entries: input.entries.map((entry) => ({
-          item: entry.item.slice(0, 1024) || "Unnamed item",
+          ...(entry.item ? { item: entry.item.slice(0, 1024) } : {}),
           ...(entry.userName ? { userName: entry.userName.slice(0, 1024) } : {}),
           ...(entry.account ? { account: entry.account.slice(0, 1024) } : {}),
           ...(entry.preferred === true ? { preferred: true as const } : {}),
+          ...(entry.reprompt === true ? { reprompt: true as const } : {}),
         })) satisfies PasskeyDisplay[],
         replacesDefault: input.replacesDefault,
         again: input.again,
         ...(input.again && input.loggedOut ? { loggedOut: true } : {}),
+        ...(input.purpose === "login" ? { purpose: "login" } : {}),
       });
       if (!view.success) return { kind: "unavailable" };
+      // An entry that asks for the master password can be chosen only through the check.
+      if (view.output.entries.some((entry) => entry.reprompt) && !input.verify)
+        return { kind: "unavailable" };
       const token = newId();
       const { promise: opened, resolve: resolveOpened } = Promise.withResolvers<
         number | undefined
@@ -165,6 +204,9 @@ export function createPasskeyChooser(browser: ChooserBrowser): PasskeyChooser & 
           token,
           tabId: input.tabId,
           view: view.output,
+          verify: input.verify,
+          checking: false,
+          wrong: 0,
           opened,
           settle(choice, windowGone = false) {
             if (open !== entry) return;
@@ -240,8 +282,37 @@ export function createPasskeyChooser(browser: ChooserBrowser): PasskeyChooser & 
           return { ok: false };
         const command = parsed.output;
         if (command.type === "passkey-chooser.load") return { ok: true, view: current.view };
-        if (command.answer.kind === "chosen" && command.answer.index >= current.view.entries.length)
-          return { ok: false };
+        if (command.type === "passkey-chooser.verify") {
+          const entry = current.view.entries[command.index];
+          if (!entry?.reprompt || !current.verify || current.checking) return { ok: false };
+          current.checking = true;
+          let matches: boolean;
+          try {
+            matches = await current.verify(command.index, command.password);
+          } catch {
+            // The vault could not check it, as when it locked meanwhile: the request ends.
+            current.checking = false;
+            if (open === current) current.settle({ kind: "unavailable" });
+            return { ok: false };
+          }
+          current.checking = false;
+          if (open !== current) return { ok: false };
+          if (matches)
+            current.settle({
+              kind: "chosen",
+              index: command.index,
+              makeDefault: command.makeDefault,
+            });
+          else if (++current.wrong >= MAX_WRONG_PASSWORDS) {
+            current.settle({ kind: "closed" });
+            return { ok: false };
+          }
+          return { ok: true, matches };
+        }
+        if (command.answer.kind === "chosen") {
+          const entry = current.view.entries[command.answer.index];
+          if (!entry || entry.reprompt || current.view.purpose === "login") return { ok: false };
+        }
         current.settle(command.answer);
         return { ok: true };
       })();

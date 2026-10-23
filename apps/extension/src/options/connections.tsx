@@ -6,6 +6,8 @@ import type {
 } from "@pateat/contracts";
 import { Vault } from "lucide-react";
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
+import { i18n } from "../i18n";
 import { Badge, checkClass, controlClass, fieldClass, Row, RowList, RowTitle } from "./ui";
 
 export function toggleId(ids: string[], id: string, included: boolean): string[] {
@@ -14,10 +16,12 @@ export function toggleId(ids: string[], id: string, included: boolean): string[]
 
 function Checkbox({
   label,
+  text,
   checked,
   onChange,
 }: {
   label: string;
+  text: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
 }) {
@@ -29,18 +33,9 @@ function Checkbox({
         checked={checked}
         onChange={(event) => onChange(event.target.checked)}
       />
-      <span>{label.slice(label.indexOf(": ") + 2)}</span>
+      <span>{text}</span>
     </label>
   );
-}
-
-function plural(count: number, noun: string): string {
-  return `${count} ${noun}${count === 1 ? "" : "s"}`;
-}
-
-function countOf(entries: { id: string }[], ids: string[], noun: string): string {
-  const selected = entries.filter((entry) => ids.includes(entry.id)).length;
-  return `${selected} of ${plural(entries.length, noun)}`;
 }
 
 /** Excluded items, and excluded fields of the items that are not excluded themselves. */
@@ -78,6 +73,7 @@ export function VaultAccess({
   /** While saved settings load or none are accepted, the controls wait. */
   disabled?: boolean;
 }) {
+  const { t } = useTranslation(undefined, { i18n });
   const label = metadata.label;
   const selected = connection.selection;
   const selectedCount =
@@ -85,8 +81,8 @@ export function VaultAccess({
     metadata.items.filter((item) => selected.itemIds.includes(item.id)).length;
   const excluded = exclusions(connection, metadata);
   const parts = [
-    excluded.items && plural(excluded.items, "item"),
-    excluded.fields && plural(excluded.fields, "field"),
+    excluded.items && t("{{count}} item", { count: excluded.items }),
+    excluded.fields && t("{{count}} field", { count: excluded.fields }),
   ].filter(Boolean);
   return (
     <fieldset
@@ -99,7 +95,7 @@ export function VaultAccess({
           type="checkbox"
           role="switch"
           aria-checked={connection.enabled}
-          aria-label={`${label}: Use this vault`}
+          aria-label={t("{{vault}}: Use this vault", { vault: label })}
           className="relative m-0 h-5 w-9 flex-none cursor-pointer appearance-none rounded-full bg-border-strong transition-colors after:absolute after:top-0.5 after:left-0.5 after:size-4 after:rounded-full after:bg-surface after:transition-[left] after:content-[''] checked:bg-accent checked:after:left-[1.125rem] disabled:cursor-default disabled:opacity-50"
           checked={connection.enabled}
           onChange={(event) => {
@@ -109,12 +105,12 @@ export function VaultAccess({
             });
           }}
         />
-        Use this vault
+        {t("Use this vault")}
       </label>
       <label className={`${fieldClass} flex-[0_1_280px]`}>
-        Items for Pateat
+        {t("Items for Pateat")}
         <select
-          aria-label={`${label}: Items for Pateat`}
+          aria-label={t("{{vault}}: Items for Pateat", { vault: label })}
           className={controlClass}
           value={selected.mode}
           onChange={(event) => {
@@ -124,28 +120,45 @@ export function VaultAccess({
             });
           }}
         >
-          <option value="all">All except exclusions</option>
-          <option value="selected">Selected groups and items only</option>
+          <option value="all">{t("All except exclusions")}</option>
+          <option value="selected">{t("Selected groups and items only")}</option>
         </select>
       </label>
       {selected.mode === "selected" && (
         <details className={disclosureClass}>
           <summary className={summaryClass}>
-            Included groups and items{" "}
+            {t("Included groups and items")}{" "}
             <Badge muted>
               {selectedCount}
-              <span className="visually-hidden"> selected</span>
+              <span className="visually-hidden">{t(" selected")}</span>
             </Badge>
           </summary>
-          <fieldset className={listClass} aria-label={`${label}: Included groups and items`}>
+          <fieldset
+            className={listClass}
+            aria-label={t("{{vault}}: Included groups and items", { vault: label })}
+          >
             <p className="m-0 text-[0.8125rem] leading-5 text-ink-muted">
-              {countOf(metadata.groups, selected.groupIds, "group")},{" "}
-              {countOf(metadata.items, selected.itemIds, "item")} selected
+              {t("{{groups}}, {{items}} selected", {
+                groups: t("{{selected}} of {{count}} group", {
+                  count: metadata.groups.length,
+                  selected: metadata.groups.filter((group) => selected.groupIds.includes(group.id))
+                    .length,
+                }),
+                items: t("{{selected}} of {{count}} item", {
+                  count: metadata.items.length,
+                  selected: metadata.items.filter((item) => selected.itemIds.includes(item.id))
+                    .length,
+                }),
+              })}
             </p>
             {metadata.groups.map((group) => (
               <Checkbox
                 key={group.id}
-                label={`${label}: Include group ${group.label}`}
+                label={t("{{vault}}: Include group {{group}}", {
+                  vault: label,
+                  group: group.label,
+                })}
+                text={t("Include group {{group}}", { group: group.label })}
                 checked={selected.groupIds.includes(group.id)}
                 onChange={(checked) =>
                   edit((value) => {
@@ -161,7 +174,8 @@ export function VaultAccess({
             {metadata.items.map((item) => (
               <Checkbox
                 key={item.id}
-                label={`${label}: Include item ${item.label}`}
+                label={t("{{vault}}: Include item {{item}}", { vault: label, item: item.label })}
+                text={t("Include item {{item}}", { item: item.label })}
                 checked={selected.itemIds.includes(item.id)}
                 onChange={(checked) =>
                   edit((value) => {
@@ -175,15 +189,17 @@ export function VaultAccess({
       )}
       <details className={disclosureClass}>
         <summary className={summaryClass}>
-          Excluded items and fields{" "}
+          {t("Excluded items and fields")}{" "}
           <Badge muted>
             {excluded.items + excluded.fields}
-            <span className="visually-hidden"> excluded</span>
+            <span className="visually-hidden">{t(" excluded")}</span>
           </Badge>
         </summary>
         <div className={listClass}>
           <p className="m-0 text-[0.8125rem] leading-5 text-ink-muted">
-            {parts.length ? `${parts.join(" and ")} excluded` : "Nothing excluded"}
+            {parts.length
+              ? t("{{entries}} excluded", { entries: parts.join(t(" and ")) })
+              : t("Nothing excluded")}
           </p>
           {metadata.items.map((item) => {
             const itemExcluded = connection.excludedItemIds.includes(item.id);
@@ -198,15 +214,19 @@ export function VaultAccess({
                   <span className="font-semibold">{item.label}</span>{" "}
                   <span className="text-[0.8125rem] text-ink-muted">
                     {itemExcluded
-                      ? "Item excluded"
+                      ? t("Item excluded")
                       : excludedFields
-                        ? `${plural(excludedFields, "field")} excluded`
-                        : "Nothing excluded"}
+                        ? t("{{count}} field excluded", { count: excludedFields })
+                        : t("Nothing excluded")}
                   </span>
                 </summary>
                 <div className="flex flex-col gap-2 pb-3">
                   <Checkbox
-                    label={`${label}: Exclude item ${item.label}`}
+                    label={t("{{vault}}: Exclude item {{item}}", {
+                      vault: label,
+                      item: item.label,
+                    })}
+                    text={t("Exclude item {{item}}", { item: item.label })}
                     checked={itemExcluded}
                     onChange={(checked) =>
                       edit((value) => {
@@ -217,7 +237,15 @@ export function VaultAccess({
                   {item.fields.map((field) => (
                     <Checkbox
                       key={field.id}
-                      label={`${label}: Exclude ${field.label} from ${item.label}`}
+                      label={t("{{vault}}: Exclude {{field}} from {{item}}", {
+                        vault: label,
+                        field: field.label,
+                        item: item.label,
+                      })}
+                      text={t("Exclude {{field}} from {{item}}", {
+                        field: field.label,
+                        item: item.label,
+                      })}
                       checked={connection.excludedFields.some(
                         (ref) => ref.itemId === item.id && ref.fieldId === field.id,
                       )}

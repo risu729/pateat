@@ -81,7 +81,7 @@ export function createConnectionPolicy(options: {
     },
     async register(connectionId, enabled) {
       registered.add(connectionId);
-      await options.settings.update(undefined, (snapshot) => {
+      await options.settings.update(undefined, "vault-added", (snapshot) => {
         if (!snapshot.settings.connections.some((entry) => entry.connectionId === connectionId))
           snapshot.settings.connections.push({
             connectionId,
@@ -95,7 +95,7 @@ export function createConnectionPolicy(options: {
     },
     async remove(connectionId) {
       registered.delete(connectionId);
-      await options.settings.update(undefined, (snapshot) =>
+      await options.settings.update(undefined, "vault-deleted", (snapshot) =>
         drop(snapshot, (id) => id === connectionId),
       );
     },
@@ -108,7 +108,7 @@ export function createConnectionPolicy(options: {
         !current.fieldPolicies?.some((entry) => gone(entry.connectionId))
       )
         return;
-      await options.settings.update(undefined, (snapshot) => drop(snapshot, gone));
+      await options.settings.update(undefined, "vault-deleted", (snapshot) => drop(snapshot, gone));
     },
     async adopt(input) {
       const captured = structuredClone(input);
@@ -117,7 +117,8 @@ export function createConnectionPolicy(options: {
       const id = captured.next.profile.connectionId;
       registered.add(id);
       let review: string[] = [];
-      await options.settings.update(undefined, (snapshot) => {
+      const cause = captured.automatic ? "automatic-vault-sync" : "vault-sync";
+      await options.settings.update(undefined, cause, (snapshot) => {
         let connection = snapshot.settings.connections.find((entry) => entry.connectionId === id);
         if (!connection) {
           connection = createDefaultSettings({ connections: [captured.catalog] }).connections[0]!;
@@ -196,7 +197,7 @@ export function createConnectionPolicy(options: {
       )
         throw new Error("invalid-request");
       let review: string[] = [];
-      await options.settings.update(captured.expectedRevision, (snapshot) => {
+      await options.settings.update(captured.expectedRevision, "field-review", (snapshot) => {
         review = quarantinedItems(snapshot, captured.connectionId, captured.snapshotId);
         if (!review.includes(captured.itemId)) throw new Error("revision-conflict");
         const connection = snapshot.settings.connections.find(

@@ -509,3 +509,50 @@ describe("leftover connection settings", () => {
     expect(h.read()).not.toHaveProperty("fieldPolicies");
   });
 });
+
+describe("settings change causes (ADR 0025)", () => {
+  it.each([
+    [true, "automatic-vault-sync"],
+    [false, "vault-sync"],
+  ] as const)("adoption with automatic=%s records %s", async (automatic, cause) => {
+    const h = harness();
+    const before = h.read();
+    await h.policy.adopt({
+      previous: h.previous,
+      next: h.next,
+      catalog: h.metadata,
+      ...(automatic ? { automatic: true as const } : {}),
+    });
+    expect(h.read().changes).toEqual([{ revision: before.revision + 1, cause }]);
+    // A save drafted before the adoption learns what wrote the newer revision.
+    expect(
+      await h.settings.handle({
+        version: 1,
+        type: "settings.save",
+        expectedRevision: before.revision,
+        settings: before.settings,
+      }),
+    ).toMatchObject({ ok: false, error: { code: "revision-conflict", causes: [cause] } });
+  });
+  it("registration records vault-added", async () => {
+    const h = harness();
+    h.setSnapshot({ ...h.read(), settings: { ...h.read().settings, connections: [] } });
+    await h.policy.register(accountProfile.connectionId, true);
+    expect(h.read().changes).toEqual([{ revision: 8, cause: "vault-added" }]);
+  });
+  it("a custom-field review records field-review", async () => {
+    const h = harness("changed");
+    await h.adopt();
+    await h.policy.review!({
+      connectionId: accountProfile.connectionId,
+      itemId: h.itemId,
+      snapshotId: nextSnapshot,
+      expectedRevision: h.read().revision,
+      excludedFieldIds: [],
+    });
+    expect(h.read().changes).toEqual([
+      { revision: 8, cause: "vault-sync" },
+      { revision: 9, cause: "field-review" },
+    ]);
+  });
+});

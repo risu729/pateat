@@ -1,8 +1,10 @@
 import {
   getItemEligibility,
   isSiteExcluded,
+  itemAsksForMasterPassword,
   siteDefaultConnection,
   type SettingsResponse,
+  type SettingsChangeCause,
   type SettingsSnapshot,
   type VaultCatalog,
   type LocalSettings,
@@ -143,8 +145,9 @@ export async function findVaultPasskeys(input: {
         discoverable: entry.discoverable,
         counter: entry.counter,
         preferred: preferred?.connectionId === connection.id && preferred.itemId === entry.itemId,
+        ...(itemAsksForMasterPassword(settings, item, input.origin) ? { reprompt: true } : {}),
         display: {
-          item: item?.label ?? "Unnamed item",
+          ...(item?.label ? { item: item.label } : {}),
           ...(entry.userName ? { userName: entry.userName } : {}),
           account: connection.label,
         },
@@ -286,6 +289,19 @@ export function createVaultPasskeySource(
         ...(only ? { only } : {}),
       });
     },
+    async verifyMasterPassword(candidate, password) {
+      const vault = await managerFor(candidate.connectionId);
+      // The account the candidate was found in must still be the open one.
+      if (
+        !vault ||
+        vault.handle.snapshotId !== candidate.snapshotId ||
+        vault.handle.userId !== candidate.userId
+      )
+        throw new Error("passkey-unavailable");
+      const checked = await vault.manager.verifyMasterPassword(vault.handle, password);
+      if (!checked.ok) throw new Error("passkey-unavailable");
+      return checked.data.matches;
+    },
     async sign(candidate, authenticatorData, clientDataHash) {
       if (!current(await read(), candidate)) throw new Error("passkey-stale");
       const vault = await managerFor(candidate.connectionId);
@@ -324,6 +340,7 @@ export async function rememberVaultPasskey(input: {
     handle(request: { version: 1; type: "settings.get" }): Promise<SettingsResponse>;
     update(
       expectedRevision: number | undefined,
+      cause: SettingsChangeCause,
       mutate: (snapshot: SettingsSnapshot) => SettingsSnapshot,
     ): Promise<SettingsSnapshot>;
   };
@@ -365,7 +382,7 @@ export async function rememberVaultPasskey(input: {
   const others = settings.siteDefaults.filter((site) => site.origin !== origin);
   // The settings schema bounds the list; a full list keeps its entries.
   if (others.length >= 1000) return false;
-  await input.settings.update(saved.snapshot.revision, (snapshot) => ({
+  await input.settings.update(saved.snapshot.revision, "account-choice", (snapshot) => ({
     ...snapshot,
     settings: {
       ...snapshot.settings,

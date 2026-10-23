@@ -48,3 +48,10 @@ export function disabledEntry(accepted = true): VaultEntry {
     ...(accepted ? { accepted: entry.accepted } : {}),
   };
 }
+/** Locked (ADR 0075): the active fixture's sign-in and encrypted context, no key on disk. */
+export function lockedEntry(
+  kind: VaultFixtureKind = "v1",
+): Extract<VaultEntry, { state: "locked" }> {
+  const { userKey: _userKey, ...entry } = activeEntry(kind);
+  return { ...entry, state: "locked" };
+}

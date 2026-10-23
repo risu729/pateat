@@ -1,6 +1,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { page } from "vitest/browser";
 import { cleanup, render } from "vitest-browser-react";
+import type { SettingsClient } from "../../apps/extension/src/options/client";
 import type { ServiceClient } from "../../apps/extension/src/options/service-client";
 import {
   ServiceConnection,
@@ -75,7 +76,7 @@ test("pairs in one click with an exact HTTPS address and shows no code", async (
   await page.getByLabelText("Device name", { exact: true }).fill("  Work laptop  ");
   await page.getByRole("button", { name: "Pair this device", exact: true }).click();
   expect(client.requestSiteAccess).toHaveBeenCalledWith(ORIGIN);
-  expect(client.pair).toHaveBeenCalledExactlyOnceWith(ORIGIN, "Work laptop");
+  expect(client.pair).toHaveBeenCalledExactlyOnceWith(ORIGIN, "Work laptop", undefined);
   await expect.element(page.getByText("This device is paired.", { exact: true })).toBeVisible();
   await expect.element(page.getByText("pateat.example.com", { exact: true })).toBeVisible();
   await expect
@@ -95,12 +96,48 @@ test("validates the device name with the shared label rules", async () => {
   await name.fill("   ");
   await page.getByRole("button", { name: "Pair this device", exact: true }).click();
   await expect.element(page.getByRole("alert").getByText("Enter a device name.")).toBeVisible();
+  // A zero-width space alone shows as an empty name.
+  await name.fill("\u200b");
+  await page.getByRole("button", { name: "Pair this device", exact: true }).click();
+  await expect.element(page.getByRole("alert").getByText("Enter a device name.")).toBeVisible();
   await name.fill("Tab\tname");
   await page.getByRole("button", { name: "Pair this device", exact: true }).click();
   await expect
-    .element(page.getByRole("alert").getByText(/without control characters/))
+    .element(page.getByRole("alert").getByText(/without control characters, line breaks/))
     .toBeVisible();
   expect(client.requestSiteAccess).not.toHaveBeenCalled();
+  expect(client.pair).not.toHaveBeenCalled();
+});
+
+test("marks only the field whose value is invalid", async () => {
+  const client = mockClient();
+  await render(<ServiceConnection client={client} pollMs={60_000} />);
+  const address = page.getByLabelText("Service address", { exact: true });
+  const name = page.getByLabelText("Device name", { exact: true });
+  const pair = page.getByRole("button", { name: "Pair this device", exact: true });
+  // The error is linked before focus moves, so the field is announced with it.
+  const linked: (string | null)[] = [];
+  name.element().addEventListener("focus", (event) => {
+    linked.push((event.target as HTMLElement).getAttribute("aria-describedby"));
+  });
+  await address.fill(ORIGIN);
+  await name.fill("   ");
+  await pair.click();
+  await expect.poll(() => linked.at(-1)).toBe("sync-service-label-error");
+  await expect.element(name).toHaveAttribute("aria-invalid", "true");
+  await expect.element(name).toHaveAccessibleDescription("Enter a device name.");
+  await expect.element(name).toHaveFocus();
+  await expect.element(address).not.toHaveAttribute("aria-invalid");
+  await expect.element(address).not.toHaveAttribute("aria-describedby");
+
+  await address.fill("http://pateat.example.com");
+  await name.fill("Chrome");
+  await pair.click();
+  await expect.element(address).toHaveAttribute("aria-invalid", "true");
+  await expect.element(address).toHaveAccessibleDescription(/Enter an HTTPS address/);
+  await expect.element(address).toHaveFocus();
+  await expect.element(name).not.toHaveAttribute("aria-invalid");
+  await expect.element(name).not.toHaveAttribute("aria-describedby");
   expect(client.pair).not.toHaveBeenCalled();
 });
 
@@ -129,7 +166,7 @@ test("opens the sign-in page once and pairs on Try again", async () => {
 
   await page.getByRole("button", { name: "Try again", exact: true }).click();
   expect(client.pair).toHaveBeenCalledTimes(2);
-  expect(client.pair).toHaveBeenLastCalledWith(ORIGIN, "Chrome");
+  expect(client.pair).toHaveBeenLastCalledWith(ORIGIN, "Chrome", undefined);
   await expect.element(page.getByText("This device is paired.", { exact: true })).toBeVisible();
   expect(client.openSignIn).toHaveBeenCalledOnce();
 });
@@ -173,6 +210,140 @@ test("retries once when the page is shown or focused again", async () => {
   expect(client.pair).toHaveBeenCalledTimes(2);
 });
 
+test("drops the pending retry when the address or device name changes", async () => {
+  const client = mockClient();
+  client.pair.mockResolvedValueOnce(failed("sign-in-needed"));
+  await render(<ServiceConnection client={client} pollMs={60_000} />);
+  await submitPair();
+  await expect.element(page.getByText(/in the new tab/)).toBeVisible();
+  await expect.element(page.getByRole("button", { name: "Try again", exact: true })).toBeVisible();
+  await page.getByLabelText("Service address", { exact: true }).fill("https://other.example.com");
+  await expect
+    .element(page.getByRole("button", { name: "Try again", exact: true }))
+    .not.toBeInTheDocument();
+  await expect
+    .element(page.getByRole("button", { name: "Open sign-in page", exact: true }))
+    .not.toBeInTheDocument();
+  document.dispatchEvent(new Event("visibilitychange"));
+  window.dispatchEvent(new Event("focus"));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(client.pair).toHaveBeenCalledOnce();
+
+  client.pair.mockResolvedValueOnce(failed("sign-in-needed"));
+  await page.getByRole("button", { name: "Pair this device", exact: true }).click();
+  await expect.element(page.getByRole("button", { name: "Try again", exact: true })).toBeVisible();
+  expect(client.pair).toHaveBeenLastCalledWith("https://other.example.com", "Chrome", undefined);
+  await page.getByLabelText("Device name", { exact: true }).fill("Work laptop");
+  await expect
+    .element(page.getByRole("button", { name: "Try again", exact: true }))
+    .not.toBeInTheDocument();
+  window.dispatchEvent(new Event("focus"));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(client.pair).toHaveBeenCalledTimes(2);
+});
+
+test("keeps no retry and opens no tab for an address edited while pairing runs", async () => {
+  const client = mockClient();
+  let answer: (response: ServiceResponse) => void = () => undefined;
+  client.pair.mockReturnValueOnce(
+    new Promise((resolve) => {
+      answer = resolve;
+    }),
+  );
+  await render(<ServiceConnection client={client} pollMs={60_000} />);
+  await submitPair();
+  await expect.poll(() => client.pair.mock.calls.length).toBe(1);
+  await page.getByLabelText("Service address", { exact: true }).fill("https://other.example.com");
+  answer(failed("sign-in-needed"));
+  await expect
+    .element(page.getByRole("button", { name: "Pair this device", exact: true }))
+    .toBeEnabled();
+  expect(client.openSignIn).not.toHaveBeenCalled();
+  await expect
+    .element(page.getByRole("button", { name: "Try again", exact: true }))
+    .not.toBeInTheDocument();
+  window.dispatchEvent(new Event("focus"));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(client.pair).toHaveBeenCalledOnce();
+});
+
+test("keeps no retry for an address edited while the sign-in page opens", async () => {
+  const client = mockClient();
+  client.pair.mockResolvedValueOnce(failed("sign-in-needed"));
+  let opened: () => void = () => undefined;
+  client.openSignIn.mockReturnValueOnce(
+    new Promise((resolve) => {
+      opened = () => resolve(undefined);
+    }),
+  );
+  await render(<ServiceConnection client={client} pollMs={60_000} />);
+  await submitPair();
+  await expect.poll(() => client.openSignIn.mock.calls.length).toBe(1);
+  await page.getByLabelText("Service address", { exact: true }).fill("https://other.example.com");
+  opened();
+  await expect
+    .element(page.getByRole("button", { name: "Pair this device", exact: true }))
+    .toBeEnabled();
+  window.dispatchEvent(new Event("focus"));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(client.pair).toHaveBeenCalledOnce();
+  await expect
+    .element(page.getByRole("button", { name: "Try again", exact: true }))
+    .not.toBeInTheDocument();
+});
+
+test("keeps no retry and opens no tab for a name edited while site access is asked", async () => {
+  const client = mockClient();
+  let allow: (granted: boolean) => void = () => undefined;
+  client.requestSiteAccess.mockReturnValueOnce(
+    new Promise((resolve) => {
+      allow = resolve;
+    }),
+  );
+  client.pair.mockResolvedValueOnce(failed("sign-in-needed"));
+  await render(<ServiceConnection client={client} pollMs={60_000} />);
+  await submitPair();
+  await expect.poll(() => client.requestSiteAccess.mock.calls.length).toBe(1);
+  await page.getByLabelText("Device name", { exact: true }).fill("Work laptop");
+  allow(true);
+  await expect.poll(() => client.pair.mock.calls.length).toBe(1);
+  await expect
+    .element(page.getByRole("button", { name: "Pair this device", exact: true }))
+    .toBeEnabled();
+  expect(client.openSignIn).not.toHaveBeenCalled();
+  await expect
+    .element(page.getByRole("button", { name: "Try again", exact: true }))
+    .not.toBeInTheDocument();
+  window.dispatchEvent(new Event("focus"));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(client.pair).toHaveBeenCalledOnce();
+});
+
+test("keeps no Try again for a name edited while Try again asks for site access", async () => {
+  const client = mockClient();
+  client.pair.mockResolvedValue(failed("unreachable"));
+  await render(<ServiceConnection client={client} pollMs={60_000} />);
+  await submitPair();
+  await expect.element(page.getByText(/could not be reached/)).toBeVisible();
+  let allow: (granted: boolean) => void = () => undefined;
+  client.requestSiteAccess.mockReturnValueOnce(
+    new Promise((resolve) => {
+      allow = resolve;
+    }),
+  );
+  await page.getByRole("button", { name: "Try again", exact: true }).click();
+  await expect.poll(() => client.requestSiteAccess.mock.calls.length).toBe(2);
+  await page.getByLabelText("Device name", { exact: true }).fill("Work laptop");
+  allow(true);
+  await expect.poll(() => client.pair.mock.calls.length).toBe(2);
+  await expect
+    .element(page.getByRole("button", { name: "Pair this device", exact: true }))
+    .toBeEnabled();
+  await expect
+    .element(page.getByRole("button", { name: "Try again", exact: true }))
+    .not.toBeInTheDocument();
+});
+
 test("removes the return listeners on unmount while other page listeners stay active", async () => {
   const client = mockClient();
   client.pair.mockResolvedValue(failed("sign-in-needed"));
@@ -214,6 +385,7 @@ test.each([
   ["sign-in-rejected", /did not accept your sign-in/],
   ["extension-not-allowed", /does not accept this build of Pateat.*PAIRING_EXTENSION_IDS/],
   ["pairing-unavailable", /Pairing is not configured on this service/],
+  ["access-keys-unavailable", /could not check your sign-in/],
   ["unreachable", /could not be reached/],
   ["rate-limited", /slow down/],
   ["unexpected-response", /unexpected answer/],
@@ -277,7 +449,7 @@ test("shows when recipes last synced and when the service rejects the device", a
 
   await render(<ServiceConnection client={mockClient(connected)} pollMs={60_000} />);
   await expect
-    .element(page.getByText("Recipes and settings have not finished syncing yet", { exact: true }))
+    .element(page.getByText("Recipes and settings not synced yet", { exact: true }))
     .toBeVisible();
   await cleanup();
 
@@ -299,7 +471,7 @@ test("shows the first sync finishing without a reload", async () => {
   const client = mockClient(connected);
   await render(<ServiceConnection client={client} />);
   await expect
-    .element(page.getByText("Recipes and settings have not finished syncing yet", { exact: true }))
+    .element(page.getByText("Recipes and settings not synced yet", { exact: true }))
     .toBeVisible();
   client.get.mockResolvedValue(ok({ ...connected, syncedAt: Date.UTC(2026, 9, 10, 6, 0) }));
   await vi.advanceTimersByTimeAsync(SYNC_POLL_MS);
@@ -323,4 +495,141 @@ test("tells the owner when the service could not confirm a disconnect", async ()
     )
     .toBeVisible();
   expect(client.pair).not.toHaveBeenCalled();
+});
+
+const LOCAL_PROFILE = "00000000-0000-4000-8000-000000000010";
+const AGENT_PROFILE = "00000000-0000-4000-8000-000000000011";
+const profileRequired: ServiceResponse = {
+  ok: false,
+  error: "profile-required",
+  profiles: [
+    { id: LOCAL_PROFILE, name: "Local browser" },
+    { id: AGENT_PROFILE, name: "Agent browser" },
+  ],
+};
+/** Local settings holding two site exclusions and one saved account. */
+function localSettings(excludedSites = 2, siteDefaults = 1) {
+  const settings = {
+    connections: [],
+    excludedSites: Array.from({ length: excludedSites }, (_, index) => ({
+      hostname: `site-${index}.example`,
+      includeSubdomains: false,
+    })),
+    siteDefaults: Array.from({ length: siteDefaults }, () => ({})),
+    bindings: [],
+  };
+  return {
+    getSettings: vi.fn(async () => ({ ok: true, snapshot: { version: 1, revision: 1, settings } })),
+  } as unknown as SettingsClient;
+}
+
+test("asks which profile to use before pairing an owner's further device", async () => {
+  const client = mockClient();
+  client.pair.mockResolvedValueOnce(profileRequired);
+  await render(
+    <ServiceConnection client={client} pollMs={60_000} settingsClient={localSettings(0, 0)} />,
+  );
+  await submitPair();
+  await expect
+    .element(page.getByRole("group", { name: "Settings profile", exact: true }))
+    .toBeVisible();
+  const pairButton = page.getByRole("button", { name: "Pair this device", exact: true });
+  // Coming back from another tab retries nothing: the choice is the user's.
+  window.dispatchEvent(new Event("focus"));
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  expect(client.pair).toHaveBeenCalledOnce();
+  await pairButton.click();
+  await expect
+    .element(
+      page.getByRole("alert").getByText("Choose a profile for this device.", { exact: true }),
+    )
+    .toBeVisible();
+  // The missing choice is marked like the other fields: described and focused.
+  await expect
+    .element(page.getByRole("group", { name: "Settings profile", exact: true }))
+    .toHaveAccessibleDescription(
+      "A profile holds site exclusions, sites that ask for the master password and saved accounts. Devices that share one share them; account bindings are shared by every profile. Choose a profile for this device.",
+    );
+  await expect
+    .element(page.getByRole("radio", { name: "Local browser", exact: true }))
+    .toHaveFocus();
+  expect(client.pair).toHaveBeenCalledOnce();
+  // Without site settings on this device there is nothing to replace, so no warning.
+  await page.getByRole("radio", { name: "Agent browser", exact: true }).click();
+  await pairButton.click();
+  expect(client.pair).toHaveBeenLastCalledWith(ORIGIN, "Chrome", { profileId: AGENT_PROFILE });
+  await expect.element(page.getByText("This device is paired.", { exact: true })).toBeVisible();
+  expect(client.openSignIn).not.toHaveBeenCalled();
+});
+
+test("warns before an existing profile replaces this device's site settings", async () => {
+  const client = mockClient();
+  client.pair.mockResolvedValueOnce(profileRequired);
+  await render(
+    <ServiceConnection client={client} pollMs={60_000} settingsClient={localSettings()} />,
+  );
+  await submitPair();
+  await page.getByRole("radio", { name: "Local browser", exact: true }).click();
+  await page.getByRole("button", { name: "Pair this device", exact: true }).click();
+  const warning = page.getByRole("group", {
+    name: "Replace this device's site settings with Local browser's?",
+    exact: true,
+  });
+  await expect
+    .element(warning)
+    .toHaveAccessibleDescription(
+      "This device's site exclusions (2) and saved accounts (1) are removed and Local browser's are used instead. Account bindings are kept. To keep them, create a new profile from this device instead.",
+    );
+  expect(client.pair).toHaveBeenCalledOnce();
+  await warning.getByRole("button", { name: "Back", exact: true }).click();
+  await expect.element(warning).not.toBeInTheDocument();
+  // The warning was for the device name it showed; editing it closes the warning.
+  await page.getByRole("button", { name: "Pair this device", exact: true }).click();
+  await expect.element(warning).toBeVisible();
+  await page.getByLabelText("Device name", { exact: true }).fill("Chrome ");
+  await expect.element(warning).not.toBeInTheDocument();
+  await page.getByLabelText("Device name", { exact: true }).fill("Chrome");
+  await page.getByRole("button", { name: "Pair this device", exact: true }).click();
+  await warning.getByRole("button", { name: "Pair and replace", exact: true }).click();
+  expect(client.pair).toHaveBeenLastCalledWith(ORIGIN, "Chrome", { profileId: LOCAL_PROFILE });
+  await expect.element(page.getByText("This device is paired.", { exact: true })).toBeVisible();
+});
+
+test("creates a new profile from the warning, named after the device by default", async () => {
+  const client = mockClient();
+  client.pair.mockResolvedValueOnce(profileRequired).mockResolvedValueOnce({
+    ...profileRequired,
+    error: "profile-name-taken",
+  });
+  await render(
+    <ServiceConnection client={client} pollMs={60_000} settingsClient={localSettings()} />,
+  );
+  await page.getByLabelText("Device name", { exact: true }).fill("Agent browser");
+  await submitPair();
+  await page.getByRole("radio", { name: "Local browser", exact: true }).click();
+  await page.getByRole("button", { name: "Pair this device", exact: true }).click();
+  await page.getByRole("button", { name: "Create a new profile instead", exact: true }).click();
+  await expect
+    .element(page.getByRole("radio", { name: "New profile with this device's site settings" }))
+    .toBeChecked();
+  const name = page.getByLabelText("New profile name", { exact: true });
+  await expect.element(name).toHaveValue("Agent browser");
+  await page.getByRole("button", { name: "Pair this device", exact: true }).click();
+  expect(client.pair).toHaveBeenLastCalledWith(ORIGIN, "Agent browser", {
+    newProfile: "Agent browser",
+  });
+  await expect
+    .element(
+      page.getByText(
+        "Another profile already has that name. Choose that profile or another name.",
+        { exact: true },
+      ),
+    )
+    .toBeVisible();
+  await name.fill("Agent browser 2");
+  await page.getByRole("button", { name: "Pair this device", exact: true }).click();
+  expect(client.pair).toHaveBeenLastCalledWith(ORIGIN, "Agent browser", {
+    newProfile: "Agent browser 2",
+  });
+  await expect.element(page.getByText("This device is paired.", { exact: true })).toBeVisible();
 });

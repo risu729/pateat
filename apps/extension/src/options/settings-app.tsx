@@ -1,13 +1,27 @@
+import { useTranslation } from "react-i18next";
+import { i18n } from "../i18n";
 import {
+  conflictCauses,
   localSettingsSchema,
   type ConnectionSettings,
   type LocalSettings,
+  type SettingsConflictCause,
   type SettingsResponse,
 } from "@pateat/contracts";
 import { useForm, useSelector } from "@tanstack/react-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bug, Globe, Info, Link, Shield, Vault, type LucideIcon } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import {
+  Bug,
+  Globe,
+  Info,
+  KeyRound,
+  Link,
+  Shield,
+  Timer,
+  Vault,
+  type LucideIcon,
+} from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import * as v from "valibot";
 import { Logo } from "../logo";
 import { Button } from "./button";
@@ -15,16 +29,21 @@ import { SETTINGS_QUERY_KEY, type SettingsClient } from "./client";
 import { VaultAccess, VaultRows } from "./connections";
 import { SitePolicy } from "./site-policy";
 import { BitwardenSetup } from "./bitwarden-setup";
+import { DeviceModelPanel, type DeviceModelClient } from "./device-model";
 import type { ConnectionClient } from "./connection-client";
+import { backgroundOnlyConflict, saveConflictMessage } from "./save-conflict";
 import type { ServiceClient } from "./service-client";
 import { ServiceConnection } from "./service-connection";
+import { LanguageSelect } from "./language-select";
 import { ThemeSelect } from "./theme-select";
-import { Panel, StatusLines } from "./ui";
+import { VaultTimeoutPanel, type VaultTimeoutClient } from "./vault-timeout";
+import { Panel, StatusLines, type LocalizedMessage } from "./ui";
 
 type AcceptedSettings = Extract<SettingsResponse, { ok: true }>;
 const emptySettings: LocalSettings = {
   connections: [],
   excludedSites: [],
+  repromptSites: [],
   siteDefaults: [],
   bindings: [],
 };
@@ -33,11 +52,18 @@ export function SettingsApp({
   client,
   connectionClient,
   serviceClient,
+  vaultTimeoutClient,
+  deviceModelClient,
 }: {
   client: SettingsClient;
   connectionClient?: ConnectionClient;
   serviceClient?: ServiceClient;
+  /** This device's vault timeout (ADR 0075), shown with a real Bitwarden connection. */
+  vaultTimeoutClient?: VaultTimeoutClient;
+  /** This device's own Anthropic API key (ADR 0040). */
+  deviceModelClient?: DeviceModelClient;
 }) {
+  const { t } = useTranslation(undefined, { i18n });
   const queryClient = useQueryClient();
   const [accepted, setAccepted] = useState<AcceptedSettings>();
   const acceptedRef = useRef<AcceptedSettings | undefined>(undefined);
@@ -52,11 +78,21 @@ export function SettingsApp({
   const dirtyRef = useRef(false);
   // Each edit counts, so a save that finishes after a later edit keeps that edit and saves again.
   const edits = useRef(0);
+  // The edits not yet in a saved revision, oldest first, so they can be applied again to a
+  // revision that only background work wrote (ADR 0025).
+  const unsavedEdits = useRef<((value: LocalSettings) => void)[]>([]);
+  // Set once a conflict's edits were applied to the newer revision, so the next save runs
+  // even with no new edit; `retried` allows that once until a save or reload succeeds.
+  const rebased = useRef(false);
+  const retried = useRef(false);
   const submittedEdits = useRef(0);
   const submittedCatalog = useRef(0);
   const lastSaveSucceeded = useRef(false);
   const catalogGeneration = useRef(0);
-  const [message, setMessage] = useState("Loading saved settings…");
+  const [message, setMessageValue] = useState<LocalizedMessage>(
+    (): LocalizedMessage => (translate) => translate("Loading saved settings…"),
+  );
+  const setMessage = useCallback((value: LocalizedMessage) => setMessageValue(() => value), []);
   const [generation, setGeneration] = useState(0);
   const settings = useQuery({
     queryKey: SETTINGS_QUERY_KEY,
@@ -86,12 +122,15 @@ export function SettingsApp({
       const previous = acceptedRef.current;
       if (!previous || operation.current !== "save" || saveBlockedRef.current) return;
       if (!v.safeParse(localSettingsSchema, value).success) {
-        setMessage(
-          "Invalid settings. Your unsaved draft has been preserved. Review this draft; the next change saves it again.",
+        setMessage((translate) =>
+          translate(
+            "These settings are not valid, so they were not saved. Your unsaved changes are kept. Correct them, and the next change saves them again.",
+          ),
         );
         return;
       }
       const submitted = submittedEdits.current;
+      const submittedUnsaved = unsavedEdits.current.length;
       // The catalog this draft was edited against, read before the save request yields.
       const epoch = submittedCatalog.current;
       try {
@@ -103,26 +142,87 @@ export function SettingsApp({
         });
         if (epoch !== catalogGeneration.current) {
           setSaveBlocked(true);
-          setMessage(
-            "Vault metadata changed while settings were being saved. Your draft has been preserved. Reload saved settings before saving again. Reloading discards the draft.",
+          if (!result.ok) {
+            setMessage((translate) =>
+              translate(
+                "Your vaults changed while the settings were being saved. Your unsaved changes are kept. Reload saved settings before you change anything else; reloading drops them.",
+              ),
+            );
+            return;
+          }
+          // The save went through, so its edits are no longer unsaved; only edits made
+          // while it ran still are.
+          queryClient.setQueryData(SETTINGS_QUERY_KEY, result);
+          lastSaveSucceeded.current = true;
+          retried.current = false;
+          unsavedEdits.current.splice(0, submittedUnsaved);
+          const next = structuredClone(result);
+          acceptedRef.current = next;
+          setAccepted(next);
+          const pending = submitted !== edits.current;
+          if (!pending) {
+            setDirty(false);
+            dirtyRef.current = false;
+          }
+          setMessage((translate) =>
+            translate(
+              pending
+                ? "Your vaults changed while the settings were being saved. The change was saved, and later changes are kept. Reload saved settings before you change anything else; reloading drops them."
+                : "Your vaults changed while the settings were being saved. The change was saved; reload saved settings before you change anything else.",
+            ),
           );
           return;
+        }
+        let causes = !result.ok ? result.error.causes : undefined;
+        if (
+          !result.ok &&
+          result.error.code === "revision-conflict" &&
+          !retried.current &&
+          backgroundOnlyConflict(causes)
+        ) {
+          retried.current = true;
+          const rebaseResult = await rebase(epoch, previous.snapshot.revision);
+          if (rebaseResult === "rebased") return;
+          if (epoch !== catalogGeneration.current) {
+            setSaveBlocked(true);
+            setMessage((translate) =>
+              translate(
+                "Your vaults changed while the settings were being saved. Your unsaved changes are kept. Reload saved settings before you change anything else; reloading drops them.",
+              ),
+            );
+            return;
+          }
+          if (rebaseResult) causes = rebaseResult;
         }
         if (!result.ok) {
           const blocked =
             result.error.code !== "invalid-settings" && result.error.code !== "invalid-request";
           setSaveBlocked(blocked);
-          setMessage(
+          setMessage((translate) =>
             result.error.code === "revision-conflict"
-              ? "Settings changed in another window. Your unsaved draft has been preserved. Reload saved settings to review the latest version before saving. Reloading discards the draft."
-              : `${result.error.message} Your unsaved draft has been preserved.${blocked ? " Reload saved settings to retry. Reloading discards the draft." : ""}`,
+              ? saveConflictMessage(causes)(translate)
+              : translate(
+                  blocked
+                    ? "{{error}} Your unsaved changes are kept. Reload saved settings to try again; reloading drops them."
+                    : "{{error}} Your unsaved changes are kept.",
+                  { error: translate(result.error.message) },
+                ),
           );
           return;
         }
         queryClient.setQueryData(SETTINGS_QUERY_KEY, result);
         lastSaveSucceeded.current = true;
+        retried.current = false;
+        unsavedEdits.current.splice(0, submittedUnsaved);
         if (submitted === edits.current) {
-          accept(result, `Settings saved locally. Revision ${result.snapshot.revision}`, false);
+          accept(
+            result,
+            (translate) =>
+              translate("Settings saved (revision {{revision}}).", {
+                revision: result.snapshot.revision,
+              }),
+            false,
+          );
           return;
         }
         // Edits made while this save ran stay in the draft and are saved on top of it next.
@@ -131,19 +231,70 @@ export function SettingsApp({
         setAccepted(next);
       } catch {
         setSaveBlocked(true);
-        setMessage(
-          "Unable to confirm saved settings. Your unsaved draft has been preserved. Reload saved settings before trying again. Reloading discards the draft.",
+        setMessage((translate) =>
+          translate(
+            "Pateat could not confirm that the settings were saved. Your unsaved changes are kept. Reload saved settings before you try again; reloading drops any that were not saved.",
+          ),
         );
       }
     },
   });
   const draft = useSelector(form.store, (state) => state.values);
-  function accept(result: AcceptedSettings, statusMessage: string, resetAddForms: boolean) {
+  /**
+   * Applies the unsaved edits to the newest saved revision after a conflict that only
+   * background work caused, such as an automatic vault sync, so the save runs once more
+   * against it (ADR 0025). When the newest revision was also written by another page, or
+   * by a cause no longer recorded, it answers every cause since `expected` instead, and
+   * undefined when the newest revision cannot be read for the catalog the draft was edited
+   * against.
+   */
+  async function rebase(
+    epoch: number,
+    expected: number,
+  ): Promise<"rebased" | SettingsConflictCause[] | undefined> {
+    let fresh: SettingsResponse;
+    try {
+      fresh = await queryClient.fetchQuery({
+        queryKey: SETTINGS_QUERY_KEY,
+        queryFn: () => client.getSettings(),
+        staleTime: 0,
+        retry: false,
+      });
+    } catch {
+      return undefined;
+    }
+    if (!fresh.ok || epoch !== catalogGeneration.current) return undefined;
+    // Another page may have saved after the conflict was answered.
+    const since = conflictCauses(fresh.snapshot, expected);
+    if (!backgroundOnlyConflict(since)) return since;
+    // Edits made while the newest revision was read are in the list too.
+    const next = structuredClone(fresh);
+    const value = structuredClone(next.snapshot.settings);
+    for (const update of unsavedEdits.current) update(value);
+    acceptedRef.current = next;
+    setAccepted(next);
+    // Field updates, not reset: a reset leaves the form untouched, and the new accepted
+    // defaults would then replace the rebased draft on the next render.
+    form.setFieldValue("connections", value.connections);
+    form.setFieldValue("excludedSites", value.excludedSites);
+    form.setFieldValue("repromptSites", value.repromptSites);
+    form.setFieldValue("siteDefaults", value.siteDefaults);
+    form.setFieldValue("bindings", value.bindings);
+    rebased.current = true;
+    return "rebased";
+  }
+  function accept(
+    result: AcceptedSettings,
+    statusMessage: LocalizedMessage,
+    resetAddForms: boolean,
+  ) {
     // Accepted metadata and editable values are separate copies. Cache writes never own the draft.
     const next = structuredClone(result);
     acceptedRef.current = next;
     setAccepted(next);
     form.reset(structuredClone(next.snapshot.settings));
+    unsavedEdits.current = [];
+    retried.current = false;
     setDirty(false);
     dirtyRef.current = false;
     setSaveBlocked(false);
@@ -156,16 +307,19 @@ export function SettingsApp({
     if (initialHandled.current || !settings.isFetched) return;
     initialHandled.current = true;
     if (settings.isError || !settings.data)
-      setMessage(
-        "Unable to read saved settings. Your existing draft has been preserved. Reload saved settings to retry. Reloading discards the draft.",
+      setMessage((translate) =>
+        translate("Pateat could not read the saved settings. Reload saved settings to try again."),
       );
-    else if (!settings.data.ok)
-      setMessage(
-        `${settings.data.error.message} Reload saved settings to retry. Your existing draft has been preserved. Reloading discards the draft.`,
+    else if (!settings.data.ok) {
+      const error = settings.data.error.message;
+      setMessage((translate) =>
+        translate("{{error}} Reload saved settings to try again.", { error: translate(error) }),
       );
-    else if (catalogGeneration.current) {
-      setMessage(
-        "Vault metadata changed while settings were loading. Reload saved settings to read the current catalog.",
+    } else if (catalogGeneration.current) {
+      setMessage((translate) =>
+        translate(
+          "Your vaults changed while the settings were loading. Reload saved settings to see the current vaults.",
+        ),
       );
     } else {
       const next = structuredClone(settings.data);
@@ -174,26 +328,34 @@ export function SettingsApp({
       form.reset(structuredClone(next.snapshot.settings));
       saveBlockedRef.current = false;
       setSaveBlockedState(false);
-      setMessage(`Saved settings loaded. Revision ${next.snapshot.revision}`);
+      setMessage((translate) =>
+        translate("Saved settings loaded (revision {{revision}}).", {
+          revision: next.snapshot.revision,
+        }),
+      );
     }
     operation.current = undefined;
     setBusy(false);
-  }, [settings.data, settings.isError, settings.isFetched, form]);
+  }, [settings.data, settings.isError, settings.isFetched, form, setMessage]);
   // oxlint-enable react/set-state-in-effect
   /** Applies one edit to the draft and saves it at once; a running save picks it up after. */
   function edit(update: (value: LocalSettings) => void) {
     if (operation.current === "load" || !acceptedRef.current) return false;
     const next = structuredClone(form.state.values);
     update(next);
+    unsavedEdits.current.push(update);
     form.setFieldValue("connections", next.connections);
     form.setFieldValue("excludedSites", next.excludedSites);
+    form.setFieldValue("repromptSites", next.repromptSites);
     form.setFieldValue("siteDefaults", next.siteDefaults);
     edits.current += 1;
     setDirty(true);
     dirtyRef.current = true;
     if (saveBlockedRef.current)
-      setMessage(
-        "This change is kept in the draft but was not saved. Reload saved settings before editing; reloading discards the draft.",
+      setMessage((translate) =>
+        translate(
+          "This change was kept but not saved. Reload saved settings before you change anything else; reloading drops it.",
+        ),
       );
     void save();
     return true;
@@ -203,8 +365,10 @@ export function SettingsApp({
     operation.current = "load";
     setBusy(true);
     setSaveBlocked(true);
-    setMessage("Loading saved settings…");
+    setMessage((translate) => translate("Loading saved settings…"));
     const epoch = catalogGeneration.current;
+    // Only an edited draft has unsaved changes to keep, which reloading would drop.
+    const unsaved = dirtyRef.current;
     try {
       const result = await queryClient.fetchQuery({
         queryKey: SETTINGS_QUERY_KEY,
@@ -213,21 +377,41 @@ export function SettingsApp({
         retry: false,
       });
       if (epoch !== catalogGeneration.current) {
-        setMessage(
-          "Vault metadata changed while settings were loading. Your draft has been preserved. Reload saved settings again. Reloading discards the draft.",
+        setMessage((translate) =>
+          translate(
+            unsaved
+              ? "Your vaults changed while the settings were loading. Your unsaved changes are kept. Reload saved settings again; reloading drops them."
+              : "Your vaults changed while the settings were loading. Reload saved settings again.",
+          ),
         );
         return;
       }
       if (!result.ok) {
-        setMessage(
-          `${result.error.message} Reload saved settings to retry. Your existing draft has been preserved. Reloading discards the draft.`,
+        setMessage((translate) =>
+          translate(
+            unsaved
+              ? "{{error}} Your unsaved changes are kept. Reload saved settings to try again; reloading drops them."
+              : "{{error}} Reload saved settings to try again.",
+            { error: translate(result.error.message) },
+          ),
         );
         return;
       }
-      accept(result, `Saved settings loaded. Revision ${result.snapshot.revision}`, true);
+      accept(
+        result,
+        (translate) =>
+          translate("Saved settings loaded (revision {{revision}}).", {
+            revision: result.snapshot.revision,
+          }),
+        true,
+      );
     } catch {
-      setMessage(
-        "Unable to read saved settings. Your existing draft has been preserved. Reload saved settings to retry. Reloading discards the draft.",
+      setMessage((translate) =>
+        translate(
+          unsaved
+            ? "Pateat could not read the saved settings. Your unsaved changes are kept. Reload saved settings to try again; reloading drops them."
+            : "Pateat could not read the saved settings. Reload saved settings to try again.",
+        ),
       );
     } finally {
       operation.current = undefined;
@@ -236,7 +420,8 @@ export function SettingsApp({
   }
   /**
    * Saves the draft until it has no unsaved edit. A failed or unknown outcome stops here and is
-   * never retried; a blocked draft waits for an explicit reload.
+   * never retried, except once after a conflict only background work caused (`rebase`); a
+   * blocked draft waits for an explicit reload.
    */
   async function save() {
     if (operation.current) return;
@@ -247,13 +432,15 @@ export function SettingsApp({
         submittedEdits.current = edits.current;
         submittedCatalog.current = catalogGeneration.current;
         lastSaveSucceeded.current = false;
-        setMessage("Saving local settings…");
+        rebased.current = false;
+        setMessage((translate) => translate("Saving settings…"));
         // Sequential: each save expects the revision the previous one produced.
         // eslint-disable-next-line no-await-in-loop
         await form.handleSubmit();
         // A failure is never retried as is; an edit made meanwhile is a new draft to save.
         if (
           !lastSaveSucceeded.current &&
+          !rebased.current &&
           (saveBlockedRef.current || submittedEdits.current === edits.current)
         )
           break;
@@ -267,8 +454,14 @@ export function SettingsApp({
     ++catalogGeneration.current;
     if (dirtyRef.current || operation.current || saveBlockedRef.current) {
       setSaveBlocked(true);
-      setMessage(
-        "Vault metadata changed. Your unsaved draft has been preserved. Reload saved settings to review the latest catalog before saving. Reloading discards the draft.",
+      // Only an edited draft has unsaved changes to keep, which reloading would drop.
+      const unsaved = dirtyRef.current;
+      setMessage((translate) =>
+        translate(
+          unsaved
+            ? "Your vaults changed. Your unsaved changes are kept. Reload saved settings to see the current vaults before you change anything else; reloading drops them."
+            : "Your vaults changed. Reload saved settings to see the current vaults before you change anything else.",
+        ),
       );
       return;
     }
@@ -283,11 +476,11 @@ export function SettingsApp({
     <StatusLines
       muted
       lines={[
-        { tone: "idle", icon: Info, text: "Exclusions win over selected groups and items" },
+        { tone: "idle", icon: Info, text: t("Exclusions win over selected groups and items.") },
         {
           tone: "idle",
           icon: Info,
-          text: "These limits apply to Pateat only and do not change vault permissions",
+          text: t("These limits apply to Pateat only and do not change vault permissions."),
         },
       ]}
     />
@@ -295,15 +488,19 @@ export function SettingsApp({
   const sections: NavSection[] = [
     connectionClient
       ? { id: "bitwarden", label: "Bitwarden", icon: Shield }
-      : { id: "demo-vaults", label: "Demo vaults", icon: Vault },
-    { id: "sites", label: "Sites", icon: Globe },
-    ...(serviceClient ? [{ id: "sync", label: "Sync service", icon: Link }] : []),
+      : { id: "demo-vaults", label: t("Demo vaults"), icon: Vault },
+    ...(vaultTimeoutClient
+      ? [{ id: "vault-timeout", label: t("Vault timeout"), icon: Timer }]
+      : []),
+    { id: "sites", label: t("Sites"), icon: Globe },
+    ...(serviceClient ? [{ id: "sync", label: t("Sync service"), icon: Link }] : []),
+    ...(deviceModelClient ? [{ id: "ai-key", label: t("AI key"), icon: KeyRound }] : []),
   ];
   return (
     <div className="mx-auto flex max-w-[70rem] flex-col gap-8 px-6 pt-8 pb-12 max-sm:px-4">
       <header className="flex flex-wrap items-center gap-3">
         <Logo className="size-7 shrink-0" />
-        <h1 className="m-0 flex-1">Settings</h1>
+        <h1 className="m-0 flex-1">{t("Settings")}</h1>
         <Button
           id="reload-settings"
           type="button"
@@ -311,7 +508,7 @@ export function SettingsApp({
           disabled={busy || saving}
           onClick={() => void reload()}
         >
-          Reload saved settings
+          {t("Reload saved settings")}
         </Button>
       </header>
       <output
@@ -328,7 +525,7 @@ export function SettingsApp({
               strokeWidth={2}
               className="mt-0.5 flex-none text-accent-ink"
             />
-            <span>{message}</span>
+            <span>{message(t)}</span>
           </>
         )}
       </output>
@@ -342,7 +539,9 @@ export function SettingsApp({
                 {
                   tone: "idle",
                   icon: Info,
-                  text: "This preview cannot collect credentials, connect to Bitwarden or an AI service, fill forms, or sign passkey requests.",
+                  text: t(
+                    "This preview cannot collect credentials, connect to Bitwarden or an AI service, fill forms, or sign passkey requests.",
+                  ),
                 },
               ]}
             />
@@ -353,6 +552,7 @@ export function SettingsApp({
               onCatalogChanged={catalogChanged}
               acceptedSettings={accepted}
               reviewBlocked={dirty || busy || saveBlocked}
+              unsavedChanges={dirty}
               renderAccess={(id) => {
                 const connection = draft.connections.find((entry) => entry.connectionId === id);
                 const metadata = accepted?.catalog.connections.find((entry) => entry.id === id);
@@ -375,7 +575,7 @@ export function SettingsApp({
                       className="m-0 flex min-w-0 flex-col gap-4 border-0 p-0"
                       disabled={busy}
                     >
-                      <legend className="visually-hidden">Other saved vault settings</legend>
+                      <legend className="visually-hidden">{t("Other saved vault settings")}</legend>
                       <VaultRows
                         ids={draft.connections
                           .map((entry) => entry.connectionId)
@@ -391,14 +591,15 @@ export function SettingsApp({
               )}
             />
           )}
+          {vaultTimeoutClient && <VaultTimeoutPanel client={vaultTimeoutClient} />}
           <fieldset
             id="settings-controls"
             className="m-0 flex min-w-0 flex-col gap-6 border-0 p-0"
             disabled={busy || !accepted}
           >
-            <legend className="visually-hidden">Local settings</legend>
+            <legend className="visually-hidden">{t("Local settings")}</legend>
             {!connectionClient && (
-              <Panel id="demo-vaults" headingId="connections-heading" title="Demo vaults">
+              <Panel id="demo-vaults" headingId="connections-heading" title={t("Demo vaults")}>
                 {accepted ? (
                   <VaultRows
                     ids={draft.connections.map((entry) => entry.connectionId)}
@@ -421,17 +622,18 @@ export function SettingsApp({
                 findSiteAccounts={client.findSiteAccounts}
               />
             ) : (
-              <Panel id="sites" headingId="sites-heading" title="Sites">
+              <Panel id="sites" headingId="sites-heading" title={t("Sites")}>
                 <ul id="site-list" className="hidden" />
               </Panel>
             )}
           </fieldset>
-          {serviceClient && <ServiceConnection client={serviceClient} />}
+          {serviceClient && <ServiceConnection client={serviceClient} settingsClient={client} />}
+          {deviceModelClient && <DeviceModelPanel client={deviceModelClient} />}
           <footer className="flex flex-wrap gap-4 text-[0.8125rem] leading-5 text-ink-muted">
             <a href="legal.html" target="_blank" rel="noreferrer">
-              Licenses and source
+              {t("Licenses and source")}
             </a>
-            <span>GPL-3.0-only, no warranty</span>
+            <span>{t("GPL-3.0-only, no warranty")}</span>
           </footer>
         </main>
       </div>
@@ -445,28 +647,54 @@ const navLinkClass =
 
 /** The page's sections, the diagnostics page and the theme; the section in view is marked. */
 function SectionNav({ sections }: { sections: NavSection[] }) {
+  const { t } = useTranslation(undefined, { i18n });
   const [current, setCurrent] = useState(sections[0]?.id);
   const ids = sections.map((section) => section.id).join(" ");
+  // A clicked link's section stays marked while the page jumps to it, until the person
+  // scrolls or the address changes to another fragment, such as by Back.
+  const clicked = useRef<string>(undefined);
   useEffect(() => {
-    const visible = new Map<string, boolean>();
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) visible.set(entry.target.id, entry.isIntersecting);
-        // The first section in page order that is in the upper part of the window.
-        const first = ids.split(" ").find((id) => visible.get(id));
-        if (first) setCurrent(first);
-      },
-      { rootMargin: "0px 0px -60% 0px" },
-    );
-    for (const id of ids.split(" ")) {
-      const element = document.getElementById(id);
-      if (element) observer.observe(element);
-    }
-    return () => observer.disconnect();
+    const update = () => {
+      if (clicked.current) return;
+      // Look sections up on each scroll: some remount, such as Sites once settings load.
+      const tops = ids.split(" ").flatMap((id) => {
+        const element = document.getElementById(id);
+        return element ? [{ id, top: element.getBoundingClientRect().top }] : [];
+      });
+      const atBottom =
+        scrollY > 0 && scrollY + innerHeight >= document.documentElement.scrollHeight - 1;
+      // The last section whose top has reached the upper part of the window; at the
+      // bottom of the page, where short last sections never get there, the last one shown.
+      const line = atBottom ? innerHeight : innerHeight * 0.4;
+      const reached = tops.findLast((section) => section.top <= line) ?? tops[0];
+      if (reached) setCurrent(reached.id);
+    };
+    // Wheel, touch, scrollbar drags and scrolling keys start with one of these.
+    const userInput = ["wheel", "pointerdown", "keydown"] as const;
+    const release = () => {
+      clicked.current = undefined;
+    };
+    // Back, Forward and other address changes from the browser bring no page input.
+    const addressChanged = () => {
+      if (clicked.current === undefined || location.hash === `#${clicked.current}`) return;
+      release();
+      update();
+    };
+    update();
+    addEventListener("scroll", update, { passive: true });
+    addEventListener("resize", update);
+    addEventListener("hashchange", addressChanged);
+    for (const type of userInput) addEventListener(type, release, { capture: true, passive: true });
+    return () => {
+      removeEventListener("scroll", update);
+      removeEventListener("resize", update);
+      removeEventListener("hashchange", addressChanged);
+      for (const type of userInput) removeEventListener(type, release, { capture: true });
+    };
   }, [ids]);
   return (
     <nav
-      aria-label="Sections"
+      aria-label={t("Sections")}
       className="flex max-w-60 flex-[1_1_200px] flex-col gap-6 lg:sticky lg:top-8"
     >
       <ul className="m-0 flex list-none flex-col gap-0.5 p-0">
@@ -476,7 +704,10 @@ function SectionNav({ sections }: { sections: NavSection[] }) {
               href={`#${id}`}
               className={navLinkClass}
               aria-current={current === id ? "location" : undefined}
-              onClick={() => setCurrent(id)}
+              onClick={() => {
+                clicked.current = id;
+                setCurrent(id);
+              }}
             >
               <Icon aria-hidden size={16} strokeWidth={2} />
               {label}
@@ -492,12 +723,13 @@ function SectionNav({ sections }: { sections: NavSection[] }) {
             className={navLinkClass}
           >
             <Bug aria-hidden size={16} strokeWidth={2} />
-            Diagnostics
+            {t("Diagnostics")}
           </a>
         </li>
       </ul>
       <div className="px-3">
         <ThemeSelect />
+        <LanguageSelect />
       </div>
     </nav>
   );

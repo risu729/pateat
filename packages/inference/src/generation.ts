@@ -1,7 +1,6 @@
 import {
   isEntryObservation,
   loginObservationSchema,
-  loginStepSchema,
   pageKindSchema,
   semanticSlotsSchema,
   type LoginObservation,
@@ -131,11 +130,6 @@ export const generatedPlanSchema = v.strictObject({
 // Sent to the provider as the response format, so it counts toward the request bound.
 const outputSchemaJson = JSON.stringify(toJsonSchema(generatedPlanSchema));
 
-const repairSchema = v.strictObject({
-  reason: v.picklist(["structural-mismatch", "recipe-failure"]),
-  previousSteps: v.pipe(v.array(loginStepSchema), v.minLength(1), v.maxLength(8)),
-});
-
 /**
  * How a plan answers its page's kind (ADR 0035), in the instructions of every request that
  * may answer a plan for a recipe's first page.
@@ -157,8 +151,9 @@ export const generationInstructions = [
   "one of the user's vault fields, and fieldPosition tells apart the user's fields of the",
   "same name: compare its name and valueShape with element labels, descriptions and",
   "constraints. Fill only the slots this page asks for. The action is the one button that",
-  "advances to another step or submits the credentials. Use only candidate and slot IDs",
-  "from the input.",
+  "advances to another step or submits the credentials. If the form shows no such button,",
+  "the action is the last field you fill, whose form is then submitted as pressing Enter",
+  "there does. Use only candidate and slot IDs from the input.",
   "Never name a button that registers, creates, adds or sets up a passkey or security key,",
   "or one the plan uses, as passkeyButton.",
   pageKindInstruction,
@@ -171,12 +166,13 @@ export const generationPromptVersion = promptVersionOf(generationInstructions, o
 
 /**
  * The prompt line only a request for a page that lists accounts gets (ADR 0028): answer
- * account-list without choosing an account.
+ * account-list without choosing an account. Such a request has no slots (owner 2026-10-23
+ * 11:48 UTC), which the line says, so the slot mapping above reads as not applying.
  */
 export const accountListInstruction =
-  "An observation with accounts lists saved accounts and has no fields: answer " +
-  "account-list when choosing one of them leads on to signing in, else abstain. Never " +
-  "choose an account.";
+  "An observation with accounts lists saved accounts and has no fields, and its request " +
+  "has no slots: answer account-list when choosing one of them leads on to signing in, " +
+  "else abstain. Never choose an account.";
 /** The instructions of a request for a list of accounts: the generation role's and the list line. */
 export const accountListGenerationInstructions = `${generationInstructions} ${accountListInstruction}`;
 /** A list request's prompt version, for the request log. */
@@ -264,8 +260,6 @@ export type GenerationRequest = {
    * with a recipe's first page.
    */
   signedIn?: boolean;
-  /** Present when a cached recipe failed on this page; previous steps carry locators only. */
-  repair?: unknown;
   /**
    * False for a page after the start page, whose alternatives and passkey button are
    * checked but dropped, so the slots are named from the kept set alone. Defaults to true.
@@ -365,8 +359,9 @@ function generationCall(config: GenerationConfig) {
 }
 
 /**
- * Recipe generation/repair role. Uses exactly the configured model: errors are
- * returned, never retried on another provider or model.
+ * Recipe generation role, which also answers a repair's page as a first page or a
+ * continuation (ADR 0041): the stale steps never reach the model. Uses exactly the
+ * configured model: errors are returned, never retried on another provider or model.
  */
 export function createRecipeGenerator(config: GenerationConfig) {
   const call = generationCall(config);
@@ -375,29 +370,24 @@ export function createRecipeGenerator(config: GenerationConfig) {
     request: GenerationRequest,
   ): Promise<InferenceOutcome<GeneratedPage | ValidatedAccountList>> {
     const observation = v.safeParse(loginObservationSchema, request.observation);
-    const slots = v.safeParse(
-      request.passkeyOnly ? v.strictTuple([]) : semanticSlotsSchema,
-      request.slots,
-    );
-    const repair =
-      request.repair === undefined ? undefined : v.safeParse(repairSchema, request.repair);
-    if (!observation.success || !slots.success || (repair && !repair.success))
+    // A passkey-only page (ADR 0053) and a list of accounts (ADR 0028) offer no slots.
+    const slotless =
+      request.passkeyOnly === true ||
+      (observation.success && observation.output.accounts !== undefined);
+    const slots = v.safeParse(slotless ? v.strictTuple([]) : semanticSlotsSchema, request.slots);
+    if (!observation.success || !slots.success)
       return { status: "failed", error: "invalid-request", calls: 0, usage: noUsage };
-    if (
-      request.passkeyOnly &&
-      (!isEntryObservation(observation.output) || request.repair !== undefined)
-    )
+    if (request.passkeyOnly && !isEntryObservation(observation.output))
       return { status: "failed", error: "invalid-request", calls: 0, usage: noUsage };
     if (!observation.output.complete)
       return { status: "failed", error: "incomplete-observation", calls: 0, usage: noUsage };
 
     const prompt = JSON.stringify({
-      task: repair ? "repair" : "generate",
+      task: "generate",
       slots: slots.output,
       ...(request.passkeyOnly ? { passkeyOnly: true } : {}),
       ...(request.signedIn === undefined ? {} : { signedIn: request.signedIn }),
       observation: observation.output,
-      ...(repair?.success ? { repair: repair.output } : {}),
     });
 
     return call({

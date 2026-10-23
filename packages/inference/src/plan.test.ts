@@ -7,6 +7,7 @@ import {
 } from "@pateat/contracts";
 import { describe, expect, it } from "vitest";
 import {
+  actionPurpose,
   carriedSlotNames,
   customSlotNames,
   namesPasskey,
@@ -66,6 +67,85 @@ const action = { candidate: "login", purpose: "submit" } as const;
 const validate = (fields: PagePlan["fields"]) =>
   validatePagePlan(observation, slots, { fields, action });
 
+describe("a button beside a form without one of its own", () => {
+  // Sakura Internet's login page (2026-10-23): the ID and password in a form, links to
+  // reset them in it, and the login button just after the form.
+  const page = (...extra: Candidate[]): LoginObservation => ({
+    ...observation,
+    candidates: [
+      input("member", { group: "f1" }),
+      input("forgot", { role: "link", group: "f1" }),
+      input("pass", { role: "password", group: "f1" }),
+      input("go", { role: "button" }),
+      ...extra,
+    ],
+  });
+  const loginSlots = [builtInLoginSlots.username, builtInLoginSlots.password];
+  const both = [
+    { slot: "username", candidate: "member" },
+    { slot: "password", candidate: "pass" },
+  ];
+  const submit = { candidate: "go", purpose: "submit" } as const;
+
+  it("presses it for that form", () => {
+    expect(validatePagePlan(page(), loginSlots, { fields: both, action: submit }).ok).toBe(true);
+    // An identifier alone submits, as the form still shows its password.
+    const member = [{ slot: "username", candidate: "member" }];
+    expect(actionPurpose(page(), loginSlots, { fields: member, action: submit }, "advance")).toBe(
+      "submit",
+    );
+  });
+
+  it("refuses it for any other form, field or button", () => {
+    for (const extra of [
+      input("own", { role: "button", group: "f1" }),
+      input("q", { group: undefined }),
+    ])
+      expect(
+        validatePagePlan(page(extra), loginSlots, { fields: both, action: submit }),
+        extra.id,
+      ).toEqual({ ok: false, reason: "mixed-groups" });
+    // Nor for a form beside another password form, beside another button outside every
+    // form, or as a passkey or sign-up button.
+    for (const extra of [
+      input("other", { role: "password", group: "f2" }),
+      input("passkey", { role: "button", label: "パスキーでログイン" }),
+    ])
+      expect(
+        validatePagePlan(page(extra), loginSlots, { fields: both, action: submit }),
+        extra.id,
+      ).toEqual({ ok: false, reason: "mixed-groups" });
+    for (const label of ["Sign in with a passkey", "Create a passkey"]) {
+      const named = page();
+      named.candidates[3] = input("go", { role: "button", label });
+      expect(validatePagePlan(named, loginSlots, { fields: both, action: submit }), label).toEqual({
+        ok: false,
+        reason: "mixed-groups",
+      });
+    }
+    // A form without a password field never takes it, as an identifier form beside it.
+    const identifier = page();
+    identifier.candidates.splice(2, 1);
+    expect(
+      validatePagePlan(identifier, loginSlots, {
+        fields: [{ slot: "username", candidate: "member" }],
+        action: submit,
+      }),
+    ).toEqual({ ok: false, reason: "mixed-groups" });
+    // Fields of two forms never share it.
+    const two = page(input("other", { role: "password", group: "f2" }));
+    expect(
+      validatePagePlan(two, loginSlots, {
+        fields: [
+          { slot: "username", candidate: "member" },
+          { slot: "password", candidate: "other" },
+        ],
+        action: submit,
+      }),
+    ).toEqual({ ok: false, reason: "mixed-groups" });
+  });
+});
+
 describe("an accessible-name locator (ADR 0048 amendment of 2026-10-19)", () => {
   it("names no route step's element, as only a password handler's button uses it", () => {
     const named: Candidate = {
@@ -86,6 +166,36 @@ describe("an accessible-name locator (ADR 0048 amendment of 2026-10-19)", () => 
         action,
       }),
     ).toEqual({ ok: false, reason: "unknown-candidate" });
+  });
+});
+
+describe("a field on the page's software keyboard (ADR 0067)", () => {
+  it("is filled with the keypad the observation names, which the model never gives", () => {
+    const keypad = { by: "id", value: "soft-keys" } as const;
+    const page: LoginObservation = {
+      ...observation,
+      candidates: observation.candidates.map((entry) =>
+        entry.id === "password" ? { ...entry, keypad } : entry,
+      ),
+    };
+    const result = validatePagePlan(page, slots, {
+      fields: [
+        { slot: "username", candidate: "user" },
+        { slot: "password", candidate: "password" },
+      ],
+      action,
+    });
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.plan.steps[0]).toMatchObject({
+      kind: "fill",
+      fields: [
+        { slot: "username", target: { by: "id", value: "user" } },
+        { slot: "password", target: { by: "id", value: "password" }, keypad },
+      ],
+    });
+    expect(
+      result.plan.steps[0]!.kind === "fill" && result.plan.steps[0]!.fields[0],
+    ).not.toHaveProperty("keypad");
   });
 });
 
@@ -1335,5 +1445,107 @@ describe("the action's purpose read from the page (owner 2026-10-22, #834)", () 
       ],
     });
     expect(result).toEqual({ ok: false, reason: "variant-advance" });
+  });
+});
+
+describe("a form that shows no button (ADR 0064)", () => {
+  const form: LoginObservation = {
+    ...observation,
+    candidates: [
+      input("phone", { role: "button", group: "f1" }),
+      input("user", { autocomplete: "username", group: "f1" }),
+      input("password", { role: "password", group: "f1" }),
+      input("outside"),
+      input("code", { autocomplete: "one-time-code", group: "f1" }),
+    ],
+  };
+  const user = { slot: "username", candidate: "user" };
+  const password = { slot: "password", candidate: "password" };
+  const target = (value: string) => ({ by: "id", value });
+
+  it("presses Enter in the last field when the action is that field", () => {
+    expect(
+      validatePagePlan(form, slots, {
+        fields: [user],
+        action: { candidate: "user", purpose: "advance" },
+      }),
+    ).toEqual({
+      ok: true,
+      plan: {
+        fields: [user],
+        action: { candidate: "user", purpose: "advance" },
+        steps: [
+          {
+            kind: "fill",
+            path: "/login",
+            fields: [{ slot: "username", target: target("user") }],
+            effect: "prepare",
+          },
+          {
+            kind: "click",
+            path: "/login",
+            target: target("user"),
+            purpose: "advance",
+            press: "enter",
+          },
+        ],
+      },
+    });
+    const both = validatePagePlan(form, slots, {
+      fields: [user, password],
+      action: { candidate: "password", purpose: "submit" },
+    });
+    if (!both.ok) throw new Error(both.reason);
+    expect(both.plan.steps.at(-1)).toEqual({
+      kind: "click",
+      path: "/login",
+      target: target("password"),
+      purpose: "submit",
+      press: "enter",
+    });
+  });
+
+  it("refuses another field, a field outside a form, a code and an unfilled field", () => {
+    const refused = (fields: PagePlan["fields"], candidate: string) =>
+      validatePagePlan(form, [...slots, builtInLoginSlots.totp], {
+        fields,
+        action: { candidate, purpose: "submit" },
+      });
+    expect(refused([user, password], "user")).toEqual({
+      ok: false,
+      reason: "duplicate-candidate",
+    });
+    expect(refused([{ slot: "username", candidate: "outside" }], "outside")).toEqual({
+      ok: false,
+      reason: "duplicate-candidate",
+    });
+    expect(refused([{ slot: "totp", candidate: "code" }], "code")).toEqual({
+      ok: false,
+      reason: "duplicate-candidate",
+    });
+    expect(refused([user], "password")).toEqual({ ok: false, reason: "incompatible-role" });
+  });
+
+  it("reads the purpose from the page, on the start page and after it", () => {
+    const draft: GeneratedPagePlan = {
+      fields: [user],
+      action: { candidate: "user", purpose: "submit" },
+    };
+    for (const startPage of [true, false]) {
+      const result = validateGeneratedPage(form, slots, draft, startPage);
+      if (!result.ok) throw new Error(result.reason);
+      // The form still shows an empty password input, which the submission sends.
+      expect(result.plan.steps.at(-1)).toMatchObject({ purpose: "submit", press: "enter" });
+    }
+    const alone = {
+      ...form,
+      candidates: form.candidates.filter((c) => c.id !== "password" && c.id !== "code"),
+    };
+    for (const startPage of [true, false]) {
+      const result = validateGeneratedPage(alone, slots, draft, startPage);
+      if (!result.ok) throw new Error(result.reason);
+      expect(result.plan.action.purpose).toBe("advance");
+      expect(result.plan.steps.at(-1)).toMatchObject({ purpose: "advance", press: "enter" });
+    }
   });
 });

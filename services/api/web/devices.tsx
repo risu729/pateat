@@ -27,6 +27,12 @@ const IDLE_LIMIT_DAYS = DEVICE_IDLE_LIMIT_MS / (24 * 60 * 60 * 1000);
 export function DevicesPage({ client }: { client: ManageClient }) {
   const queryClient = useQueryClient();
   const devices = useQuery({ queryKey: DEVICES_QUERY_KEY, queryFn: () => client.devices() });
+  const profiles = useQuery({ queryKey: ["profiles"], queryFn: () => client.profiles() });
+  const assign = useMutation({
+    mutationFn: ({ deviceId, profileId }: { deviceId: string; profileId: string }) =>
+      client.assignProfile(deviceId, profileId),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: DEVICES_QUERY_KEY }),
+  });
   const revoke = useMutation({
     mutationFn: (device: { id: string; label: string }) => client.revokeDevice(device.id),
     onSettled: () => queryClient.invalidateQueries({ queryKey: DEVICES_QUERY_KEY }),
@@ -41,6 +47,9 @@ export function DevicesPage({ client }: { client: ManageClient }) {
         id="devices-revoked"
         message={revoke.isSuccess && `${revoke.variables.label} revoked`}
       />
+      {assign.isError && (
+        <ErrorNotice id="device-profile-error">{describeError(assign.error)}</ErrorNotice>
+      )}
       {revoke.isError && (
         <ErrorNotice id="devices-error">{describeError(revoke.error)}</ErrorNotice>
       )}
@@ -70,6 +79,27 @@ export function DevicesPage({ client }: { client: ManageClient }) {
                   title={label}
                   sub={`Paired ${paired}, last used ${formatTime(device.lastUsedAt)}${revoked}`}
                 />
+                {device.revokedAt === null &&
+                  profiles.data &&
+                  profiles.data.profiles.length > 1 && (
+                    <label>
+                      Profile
+                      <select
+                        aria-label={`Profile for ${label}`}
+                        value={device.profileId}
+                        disabled={assign.isPending}
+                        onChange={(event) =>
+                          assign.mutate({ deviceId: device.id, profileId: event.target.value })
+                        }
+                      >
+                        {profiles.data.profiles.map((profile) => (
+                          <option key={profile.id} value={profile.id}>
+                            {profile.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
                 {device.revokedAt !== null ? (
                   <Badge tone="muted">Revoked</Badge>
                 ) : expired ? (

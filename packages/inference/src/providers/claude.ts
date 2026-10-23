@@ -2,51 +2,87 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { defaultSettingsMiddleware, wrapLanguageModel } from "ai";
 import * as v from "valibot";
 import type { InferenceUsage } from "../outcome";
+import type { ClaudeTokenRates } from "./claude-pricing";
+import {
+  claudeModelRates,
+  claudePricing,
+  estimateClaudeCost,
+  type ClaudeRates,
+} from "./claude-rates";
 
-/** The owner-selected generation configuration (ADR 0014). */
+export { claudeModelRates, type ClaudeRates } from "./claude-rates";
+
+/**
+ * Every model the pricing page prices, with the model ID its name reads as
+ * (`Claude Opus 5.5` is `claude-opus-5-5`), its line (`opus`) and its version, newest
+ * versions first within the page's order.
+ */
+export function claudePricedModels() {
+  return Object.entries(claudePricing.models).flatMap(([displayName, { fast, ...rates }]) => {
+    const match = /^Claude ([A-Z][a-z]+) (\d+)(?:\.(\d+))?$/.exec(displayName);
+    if (match === null) return [];
+    const [, family, major, minor] = match;
+    const line = family!.toLowerCase();
+    return [
+      {
+        modelId: `claude-${line}-${major}${minor === undefined ? "" : `-${minor}`}`,
+        displayName,
+        line,
+        version: Number(major) + Number(minor ?? 0) / 100,
+        rates: rates as ClaudeRates,
+        ...(fast === undefined ? {} : { fast }),
+      },
+    ];
+  });
+}
+
+function publishedRates(modelId: string): ClaudeRates {
+  const rates = claudeModelRates(modelId);
+  if (rates === undefined) throw new Error(`The pricing page lists no price for ${modelId}.`);
+  return rates;
+}
+
+/**
+ * The benchmark's default model: the first choice of the service's default configuration
+ * (`DEFAULT_MODEL_CONFIG`, ADR 0014). The service asks each owner's own configuration.
+ */
 export const claudeGeneration = {
   modelId: "claude-opus-5-5",
   effort: "low",
-  /** USD per million tokens, as published on the date checked; output includes thinking. */
-  rates: { input: 4, output: 20, checked: "2026-10-10" },
+  rates: publishedRates("claude-opus-5-5"),
 } as const;
 
-/** USD per million tokens; output includes thinking. */
-export type ClaudeRates = { input: number; output: number; checked: string };
+/** Estimated cost from reported usage at the published rates; undefined when usage is unknown. */
+export function estimateClaudeCostUsd(
+  usage: InferenceUsage,
+  rates: ClaudeRates = claudeGeneration.rates,
+): number | undefined {
+  return estimateClaudeCost(usage, rates);
+}
 
 /**
- * Models the benchmark may compare with the service's, at their published rates. Only the
- * benchmark takes them: the service always runs `claudeGeneration` (ADR 0014).
+ * The highest per-token rates a call of at most `maxInputTokens` prompt tokens can be
+ * charged, for spend bounds: long-prompt rates only when such a prompt can exceed their
+ * threshold.
  */
-export const claudeBenchmarkModels = {
-  "claude-opus-5-5": claudeGeneration.rates,
-  "claude-fable-5-1": { input: 10, output: 50, checked: "2026-10-23" },
-  "claude-opus-5": { input: 5, output: 25, checked: "2026-10-23" },
-  "claude-sonnet-5-5": { input: 2, output: 10, checked: "2026-10-23" },
-  // Prompts above 100K tokens cost more; the role's input bound keeps them far below.
-  "claude-haiku-5-5": { input: 0.1, output: 0.5, checked: "2026-10-23" },
-} as const satisfies Record<string, ClaudeRates>;
-
-export type ClaudeBenchmarkModel = keyof typeof claudeBenchmarkModels;
-
-/**
- * Fast mode's rates (Claude API research preview: the same model, faster output), for the
- * models that offer it.
- */
-export const claudeFastModeRates = {
-  "claude-opus-5-5": { input: 8, output: 40, checked: "2026-10-23" },
-  "claude-opus-5": { input: 10, output: 50, checked: "2026-10-23" },
-} as const satisfies Partial<Record<ClaudeBenchmarkModel, ClaudeRates>>;
+export function claudeWorstCaseRates(rates: ClaudeRates, maxInputTokens: number): ClaudeTokenRates {
+  const { longPrompt } = rates;
+  return longPrompt !== undefined && maxInputTokens > longPrompt.overInputTokens
+    ? { input: longPrompt.input, output: longPrompt.output }
+    : { input: rates.input, output: rates.output };
+}
 
 export const claudeEfforts = ["low", "medium", "high", "xhigh", "max"] as const;
 export type ClaudeEffort = (typeof claudeEfforts)[number];
+export const claudeSpeeds = ["standard", "fast"] as const;
+export type ClaudeSpeed = (typeof claudeSpeeds)[number];
 
-/** A model and effort to run, with its rates; `fast` runs it in fast mode. */
+/** A model and effort to run, with its rates at that speed; `fast` runs it in fast mode. */
 export type ClaudeModelChoice = {
   modelId: string;
   effort: ClaudeEffort;
   rates: ClaudeRates;
-  speed?: "fast";
+  speed?: ClaudeSpeed;
 };
 
 // Pinned so ANTHROPIC_BASE_URL in the environment can never redirect the key elsewhere.
@@ -63,12 +99,15 @@ export type ClaudeCredential = { apiKey: string } | { authToken: string };
 /**
  * Builds the Claude model for `createRecipeGenerator`. The credential is passed
  * explicitly and never read from the environment. Server-side `fallbacks` stay unset: a
- * failure of this model is returned as an error, never retried on another model.
+ * failure of this model is returned as an error, and only the service asks another model,
+ * the owner's next choice (ADR 0014).
  */
 export function createClaudeGenerationModel(
   options: ClaudeCredential & {
-    /** Another model for the benchmark; the service never passes one. */
+    /** Another model: the benchmark's, or one of the owner's choices in the service. */
     choice?: ClaudeModelChoice;
+    /** Runs before each request is sent, never for one a role refuses before sending. */
+    beforeRequest?: () => Promise<void>;
     /** Test seam only. */
     fetch?: typeof globalThis.fetch;
   },
@@ -86,20 +125,37 @@ export function createClaudeGenerationModel(
     ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
   });
   const choice = options.choice ?? claudeGeneration;
-  return wrapLanguageModel({
-    model: provider(choice.modelId),
-    middleware: defaultSettingsMiddleware({
-      settings: {
-        providerOptions: {
-          anthropic: {
-            effort: choice.effort,
-            ...("speed" in choice && choice.speed ? { speed: choice.speed } : {}),
-            // Opus 5.5 rejects the forced tool call of the JSON-tool mode.
-            structuredOutputMode: "outputFormat",
-          },
+  const { beforeRequest } = options;
+  const settings = defaultSettingsMiddleware({
+    settings: {
+      providerOptions: {
+        anthropic: {
+          effort: choice.effort,
+          ...("speed" in choice && choice.speed === "fast" ? { speed: "fast" } : {}),
+          // Opus 5.5 rejects the forced tool call of the JSON-tool mode.
+          structuredOutputMode: "outputFormat",
         },
       },
-    }),
+    },
+  });
+  return wrapLanguageModel({
+    model: provider(choice.modelId),
+    middleware:
+      beforeRequest === undefined
+        ? settings
+        : [
+            settings,
+            {
+              wrapGenerate: async ({ doGenerate }) => {
+                await beforeRequest();
+                return doGenerate();
+              },
+              wrapStream: async ({ doStream }) => {
+                await beforeRequest();
+                return doStream();
+              },
+            },
+          ],
   });
 }
 
@@ -109,14 +165,4 @@ export function claudeRefusalCategory(providerMetadata: unknown): string | undef
     ?.anthropic;
   const category = anthropic?.stopDetails?.category;
   return typeof category === "string" ? category : undefined;
-}
-
-/** Estimated cost from reported usage at the checked rates; undefined when usage is unknown. */
-export function estimateClaudeCostUsd(
-  usage: InferenceUsage,
-  rates: ClaudeRates = claudeGeneration.rates,
-): number | undefined {
-  if (usage.inputTokens === null || usage.outputTokens === null) return undefined;
-  const { input, output } = rates;
-  return (usage.inputTokens * input + usage.outputTokens * output) / 1_000_000;
 }

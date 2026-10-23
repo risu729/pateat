@@ -1,10 +1,13 @@
+import { followLanguagePreference, followLanguageMetadata } from "../../src/i18n";
 import { createRoot } from "react-dom/client";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { browser } from "wxt/browser";
 import { SettingsApp } from "../../src/options/settings-app";
 import { createMetadataQueryClient, createSettingsClient } from "../../src/options/client";
 import { createConnectionClient } from "../../src/options/connection-client";
+import { createDeviceModelClient } from "../../src/options/device-model";
 import { createServiceClient } from "../../src/options/service-client";
+import { createVaultTimeoutClient } from "../../src/options/vault-timeout";
 import { sendMessage } from "../../src/messaging/protocol";
 import { followThemePreference } from "../../src/theme";
 // oxlint-disable-next-line import/no-unassigned-import -- Bundle the options page stylesheet.
@@ -12,6 +15,9 @@ import "./style.css";
 
 // The theme is set before the first render, and follows changes made on another page.
 followThemePreference();
+// The stored language is read before the first render, so no English text flashes.
+await followLanguagePreference();
+followLanguageMetadata("Pateat settings");
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Missing options root");
@@ -25,6 +31,8 @@ createRoot(root).render(
     <SettingsApp
       client={createSettingsClient((message) => sendMessage("settings", message))}
       connectionClient={connectionClient}
+      vaultTimeoutClient={createVaultTimeoutClient()}
+      deviceModelClient={createDeviceModelClient()}
       serviceClient={createServiceClient({
         send: (message) => sendMessage("service", message),
         openTab: (url) => browser.tabs.create({ url }),

@@ -38,6 +38,12 @@ export interface LocalCryptoSession {
     userKey: string;
     metadata: LocalCryptoSession["metadata"];
   }>;
+  /**
+   * Whether a master password unwraps this session's user key from the account's stored
+   * master-password unlock data, offline, as Bitwarden's re-prompt checks it. This code keeps
+   * nothing derived from the password; copies the SDK's native heap may hold are not wiped.
+   */
+  verifyMasterPassword(input: unknown): BitwardenResult<{ matches: boolean }>;
   decryptCipher(input: unknown): Promise<BitwardenResult<LocalCipherView>>;
   decryptCatalogGroups(
     input: unknown,
@@ -97,6 +103,10 @@ export const localCryptoAccountContextSchema = v.strictObject({
     v.maxLength(1_000),
   ),
   minimumSecurityVersion: v.picklist([1, 2]),
+});
+const verifyPasswordSchema = v.strictObject({
+  password: v.pipe(v.string(), v.minLength(1)),
+  masterPasswordUnlock: masterUnlockSchema,
 });
 const sessionSchema = v.strictObject({
   connectionId: identifier,
@@ -456,6 +466,14 @@ export function admitLocalCryptoCipher(input: unknown): BitwardenResult<Sdk.Ciph
   }
 }
 
+/** Compares without an early exit, so the time taken does not tell where keys differ. */
+function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.length !== right.length) return false;
+  let difference = 0;
+  for (let index = 0; index < left.length; index += 1) difference |= left[index]! ^ right[index]!;
+  return difference === 0;
+}
+
 function bytesFromBase64(value: string): Uint8Array {
   const bytes = decodeBase64(value);
   if (!bytes) throw new Error();
@@ -513,7 +531,7 @@ export async function createLocalCryptoSession(
     "pBKDF2" in kdf
       ? kdf.pBKDF2.iterations <= 2_000_000
       : kdf.argon2id.iterations <= 20 &&
-        kdf.argon2id.memory <= 256 &&
+        kdf.argon2id.memory <= 1024 &&
         kdf.argon2id.parallelism <= 16;
   if (
     !withinResourceBudget(options.kdf) ||
@@ -771,6 +789,48 @@ export async function createLocalCryptoSession(
           // The bridge value is the pinned SDK's unchanged serialized user key.
           // No password, master key, private key bundle or network API is exported.
           return { ok: true as const, data: { userKey, metadata } };
+        },
+        verifyMasterPassword: (request: unknown) => {
+          if (locked) return failure("crypto-locked");
+          const checked = parsed(verifyPasswordSchema, request);
+          if (!checked) return failure("invalid-crypto-input");
+          const unlock = checked.masterPasswordUnlock;
+          if (!withinResourceBudget(unlock.kdf)) return failure("resource-limit");
+          // Below the SDK's own minimums it throws for any password; that is not a wrong one.
+          if (
+            "pBKDF2" in unlock.kdf
+              ? unlock.kdf.pBKDF2.iterations < 5000
+              : unlock.kdf.argon2id.iterations < 2 || unlock.kdf.argon2id.memory < 16
+          )
+            return failure("invalid-crypto-input");
+          if (!authenticatedCiphertext(unlock.masterKeyWrappedUserKey))
+            return failure("unsupported-crypto");
+          const storedKey = memory.values.get("user_key");
+          if (typeof storedKey !== "string" || storedKey.length === 0)
+            return failure("crypto-failed");
+          let expected: Uint8Array | undefined;
+          let unwrapped: Uint8Array | undefined;
+          try {
+            expected = bytesFromBase64(storedKey);
+            try {
+              unwrapped = sdk.PureCrypto.decrypt_user_key_with_master_password(
+                unlock.masterKeyWrappedUserKey,
+                checked.password,
+                unlock.salt,
+                unlock.kdf,
+              );
+            } catch {
+              // The wrapped key and KDF passed admission, so the unwrap's authentication
+              // failing is what remains: a wrong password.
+              return { ok: true as const, data: { matches: false } };
+            }
+            return { ok: true as const, data: { matches: sameBytes(expected, unwrapped) } };
+          } catch {
+            return failure("crypto-failed");
+          } finally {
+            expected?.fill(0);
+            unwrapped?.fill(0);
+          }
         },
         decryptCipher: async (request: unknown): Promise<BitwardenResult<LocalCipherView>> => {
           const decrypted = await decrypt(request, "omit");

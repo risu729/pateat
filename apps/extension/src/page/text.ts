@@ -294,17 +294,31 @@ export function shown(element: Element, opacity = true): element is HTMLElement 
  * rendering does: `<div>Customer</div><div>Number</div>` and
  * `<p>Customer</p><label>Number</label>`. With `everyElement`, every element boundary
  * separates words (`<span>a@example.com</span><a>Not you?</a>`), and elements matching
- * `skip` contribute nothing. A line-break opportunity never separates words: a `<wbr>`
- * adds nothing, and format characters such as a zero-width space or soft hyphen are
- * left out, so `taro@<wbr>example.com` and `taro@\u200Bexample.com` read as
- * `taro@example.com`.
+ * `skip`, and the elements in `leave`, contribute nothing; a root inside one has none. A
+ * line-break opportunity never separates words: a `<wbr>` adds nothing, and format
+ * characters such as a zero-width space or soft hyphen are left out, so
+ * `taro@<wbr>example.com` and `taro@\u200Bexample.com` read as `taro@example.com`. With `separator`, block and `<br>` boundaries are that character,
+ * removed from the text itself, so a caller can split the text into its blocks.
  */
 export function renderedText(
   root: Element,
   limit: number,
-  { everyElement = false, skip }: { everyElement?: boolean; skip?: string } = {},
+  {
+    everyElement = false,
+    skip,
+    leave,
+    separator = " ",
+  }: {
+    everyElement?: boolean;
+    skip?: string | undefined;
+    leave?: ReadonlySet<Element> | undefined;
+    separator?: string;
+  } = {},
 ): string | undefined {
   if (!shown(root) || textless.has(root.tagName)) return undefined;
+  if (leave?.size)
+    for (let node: Element | null = root; node; node = node.parentElement)
+      if (leave.has(node)) return undefined;
   const view = root.ownerDocument.defaultView;
   let text = "";
   // `undefined` marks the end of a block, so its text never joins the text after it.
@@ -315,20 +329,22 @@ export function renderedText(
   enqueue(root);
   while (pending.length > 0 && text.length <= limit) {
     const node = pending.pop();
-    if (node === undefined) text += " ";
-    else if (node instanceof Text) text += node.data.replace(/\p{Cf}+/gu, "");
+    if (node === undefined) text += separator;
+    else if (node instanceof Text)
+      text += node.data.replace(/\p{Cf}+/gu, "").replaceAll(separator, " ");
     else if (
       node instanceof Element &&
       !textless.has(node.tagName) &&
       shown(node) &&
-      !(skip && node.matches(skip))
+      !(skip && node.matches(skip)) &&
+      !leave?.has(node)
     ) {
-      if (node instanceof HTMLBRElement) text += " ";
+      if (node instanceof HTMLBRElement) text += separator;
       else if (
         node.localName !== "wbr" &&
         (everyElement || !view?.getComputedStyle(node).display.startsWith("inline"))
       ) {
-        text += " ";
+        text += separator;
         pending.push(undefined);
       }
       enqueue(node);
@@ -347,6 +363,17 @@ export function collapseText(raw: string): string {
     .replace(/[\p{Cc}\p{Zl}\p{Zp}]+/gu, " ")
     .replace(/\s+/gu, " ")
     .trim();
+}
+
+/**
+ * `text` with its full-width and half-width forms (U+3000 and U+FF01 to U+FFEF) folded
+ * as Unicode NFKC folds them, and composed, so `ｶﾞ`, `ガ` and `１Ａ`, `1A` fold alike.
+ * Other compatibility characters, such as `①` or `ﬁ`, stay as they are.
+ */
+export function widthFolded(text: string): string {
+  return text
+    .replace(/[\u3000\uFF01-\uFFEF]/gu, (character) => character.normalize("NFKC"))
+    .normalize("NFC");
 }
 
 const buttonInputTypes = new Set(["submit", "button", "image"]);
@@ -445,11 +472,27 @@ const roleButton = (element: Element) =>
   element.getAttribute("role")?.trim().toLowerCase() === "button";
 
 /**
+ * Whether an `<a>` without `href`, which never navigates, sets the pointer the page
+ * gives clickable things itself, not inheriting it from a clickable card around it:
+ * IIJmio's login control is `<a class="pink_btn">ログイン</a>`, whose click a script
+ * listener handles with no `onclick` attribute or role (2026-10-23). The cursor is read
+ * as computed when asked, so one the page sets only on hover or after the fields are
+ * filled does not count.
+ */
+function pointer(link: HTMLAnchorElement): boolean {
+  const view = link.ownerDocument.defaultView;
+  const points = (element: Element) =>
+    /(?:^|, )pointer$/u.test(view!.getComputedStyle(element).cursor);
+  return view !== null && points(link) && !(link.parentElement && points(link.parentElement));
+}
+
+/**
  * A control that only scripts make clickable: a script link (an `<a>` without `href`
- * that has an `onclick` attribute or `role="button"`, or an `<a href>` that runs a
- * script, see {@link scriptHref}), or another element with `role="button"`. Form
- * controls, links that navigate and anything inside an `<a href>` (a click there would
- * follow the link, or reach the outer link's script) are not script buttons.
+ * that has an `onclick` attribute or `role="button"` or sets a pointer cursor, see
+ * {@link pointer}, or an `<a href>` that runs a script, see {@link scriptHref}), or
+ * another element with `role="button"`. Form controls, links that navigate and anything
+ * inside an `<a href>` (a click there would follow the link, or reach the outer link's
+ * script) are not script buttons.
  */
 export function isScriptButton(element: Element): boolean {
   if (
@@ -463,7 +506,7 @@ export function isScriptButton(element: Element): boolean {
   if (element instanceof HTMLAnchorElement)
     return element.hasAttribute("href")
       ? scriptHref(element)
-      : element.hasAttribute("onclick") || roleButton(element);
+      : element.hasAttribute("onclick") || roleButton(element) || pointer(element);
   return element.closest("a[href]") === null && roleButton(element);
 }
 

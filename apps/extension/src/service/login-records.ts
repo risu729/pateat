@@ -1,4 +1,4 @@
-import { loginRecordSchema, type ChooserBranch, type LoginRecord } from "@pateat/contracts";
+import { loginRecordSchema, type LoginRecord } from "@pateat/contracts";
 import * as v from "valibot";
 import type { LoginReport } from "../login/runtime";
 import { loginOutcomeOf } from "./outcomes";
@@ -15,7 +15,8 @@ import type { OutcomeResult, ServiceTransport } from "./transport";
 export type LoginRecordSent = {
   recipeId: string;
   revision: number;
-  branch?: ChooserBranch;
+  /** The layout the login ran (ADR 0060), and for a chooser login its branch. */
+  branch?: string;
   /**
    * `kept`, `refused`, `rejected`, or `failed:<code>`; `failed:invalid-record` for a record
    * the contract refuses, which is not sent.
@@ -27,7 +28,7 @@ export type LoginRecordSent = {
 export type FoundLoginRecord =
   | { recipeId: string; record: LoginRecord }
   /** The contract refuses the record, as for a build it does not accept or a time over a day. */
-  | { recipeId: string; invalid: { revision: number; branch?: ChooserBranch } };
+  | { recipeId: string; invalid: { revision: number; branch?: string } };
 
 /**
  * The record to send for a login report, or nothing. Only a login that just ended with its

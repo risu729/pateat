@@ -1,5 +1,11 @@
 import * as v from "valibot";
-import { deviceIdSchema, deviceLabelSchema } from "./pairing";
+import {
+  deviceIdSchema,
+  deviceLabelSchema,
+  profileIdSchema,
+  profileNameSchema,
+  profileSchema,
+} from "./pairing";
 import { normalizeHostname, parseSiteUrl } from "./settings";
 
 // Options page ↔ background contracts for the optional sync service connection.
@@ -14,15 +20,17 @@ export const serviceOriginSchema = v.pipe(
     return (
       url?.protocol === "https:" &&
       url.origin === value &&
-      normalizeHostname(url.hostname) !== undefined
+      // A trailing dot names another host to the browser, with its own cookies.
+      normalizeHostname(url.hostname) === url.hostname
     );
   }, "Use an exact HTTPS origin"),
 );
 
-/** Parses what a person types, accepting a trailing slash. */
+/** Parses what a person types, accepting a trailing slash and a host's trailing dot. */
 export function normalizeServiceOrigin(input: string): string | undefined {
   const url = parseSiteUrl(input.trim());
   if (!url || url.pathname !== "/" || url.search || url.hash) return undefined;
+  url.hostname = url.hostname.replace(/\.$/u, "");
   return v.safeParse(serviceOriginSchema, url.origin).success ? url.origin : undefined;
 }
 
@@ -50,6 +58,9 @@ export const serviceRequestSchema = v.variant("type", [
   v.strictObject({
     version: v.literal(1),
     type: v.literal("service.pair"),
+    /** The existing profile this device takes, or the name of one to create for it. */
+    profileId: v.optional(profileIdSchema),
+    newProfile: v.optional(profileNameSchema),
     origin: serviceOriginSchema,
     label: deviceLabelSchema,
   }),
@@ -60,6 +71,12 @@ export const serviceRequestSchema = v.variant("type", [
 
 export const serviceErrorCodeSchema = v.picklist([
   "invalid-request",
+  /** The owner has profiles; `profiles` lists them for the choice (ADR 0076). */
+  "profile-required",
+  /** The chosen profile no longer exists. */
+  "profile-not-found",
+  /** Another profile already has the new profile's name. */
+  "profile-name-taken",
   "storage-unavailable",
   /** The stored connection cannot be read; `service.forget` is the way out. */
   "storage-corrupt",
@@ -78,6 +95,8 @@ export const serviceErrorCodeSchema = v.picklist([
   "extension-not-allowed",
   /** The service has no pairing configuration. */
   "pairing-unavailable",
+  /** The service could not fetch the keys it checks sign-ins with; try again later. */
+  "access-keys-unavailable",
 ]);
 
 export const serviceResponseSchema = v.variant("ok", [
@@ -90,6 +109,7 @@ export const serviceResponseSchema = v.variant("ok", [
   v.strictObject({
     ok: v.literal(false),
     error: serviceErrorCodeSchema,
+    profiles: v.optional(v.array(profileSchema)),
     state: v.optional(serviceStateSchema),
   }),
 ]);

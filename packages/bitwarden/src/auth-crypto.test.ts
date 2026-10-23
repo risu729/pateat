@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as sdk from "@bitwarden/sdk-internal/node/bitwarden_wasm_internal.js";
-import { derivePasswordAuthentication } from "./auth-crypto";
+import { derivePasswordAuthentication, derivesAuthenticationWithArgon2id } from "./auth-crypto";
 import { argon2Auth, authPassword, pbkdf2Auth } from "./__fixtures__/auth";
 
 const connectionId = "synthetic-auth-a";
@@ -188,10 +188,11 @@ describe("local authentication admission and cancellation", () => {
   it.each([
     { kdfSettings: { kdfType: 0, iterations: 2_000_001 } },
     { kdfSettings: { kdfType: 1, iterations: 21, memory: 32, parallelism: 4 } },
-    { kdfSettings: { kdfType: 1, iterations: 6, memory: 257, parallelism: 4 } },
+    { kdfSettings: { kdfType: 1, iterations: 6, memory: 1025, parallelism: 4 } },
     { kdfSettings: { kdfType: 1, iterations: 6, memory: 32, parallelism: 17 } },
     { kdf: 0, kdfIterations: 2_000_001 },
     { kdf: 1, kdfIterations: 21, kdfMemory: 32, kdfParallelism: 4 },
+    { kdf: 1, kdfIterations: 6, kdfMemory: 1025, kdfParallelism: 4 },
   ])(
     "rejects excessive valid KDF resource parameters before SDK derivation %#",
     async (response) => {
@@ -201,6 +202,36 @@ describe("local authentication admission and cancellation", () => {
         error: { code: "resource-limit" },
       });
       expect(derive).not.toHaveBeenCalled();
+    },
+  );
+
+  // Bitwarden lets users choose Argon2id memory up to 1024 MiB. The SDK is stubbed so these
+  // cases prove admission without running a real derivation of that size.
+  it.each(
+    [257, 512, 1024].flatMap((memory) => [
+      {
+        memory,
+        response: {
+          kdfSettings: { kdfType: 1, iterations: 6, memory, parallelism: 4 },
+          salt: null,
+        },
+      },
+      { memory, response: { kdf: 1, kdfIterations: 6, kdfMemory: memory, kdfParallelism: 4 } },
+    ]),
+  )(
+    "passes Argon2id memory $memory MiB within Bitwarden's 1024 MiB range to the SDK %#",
+    async ({ memory, response }) => {
+      const derive = vi
+        .spyOn(sdk.PureCrypto, "derive_kdf_material")
+        .mockImplementation(() => new Uint8Array(32).fill(7));
+      expect(await derivePasswordAuthentication(modern(response), sdk)).toEqual({
+        ok: true,
+        data: { connectionId, masterPasswordHash: expect.any(String) },
+      });
+      expect(derive).toHaveBeenCalledTimes(1);
+      expect(derive).toHaveBeenCalledWith(expect.any(Uint8Array), expect.any(Uint8Array), {
+        argon2id: { iterations: 6, memory, parallelism: 4 },
+      });
     },
   );
 
@@ -306,5 +337,36 @@ describe("local authentication admission and cancellation", () => {
     expect(await pending).toEqual({ ok: false, error: { code: "cancelled" } });
     expect(derive).not.toHaveBeenCalled();
     expect(Array.from(retained ?? [])).toEqual(Array(32).fill(0));
+  });
+});
+
+describe("which sign-ins derive with Argon2id", () => {
+  const signIn = (mode: "legacy" | "password", response: unknown) => ({
+    connectionId: "synthetic-auth-a",
+    email: "synthetic-user@example.test",
+    password: authPassword,
+    prelogin: { mode, response },
+  });
+  it("reads the KDF type as the derivation does, from settings before the legacy fields", () => {
+    expect(
+      derivesAuthenticationWithArgon2id(
+        signIn("legacy", { kdf: 1, kdfIterations: 10, kdfMemory: 1024, kdfParallelism: 4 }),
+      ),
+    ).toBe(true);
+    expect(
+      derivesAuthenticationWithArgon2id(
+        signIn("password", {
+          kdfSettings: { kdfType: 1, iterations: 3, memory: 64, parallelism: 4 },
+          salt: "synthetic-salt",
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      derivesAuthenticationWithArgon2id(signIn("legacy", { kdf: 0, kdfIterations: 600_000 })),
+    ).toBe(false);
+  });
+  it("answers false for input the derivation would refuse", () => {
+    expect(derivesAuthenticationWithArgon2id({})).toBe(false);
+    expect(derivesAuthenticationWithArgon2id(signIn("legacy", { kdf: "1" }))).toBe(false);
   });
 });

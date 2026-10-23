@@ -42,7 +42,9 @@ describe("judge corpus", () => {
 
   it("covers every decision", () => {
     const decisions = new Set(judgeCorpus.flatMap((entry) => entry.expected.decisions));
-    expect(decisions).toEqual(new Set(["signed-in", "rejected", "challenge", "unclear"]));
+    expect(decisions).toEqual(
+      new Set(["signed-in", "rejected", "challenge", "optional", "unclear"]),
+    );
   });
 
   it("scores its own ground truth as correct and passes the judge's local checks", async () => {

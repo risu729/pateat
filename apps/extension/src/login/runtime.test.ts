@@ -120,6 +120,7 @@ function settingsFor({
             },
           ],
           excludedSites: [],
+          repromptSites: [],
           siteDefaults: [{ origin, provider: "bitwarden", userId, itemId }],
           bindings: [],
         },
@@ -217,6 +218,45 @@ describe("login runtime with a live vault field source", () => {
     // The fill step carried the one bound value; the submit click carried none.
     expect(executions().map((message) => message.values?.length)).toEqual([1, 0]);
     expect(JSON.stringify(fake.state.storage)).not.toContain("synthetic-secret");
+  });
+  it("waits for a step's elements for the probe's configured step wait and counts observations", async () => {
+    const login = createLoginRuntime(settingsFor({}), { fields: async () => "synthetic-secret" });
+    const configure = {
+      version: 1,
+      type: "login.probe.configure",
+      origin,
+      account: { connectionId, itemId, slots: [{ slot: "password", fieldId: "login.password" }] },
+      stepWaitMs: 1500,
+    };
+    expect(await login.handle(configure, trusted as never)).toEqual({ ok: true });
+    await login.handle(
+      {
+        version: 1,
+        type: "login.document.ready",
+        token: "synthetic-token",
+        start: { path: new URL(fake.pageUrl).pathname },
+      },
+      page,
+    );
+    const status = async () =>
+      (await login.handle({ version: 1, type: "login.probe.status" }, trusted as never)) as {
+        attempts: { state: string }[];
+        documents: { observations?: number }[];
+      };
+    await vi.waitFor(async () =>
+      expect((await status()).attempts[0]).toMatchObject({ state: "authenticated" }),
+    );
+    const waits = (fake.state.messages as Record<string, unknown>[]).filter(
+      (message) => message["type"] === "login.await",
+    );
+    expect(waits.length).toBeGreaterThan(0);
+    expect(waits.map((message) => message["timeoutMs"])).toEqual(waits.map(() => 1500));
+    // The completion check observed the page.
+    expect((await status()).documents[0]!.observations).toBeGreaterThan(0);
+    // The stored configuration a restarted worker reads holds the wait too.
+    expect(Object.values(fake.state.storage)).toContainEqual(
+      expect.objectContaining({ origin, stepWaitMs: 1500 }),
+    );
   });
   it.each([
     ["withholds a value", async () => undefined],

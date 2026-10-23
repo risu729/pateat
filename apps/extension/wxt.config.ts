@@ -33,8 +33,10 @@ export default defineConfig({
   }),
   manifest: ({ mode }) => ({
     name: "Pateat",
-    description:
-      "Logs in to websites and answers passkey sign-ins from your own password vault, kept on this device.",
+    // Chrome picks the description from public/_locales by its own UI language; the
+    // language setting cannot reach the manifest (ADR 0043).
+    description: "__MSG_extDescription__",
+    default_locale: "en",
     // Chrome 145 is the first with Map.prototype.getOrInsertComputed; native Temporal
     // needs 144, and the standard Uint8Array base64 and hex methods and RegExp.escape need 140.
     minimum_chrome_version: "145",
@@ -43,7 +45,8 @@ export default defineConfig({
       // Until the worker reads the vault records, show the locked icon.
       default_icon: { 16: "icon-locked/16.png", 32: "icon-locked/32.png" },
     },
-    permissions: ["storage", "offscreen", "alarms"],
+    // `idle` for the vault timeout's "On system idle" and "On system lock" (ADR 0075).
+    permissions: ["storage", "offscreen", "alarms", "idle"],
     // Owner-approved install-time site access (ADR 0009, HTTP since ADR 0050). The login
     // content script runs on every HTTP(S) page; only non-excluded sites with a cached
     // recipe can execute. Chrome can still re-request these hosts if the user withholds

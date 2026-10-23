@@ -7,13 +7,19 @@ export interface PasskeyCandidate {
   readonly counter: number;
   /** The item is the page origin's entry in `siteDefaults`. */
   readonly preferred?: boolean;
+  /**
+   * The item has Bitwarden's master password re-prompt and the page's site honours it, so
+   * Pateat signs with it only after the master password is typed in its chooser window.
+   */
+  readonly reprompt?: boolean;
   /** What the chooser window shows for this passkey; never used for selection. */
   readonly display?: PasskeyDisplay;
 }
 
 /** Display-only names: the vault item, the account stored with the passkey, the connection. */
 export interface PasskeyDisplay {
-  readonly item: string;
+  /** Absent when the vault item has no name; the picker names it in the UI language. */
+  readonly item?: string;
   readonly userName?: string;
   readonly account?: string;
 }

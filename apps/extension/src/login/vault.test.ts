@@ -66,6 +66,33 @@ describe("live vault login field source", () => {
       h.source({ account, connection: connection(), fieldId: "login.totp" }),
     ).resolves.toBe("012345");
   });
+  it("asks the connection runtime for a code only for a code request", async () => {
+    const h = harness({
+      ok: true,
+      data: { kind: "otp", value: "654321", validUntilMs: 1, period: 30 },
+    });
+    const ref = { connectionId, userId, itemId, snapshotId, fieldId: "custom.x.1" };
+    await expect(
+      h.source({ account, connection: connection(), fieldId: "custom.x.1", code: true }),
+    ).resolves.toBe("654321");
+    expect(h.connections.resolveField).toHaveBeenLastCalledWith(connectionId, ref, {
+      code: true,
+    });
+    await h.source({ account, connection: connection(), fieldId: "custom.x.1" });
+    // Without a code request the runtime gets no grant at all.
+    expect(h.connections.resolveField).toHaveBeenLastCalledWith(connectionId, ref);
+    expect(h.connections.resolveField).toHaveBeenCalledTimes(2);
+  });
+  it.each([
+    ["a text value", { ok: true, data: { kind: "text", value: "JBSWY3DPEHPK3PXP" } }],
+    ["a Boolean field", { ok: true, data: { kind: "boolean", checked: true } }],
+    ["a refused seed", { ok: false, error: { code: "invalid-totp" } }],
+  ])("returns no code when a code request is answered with %s", async (_name, result) => {
+    const h = harness(result);
+    await expect(
+      h.source({ account, connection: connection(), fieldId: "custom.x.0", code: true }),
+    ).resolves.toBeUndefined();
+  });
   it.each([
     ["a denied field", { ok: false, error: { code: "field-denied" } }],
     ["a Boolean field", { ok: true, data: { kind: "boolean", checked: true } }],
@@ -96,6 +123,24 @@ describe("live vault login field source", () => {
     ).resolves.toBeUndefined();
     expect(h.connections.registry.get).not.toHaveBeenCalled();
     expect(h.connections.resolveField).not.toHaveBeenCalled();
+  });
+  it("answers a code request from the synthetic source only for its TOTP field", async () => {
+    const dummy = connection({ provider: "dummy" });
+    await expect(
+      dummyFieldSource({ account, connection: dummy, fieldId: "totp", code: true }),
+    ).resolves.toBe("012345");
+    const others = await Promise.all(
+      ["username", "password", "branch", "unknown"].map((fieldId) =>
+        dummyFieldSource({ account, connection: dummy, fieldId, code: true }),
+      ),
+    );
+    expect(others).toEqual([undefined, undefined, undefined, undefined]);
+    await expect(
+      dummyFieldSource({ account, connection: dummy, fieldId: "password" }),
+    ).resolves.toBe("Pateat-synthetic-only!");
+    await expect(
+      dummyFieldSource({ account, connection: connection(), fieldId: "totp", code: true }),
+    ).resolves.toBeUndefined();
   });
   it("dispatches by provider without falling back to another source", async () => {
     const live = vi.fn(async () => "live");

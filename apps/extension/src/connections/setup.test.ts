@@ -16,7 +16,7 @@ import {
 import { rawCustomAccount } from "../../../../packages/bitwarden/src/__fixtures__/connection";
 import { rawV1Account } from "../../../../packages/bitwarden/src/__fixtures__/account";
 import { v1Email, v1Password } from "../../../../packages/bitwarden/src/__fixtures__/crypto";
-import { activeEntry } from "../vault/__fixtures__/vault";
+import { activeEntry, lockedEntry } from "../vault/__fixtures__/vault";
 import type { VaultEntry } from "../vault/record";
 import { createProviderSessions } from "./sessions";
 import { memorySessionStore } from "./__fixtures__/sessions";
@@ -206,6 +206,11 @@ function harness(options: { existing?: boolean; prelogin?: unknown } = {}) {
     ),
     dispose: vi.fn(),
     restore: vi.fn(),
+    keyFor: vi.fn(async (entry: VaultEntry | null) =>
+      entry?.state === "active" ? entry.userKey : undefined,
+    ),
+    unlock: vi.fn(),
+    lockVault: vi.fn(),
     listFields: vi.fn(),
     resolveField: vi.fn(),
     status: vi.fn(() => ({ ready: true })),
@@ -303,6 +308,9 @@ function harness(options: { existing?: boolean; prelogin?: unknown } = {}) {
       return { service: next, caller: nextCaller };
     },
     durable: () => structuredClone(durable),
+    setDurable: (value: VaultEntry | null) => {
+      durable = structuredClone(value);
+    },
     permission: (allowed: boolean) => {
       permission = allowed;
     },
@@ -367,7 +375,6 @@ describe("options setup composition using the fixed real transport", () => {
         kind: "existing",
         connectionId: accountProfile.connectionId,
         password: v1Password,
-        autoUnlock: "preserve",
       });
       expect(begun.ok).toBe(true);
       h.manager.accept.mockClear();
@@ -441,18 +448,16 @@ describe("options setup composition using the fixed real transport", () => {
       kind: "existing",
       connectionId: accountProfile.connectionId,
       password: v1Password,
-      autoUnlock: "preserve",
     });
     expect(result.ok).toBe(true);
     expect(h.permissions.contains.mock.calls[0]?.[0]).toEqual(accountProfile);
     expect(h.host.deriveAuthentication.mock.calls[0]?.[0]).toMatchObject({ email: v1Email });
-    expect(h.manager.accept.mock.calls[0]?.[0].autoUnlock).toBe("preserve");
+    expect(h.manager.accept.mock.calls[0]?.[0].autoUnlock).toBe("enable");
     const count = h.fetch.mock.calls.length;
     const malformed = {
       kind: "existing",
       connectionId: accountProfile.connectionId,
       password: v1Password,
-      autoUnlock: "preserve",
       environment: { kind: "cloud", region: "eu" },
     };
     expect((await h.caller.begin(malformed as SetupBegin)).ok).toBe(false);
@@ -472,6 +477,7 @@ describe("manual challenges and isolated caller lifetime", () => {
       ok: true,
       kind: "new-device-verification-required",
       invalidOtp: false,
+      expiresAt: accountNow * 1000 + 300_000,
     });
     expect(h.fetch).toHaveBeenCalledTimes(2);
     if (!result.ok || result.kind !== "new-device-verification-required")
@@ -526,6 +532,74 @@ describe("manual challenges and isolated caller lifetime", () => {
     expect(form.get("twoFactorProvider")).toBe("1");
     expect(h.host.deriveAuthentication).toHaveBeenCalledTimes(1);
     noSecrets(completed);
+  });
+  it("keeps the sign-in waiting after a refused code, as the official two-step page does", async () => {
+    const h = harness();
+    h.tokenResponses.push(
+      {
+        status: 400,
+        body: { error: "invalid_grant", TwoFactorProviders2: { "0": null, "1": {} } },
+      },
+      // Bitwarden's answer to a wrong code; Vaultwarden's forms are parsed the same way.
+      {
+        status: 400,
+        body: {
+          error: "invalid_grant",
+          error_description: "invalid_username",
+          ErrorModel: { Message: "Two-step token is invalid. Try again.", Object: "error" },
+        },
+      },
+    );
+    const challenge = await h.caller.begin(newInput());
+    if (!challenge.ok || challenge.kind !== "mfa-required")
+      throw new Error("Synthetic MFA challenge failed");
+    const refused = await h.caller.continue({
+      flowId: challenge.flowId,
+      twoFactor: { provider: 1, code: "000111" },
+    });
+    expect(refused).toEqual({
+      ok: true,
+      kind: "mfa-required",
+      flowId: challenge.flowId,
+      providers: [0, 1],
+      expiresAt: challenge.expiresAt,
+      invalidCode: true,
+    });
+    noSecrets(refused);
+    expect(await h.caller.keepAlive(challenge.flowId)).toEqual({
+      ok: true,
+      kind: "waiting",
+      flowId: challenge.flowId,
+    });
+    const completed = await h.caller.continue({
+      flowId: challenge.flowId,
+      twoFactor: { provider: 1, code: "000123" },
+    });
+    expect(completed).toMatchObject({ ok: true, kind: "ready" });
+    const tokens = h.fetch.mock.calls.filter(([url]) => url.endsWith("/token"));
+    expect(tokens).toHaveLength(3);
+    expect(new URLSearchParams(String(tokens[2]![1].body)).get("twoFactorToken")).toBe("000123");
+    // The password was derived once; the retry sent the same hash.
+    expect(h.host.deriveAuthentication).toHaveBeenCalledTimes(1);
+  });
+  it("answers a code the flow's end stopped mid-request as expired, not cancelled", async () => {
+    const h = harness();
+    h.tokenResponses.push({
+      status: 400,
+      body: { error: "invalid_grant", TwoFactorProviders2: { "0": null } },
+    });
+    const challenge = await h.caller.begin(newInput());
+    if (!challenge.ok || challenge.kind !== "mfa-required")
+      throw new Error("Synthetic MFA challenge failed");
+    const real = h.fetch.getMockImplementation()!;
+    // The 5 minutes run out while the code's token request is on its way.
+    h.fetch.mockImplementationOnce(async (url, init) => {
+      h.advance(300_000);
+      return real(url, init);
+    });
+    expect(
+      await h.caller.continue({ flowId: challenge.flowId, twoFactor: { provider: 0, code: "1" } }),
+    ).toEqual({ ok: false, error: { code: "setup-expired" } });
   });
   it("emails a code with the hash the password grant sent, and the sign-in still waits", async () => {
     const h = harness();
@@ -586,6 +660,8 @@ describe("manual challenges and isolated caller lifetime", () => {
     const challenge = await h.caller.begin(newInput());
     if (!challenge.ok || challenge.kind !== "mfa-required")
       throw new Error("Synthetic MFA challenge failed");
+    // The page shows this end on the code screen.
+    expect(challenge.expiresAt).toBe(accountNow * 1000 + 300_000);
     const waiting = { ok: true, kind: "waiting", flowId: challenge.flowId };
     expect(await h.caller.keepAlive(challenge.flowId)).toEqual(waiting);
     // It does not take the page's one running request, so it answers during a send.
@@ -600,7 +676,9 @@ describe("manual challenges and isolated caller lifetime", () => {
     const other = h.service.createCaller();
     closers.push(() => other.dispose());
     expect(await other.keepAlive(challenge.flowId)).toEqual(expired);
-    h.advance(300_000);
+    h.advance(299_999);
+    expect(await h.caller.keepAlive(challenge.flowId)).toEqual(waiting);
+    h.advance(1);
     expect(await h.caller.keepAlive(challenge.flowId)).toEqual(expired);
     other.dispose();
     expect(await other.keepAlive(challenge.flowId)).toEqual({
@@ -782,7 +860,6 @@ describe("manual challenges and isolated caller lifetime", () => {
       kind: "existing",
       connectionId,
       password: v1Password,
-      autoUnlock: "preserve",
     });
     expect(ready).toMatchObject({ ok: true, kind: "ready", connectionId });
     expect(h.policy.register).toHaveBeenCalledTimes(1);
@@ -858,7 +935,6 @@ describe("failed refresh does not destroy a previously usable cache", () => {
       kind: "existing",
       connectionId: accountProfile.connectionId,
       password: v1Password,
-      autoUnlock: "preserve",
     });
     await vi.waitFor(() => expect(h.host.deriveAuthentication).toHaveBeenCalledTimes(1));
     h.service.permissionsRemoved();
@@ -910,7 +986,6 @@ describe("failed refresh does not destroy a previously usable cache", () => {
           kind: "existing",
           connectionId: accountProfile.connectionId,
           password: v1Password,
-          autoUnlock: "preserve",
         })
       ).ok,
     ).toBe(true);
@@ -972,7 +1047,6 @@ describe("failed refresh does not destroy a previously usable cache", () => {
           kind: "existing",
           connectionId: accountProfile.connectionId,
           password: v1Password,
-          autoUnlock: "preserve",
         })
       ).ok,
     ).toBe(true);
@@ -1025,7 +1099,6 @@ describe("failed refresh does not destroy a previously usable cache", () => {
         kind: "existing",
         connectionId: accountProfile.connectionId,
         password: v1Password,
-        autoUnlock: "preserve",
       });
       if (stage !== "refresh") {
         expect(begun).toEqual({ ok: false, error: { code: "provider-permission-required" } });
@@ -1064,7 +1137,6 @@ describe("failed refresh does not destroy a previously usable cache", () => {
       kind: "existing",
       connectionId: accountProfile.connectionId,
       password: v1Password,
-      autoUnlock: "preserve",
     });
     await vi.waitFor(() => expect(h.host.deriveAuthentication).toHaveBeenCalledTimes(1));
     await h.caller.dispose();
@@ -1082,7 +1154,6 @@ describe("failed refresh does not destroy a previously usable cache", () => {
       kind: "existing",
       connectionId: accountProfile.connectionId,
       password: v1Password,
-      autoUnlock: "preserve",
     });
     expect(result.ok).toBe(false);
     noSecrets(result);
@@ -1101,7 +1172,6 @@ describe("failed refresh does not destroy a previously usable cache", () => {
       kind: "existing",
       connectionId: accountProfile.connectionId,
       password: v1Password,
-      autoUnlock: "preserve",
     });
     expect(result).toEqual({
       ok: false,
@@ -1118,7 +1188,6 @@ describe("durable provider sessions", () => {
       kind: "existing",
       connectionId: accountProfile.connectionId,
       password: v1Password,
-      autoUnlock: "preserve",
     });
     expect(begun.ok).toBe(true);
   }
@@ -1175,6 +1244,21 @@ describe("durable provider sessions", () => {
     expect(h.manager.accept).toHaveBeenCalledTimes(accepts + 1);
     expect(held.released()).toBe(true);
     expect(await h.revisions.revision(accountProfile.connectionId)).toBe(1_792_152_060_000);
+  });
+  it("only an automatic check adopts its snapshot as automatic (ADR 0025)", async () => {
+    const h = harness({ existing: true });
+    await connected(h);
+    // A password sign-in is not automatic.
+    expect(h.policy.adopt).toHaveBeenCalledTimes(1);
+    expect(h.policy.adopt.mock.calls[0]?.[0]).not.toHaveProperty("automatic");
+    const fresh = h.restart();
+    h.revisionResponses.push({ status: 200, body: 1_792_152_060_000 });
+    expect(await fresh.service.autoSync(accountProfile.connectionId, hold())).toBe("synced");
+    expect(h.policy.adopt).toHaveBeenCalledTimes(2);
+    expect(h.policy.adopt.mock.calls[1]?.[0]).toMatchObject({ automatic: true });
+    expect((await fresh.caller.sync(accountProfile.connectionId)).ok).toBe(true);
+    expect(h.policy.adopt).toHaveBeenCalledTimes(3);
+    expect(h.policy.adopt.mock.calls[2]?.[0]).not.toHaveProperty("automatic");
   });
   it("a login in progress defers before the full sync, or after it without accepting", async () => {
     const h = harness({ existing: true });
@@ -1255,7 +1339,6 @@ describe("durable provider sessions", () => {
         kind: "existing",
         connectionId: accountProfile.connectionId,
         password: v1Password,
-        autoUnlock: "preserve",
       }),
     },
   ])(
@@ -1287,7 +1370,6 @@ describe("durable provider sessions", () => {
       kind: "existing",
       connectionId: accountProfile.connectionId,
       password: v1Password,
-      autoUnlock: "preserve",
     });
     expect(
       await h.caller.continue({
@@ -1346,7 +1428,6 @@ describe("durable provider sessions", () => {
         kind: "existing",
         connectionId: accountProfile.connectionId,
         password: v1Password,
-        autoUnlock: "preserve",
       })
       .finally(() => {
         finished = true;
@@ -1522,7 +1603,6 @@ describe("durable provider sessions", () => {
         kind: "existing",
         connectionId: accountProfile.connectionId,
         password: v1Password,
-        autoUnlock: "preserve",
       }),
     ).toMatchObject({ ok: true, kind: "ready" });
     const newer = h.sessionMemory.raw() as { revision: string; state: string };
@@ -1674,7 +1754,6 @@ describe("durable provider sessions", () => {
       kind: "existing",
       connectionId: accountProfile.connectionId,
       password: v1Password,
-      autoUnlock: "preserve",
     });
     await vi.waitFor(() => expect(h.registry.get).toHaveBeenCalledTimes(1));
     const other = h.service.createCaller();
@@ -1712,7 +1791,6 @@ describe("durable provider sessions", () => {
       kind: "existing",
       connectionId: accountProfile.connectionId,
       password: v1Password,
-      autoUnlock: "preserve",
     });
     await vi.waitFor(() => expect(h.registry.get).toHaveBeenCalledTimes(reads + 1));
     removing.release();
@@ -1849,5 +1927,239 @@ describe("permission removal across connections", () => {
     await service.permissionsRemoved();
     expect(memories.get(kept.connectionId)!.raw()).toMatchObject({ state: "active" });
     expect(memories.get(lost.connectionId)!.raw()).toBeUndefined();
+  });
+});
+
+describe("vault lock and offline unlock (ADR 0075)", () => {
+  const connectionId = accountProfile.connectionId;
+  function unlockedReply() {
+    return {
+      ok: true as const,
+      data: {
+        handle: {
+          managerGeneration: crypto.randomUUID(),
+          handleId: crypto.randomUUID(),
+          connectionId,
+          userId: accountUserId,
+          recordId: lockedEntry().accepted.recordId,
+          snapshotId: lockedEntry().accepted.snapshotId,
+        },
+        summary: {
+          connectionId,
+          revision: lockedEntry().revision,
+          autoUnlock: "disabled" as const,
+        },
+      },
+    };
+  }
+  async function signedIn(h: ReturnType<typeof harness>) {
+    const begun = await h.caller.begin({ kind: "existing", connectionId, password: v1Password });
+    expect(begun.ok).toBe(true);
+  }
+  /** The accepted record, locked in place: the same revision without its key. */
+  function lockInPlace(h: ReturnType<typeof harness>) {
+    const entry = h.durable();
+    if (entry?.state !== "active") throw new Error("Synthetic record not active");
+    const { userKey: _userKey, ...rest } = entry;
+    h.setDurable({ ...rest, state: "locked" });
+    return entry;
+  }
+
+  it("lock locks the vault and keeps its sync sign-in", async () => {
+    const h = harness({ existing: true });
+    await signedIn(h);
+    h.manager.lockVault.mockResolvedValue({ ok: true, data: null });
+    const reply = await h.caller.lock(connectionId);
+    expect(reply).toEqual({ ok: true, kind: "locked", connectionId });
+    expect(parseSetupReply(reply)).toEqual(reply);
+    expect(h.manager.lockVault).toHaveBeenCalledOnce();
+    expect(h.manager.disableAutoUnlock).not.toHaveBeenCalled();
+    expect(h.manager.remove).not.toHaveBeenCalled();
+    expect(h.sessionMemory.raw()).toMatchObject({ state: "active" });
+  });
+  it("lock answers the vault's failure", async () => {
+    const h = harness({ existing: true });
+    h.manager.lockVault.mockResolvedValue({ ok: false, error: { code: "storage-uncertain" } });
+    expect(await h.caller.lock(connectionId)).toEqual({
+      ok: false,
+      error: { code: "storage-uncertain" },
+    });
+  });
+  it("lock refuses an unknown connection without touching a vault", async () => {
+    const h = harness({ existing: true });
+    expect(await h.caller.lock("synthetic-missing")).toEqual({
+      ok: false,
+      error: { code: "invalid-request" },
+    });
+    expect(h.manager.lockVault).not.toHaveBeenCalled();
+  });
+  it("a second lock or a log out while a lock runs is refused", async () => {
+    const h = harness({ existing: true });
+    let release!: () => void;
+    h.manager.lockVault.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve({ ok: true, data: null });
+        }),
+    );
+    const pending = h.caller.lock(connectionId);
+    await vi.waitFor(() => expect(h.manager.lockVault).toHaveBeenCalledOnce());
+    expect(await h.service.createCaller().lock(connectionId)).toEqual({
+      ok: false,
+      error: { code: "resource-limit" },
+    });
+    expect(await h.caller.disable(connectionId)).toEqual({
+      ok: false,
+      error: { code: "resource-limit" },
+    });
+    release();
+    expect(await pending).toMatchObject({ ok: true, kind: "locked" });
+    expect(h.manager.disableAutoUnlock).not.toHaveBeenCalled();
+  });
+  it("unlock opens the vault offline with the master password", async () => {
+    const h = harness({ existing: true });
+    h.setDurable(lockedEntry());
+    h.manager.unlock.mockResolvedValue(unlockedReply());
+    const reply = await h.caller.unlock({ connectionId, password: v1Password });
+    expect(reply).toEqual({ ok: true, kind: "unlocked", connectionId });
+    expect(parseSetupReply(reply)).toEqual(reply);
+    expect(h.manager.unlock).toHaveBeenCalledOnce();
+    expect(h.manager.unlock.mock.calls[0]?.[0]).toBe(v1Password);
+    noSecrets(reply);
+    // No server is asked.
+    expect(h.fetch).not.toHaveBeenCalled();
+    expect(h.revisionDate).not.toHaveBeenCalled();
+    expect(h.host.deriveAuthentication).not.toHaveBeenCalled();
+    expect(h.permissions.contains).not.toHaveBeenCalled();
+  });
+  it("unlock answers a wrong master password as the vault does", async () => {
+    const h = harness({ existing: true });
+    h.setDurable(lockedEntry());
+    h.manager.unlock.mockResolvedValue({ ok: false, error: { code: "crypto-failed" } });
+    const reply = await h.caller.unlock({ connectionId, password: "synthetic-wrong-password" });
+    expect(reply).toEqual({ ok: false, error: { code: "crypto-failed" } });
+    expect(parseSetupReply(reply)).toEqual(reply);
+    // The caller is free for the next try.
+    h.manager.unlock.mockResolvedValue(unlockedReply());
+    expect(await h.caller.unlock({ connectionId, password: v1Password })).toMatchObject({
+      ok: true,
+      kind: "unlocked",
+    });
+  });
+  it("unlock refuses an unknown connection", async () => {
+    const h = harness({ existing: true });
+    expect(
+      await h.caller.unlock({ connectionId: "synthetic-missing", password: v1Password }),
+    ).toEqual({ ok: false, error: { code: "invalid-request" } });
+    expect(h.manager.unlock).not.toHaveBeenCalled();
+  });
+  it("unlock is refused while a sign-in of that connection runs", async () => {
+    const h = harness({ existing: true });
+    const derive = gate();
+    const original = h.host.deriveAuthentication.getMockImplementation()!;
+    h.host.deriveAuthentication.mockImplementationOnce(async (input, signal) => {
+      await derive.promise;
+      return original(input, signal);
+    });
+    const other = h.service.createCaller();
+    closers.push(() => other.dispose());
+    const signIn = other.begin({ kind: "existing", connectionId, password: v1Password });
+    await vi.waitFor(() => expect(h.host.deriveAuthentication).toHaveBeenCalledOnce());
+    expect(await h.caller.unlock({ connectionId, password: v1Password })).toEqual({
+      ok: false,
+      error: { code: "resource-limit" },
+    });
+    expect(h.manager.unlock).not.toHaveBeenCalled();
+    derive.release();
+    expect((await signIn).ok).toBe(true);
+  });
+  it("unlock is refused while a lock of that connection runs", async () => {
+    const h = harness({ existing: true });
+    let release!: () => void;
+    h.manager.lockVault.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve({ ok: true, data: null });
+        }),
+    );
+    const pending = h.caller.lock(connectionId);
+    await vi.waitFor(() => expect(h.manager.lockVault).toHaveBeenCalledOnce());
+    expect(await h.service.createCaller().unlock({ connectionId, password: v1Password })).toEqual({
+      ok: false,
+      error: { code: "resource-limit" },
+    });
+    release();
+    await pending;
+    expect(h.manager.unlock).not.toHaveBeenCalled();
+  });
+  it("status reports a vault locked without this session's key as locked", async () => {
+    const h = harness({ existing: true });
+    h.setDurable(lockedEntry());
+    const reply = await h.caller.status();
+    expect(reply).toMatchObject({
+      ok: true,
+      kind: "status",
+      connections: [{ connectionId, state: "locked", autoUnlock: "disabled" }],
+    });
+    expect(parseSetupReply(reply)).toEqual(reply);
+    expect(h.manager.keyFor).toHaveBeenCalled();
+  });
+  it("status reports a vault unlocked in this session as usable, its key not on disk", async () => {
+    const h = harness({ existing: true });
+    h.setDurable(lockedEntry());
+    h.manager.keyFor.mockResolvedValue(activeEntry().userKey);
+    expect(await h.caller.status()).toMatchObject({
+      connections: [{ state: "ready", autoUnlock: "disabled" }],
+    });
+  });
+  it("a logged-out vault stays disabled however its key is held", async () => {
+    const h = harness({ existing: true });
+    h.setDurable({ ...lockedEntry(), state: "disabled" });
+    h.manager.keyFor.mockResolvedValue(activeEntry().userKey);
+    expect(await h.caller.status()).toMatchObject({
+      connections: [{ state: "disabled", autoUnlock: "disabled" }],
+    });
+  });
+  it("sync on a locked vault asks for the unlock and sends nothing", async () => {
+    const h = harness({ existing: true });
+    await signedIn(h);
+    lockInPlace(h);
+    const fetches = h.fetch.mock.calls.length;
+    const accepts = h.manager.accept.mock.calls.length;
+    const reply = await h.caller.sync(connectionId);
+    expect(reply).toEqual({ ok: false, error: { code: "vault-locked" } });
+    expect(parseSetupReply(reply)).toEqual(reply);
+    expect(h.fetch).toHaveBeenCalledTimes(fetches);
+    expect(h.manager.accept).toHaveBeenCalledTimes(accepts);
+  });
+  it("sync on a vault unlocked in this session opens the next snapshot with that key", async () => {
+    const h = harness({ existing: true });
+    await signedIn(h);
+    const active = lockInPlace(h);
+    h.manager.keyFor.mockResolvedValue(active.userKey);
+    const accepts = h.manager.accept.mock.calls.length;
+    expect(await h.caller.sync(connectionId)).toMatchObject({ ok: true, kind: "ready" });
+    expect(h.manager.accept).toHaveBeenCalledTimes(accepts + 1);
+    expect(h.manager.accept.mock.calls.at(-1)?.[0]).toMatchObject({
+      unlock: { kind: "decrypted-key", userKey: active.userKey },
+      autoUnlock: "preserve",
+    });
+  });
+  it("an automatic check skips a locked vault without a request", async () => {
+    const h = harness({ existing: true });
+    await signedIn(h);
+    lockInPlace(h);
+    const fetches = h.fetch.mock.calls.length;
+    const checks = h.revisionDate.mock.calls.length;
+    const hold: VaultApplyHold = { ready: async () => true, take: async () => () => undefined };
+    expect(await h.restart().service.autoSync(connectionId, hold)).toBe("skipped");
+    expect(h.fetch).toHaveBeenCalledTimes(fetches);
+    expect(h.revisionDate).toHaveBeenCalledTimes(checks);
+  });
+  it("a password sign-in always unlocks: accept is asked to enable", async () => {
+    const h = harness({ existing: true });
+    h.setDurable(lockedEntry());
+    await signedIn(h);
+    expect(h.manager.accept.mock.calls.at(-1)?.[0].autoUnlock).toBe("enable");
   });
 });

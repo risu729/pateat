@@ -8,6 +8,7 @@
 // as the page's handlers allow (owner decision, 2026-10-13).
 
 import { blurElement, focusElement, focusedElement } from "./focus";
+import { widthFolded } from "./text";
 
 /**
  * How long a preparing fill waits between its inputs, between the digits of a split code
@@ -93,21 +94,10 @@ export function nextTask(): Promise<void> {
 }
 
 /**
- * `text` with its full-width and half-width forms (U+3000 and U+FF01 to U+FFEF) folded
- * as Unicode NFKC folds them, and composed, so `ｶﾞ`, `ガ` and `１Ａ`, `1A` fold alike.
- * Other compatibility characters, such as `①` or `ﬁ`, stay as they are.
- */
-function widthFolded(text: string): string {
-  return text
-    .replace(/[\u3000\uFF01-\uFFEF]/gu, (character) => character.normalize("NFKC"))
-    .normalize("NFC");
-}
-
-/**
  * Waits for the page after a value's characters: {@link FIELD_GAP_MS} on a shown page, so
  * a framework's short timers run too, or one task on a hidden one.
  */
-function gap(): Promise<void> {
+export function gap(): Promise<void> {
   if (!document.hidden) return new Promise((resolve) => setTimeout(resolve, FIELD_GAP_MS));
   return nextTask();
 }

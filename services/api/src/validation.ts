@@ -33,14 +33,3 @@ export function validate<TTarget extends keyof ValidationTargets, TSchema extend
 export function jsonBody<TSchema extends v.GenericSchema>(schema: TSchema) {
   return validate("json", schema);
 }
-
-/** Owner pages accept only ordinary form posts; CSRF checks run before this. */
-export const requireFormBody = createMiddleware(async (c, next) => {
-  if (
-    !/^application\/x-www-form-urlencoded(?:;\s*charset=utf-8)?$/i.test(
-      c.req.header("Content-Type") ?? "",
-    )
-  )
-    return c.text("Unsupported media type", 415);
-  return next();
-});

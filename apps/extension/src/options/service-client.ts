@@ -1,15 +1,69 @@
-import { parseServiceResponse, serviceOriginSchema, type ServiceResponse } from "@pateat/contracts";
+import {
+  parseServiceResponse,
+  serviceOriginSchema,
+  profilesSchema,
+  syncSettingsStateSchema,
+  type LocalSettings,
+  type SyncSettingsState,
+  type ServiceResponse,
+} from "@pateat/contracts";
 import * as v from "valibot";
+
+/** Why a profile editor request failed; the editor words each one. */
+export type ProfileEditorFailure =
+  /** No WARP sign-in reached the service: a redirect, a `401` or a body that is not JSON. */
+  | "sign-in-needed"
+  /** The service refused the sign-in, for example from a browser without WARP. */
+  | "forbidden"
+  /** Another save changed the owner's settings first. */
+  | "conflict"
+  /** The profile was deleted meanwhile. */
+  | "not-found"
+  | "unreachable"
+  | "unexpected-response";
+
+export class ProfileEditorError extends Error {
+  readonly reason: ProfileEditorFailure;
+  constructor(reason: ProfileEditorFailure) {
+    super(reason);
+    this.reason = reason;
+  }
+}
+
+/**
+ * Edits profiles other than this device's on the service's WARP application, with the
+ * browser's sign-in there (ADR 0076). Each call throws a `ProfileEditorError`.
+ */
+export interface ProfileEditorClient {
+  list(origin: string): Promise<{ version: 1; profiles: { id: string; name: string }[] }>;
+  read(origin: string, profileId: string): Promise<SyncSettingsState>;
+  save(
+    origin: string,
+    profileId: string,
+    revision: number,
+    settings: LocalSettings,
+  ): Promise<SyncSettingsState>;
+  /** Opens the service's `/extension/signed-in` page, where the user signs in. */
+  openSignIn(origin: string): Promise<void>;
+}
 
 export interface ServiceClient {
   get(): Promise<ServiceResponse>;
+  profileEditor?: ProfileEditorClient;
   /**
    * Asks Chrome for site access to the service origin, which the user may have withheld.
    * Call it first in a click handler: Chrome prompts only during a user gesture.
    */
   requestSiteAccess(origin: string): Promise<boolean>;
-  /** Pairs in one request from the background with the browser's login session (ADR 0020). */
-  pair(origin: string, label: string): Promise<ServiceResponse>;
+  /**
+   * Pairs in one request from the background with the browser's login session (ADR 0020).
+   * `profile` is the existing profile the device takes, or the name of a new one.
+   */
+  pair(
+    origin: string,
+    label: string,
+    profile?: { profileId: string } | { newProfile: string },
+  ): Promise<ServiceResponse>;
   disconnect(): Promise<ServiceResponse>;
   /** Forgets an unreadable local connection without contacting the service. */
   forget(): Promise<ServiceResponse>;
@@ -28,10 +82,66 @@ export function createServiceClient(deps: {
 }): ServiceClient {
   const call = async (message: object) =>
     parseServiceResponse(await deps.send({ version: 1, ...message }));
+  async function profileCall<T extends v.GenericSchema>(
+    origin: string,
+    path: string,
+    schema: T,
+    body?: unknown,
+  ): Promise<v.InferOutput<T>> {
+    const url = new URL(`/extension/profiles${path}`, v.parse(serviceOriginSchema, origin));
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: body ? "PUT" : "GET",
+        credentials: "include",
+        // An expired sign-in redirects to the login page; that is a sign-in, not a failure.
+        redirect: "manual",
+        cache: "no-store",
+        referrerPolicy: "no-referrer",
+        // Asks Access to answer an expired session with a 401 instead of a redirect.
+        headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
+        ...(body ? { body: JSON.stringify(body) } : {}),
+      });
+    } catch {
+      throw new ProfileEditorError("unreachable");
+    }
+    if (response.type === "opaqueredirect" || response.status === 401)
+      throw new ProfileEditorError("sign-in-needed");
+    if (response.status === 403) throw new ProfileEditorError("forbidden");
+    if (response.status === 409) throw new ProfileEditorError("conflict");
+    if (response.status === 404) throw new ProfileEditorError("not-found");
+    if (!response.ok) throw new ProfileEditorError("unexpected-response");
+    let json: unknown;
+    try {
+      json = await response.json();
+    } catch {
+      // Access's login page answers some expired sessions with HTML and a 200.
+      throw new ProfileEditorError("sign-in-needed");
+    }
+    const parsed = v.safeParse(schema, json);
+    if (!parsed.success) throw new ProfileEditorError("unexpected-response");
+    return parsed.output as v.InferOutput<T>;
+  }
   return {
+    profileEditor: {
+      list: (origin) => profileCall(origin, "", profilesSchema),
+      read: (origin, profileId) =>
+        profileCall(origin, `/${encodeURIComponent(profileId)}/settings`, syncSettingsStateSchema),
+      save: (origin, profileId, revision, settings) =>
+        profileCall(origin, `/${encodeURIComponent(profileId)}/settings`, syncSettingsStateSchema, {
+          version: 1,
+          expectedRevision: revision,
+          settings,
+        }),
+      openSignIn: async (origin) => {
+        await deps.openTab(
+          new URL("/extension/signed-in", v.parse(serviceOriginSchema, origin)).href,
+        );
+      },
+    },
     get: () => call({ type: "service.get" }),
     requestSiteAccess: (origin) => deps.requestSiteAccess(origin).catch(() => false),
-    pair: (origin, label) => call({ type: "service.pair", origin, label }),
+    pair: (origin, label, profile) => call({ type: "service.pair", origin, label, ...profile }),
     disconnect: () => call({ type: "service.disconnect" }),
     forget: () => call({ type: "service.forget" }),
     openSignIn: async (origin) => {

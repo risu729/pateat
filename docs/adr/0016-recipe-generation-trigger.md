@@ -50,6 +50,17 @@ Amended on 2026-10-19 by [ADR 0058](0058-automatic-recipe-removal.md) (owner, 20
 implemented): a page whose recipe the chosen item cannot run is generated again, its
 recipe revoked first, though a recipe starts there.
 
+Amended on 2026-10-23 by [ADR 0060](0060-recipe-layouts.md) (accepted by the owner on
+2026-10-23 at 11:41 UTC; implemented on a branch, local tests only): a recipe holds up
+to three layouts, a continuation and a page judgement name the layout they continue or
+judge in `branch`, and generated pages, judged pages and the signed-in page sample of
+the ADR 0029 amendment are kept per layout. A page where any layout's first step shows
+is a page where a recipe starts.
+
+Amended on 2026-10-23 by [ADR 0067](0067-software-keyboard-entry.md): an empty read-only
+password input beside the page's software keyboard counts as a sign-in input for
+condition 3.
+
 Date: 2026-10-11
 
 ## Context
@@ -119,6 +130,11 @@ new owner decision:
   this decision, after UNSW's Microsoft Entra page was logged as incomplete while its
   form still faded in), it is read a second apart, at most ten times, so a form that
   fades in after its input shows is still sent.
+  Since 2026-10-23 (added after this decision, not confirmed by the owner, after x.com's
+  sign-in was offered as a passkey or list page while it loaded and then never sent), a
+  page offered as a list of accounts or a passkey button whose description finds none
+  (`no-candidates`) is read as a sign-in page, and sent as one when it shows by then an
+  input it would have been offered for as one above.
 - The vault match is checked only once the input shows, and only matching items'
   built-in fields decide which of the `username`, `password` and `totp` slots are
   offered.

@@ -1,5 +1,6 @@
 // The text "Copy for bug report" copies (ADR 0019). It keeps the KDF family but leaves out
-// its parameters, which are shown on the page only.
+// its parameters, which are shown on the page only. The report stays in English in every
+// UI language; translation is confined to the page around this exact preview.
 import { isoMinute } from "../time";
 import {
   deviceFailureLabel,
@@ -14,6 +15,16 @@ import { DEBUG_UNTIL_TURNED_OFF } from "./log";
 import type { DiagnosticsConnection, DiagnosticsStatus } from "./wire";
 
 export type BrowserInfo = { name: string; version: string; installType: string };
+
+/** The vault timeout as codes: `15 min · lock`, `system-idle · log-out`. */
+export function vaultTimeoutText(
+  setting: NonNullable<DiagnosticsStatus["vaultTimeout"]>,
+  code: (value: string) => string = (value) => value,
+): string {
+  const timeout =
+    typeof setting.timeout === "number" ? `${setting.timeout} min` : code(setting.timeout);
+  return `${timeout} · ${code(setting.action)}`;
+}
 
 export function shortRevision(revision: string): string {
   return /^[0-9a-f]{40}$/u.test(revision) ? revision.slice(0, 7) : revision;
@@ -77,6 +88,7 @@ export function formatReport(status: DiagnosticsStatus, browser: BrowserInfo): s
       `Settings: excluded sites ${status.settings.excludedSites} · site defaults ${status.settings.siteDefaults} · bindings ${status.settings.bindings}`,
     );
   lines.push(`Toolbar icon: ${status.actionIcon}`);
+  if (status.vaultTimeout) lines.push(`Vault timeout: ${vaultTimeoutText(status.vaultTimeout)}`);
   const counts = { ok: 0, info: 0, warn: 0, error: 0 };
   for (const check of status.checks) counts[check.level] += 1;
   const problems = status.checks.filter(
@@ -105,6 +117,11 @@ export function formatReport(status: DiagnosticsStatus, browser: BrowserInfo): s
   if (recent?.passkeyDelegations.length)
     lines.push(
       `Passkey delegations (24 h): ${recent.passkeyDelegations.map(({ reason, count }) => `${reason} ${count}`).join(" · ")}`,
+    );
+  // Pages that looked like a verification but were not sent (ADR 0035).
+  if (recent?.unsentVerifications.length)
+    lines.push(
+      `Verification pages not sent (24 h): ${recent.unsentVerifications.map(({ reason, count }) => `${reason} ${count}`).join(" · ")}`,
     );
   lines.push(`Collected ${isoMinute(status.collectedAt)}`);
   return lines.join("\n");

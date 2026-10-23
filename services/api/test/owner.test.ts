@@ -1,15 +1,17 @@
 import {
   devicePairResultSchema,
   manageDevicesSchema,
+  manageProblemsSchema,
   manageRecipesSchema,
   manageRequestLogDeletedSchema,
   manageRequestLogSchema,
   type DevicePairResult,
-  type LoginRecipe,
+  type LoginRecipeDocument,
+  type PageKind,
 } from "@pateat/contracts";
 import { env } from "cloudflare:workers";
 import * as v from "valibot";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { app } from "../src/app";
 import {
   claims,
@@ -17,6 +19,7 @@ import {
   forgedAccess,
   installAccessKeys,
   jwks,
+  type JwksMode,
   newSubject,
   ORIGIN,
   owner,
@@ -26,6 +29,7 @@ import {
   request,
   type Owner,
 } from "./access-helpers";
+import { writeRecipe } from "../src/recipe-store";
 import { OWNER_LIMIT, withLimiter } from "./limiter";
 
 // Synthetic Access keys, identities and extension IDs only. Every test uses fresh
@@ -46,18 +50,25 @@ function manageApi(
   return request(path, { method, access, headers: origin ? { Origin: origin } : {} });
 }
 
-function postPair(access: string | undefined, label = "Test laptop") {
+function postPair(access: string | undefined, label = "Test laptop", profileId?: string) {
   return request("/pair", {
     method: "POST",
     access,
     headers: { "Content-Type": "application/json", Origin: EXTENSION_ORIGIN },
-    body: JSON.stringify({ version: 1, label }),
+    body: JSON.stringify({ version: 1, label, ...(profileId ? { profileId } : {}) }),
   });
 }
 
-/** Pairs a device for `by` as the extension does (ADR 0020). */
+/**
+ * Pairs a device for `by` as the extension does (ADR 0020). An owner's later device takes
+ * the first profile the service offers (ADR 0076).
+ */
 async function pairDevice(by: Owner, label = "Test laptop"): Promise<DevicePairResult> {
-  const response = await postPair(by.token, label);
+  let response = await postPair(by.token, label);
+  if (response.status === 409) {
+    const { profiles } = (await response.json()) as { profiles: { id: string }[] };
+    response = await postPair(by.token, label, profiles[0]!.id);
+  }
   expect(response.status).toBe(201);
   return v.parse(devicePairResultSchema, await response.json());
 }
@@ -116,32 +127,46 @@ describe("Access verification", () => {
       expect(response.headers.get("Content-Type")).toMatch(/^text\/html/);
     const pageBodies = await Promise.all(pageResponses.map((response) => response.text()));
     for (const body of pageBodies) expect(body).not.toContain("Pateat test app");
-    const claudeForm = await request("/manage/claude", {
-      method: "POST",
+    // A well-formed same-origin write is refused by Access, not by origin or body checks.
+    const claudeWrite = await request("/manage/api/claude", {
+      method: "PUT",
       access: viaPair.token,
-      headers: { "Content-Type": "application/x-www-form-urlencoded", Origin: ORIGIN },
-      body: new URLSearchParams({ action: "save" }),
+      headers: { "Content-Type": "application/json", Origin: ORIGIN },
+      body: JSON.stringify({
+        version: 1,
+        identifiers: {
+          federationRuleId: "fdrl_01SyntheticRule",
+          organizationId: "00000000-0000-4000-8000-000000000000",
+          serviceAccountId: "svac_01SyntheticAccount",
+          workspaceId: "wrkspc_01SyntheticWorkspace",
+        },
+      }),
     });
-    expect(claudeForm.status).toBe(403);
-    // Refused by Access, not by the form's own origin or body checks.
-    const claudeFormBody = await claudeForm.text();
-    expect(claudeFormBody).toContain("Access denied");
-    expect(claudeFormBody).toContain("Your sign-in could not be verified.");
 
     const apiResponses = await Promise.all([
       manageApi("/manage/api/devices", viaPair.token, "GET"),
-      manageApi("/manage/api/settings", viaPair.token, "GET"),
+      manageApi(`/manage/api/profiles/${crypto.randomUUID()}/settings`, viaPair.token, "GET"),
       manageApi("/manage/api/recipes", viaPair.token, "GET"),
       manageApi("/manage/api/dashboard", viaPair.token, "GET"),
       manageApi(`/manage/api/devices/${device.deviceId}/revoke`, viaPair.token, "POST"),
+      manageApi("/manage/api/models", viaPair.token, "GET"),
+      manageApi("/manage/api/claude", viaPair.token, "GET"),
+      manageApi("/manage/api/claude/test", viaPair.token, "POST"),
+      claudeWrite,
     ]);
-    expect(apiResponses.map((response) => response.status)).toEqual([403, 403, 403, 403, 403]);
+    expect(apiResponses.map((response) => response.status)).toEqual(apiResponses.map(() => 403));
     expect(await Promise.all(apiResponses.map((response) => response.json()))).toEqual(
       apiResponses.map(() => ({ error: "forbidden" })),
     );
 
-    // The device was not revoked, and the host-wide application still reaches the owner.
+    // The device was not revoked, no identifiers were saved, and the host-wide
+    // application still reaches the owner.
     expect((await deviceApi(device.credential)).status).toBe(200);
+    expect(
+      await env.DB.prepare("SELECT 1 FROM inference_credentials WHERE owner_id = ?")
+        .bind(await ownerIdFor(viaPair.subject))
+        .first(),
+    ).toBeNull();
     const viaHost = await owner(viaPair.subject);
     expect((await request("/manage", { access: viaHost.token })).status).toBe(200);
     const listed = v.parse(
@@ -151,15 +176,95 @@ describe("Access verification", () => {
     expect(listed.devices.map((entry) => entry.id)).toEqual([device.deviceId]);
   });
 
-  it("fails closed when the signing keys cannot be fetched", async () => {
-    jwks.available = false;
+  /** Runs `body` while the mocked key set answers as `mode`, then restores it. */
+  async function duringOutage<T>(mode: JwksMode, body: () => Promise<T>): Promise<T> {
+    jwks.mode = mode;
     try {
-      const response = await request("/manage", { access: (await owner()).token });
-      expect(response.status).toBe(403);
+      return await body();
     } finally {
-      jwks.available = true;
+      jwks.mode = "ok";
     }
-  });
+  }
+
+  const outages: [string, JwksMode][] = [
+    ["a non-OK response", "status"],
+    ["a JSON body that is not a key set", "malformed"],
+    ["a body that is not JSON", "not-json"],
+    ["a fetch that rejects", "reject"],
+  ];
+
+  it.each(outages)(
+    "treats %s for the signing keys as an outage, not a refused sign-in",
+    async (_, mode) => {
+      const viaHost = await owner();
+      const viaPair = await pairOwner();
+      const pages: [string, string][] = [
+        ["/manage", viaHost.token],
+        ["/manage/sites", viaHost.token],
+        ["/manage/sites/https/bank.example", viaHost.token],
+        ["/manage/assets/app.js", viaHost.token],
+        ["/manage/claude", viaHost.token],
+        ["/manage/profiles", viaHost.token],
+        ["/extension/signed-in", viaHost.token],
+        ["/pair/signed-in", viaPair.token],
+      ];
+      const { pageResponses, apiResponses, missing } = await duringOutage(mode, async () => ({
+        pageResponses: await Promise.all(pages.map(([path, access]) => request(path, { access }))),
+        apiResponses: await Promise.all([
+          postPair(viaPair.token),
+          postPair(viaHost.token),
+          manageApi("/manage/api/devices", viaHost.token, "GET"),
+          manageApi("/manage/api/profiles", viaHost.token, "GET"),
+          manageApi(`/manage/api/devices/${crypto.randomUUID()}/revoke`, viaHost.token, "POST"),
+        ]),
+        // A missing token is refused before any key is fetched.
+        missing: await Promise.all([request("/manage"), postPair(undefined)]),
+      }));
+
+      expect(pageResponses.map((response) => response.status)).toEqual(pages.map(() => 503));
+      for (const response of pageResponses)
+        expect(response.headers.get("Content-Type")).toMatch(/^text\/html/);
+      for (const body of await Promise.all(pageResponses.map((response) => response.text()))) {
+        expect(body).toContain("Your sign-in could not be checked. Try again later.");
+        expect(body).not.toContain("Access denied");
+        expect(body).not.toContain("Pateat test app");
+      }
+      expect(apiResponses.map((response) => response.status)).toEqual(apiResponses.map(() => 503));
+      expect(await Promise.all(apiResponses.map((response) => response.json()))).toEqual(
+        apiResponses.map(() => ({ error: "access_keys_unavailable" })),
+      );
+      expect(missing.map((response) => response.status)).toEqual([401, 401]);
+      // No owner was created by the pairing attempts.
+      expect(await ownerIdFor(viaPair.subject)).toBeNull();
+      expect(await ownerIdFor(viaHost.subject)).toBeNull();
+
+      // Once the keys answer again, the same tokens work.
+      expect((await request("/manage", { access: viaHost.token })).status).toBe(200);
+      expect((await postPair(viaPair.token)).status).toBe(201);
+    },
+  );
+
+  it("gives up on signing keys that never arrive after its timeout", async () => {
+    // The real timeout is 5 s; shorten the requested signal so the abort really fires.
+    const timeout = AbortSignal.timeout.bind(AbortSignal);
+    const requested: number[] = [];
+    const spy = vi.spyOn(AbortSignal, "timeout").mockImplementation((ms) => {
+      requested.push(ms);
+      return timeout(20);
+    });
+    try {
+      const responses = await duringOutage("hang", async () =>
+        Promise.all([
+          request("/manage", { access: (await owner()).token }),
+          postPair((await pairOwner()).token),
+        ]),
+      );
+      expect(responses.map((response) => response.status)).toEqual([503, 503]);
+      expect(requested).toEqual([5_000, 5_000]);
+    } finally {
+      spy.mockRestore();
+    }
+  }, 2_000);
 
   it("fails closed without Access configuration", async () => {
     const { token } = await owner();
@@ -350,11 +455,14 @@ describe("owner web UI settings", () => {
   const settings = {
     connections: [],
     excludedSites: [{ hostname: "intranet.example", includeSubdomains: true }],
+    repromptSites: [],
     siteDefaults: [],
     bindings: [],
   };
-  const putSettings = (by: Owner, body: unknown, origin: string | null = ORIGIN) =>
-    request("/manage/api/settings", {
+  const profileSettingsPath = async (by: Owner) =>
+    `/manage/api/profiles/${(await ownerIdFor(by.subject)) ?? "00000000-0000-4000-8000-000000000000"}/settings`;
+  const putSettings = async (by: Owner, body: unknown, origin: string | null = ORIGIN) =>
+    request(await profileSettingsPath(by), {
       method: "PUT",
       access: by.token,
       headers: { "Content-Type": "application/json", ...(origin ? { Origin: origin } : {}) },
@@ -364,7 +472,7 @@ describe("owner web UI settings", () => {
   it("tells an identity without a paired device to pair one, creating no owner", async () => {
     const by = await owner();
     const [read, write] = await Promise.all([
-      request("/manage/api/settings", { access: by.token }),
+      request(await profileSettingsPath(by), { access: by.token }),
       putSettings(by, { version: 1, expectedRevision: 0, settings }),
     ]);
     expect([read.status, write.status]).toEqual([404, 404]);
@@ -383,13 +491,23 @@ describe("owner web UI settings", () => {
     // The second owner's revision 1 does not exist; the first owner's is untouched.
     const other = { ...settings, excludedSites: [] };
     const [read, write] = await Promise.all([
-      request("/manage/api/settings", { access: second.token }),
+      request(await profileSettingsPath(second), { access: second.token }),
       putSettings(second, { version: 1, expectedRevision: 1, settings: other }),
     ]);
-    expect(await read.json()).toEqual({ version: 1, revision: 0, settings: null });
+    expect(await read.json()).toEqual({
+      version: 1,
+      profileId: expect.any(String),
+      revision: 0,
+      settings: null,
+    });
     expect(write.status).toBe(409);
-    const firstRead = await request("/manage/api/settings", { access: first.token });
-    expect(await firstRead.json()).toEqual({ version: 1, revision: 1, settings });
+    const firstRead = await request(await profileSettingsPath(first), { access: first.token });
+    expect(await firstRead.json()).toEqual({
+      version: 1,
+      profileId: expect.any(String),
+      revision: 1,
+      settings,
+    });
   });
 
   it("updates a device-written revision and makes a stale device write conflict", async () => {
@@ -416,7 +534,7 @@ describe("owner web UI settings", () => {
     expect(stale.status).toBe(409);
     expect(await stale.json()).toEqual({
       error: "settings_conflict",
-      current: { version: 1, revision: 2, settings: web },
+      current: { version: 1, profileId: expect.any(String), revision: 2, settings: web },
     });
   });
 
@@ -446,8 +564,13 @@ describe("owner web UI settings", () => {
     expect([tooLarge.status, overLimit.status]).toEqual([400, 413]);
     expect(await tooLarge.json()).toEqual({ error: "bad_request" });
     expect(await overLimit.json()).toEqual({ error: "payload_too_large" });
-    const read = await request("/manage/api/settings", { access: by.token });
-    expect(await read.json()).toEqual({ version: 1, revision: 0, settings: null });
+    const read = await request(await profileSettingsPath(by), { access: by.token });
+    expect(await read.json()).toEqual({
+      version: 1,
+      profileId: expect.any(String),
+      revision: 0,
+      settings: null,
+    });
   });
 
   it("writes the document devices sync, recorded as written by the web UI", async () => {
@@ -455,9 +578,15 @@ describe("owner web UI settings", () => {
     const device = await pairDevice(by);
     const write = await putSettings(by, { version: 1, expectedRevision: 0, settings });
     expect(write.status).toBe(200);
-    expect(await write.json()).toEqual({ version: 1, revision: 1, settings });
+    expect(await write.json()).toEqual({
+      version: 1,
+      profileId: expect.any(String),
+      revision: 1,
+      settings,
+    });
     expect(await (await deviceApi(device.credential)).json()).toEqual({
       version: 1,
+      profileId: expect.any(String),
       revision: 1,
       settings,
     });
@@ -474,8 +603,13 @@ describe("owner web UI settings", () => {
       body: JSON.stringify({ version: 1, expectedRevision: 1, settings: next }),
     });
     expect(deviceWrite.status).toBe(200);
-    const read = await request("/manage/api/settings", { access: by.token });
-    expect(await read.json()).toEqual({ version: 1, revision: 2, settings: next });
+    const read = await request(await profileSettingsPath(by), { access: by.token });
+    expect(await read.json()).toEqual({
+      version: 1,
+      profileId: expect.any(String),
+      revision: 2,
+      settings: next,
+    });
   });
 
   it("changes nothing on a stale revision and returns the current state", async () => {
@@ -490,7 +624,7 @@ describe("owner web UI settings", () => {
     expect(stale.status).toBe(409);
     expect(await stale.json()).toEqual({
       error: "settings_conflict",
-      current: { version: 1, revision: 1, settings },
+      current: { version: 1, profileId: expect.any(String), revision: 1, settings },
     });
   });
 
@@ -511,7 +645,7 @@ describe("owner web UI settings", () => {
         settings: { ...settings, connections: [connection] },
       }),
       putSettings(by, { version: 1, expectedRevision: 0, settings: { ...settings, extra: 1 } }),
-      request("/manage/api/settings", {
+      request(await profileSettingsPath(by), {
         method: "PUT",
         access: by.token,
         headers: { "Content-Type": "text/plain", Origin: ORIGIN },
@@ -520,8 +654,13 @@ describe("owner web UI settings", () => {
       putSettings(by, { version: 1, expectedRevision: 0, settings }, "https://attacker.example"),
     ]);
     expect(responses.map((response) => response.status)).toEqual([400, 400, 415, 403]);
-    const read = await request("/manage/api/settings", { access: by.token });
-    expect(await read.json()).toEqual({ version: 1, revision: 0, settings: null });
+    const read = await request(await profileSettingsPath(by), { access: by.token });
+    expect(await read.json()).toEqual({
+      version: 1,
+      profileId: expect.any(String),
+      revision: 0,
+      settings: null,
+    });
   });
 
   it("serves the sites list and each site's page", async () => {
@@ -556,28 +695,45 @@ describe("owner web UI settings", () => {
 });
 
 describe("owner web UI recipes", () => {
-  function recipe(id: string, revision: number, origin = "https://bank.example"): LoginRecipe {
+  /** A recipe with a layout (ADR 0060) for each key, created when `created` says. */
+  function recipe(
+    id: string,
+    revision: number,
+    origin = "https://bank.example",
+    layouts: { key: string; createdAt: number; pageKind?: PageKind }[] = [
+      { key: "1000", createdAt: 1000 },
+    ],
+  ): LoginRecipeDocument {
     return {
       version: 1,
       id,
       revision,
       origin,
-      pageKind: "sign-in",
-      slots: ["username", "password"],
-      steps: [
-        {
-          kind: "fill",
-          effect: "prepare",
-          path: "/login",
-          fields: [
-            { slot: "username", target: { by: "id", value: "username" } },
-            { slot: "password", target: { by: "id", value: "password" } },
-          ],
-        },
-        { kind: "click", path: "/login", target: { by: "id", value: "submit" }, purpose: "submit" },
-      ],
-      completion: [{ target: { by: "id", value: "welcome" } }],
-      maxSubmissions: 1,
+      layouts: layouts.map(({ key, createdAt, pageKind = "sign-in" }) => ({
+        key,
+        createdAt,
+        pageKind,
+        slots: ["username", "password"],
+        steps: [
+          {
+            kind: "fill",
+            effect: "prepare",
+            path: "/login",
+            fields: [
+              { slot: "username", target: { by: "id", value: "username" } },
+              { slot: "password", target: { by: "id", value: `password-${key}` } },
+            ],
+          },
+          {
+            kind: "click",
+            path: "/login",
+            target: { by: "id", value: "submit" },
+            purpose: "submit",
+          },
+        ],
+        completion: [{ target: { by: "id", value: "welcome" } }],
+        maxSubmissions: 1,
+      })),
     };
   }
   const publish = (credential: string, id: string, expectedRevision: number) =>
@@ -603,11 +759,27 @@ describe("owner web UI recipes", () => {
       headers: { "Content-Type": "application/json", ...(origin ? { Origin: origin } : {}) },
       body: JSON.stringify({ version: 1, expectedRevision }),
     });
+  const revokeLayout = (by: Owner, id: string, layout: string, expectedRevision: number) =>
+    request(`/manage/api/recipes/${id}/layouts/${layout}/revoke`, {
+      method: "POST",
+      access: by.token,
+      headers: { "Content-Type": "application/json", Origin: ORIGIN },
+      body: JSON.stringify({ version: 1, expectedRevision }),
+    });
   const list = async (by: Owner) =>
     v.parse(
       manageRecipesSchema,
       await (await request("/manage/api/recipes", { access: by.token })).json(),
     );
+  /** Which units of the owner's recipes the service has a record of (ADR 0060). */
+  const unitSources = async (ownerId: string) =>
+    (
+      await env.DB.prepare(
+        "SELECT recipe_id, layout, unit FROM recipe_unit_sources WHERE owner_id = ? ORDER BY recipe_id, layout, unit",
+      )
+        .bind(ownerId)
+        .all()
+    ).results;
 
   it("lists only the owner's recipes, most recently changed first, with their documents", async () => {
     const first = await owner();
@@ -662,8 +834,9 @@ describe("owner web UI recipes", () => {
     )
       .bind(await ownerIdFor(by.subject))
       .all();
-    // A revoked recipe keeps only its tombstone.
+    // A revoked recipe keeps only its tombstone, and no record of its units (ADR 0060).
     expect(rows.results).toEqual([{ revision: 2, state: "revoked", created_by_device_id: null }]);
+    expect(await unitSources((await ownerIdFor(by.subject))!)).toEqual([]);
     // A device may still publish an explicit replacement after the tombstone.
     expect((await publish(device.credential, "bank-signin", 2)).status).toBe(200);
   });
@@ -766,9 +939,283 @@ describe("owner web UI recipes", () => {
       .bind(ownerId)
       .all();
     expect(rows.results).toEqual([{ revision: 2, state: "revoked", created_by_device_id: null }]);
+    // Only the recipe still active keeps the record of its units (ADR 0060).
+    expect((await unitSources(ownerId!)).map((row) => row["recipe_id"])).toEqual([
+      "shop-signin",
+      "shop-signin",
+    ]);
     expect(await (await deviceApi(device.credential, "/v1/recipes?after=2")).json()).toMatchObject({
       changes: [{ recipeId: "bank-signin", revision: 2, state: "revoked" }],
     });
+  });
+
+  it("lists each layout's last use and removes one layout at a time (ADR 0060)", async () => {
+    const by = await owner();
+    const device = await pairDevice(by);
+    const created = Date.now();
+    const two = recipe("bank-signin", 1, "https://bank.example", [
+      { key: "1000", createdAt: created },
+      { key: "2000", createdAt: created },
+    ]);
+    const written = await deviceApi(device.credential, "/v1/recipes/bank-signin", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ version: 1, expectedRevision: 0, state: "active", recipe: two }),
+    });
+    expect(written.status).toBe(200);
+    const before = Date.now();
+    const used = await deviceApi(device.credential, "/v1/recipes/bank-signin/use", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ version: 1, revision: 1, layout: "2000" }),
+    });
+    expect(used.status).toBe(204);
+    // A layout the recipe does not have is no use of one.
+    await deviceApi(device.credential, "/v1/recipes/bank-signin/use", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ version: 1, revision: 1, layout: "3000" }),
+    });
+    const [listed] = (await list(by)).recipes;
+    // A device wrote both layouts, so no model made their first pages (ADR 0060).
+    const byDevice = { origin: "device", model: null, createdAt: expect.any(Number) };
+    expect(listed!.layouts).toEqual([
+      { key: "1000", lastUsedAt: null, firstPage: byDevice },
+      { key: "2000", lastUsedAt: expect.any(Number), firstPage: byDevice },
+    ]);
+    expect(listed!.layouts[1]!.lastUsedAt).toBeGreaterThanOrEqual(before);
+    const ownerId = await ownerIdFor(by.subject);
+    const lastUsed = async () =>
+      (
+        await env.DB.prepare(
+          "SELECT last_used_at FROM recipe_heads WHERE owner_id = ? AND recipe_id = 'bank-signin'",
+        )
+          .bind(ownerId)
+          .first<{ last_used_at: number }>()
+      )?.last_used_at;
+    const usedAt = await lastUsed();
+    // An unknown or malformed layout, or a stale revision, changes nothing.
+    const refused = await Promise.all([
+      revokeLayout(by, "bank-signin", "3000", 1),
+      revokeLayout(by, "bank-signin", "latest", 1),
+      revokeLayout(by, "missing-signin", "1000", 1),
+    ]);
+    expect(refused.map((response) => response.status)).toEqual([404, 404, 404]);
+    const stale = await revokeLayout(by, "bank-signin", "1000", 2);
+    expect(stale.status).toBe(409);
+    expect(await stale.json()).toMatchObject({
+      error: "recipe_conflict",
+      current: { revision: 1 },
+    });
+    // The next revision keeps the other layout, and removing one is no use of the recipe.
+    const removed = await revokeLayout(by, "bank-signin", "1000", 1);
+    expect(removed.status).toBe(200);
+    expect(await removed.json()).toEqual({
+      version: 1,
+      change: {
+        recipeId: "bank-signin",
+        revision: 2,
+        state: "active",
+        recipe: { ...two, revision: 2, layouts: [two.layouts[1]] },
+      },
+    });
+    expect(await lastUsed()).toBe(usedAt);
+    expect((await list(by)).recipes[0]!.layouts).toEqual([
+      { key: "2000", lastUsedAt: expect.any(Number), firstPage: byDevice },
+    ]);
+    // The removed layout's units go with it (ADR 0060).
+    expect(await unitSources(ownerId!)).toEqual([
+      { recipe_id: "bank-signin", layout: "2000", unit: "marker:0" },
+      { recipe_id: "bank-signin", layout: "2000", unit: "page:0" },
+    ]);
+    // Removing the last layout revokes the recipe, and its layouts' uses go with it.
+    const last = await revokeLayout(by, "bank-signin", "2000", 2);
+    expect(await last.json()).toEqual({
+      version: 1,
+      change: { recipeId: "bank-signin", revision: 3, state: "revoked" },
+    });
+    expect(
+      await env.DB.prepare("SELECT COUNT(*) AS n FROM recipe_layout_uses WHERE owner_id = ?")
+        .bind(ownerId)
+        .first("n"),
+    ).toBe(0);
+    expect(await unitSources(ownerId!)).toEqual([]);
+  });
+
+  it("removes a layout unused for 90 days while another is used (ADR 0060)", async () => {
+    const by = await owner();
+    const device = await pairDevice(by);
+    const now = Date.now();
+    const old = now - 91 * 24 * 60 * 60 * 1000;
+    const layouts = [
+      { key: "1000", createdAt: old },
+      { key: "2000", createdAt: old },
+      { key: "3000", createdAt: now },
+    ];
+    const stored = recipe("bank-signin", 1, "https://bank.example", layouts);
+    const written = await deviceApi(device.credential, "/v1/recipes/bank-signin", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ version: 1, expectedRevision: 0, state: "active", recipe: stored }),
+    });
+    expect(written.status).toBe(200);
+    // The second old layout ran a login this week.
+    const record = await deviceApi(device.credential, "/v1/recipes/bank-signin/logins", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        version: 1,
+        revision: 1,
+        branch: "2000",
+        outcome: "authenticated",
+        extensionBuild: "development",
+        totalMs: 4000,
+        serviceMs: 0,
+        networkMs: 0,
+        personMs: 0,
+        pageMs: 0,
+      }),
+    });
+    expect(record.status).toBe(204);
+    const { recipes } = await list(by);
+    expect(recipes.map((entry) => entry.change)).toEqual([
+      {
+        recipeId: "bank-signin",
+        revision: 2,
+        state: "active",
+        recipe: { ...stored, revision: 2, layouts: stored.layouts.slice(1) },
+      },
+    ]);
+    const rows = await env.DB.prepare(
+      "SELECT revision, created_by_device_id FROM recipe_revisions WHERE owner_id = ? AND revision = 2",
+    )
+      .bind(await ownerIdFor(by.subject))
+      .all();
+    expect(rows.results).toEqual([{ revision: 2, created_by_device_id: null }]);
+    // The removed layout's units go with it (ADR 0060).
+    expect([
+      ...new Set((await unitSources((await ownerIdFor(by.subject))!)).map((row) => row["layout"])),
+    ]).toEqual(["2000", "3000"]);
+  });
+
+  it("keeps the idle layouts of a recipe generated as a verification, which never runs (ADR 0035, ADR 0060)", async () => {
+    const by = await owner();
+    const device = await pairDevice(by);
+    const now = Date.now();
+    const old = now - 91 * 24 * 60 * 60 * 1000;
+    const put = (layouts: { key: string; createdAt: number; pageKind?: PageKind }[]) =>
+      deviceApi(device.credential, "/v1/recipes/bank-signin", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          version: 1,
+          expectedRevision: 0,
+          state: "active",
+          recipe: recipe("bank-signin", 1, "https://bank.example", layouts),
+        }),
+      });
+    // Every layout of a recipe has its start page's kind, so a document mixing them is
+    // refused.
+    expect(
+      (
+        await put([
+          { key: "1000", createdAt: old, pageKind: "confirm" },
+          { key: "2000", createdAt: now },
+        ])
+      ).status,
+    ).toBe(400);
+    const layouts = [
+      { key: "1000", createdAt: old, pageKind: "confirm" as const },
+      { key: "2000", createdAt: now, pageKind: "confirm" as const },
+    ];
+    expect((await put(layouts)).status).toBe(200);
+    // No layout goes, and the recipe itself is never revoked as idle.
+    const { recipes } = await list(by);
+    expect(recipes.map((entry) => entry.change)).toEqual([
+      {
+        recipeId: "bank-signin",
+        revision: 1,
+        state: "active",
+        recipe: recipe("bank-signin", 1, "https://bank.example", layouts),
+      },
+    ]);
+  });
+
+  it("keeps an idle layout whose use arrives while it is removed (ADR 0060)", async () => {
+    const by = await owner();
+    const device = await pairDevice(by);
+    const now = Date.now();
+    const unusedBefore = now - 90 * 24 * 60 * 60 * 1000;
+    const layouts = [
+      { key: "1000", createdAt: unusedBefore - 1000 },
+      { key: "2000", createdAt: now },
+    ];
+    const stored = recipe("bank-signin", 1, "https://bank.example", layouts);
+    const written = await deviceApi(device.credential, "/v1/recipes/bank-signin", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ version: 1, expectedRevision: 0, state: "active", recipe: stored }),
+    });
+    expect(written.status).toBe(200);
+    const ownerId = (await ownerIdFor(by.subject))!;
+    // The idle check read no use of layout 1000; a login reports one before it writes.
+    await env.DB.prepare(
+      "INSERT INTO recipe_layout_uses (owner_id, recipe_id, layout, last_used_at) VALUES (?, 'bank-signin', '1000', ?)",
+    )
+      .bind(ownerId, now)
+      .run();
+    const removal = (keys: string[]) =>
+      writeRecipe(
+        env.DB,
+        ownerId,
+        "bank-signin",
+        {
+          version: 1,
+          expectedRevision: 1,
+          state: "active",
+          recipe: { ...stored, revision: 2, layouts: stored.layouts.slice(1) },
+        },
+        null,
+        { used: false, idleLayouts: { keys, before: unusedBefore } },
+      );
+    expect(await removal(["1000"])).toMatchObject({ ok: false, limited: false });
+    const uses = () =>
+      env.DB.prepare("SELECT layout FROM recipe_layout_uses WHERE owner_id = ?")
+        .bind(ownerId)
+        .all()
+        .then(({ results }) => results);
+    expect(await uses()).toEqual([{ layout: "1000" }]);
+    // The refused removal keeps the layout's units, which the same batch would drop.
+    const layoutsWithUnits = async () => [
+      ...new Set((await unitSources(ownerId)).map((row) => row["layout"])),
+    ];
+    expect(await layoutsWithUnits()).toEqual(["1000", "2000"]);
+    // Once that use is old again, the removal wins and the use row goes with the layout.
+    await env.DB.prepare("UPDATE recipe_layout_uses SET last_used_at = ? WHERE owner_id = ?")
+      .bind(unusedBefore - 1, ownerId)
+      .run();
+    expect(await removal(["1000"])).toMatchObject({ ok: true, change: { revision: 2 } });
+    expect(await uses()).toEqual([]);
+    expect(await layoutsWithUnits()).toEqual(["2000"]);
+  });
+
+  it("lists the model and time of each layout's first page that the service generated (ADR 0060)", async () => {
+    const by = await owner();
+    const device = await pairDevice(by);
+    expect((await publish(device.credential, "bank-signin", 0)).status).toBe(200);
+    // Stands in for the row a generated first page leaves.
+    await env.DB.prepare(
+      "UPDATE recipe_unit_sources SET origin = 'generated', provider = 'anthropic', model = 'claude-synthetic', created_at = 1234 WHERE owner_id = ? AND unit = 'page:0'",
+    )
+      .bind(await ownerIdFor(by.subject))
+      .run();
+    expect((await list(by)).recipes[0]!.layouts).toEqual([
+      {
+        key: "1000",
+        lastUsedAt: null,
+        firstPage: { origin: "generated", model: "claude-synthetic", createdAt: 1234 },
+      },
+    ]);
   });
 
   it("refuses other methods on the recipes API", async () => {
@@ -795,8 +1242,17 @@ describe("owner web UI request log", () => {
     env.DB.prepare(
       "INSERT INTO login_timings (id, owner_id, recipe_id, branch, revision, origin, outcome, extension_build, total_ms, service_ms, network_ms, person_ms, page_ms, created_at) VALUES (?, ?, 'gen-synthetic', '', 1, 'https://bank.example', 'authenticated', 'development', 4000, 0, 0, 0, 0, ?)",
     ).bind(`login-${crypto.randomUUID()}`, ownerId, createdAt);
+  /** A synthetic problem line a device sent (ADR 0066). */
+  const insertProblem = (ownerId: string, deviceId: string, seq: number, createdAt: number) =>
+    env.DB.prepare(
+      "INSERT INTO problem_log (owner_id, device_id, log_id, seq, extension_build, level, event, fields, logged_at, created_at) VALUES (?, ?, '0000000000000000000000000000000a', ?, 'development', 'warn', 'login.attempt', '{\"outcome\":\"target-missing\"}', ?, ?)",
+    ).bind(ownerId, deviceId, seq, createdAt, createdAt);
   const loginCount = async (ownerId: string) =>
     (await env.DB.prepare("SELECT COUNT(*) AS n FROM login_timings WHERE owner_id = ?")
+      .bind(ownerId)
+      .first<{ n: number }>())!.n;
+  const problemCount = async (ownerId: string) =>
+    (await env.DB.prepare("SELECT COUNT(*) AS n FROM problem_log WHERE owner_id = ?")
       .bind(ownerId)
       .first<{ n: number }>())!.n;
   const outcomeCount = async (ownerId: string) =>
@@ -827,10 +1283,46 @@ describe("owner web UI request log", () => {
   it("counts and deletes only the signed-in owner's rows and codes, keeping recipes, settings and spend", async () => {
     const first = await owner();
     const second = await owner();
-    await Promise.all([pairDevice(first), pairDevice(second)]);
+    const devicesOf = await Promise.all([pairDevice(first), pairDevice(second)]);
     const [mine, theirs] = await Promise.all([
       ownerIdFor(first.subject),
       ownerIdFor(second.subject),
+    ]);
+    // Each owner holds a recipe its device wrote, with a record of its units (ADR 0060).
+    for (const { credential } of devicesOf) {
+      // oxlint-disable-next-line no-await-in-loop -- One recipe per owner.
+      const written = await deviceApi(credential, "/v1/recipes/bank-signin", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          version: 1,
+          expectedRevision: 0,
+          state: "active",
+          recipe: {
+            version: 1,
+            id: "bank-signin",
+            revision: 1,
+            origin: "https://bank.example",
+            entry: { path: "/", target: { by: "text", value: "Log in" } },
+          },
+        }),
+      });
+      expect(written.status).toBe(200);
+    }
+    /** The owner's unit rows: which device and log row each names. */
+    const units = async (ownerId: string) =>
+      (
+        await env.DB.prepare(
+          "SELECT unit, origin, device_id, log_id FROM recipe_unit_sources WHERE owner_id = ?",
+        )
+          .bind(ownerId)
+          .all()
+      ).results;
+    const [myDevice, theirDevice] = devicesOf.map(({ deviceId }) => deviceId);
+    // Stands in for the log row a generated unit names.
+    await env.DB.prepare("UPDATE recipe_unit_sources SET log_id = 'log-1'").run();
+    expect(await units(mine!)).toEqual([
+      { unit: "entry", origin: "device", device_id: myDevice, log_id: "log-1" },
     ]);
     const oldest = Date.now() - 40 * DAY_MS;
     await env.DB.batch([
@@ -844,6 +1336,9 @@ describe("owner web UI request log", () => {
       insertLogin(mine!, Date.now()),
       insertLogin(mine!, Date.now()),
       insertLogin(theirs!, Date.now()),
+      insertProblem(mine!, myDevice!, 1, Date.now()),
+      insertProblem(mine!, myDevice!, 2, Date.now()),
+      insertProblem(theirs!, theirDevice!, 1, Date.now()),
       env.DB.prepare(
         "INSERT INTO inference_spend (owner_id, period, calls, cost_micro_usd) VALUES (?, '2026-10', 2, 900)",
       ).bind(mine),
@@ -851,14 +1346,21 @@ describe("owner web UI request log", () => {
         "INSERT INTO page_judgements (owner_id, recipe_id, branch, revision, origin, path, prompt_version, judged_at, verdict) VALUES (?, 'gen-synthetic', '', 1, 'https://bank.example', '/home', 'v', ?, 'signed-in')",
       ).bind(mine, Date.now()),
     ]);
-    const settings = await request("/manage/api/settings", {
+    // The owner's first profile has the owner's ID.
+    const settings = await request(`/manage/api/profiles/${mine}/settings`, {
       method: "PUT",
       access: first.token,
       headers: { "Content-Type": "application/json", Origin: ORIGIN },
       body: JSON.stringify({
         version: 1,
         expectedRevision: 0,
-        settings: { connections: [], excludedSites: [], siteDefaults: [], bindings: [] },
+        settings: {
+          connections: [],
+          excludedSites: [],
+          repromptSites: [],
+          siteDefaults: [],
+          bindings: [],
+        },
       }),
     });
     expect(settings.status).toBe(200);
@@ -867,6 +1369,7 @@ describe("owner web UI request log", () => {
       entries: 2,
       outcomes: 1,
       logins: 3,
+      problems: 2,
       oldestAt: oldest,
     });
 
@@ -877,32 +1380,45 @@ describe("owner web UI request log", () => {
       deleted: 2,
       outcomes: 1,
       logins: 3,
+      problems: 2,
     });
     expect(await read(first)).toEqual({
       version: 1,
       entries: 0,
       outcomes: 0,
       logins: 0,
+      problems: 0,
       oldestAt: null,
     });
     expect(await logCount(theirs!)).toBe(1);
     expect(await outcomeCount(theirs!)).toBe(1);
     expect(await loginCount(theirs!)).toBe(1);
-    // Only the log goes: the spend the limits count, judged pages and settings stay.
+    expect(await problemCount(theirs!)).toBe(1);
+    // The record of which call made each part of a recipe stays without the device and the
+    // log row it named (ADR 0060).
+    expect(await units(mine!)).toEqual([
+      { unit: "entry", origin: "device", device_id: null, log_id: null },
+    ]);
+    expect(await units(theirs!)).toEqual([
+      { unit: "entry", origin: "device", device_id: theirDevice, log_id: "log-1" },
+    ]);
+    // Only the log goes: the spend the limits count, judged pages, settings and recipes stay.
     const kept = await env.DB.batch([
       env.DB.prepare("SELECT calls FROM inference_spend WHERE owner_id = ?").bind(mine),
       env.DB.prepare("SELECT verdict FROM page_judgements WHERE owner_id = ?").bind(mine),
       env.DB.prepare("SELECT revision FROM settings WHERE owner_id = ?").bind(mine),
+      env.DB.prepare("SELECT state FROM recipe_heads WHERE owner_id = ?").bind(mine),
     ]);
     expect(kept.map((result) => result.results)).toEqual([
       [{ calls: 2 }],
       [{ verdict: "signed-in" }],
       [{ revision: 1 }],
+      [{ state: "active" }],
     ]);
     // Deleting an empty log is harmless.
     expect(
       await (await manageApi("/manage/api/request-log", first.token, "DELETE")).json(),
-    ).toEqual({ version: 1, deleted: 0, outcomes: 0, logins: 0 });
+    ).toEqual({ version: 1, deleted: 0, outcomes: 0, logins: 0, problems: 0 });
   });
 
   it("shows an identity without a paired device an empty log and creates no owner", async () => {
@@ -912,21 +1428,82 @@ describe("owner web UI request log", () => {
       entries: 0,
       outcomes: 0,
       logins: 0,
+      problems: 0,
       oldestAt: null,
     });
     const deleted = await manageApi("/manage/api/request-log", by.token, "DELETE");
-    expect(await deleted.json()).toEqual({ version: 1, deleted: 0, outcomes: 0, logins: 0 });
+    expect(await deleted.json()).toEqual({
+      version: 1,
+      deleted: 0,
+      outcomes: 0,
+      logins: 0,
+      problems: 0,
+    });
+    const problems = await request("/manage/api/problems", { access: by.token });
+    expect(await problems.json()).toEqual({ version: 1, problems: [] });
     expect(await ownerIdFor(by.subject)).toBeNull();
+  });
+
+  it("lists only the signed-in owner's newest problem lines with each device's label (ADR 0066)", async () => {
+    const first = await owner();
+    const second = await owner();
+    const [laptop, theirDevice] = await Promise.all([
+      pairDevice(first, "Laptop"),
+      pairDevice(second),
+    ]);
+    const desktop = await pairDevice(first, "Desktop");
+    const [mine, theirs] = await Promise.all([
+      ownerIdFor(first.subject),
+      ownerIdFor(second.subject),
+    ]);
+    const now = Date.now();
+    await env.DB.batch([
+      insertProblem(mine!, laptop.deviceId, 7, now - DAY_MS),
+      insertProblem(mine!, desktop.deviceId, 3, now),
+      insertProblem(theirs!, theirDevice.deviceId, 1, now),
+      // A stored line that no longer passes the contract is left out.
+      env.DB.prepare(
+        "INSERT INTO problem_log (owner_id, device_id, log_id, seq, extension_build, level, event, fields, logged_at, created_at) VALUES (?, ?, '0000000000000000000000000000000a', 8, 'development', 'warn', 'login.attempt', 'not json', ?, ?)",
+      ).bind(mine, laptop.deviceId, now, now),
+    ]);
+    const response = await request("/manage/api/problems", { access: first.token });
+    expect(response.status).toBe(200);
+    expect(v.parse(manageProblemsSchema, await response.json())).toEqual({
+      version: 1,
+      problems: [
+        {
+          device: "Desktop",
+          extensionBuild: "development",
+          level: "warn",
+          event: "login.attempt",
+          fields: { outcome: "target-missing" },
+          loggedAt: now,
+          receivedAt: now,
+        },
+        {
+          device: "Laptop",
+          extensionBuild: "development",
+          level: "warn",
+          event: "login.attempt",
+          fields: { outcome: "target-missing" },
+          loggedAt: now - DAY_MS,
+          receivedAt: now - DAY_MS,
+        },
+      ],
+    });
+    expect((await request("/manage/api/problems")).status).toBe(401);
+    expect((await manageApi("/manage/api/problems", first.token, "DELETE")).status).toBe(405);
   });
 
   it("refuses deletion without Access, from another origin or without one", async () => {
     const by = await owner();
-    await pairDevice(by);
+    const device = await pairDevice(by);
     const ownerId = await ownerIdFor(by.subject);
     await env.DB.batch([
       insertLog(ownerId!, Date.now()),
       insertOutcome(ownerId!, 1, Date.now()),
       insertLogin(ownerId!, Date.now()),
+      insertProblem(ownerId!, device.deviceId, 1, Date.now()),
     ]);
     const forged = await forgedAccess(claims(newSubject()));
     const responses = await Promise.all([
@@ -940,6 +1517,7 @@ describe("owner web UI request log", () => {
     expect(await logCount(ownerId!)).toBe(1);
     expect(await outcomeCount(ownerId!)).toBe(1);
     expect(await loginCount(ownerId!)).toBe(1);
+    expect(await problemCount(ownerId!)).toBe(1);
     expect((await request("/manage/api/request-log")).status).toBe(401);
   });
 });
@@ -960,5 +1538,16 @@ describe("device self-revocation", () => {
     );
     expect((await request("/v1/device", { method: "DELETE" })).status).toBe(401);
     expect((await deviceApi(staying.credential, "/v1/device", { method: "PUT" })).status).toBe(405);
+  });
+});
+
+describe("profiles page", () => {
+  it("serves its page", async () => {
+    const { token } = await owner();
+    const page = await request("/manage/profiles", { access: token });
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain("Pateat test app");
+    expect((await request("/manage/profiles")).status).toBe(401);
+    expect((await request("/manage/profiles", { access: token, method: "POST" })).status).toBe(405);
   });
 });

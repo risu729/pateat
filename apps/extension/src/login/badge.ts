@@ -2,8 +2,11 @@
 // waiting account choice, a model request in flight, and how the last login ended; below
 // them, how many vault items match the site (ADR 0021). It also keeps the tab's last login
 // and model request for the popup's page section.
+import type { TFunction } from "i18next";
 import * as v from "valibot";
 import { browser } from "wxt/browser";
+import { i18n } from "../i18n";
+import type { LogoutReason } from "./choice-wire";
 import type { LoginReport } from "./runtime";
 import type { SiteCount, SiteCountState, UncheckedReason } from "./site-count";
 
@@ -102,11 +105,16 @@ export type PageStatus = {
    * `sent` while a page is out, then what came back; `page` tells a list of accounts, a
    * sign-in entry or a continuation from a plain sign-in page.
    */
-  generation?: { outcome: string; reason?: string; page?: "accounts" | "entry" | "continuation" };
+  generation?: {
+    outcome: string;
+    reason?: string;
+    page?: "accounts" | "entry" | "continuation" | "repair";
+  };
 };
 
 type Shown = Required<Omit<BadgeDetails, "tabId">>;
-type Choice = { count: number; title: string };
+/** A waiting account choice: how many accounts match, and why the tab asks after a logout. */
+type Choice = { count: number; logout?: LogoutReason };
 type Stored = v.InferOutput<typeof storedSchema>;
 
 const STYLES = {
@@ -121,65 +129,94 @@ const STYLES = {
 
 const RESULT_TEXT = { failed: "!", succeeded: "✓", unsettled: "!" } as const;
 
-function resultTitle(result: BadgeResult): string {
-  if (result.kind === "succeeded") return "Pateat: logged in.";
+function resultTitle(result: BadgeResult, t: TFunction): string {
+  if (result.kind === "succeeded") return t("Pateat: logged in.");
   if (result.kind === "unsettled")
-    return `Pateat: the login's result is not known (${result.reason}). Open Pateat for details.`;
-  return `Pateat: the login did not succeed (${result.reason}). Open Pateat for details.`;
+    return t("Pateat: the result of the login is not known ({{reason}}). Click for details.", {
+      reason: result.reason,
+    });
+  return t("Pateat: the login did not succeed ({{reason}}). Click for details.", {
+    reason: result.reason,
+  });
 }
 
-const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
+/**
+ * The tooltip of a tab whose login waits for an account choice (ADR 0021): the popup's
+ * reason line (`choiceReason`), then what a click does. The badge never knows whether
+ * another tab's login was rejected, so `other-tab` keeps the sentence that covers both.
+ */
+function choiceTitle({ count, logout }: Choice, t: TFunction): string {
+  return logout
+    ? t(
+        {
+          "this-tab":
+            "Pateat: you were logged out of this site in this tab. Click to choose an account.",
+          rejected:
+            "Pateat: the site did not accept the last login in this tab. Click to choose an account.",
+          "stopped-login":
+            "Pateat: the last login on this site stopped in this tab. Click to choose an account.",
+          "other-tab":
+            "Pateat: you were logged out of this site in another tab, or the site did not accept a login there. Click to choose an account.",
+        }[logout],
+      )
+    : t("Pateat: {{count}} accounts match this page. Click to choose one.", { count });
+}
+
+// Tooltip keys with `count`; `_one` and `_other` forms in the catalogs.
 const EXCLUDED_TITLES = {
-  site: "this site is excluded in settings",
-  items: "they are excluded in settings",
-  review: "they wait for a custom-field review in settings",
-  "items-review": "they are excluded or wait for a custom-field review in settings",
+  site: "badgeExcludedSite",
+  items: "badgeExcludedItems",
+  review: "badgeExcludedReview",
+  "items-review": "badgeExcludedItemsReview",
 } as const;
-const UNCHECKED_TITLES: Record<UncheckedReason, string> = {
+const MORE_TITLES = {
+  site: "badgeMoreExcluded",
+  items: "badgeMoreExcluded",
+  review: "badgeMoreReview",
+  "items-review": "badgeMoreItemsReview",
+} as const;
+const UNCHECKED_TITLES = {
   locked: "Pateat: the vault is locked, so this site's accounts were not counted.",
   "not-opened":
     "Pateat: the vault has not been opened since Pateat restarted, so this site's accounts were not counted.",
   unreadable: "Pateat: the vault could not be read, so this site's accounts were not counted.",
   updating: "Pateat: the vault is being updated, so this site's accounts were not counted.",
   busy: "Pateat: a login or a page check was using the vault, so this site's accounts were not counted yet.",
-};
-/** Why the matching items beyond the usable ones cannot be used, by how many there are. */
-function moreTitle(more: number, excluded: SiteCount["excluded"]): string {
-  const one = more === 1;
-  if (excluded === "review")
-    return ` ${more} more ${one ? "waits" : "wait"} for a custom-field review in settings.`;
-  if (excluded === "items-review")
-    return ` ${more} more ${one ? "is" : "are"} excluded or ${one ? "waits" : "wait"} for a custom-field review in settings.`;
-  return ` ${more} more ${one ? "is" : "are"} excluded in settings.`;
-}
+} as const satisfies Record<UncheckedReason, string>;
 
 /** The badge text, colours and title of a site count (ADR 0021); no text for none. */
-export function countBadge(state: SiteCountState): Partial<Shown> & { title: string } {
-  if (state.kind === "unchecked") return { title: UNCHECKED_TITLES[state.reason] };
+export function countBadge(
+  state: SiteCountState,
+  t: TFunction = i18n.t.bind(i18n),
+): Partial<Shown> & { title: string } {
+  if (state.kind === "unchecked") return { title: t(UNCHECKED_TITLES[state.reason]) };
   const { usable, matching, unevaluated, excluded }: SiteCount = state.count;
-  const unknown = unevaluated
-    ? ` ${plural(unevaluated, "item", "items")} could not be checked.`
-    : "";
+  // Sentences follow one another as the language writes them (a space in English).
+  const then = (first: string, next: string | false) =>
+    next ? t("{{first}} {{next}}", { first, next }) : first;
+  const unknown = unevaluated > 0 && t("badgeUnknown", { count: unevaluated });
   const text = (count: number) => (count > 99 ? "99+" : String(count));
   if (usable > 0) {
     const more = matching - usable;
     return {
       text: text(usable),
       ...STYLES.usable,
-      title: `Pateat: ${plural(usable, "account", "accounts")} for this site.${
-        more ? moreTitle(more, excluded) : ""
-      }${unknown}`,
+      title: then(
+        then(
+          t("badgeUsable", { count: usable }),
+          more > 0 && t(MORE_TITLES[excluded ?? "items"], { count: more }),
+        ),
+        unknown,
+      ),
     };
   }
   if (matching > 0)
     return {
       text: text(matching),
       ...STYLES.excluded,
-      title: `Pateat: ${plural(matching, "account matches", "accounts match")} this site, but none can be used: ${
-        EXCLUDED_TITLES[excluded ?? "items"]
-      }.${unknown}`,
+      title: then(t(EXCLUDED_TITLES[excluded ?? "items"], { count: matching }), unknown),
     };
-  return { title: `Pateat: no account for this site.${unknown}` };
+  return { title: then(t("Pateat: no account for this site."), unknown) };
 }
 
 /**
@@ -255,9 +292,13 @@ export function createLoginBadge(deps: {
   setBadge: (details: BadgeDetails) => Promise<void>;
   storage: { getValue(): Promise<unknown>; setValue(value: unknown): Promise<void> };
   now?: () => number;
+  /** Translates the tooltips into the extension's language, read at each draw. */
+  t?: TFunction;
 }) {
   const now = deps.now ?? Date.now;
+  const t: TFunction = deps.t ?? i18n.t.bind(i18n);
   const choices = new Map<number, Choice>();
+  // Each tab's tooltip key, translated when drawn.
   const notes = new Map<number, string>();
   const results = new Map<number, BadgeResult>();
   // Each tab's site count, for the origin it was counted for (ADR 0021).
@@ -287,21 +328,26 @@ export function createLoginBadge(deps: {
   const spinning = (tabId: number) => [...spins].some((spin) => spin.tabId === tabId);
   function wanted(tabId: number): Shown {
     const choice = choices.get(tabId);
-    if (choice) return { text: String(choice.count), ...STYLES.choice, title: choice.title };
+    if (choice)
+      return { text: String(choice.count), ...STYLES.choice, title: choiceTitle(choice, t) };
     if (spinning(tabId))
-      return { text: BUSY_FRAMES[frame] ?? "", ...STYLES.busy, title: "Pateat: asking the AI…" };
+      return { text: BUSY_FRAMES[frame] ?? "", ...STYLES.busy, title: t("Pateat: asking the AI…") };
     const result = results.get(tabId);
     if (result && (result.until === undefined || result.until > now()))
-      return { text: RESULT_TEXT[result.kind], ...STYLES[result.kind], title: resultTitle(result) };
+      return {
+        text: RESULT_TEXT[result.kind],
+        ...STYLES[result.kind],
+        title: resultTitle(result, t),
+      };
     const note = notes.get(tabId);
     const count = counts.get(tabId);
-    const counted = count && countBadge(count.state);
+    const counted = count && countBadge(count.state, t);
     if (counted?.text !== undefined && counted.color && counted.textColor)
       return {
         text: counted.text,
         color: counted.color,
         textColor: counted.textColor,
-        title: note ?? counted.title,
+        title: note ? t(note) : counted.title,
       };
     // Colours stay as they were; Chrome shows none without text.
     const last = shown.get(tabId);
@@ -309,7 +355,7 @@ export function createLoginBadge(deps: {
       text: "",
       color: last?.color ?? STYLES.choice.color,
       textColor: last?.textColor ?? STYLES.choice.textColor,
-      title: note ?? counted?.title ?? "Pateat",
+      title: note ? t(note) : (counted?.title ?? t("Pateat")),
     };
   }
   function draw(tabId: number): void {
@@ -472,7 +518,10 @@ export function createLoginBadge(deps: {
       else if (!choices.delete(tabId)) return;
       draw(tabId);
     },
-    /** A tooltip for a tab that shows no badge, such as why its login is held. */
+    /**
+     * A tooltip for a tab that shows no badge, such as why its login is held, as a catalog
+     * key that is translated when drawn.
+     */
     note(tabId: number, title: string | undefined): void {
       if (title) notes.set(tabId, title);
       else if (!notes.delete(tabId)) return;
@@ -566,6 +615,10 @@ export function createLoginBadge(deps: {
     },
     removed(tabId: number): void {
       forget(tabId);
+    },
+    /** The extension's language changed: every tab's tooltip is written again. */
+    relabel(): void {
+      for (const tabId of shown.keys()) draw(tabId);
     },
     /** The tab's last login and model request, for the popup's page section. */
     status(tabId: number): PageStatus | undefined {
@@ -673,7 +726,7 @@ const storedSchema = v.object({
           v.object({
             outcome: v.string(),
             reason: v.exactOptional(v.string()),
-            page: v.exactOptional(v.picklist(["accounts", "entry", "continuation"])),
+            page: v.exactOptional(v.picklist(["accounts", "entry", "continuation", "repair"])),
           }),
         ),
       }),
