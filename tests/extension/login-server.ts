@@ -432,7 +432,7 @@ export async function startLoginFixture(
         });`,
         ),
       );
-    } else if (path === "/keypad") {
+    } else if (path === "/keypad" || path === "/keypad-position") {
       // A read-only password input that takes its characters only from a software keyboard
       // that opens when the input is pressed (ADR 0067). Its keys change order on
       // load and after every press, show digits in full-width forms, and come as buttons,
@@ -442,7 +442,8 @@ export async function startLoginFixture(
       // comes with `pointerdown`, as a person's does. `?missing=X` leaves out the key for X,
       // `?open=1` shows the keypad from the start, `?maxlength=N` limits the input,
       // `?submit-at=N` submits the form by itself at the Nth character, replacing it,
-      // `?keep-after=N` keeps every character after the Nth in its own value only, leaving
+      // On `/keypad-position` the keypad has no `id`, so its recipe names it by its position
+      // from the input. `?keep-after=N` keeps every character after the Nth in its own value only, leaving
       // the input unchanged, and `?reject=invalid` answers the login button by marking the input invalid, with no
       // other sign. Typed input is ignored, and the page records any change to the input's
       // value that it did not make itself.
@@ -457,10 +458,10 @@ export async function startLoginFixture(
       ].filter((character) => character !== missing);
       response.end(
         html(
-          `<h1>Synthetic software keyboard</h1><form><label>Password<input id="password" type="password" readonly${maxLength ? ` maxlength="${maxLength}"` : ""}></label><div id="keypad"${open ? "" : " hidden"}><div class="keys"></div><button type="button" id="keypad-clear">Clear</button><button type="button" class="key" data-character="~"><img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" width="20" height="20"></button></div><button id="login" type="button">Log in</button></form>`,
+          `<h1>Synthetic software keyboard</h1><form><label>Password<input id="password" type="password" readonly${maxLength ? ` maxlength="${maxLength}"` : ""}></label><div${path === "/keypad" ? ' id="keypad"' : ""}${open ? "" : " hidden"}><div class="keys"></div><button type="button" id="keypad-clear">Clear</button><button type="button" class="key" data-character="~"><img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" width="20" height="20"></button></div><button id="login" type="button">Log in</button></form>`,
           `const characters = ${JSON.stringify(characters)};
           const input = document.getElementById('password');
-          const keypad = document.getElementById('keypad');
+          const keypad = document.querySelector('form > div');
           const keys = keypad.querySelector('.keys');
           let typed = '';
           let armed = null;

@@ -160,7 +160,7 @@ describe("declarative login boundaries", () => {
     expect(parseLoginRecipe(recipe())).toEqual(recipe());
     expect(parseLoginAccountBinding(binding())).toEqual(binding());
   });
-  it("names a keypad only by its container's id or test ID, on a preparing fill (ADR 0067)", () => {
+  it("names a keypad only by an id, test ID, class or position, on a preparing fill (ADR 0067)", () => {
     const withKeypad = (keypad: unknown, extra: object = {}) => {
       const value = recipe();
       value.steps[2] = {
@@ -175,12 +175,34 @@ describe("declarative login boundaries", () => {
     expect(withKeypad({ by: "id", value: "soft-keys" })().steps[2]).toMatchObject({
       fields: [{ keypad: { by: "id", value: "soft-keys" } }],
     });
-    expect(withKeypad({ by: "test-id", value: "pad" })).not.toThrow();
+    for (const keypad of [
+      { by: "test-id", value: "pad" },
+      { by: "class", value: "soft-keyboard" },
+      { by: "class", value: "_keys-2" },
+      { by: "position", value: "1:0" },
+      { by: "position", value: "3:1.0.12" },
+      { by: "position", value: "20:99" },
+    ])
+      expect(withKeypad(keypad), JSON.stringify(keypad)).not.toThrow();
     for (const keypad of [
       { by: "name", value: "pad" },
       { by: "text", value: "1" },
       { by: "label", value: "Keys" },
       { by: "id", value: "two words" },
+      // A class is one token, never a selector.
+      { by: "class", value: "keys pad" },
+      { by: "class", value: ".keys" },
+      { by: "class", value: "2col" },
+      { by: "class", value: "" },
+      // A position goes up at least one and at most 20 parents, then down at most 12
+      // children, each by an index below 100 written without leading zeros.
+      { by: "position", value: "0:1" },
+      { by: "position", value: "21:1" },
+      { by: "position", value: "1:" },
+      { by: "position", value: "1:01" },
+      { by: "position", value: "1:100" },
+      { by: "position", value: `1:${Array.from({ length: 13 }, () => "0").join(".")}` },
+      { by: "position", value: "div > .keys" },
     ])
       expect(withKeypad(keypad), JSON.stringify(keypad)).toThrow();
     // An effectful fill's one event never goes through a keypad.

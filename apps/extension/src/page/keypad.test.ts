@@ -2,10 +2,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   besideKeypad,
   findKeypad,
+  findKeypadTargets,
   keyLabel,
   keypadCovers,
   keypadField,
   keypadKeys,
+  keypadPosition,
   keysFor,
 } from "./keypad";
 import { typeOnKeypad } from "./keypad-typing";
@@ -141,15 +143,125 @@ describe("findKeypad", () => {
     expect(findKeypad(document)).toBeUndefined();
   });
 
-  it("finds none without a key for each of the ten digits: a date picker, pages or an A-Z index", () => {
-    const days = Array.from({ length: 31 }, (_, day) => String(day + 1));
-    const letters = [..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"];
-    for (const keys of [days, letters, [...digits.slice(1), ...letters]]) {
+  it("finds a keyboard of every digit or of at least 26 letters, and none of fewer", () => {
+    const upper = [..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"];
+    const kana = [..."あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめも"];
+    // Letters-only keyboards count (owner's choice, 2026-10-23 13:01 UTC).
+    for (const keys of [digits, upper, upper.map((letter) => letter.toLowerCase()), kana]) {
+      document.body.innerHTML = `<main>${pad(keys)}</main>`;
+      expect(findKeypad(document), keys.join("")).toBe(document.getElementById("pad"));
+    }
+    for (const keys of [digits.slice(1).concat("A"), upper.slice(0, 25), [..."ABCDEFabcdef"]]) {
       document.body.innerHTML = `<main>${pad(keys)}</main>`;
       expect(findKeypad(document), keys.join("")).toBeUndefined();
     }
-    document.body.innerHTML = `<main>${pad([...letters, ...digits])}</main>`;
+  });
+
+  it("finds no keypad in a date picker, even one with a one-character control for each digit", () => {
+    const days = (from: number, to: number) =>
+      Array.from({ length: to - from + 1 }, (_, day) => String(from + day));
+    // A month's days 1 to 31 and its navigation as buttons, with a "0" control so that its
+    // one-character controls alone would pass as a keypad: the days from 10 on give it away.
+    document.body.innerHTML = `<main><form><input type="password" readonly><div id="picker"><button>‹</button><span>October 2026</span><button>›</button>
+      ${["0", ...days(1, 31)].map((day) => `<button type="button">${day}</button>`).join("")}</div></form></main>`;
+    expect(findKeypad(document)).toBeUndefined();
+    // A calendar table whose cells run scripts.
+    document.body.innerHTML = `<main><form><input type="password" readonly><table><tbody><tr>${[
+      "0",
+      ...days(1, 31),
+    ]
+      .map((day) => `<td onclick="pick()">${day}</td>`)
+      .join("")}</tr></tbody></table></form></main>`;
+    expect(findKeypad(document)).toBeUndefined();
+    // A grid, or dates, around keys that alone would be a keypad.
+    for (const wrap of [
+      (keys: string) => `<div role="grid">${keys}</div>`,
+      (keys: string) => `<div>${keys}<time datetime="2026-10-23">today</time></div>`,
+    ]) {
+      document.body.innerHTML = `<main><form><input type="password" readonly>${wrap(pad(digits))}</form></main>`;
+      expect(findKeypad(document)).toBeUndefined();
+    }
+    // A keypad's "00" key is no day.
+    document.body.innerHTML = `<main><form><input type="password" readonly>${pad([...digits, "00"])}</form></main>`;
     expect(findKeypad(document)).toBe(document.getElementById("pad"));
+  });
+
+  it("finds no keypad in pagination", () => {
+    const pages = (attributes: (page: string) => string) =>
+      digits.map((page) => `<a href="#" ${attributes(page)}>${page}</a>`).join("");
+    for (const html of [
+      // Pages in navigation.
+      `<nav>${pages(() => "")}<a href="#">›</a></nav>`,
+      `<div role="navigation">${pages(() => "")}</div>`,
+      // The current page and next/previous links.
+      `<div id="pages">${pages((page) => (page === "1" ? 'aria-current="page"' : ""))}</div>`,
+      `<div id="pages"><a href="#" rel="prev">‹</a>${pages(() => "")}<a href="#" rel="next">›</a></div>`,
+      // Page numbers from 10 on.
+      `<div id="pages">${pages(() => "")}<a href="#">10</a><a href="#">11</a></div>`,
+    ]) {
+      document.body.innerHTML = `<main><form><input type="password" readonly>${html}</form></main>`;
+      expect(findKeypad(document), html).toBeUndefined();
+    }
+  });
+
+  it("finds no keypad in an A-Z index bar, which jumps within its page, but keeps a keypad beside one", () => {
+    const upper = [..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"];
+    const entries = upper.map((letter) => `<h2 id="${letter}">${letter}</h2>`).join("");
+    const index = `<div id="index">${upper.map((letter) => `<a href="#${letter}">${letter}</a>`).join("")}</div>`;
+    document.body.innerHTML = `<main>${index}${entries}</main>`;
+    expect(findKeypad(document)).toBeUndefined();
+    // Named anchors are jump targets too.
+    document.body.innerHTML = `<main>${index}${upper.map((letter) => `<a name="${letter}"></a>`).join("")}</main>`;
+    expect(findKeypad(document)).toBeUndefined();
+    // A keypad's links go nowhere, so the same letters as `href="#"` links are a keyboard.
+    document.body.innerHTML = `<main><form><input type="password" readonly><ul id="keys">${upper.map((letter) => `<li><a href="#">${letter}</a></li>`).join("")}</ul></form></main>`;
+    expect(findKeypad(document)).toBe(document.getElementById("keys"));
+    // An index bar elsewhere on the page holds no keys, so the keypad is still found.
+    document.body.innerHTML = `<main><nav>${index}</nav><form><input type="password" readonly>${pad(digits)}</form>${entries}</main>`;
+    expect(findKeypad(document)).toBe(document.getElementById("pad"));
+    // One inside the keypad's box makes it no keypad.
+    document.body.innerHTML = `<main><form><input type="password" readonly><div id="box">${pad(digits)}${index}</div></form>${entries}</main>`;
+    expect(findKeypad(document)).toBeUndefined();
+  });
+});
+
+describe("findKeypadTargets and keypadPosition", () => {
+  it("names the keypad by its position from the field, only while that place holds the page's keypad", () => {
+    document.body.innerHTML = `<main><form><div><input type="password" readonly></div><section><p>Keys</p>${pad(digits).replace(' id="pad"', ' class="pad"')}</section></form></main>`;
+    const field = document.querySelector("input")!;
+    const keypad = document.querySelector(".pad")!;
+    const position = keypadPosition(field, keypad);
+    // Up from the field's box to the form, then the section, then its second child.
+    expect(position).toBe("2:1.1");
+    expect(findKeypadTargets(document, { by: "position", value: position! }, field)).toEqual([
+      keypad,
+    ]);
+    // Another element in that place, or none, names nothing.
+    expect(findKeypadTargets(document, { by: "position", value: "2:1.0" }, field)).toEqual([]);
+    expect(findKeypadTargets(document, { by: "position", value: "2:5" }, field)).toEqual([]);
+    expect(findKeypadTargets(document, { by: "position", value: "2:1.1" }, undefined)).toEqual([]);
+    // Without a keypad on the page, the place names nothing either.
+    keypad.querySelector("button")!.remove();
+    expect(findKeypadTargets(document, { by: "position", value: position! }, field)).toEqual([]);
+  });
+
+  it("gives no position from a field the body alone shares with the keypad", () => {
+    document.body.innerHTML = `<form><input type="password" readonly></form>${pad(digits)}`;
+    expect(
+      keypadPosition(document.querySelector("input")!, document.getElementById("pad")!),
+    ).toBeUndefined();
+  });
+
+  it("names the keypad by a class only one element has and that holds the page's keypad", () => {
+    document.body.innerHTML = `<main><form><input type="password" readonly><div class="keys box">${pad(digits)}</div><p class="box"></p></form></main>`;
+    const field = document.querySelector("input")!;
+    const box = document.querySelector(".keys")!;
+    expect(findKeypadTargets(document, { by: "class", value: "keys" }, field)).toEqual([box]);
+    // Shared by two elements, the class names both, which no fill takes.
+    expect(findKeypadTargets(document, { by: "class", value: "box" }, field)).toHaveLength(2);
+    // A class on an element without the keypad names nothing.
+    document.querySelector("p")!.className = "other";
+    expect(findKeypadTargets(document, { by: "class", value: "other" }, field)).toEqual([]);
   });
 });
 

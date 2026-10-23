@@ -180,10 +180,15 @@ export const loginMarkerTargetSchema = v.variant("by", [
   loginLinkTargetSchema,
 ]);
 /**
- * The element that holds a page's software keyboard (ADR 0067): an `id` or
- * `data-testid` locator of the keypad's container. A fill field that names one takes its
- * characters only from the keypad's keys, one press per character, and may be read-only.
- * The recipe carries no key, label or layout: the executor reads the keys on the page.
+ * The element that holds a page's software keyboard (ADR 0067): an `id`, `data-testid`
+ * or class locator of the keypad's container or an ancestor of it, or its position from
+ * the field (owner's choice, 2026-10-23 13:01 UTC). A class names the one element of the
+ * document whose class list holds the value. A position is `<up>:<path>`: from the field
+ * up that many parents, then down the child elements at each index of the dot-separated
+ * path, as `3:1.0`. A class or a position names the keypad only while the element it
+ * finds holds the page's one keypad. A fill field that names one takes its characters
+ * only from the keypad's keys, one press per character, and may be read-only. The recipe
+ * carries no key, label or layout: the executor reads the keys on the page.
  */
 export const loginKeypadTargetSchema = v.variant("by", [
   v.strictObject({
@@ -191,6 +196,17 @@ export const loginKeypadTargetSchema = v.variant("by", [
     value: loginAttributeTargetSchema.options[0].entries.value,
   }),
   loginAttributeTargetSchema.options[1],
+  v.strictObject({
+    by: v.literal("class"),
+    value: v.pipe(v.string(), v.maxLength(120), v.regex(/^-?[A-Za-z_][A-Za-z0-9_-]*$/u)),
+  }),
+  v.strictObject({
+    by: v.literal("position"),
+    value: v.pipe(
+      v.string(),
+      v.regex(/^(?:[1-9]|1\d|20):(?:0|[1-9]\d?)(?:\.(?:0|[1-9]\d?)){0,11}$/u),
+    ),
+  }),
 ]);
 const fields = v.pipe(
   v.array(

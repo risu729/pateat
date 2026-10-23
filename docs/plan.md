@@ -1236,10 +1236,11 @@ items the owner mentioned and gates still open on 2026-10-11.
   container, never its keys; the executor presses the key that shows each character,
   looked up again before each press, and stops without submitting when a character has
   no single key or the field does not take a press; after a stop that pressed a key,
-  the popup tells the person to reload the page. Left with Pateat's defaults until the
-  owner says otherwise: a keypad that leaves the visible field unchanged stops after its
-  first press, and a keypad without a unique `id` or `data-testid` on it or an ancestor
-  stays with the person.
+  the popup tells the person to reload the page. The owner's choices of 13:01 UTC: a
+  keypad that leaves the visible field unchanged stops after its first press; a keypad
+  is named by an `id`, `data-testid` or class only it has, else by its position from
+  the field; letters-only keyboards count; date pickers, pagination and `A`-`Z` index
+  bars are kept out by structural guards.
   A PIN or card code asked in an ordinary input is the
   [phase 2](#phase-2-use-it-and-fix-what-comes-up) item on personal details asked
   during a login.

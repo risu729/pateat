@@ -7,6 +7,8 @@
 // the page, from what each key shows, so neither the service nor the AI ever sees the
 // value or which keys it takes.
 
+import type { LoginKeypadTarget } from "@pateat/contracts";
+import { findTargets } from "./targets";
 import {
   collapseText,
   isButton,
@@ -19,6 +21,8 @@ import {
 
 /** A keypad has at least as many keys as a PIN pad's digits. */
 export const KEYPAD_MIN_KEYS = 10;
+/** A keypad without every digit has at least as many letters as the Latin alphabet. */
+export const KEYPAD_MIN_LETTERS = 26;
 
 const keySelector = "button, input, a, [role], [onclick]";
 
@@ -119,24 +123,167 @@ export function keypadCovers(container: Element, value: string): boolean {
 const keypadDigits = [..."0123456789"];
 
 /**
+ * Where controls serve something else than typing: navigation, as pagination or an
+ * `A`-`Z` index bar; a grid, as a date picker's days; a tab or menu bar.
+ */
+const elsewhere = 'nav, [role="navigation"], [role="grid"], [role="tablist"], [role="menubar"]';
+
+/**
+ * Whether `link` jumps to an element of its own page, as an `A`-`Z` index bar's `#A` that
+ * scrolls to the entries under A. A keypad's links go nowhere (`href="#"`).
+ */
+function jumpLink(link: HTMLAnchorElement): boolean {
+  if (!isFragmentButton(link)) return false;
+  const fragment = link.hash.slice(1);
+  if (!fragment) return false;
+  let name = fragment;
+  try {
+    name = decodeURIComponent(fragment);
+  } catch {
+    // A malformed escape is looked up as written.
+  }
+  const document = link.ownerDocument;
+  return document.getElementById(name) !== null || document.getElementsByName(name).length > 0;
+}
+
+/**
+ * Whether a single-character control is drawn for something else than typing: inside
+ * navigation or a grid (`elsewhere`), a jump to its own page (`jumpLink`), the current
+ * item of a list (`aria-current`, as pagination's current page), or a next or previous
+ * link (`rel`).
+ */
+function otherControl(control: HTMLElement): boolean {
+  if (control.closest(elsewhere) !== null || control.hasAttribute("aria-current")) return true;
+  if (!(control instanceof HTMLAnchorElement)) return false;
+  return (
+    jumpLink(control) ||
+    (control.getAttribute("rel") ?? "")
+      .toLowerCase()
+      .split(/\s+/u)
+      .some((token) => token === "next" || token === "prev")
+  );
+}
+
+/** A label that is a whole number from 10 on, as a date picker's days or a page number. */
+const largeNumber = (text: string) => /^\d{2,}$/u.test(text) && Number(text) >= 10;
+
+/**
+ * Whether `container`, with `around` the box it sits in, shows what a date picker or
+ * pagination shows, which no keypad does: it sits in navigation or a grid (`elsewhere`),
+ * its box holds one, the current item of a list, a next or previous link or a
+ * `<time datetime>`, or it holds a control or table cell whose label is a number from 10
+ * on (`largeNumber`), as a calendar's days 10 to 31 or page 12.
+ */
+function datesOrPages(container: Element, around: Element): boolean {
+  if (container.closest(elsewhere) !== null) return true;
+  if (
+    around.querySelector(
+      `${elsewhere}, [aria-current], a[rel~="next" i], a[rel~="prev" i], time[datetime]`,
+    )
+  )
+    return true;
+  return [...container.querySelectorAll(`${keySelector}, td, th`)].some((element) =>
+    largeNumber(
+      widthFolded(
+        collapseText(
+          element instanceof HTMLInputElement ? element.value : (element.textContent ?? ""),
+        ),
+      ),
+    ),
+  );
+}
+
+/**
  * The page's keypad, for the observation: the nearest element that holds every key of the
  * document, when there are at least {@link KEYPAD_MIN_KEYS}, they include a key for each
- * of the ten digits, and that element is neither the body nor the root. Requiring every
- * digit leaves out a date picker (`1` to `31`), pagination and an `A`-`Z` index of links.
- * A single-character control elsewhere on the page, such as a "?" help button, makes the
- * page have no keypad, which leaves it to the person as before.
+ * of the ten digits or at least {@link KEYPAD_MIN_LETTERS} letters (a letters-only
+ * keyboard, owner's choice, 2026-10-23 13:01 UTC), and that element is neither the body
+ * nor the root. Controls drawn for something else (`otherControl`), as an `A`-`Z` index
+ * bar's jump links or pagination, are not keys, and an element that shows what a date
+ * picker or pagination shows (`datesOrPages`), or whose box (its parent below the body)
+ * holds such a control, is no keypad. These
+ * guards read the page's structure, never a site (ADR 0033). A single-character control
+ * elsewhere on the page, such as a "?" help button, makes the page have no keypad, which
+ * leaves it to the person as before.
  */
 export function findKeypad(document: Document): Element | undefined {
-  const keys = keypadKeys(document);
+  const all = keypadKeys(document);
+  const keys = all.filter((key) => !otherControl(key));
   if (keys.length < KEYPAD_MIN_KEYS) return undefined;
   const labels = new Set(keys.map(keyLabel));
-  if (!keypadDigits.every((digit) => labels.has(digit))) return undefined;
+  const letters = [...labels].filter((label) => label !== undefined && /\p{L}/u.test(label));
+  if (!keypadDigits.every((digit) => labels.has(digit)) && letters.length < KEYPAD_MIN_LETTERS)
+    return undefined;
   let container = keys[0]!.parentElement;
   while (container && !keys.every((key) => container!.contains(key)))
     container = container.parentElement;
-  return container && container !== document.body && container !== document.documentElement
-    ? container
-    : undefined;
+  if (!container || container === document.body || container === document.documentElement)
+    return undefined;
+  const parent = container.parentElement;
+  const around =
+    parent && parent !== document.body && parent !== document.documentElement ? parent : container;
+  if (
+    datesOrPages(container, around) ||
+    all.some((key) => otherControl(key) && around.contains(key))
+  )
+    return undefined;
+  return container;
+}
+
+/**
+ * The element at `position` (`<up>:<path>`, ADR 0067) from `field`: that many parents up,
+ * then the child element at each index of the path.
+ */
+function atPosition(field: Element, position: string): Element | undefined {
+  const [up, path] = position.split(":");
+  let node: Element | null = field;
+  for (let level = Number(up); node && level > 0; level--) node = node.parentElement;
+  for (const index of (path ?? "").split(".")) node = node?.children[Number(index)] ?? null;
+  return node ?? undefined;
+}
+
+/**
+ * The position of `container` from `field` (`atPosition`), from their nearest common
+ * ancestor below the body, or `undefined` when it is deeper or wider than a locator holds.
+ */
+export function keypadPosition(field: Element, container: Element): string | undefined {
+  const { body } = field.ownerDocument;
+  let common: Element | null = field.parentElement;
+  let up = 1;
+  while (common && common !== body && !common.contains(container)) {
+    common = common.parentElement;
+    up++;
+  }
+  if (!common || common === body || common === container || up > 20) return undefined;
+  const path: number[] = [];
+  for (let node: Element = container; node !== common; node = node.parentElement!)
+    path.unshift([...node.parentElement!.children].indexOf(node));
+  if (path.length > 12 || path.some((index) => index > 99)) return undefined;
+  const position = `${up}:${path.join(".")}`;
+  return atPosition(field, position) === container ? position : undefined;
+}
+
+/**
+ * The elements a keypad locator names (ADR 0067), hidden or not; a position counts from
+ * `field`. A class or a position names its element only while that element alone matches
+ * and holds the page's keypad (`findKeypad`), so a class another element took on, or a
+ * place another element moved into, names nothing.
+ */
+export function findKeypadTargets(
+  document: Document,
+  target: LoginKeypadTarget,
+  field: Element | undefined,
+): Element[] {
+  if (target.by === "class" || target.by === "position") {
+    const found =
+      target.by === "class"
+        ? [...document.getElementsByClassName(target.value)]
+        : [field && atPosition(field, target.value)].filter((node) => node !== undefined);
+    if (found.length !== 1) return found;
+    const page = findKeypad(document);
+    return page && found[0]!.contains(page) ? found : [];
+  }
+  return findTargets(document, target, { hidden: true });
 }
 
 /**

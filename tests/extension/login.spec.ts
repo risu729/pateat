@@ -766,6 +766,32 @@ test("types a read-only password on the page's shuffled software keyboard, one p
   }
 });
 
+test("types on a software keyboard without an id, named by its position from the input (ADR 0067)", async () => {
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, _worker, id) => {
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin);
+      const page = await context.newPage();
+      await page.goto(`${fixture.origin}/keypad-position`);
+      await expect(page.locator("#authenticated")).toBeVisible();
+      expect(
+        await page.evaluate(() => ({
+          presses: Number(sessionStorage.getItem("keypadPresses")),
+          submitClicks: Number(sessionStorage.getItem("submitClicks") || 0),
+          passwordMatched: sessionStorage.getItem("passwordMatched"),
+        })),
+      ).toEqual({
+        presses: [..."Pateat-synthetic-only!"].length,
+        submitClicks: 1,
+        passwordMatched: "true",
+      });
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
 test("a software keyboard that does not fit the value gets no press and no submission (ADR 0067)", async () => {
   const fixture = await startLoginFixture();
   try {
@@ -917,9 +943,14 @@ test("a software keyboard login the page answers only by marking the input inval
       await page.goto(`${fixture.origin}/keypad?reject=invalid`);
       await expect(page.locator("#password")).toHaveAttribute("aria-invalid", "true");
       // The read-only input Pateat typed on counts as the step's sign-in input (F1), so the
-      // login is released as rejected and is not typed again (ADR 0021 D).
+      // login is released as rejected and is not typed again (ADR 0021 D). With no
+      // rejection marker shown, that waits for the click's 3-second observation budget and
+      // a second reading a second later (ADR 0029): about 5 seconds, measured 3.9 to 4.9,
+      // so the default 5-second poll only just met it.
       await expect
-        .poll(async () => await send(options, { version: 1, type: "login.probe.status" }))
+        .poll(async () => await send(options, { version: 1, type: "login.probe.status" }), {
+          timeout: 15_000,
+        })
         .toMatchObject({ attempts: [], asks: ["rejected"] });
       await page.waitForTimeout(1500);
       expect(

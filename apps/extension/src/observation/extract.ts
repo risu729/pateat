@@ -19,7 +19,7 @@ import * as v from "valibot";
 import { acceptsSecret, shortNumericInput } from "../login/inputs";
 import type { observationGaps } from "../login/wire";
 import { splitCodeInputs } from "../page/code-submission";
-import { findKeypad, keypadField, keypadKeys } from "../page/keypad";
+import { findKeypad, keypadField, keypadKeys, keypadPosition } from "../page/keypad";
 import { autocompleteTokens, findTargets, linkPath, namedControls } from "../page/targets";
 import { observedPath, redactsPath, tokenSegment } from "./path";
 import {
@@ -1093,10 +1093,13 @@ const actionControl = (element: HTMLElement) =>
   (element instanceof HTMLInputElement && actionTypes.has(element.type)) ||
   isScriptButton(element);
 
-/** The page's software keyboard (ADR 0067) and its locator. */
+/**
+ * The page's software keyboard (ADR 0067) and the locator that names it for every field,
+ * if any; without one, each field names it by its position from that field.
+ */
 interface Keypad {
   readonly container: Element;
-  readonly target: LoginKeypadTarget;
+  readonly target: LoginKeypadTarget | undefined;
 }
 
 /**
@@ -1112,8 +1115,12 @@ function describe(element: Element, keypad?: Keypad): Found | undefined {
     ? readOwnInert(element, () => presence(element))
     : presence(element);
   let keyed = false;
+  let keypadLocator: LoginKeypadTarget | undefined;
   if (element instanceof HTMLInputElement && fillTypes[element.type] && present !== "absent") {
     keyed = keypad !== undefined && present === "visible" && keypadField(element, keypad.container);
+    if (keyed && keypad)
+      keypadLocator = keypad.target ?? keypadPositionTarget(element, keypad.container);
+    if (keyed && !keypadLocator) keyed = false;
     if (!keyed && (present === "faint" || element.readOnly || element.disabled))
       return { kind: "unsupported", form: element.form, field: element, element };
   } else if (present !== "visible") return undefined;
@@ -1139,7 +1146,7 @@ function describe(element: Element, keypad?: Keypad): Found | undefined {
           ...(description ? { description } : {}),
           ...(hint ? { autocomplete: hint } : {}),
           ...constraints(element, fillRole),
-          ...(keyed && keypad ? { keypad: keypad.target } : {}),
+          ...(keyed && keypadLocator ? { keypad: keypadLocator } : {}),
         },
       };
     }
@@ -1281,10 +1288,11 @@ const describeAll = (document: Document, keypad?: Keypad) =>
     .filter((entry) => entry !== undefined);
 
 /**
- * The locator of the page's software keyboard (`findKeypad`, ADR 0067): the `id`
- * or `data-testid` of the keypad or its nearest ancestor below the body that names it
- * alone in the document, skipping an ID React generated or another load may change, and,
- * with `tokens`, a value that may be a token.
+ * The locator of the page's software keyboard (`findKeypad`, ADR 0067): the `id`,
+ * `data-testid` or class of the keypad or its nearest ancestor below the body that names
+ * it alone in the document, skipping an ID React generated or another load may change, a
+ * class that looks generated the same way, and, with `tokens`, a value that may be a
+ * token. Without one, each field names the keypad by its position (`keypadPositionTarget`).
  */
 function keypadTarget(
   container: Element,
@@ -1292,7 +1300,7 @@ function keypadTarget(
   tokens: boolean,
 ): LoginKeypadTarget | undefined {
   const { body } = container.ownerDocument;
-  for (let node: Element | null = container; node && node !== body; node = node.parentElement)
+  for (let node: Element | null = container; node && node !== body; node = node.parentElement) {
     for (const [by, attribute] of [
       ["id", "id"],
       ["test-id", "data-testid"],
@@ -1305,7 +1313,23 @@ function keypadTarget(
       if (v.is(loginKeypadTargetSchema, target) && index.get(attribute)!.get(value) === 1)
         return target;
     }
+    for (const value of node.classList) {
+      if (generatedId.test(value) || changingId(value) || (tokens && tokenSegment(value))) continue;
+      const target = { by: "class" as const, value };
+      if (
+        v.is(loginKeypadTargetSchema, target) &&
+        container.ownerDocument.getElementsByClassName(value).length === 1
+      )
+        return target;
+    }
+  }
   return undefined;
+}
+
+/** The keypad's position from `field` (`keypadPosition`), as a locator. */
+function keypadPositionTarget(field: Element, container: Element): LoginKeypadTarget | undefined {
+  const value = keypadPosition(field, container);
+  return value === undefined ? undefined : { by: "position", value };
 }
 
 /**
@@ -1475,9 +1499,10 @@ export function extractLoginObservation(
   // A page's software keyboard (ADR 0067): its read-only fields are described
   // with its locator, and its keys are left out, as no step presses one by name.
   const container = findKeypad(document);
-  const keypadLocator = container && keypadTarget(container, index, tokens);
-  const keypad = container && keypadLocator ? { container, target: keypadLocator } : undefined;
-  const keys = new Set<Element>(keypad ? keypadKeys(keypad.container) : []);
+  const keypad = container
+    ? { container, target: keypadTarget(container, index, tokens) }
+    : undefined;
+  const keys = new Set<Element>(container ? keypadKeys(container) : []);
   // A field both faint and disabled takes input from no one, neither the person nor a
   // widget drawn over it, so a login page leaves it out as a decoy; Bitwarden never picks
   // a disabled field as the username or password field either. The signed-in page still

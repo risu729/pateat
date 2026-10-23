@@ -1760,13 +1760,12 @@ describe("extractLoginObservation", () => {
       ["pin", { by: "test-id", value: "pad" }],
       ["go", undefined],
     ]);
-    // Without a keypad, or without a locator for it or an ancestor below the body, a
-    // read-only field is still unfillable. So is one that holds a value, as a date or an
-    // email address shown again, and a keypad without every digit is no keypad.
+    // Without a keypad, a read-only field is still unfillable. So is one that holds a
+    // value, as a date or an email address shown again, and a keypad with neither every
+    // digit nor 26 letters is no keypad.
     for (const html of [
       `<input id="pin" type="password" readonly><div id="pad">${keys("012345678")}</div>`,
-      `<input id="pin" type="password" readonly><div id="pad">${keys("ABCDEFGHIJKLMNOPQRSTUVWXYZ")}</div>`,
-      `<input id="pin" type="password" readonly><div>${keys("0123456789")}</div>`,
+      `<input id="pin" type="password" readonly><div id="pad">${keys("ABCDEFGHIJKLMNOPQRSTUVWXY")}</div>`,
       `<input id="pin" type="password" readonly disabled><div id="pad">${keys("0123456789")}</div>`,
       `<input id="day" readonly value="2026-10-23"><input id="pin" type="password" readonly><div id="pad">${keys("0123456789")}</div>`,
     ]) {
@@ -1781,6 +1780,33 @@ describe("extractLoginObservation", () => {
     );
     const apart = extractLoginObservation();
     expect(apart.ok && apart.observation.complete).toBe(false);
+  });
+
+  it("names a keypad without an id or test ID by a class only it has, else by its position from the field (ADR 0067)", () => {
+    const keys = (characters: string) =>
+      [...characters].map((character) => `<input type="button" value="${character}">`).join("");
+    const keypadOf = () =>
+      summary(observe()).map((candidate) => [candidate.target.value, candidate.keypad]);
+    // A class only the keypad's box has, even a letters-only keyboard's (owner's choice,
+    // 2026-10-23 13:01 UTC).
+    page(
+      `<form><input id="pin" type="password" readonly><div class="soft-keys"><div>${keys("ABCDEFGHIJKLMNOPQRSTUVWXYZ")}</div></div>
+      <button id="go" type="button">Log in</button></form>`,
+    );
+    expect(keypadOf()).toEqual([
+      ["pin", { by: "class", value: "soft-keys" }],
+      ["go", undefined],
+    ]);
+    // A class two elements share, or one that looks generated, does not name it; the
+    // keypad's place from each field does.
+    page(
+      `<form><div><input id="pin" type="password" readonly></div><div class="row"><div class="css-1q2w3e4r5t">${keys("0123456789")}</div></div>
+      <div class="row"><button id="go" type="button">Log in</button></div></form>`,
+    );
+    expect(keypadOf()).toEqual([
+      ["pin", { by: "position", value: "2:1.0" }],
+      ["go", undefined],
+    ]);
   });
 
   it("leaves out a field the continued recipe already fills when it is read-only or disabled", () => {

@@ -7,14 +7,20 @@ person, C, were the other options). Built ahead of the decision on the owner's
 afterwards
 (「フェーズは一旦無視して、ある程度決め打ちで進め、後から判断という今あるprたちと同じ例外扱いで」);
 the plan's phase 4 item on entering a value on a page's software keyboard is the owner's
-(2026-10-17 03:35 UTC). The other choices below are Claude's defaults. Amends
-[ADR 0010](0010-inference-field-hints.md) (a read-only field beside a keypad is
-described), [ADR 0016](0016-recipe-generation-trigger.md) (such a password field is a
-sign-in input) and [ADR 0029](0029-local-sign-in-state.md) (such a field counts in the
-signs of a failure and S2). Revised on 2026-10-23 after an independent review (keypad
-requirements, value checks before the first press, a page change after a press, the
-signs of a failure), and after the decision (a stop after a key press tells the person
-to reload). No installed-Chrome or real-site check has been run.
+(2026-10-17 03:35 UTC). On 2026-10-23 at 13:01 UTC the owner also chose, on two cards: a
+keypad that leaves the visible field unchanged gets no press past the first (the check
+after each press stays), and option B for keypads without a unique `id` or
+`data-testid`: they may be named by a class or by their position when that names them
+alone at run time, letters-only keyboards count, and date pickers, pagination and
+`A`-`Z` index bars are kept out by general structural guards. The other choices below
+are Claude's defaults. Amends [ADR 0010](0010-inference-field-hints.md) (a read-only
+field beside a keypad is described), [ADR 0016](0016-recipe-generation-trigger.md) (such
+a password field is a sign-in input) and [ADR 0029](0029-local-sign-in-state.md) (such a
+field counts in the signs of a failure and S2). Revised on 2026-10-23 after an
+independent review (keypad requirements, value checks before the first press, a page
+change after a press, the signs of a failure), and after the decision (a stop after a
+key press tells the person to reload). No installed-Chrome or real-site check has been
+run.
 
 Date: 2026-10-23
 
@@ -42,19 +48,34 @@ their character by `aria-label`, by an image's `alt`, or only as an image.
   submit, button or image input, a script button, a link to a fragment of its own page,
   or an element with an `onclick` attribute; the label is its visible text, else its
   `aria-label`, else its one image's `alt`, with full-width forms folded), when there
-  are at least 10, they include a key for each of the ten digits (which leaves out a
-  date picker, pagination and an `A`-`Z` index of links), and that element is not the
-  body. It is located by the `id` or `data-testid` of it or its nearest ancestor below
-  the body that names one element alone. A visible, enabled, empty read-only fill field
+  are at least 10, they include a key for each of the ten digits or at least 26 letters
+  of any script (a letters-only keyboard, owner, 13:01 UTC), and that element is not the
+  body. Guards read the page's structure, never a site
+  ([ADR 0033](0033-no-site-specific-features.md)):
+  - A control inside navigation (`nav`, `role="navigation"`), a grid, a tab bar or a
+    menu bar, one marked `aria-current`, a `rel` next or previous link, and a link that
+    jumps to an element of its own page by `id` or `name` (an `A`-`Z` index bar's `#A`)
+    is not a key; a keypad's links go nowhere (`href="#"`).
+  - An element is no keypad when it, with its box (its parent below the body), sits in
+    or holds navigation or a grid, holds the current item of a list, a next or previous
+    link, a `<time datetime>` or such a non-key control, or holds a control or table
+    cell whose label is a whole number from 10 on: a date picker's days 10 to 31, a
+    page 12. A keypad's `00` key is no such number.
+  It is located by the `id`, `data-testid` or class of it or its nearest ancestor below
+  the body that names one element alone, skipping IDs and classes that look generated,
+  else by its position from each field: up to the nearest box holding both, then down
+  by child indexes (owner, 13:01 UTC). A visible, enabled, empty read-only fill field
   that shares the keypad's form or a container below the body with it is described as a
   fill candidate with `keypad` set to that locator; the keys are left out of the
   candidates. A read-only field that holds a value, as a date or an email address shown
-  again, stays unfillable, and so does any field without a locatable keypad, as before.
+  again, stays unfillable, and so does any field without a keypad, as before.
 - **The recipe carries only the keypad's locator.** A fill field may name `keypad`
-  (`id` or `test-id`), only in a preparing fill. Generation copies it from the
-  observation in `validatePagePlan`; the model never gives it, and the prompts are
-  unchanged. An empty read-only password input beside a keypad counts as a sign-in
-  input (ADR 0016).
+  (`id`, `test-id`, `class` or `position`), only in a preparing fill. A class or a
+  position names the keypad only while the one element it finds holds the page's
+  keypad, read again at run time, else the step ends as `keypad-missing`. Generation
+  copies it from the observation in `validatePagePlan`; the model never gives it, and
+  the prompts are unchanged. An empty read-only password input beside a keypad counts
+  as a sign-in input (ADR 0016).
 - **The executor presses one key per character, and never guesses.** A value longer
   than the field's `maxlength` is refused before anything is filled, as for any field
   (ADR 0010). A keypad that already shows its keys must show exactly one key a person
@@ -100,13 +121,18 @@ their character by `aria-label`, by an image's `alt`, or only as an image.
 - A page that takes a password or PIN only from its own keys can log in automatically
   when its keypad and field are as above.
 - A keypad whose keys check `isTrusted`, or that keeps the value elsewhere and leaves
-  the field unchanged, stops after its first press without submitting; the person enters
-  the value. A single-character control elsewhere on the page, such as a "?" help
-  button, makes the page have no keypad.
+  the field unchanged, stops after its first press without submitting, as the owner
+  chose (13:01 UTC); the person is told to reload and enters the value. A
+  single-character control elsewhere on the page, such as a "?" help button, makes the
+  page have no keypad.
 - An advance whose next step on the same path is a keypad field is not confirmed by that
   field, which the in-place check reads as writable inputs only (ADR 0013).
-- A keypad without every digit, as a letters-only keyboard, is no keypad, and a keypad
-  drawn apart from its field, sharing only the body with it, is not that field's.
+- A keypad with neither every digit nor 26 letters is no keypad, and a keypad drawn
+  apart from its field, sharing only the body with it, is not that field's. A keypad
+  drawn as an ARIA grid, or placed beside navigation, a `<time>` or a jump link in its
+  box, is taken for a date picker, pagination or an index bar and left to the person.
+- A position locator breaks when the page moves the keypad to another place relative to
+  the field; the step then ends as `keypad-missing` and nothing is pressed.
 
 ## Alternatives
 
@@ -116,6 +142,13 @@ their character by `aria-label`, by an image's `alt`, or only as an image.
 - The model naming the keys, or a recipe storing the layout: sends the keypad's labels
   to the service and breaks on every shuffle.
 - Leaving these pages to the person, as before (C).
+- Pressing on when the visible field does not change after a press: would type into
+  keypads that keep the value elsewhere, but Pateat could no longer see what it typed
+  and a wrong submission can lock the account; the owner kept the check (13:01 UTC).
+- Requiring every digit and an `id` or `data-testid` (the first build): kept date
+  pickers, pagination and index bars out without guards, but left letters-only
+  keyboards and keypads without such attributes to the person; the owner chose to widen
+  it (13:01 UTC).
 - Trusted input through `chrome.debugger` (the debugger API's `Input.dispatchMouseEvent`
   or `Input.insertText`), which a keypad that checks `isTrusted` would take: rejected
   because it needs the `debugger` permission and Chrome shows its debugging banner on

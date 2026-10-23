@@ -20,7 +20,14 @@ import {
 } from "../page/target-state";
 import { answerInput, identifierInput } from "../page/identifier-field";
 import { showsAmount } from "../page/amount";
-import { besideKeypad, findKeypad, keypadCovers, keypadField, keypadOpen } from "../page/keypad";
+import {
+  besideKeypad,
+  findKeypad,
+  findKeypadTargets,
+  keypadCovers,
+  keypadField,
+  keypadOpen,
+} from "../page/keypad";
 import { typeOnKeypad } from "../page/keypad-typing";
 import {
   CODE_SETTLE_MS,
@@ -1273,7 +1280,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         // Each keypad's container, which holds the keys, shown or not yet.
         const keypads = step.fields.map((field, index) => {
           if (!field.keypad) return undefined;
-          const found = findTargets(document, field.keypad, { hidden: true });
+          const found = findKeypadTargets(document, field.keypad, inputs[index]);
           return found.length === 1 && besideKeypad(found[0]!, inputs[index] as HTMLInputElement)
             ? found[0]
             : null;
@@ -1509,7 +1516,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                   if (cancelled) return "document-cancelled";
                   if (pagePath() !== step.path) return "page-changed";
                   const now = matches(field.target);
-                  const box = findTargets(document, field.keypad!, { hidden: true });
+                  const box = findKeypadTargets(document, field.keypad!, input);
                   return now.length !== 1 ||
                     now[0] !== input ||
                     !keyable(input) ||

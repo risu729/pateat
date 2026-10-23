@@ -3,6 +3,7 @@ import {
   parseLoginRecipe,
   recipeStartSteps,
   type LoginAccountBinding,
+  type LoginKeypadTarget,
   type LoginRecipe,
   type VaultCatalog,
 } from "@pateat/contracts";
@@ -41,6 +42,7 @@ const PROBE_PATHS = [
   "/method-choice-named",
   "/shared-input",
   "/keypad",
+  "/keypad-position",
 ];
 /** Where every synthetic recipe starts, which a fixture document watches for. */
 export function probeStarts(origin: string): LoginRecipeStart[] {
@@ -191,12 +193,12 @@ function sharedInputRecipe(origin: string, path: string): LoginRecipe {
 }
 /**
  * A read-only password input that takes its characters only from the page's shuffled
- * software keyboard in `#keypad` (ADR 0067).
+ * software keyboard, which `keypad` names (ADR 0067).
  */
-function keypadRecipe(origin: string, path: string): LoginRecipe {
+function keypadRecipe(origin: string, path: string, keypad: LoginKeypadTarget): LoginRecipe {
   return parseLoginRecipe({
     version: 1,
-    id: "demo-keypad",
+    id: `demo-${path.slice(1)}`,
     revision: 1,
     origin,
     pageKind: "sign-in",
@@ -205,7 +207,7 @@ function keypadRecipe(origin: string, path: string): LoginRecipe {
       {
         kind: "fill",
         path,
-        fields: [{ slot: "password", target: target("password"), keypad: target("keypad") }],
+        fields: [{ slot: "password", target: target("password"), keypad }],
       },
       { kind: "click", path, target: target("login"), purpose: "submit" },
     ],
@@ -216,7 +218,10 @@ function keypadRecipe(origin: string, path: string): LoginRecipe {
 }
 export function probeRecipe(origin: string, path: string): LoginRecipe | undefined {
   if (!PROBE_PATHS.includes(path)) return undefined;
-  if (path === "/keypad") return keypadRecipe(origin, path);
+  if (path === "/keypad") return keypadRecipe(origin, path, target("keypad"));
+  // From the input up through its label to the form, then the form's second child.
+  if (path === "/keypad-position")
+    return keypadRecipe(origin, path, { by: "position", value: "2:1" });
   if (path === "/method-choice") return methodChoiceRecipe(origin, path);
   if (path === "/method-choice-named") return namedMethodChoiceRecipe(origin, path);
   if (path === "/shared-input") return sharedInputRecipe(origin, path);
