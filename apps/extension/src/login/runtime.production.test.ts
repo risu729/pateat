@@ -18092,6 +18092,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       const popupFills = () =>
         fake.state.messages.filter((entry) => entry.type === "login.detail.fill");
       const pendingKey = "pateat.login-pending-details.v1";
+      const offersKey = "pateat.login-detail-offers.v1";
       /** A login that stopped at the handler for want of a link, its page still shown. */
       async function stopped(read: Record<string, string> = birthValue) {
         vi.useFakeTimers();
@@ -18302,6 +18303,25 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         expect(savedLinks(h)).toEqual([]);
         expect(popupFills()).toEqual([]);
         expect(handlerReports(report)).toEqual([[0, "detail", "detail-unlinked", 2]]);
+        // The offer ended with the login, in the session too, so a restarted worker does
+        // not bring it back.
+        expect(fake.state.session[offersKey]).toEqual([]);
+      });
+
+      it("proposes nothing more in the document that asked once the person typed the value and the login was confirmed", async () => {
+        const { h, report } = await stopped();
+        await signedIn(h);
+        expect(status()).toMatchObject([{ state: "authenticated", outcome: "authenticated" }]);
+        // The tab shows the document that asked again, as a single-page site or the
+        // back-forward cache keeps it: the login's offer ended with the login.
+        await h.hello({ documentId: "synthetic-document" }, false);
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(status()).toMatchObject([{ state: "authenticated", outcome: "authenticated" }]);
+        expect(await ask(h)).toEqual({ ok: true, origin, links: [] });
+        expect(fake.state.session[offersKey]).toEqual([]);
+        expect(savedLinks(h)).toEqual([]);
+        expect(popupFills()).toEqual([]);
+        expect(handlerReports(report)).toEqual([[0, "detail", "detail-unlinked", 2]]);
       });
 
       it("lifts a refused link that the person fills again, once the login is confirmed", async () => {
@@ -18331,6 +18351,9 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
           expect(handlerReports(report).at(-1)).toEqual([0, "detail", "detail-saved", 2]),
         );
         expect(savedLinks(h)).toEqual([birthLink]);
+        // The session no longer keeps the refusal, so a restarted worker does not bring it
+        // back.
+        expect(fake.state.session[refusedKey]).toEqual([]);
       });
 
       it("has nothing to show for a tab without a web page or a login", async () => {
