@@ -88,6 +88,9 @@ export default defineConfig({
       link: "/ja/",
       description:
         "この端末に保存した自分の Bitwarden 保管庫で、ウェブサイトにログインし、パスキーでのサインインに応答します。",
+      markdown: {
+        codeCopyButton: { tooltipText: "コードをコピー", copiedText: "コピーしました" },
+      },
       themeConfig: {
         nav: [
           { text: "使い方", link: "/ja/installation" },
