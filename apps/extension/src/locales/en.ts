@@ -26,6 +26,10 @@ export const en = {
   "Unnamed item": "Unnamed item",
   Default: "Default",
   "Use the browser or another extension": "Use the browser or another extension",
+  "Just once": "Just once",
+  "Always for this site": "Always for this site",
+  "Pateat leaves passkeys on {{hostname}} to the browser. Undo it in Pateat's settings.":
+    "Pateat leaves passkeys on {{hostname}} to the browser. Undo it in Pateat's settings.",
   "Pateat on this site": "Pateat on this site",
   "{{item}}, ID {{id}}": "{{item}}, ID {{id}}",
   "Saving…": "Saving…",

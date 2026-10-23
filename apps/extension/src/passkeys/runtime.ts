@@ -57,8 +57,11 @@ export interface PasskeySource<TCandidate extends PasskeyCandidate = PasskeyCand
 /** What the user did in the chooser window, by position in the offered list. */
 export type PasskeyChoice =
   | { readonly kind: "chosen"; readonly index: number; readonly makeDefault: boolean }
-  /** "Use the browser" was pressed, the window was closed, or it could not be shown. */
-  | { readonly kind: "browser" | "closed" | "unavailable" };
+  /**
+   * "Use the browser": "Just once" (`browser`) or "Always for this site" (`browser-site`);
+   * or the window was closed, or it could not be shown.
+   */
+  | { readonly kind: "browser" | "browser-site" | "closed" | "unavailable" };
 
 /** Opens Pateat's chooser window for one request (ADR 0021) and settles when it is answered. */
 export interface PasskeyChooser {
@@ -143,13 +146,14 @@ export interface PasskeyRequestReport {
 }
 /**
  * Who cancelled a request (`page-cancelled`, `settings-changed`), or the step that threw:
- * the wait for a login's decision on a conditional request, the login's account lookup,
- * the passkey lookup, the check for an earlier signing in the tab, the chooser window, or
- * signing.
+ * the check for a site whose requests go to the browser, the wait for a login's decision on
+ * a conditional request, the login's account lookup, the passkey lookup, the check for an
+ * earlier signing in the tab, the chooser window, or signing.
  */
 export type PasskeyStopCause =
   | "page-cancelled"
   | "settings-changed"
+  | "browser-site-lookup"
   | "login-wait"
   | "account-lookup"
   | "passkey-lookup"
@@ -218,7 +222,8 @@ export function abortable<T>(pending: Promise<T>, signal: AbortSignal): Promise<
 /**
  * Background coordinator for bridged `get()` requests. Every outcome but an assertion delegates,
  * except a chooser window left unanswered until the request's wait ran out, which fails, and a
- * conditional request withheld after a login of its page signed in (ADR 0034).
+ * conditional request withheld after a login of its page signed in (ADR 0034). A request of a
+ * hostname whose requests go to the browser is handed on before anything else (ADR 0007).
  */
 export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
   source: PasskeySource<TCandidate>,
@@ -231,6 +236,18 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
     report?: (report: PasskeyRequestReport) => void;
     /** Asks the user when several passkeys match and no site default is among them. */
     chooser?: PasskeyChooser;
+    /**
+     * Whether the origin's hostname is one whose passkey requests go to the browser, added by
+     * the chooser's "Always for this site" (ADR 0007). Such a request is handed on at once,
+     * whatever its mediation, before any login, vault or chooser step.
+     */
+    browserSite?: (origin: string) => Promise<boolean> | boolean;
+    /**
+     * Adds the origin's hostname to those sites when the person chose "Always for this site".
+     * Called only after the request was handed on, because a settings save cancels pending
+     * passkey requests.
+     */
+    addBrowserSite?: (origin: string) => Promise<void>;
     /**
      * Saves a passkey chosen in the window as the origin's site default. Called only after the
      * assertion was handed back, because a settings save cancels pending passkey requests.
@@ -286,6 +303,8 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
     hold?: () => Promise<() => void>;
   },
 ) {
+  /** What happens once the reply is on its way. */
+  type After = { remember?: TCandidate; signed?: TCandidate; browserSite?: true };
   type Operation = {
     documentId: string;
     controller: AbortController;
@@ -316,7 +335,7 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
     origin: string,
     context: { documentId: string; tabId: number; incognito: boolean; active: boolean },
     detail: ReportDetail,
-    after: { remember?: TCandidate; signed?: TCandidate },
+    after: After,
   ): Promise<RuntimeResult> {
     const { documentId } = context;
     const documentOperations = [...operations.values()].filter(
@@ -367,7 +386,7 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
     // A conditional request gets its budget once a login answers it (ADR 0034).
     let timer = conditional ? undefined : setTimeout(expire, budget());
     // The step running when something threw, for the report.
-    let step: PasskeyStopCause = conditional ? "login-wait" : "account-lookup";
+    let step: PasskeyStopCause = "browser-site-lookup";
     // Vault replacement waits while the vault is read for this request, never while a
     // conditional request waits for a login (ADR 0025, ADR 0034).
     let leave: (() => void) | undefined;
@@ -527,6 +546,8 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
         );
         operation.choosing = false;
         detail.chooser = choice.kind;
+        // The site's hostname is added once the request has been handed on.
+        if (choice.kind === "browser-site") after.browserSite = true;
         if (choice.kind !== "chosen") return { kind: "delegate", reason: `chooser-${choice.kind}` };
         const chosen = offered[choice.index];
         if (!chosen) return { kind: "delegate", reason: "chooser-invalid" };
@@ -594,6 +615,16 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
     };
     try {
       const signal = controller.signal;
+      // "Always for this site": Pateat answers nothing there, not even through a login.
+      if (
+        options.browserSite &&
+        (await abortable(
+          Promise.try(() => options.browserSite!(origin)),
+          signal,
+        ))
+      )
+        return { kind: "delegate", reason: "browser-site" };
+      step = conditional ? "login-wait" : "account-lookup";
       // A re-verification after Pateat's login in the tab: answering it completes the
       // verification as a press would, so it goes to the browser or Bitwarden, as
       // `confirm-fill` under the default setting for `confirm` pages (ADR 0035). A
@@ -670,7 +701,7 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
           // Never changes the answer.
         }
       const detail: ReportDetail = {};
-      const after: { remember?: TCandidate; signed?: TCandidate } = {};
+      const after: After = {};
       const result = await get(
         command,
         origin,
@@ -705,6 +736,10 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
         const remember = options.remember;
         // After the reply is on its way: saving settings cancels pending passkey requests.
         setTimeout(() => void remember(origin, remembered).catch(() => undefined), 0);
+      }
+      if (after.browserSite && options.addBrowserSite) {
+        const add = options.addBrowserSite;
+        setTimeout(() => void add(origin).catch(() => undefined), 0);
       }
       const report = (login?: unknown) => {
         try {

@@ -456,6 +456,7 @@ function harness(
       },
     ],
     excludedSites: [],
+    passkeyBrowserSites: [],
     siteDefaults: [{ origin, provider: "bitwarden", userId, itemId }],
     bindings: [savedBinding],
     ...overrides,
@@ -12988,6 +12989,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         const settings = (excludedSites: { hostname: string; includeSubdomains: boolean }[]) => ({
           connections: [],
           excludedSites,
+          passkeyBrowserSites: [],
           siteDefaults: [],
           bindings: [],
         });
@@ -14820,6 +14822,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
     const passkeyOnlySetup = (
       passkeyItems: (origin: string) => Promise<readonly PasskeyItem[]>,
       candidates = uriMatch().candidates,
+      overrides: Partial<LocalSettings> = {},
     ) => {
       const service = {
         available: vi.fn(async (): Promise<true> => true),
@@ -14831,7 +14834,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       const report = vi.fn<(report: LoginReport) => void>();
       const lookup = vi.fn(passkeyItems);
       const h = harness(
-        { siteDefaults: [], bindings: [] },
+        { siteDefaults: [], bindings: [], ...overrides },
         {
           uris: async () => ({ ok: true as const, data: uriMatch({ candidates }) }),
           passkeyItems: lookup,
@@ -14866,6 +14869,21 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       ]);
       expect(service.generate).not.toHaveBeenCalled();
       expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.extract");
+    });
+
+    it("does not generate on a site whose passkey requests go to the browser (ADR 0007)", async () => {
+      const { h, service, lookup, skipped } = passkeyOnlySetup(
+        async () => [{ connectionId, itemId }],
+        uriMatch().candidates,
+        { passkeyBrowserSites: [{ hostname: new URL(origin).hostname }] },
+      );
+      expect(await showPasskey(h)).not.toEqual({ ok: false, reason: "generating" });
+      // Pateat answers no passkey request there, so no item holds one it may use.
+      expect(lookup).not.toHaveBeenCalled();
+      expect(skipped()).toEqual([
+        expect.objectContaining({ reason: "no-vault-match", detail: "no-passkey" }),
+      ]);
+      expect(service.generate).not.toHaveBeenCalled();
     });
 
     it("refuses a page announced as both an identifier page and a passkey page", async () => {
@@ -16500,6 +16518,56 @@ describe("the start page's passkey route (ADR 0027)", () => {
     expect(fills()).toBe(1);
     expect(clicks(button.value)).toBe(0);
     expect(clicks("login")).toBe(1);
+  });
+
+  it("fills the password route on a site whose passkey requests go to the browser (ADR 0007)", async () => {
+    fake.state.present = new Set(["password", "login", "Sign in with a passkey", "logout"]);
+    fake.state.observedPath = "/home";
+    const passkeys = discoverable();
+    const { h } = start(
+      learned,
+      { passkeys },
+      { passkeyBrowserSites: [{ hostname: new URL(origin).hostname }] },
+    );
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
+    expect(status()![0]).toMatchObject({
+      route: "password",
+      variant: 0,
+      facts: { passkey: false, discoverablePasskey: false },
+    });
+    expect(fills()).toBe(1);
+    expect(clicks(button.value)).toBe(0);
+    // The item's passkeys are not even looked up there.
+    expect(passkeys).not.toHaveBeenCalled();
+  });
+
+  it("never takes the passkey route on such a site, even for an item without a password", async () => {
+    // As in the test below, only the passkey route could sign this item in.
+    const custom = parseLoginRecipe({
+      ...learned,
+      slots: ["member-number", "password"],
+      steps: [
+        {
+          kind: "fill",
+          path: "/signin",
+          fields: [
+            { slot: "member-number", target: target("member") },
+            { slot: "password", target: target("password") },
+          ],
+        },
+        recipe.steps[1]!,
+      ],
+    });
+    const passkeys = discoverable();
+    const { h } = start(
+      custom,
+      { passkeys },
+      { bindings: [], passkeyBrowserSites: [{ hostname: new URL(origin).hostname }] },
+    );
+    expect(await h.hello()).toEqual({ ok: false, reason: "binding-not-found" });
+    expect(clicks(button.value)).toBe(0);
+    expect(passkeys).not.toHaveBeenCalled();
   });
 
   it("takes the passkey route for an item without a password or a fitting binding", async () => {

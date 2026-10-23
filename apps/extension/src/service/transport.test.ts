@@ -376,7 +376,13 @@ describe("recipe changes", () => {
 });
 
 describe("settings", () => {
-  const document = { connections: [], excludedSites: [], siteDefaults: [], bindings: [] };
+  const document = {
+    connections: [],
+    excludedSites: [],
+    passkeyBrowserSites: [],
+    siteDefaults: [],
+    bindings: [],
+  };
   const state = { version: 1, revision: 4, settings: document };
 
   it("reads and conditionally writes the settings document", async () => {

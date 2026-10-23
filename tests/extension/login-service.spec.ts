@@ -129,7 +129,13 @@ async function prepare(browser: VaultBrowser, service: SyncService) {
     body: {
       version: 1,
       expectedRevision: 0,
-      settings: { connections: [], excludedSites: [], siteDefaults: [], bindings: [binding] },
+      settings: {
+        connections: [],
+        excludedSites: [],
+        passkeyBrowserSites: [],
+        siteDefaults: [],
+        bindings: [binding],
+      },
     },
   });
   expect(stored.status).toBe(200);

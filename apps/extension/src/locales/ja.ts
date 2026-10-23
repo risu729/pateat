@@ -29,6 +29,10 @@ export const ja = {
   "Unnamed item": "名前のないアイテム",
   Default: "既定",
   "Use the browser or another extension": "ブラウザーまたは別の拡張機能を使う",
+  "Just once": "今回のみ",
+  "Always for this site": "このサイトでは常に",
+  "Pateat leaves passkeys on {{hostname}} to the browser. Undo it in Pateat's settings.":
+    "{{hostname}} のパスキーは今後ブラウザーに任せます。Pateat の設定で元に戻せます。",
   "Pateat on this site": "このサイトで Pateat を使う",
   "{{item}}, ID {{id}}": "{{item}}、ID {{id}}",
   "Saving…": "保存中…",

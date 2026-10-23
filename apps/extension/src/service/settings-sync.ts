@@ -26,6 +26,7 @@ export const MAX_SETTINGS_DEFER_MS = 2 * 60 * 1000;
 
 type SiteDefault = LocalSettings["siteDefaults"][number];
 type ExcludedSite = LocalSettings["excludedSites"][number];
+type PasskeyBrowserSite = LocalSettings["passkeyBrowserSites"][number];
 type Binding = LocalSettings["bindings"][number];
 
 /**
@@ -34,6 +35,7 @@ type Binding = LocalSettings["bindings"][number];
  */
 export type SyncedSettings = {
   excludedSites: ExcludedSite[];
+  passkeyBrowserSites: PasskeyBrowserSite[];
   siteDefaults: SiteDefault[];
   bindings: Binding[];
 };
@@ -41,12 +43,18 @@ export type SyncedSettings = {
 export function syncedSettings(settings: LocalSettings): SyncedSettings {
   return {
     excludedSites: settings.excludedSites,
+    passkeyBrowserSites: settings.passkeyBrowserSites,
     siteDefaults: settings.siteDefaults,
     bindings: settings.bindings,
   };
 }
 
-const emptySynced: SyncedSettings = { excludedSites: [], siteDefaults: [], bindings: [] };
+const emptySynced: SyncedSettings = {
+  excludedSites: [],
+  passkeyBrowserSites: [],
+  siteDefaults: [],
+  bindings: [],
+};
 
 // The base of the next three-way merge. Normally both copies are the same; after an
 // upload whose local write has not happened yet, `local` is still the local copy the
@@ -104,7 +112,7 @@ export type SettingsSyncOutcome =
   | "storage-unavailable"
   | TransportFailure;
 
-const siteKey = (entry: ExcludedSite) => entry.hostname;
+const siteKey = (entry: ExcludedSite | PasskeyBrowserSite) => entry.hostname;
 const defaultKey = (entry: SiteDefault) => entry.origin;
 const bindingKey = (entry: Binding) =>
   JSON.stringify([entry.recipeId, entry.origin, entry.provider, entry.userId, entry.itemId]);
@@ -152,6 +160,12 @@ export function mergeSyncedSettings(
       service.excludedSites,
       siteKey,
     ),
+    passkeyBrowserSites: mergeEntries(
+      part("passkeyBrowserSites"),
+      local.passkeyBrowserSites,
+      service.passkeyBrowserSites,
+      siteKey,
+    ),
     siteDefaults: mergeEntries(
       part("siteDefaults"),
       local.siteDefaults,
@@ -193,6 +207,7 @@ export function refreshDisplayNames(synced: SyncedSettings, catalog: VaultCatalo
   }
   return {
     excludedSites: synced.excludedSites,
+    passkeyBrowserSites: synced.passkeyBrowserSites,
     siteDefaults: synced.siteDefaults.map((entry) => refresh(entry, siteDefaultSchema)),
     bindings: synced.bindings.map((entry) => refresh(entry, savedLoginBindingSchema)),
   };
@@ -210,6 +225,7 @@ function equalSynced(left: SyncedSettings, right: SyncedSettings): boolean {
     entries.map((entry) => [key(entry), entry] as const).sort(([a], [b]) => (a < b ? -1 : 1));
   return (
     same(sorted(left.excludedSites, siteKey), sorted(right.excludedSites, siteKey)) &&
+    same(sorted(left.passkeyBrowserSites, siteKey), sorted(right.passkeyBrowserSites, siteKey)) &&
     same(sorted(left.siteDefaults, defaultKey), sorted(right.siteDefaults, defaultKey)) &&
     same(sorted(left.bindings, bindingKey), sorted(right.bindings, bindingKey))
   );

@@ -51,7 +51,9 @@ export const chooserMessageSchema = v.variant("type", [
         index: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(MAX_CHOOSER_ENTRIES - 1)),
         makeDefault: v.boolean(),
       }),
+      /** "Just once" hands this request on; "Always for this site" every later one too. */
       v.strictObject({ kind: v.literal("browser") }),
+      v.strictObject({ kind: v.literal("browser-site") }),
     ]),
   }),
 ]);

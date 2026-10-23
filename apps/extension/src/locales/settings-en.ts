@@ -126,4 +126,11 @@ export const settingsEn = {
   "A default account takes effect at the next login":
     "A default account takes effect at the next login",
   "{{item}} ({{method}})": "{{item}} ({{method}})",
+  "Sites whose passkey requests go to the browser":
+    "Sites whose passkey requests go to the browser",
+  'Added with "Always for this site" in Pateat\'s passkey window. Pateat answers no passkey request on these sites and logs in there only with a password. Remove a site to let Pateat answer again.':
+    'Added with "Always for this site" in Pateat\'s passkey window. Pateat answers no passkey request on these sites and logs in there only with a password. Remove a site to let Pateat answer again.',
+  "Remove {{hostname}} from this list": "Remove {{hostname}} from this list",
+  Remove: "Remove",
+  "No sites listed": "No sites listed",
 } as const;

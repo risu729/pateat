@@ -424,12 +424,14 @@ test("several matching passkeys open Pateat's chooser window", async () => {
       expectPateatAssertion(await once.settle(), origin, onceChallenge);
       expect(await probe.remembered()).toEqual([secondCredentialId]);
 
-      // "Use the browser" and closing the window both hand the request to the browser.
+      // "Use the browser" just once and closing the window both hand the request to the
+      // browser.
       const browserChallenge = challengeHex();
       const toBrowser = await requestWithChooser(context, page, { challenge: browserChallenge });
-      await choose(
-        toBrowser.chooser.getByRole("button", { name: "Use the browser or another extension" }),
-      );
+      await toBrowser.chooser
+        .getByRole("button", { name: "Use the browser or another extension" })
+        .click();
+      await choose(toBrowser.chooser.getByRole("menuitem", { name: "Just once" }));
       expectNativeAssertion(await toBrowser.settle(), origin, browserChallenge);
       const closedChallenge = challengeHex();
       const closed = await requestWithChooser(context, page, { challenge: closedChallenge });
@@ -446,6 +448,46 @@ test("several matching passkeys open Pateat's chooser window", async () => {
       });
       expect(await aborted.settle()).toEqual({ error: "caller-reason" });
       await abortedClosed;
+    });
+  } finally {
+    server.close();
+  }
+});
+
+test('"Always for this site" hands the host\'s later requests to the browser until removed (ADR 0007)', async () => {
+  const { server, origin } = await startRelyingParty();
+  try {
+    await withLoginExtension(async (context, _worker, extensionId) => {
+      const probe = await probeControls(context, extensionId);
+      await probe.configure({ count: 2 });
+      const page = await openRelyingParty(context, origin);
+      const options = await context.newPage();
+      await options.goto(`chrome-extension://${extensionId}/options.html`);
+      const listed = async () =>
+        (await settingsRequest(options)).snapshot.settings.passkeyBrowserSites;
+
+      const first = challengeHex();
+      const always = await requestWithChooser(context, page, { challenge: first });
+      await always.chooser
+        .getByRole("button", { name: "Use the browser or another extension" })
+        .click();
+      await choose(always.chooser.getByRole("menuitem", { name: /^Always for this site/u }));
+      expectNativeAssertion(await always.settle(), origin, first);
+      await expect.poll(listed).toEqual([{ hostname: "localhost" }]);
+
+      // The next request goes to the browser at once, without a window or a signature.
+      const later = challengeHex();
+      expectNativeAssertion(await clickRequest(page, { challenge: later }), origin, later);
+      expect(await probe.signatures()).toBe(0);
+
+      // Removed on the settings page, the next request of the same page asks again.
+      await options.reload();
+      await options.getByRole("button", { name: "Remove localhost from this list" }).click();
+      await expect.poll(listed).toEqual([]);
+      const again = challengeHex();
+      const asked = await requestWithChooser(context, page, { challenge: again });
+      await choose(asked.chooser.getByRole("button", { name: /Synthetic passkey 1/u }));
+      expectPateatAssertion(await asked.settle(), origin, again);
     });
   } finally {
     server.close();

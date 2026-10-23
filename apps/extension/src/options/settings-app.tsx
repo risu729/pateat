@@ -28,6 +28,7 @@ type AcceptedSettings = Extract<SettingsResponse, { ok: true }>;
 const emptySettings: LocalSettings = {
   connections: [],
   excludedSites: [],
+  passkeyBrowserSites: [],
   siteDefaults: [],
   bindings: [],
 };
@@ -230,6 +231,7 @@ export function SettingsApp({
     update(next);
     form.setFieldValue("connections", next.connections);
     form.setFieldValue("excludedSites", next.excludedSites);
+    form.setFieldValue("passkeyBrowserSites", next.passkeyBrowserSites);
     form.setFieldValue("siteDefaults", next.siteDefaults);
     edits.current += 1;
     setDirty(true);

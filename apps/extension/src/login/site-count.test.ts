@@ -43,6 +43,7 @@ function settings(
         },
       ],
       excludedSites: [],
+      passkeyBrowserSites: [],
       siteDefaults: [],
       bindings: [],
       ...more,

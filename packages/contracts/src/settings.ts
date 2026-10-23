@@ -176,6 +176,18 @@ export const localSettingsSchema = v.pipe(
         "Duplicate sites",
       ),
     ),
+    /**
+     * Hostnames whose passkey requests Pateat hands on to the browser unanswered, added by
+     * the chooser's "Always for this site" (ADR 0007). Exact hostnames, without subdomains.
+     */
+    passkeyBrowserSites: v.pipe(
+      v.array(v.strictObject({ hostname: hostnameSchema })),
+      v.maxLength(1000),
+      v.check(
+        (sites) => new Set(sites.map((site) => site.hostname)).size === sites.length,
+        "Duplicate sites",
+      ),
+    ),
     siteDefaults: v.pipe(
       v.array(siteDefaultSchema),
       v.maxLength(1000),
@@ -390,6 +402,7 @@ export function createDefaultSettings(catalog: VaultCatalog = DUMMY_VAULT_CATALO
       excludedFields: [],
     })),
     excludedSites: [],
+    passkeyBrowserSites: [],
     siteDefaults: [],
     bindings: [],
   };
@@ -446,6 +459,17 @@ export function isSiteExcluded(settings: LocalSettings, value: string): boolean 
       hostname === site.hostname ||
       (site.includeSubdomains && hostname.endsWith(`.${site.hostname}`)),
   );
+}
+
+/**
+ * Whether Pateat hands every passkey request of this page's exact hostname on to the
+ * browser (ADR 0007). An invalid destination is handed on too.
+ */
+export function isPasskeyBrowserSite(settings: LocalSettings, value: string): boolean {
+  const url = parseSiteUrl(value);
+  const hostname = url && normalizeHostname(url.hostname);
+  if (!hostname) return true;
+  return settings.passkeyBrowserSites.some((site) => site.hostname === hostname);
 }
 
 export type SiteAccountResolution =

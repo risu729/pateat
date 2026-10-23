@@ -120,6 +120,7 @@ function settingsFor({
             },
           ],
           excludedSites: [],
+          passkeyBrowserSites: [],
           siteDefaults: [{ origin, provider: "bitwarden", userId, itemId }],
           bindings: [],
         },

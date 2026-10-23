@@ -68,6 +68,12 @@ Amended on 2026-10-17: the bridge snapshot relays `timeout`, which only bounds t
 chooser window ([ADR 0021](0021-account-choice-outside-settings.md)); see the dated
 amendment below.
 
+Amended on 2026-10-23 by the owner's request at 12:15 UTC: as in the official Bitwarden
+extension, the chooser can hand a site's passkey requests to the browser for good, and
+the person can undo that later on the settings page; Pateat then answers no passkey
+request on that hostname (see the dated amendment below; implemented, unit and synthetic
+component tests only).
+
 Date: 2026-10-10
 
 ## Context
@@ -386,3 +392,38 @@ Admission above says the bridge snapshot drops `timeout`. Since
 uses it only to bound how long the chooser window may keep the request open. `hints`
 and `extensions` are still dropped. This records the implemented behavior; no decision
 changed. The earlier accepted text above remains as history.
+
+## Amendment: sites whose passkey requests go to the browser (2026-10-23)
+
+The owner asked on 2026-10-23 at 12:15 UTC (in Japanese; paraphrased): like the
+official Bitwarden extension, let the choice to hand a passkey request to the browser be
+remembered; it must be undoable; it is shared across the account (synced settings); the
+settings page only needs to remove it, not add it.
+
+- The chooser window's "Use the browser or another extension" opens a menu, as
+  Bitwarden's "Use device or hardware key" does: "Just once" hands this request on, as
+  before; "Always for this site" hands it on and then adds the requesting page's exact
+  hostname (Bitwarden's `Utils.getHostname`, not the registrable site, and no
+  subdomains) to the synced `passkeyBrowserSites` list.
+- On a listed hostname Pateat answers no passkey request: every `get`, whether modal,
+  `required`, `conditional` or Immediate UI, is handed on with `browser-site` before any
+  login, vault or chooser step, and so is every bridged `create`, which is then never
+  refused. A failed read of the list hands the request on too (`assertion-failed`,
+  cause `browser-site-lookup`).
+- A login on such a page treats its item as holding no passkey: it takes a `password`
+  route or refuses, never the `passkey` route, and a passkey-only page there is not sent
+  for generation (ADR 0053). This follows from Pateat answering nothing there (the
+  agent's reading, not confirmed by the owner).
+- The extension's settings page lists the hostnames under "Sites whose passkey requests
+  go to the browser", each with only a Remove button. A removal is a settings save, so
+  the next request on that host is answered again without a reload.
+- The write waits up to two minutes for a running login, which a settings write would
+  stop, as a settings sync does, and is then a settings save that is uploaded (the
+  agent's addition, not confirmed by the owner). A full list of 1,000 keeps its entries.
+- Under [ADR 0024](0024-settings-profiles.md) the list is a profile part, like
+  `excludedSites` (the agent's assignment, not confirmed by the owner); with one
+  profile it syncs to every paired device.
+
+Differences from Bitwarden are listed in
+[Differences from Bitwarden](../bitwarden-differences.md#passkeys). The earlier
+accepted text above remains as history.
