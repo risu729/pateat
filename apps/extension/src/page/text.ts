@@ -294,7 +294,7 @@ export function shown(element: Element, opacity = true): element is HTMLElement 
  * rendering does: `<div>Customer</div><div>Number</div>` and
  * `<p>Customer</p><label>Number</label>`. With `everyElement`, every element boundary
  * separates words (`<span>a@example.com</span><a>Not you?</a>`), and elements matching
- * `skip` contribute nothing. A line-break opportunity never separates words: a `<wbr>`
+ * `skip`, and `leave`, contribute nothing. A line-break opportunity never separates words: a `<wbr>`
  * adds nothing, and format characters such as a zero-width space or soft hyphen are
  * left out, so `taro@<wbr>example.com` and `taro@\u200Bexample.com` read as
  * `taro@example.com`.
@@ -302,9 +302,13 @@ export function shown(element: Element, opacity = true): element is HTMLElement 
 export function renderedText(
   root: Element,
   limit: number,
-  { everyElement = false, skip }: { everyElement?: boolean; skip?: string } = {},
+  {
+    everyElement = false,
+    skip,
+    leave,
+  }: { everyElement?: boolean; skip?: string | undefined; leave?: Element | undefined } = {},
 ): string | undefined {
-  if (!shown(root) || textless.has(root.tagName)) return undefined;
+  if (!shown(root) || textless.has(root.tagName) || leave?.contains(root)) return undefined;
   const view = root.ownerDocument.defaultView;
   let text = "";
   // `undefined` marks the end of a block, so its text never joins the text after it.
@@ -321,7 +325,8 @@ export function renderedText(
       node instanceof Element &&
       !textless.has(node.tagName) &&
       shown(node) &&
-      !(skip && node.matches(skip))
+      !(skip && node.matches(skip)) &&
+      node !== leave
     ) {
       if (node instanceof HTMLBRElement) text += " ";
       else if (

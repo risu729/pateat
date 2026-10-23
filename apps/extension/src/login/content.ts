@@ -23,10 +23,11 @@ import { showsAmount } from "../page/amount";
 import {
   besideKeypad,
   findKeypad,
-  findKeypadTargets,
   keypadCovers,
   keypadField,
+  keypadInput,
   keypadOpen,
+  locateKeypad,
 } from "../page/keypad";
 import { typeOnKeypad } from "../page/keypad-typing";
 import {
@@ -149,18 +150,15 @@ function ready(readiness: LoginReadiness): boolean {
 /**
  * Whether the page shows a visible password input, or one marked for a username or a
  * one-time code: the only pages without a recipe that may be sent for generation
- * (ADR 0016). A read-only password input counts on a page with a software keyboard
- * (`findKeypad`, ADR 0067).
+ * (ADR 0016). A read-only one counts beside a software keyboard (`keypadField`,
+ * ADR 0067).
  */
 function showsSignIn(): boolean {
-  // The keypad is looked for once, and only for a read-only password input.
-  let keypad: { container: Element | undefined } | undefined;
   return [...document.querySelectorAll("input")].some((input) => {
     const tokens = autocompleteTokens(input);
-    if (input.type === "password" && !writable(input) && keyable(input)) {
-      keypad ??= { container: findKeypad(document) };
-      return keypadField(input, keypad.container);
-    }
+    // The keypad is looked for only for a read-only input that may take its characters.
+    if (!writable(input) && keyable(input) && keypadInput(input))
+      return keypadField(input, findKeypad(document, input));
     return (
       (input.type === "password" ||
         tokens.includes("username") ||
@@ -1010,13 +1008,12 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       if (command.account) command.account.username = "";
       // The sign-in form shown again in a new document: its inputs each target names alone,
       // read-only ones when entered on the page's keypad (ADR 0067).
-      const keypad = command.fields ? findKeypad(document) : undefined;
       const keyed = new Set<HTMLInputElement>();
       const reshown = command.fields?.flatMap((target) => {
         const found = matches(target);
         if (found.length !== 1) return [];
         if (writable(found[0])) return [found[0]];
-        if (!keyable(found[0]) || !keypadField(found[0], keypad)) return [];
+        if (!keyable(found[0]) || !keypadField(found[0], findKeypad(document, found[0]))) return [];
         keyed.add(found[0]);
         return [found[0]];
       });
@@ -1277,14 +1274,16 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           step.fields[index]!.keypad ? keyable(input) : writable(input);
         if (inputs.some((input, index) => !usable(input, index)))
           return fail("structural-mismatch", "target-missing");
-        // Each keypad's container, which holds the keys, shown or not yet.
-        const keypads = step.fields.map((field, index) => {
-          if (!field.keypad) return undefined;
-          const found = findKeypadTargets(document, field.keypad, inputs[index]);
-          return found.length === 1 && besideKeypad(found[0]!, inputs[index] as HTMLInputElement)
-            ? found[0]
-            : null;
-        });
+        // Each field's keypad, which holds the keys, shown or not yet.
+        const keypadOf = (index: number) => {
+          const field = step.fields[index]!;
+          const input = inputs[index] as HTMLInputElement;
+          const keypad = field.keypad && locateKeypad(document, field.keypad, input);
+          return keypad && besideKeypad(keypad, input) ? keypad : undefined;
+        };
+        const keypads = step.fields.map((field, index) =>
+          field.keypad ? (keypadOf(index) ?? null) : undefined,
+        );
         if (keypads.includes(null)) return fail("structural-mismatch", "keypad-missing");
         // A split code's digits and an effectful fill's event never go through a keypad.
         if (keypads.some(Boolean) && (command.code || step.effect !== "prepare"))
@@ -1504,40 +1503,41 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
               // One press per character on the page's keypad (ADR 0067); a stop is
               // never followed by another press.
               filled.add(input);
-              const keypad = keypads[index];
               let pressed = false;
               // eslint-disable-next-line no-await-in-loop
-              const stopped = await typeOnKeypad(input, value.value, keypad, {
+              const stopped = await typeOnKeypad(input, value.value, () => keypadOf(index), {
                 onPress: () => {
                   pressed = true;
                   keyPressed = true;
                 },
+                // A keypad the page redrew is looked up again for each press; the field
+                // must stay the same input.
                 between: () => {
                   if (cancelled) return "document-cancelled";
                   if (pagePath() !== step.path) return "page-changed";
+                  if (!input.isConnected) return "field-gone";
                   const now = matches(field.target);
-                  const box = findKeypadTargets(document, field.keypad!, input);
                   return now.length !== 1 ||
                     now[0] !== input ||
                     !keyable(input) ||
-                    input.form !== form ||
-                    box.length !== 1 ||
-                    box[0] !== keypad
+                    input.form !== form
                     ? "field-changed"
                     : undefined;
                 },
               });
               if (stopped === "refused") return fail("fill-rejected");
-              // No key was pressed: the value does not fit the keypad.
-              if (stopped === "key-missing" && !pressed)
-                return fail("value-mismatch", "keypad-key-missing");
+              // The field was pressed to open its keypad before a key was missing, so even
+              // without a key press the page may have changed (`mutated`).
               if (stopped === "key-missing" || stopped === "keypad-closed")
                 return fail("structural-mismatch", "keypad-key-missing");
-              // A page that moved or changed the form after a press may have taken the
-              // characters so far as the whole value and submitted them, as a PIN pad that
-              // submits at its fourth digit: never a cancellation that could type again.
-              if (pressed && (stopped === "page-changed" || stopped === "field-changed"))
+              // A page that moved, or took the field out of the document, after a press may
+              // have taken the characters so far as the whole value and submitted them, as
+              // a PIN pad that submits at its last digit: never a cancellation that could
+              // type again. A field the page only redrew or hid is no submission; the stop
+              // keeps `keypad-pressed`, and the person is told to reload.
+              if (pressed && (stopped === "page-changed" || stopped === "field-gone"))
                 return fail("submitted");
+              if (stopped === "field-gone") return fail("cancelled", "field-changed");
               if (stopped) return fail("cancelled", stopped);
             } else if (step.effect === "prepare" || buttonless) {
               // A `detail` handler's input is chosen by its radio button first (ADR 0061);

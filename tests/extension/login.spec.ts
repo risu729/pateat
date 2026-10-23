@@ -856,20 +856,16 @@ test("a software keyboard that submits by itself partway is never typed on again
       const page = await context.newPage();
       await page.goto(`${fixture.origin}/keypad?submit-at=4`);
       await expect(page.locator("#rejected")).toBeVisible();
-      // The page's own submission may be a submission, never a cancellation: the login is
-      // held for its result, as after an unknown fill, instead of starting again.
+      // The page took the form away after the fourth press: its own submission counts as
+      // the step's click, as a code that submits itself does (ADR 0027), and the shown
+      // rejection settles the login as rejected, never typed again (ADR 0021 D). The
+      // rejection is read in the click's 3-second observation, after which the attempt is
+      // released, so the poll allows more than the default 5 seconds.
       await expect
-        .poll(async () => await send(options, { version: 1, type: "login.probe.status" }))
-        .toMatchObject({
-          attempts: [
-            {
-              state: "reconciling",
-              outcome: "structural-mismatch",
-              operationKind: "fill",
-              mutationIntent: true,
-            },
-          ],
-        });
+        .poll(async () => await send(options, { version: 1, type: "login.probe.status" }), {
+          timeout: 15_000,
+        })
+        .toMatchObject({ attempts: [], asks: ["rejected"] });
       // Cover several announcements: the page is never typed on or submitted again.
       await page.waitForTimeout(1500);
       expect(
@@ -878,6 +874,41 @@ test("a software keyboard that submits by itself partway is never typed on again
           submitClicks: Number(sessionStorage.getItem("submitClicks") || 0),
         })),
       ).toEqual({ presses: 4, submitClicks: 1 });
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("a software keyboard that submits the right PIN by itself at its last press signs in with no click (ADR 0067)", async () => {
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, _worker, id) => {
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin);
+      const page = await context.newPage();
+      const length = [..."Pateat-synthetic-only!"].length;
+      await page.goto(`${fixture.origin}/keypad?submit-at=${length}`);
+      await expect(page.locator("#authenticated")).toBeVisible();
+      await expect
+        .poll(
+          async () =>
+            JSON.stringify(await send(options, { version: 1, type: "login.probe.status" })),
+          { timeout: 15_000 },
+        )
+        .toContain('"authenticated"');
+      expect(await send(options, { version: 1, type: "login.probe.status" })).toMatchObject({
+        attempts: [{ state: "authenticated", submissions: 1 }],
+      });
+      await page.waitForTimeout(1500);
+      // The page's own submission is the only one: Pateat clicked nothing.
+      expect(
+        await page.evaluate(() => ({
+          presses: Number(sessionStorage.getItem("keypadPresses")),
+          submitClicks: Number(sessionStorage.getItem("submitClicks") || 0),
+          passwordMatched: sessionStorage.getItem("passwordMatched"),
+        })),
+      ).toEqual({ presses: length, submitClicks: 1, passwordMatched: "true" });
     });
   } finally {
     await fixture.close();

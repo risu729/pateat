@@ -1761,9 +1761,11 @@ describe("extractLoginObservation", () => {
       ["go", undefined],
     ]);
     // Without a keypad, a read-only field is still unfillable. So is one that holds a
-    // value, as a date or an email address shown again, and a keypad with neither every
+    // value, as a date or an email address shown again, or a read-only text input, as a
+    // search box beside an A-Z filter bar of buttons, and a keypad with neither every
     // digit nor 26 letters is no keypad.
     for (const html of [
+      `<input id="q" type="text" readonly><div id="pad">${keys("ABCDEFGHIJKLMNOPQRSTUVWXYZ")}</div>`,
       `<input id="pin" type="password" readonly><div id="pad">${keys("012345678")}</div>`,
       `<input id="pin" type="password" readonly><div id="pad">${keys("ABCDEFGHIJKLMNOPQRSTUVWXY")}</div>`,
       `<input id="pin" type="password" readonly disabled><div id="pad">${keys("0123456789")}</div>`,
@@ -1780,6 +1782,59 @@ describe("extractLoginObservation", () => {
     );
     const apart = extractLoginObservation();
     expect(apart.ok && apart.observation.complete).toBe(false);
+  });
+
+  it("never sends a software keyboard's key labels or their order, in a label, description or anywhere else (ADR 0067)", () => {
+    // A shuffled letters-only keyboard of links, and a shuffled digit pad.
+    const order = "QWERTYUIOPASDFGHJKLZXCVBNM";
+    const digits = "7391028465";
+    const links = (characters: string) =>
+      [...characters].map((character) => `<a href="#">${character}</a>`).join(" ");
+    const sent = (keys: string) => {
+      const result = extractLoginObservation();
+      if (!result.ok) throw new Error(result.reason);
+      const text = JSON.stringify(result.observation).replaceAll(/\s/gu, "");
+      // No three keys in their order, with or without the spaces between them.
+      return [...keys].slice(0, -2).flatMap((_, at) => {
+        const run = keys.slice(at, at + 3);
+        return text.includes(run) ? [run] : [];
+      });
+    };
+    for (const [keys, html] of [
+      // The keys before the field in its row, where a label by layout would be read.
+      [
+        order,
+        `<form id="f"><div id="pad">${links(order)}</div><div><input id="pin" type="password" readonly></div><button id="go" type="button">Log in</button></form>`,
+      ],
+      [
+        digits,
+        `<form id="f"><table><tr><td id="pad">${links(digits)}</td><td><input id="pin" type="password" readonly></td></tr></table><button id="go" type="button">Log in</button></form>`,
+      ],
+      // The keys inside the field's label.
+      [
+        order,
+        `<form id="f"><label>Password <input id="pin" type="password" readonly><span id="pad">${links(order)}</span></label><button id="go" type="button">Log in</button></form>`,
+      ],
+      // The keypad named as the field's label or description.
+      [
+        digits,
+        `<form id="f"><input id="pin" type="password" readonly aria-labelledby="pad"><div id="pad">${links(digits)}</div><button id="go" type="button">Log in</button></form>`,
+      ],
+      [
+        digits,
+        `<form id="f"><label for="pin">PIN</label><input id="pin" type="password" readonly aria-describedby="pad"><div id="pad">${links(digits)}</div><button id="go" type="button">Log in</button></form>`,
+      ],
+    ] as const) {
+      page(html);
+      expect(
+        summary(observe()).map((candidate) => [candidate.target.value, candidate.keypad]),
+        html,
+      ).toEqual([
+        ["pin", { by: "id", value: "pad" }],
+        ["go", undefined],
+      ]);
+      expect(sent(keys), html).toEqual([]);
+    }
   });
 
   it("names a keypad without an id or test ID by a class only it has, else by its position from the field (ADR 0067)", () => {

@@ -264,7 +264,7 @@ describe("pageStatusLines", () => {
       expect(shown.at(-1)).toEqual([
         "login-keypad",
         "warn",
-        "Pateat pressed keys on the page's keyboard before it stopped. Reload the page before you enter the value.",
+        "Pateat pressed keys on the page's software keyboard before it stopped. Reload the page before you enter the value.",
       ]);
       expect(
         lines({ login: { state: "blocked", outcome, cause: "keypad-key-missing" } }).map(
@@ -273,6 +273,17 @@ describe("pageStatusLines", () => {
       ).not.toContain("login-keypad");
     },
   );
+
+  it("says why a keypad login stopped without claiming that nothing was pressed (ADR 0067)", () => {
+    const why = (cause: string) =>
+      lines({ login: { state: "blocked", outcome: "fill-rejected", cause } })[1]?.[2];
+    expect(why("keypad-pressed")).toBe(
+      "The login did not succeed: the page's software keyboard did not show a key Pateat pressed, so nothing more was pressed.",
+    );
+    expect(why("keypad-key-missing")).toBe(
+      "The login did not succeed: the page marked a filled input as invalid, so nothing was pressed.",
+    );
+  });
 
   it("names the outcome of a failed login without the recipe line", () => {
     expect(lines({ login: { state: "blocked", outcome: "credential-rejected" } }).slice(1)).toEqual(

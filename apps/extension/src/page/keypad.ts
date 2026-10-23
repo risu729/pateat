@@ -8,7 +8,7 @@
 // value or which keys it takes.
 
 import type { LoginKeypadTarget } from "@pateat/contracts";
-import { findTargets } from "./targets";
+import { autocompleteTokens, findTargets } from "./targets";
 import {
   collapseText,
   isButton,
@@ -89,6 +89,12 @@ export function keypadKeys(root: ParentNode): HTMLElement[] {
   );
 }
 
+/**
+ * The keys in `root` that type, apart from controls drawn for something else
+ * (`otherControl`), as pagination's page numbers.
+ */
+const typingKeys = (root: ParentNode) => keypadKeys(root).filter((key) => !otherControl(key));
+
 /** Whether a person can press `key` now: shown, enabled and not inert. */
 export function pressable(key: HTMLElement): boolean {
   return (
@@ -107,12 +113,12 @@ export function pressable(key: HTMLElement): boolean {
  */
 export function keysFor(container: Element, character: string): HTMLElement[] {
   if (widthFolded(character) !== character) return [];
-  return keypadKeys(container).filter((key) => keyLabel(key) === character && pressable(key));
+  return typingKeys(container).filter((key) => keyLabel(key) === character && pressable(key));
 }
 
 /** Whether the keypad in `container` shows a key a person can press now. */
 export function keypadOpen(container: Element): boolean {
-  return keypadKeys(container).some(pressable);
+  return typingKeys(container).some(pressable);
 }
 
 /** Whether every character of `value` has exactly one key in `container` a person can press now. */
@@ -171,8 +177,10 @@ const largeNumber = (text: string) => /^\d{2,}$/u.test(text) && Number(text) >= 
  * Whether `container`, with `around` the box it sits in, shows what a date picker or
  * pagination shows, which no keypad does: it sits in navigation or a grid (`elsewhere`),
  * its box holds one, the current item of a list, a next or previous link or a
- * `<time datetime>`, or it holds a control or table cell whose label is a number from 10
- * on (`largeNumber`), as a calendar's days 10 to 31 or page 12.
+ * `<time datetime>`, or it holds a control or table cell whose own label is a number from
+ * 10 on (`largeNumber`), as a calendar's days 10 to 31 or page 12. Only a leaf's label
+ * counts: a control with no control inside, or a cell with no element inside, so a group
+ * of keys `1`, `2` and `3` never reads as 123.
  */
 function datesOrPages(container: Element, around: Element): boolean {
   if (container.closest(elsewhere) !== null) return true;
@@ -182,38 +190,70 @@ function datesOrPages(container: Element, around: Element): boolean {
     )
   )
     return true;
-  return [...container.querySelectorAll(`${keySelector}, td, th`)].some((element) =>
-    largeNumber(
-      widthFolded(
-        collapseText(
-          element instanceof HTMLInputElement ? element.value : (element.textContent ?? ""),
+  return [...container.querySelectorAll(`${keySelector}, td, th`)].some(
+    (element) =>
+      (element instanceof HTMLInputElement ||
+        (element.matches(keySelector)
+          ? element.querySelector(keySelector) === null
+          : element.childElementCount === 0)) &&
+      largeNumber(
+        widthFolded(
+          collapseText(
+            element instanceof HTMLInputElement ? element.value : (element.textContent ?? ""),
+          ),
         ),
       ),
-    ),
   );
 }
 
-/**
- * The page's keypad, for the observation: the nearest element that holds every key of the
- * document, when there are at least {@link KEYPAD_MIN_KEYS}, they include a key for each
- * of the ten digits or at least {@link KEYPAD_MIN_LETTERS} letters (a letters-only
- * keyboard, owner's choice, 2026-10-23 13:01 UTC), and that element is neither the body
- * nor the root. Controls drawn for something else (`otherControl`), as an `A`-`Z` index
- * bar's jump links or pagination, are not keys, and an element that shows what a date
- * picker or pagination shows (`datesOrPages`), or whose box (its parent below the body)
- * holds such a control, is no keypad. These
- * guards read the page's structure, never a site (ADR 0033). A single-character control
- * elsewhere on the page, such as a "?" help button, makes the page have no keypad, which
- * leaves it to the person as before.
- */
-export function findKeypad(document: Document): Element | undefined {
-  const all = keypadKeys(document);
-  const keys = all.filter((key) => !otherControl(key));
-  if (keys.length < KEYPAD_MIN_KEYS) return undefined;
+/** Whether `keys` are enough for a keypad: ten or more, with every digit or 26 letters. */
+function enoughKeys(keys: readonly HTMLElement[]): boolean {
+  if (keys.length < KEYPAD_MIN_KEYS) return false;
   const labels = new Set(keys.map(keyLabel));
   const letters = [...labels].filter((label) => label !== undefined && /\p{L}/u.test(label));
-  if (!keypadDigits.every((digit) => labels.has(digit)) && letters.length < KEYPAD_MIN_LETTERS)
-    return undefined;
+  return keypadDigits.every((digit) => labels.has(digit)) || letters.length >= KEYPAD_MIN_LETTERS;
+}
+
+/**
+ * Of `keys`, those in the nearest box around `field` below the body that holds enough of
+ * them for a keypad (`enoughKeys`), as the field's form or its login box; none when no box
+ * does. A single-character control outside that box, such as a text-size switch's 小, 中
+ * and 大, is no key of the field's keypad.
+ */
+function keysAround(field: Element, keys: readonly HTMLElement[]): HTMLElement[] {
+  const { body, documentElement } = field.ownerDocument;
+  for (
+    let box = field.parentElement;
+    box && box !== body && box !== documentElement;
+    box = box.parentElement
+  ) {
+    const inside = keys.filter((key) => box.contains(key));
+    if (enoughKeys(inside)) return inside;
+  }
+  return [];
+}
+
+/**
+ * The page's keypad: the nearest element that holds every key, when there are at least
+ * {@link KEYPAD_MIN_KEYS}, they include a key for each of the ten digits or at least
+ * {@link KEYPAD_MIN_LETTERS} letters (a letters-only keyboard, owner's choice, 2026-10-23
+ * 13:01 UTC), and that element is neither the body nor the root. With `field`, only the
+ * keys in the nearest box around it that holds enough count (`keysAround`); without, every
+ * key of the document does. Controls drawn for something else (`otherControl`), as an
+ * `A`-`Z` index bar's jump links or pagination, are not keys, and an element that shows
+ * what a date picker or pagination shows (`datesOrPages`), or whose box (its parent below
+ * the body) holds such a control, is no keypad. These guards read the page's structure,
+ * never a site (ADR 0033). A single-character control in the box with the keys, such as a
+ * "?" help button, counts as one of them; without `field`, one anywhere else on the page
+ * leaves it with no keypad, which leaves it to the person as before. A keypad that
+ * switches between letters and digits, whose other half is not on the page, is not
+ * supported: it is no keypad, or its missing half has no keys (`key-missing`).
+ */
+export function findKeypad(document: Document, field?: Element): Element | undefined {
+  const all = keypadKeys(document);
+  const typing = all.filter((key) => !otherControl(key));
+  const keys = field ? keysAround(field, typing) : typing;
+  if (!enoughKeys(keys)) return undefined;
   let container = keys[0]!.parentElement;
   while (container && !keys.every((key) => container!.contains(key)))
     container = container.parentElement;
@@ -264,26 +304,27 @@ export function keypadPosition(field: Element, container: Element): string | und
 }
 
 /**
- * The elements a keypad locator names (ADR 0067), hidden or not; a position counts from
- * `field`. A class or a position names its element only while that element alone matches
- * and holds the page's keypad (`findKeypad`), so a class another element took on, or a
- * place another element moved into, names nothing.
+ * The keypad a locator names for `field` (ADR 0067): the page's keypad for the field
+ * (`findKeypad`), when the locator names exactly one element, hidden or not, and that
+ * element holds the keypad. A position counts from `field`. The keys are read from the
+ * keypad alone, never from the rest of the element the locator names, as a wrapper that
+ * also holds pagination; so an `id`, a class another element took on or a place another
+ * element moved into names no keypad unless it holds the page's one.
  */
-export function findKeypadTargets(
+export function locateKeypad(
   document: Document,
   target: LoginKeypadTarget,
-  field: Element | undefined,
-): Element[] {
-  if (target.by === "class" || target.by === "position") {
-    const found =
-      target.by === "class"
-        ? [...document.getElementsByClassName(target.value)]
-        : [field && atPosition(field, target.value)].filter((node) => node !== undefined);
-    if (found.length !== 1) return found;
-    const page = findKeypad(document);
-    return page && found[0]!.contains(page) ? found : [];
-  }
-  return findTargets(document, target, { hidden: true });
+  field: Element,
+): Element | undefined {
+  const found =
+    target.by === "class"
+      ? [...document.getElementsByClassName(target.value)]
+      : target.by === "position"
+        ? [atPosition(field, target.value)].filter((node) => node !== undefined)
+        : findTargets(document, target, { hidden: true });
+  if (found.length !== 1) return undefined;
+  const keypad = findKeypad(document, field);
+  return keypad && found[0]!.contains(keypad) ? keypad : undefined;
 }
 
 /**
@@ -299,17 +340,27 @@ export function besideKeypad(container: Element, field: HTMLInputElement): boole
 }
 
 /**
- * Whether `field` is entered on the page's keypad in `container` (`findKeypad`): an
- * enabled, empty read-only input beside it (`besideKeypad`). A read-only field that holds
- * a value, as an email address shown again or a picked date, is not; whether it shows is
- * the caller's check.
+ * Whether `field` may take a keypad's characters: an enabled, empty read-only password
+ * input, or one marked for a current password or a one-time code. A read-only field
+ * that holds a value, as an email address shown again or a picked date, or another
+ * text input, as a search box beside an `A`-`Z` filter bar, is not.
  */
-export function keypadField(field: HTMLInputElement, container: Element | undefined): boolean {
+export function keypadInput(field: HTMLInputElement): boolean {
+  const tokens = autocompleteTokens(field);
   return (
-    container !== undefined &&
     field.readOnly &&
     !field.disabled &&
     field.value === "" &&
-    besideKeypad(container, field)
+    (field.type === "password" ||
+      tokens.includes("current-password") ||
+      tokens.includes("one-time-code"))
   );
+}
+
+/**
+ * Whether `field` is entered on the page's keypad in `container` (`findKeypad`): a
+ * `keypadInput` beside it (`besideKeypad`). Whether it shows is the caller's check.
+ */
+export function keypadField(field: HTMLInputElement, container: Element | undefined): boolean {
+  return container !== undefined && keypadInput(field) && besideKeypad(container, field);
 }

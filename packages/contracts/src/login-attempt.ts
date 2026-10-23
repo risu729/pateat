@@ -10,6 +10,7 @@ import {
   loginOriginSchema,
   loginOutcomeSchema,
   loginRouteSchema,
+  keypadStep,
   loginStepEffect,
   MAX_PASSWORD_ALTERNATIVES,
   recipeLayoutKeySchema,
@@ -1607,6 +1608,11 @@ export const effectfulStep = (step: LoginStep): boolean => {
   const effect = loginStepEffect(step);
   return effect !== undefined && effect !== "prepare";
 };
+/**
+ * A step a fill-only login never takes (ADR 0021 D): one with an effect, or a fill on a
+ * page's software keyboard, whose presses the page may act on (ADR 0067).
+ */
+export const fillOnlyStops = (step: LoginStep): boolean => effectfulStep(step) || keypadStep(step);
 
 /**
  * Applies one event. `now` starts the watch of a login that becomes watched (ADR 0027); a
@@ -1776,9 +1782,9 @@ export function nextLoginOperation(
     // The step that fills the password of an item without one, and every later step, never
     // runs (ADR 0036).
     !beforeStop(metadata, metadata.stepIndex) ||
-    (effectfulStep(step) &&
-      // A fill-only attempt never takes a step with an effect (ADR 0021 D).
-      (metadata.fillOnly === true || metadata.submissions >= stepBudget(metadata)))
+    // A fill-only attempt never takes a step with an effect or a keypad (ADR 0021 D).
+    (metadata.fillOnly === true && fillOnlyStops(step)) ||
+    (effectfulStep(step) && metadata.submissions >= stepBudget(metadata))
   )
     return undefined;
   return v.parse(loginOperationSchema, {
@@ -1811,7 +1817,7 @@ export function validateLoginOperation(
       : metadata.state === "executing";
   return (
     readyToExecute &&
-    !(metadata.fillOnly === true && effectfulStep(operation.step)) &&
+    !(metadata.fillOnly === true && fillOnlyStops(operation.step)) &&
     beforeStop(metadata, operation.stepIndex) &&
     (!(operation.step.kind === "fill" || operation.step.kind === "click") ||
       metadata.mutationIntent === true) &&

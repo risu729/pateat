@@ -629,9 +629,11 @@ export const executionResultSchema = v.strictObject({
   documentId: id,
   mutation: v.picklist(["none", "possible"]),
   /**
-   * `value-mismatch`: a value does not fit its input, or a keypad has no single key for a
-   * character of its value, and no key was pressed (with `mutation` `none` when nothing
-   * was filled, or `possible` after the field was pressed to open its keypad).
+   * `value-mismatch`: a value does not fit its input, or a keypad that already shows its
+   * keys has no single key for a character of its value; nothing was filled or pressed
+   * (`mutation` `none`). A keypad that shows its keys only once its field is pressed, and
+   * then lacks one, ends as `structural-mismatch` with `keypad-key-missing`, as that press
+   * may have changed the page.
    * `keypad-missing`: a keypad field's keypad is not on the page or not beside the field;
    * `keypad-key-missing`: it showed no key, or a character of the value had no key or
    * several, so no further key was pressed; `keypad-pressed`: the step stopped for any
@@ -641,9 +643,9 @@ export const executionResultSchema = v.strictObject({
    * showed a new alert (ADR 0010), or while typing it kept a character out so the input
    * does not hold the value.
    * `submitted`: after a `totp` handler's code fill the page showed that it submits the
-   * code by itself (ADR 0027), or after a key press on a keypad the page moved or changed
-   * the field, perhaps submitting the characters so far (ADR 0067); nothing was
-   * clicked.
+   * code by itself (ADR 0027), or after a key press on a keypad the page moved to another
+   * path or took the field out of the document, perhaps submitting the characters so far
+   * (ADR 0067); nothing was clicked.
    * `captcha`: the page showed a CAPTCHA before a click, so the click was left to the
    * person (ADR 0029, S4); nothing was clicked.
    */

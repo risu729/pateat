@@ -270,6 +270,12 @@ the page shows another account, the fill ends and the tab asks. The log shows su
 login as `login.attempt` with reason `fill-only`, then the asking as `login.refused`
 `logged-out` with the tab that logged out.
 
+Amended on 2026-10-23 by [ADR 0067](0067-software-keyboard-entry.md) after an
+independent review: a fill on a page's software keyboard counts as a step with an
+effect here, since a key press may submit, as a PIN pad does at its last digit. The
+fill-only login ends before it and the contract refuses it, so after a logout a keypad
+login is left to the person.
+
 Implementation detail, not confirmed by the owner (2026-10-21,
 [#831](https://github.com/risu729/pateat/issues/831)): a document is filled once on
 each path, so a start on another path of the same document, as the password step

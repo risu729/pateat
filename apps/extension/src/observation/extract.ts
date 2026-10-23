@@ -19,7 +19,7 @@ import * as v from "valibot";
 import { acceptsSecret, shortNumericInput } from "../login/inputs";
 import type { observationGaps } from "../login/wire";
 import { splitCodeInputs } from "../page/code-submission";
-import { findKeypad, keypadField, keypadKeys, keypadPosition } from "../page/keypad";
+import { findKeypad, keypadField, keypadInput, keypadKeys, keypadPosition } from "../page/keypad";
 import { autocompleteTokens, findTargets, linkPath, namedControls } from "../page/targets";
 import { observedPath, redactsPath, tokenSegment } from "./path";
 import {
@@ -668,17 +668,19 @@ const idList = (element: Element, attribute: string) =>
 
 /**
  * Visible text of the elements `ids` name. With `skip`, the text of an element matching
- * it, or of one inside such an element, is left out.
+ * it, or of one inside such an element, is left out; with `keypad`, a page's software
+ * keyboard (ADR 0067), so is the text inside it, as its key labels and their order.
  */
 function referencedText(
   element: Element,
   ids: readonly string[],
   skip?: string,
+  keypad?: Element,
 ): string | undefined {
   const parts = ids.flatMap((id) => {
     const referenced = element.ownerDocument.getElementById(id);
     if (!referenced || (skip && referenced.closest(skip))) return [];
-    const text = uncutText(renderedText(referenced, rawLimit, skip ? { skip } : {}));
+    const text = uncutText(renderedText(referenced, rawLimit, { skip, leave: keypad }));
     return text ? [text] : [];
   });
   return uncutText(parts.join(" "));
@@ -697,13 +699,14 @@ const liveRegions = [
  * description or inside it, never counts.
  * Text that repeats the label is left out.
  */
-function fieldDescription(input: HTMLInputElement, label: string | undefined) {
+function fieldDescription(input: HTMLInputElement, label: string | undefined, keypad?: Element) {
   if (input.getAttribute("aria-invalid")?.trim().toLowerCase() === "true") return undefined;
   const errors = new Set(idList(input, "aria-errormessage"));
   const text = referencedText(
     input,
     idList(input, "aria-describedby").filter((id) => !errors.has(id)),
     liveRegions,
+    keypad,
   );
   return text === label ? undefined : text;
 }
@@ -1003,15 +1006,20 @@ function otherControl(node: Element, element: Element): boolean {
 /**
  * Text of a nearby element that labels a field by layout, as table and form rows do:
  * the nearest preceding sibling with rendered text, at most three levels up, never
- * across another control's area or out of the field's form.
+ * across another control's area, a software keyboard (`keypad`, ADR 0067) or out of the
+ * field's form.
  */
-function adjacentText(element: Element): string | undefined {
+function adjacentText(element: Element, keypad?: Element): string | undefined {
   let node: Element | null = element;
   for (let depth = 0; node && depth <= labelDepth; depth += 1) {
     if (depth > 0 && node.querySelectorAll(fields).length > 1) return undefined;
     if (node instanceof HTMLFormElement || node === node.ownerDocument.body) return undefined;
     for (let sibling = node.previousElementSibling; sibling;) {
-      if (otherControl(sibling, element)) return undefined;
+      if (
+        otherControl(sibling, element) ||
+        (keypad && (sibling.contains(keypad) || keypad.contains(sibling)))
+      )
+        return undefined;
       const text = visibleText(sibling);
       if (text) return text;
       sibling = sibling.previousElementSibling;
@@ -1021,16 +1029,20 @@ function adjacentText(element: Element): string | undefined {
   return undefined;
 }
 
-function fieldLabel(input: HTMLInputElement): string | undefined {
+/**
+ * A field's label. Text inside a page's software keyboard (`keypad`, ADR 0067), as its
+ * key labels and their order, is never part of it.
+ */
+function fieldLabel(input: HTMLInputElement, keypad?: Element): string | undefined {
   const labels = [...(input.labels ?? [])].flatMap((label) => {
-    const text = visibleText(label);
+    const text = uncutText(renderedText(label, rawLimit, { leave: keypad }));
     return text ? [text] : [];
   });
   return (
-    referencedText(input, idList(input, "aria-labelledby")) ??
+    referencedText(input, idList(input, "aria-labelledby"), undefined, keypad) ??
     uncutText(input.getAttribute("aria-label")) ??
     uncutText(labels.join(" ")) ??
-    adjacentText(input) ??
+    adjacentText(input, keypad) ??
     uncutText(input.title)
   );
 }
@@ -1131,9 +1143,9 @@ function describe(element: Element, keypad?: Keypad): Found | undefined {
     if (element.disabled && !actionTypes.has(type)) return undefined;
     const fillRole = fillTypes[type];
     if (fillRole) {
-      const label = fieldLabel(element);
+      const label = fieldLabel(element, keypad?.container);
       const placeholder = uncutText(element.placeholder);
-      const description = fieldDescription(element, label);
+      const description = fieldDescription(element, label, keypad?.container);
       const hint = autocomplete(element);
       return {
         kind: "candidate",
@@ -1151,7 +1163,8 @@ function describe(element: Element, keypad?: Keypad): Found | undefined {
       };
     }
     if (type === "checkbox" || actionTypes.has(type)) {
-      const label = type === "checkbox" ? fieldLabel(element) : actionLabel(element);
+      const label =
+        type === "checkbox" ? fieldLabel(element, keypad?.container) : actionLabel(element);
       return {
         kind: "candidate",
         form: element.form,
@@ -1497,8 +1510,16 @@ export function extractLoginObservation(
       );
     });
   // A page's software keyboard (ADR 0067): its read-only fields are described
-  // with its locator, and its keys are left out, as no step presses one by name.
-  const container = findKeypad(document);
+  // with its locator, and its keys are left out, as no step presses one by name. It is
+  // the keypad of each read-only field that may take one; fields beside other keypads
+  // leave the page without one.
+  const keypads = new Set(
+    [...document.querySelectorAll("input")]
+      .filter(keypadInput)
+      .map((field) => findKeypad(document, field))
+      .filter((found) => found !== undefined),
+  );
+  const container = keypads.size === 1 ? [...keypads][0] : undefined;
   const keypad = container
     ? { container, target: keypadTarget(container, index, tokens) }
     : undefined;

@@ -9,7 +9,7 @@ import {
   continuesRecipe,
   createAttemptMetadata,
   defaultLoginBinding,
-  effectfulStep,
+  fillOnlyStops,
   extendsRecipe,
   fillLoginBinding,
   findLoginBinding,
@@ -31,6 +31,7 @@ import {
   loginObservationSchema,
   isEntryObservation,
   nextLoginOperation,
+  keypadStep,
   loginStepEffect,
   parseAttemptMetadata,
   passkeyAnswersRequest,
@@ -1429,16 +1430,44 @@ function codeStep(
     : undefined;
 }
 /**
- * Whether a TOTP code's fill (see `codeStep`) went in, or may have, and its click has not
- * run (ADR 0027): a page that moved on meanwhile submitted the code by itself.
+ * Where the plan step at `index` stands in an entry the page may submit by itself: a TOTP
+ * code's (`codeStep`, ADR 0027), or a route step's fill on a software keyboard followed on
+ * the same path by its submit click, as a PIN pad that submits at its last digit
+ * (ADR 0067).
+ */
+function selfSubmitStep(
+  recipe: LoginRecipe,
+  metadata: LoginAttemptMetadata,
+  index: number,
+): "fill" | "click" | undefined {
+  const code = codeStep(recipe, metadata, index);
+  if (code) return code;
+  const plan = attemptPlan(recipe, metadata);
+  type Entry = { step: LoginStep; handler?: number } | undefined;
+  const keyed = (fill: Entry, click: Entry) =>
+    fill?.handler === undefined &&
+    click?.handler === undefined &&
+    fill !== undefined &&
+    keypadStep(fill.step) &&
+    click?.step.kind === "click" &&
+    click.step.purpose === "submit" &&
+    click.step.path === fill.step.path;
+  if (keyed(plan?.[index], plan?.[index + 1])) return "fill";
+  if (keyed(plan?.[index - 1], plan?.[index])) return "click";
+  return undefined;
+}
+/**
+ * Whether a fill the page may submit by itself (`selfSubmitStep`), a TOTP code's or one
+ * on a software keyboard, went in, or may have, and its click has not run (ADR 0027,
+ * ADR 0067): a page that moved on meanwhile submitted it by itself.
  */
 const codeAwaitsClick = (recipe: LoginRecipe, metadata: LoginAttemptMetadata) =>
   metadata.operationId === undefined
-    ? codeStep(recipe, metadata, metadata.stepIndex) === "click"
+    ? selfSubmitStep(recipe, metadata, metadata.stepIndex) === "click"
     : metadata.operationKind === "fill" &&
       metadata.operationEffect === "prepare" &&
       metadata.mutationIntent === true &&
-      codeStep(recipe, metadata, metadata.stepIndex) === "fill";
+      selfSubmitStep(recipe, metadata, metadata.stepIndex) === "fill";
 /** The event for a code the page submitted by itself, marking a route step's code. */
 const autoSubmitted = (recipe: LoginRecipe, metadata: LoginAttemptMetadata) => ({
   type: "AUTO_SUBMITTED" as const,
@@ -7349,17 +7378,19 @@ export function createLoginRuntime(
       // A fill or click waits for its elements before any intent, vault read or value
       // delivery; a slow render is not a failure until the owner-approved limit passes.
       const upcoming = attemptPlan(run.recipe, run.metadata)?.[run.metadata.stepIndex]?.step;
-      // A fill-only login stops before anything that may advance or submit (ADR 0021 D).
-      if (run.metadata.fillOnly && (!upcoming || effectfulStep(upcoming))) {
+      // A fill-only login stops before anything that may advance or submit, and before a
+      // fill on a software keyboard, whose presses the page may act on (ADR 0021 D, 0067).
+      if (run.metadata.fillOnly && (!upcoming || fillOnlyStops(upcoming))) {
         await endFillOnly(run);
         return;
       }
       if (upcoming?.kind === "fill" || upcoming?.kind === "click") {
         // A code input may submit by itself once the code is in, as one that submits on
-        // its last digit does; its click then has nothing left to do (ADR 0027).
+        // its last digit does, and so may a software keyboard; its click then has nothing
+        // left to do (ADR 0027, ADR 0067).
         const afterCode =
           upcoming.kind === "click" &&
-          codeStep(run.recipe, run.metadata, run.metadata.stepIndex) === "click";
+          selfSubmitStep(run.recipe, run.metadata, run.metadata.stepIndex) === "click";
         if (afterCode && (await submittedByPage(run, upcoming))) {
           if (!current(run) || run.metadata.state !== "ready") return;
           if (await codeSubmitted(run)) continue;
@@ -7794,14 +7825,19 @@ export function createLoginRuntime(
       }
       // The code page showed that it submits the code by itself, or replaced its form
       // once the code was in. A code typed as its own submission is settled as one below.
+      // A software keyboard's page moved or took its field away once a key was pressed,
+      // as a PIN pad that submits at its last digit (ADR 0067); a keypad step's other
+      // failures, as a missing key, are no submission.
       if (
         matchedResult &&
         !result.output.ok &&
-        (result.output.reason === "submitted" || result.output.reason === "structural-mismatch") &&
         result.output.mutation === "possible" &&
         operation.step.kind === "fill" &&
         operation.step.effect === "prepare" &&
-        codeStep(run.recipe, run.metadata, operation.stepIndex) === "fill" &&
+        (result.output.reason === "submitted"
+          ? selfSubmitStep(run.recipe, run.metadata, operation.stepIndex) === "fill"
+          : result.output.reason === "structural-mismatch" &&
+            codeStep(run.recipe, run.metadata, operation.stepIndex) === "fill") &&
         (await codeSubmitted(run))
       )
         continue;

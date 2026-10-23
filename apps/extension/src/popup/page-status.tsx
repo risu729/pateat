@@ -30,6 +30,14 @@ const OUTCOMES: Record<string, string> = {
   cancelled: "the login was cancelled",
   "policy-changed": "the settings or the vault changed during the login",
 };
+/**
+ * Why a login ended after Pateat pressed keys on the page's software keyboard
+ * (`keypad-pressed`, ADR 0067), where it differs from {@link OUTCOMES}.
+ */
+const KEYPAD_OUTCOMES: Record<string, string> = {
+  "fill-rejected":
+    "the page's software keyboard did not show a key Pateat pressed, so nothing more was pressed",
+};
 /** Outcomes that end a login without a failure (ADR 0038 item 4). */
 const QUIET = new Set(["cancelled", "account-switched", "interrupted", "policy-changed"]);
 /** Outcomes that are known but not a failure: the badge shows a yellow `!` for them. */
@@ -288,7 +296,13 @@ function attemptLines(status: Status, t: TFunction): StatusLine[] {
         ),
       },
     ];
-  const why = outcome ? plain(OUTCOMES, outcome, t) : t("no reason was recorded");
+  const why = outcome
+    ? plain(
+        login.cause === "keypad-pressed" && outcome in KEYPAD_OUTCOMES ? KEYPAD_OUTCOMES : OUTCOMES,
+        outcome,
+        t,
+      )
+    : t("no reason was recorded");
   const lines: StatusLine[] = [
     QUIET.has(outcome)
       ? { id: "login", tone: "idle", text: t("The login stopped: {{why}}.", { why }) }
@@ -314,7 +328,7 @@ function attemptLines(status: Status, t: TFunction): StatusLine[] {
       id: "login-keypad",
       tone: "warn",
       text: t(
-        "Pateat pressed keys on the page's keyboard before it stopped. Reload the page before you enter the value.",
+        "Pateat pressed keys on the page's software keyboard before it stopped. Reload the page before you enter the value.",
       ),
     });
   return lines;

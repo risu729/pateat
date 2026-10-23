@@ -1262,6 +1262,12 @@ export type LoginEffect = "prepare" | "advance" | "submit";
 export function loginStepEffect(step: LoginStep): LoginEffect | undefined {
   return step.kind === "fill" ? step.effect : step.kind === "click" ? step.purpose : undefined;
 }
+/**
+ * Whether a fill presses keys on a page's software keyboard (ADR 0067). Its fill prepares,
+ * but the page may act on a press, as a PIN pad that submits at its last digit does.
+ */
+export const keypadStep = (step: LoginStep): boolean =>
+  step.kind === "fill" && step.fields.some((field) => field.keypad !== undefined);
 export type LoginRecipe = v.InferOutput<typeof loginRecipeSchema>;
 export type LoginEntryRecipe = v.InferOutput<typeof loginEntryRecipeSchema>;
 // Inferred from the members alone: the schema's own checks build `chooserRoute`, which

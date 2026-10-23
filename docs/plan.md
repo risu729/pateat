@@ -1240,7 +1240,10 @@ items the owner mentioned and gates still open on 2026-10-11.
   keypad that leaves the visible field unchanged stops after its first press; a keypad
   is named by an `id`, `data-testid` or class only it has, else by its position from
   the field; letters-only keyboards count; date pickers, pagination and `A`-`Z` index
-  bars are kept out by structural guards.
+  bars are kept out by structural guards. Only a read-only password input, or one
+  marked for a current password or a one-time code, takes a keypad; a fill-only login
+  after a logout presses no key; and a keypad whose page submits by itself is taken as
+  a code that does.
   A PIN or card code asked in an ordinary input is the
   [phase 2](#phase-2-use-it-and-fix-what-comes-up) item on personal details asked
   during a login.

@@ -804,6 +804,60 @@ describe("production login document admission", () => {
     expect(executes()[1]!.accountSwitch).toBeUndefined();
     expect(types().filter((type) => type === "login.switch")).toHaveLength(1);
   });
+  describe("a software keyboard that submits by itself (ADR 0067)", () => {
+    const keypadRecipe = parseLoginRecipe({
+      ...recipe,
+      steps: [
+        {
+          kind: "fill",
+          path: "/signin",
+          fields: [
+            { slot: "password", target: target("password"), keypad: { by: "id", value: "keys" } },
+          ],
+        },
+        recipe.steps[1],
+      ],
+    });
+    const attempts = () => fake.state.storage["pateat.login-attempts.v5"];
+    const executed = () =>
+      fake.state.messages
+        .filter((entry) => entry.type === "login.execute")
+        .map((entry) => (entry as unknown as { operation: { step: LoginStep } }).operation.step);
+    it("takes the page's own submission after a key press for the click", async () => {
+      // The page took the field away after a press, as a PIN pad that submits at its last
+      // digit does, and shows that it signed in.
+      fake.state.onExecute = async () => {
+        fake.state.executeReply = { ok: false, reason: "submitted", mutation: "possible" };
+        fake.state.present = new Set(["authenticated"]);
+      };
+      const h = harness();
+      h.recipes.recipe.mockResolvedValue(keypadRecipe);
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(attempts()).toMatchObject([{ state: "authenticated", submissions: 1 }]),
+      );
+      expect(executed().map((step) => step.kind)).toEqual(["fill"]);
+    });
+    it("takes no missing key for a submission", async () => {
+      fake.state.executeReply = {
+        ok: false,
+        reason: "structural-mismatch",
+        mutation: "possible",
+        detail: "keypad-key-missing",
+      };
+      const h = harness();
+      h.recipes.recipe.mockResolvedValue(keypadRecipe);
+      expect(await h.hello()).toEqual({ ok: true });
+      // The fill failed after the field was pressed, so its result is waited for as after
+      // any fill that may have changed the page, with no submission counted.
+      await vi.waitFor(() =>
+        expect(attempts()).toMatchObject([
+          { outcome: "structural-mismatch", submissions: 0, operationKind: "fill" },
+        ]),
+      );
+      expect(executed().map((step) => step.kind)).toEqual(["fill"]);
+    });
+  });
   it("ends as wrong-account and keeps the tab when the page does not click the switch", async () => {
     fake.state.executeReply = { ok: false, reason: "wrong-account", switchable: true };
     fake.state.switchReply = { ok: false };
@@ -5929,6 +5983,41 @@ describe("production login document admission", () => {
           // The fill-only record is forgotten and the tab asks.
           expect(attempts()).toEqual([]);
           expect(fake.state.badges[1]?.text).toBe("2");
+        });
+        it("presses no key of a software keyboard while it only fills, and asks", async () => {
+          // A PIN pad may submit at its last digit, so a fill-only login ends before a keypad
+          // fill (ADR 0021 D, 0067).
+          const h = harness(
+            {},
+            { allowedOrigins: [], uris: async () => ({ ok: true, data: both }), username: true },
+          );
+          h.recipes.recipe.mockResolvedValue(
+            parseLoginRecipe({
+              ...recipe,
+              steps: [
+                {
+                  kind: "fill",
+                  path: "/signin",
+                  fields: [
+                    {
+                      slot: "password",
+                      target: target("password"),
+                      keypad: { by: "id", value: "keys" },
+                    },
+                  ],
+                },
+                recipe.steps[1],
+              ],
+            }),
+          );
+          expect(await h.hello()).toEqual({ ok: true });
+          await vi.waitFor(() => expect(attempts()).toMatchObject([{ state: "authenticated" }]));
+          const before = steps().length;
+          expect(await h.hello({ documentId: "signed-out" })).toEqual({ ok: true });
+          await vi.waitFor(() => expect(fake.state.badges[1]?.text).toBe("2"));
+          await vi.waitFor(async () => expect(await h.login.active()).toBe(false));
+          expect(steps()).toHaveLength(before);
+          expect(attempts()).toEqual([]);
         });
         it("ends the account choice after a logout once the site is excluded", async () => {
           const h = await loggedOut();
