@@ -9,6 +9,7 @@ import {
   routeFillTargets,
   routeSignInPaths,
   routeSignInTargets,
+  runsLogin,
   sameLoginTarget,
   showsBesideForm,
   storedBranchRoute,
@@ -26,6 +27,7 @@ import {
   type GenerationUnavailableReason,
   type LayoutMeta,
   type LoginChooserRecipe,
+  type LoginEntryRecipe,
   type LoginLayout,
   type LoginObservation,
   type LoginRecipe,
@@ -39,6 +41,8 @@ import {
   type RecipePageSampleRequest,
   type StoredLoginRecipe,
   type SyncRecipeChange,
+  layoutRecipe,
+  type RecipeLanguage,
 } from "@pateat/contracts";
 import { loginMoveFits } from "@pateat/contracts/site";
 import {
@@ -87,12 +91,19 @@ import {
   type UnsentOutcome,
   type UnsentRequest,
 } from "../claude/calls";
-import { generationAttempts, pageJudgements, type PageJudgementVerdict } from "../db/schema";
+import {
+  generationAttempts,
+  pageJudgements,
+  recipeRepairs,
+  type PageJudgementVerdict,
+} from "../db/schema";
+import { chooserRepairWrite, repairBase, repairWrite } from "./repair";
 import {
   hasRecipeByteRoom,
   hasRecipeRoom,
   markLayoutUsed,
   readHead,
+  readLayoutUses,
   readRevision,
   writeRecipe,
   type UnitSources,
@@ -377,6 +388,52 @@ function unsettled<T>(
 }
 
 /**
+ * The repair limit of ADR 0041: a device asks to repair a recipe at most once a
+ * UTC day, whatever came of the call. `recheck` reads the stored head again under the
+ * owner's lock.
+ */
+function repairWindow(
+  key: { ownerId: string; deviceId: string; recipeId: string; baseRevision: number },
+  recheck: () => Promise<GenerationUnavailableReason | undefined>,
+) {
+  const { ownerId, deviceId, recipeId, baseRevision } = key;
+  return {
+    gate: async (db: AttemptDb, now: number) => {
+      const stale = await recheck();
+      if (stale) return stale;
+      const [recent] = await db
+        .select()
+        .from(recipeRepairs)
+        .where(
+          and(
+            eq(recipeRepairs.ownerId, ownerId),
+            eq(recipeRepairs.recipeId, recipeId),
+            eq(recipeRepairs.deviceId, deviceId),
+            gte(recipeRepairs.repairedAt, utcDayStart(now)),
+          ),
+        )
+        .limit(1);
+      return recent ? "repair-limit" : undefined;
+    },
+    beforeSend: (db: AttemptDb, now: number) => [
+      db
+        .insert(recipeRepairs)
+        .values({ ownerId, recipeId, deviceId, revision: baseRevision, repairedAt: now })
+        .onConflictDoUpdate({
+          target: [recipeRepairs.ownerId, recipeRepairs.recipeId, recipeRepairs.deviceId],
+          set: { revision: baseRevision, repairedAt: now },
+        }),
+      // Earlier days' rows decide nothing any more.
+      db
+        .delete(recipeRepairs)
+        .where(
+          and(eq(recipeRepairs.ownerId, ownerId), lt(recipeRepairs.repairedAt, utcDayStart(now))),
+        ),
+    ],
+  };
+}
+
+/**
  * The 10-minute retry window of one generation call and its attempt row (ADR 0016), keyed
  * by the recipe, the chooser branch (empty without one), the path and the revision the
  * call's write replaces. `recheck` reads the stored head again under the owner's lock.
@@ -455,11 +512,15 @@ export async function generateRecipe(
   request: RecipeGenerationRequest,
   trace: RequestTrace,
 ): Promise<RecipeGenerationResult | undefined> {
-  const { observation, slots, base, branch, passkeyOnly, signedIn } = request;
+  const { observation, slots, base, branch, passkeyOnly, signedIn, repair } = request;
   const { origin, path } = observation;
-  // A first page starts its own recipe; a later page continues the one in `base`.
-  const recipeId = base?.recipeId ?? (await generatedRecipeId(origin, path));
+  // A first page starts its own recipe; a later page continues the one in `base`, and a
+  // repair names the recipe whose page it is (ADR 0041).
+  const recipeId = base?.recipeId ?? repair?.recipeId ?? (await generatedRecipeId(origin, path));
   if (!isGeneratedRecipeId(recipeId)) return undefined;
+  // A start page's repair is of the recipe that starts on its path.
+  if (repair && repair.layout === undefined && (await generatedRecipeId(origin, path)) !== recipeId)
+    return undefined;
   const list = observation.accounts !== undefined;
   const headAtStart = await readHead(env.DB, scope.ownerId, recipeId);
   const attemptBranch = branch ?? "";
@@ -495,7 +556,7 @@ export async function generateRecipe(
       recipeId,
       branch: attemptBranch,
       baseRevision: headAtStart?.revision ?? 0,
-      page: base ? "continuation" : "first",
+      page: base || repair?.layout !== undefined ? "continuation" : "first",
     },
   } satisfies UnsentRequest;
   const unsent = (answer: Extract<RecipeGenerationResult, UnsentAnswer>) =>
@@ -528,8 +589,43 @@ export async function generateRecipe(
         base: LoginRecipe | undefined;
         chooser?: LoginChooserRecipe;
         revoked?: number;
+        /**
+         * For a repair: the recipe whose layouts it adds to, or for a start page whose kind
+         * changed, the recipe it replaces (ADR 0041).
+         */
+        repaired?: StoredLoginRecipe;
+        /** For a later step's repair: the language of the layout it continues. */
+        language?: RecipeLanguage | undefined;
       }
   > => {
+    // A repair adds a layout to the active recipe at the revision it names (ADR 0041). A
+    // newer revision answers as it is, as after another device's repair: the device tries
+    // that one first. A start page is taken as it is now, a form or a list of accounts,
+    // whatever kind the recipe was: a login, chooser or entry recipe (owner, 2026-10-23
+    // 13:03 UTC); a later step's page continues a login recipe's layout.
+    if (repair) {
+      if (head?.state === "revoked") return { answer: unavailable("recipe-revoked") };
+      const current = active(head);
+      const answer = answerable(head);
+      if (!current || !(await generatedHere(current.recipe)))
+        return { answer: unavailable("recipe-conflict") };
+      if (repair.layout !== undefined && !("layouts" in current.recipe))
+        return { answer: unavailable("recipe-conflict") };
+      if (current.revision !== repair.revision)
+        return answer
+          ? { answer: { version: 1, status: "recipe", change: answer } }
+          : { answer: unavailable("recipe-conflict") };
+      if (!(await hasRecipeByteRoom(env.DB, scope.ownerId, MIN_GENERATION_RECIPE_ROOM_BYTES)))
+        return { answer: unavailable("recipe-limit") };
+      const repaired = current.recipe;
+      if (repair.layout === undefined || !("layouts" in repaired))
+        return { base: undefined, repaired };
+      // A later step's page continues the layout cut before the step that did not show.
+      const stale = repaired.layouts.find((layout) => layout.key === repair.layout);
+      const cut = stale && repairBase(layoutRecipe(repaired, stale), repair.step!);
+      if (!stale || !cut) return { answer: unavailable("recipe-conflict") };
+      return { base: cut, repaired, language: stale.language };
+    }
     // A revoked recipe is generated again from its first page, as the revision after its
     // tombstone (owner, 2026-10-12); a later page never continues it.
     if (head?.state === "revoked") {
@@ -580,11 +676,18 @@ export async function generateRecipe(
     base?: LoginRecipe | undefined;
     chooser?: LoginChooserRecipe | undefined;
     revoked?: number | undefined;
-  }) => decision.chooser?.revision ?? decision.base?.revision ?? decision.revoked ?? 0;
+    repaired?: StoredLoginRecipe | undefined;
+  }) =>
+    decision.repaired?.revision ??
+    decision.chooser?.revision ??
+    decision.base?.revision ??
+    decision.revoked ??
+    0;
   const before = await decide(headAtStart);
   if ("answer" in before) return unsent(before.answer);
   const baseRecipe = before.base;
   const chooser = before.chooser;
+  const repaired = before.repaired;
   // The attempt key and the write follow the revision the new one replaces.
   const baseRevision = revisionOf(before);
   // Every variant starts on the start page, so plan validation drops a continuation's
@@ -603,28 +706,42 @@ export async function generateRecipe(
       : new Map<string, string>();
   let raced: Extract<RecipeGenerationResult, { status: "recipe" | "unavailable" }> | undefined;
   // A first page starts the recipe's first layout (ADR 0060), keyed by when it was made and
-  // in the page's language; until repair lands, no request adds another. Its key is chosen
-  // before the call, so the request log names the layout the answer creates.
+  // in the page's language; only a repair adds another (ADR 0041). Its key is chosen before
+  // the call, so the request log names the layout the answer creates.
   const meta = newLayoutMeta(observation.language, Date.now());
+
+  // Another device may have stored this recipe while this request waited for the lock.
+  const recheck = async () => {
+    const latest = await decide(await readHead(env.DB, scope.ownerId, recipeId));
+    if ("answer" in latest) {
+      raced = latest.answer;
+      return "recipe-conflict" as const;
+    }
+    // A recipe generated and revoked meanwhile would make this call's write fail.
+    return revisionOf(latest) !== baseRevision ? ("recipe-conflict" as const) : undefined;
+  };
 
   const call = await callClaude(env, scope.ownerId, trace, {
     ...logged,
     device: request.deviceModel,
-    recipe: { ...logged.recipe, baseRevision, ...(base ? {} : { layout: meta.key }) },
-    ...attemptWindow(
-      scope.ownerId,
-      { recipeId, branch: attemptBranch, origin, path, baseRevision },
-      async () => {
-        // Another device may have stored this recipe while this request waited for the lock.
-        const latest = await decide(await readHead(env.DB, scope.ownerId, recipeId));
-        if ("answer" in latest) {
-          raced = latest.answer;
-          return "recipe-conflict";
-        }
-        // A recipe generated and revoked meanwhile would make this call's write fail.
-        return revisionOf(latest) !== baseRevision ? "recipe-conflict" : undefined;
-      },
-    ),
+    // A repair's answer may merge into a layout or write nothing, so it names none.
+    recipe: {
+      ...logged.recipe,
+      baseRevision,
+      ...(base || repair ? {} : { layout: meta.key }),
+    },
+    // A repair is limited to one a UTC day per recipe and device instead of the page's retry
+    // window (ADR 0041).
+    ...(repair
+      ? repairWindow(
+          { ownerId: scope.ownerId, deviceId: scope.deviceId, recipeId, baseRevision },
+          recheck,
+        )
+      : attemptWindow(
+          scope.ownerId,
+          { recipeId, branch: attemptBranch, origin, path, baseRevision },
+          recheck,
+        )),
     invoke: (model) =>
       createRecipeGenerator({ model, ...roleConfig })({
         observation,
@@ -686,13 +803,15 @@ export async function generateRecipe(
    * answer with. A page lost to a write of another layout or of the chooser layout's
    * other branch, such as a judgement or a removal there, is written once more onto that
    * head, so the paid answer is kept. `units` are the units the page adds, recorded with
-   * each write, the rebased one too (ADR 0060).
+   * each write, the rebased one too (ADR 0060), and `copied` the rows a layout a repair
+   * adds takes over from the layout it continues (ADR 0041).
    */
   const save = async (
     recipe: StoredLoginRecipe,
     units: RecipeUnit[],
     customSlots: { slot: string; offered: string }[] = [],
     rebase?: (head: SyncRecipeChange | null) => Promise<StoredLoginRecipe | undefined>,
+    copied?: { from: string; to: string; units: string[] },
   ): Promise<RecipeGenerationResult> => {
     let next = recipe;
     let expectedRevision = baseRevision;
@@ -704,7 +823,7 @@ export async function generateRecipe(
         recipeId,
         { version: 1, state: "active", expectedRevision, recipe: next },
         scope.deviceId,
-        { sources: generated(units) },
+        { sources: generated(units), ...(copied ? { copied } : {}) },
       );
       if (written.ok) {
         // eslint-disable-next-line no-await-in-loop
@@ -741,24 +860,38 @@ export async function generateRecipe(
   /** A new recipe document, checked as devices check what they sync. */
   const document = (recipe: StoredLoginRecipe) =>
     v.is(storedLoginRecipeSchema, recipe) ? recipe : undefined;
+  /** The current recipe as the answer to a repair that writes nothing. */
+  const unchanged = async (): Promise<RecipeGenerationResult> => {
+    const current = answerable(await readHead(env.DB, scope.ownerId, recipeId));
+    return current
+      ? { version: 1, status: "recipe", change: current }
+      : unavailable("recipe-conflict");
+  };
   if ("accountList" in value) {
     // The list becomes a chooser recipe with one layout and no branches; each branch is
     // generated once a login takes it (ADR 0028).
+    const layout = {
+      ...meta,
+      ...(value.other ? { other: value.other.target } : {}),
+      ...(value.continue ? { continue: value.continue.target } : {}),
+    };
+    // A chooser's repaired list is a layout beside its others (ADR 0041); a login or entry
+    // recipe whose start page became a list is replaced by the chooser.
+    if (repaired && "chooser" in repaired) {
+      const uses = (await readLayoutUses(env.DB, scope.ownerId, recipeId)).get(recipeId);
+      const written = chooserRepairWrite(repaired, layout, (key) => uses?.get(key));
+      if (written.kind === "same") return unchanged();
+      const recipe = document(written.recipe);
+      return recipe
+        ? save(recipe, [{ layout: written.layout, unit: LIST_UNIT }])
+        : failed("recipe-invalid");
+    }
     const recipe = document({
       version: 1,
       id: recipeId,
       revision,
       origin,
-      chooser: {
-        path,
-        layouts: [
-          {
-            ...meta,
-            ...(value.other ? { other: value.other.target } : {}),
-            ...(value.continue ? { continue: value.continue.target } : {}),
-          },
-        ],
-      },
+      chooser: { path, layouts: [layout] },
     });
     return recipe
       ? save(recipe, [{ layout: meta.key, unit: LIST_UNIT }])
@@ -783,6 +916,50 @@ export async function generateRecipe(
   if (!built.ok) return built.answer;
   const { customSlots } = built;
   const next = { ...built.recipe, revision };
+  // A chooser or entry recipe whose start page became a form is replaced by a login recipe
+  // (ADR 0041 section 6), unless the answer is no sign-in page.
+  if (repaired && !("layouts" in repaired) && !runsLogin(next)) return unchanged();
+  if (repaired && "layouts" in repaired) {
+    const uses = (await readLayoutUses(env.DB, scope.ownerId, recipeId)).get(recipeId);
+    // An answer that is no sign-in page, as a maintenance page answered 200 that kept an
+    // input, would be a layout no login ever chooses (ADR 0035), holding one of the
+    // recipe's places: it writes nothing, as a page a layout already matches.
+    const written = runsLogin(next)
+      ? repairWrite(repaired, next, {
+          createdAt: meta.createdAt,
+          language: repair?.layout === undefined ? meta.language : before.language,
+          lastUsed: (key) => uses?.get(key),
+          later: repair?.layout !== undefined,
+          shown: observation.candidates.map((candidate) => candidate.target),
+        })
+      : ({ kind: "same" } as const);
+    // A layout already does what the answer does, as on a page that was only slow: the
+    // recipe stays as it is.
+    if (written.kind === "same") return unchanged();
+    const recipe = document(written.recipe);
+    if (!recipe) return failed("recipe-invalid");
+    // A start page's answer is its layout's start page, merged or new; a later step's is
+    // the page after the stale layout's cut, whose earlier pages and handlers keep the
+    // calls that made them.
+    const stale = repair?.layout;
+    const cut = stale === undefined ? undefined : baseRecipe;
+    return save(
+      recipe,
+      [{ layout: written.layout, unit: pageUnit(cut?.steps.length ?? 0) }],
+      customSlots,
+      undefined,
+      cut && stale !== undefined
+        ? {
+            from: stale,
+            to: written.layout,
+            units: [
+              ...cut.steps.map((_, index) => pageUnit(index)),
+              ...(cut.handlers ?? []).map((_, index) => handlerUnit(index)),
+            ],
+          }
+        : undefined,
+    );
+  }
   if (!branch) {
     const recipe = document({
       version: 1,
@@ -839,9 +1016,11 @@ export async function generateEntry(
   request: EntryGenerationRequest,
   trace: RequestTrace,
 ): Promise<EntryGenerationResult> {
-  const { observation } = request;
+  const { observation, repair } = request;
   const { origin, path } = observation;
   const recipeId = await generatedRecipeId(origin, path);
+  // An entry's repair names the entry recipe of its own page (ADR 0041 section 6).
+  if (repair && repair.recipeId !== recipeId) return unavailable("recipe-conflict");
   const headAtStart = await readHead(env.DB, scope.ownerId, recipeId);
   // What the request log keeps of the request, sent or not (ADR 0012).
   const logged = {
@@ -864,19 +1043,29 @@ export async function generateEntry(
     head: SyncRecipeChange | null,
   ): Promise<
     | { answer: Extract<EntryGenerationResult, { status: "recipe" | "unavailable" }> }
-    | { revision: number }
+    | { revision: number; repaired?: LoginEntryRecipe }
   > => {
     const current = active(head);
+    if (repair && !current)
+      return { answer: unavailable(head ? "recipe-revoked" : "recipe-conflict") };
     if (current) {
       // Only the entry recipe generated here answers; a login or chooser recipe on its path,
       // or a device write under the ID for another page, is no entry to answer with.
       const { recipe } = current;
-      return "entry" in recipe &&
-        recipe.origin === origin &&
-        recipe.id === recipeId &&
-        recipe.entry.path === path
-        ? { answer: { version: 1, status: "recipe", change: { ...current, recipe } } }
-        : { answer: unavailable("recipe-conflict") };
+      if (
+        !("entry" in recipe) ||
+        recipe.origin !== origin ||
+        recipe.id !== recipeId ||
+        recipe.entry.path !== path
+      )
+        return { answer: unavailable("recipe-conflict") };
+      // A repair of the revision it names asks the model again, as one per device a day
+      // (ADR 0041); any other revision answers as it is.
+      if (!repair || current.revision !== repair.revision)
+        return { answer: { version: 1, status: "recipe", change: { ...current, recipe } } };
+      return (await hasRecipeByteRoom(env.DB, scope.ownerId, MIN_GENERATION_RECIPE_ROOM_BYTES))
+        ? { revision: current.revision, repaired: recipe }
+        : { answer: unavailable("recipe-limit") };
     }
     // A revoked recipe is generated again as the revision after its tombstone (owner,
     // 2026-10-12), and a new one needs room under the active recipe limit.
@@ -892,23 +1081,30 @@ export async function generateEntry(
   const baseRevision = before.revision;
   let raced: Extract<EntryGenerationResult, { status: "recipe" | "unavailable" }> | undefined;
 
+  // Another device may have stored this recipe while this request waited for the lock.
+  const recheck = async () => {
+    const latest = await decide(await readHead(env.DB, scope.ownerId, recipeId));
+    if ("answer" in latest) {
+      raced = latest.answer;
+      return "recipe-conflict" as const;
+    }
+    return latest.revision !== baseRevision ? ("recipe-conflict" as const) : undefined;
+  };
   const call = await callClaude(env, scope.ownerId, trace, {
     ...logged,
     device: request.deviceModel,
     recipe: { ...logged.recipe, baseRevision },
-    ...attemptWindow(
-      scope.ownerId,
-      { recipeId, branch: "", origin, path, baseRevision },
-      async () => {
-        // Another device may have stored this recipe while this request waited for the lock.
-        const latest = await decide(await readHead(env.DB, scope.ownerId, recipeId));
-        if ("answer" in latest) {
-          raced = latest.answer;
-          return "recipe-conflict";
-        }
-        return latest.revision !== baseRevision ? "recipe-conflict" : undefined;
-      },
-    ),
+    // A repair is limited to one a UTC day per recipe and device (ADR 0041).
+    ...(repair
+      ? repairWindow(
+          { ownerId: scope.ownerId, deviceId: scope.deviceId, recipeId, baseRevision },
+          recheck,
+        )
+      : attemptWindow(
+          scope.ownerId,
+          { recipeId, branch: "", origin, path, baseRevision },
+          recheck,
+        )),
     invoke: (model) => createEntryGenerator({ model, ...roleConfig })({ observation }),
     logValue: ({ entry: candidate }) => ({ entry: candidate }),
   });
@@ -921,7 +1117,17 @@ export async function generateEntry(
     return call.outcome.calls === 0 && result.answer.status === "failed"
       ? unsent(result.answer)
       : result.answer;
-  // A recipe generated again follows its tombstone's revision.
+  // A repaired entry whose link the model names again keeps its revision (ADR 0041).
+  if (
+    before.repaired &&
+    JSON.stringify(before.repaired.entry.target) === JSON.stringify(result.value.target)
+  ) {
+    const current = active(await readHead(env.DB, scope.ownerId, recipeId));
+    return current && "entry" in current.recipe
+      ? { version: 1, status: "recipe", change: { ...current, recipe: current.recipe } }
+      : unavailable("recipe-conflict");
+  }
+  // A recipe generated again follows its tombstone's revision, a repaired one its own.
   const built = entryRecipe({
     id: recipeId,
     revision: baseRevision + 1,

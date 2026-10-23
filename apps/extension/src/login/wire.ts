@@ -13,7 +13,16 @@ import { alertMisses } from "../page/sign-in-state";
 
 const id = v.pipe(v.string(), v.minLength(1), v.maxLength(120));
 /** Which inputs a secret value may fill; see `acceptsSecret` in `inputs.ts`. */
-export const loginSecretKinds = ["password", "otp", "hidden", "card-code", "detail"] as const;
+export const loginSecretKinds = [
+  "password",
+  "otp",
+  "hidden",
+  "card-code",
+  "detail",
+  "answer",
+] as const;
+/** A custom field's name that a secret question's answer is filled under (ADR 0061). */
+const questionSchema = v.pipe(v.string(), v.minLength(1), v.maxLength(200));
 export type LoginSecretKind = (typeof loginSecretKinds)[number];
 const path = v.pipe(v.string(), v.minLength(1), v.maxLength(300));
 /** One target's state: no element, exactly one usable element, several, or one unusable. */
@@ -174,6 +183,23 @@ export const unofferedReasons = [
   "text-answer",
   "frame",
 ] as const;
+/**
+ * What the first steps watched on a path missed after the step wait (ADR 0041): the
+ * targets that match no element, several, or one that is not rendered, not those that
+ * match one shown element that is not usable yet, and the HTTP status of the document's
+ * own load when the browser reports one.
+ */
+export const startMissSchema = v.strictObject({
+  missing: v.pipe(v.array(loginTargetSchema), v.maxLength(20)),
+  /**
+   * More targets missed than `missing` lists. `found` then says whether a watched first
+   * step had every target match one element.
+   */
+  more: v.optional(v.literal(true)),
+  found: v.optional(v.literal(true)),
+  status: v.optional(v.pipe(v.number(), v.integer(), v.minValue(100), v.maxValue(599))),
+});
+export type StartMiss = v.InferOutput<typeof startMissSchema>;
 export const helloSchema = v.strictObject({
   version: v.literal(1),
   type: v.literal("login.document.ready"),
@@ -202,14 +228,24 @@ export const helloSchema = v.strictObject({
     ),
   ),
   /**
-   * Such an input shows on this path but no first step is ready; sent once per path, only
-   * for the log of a login that did not start. On a page the worker named a verification
+   * Such an input shows on this path but no first step is ready; sent once per path, for
+   * the log of a login that did not start. On a page the worker named a verification
    * Pateat does not fill (`confirm` in its answer), it is sent as soon as that page's first
    * step shows, with `amount`: whether an amount (`¥`, `円` or `$` with digits) shows in the
    * form of that step's elements, never the amount, and absent when they are in no form
-   * (ADR 0035).
+   * (ADR 0035). On a path where a first step is watched, the page may instead ask for an
+   * identifier alone (ADR 0016), and `miss` says what the first steps there missed, for a
+   * stale recipe's repair (ADR 0041). There, `accounts` says the page lists accounts by
+   * email instead (ADR 0028), as a start page that became a list of accounts.
    */
-  shown: v.optional(v.strictObject({ path, amount: v.optional(v.boolean()) })),
+  shown: v.optional(
+    v.strictObject({
+      path,
+      amount: v.optional(v.boolean()),
+      miss: v.optional(startMissSchema),
+      accounts: v.optional(v.literal(true)),
+    }),
+  ),
   /**
    * After the offer wait (ADR 0057), this path shows no sign-in input but lists accounts (ADR
    * 0028): an entry or a text beside at most three buttons with an email, masked or not.
@@ -460,6 +496,11 @@ export const commandSchema = v.variant("type", [
           value: v.pipe(v.string(), v.maxLength(4096)),
           /** Secret values fill only matching inputs; other values fill any writable input. */
           secret: v.optional(v.picklist(loginSecretKinds)),
+          /**
+           * A secret question's answer goes in only while the input's question is still
+           * this field name (ADR 0061), checked just before it is typed.
+           */
+          question: v.optional(questionSchema),
         }),
       ),
       v.maxLength(20),
@@ -530,8 +571,21 @@ export const commandSchema = v.variant("type", [
     token: id,
     path,
     target: loginFieldTargetSchema,
-    value: v.pipe(v.string(), v.minLength(1), v.maxLength(16)),
+    value: v.pipe(v.string(), v.minLength(1), v.maxLength(128)),
     secret: v.optional(v.picklist(loginSecretKinds)),
+    question: v.optional(questionSchema),
+  }),
+  /**
+   * Which of the login item's custom field names is the secret question shown beside
+   * `target` (ADR 0061); page text never leaves the document.
+   */
+  v.strictObject({
+    version: v.literal(1),
+    type: v.literal("login.detail.question"),
+    token: id,
+    path,
+    target: loginFieldTargetSchema,
+    names: v.pipe(v.array(questionSchema), v.maxLength(100)),
   }),
   /**
    * Asks what a chooser's login would click on the list this document shows (ADR 0028),
@@ -785,11 +839,15 @@ export const entryHostsResultSchema = v.strictObject({ ok: v.literal(true), host
 /**
  * The answer to `login.entry.inspect`: how many elements the target names, and for exactly
  * one, why it may not be pressed apart from where it leads (`refusal`), its `href` and the
- * page's URL, each as the browser resolved it (ADR 0031).
+ * page's URL, each as the browser resolved it (ADR 0031). For a missing link, what the page
+ * shows instead, a sign-in input or a list of accounts by email, and the HTTP status of its
+ * load, for the entry's repair (ADR 0041).
  */
 export const entryInspectResultSchema = v.strictObject({
   ok: v.literal(true),
   state: v.picklist(["missing", "unique", "ambiguous"]),
+  shows: v.optional(v.picklist(["sign-in", "accounts"])),
+  status: v.optional(v.pipe(v.number(), v.integer(), v.minValue(100), v.maxValue(599))),
   refusal: v.optional(
     v.picklist(["not-link", "script-link", "hidden", "no-text", "new-window", "download"]),
   ),

@@ -69,6 +69,7 @@ import { observedPath } from "../observation/path";
 import { sendMessage } from "../messaging/protocol";
 import { acceptsSecret } from "./inputs";
 import { chooseFor } from "../page/choice-radio";
+import { askedQuestion } from "../page/question";
 import {
   commandSchema,
   destinationAnswerSchema,
@@ -78,6 +79,7 @@ import {
   reconnectSchema,
   type ExecutionDetail,
   type LoginReadiness,
+  type StartMiss,
   type TargetState,
 } from "./wire";
 import { newId } from "@pateat/contracts/ids";
@@ -104,6 +106,9 @@ function submitButton(element: Element): element is HTMLButtonElement | HTMLInpu
 function followable(element: Element | undefined): element is HTMLAnchorElement {
   return element instanceof HTMLAnchorElement && element.hasAttribute("href") && visible(element);
 }
+/** Whether `input` still asks the secret question named `question`, when the fill has one (ADR 0061). */
+const stillAsks = (input: HTMLInputElement, question: string | undefined) =>
+  question === undefined || askedQuestion(input, [question]) === 0;
 const isOnly = (found: readonly Element[], element: Element) =>
   found.length === 1 && found[0] === element;
 /** How long after a `wrong-account` result its account switch may still be clicked. */
@@ -166,6 +171,22 @@ function showsSignIn(): boolean {
       writable(input)
     );
   });
+}
+/**
+ * The HTTP status of this document's own load, when the browser reports one (ADR 0041); a
+ * status the page cannot see, as for a cached or cross-origin redirected load, reads as 0
+ * and is left out.
+ */
+function navigationStatus(): number | undefined {
+  try {
+    const [entry] = performance.getEntriesByType("navigation") as (PerformanceEntry & {
+      responseStatus?: number;
+    })[];
+    const status = entry?.responseStatus;
+    return typeof status === "number" && status >= 100 && status <= 599 ? status : undefined;
+  } catch {
+    return undefined;
+  }
 }
 /**
  * The sign-in inputs the page shows that a generated recipe can continue on after its final
@@ -566,32 +587,92 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       noteShown();
     }
   }
+  /** The first steps watched on this path, other than a chooser's list or a later step. */
+  function watchedHere(): LoginReadiness[] {
+    const path = pagePath();
+    return starts.filter((start) => start.path === path && !start.accounts && !start.later);
+  }
   /**
-   * Reports, for the log only, a sign-in input that still shows without a ready first step
-   * after the step wait, once per path. A page that renders its form in parts starts its
-   * login before then and is not reported. The reply changes nothing here: the page keeps
-   * watching, and no generation is offered for it.
+   * Whether the page asks for a sign-in: a password, username or one-time-code input, or,
+   * where a first step is watched on this path, an identifier alone (ADR 0016), as a
+   * recipe's identifier-first start page does (ADR 0041).
+   */
+  function asksSignIn(): boolean {
+    return showsSignIn() || (watchedHere().length > 0 && identifierInput(document) === "sole");
+  }
+  /**
+   * Whether a path where a first step is watched lists accounts by email instead of asking
+   * for a sign-in, as a start page that became a list of accounts (ADR 0028, ADR 0041).
+   */
+  function listsHere(): boolean {
+    return watchedHere().length > 0 && !showsSignIn() && listsAccounts(document);
+  }
+  /**
+   * What the first steps watched on this path miss (ADR 0041): the targets that match no
+   * element, several, or one not rendered, and the HTTP status of this document's load, which a maintenance
+   * page served on the login page's URL usually answers with (503). Undefined where no
+   * first step is watched.
+   */
+  function startMiss(): StartMiss | undefined {
+    const watched = watchedHere();
+    if (!watched.length) return undefined;
+    const missing = new Map<string, LoginTarget>();
+    let found = false;
+    for (const start of watched) {
+      let all = true;
+      for (const target of start.targets) {
+        const state = targetState(document, target, start.require);
+        // An element still not rendered after the step wait counts as missing, as a form a
+        // page swapped for another and kept hidden: only a shown one may be a slow page's.
+        if (
+          state === "missing" ||
+          state === "ambiguous" ||
+          targetState(document, target, "shown") === "unusable"
+        ) {
+          missing.set(JSON.stringify(target), target);
+          all = false;
+        }
+      }
+      found ||= all;
+    }
+    const status = navigationStatus();
+    const listed = [...missing.values()];
+    return {
+      missing: listed.slice(0, 20),
+      // The worker cannot tell found targets from unlisted ones past the limit.
+      ...(listed.length > 20
+        ? { more: true as const, ...(found ? { found: true as const } : {}) }
+        : {}),
+      ...(status ? { status } : {}),
+    };
+  }
+  /**
+   * Reports a sign-in input, or a list of accounts where a first step is watched, that
+   * still shows without a ready first step after the step wait, once per path: for the log,
+   * and with what the first steps missed, for a stale recipe's repair (ADR 0041). A page
+   * that renders its form in parts starts its login before then and is not reported. The reply changes nothing here: the page keeps
+   * watching until the background reconnects it, as after a repaired recipe.
    */
   function noteShown(): void {
     const path = pagePath();
-    if (shownTimer || shown.has(path) || !showsSignIn()) return;
+    if (shownTimer || shown.has(path) || !(asksSignIn() || listsHere())) return;
     shownTimer = setTimeout(() => {
       shownTimer = undefined;
-      if (
-        !observer ||
-        cancelled ||
-        pagePath() !== path ||
-        shown.has(path) ||
-        starts.some(ready) ||
-        !showsSignIn()
-      )
+      if (!observer || cancelled || pagePath() !== path || shown.has(path) || starts.some(ready))
         return;
+      const asks = asksSignIn();
+      if (!asks && !listsHere()) return;
       shown.add(path);
+      const miss = startMiss();
       void sendMessage("login", {
         version: 1,
         type: "login.document.ready",
         token,
-        shown: shownReport(path),
+        shown: {
+          ...shownReport(path),
+          ...(miss ? { miss } : {}),
+          ...(asks ? {} : { accounts: true as const }),
+        },
       }).catch(() => undefined);
     }, LOGIN_STEP_WAIT_MS);
   }
@@ -751,6 +832,13 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     const parsed = v.safeParse(commandSchema, message);
     if (!parsed.success || parsed.output.token !== token) return false;
     const command = parsed.output;
+    if (command.type === "login.detail.question") {
+      const found = cancelled || pagePath() !== command.path ? [] : matches(command.target);
+      const input = found.length === 1 ? found[0] : undefined;
+      const index = writable(input) ? askedQuestion(input, command.names) : undefined;
+      respond(index === undefined ? { ok: true } : { ok: true, index });
+      return false;
+    }
     if (command.type === "login.detail.fill") {
       // The popup's fill of a personal detail (ADR 0061): one input, its radio first, and
       // nothing pressed. The value never leaves this handler.
@@ -765,6 +853,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           pagePath() !== command.path ||
           !writable(input) ||
           !acceptsSecret(input, command.secret) ||
+          !stillAsks(input, command.question) ||
           inputValueMismatch(input, value) !== undefined ||
           !setter
         )
@@ -774,7 +863,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           !chooseFor(input) ||
           !isOnly(matches(command.target), input) ||
           !writable(input) ||
-          !acceptsSecret(input, command.secret)
+          !acceptsSecret(input, command.secret) ||
+          !stillAsks(input, command.question)
         )
           return { ok: false };
         const stopped = await typeValue(input, value, setter, {
@@ -898,8 +988,25 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         }
         if (cancelled) return { ok: false };
         const url = location.href;
-        if (found.length !== 1)
-          return { ok: true, state: found.length ? "ambiguous" : "missing", url };
+        if (found.length > 1) return { ok: true, state: "ambiguous", url };
+        if (!found.length) {
+          // What shows instead, for the entry's repair (ADR 0041).
+          const status = navigationStatus();
+          const shows = showsSignIn()
+            ? "sign-in"
+            : listsAccounts(document)
+              ? "accounts"
+              : identifierInput(document) === "sole"
+                ? "sign-in"
+                : undefined;
+          return {
+            ok: true,
+            state: "missing",
+            url,
+            ...(shows ? { shows } : {}),
+            ...(status ? { status } : {}),
+          };
+        }
         const element = found[0]!;
         const refusal = entryElementRefusal(element);
         return {
@@ -1567,7 +1674,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                   pagePath() !== step.path ||
                   !isOnly(matches(field.target), input) ||
                   !writable(input) ||
-                  !acceptsSecret(input, value.secret))
+                  !acceptsSecret(input, value.secret) ||
+                  !stillAsks(input, value.question))
               )
                 return fail("cancelled", "field-changed");
               filled.add(input);

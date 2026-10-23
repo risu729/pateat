@@ -189,6 +189,7 @@ export const ja = {
   "the site's sign-in link": "サイトのログインリンク",
   "the site's list of accounts": "サイトのアカウント一覧",
   "the rest of the site's sign-in": "サイトのログインの続き",
+  "the site's changed sign-in page": "サイトの変更されたログインページ",
   "the site's sign-in page": "サイトのログインページ",
   "This site has a recipe for this page.": "このサイトには、このページに対応するレシピがあります。",
   "This site has a recipe, but none starts on this page.":
@@ -344,6 +345,8 @@ export const ja = {
   "Pateat cannot read that field now. Unlock the vault and try again.":
     "そのフィールドを今は読み取れません。保管庫のロックを解除して、もう一度お試しください。",
   "The page did not accept the value.": "ページが値を受け付けませんでした。",
+  "the answer to your secret question": "秘密の質問の答え",
+  "your member or customer number": "会員番号またはお客様番号",
   "ID {{id}}": "ID {{id}}",
   vaultsLocked_one:
     "{{count}} 個の保管庫がロック中のため、そのログインとパスキーは待機しています。",

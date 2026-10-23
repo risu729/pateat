@@ -105,7 +105,11 @@ export type PageStatus = {
    * `sent` while a page is out, then what came back; `page` tells a list of accounts, a
    * sign-in entry or a continuation from a plain sign-in page.
    */
-  generation?: { outcome: string; reason?: string; page?: "accounts" | "entry" | "continuation" };
+  generation?: {
+    outcome: string;
+    reason?: string;
+    page?: "accounts" | "entry" | "continuation" | "repair";
+  };
 };
 
 type Shown = Required<Omit<BadgeDetails, "tabId">>;
@@ -722,7 +726,7 @@ const storedSchema = v.object({
           v.object({
             outcome: v.string(),
             reason: v.exactOptional(v.string()),
-            page: v.exactOptional(v.picklist(["accounts", "entry", "continuation"])),
+            page: v.exactOptional(v.picklist(["accounts", "entry", "continuation", "repair"])),
           }),
         ),
       }),

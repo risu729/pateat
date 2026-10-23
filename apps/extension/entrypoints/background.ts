@@ -3,6 +3,7 @@ import { browser } from "wxt/browser";
 import { defineBackground } from "wxt/utils/define-background";
 import { createProbeCatalog } from "../src/login/dummy";
 import { createLoginRuntime } from "../src/login/runtime";
+import { createRecipeRepairs } from "../src/login/repair";
 import { createLoginSites } from "../src/login/sites";
 import {
   combineFieldSources,
@@ -70,6 +71,7 @@ import {
   createBrowserPageSampleStorage,
   createBrowserRecipeCacheStorage,
   createBrowserRecipeReplacementStorage,
+  createBrowserRecipeRepairStorage,
   createBrowserRecipeScheduleStorage,
   createBrowserServiceStorage,
   createBrowserSettingsBaseStorage,
@@ -376,7 +378,6 @@ export default defineBackground(() => {
         generateEntry: (...request) => keepAlive(modelRequests.generateEntry(...request)),
         judgeCompletion: (...request) => keepAlive(modelRequests.judgeCompletion(...request)),
         samplePage: (...request) => keepAlive(serviceTransport.samplePage(...request)),
-        revokeRecipe: (...request) => keepAlive(serviceTransport.revokeRecipe(...request)),
       },
       storage: createBrowserGenerationAttemptStorage(),
       slotStorage: createBrowserGeneratedSlotStorage(),
@@ -385,6 +386,8 @@ export default defineBackground(() => {
       sync: () => recipeSync.sync(),
       refresh: () => recipeSync.sync({ settings: false }),
     }),
+    // ADR 0041: a generated recipe whose start page no longer matches is repaired.
+    repairs: createRecipeRepairs(createBrowserRecipeRepairStorage()),
     // ADR 0027: a passkey handler runs only for an item Pateat can sign with.
     passkeys: (account) => itemPasskeyFacts(vaultPasskeys, account),
     // ADR 0034: a popup choice keeps the page's request only when an item holds a passkey.

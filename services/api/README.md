@@ -329,6 +329,31 @@ the path ending before it), or `{ check: "plan", reason }` with the plan check's
   `irreversible` is never stored on a recipe. A recipe stored without `pageKind` no
   longer validates, so it reads as revoked and its page is generated again rather than
   taken as `sign-in`.
+- `POST /v1/recipes/generate` also takes
+  `{ version: 1, observation, slots, repair: { recipeId, revision, layout?, step? } }`
+  for a page the recipe's layouts no longer match
+  ([ADR 0041](../../docs/adr/0041-repair-stale-recipes.md)): without `layout`, the
+  start page of the recipe that starts on the page's path, a form or, with `slots: []`,
+  a list of accounts; with `layout` and `step` together, the page where that layout's
+  `step` did not show, which must follow an `advance` of a layout without
+  alternatives and lists no accounts. No `base` or `branch` (400 otherwise). An entry
+  request takes `repair: { recipeId, revision }` for an entry recipe whose link no
+  longer shows. A revoked recipe answers `recipe-revoked`; one that is not this
+  origin's active generated recipe, or a layout or step the recipe does not have,
+  `recipe-conflict`; a newer revision than `revision` is returned as is. A later
+  step's page is generated as a continuation of the layout cut before that step. The
+  answer is added as a new layout (marked with the page's language, or the stale
+  layout's for a later step); with three layouts, it takes the place of the least
+  recently used one. A list answered for a chooser is added to the chooser's layouts
+  the same way. A start page whose kind changed, a form where a list was or the other
+  way round, is written as the page's kind in the next revision. A start page that a
+  layout already has, or a later step whose steps a layout already holds, writes
+  nothing and returns the recipe; an answer that only adds a passkey button to a
+  layout's start page is merged into that layout, and only a `sign-in` answer is
+  written. Instead of the retry window, a device repairs a recipe at most once a UTC
+  day, whatever came of the call: the `recipe_repairs` row is written with the attempt,
+  and another repair that day answers `unavailable` with `repair-limit`. Spend limits,
+  byte room and the request log apply as for a first page.
 - `POST /v1/recipes/generate` also takes `{ version: 1, observation }` without `slots`:
   an entry request ([ADR 0031](../../docs/adr/0031-sign-in-entry-pages.md)) for a page
   without a login form, whose observation has no fill candidate and no `accounts`, and

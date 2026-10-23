@@ -385,6 +385,21 @@ describe("personal-detail inputs (ADR 0061)", () => {
     expect(refusal(phone, { autocomplete: "tel" })).toBeUndefined();
   });
 
+  it("takes an answer in a text or password input and a member ID in a text, tel or number one", () => {
+    const answer = { detail: "secret-answer" } as const;
+    const member = { detail: "member-id" } as const;
+    for (const role of ["text", "password"]) expect(refusal(answer, { role })).toBeUndefined();
+    for (const role of ["tel", "number", "email"])
+      expect(refusal(answer, { role })).toBe("not-input");
+    for (const role of ["text", "tel", "number"]) expect(refusal(member, { role })).toBeUndefined();
+    expect(refusal(member, { role: "password" })).toBe("not-input");
+    // An answer's label may be the account's own question, which no recipe holds.
+    expect(refusal(answer, { target: { by: "label", value: "Mother's maiden name?" } })).toBe(
+      "label-locator",
+    );
+    expect(refusal(member, { target: { by: "label", value: "Member number" } })).toBeUndefined();
+  });
+
   it("takes a card's security code in a password input, or a text or tel input of 3 or 4", () => {
     expect(refusal(code, { role: "password" })).toBeUndefined();
     expect(refusal(code, { role: "password", maxLength: 4 })).toBeUndefined();

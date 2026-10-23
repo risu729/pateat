@@ -187,6 +187,7 @@ export const en = {
   "the site's sign-in link": "the site's sign-in link",
   "the site's list of accounts": "the site's list of accounts",
   "the rest of the site's sign-in": "the rest of the site's sign-in",
+  "the site's changed sign-in page": "the site's changed sign-in page",
   "the site's sign-in page": "the site's sign-in page",
   "This site has a recipe for this page.": "This site has a recipe for this page.",
   "This site has a recipe, but none starts on this page.":
@@ -341,6 +342,8 @@ export const en = {
   "Pateat cannot read that field now. Unlock the vault and try again.":
     "Pateat cannot read that field now. Unlock the vault and try again.",
   "The page did not accept the value.": "The page did not accept the value.",
+  "the answer to your secret question": "the answer to your secret question",
+  "your member or customer number": "your member or customer number",
   "ID {{id}}": "ID {{id}}",
   vaultsLocked_one: "{{count}} vault is locked, so its logins and passkeys wait.",
   vaultsLocked_other: "{{count}} vaults are locked, so their logins and passkeys wait.",

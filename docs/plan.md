@@ -921,11 +921,12 @@ than in this repository.
   owner's request to go ahead and decide later, and accepted by the owner that day as
   [ADR 0061](adr/0061-personal-details-during-a-login.md); its delivery 1, the `detail`
   handler that the judge learns, delivery 2, judging a page that asks for a detail
-  beside the sign-in form (`beside`), and delivery 3, links to the items that hold the
-  values, proposed in the popup, are implemented. エポスNet asks for the card's
-  security code after the password (owner, 2026-10-12 04:18 UTC: it can wait), and other
-  sites ask for a birth date or similar details as extra verification. The owner sees
-  these as one need (2026-10-12 05:29 UTC): the value is in a card or
+  beside the sign-in form (`beside`), delivery 3, links to the items that hold the
+  values, proposed in the popup, and delivery 4, secret-question answers and member IDs,
+  are implemented. エポスNet asks for the card's security code after the password
+  (owner, 2026-10-12 04:18 UTC: it can wait), and other sites ask for a birth date or
+  similar details as extra verification. The owner sees these as one need (2026-10-12
+  05:29 UTC): the value is in a card or
   identity item, not in the login item, so the login has to be linked to that item. The
   owner chose how to link them (05:27 UTC): Pateat guesses the item from the site being
   logged into and what its pages show (such as a card name, brand or masked last
@@ -989,6 +990,9 @@ Once the fixes have settled:
   language, where a text or label locator no longer matches though the recipe is still
   right, and a maintenance page that replaces the login page on the same URL without a
   redirect, which must not be taken as a changed login page.
+  [ADR 0041](adr/0041-repair-stale-recipes.md) (accepted) is that design: a recipe
+  holds up to three layouts ([ADR 0060](adr/0060-recipe-layouts.md)), and a repair adds
+  one, at most once a UTC day per recipe and device.
 - First among the text work, a review of the wording of Pateat's UI text: the popup, the
   toolbar icon's title, the options page and the in-page prompts. It includes the reason
   line the popup and the icon's title show when another tab of the site logged out or

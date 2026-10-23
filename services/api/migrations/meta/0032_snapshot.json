@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "999d207f-a1ac-48c5-860b-d41ff609a447",
-  "prevId": "7e8cfd45-f564-4096-a48f-7573f0085f3b",
+  "id": "354890a0-bb2b-4dc2-b202-9d83619c6401",
+  "prevId": "837925b1-00c0-4b88-a58c-0b1e5f383592",
   "tables": {
     "devices": {
       "name": "devices",
@@ -1323,6 +1323,66 @@
         "recipe_layout_uses_owner_id_recipe_id_layout_pk": {
           "columns": ["owner_id", "recipe_id", "layout"],
           "name": "recipe_layout_uses_owner_id_recipe_id_layout_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "recipe_repairs": {
+      "name": "recipe_repairs",
+      "columns": {
+        "owner_id": {
+          "name": "owner_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "recipe_id": {
+          "name": "recipe_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "device_id": {
+          "name": "device_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "repaired_at": {
+          "name": "repaired_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "recipe_repairs_owner_id_owners_id_fk": {
+          "name": "recipe_repairs_owner_id_owners_id_fk",
+          "tableFrom": "recipe_repairs",
+          "tableTo": "owners",
+          "columnsFrom": ["owner_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "recipe_repairs_owner_id_recipe_id_device_id_pk": {
+          "columns": ["owner_id", "recipe_id", "device_id"],
+          "name": "recipe_repairs_owner_id_recipe_id_device_id_pk"
         }
       },
       "uniqueConstraints": {},

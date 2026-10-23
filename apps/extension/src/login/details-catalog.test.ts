@@ -20,6 +20,7 @@ const card = (id: string, label: string, inactive?: true): LocalVaultMetadata["i
 });
 const active = "60000000-0000-4000-8000-000000000010";
 const trashed = "60000000-0000-4000-8000-000000000011";
+const login = "60000000-0000-4000-8000-000000000020";
 const projected: LocalVaultMetadata = {
   connectionId: "personal",
   userId,
@@ -57,6 +58,7 @@ describe("an inactive vault item in the settings catalog (ADR 0061)", () => {
         // The trashed card's name matches the page, which would rank it first.
         host: "old.example",
         title: "Synthetic old card",
+        loginItemId: login,
       });
       expect(candidates.map((candidate) => candidate.itemId)).toEqual([active]);
     }
@@ -65,10 +67,18 @@ describe("an inactive vault item in the settings catalog (ADR 0061)", () => {
   it("gives no value to a link that names it", () => {
     const source = (itemId: string) => ({ itemId, field: "card.code" }) as const;
     expect(
-      linkedField(settings, catalog, connection, { detail: "card-code", source: source(trashed) }),
+      linkedField(settings, catalog, connection, {
+        detail: "card-code",
+        itemId: login,
+        source: source(trashed),
+      }),
     ).toBe(undefined);
     expect(
-      linkedField(settings, catalog, connection, { detail: "card-code", source: source(active) }),
-    ).toEqual({ itemId: active, fieldId: "card.code" });
+      linkedField(settings, catalog, connection, {
+        detail: "card-code",
+        itemId: login,
+        source: source(active),
+      }),
+    ).toEqual({ itemId: active, fieldId: "card.code", name: null });
   });
 });

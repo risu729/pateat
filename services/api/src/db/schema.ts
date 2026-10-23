@@ -593,6 +593,26 @@ export const generationAttempts = sqliteTable(
 );
 
 /**
+ * The last repair call per generated recipe and device (ADR 0041): a device asks
+ * to repair a recipe whose start page no longer matches at most once a UTC day, whatever
+ * came of the call.
+ */
+export const recipeRepairs = sqliteTable(
+  "recipe_repairs",
+  {
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => owners.id),
+    recipeId: text("recipe_id").notNull(),
+    deviceId: text("device_id").notNull(),
+    /** The revision the call was to repair. */
+    revision: integer("revision").notNull(),
+    repairedAt: integer("repaired_at").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.ownerId, table.recipeId, table.deviceId] })],
+);
+
+/**
  * What the judge answered for a page; `unclear` when the model abstained (ADR 0029), and
  * `partial` when it abstained on a description that left out a disabled field, so the
  * path is judged again once it is described in full; `optional` for a page after the

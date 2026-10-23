@@ -85,13 +85,16 @@ const vaultNameSchema = v.pipe(v.string(), v.minLength(1), v.maxLength(200));
  * The personal details a `detail` handler's input may ask for (ADR 0061), each read from
  * a vault item the owner linked to the login and made into the value the page wants:
  * a birth date in the input's `format`, the last four digits of a phone number or of a
- * card number, or a card's security code.
+ * card number, a card's security code, or, from the login item's own custom fields, the
+ * answer to a secret question or a member or customer number.
  */
 export const loginDetailSchema = v.picklist([
   "birth-date",
   "phone-last-4",
   "card-last-4",
   "card-code",
+  "secret-answer",
+  "member-id",
 ]);
 /** How a `birth-date` input wants the date written (ADR 0061). */
 export const birthDateFormatSchema = v.picklist([
@@ -236,8 +239,16 @@ export const localSettingsSchema = v.pipe(
         v.check(
           (links) =>
             new Set(
+              // A secret question's answer is linked per field, one per question.
               links.map((link) =>
-                JSON.stringify([link.origin, link.provider, link.userId, link.itemId, link.detail]),
+                JSON.stringify([
+                  link.origin,
+                  link.provider,
+                  link.userId,
+                  link.itemId,
+                  link.detail,
+                  link.detail === "secret-answer" ? link.source.field : null,
+                ]),
               ),
             ).size === links.length,
           "Duplicate detail links",

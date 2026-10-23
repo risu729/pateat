@@ -24,9 +24,33 @@ const builtinSources: Readonly<Record<LoginDetail, readonly string[]>> = {
   "phone-last-4": ["identity.phone"],
   "card-last-4": ["card.number"],
   "card-code": ["card.code"],
+  "secret-answer": [],
+  "member-id": [],
 };
 /** Custom field names that read as a birth date, compared without case. */
 const birthWords = ["birth", "dob", "生年月日", "誕生日"];
+/** Custom field names that read as a member or customer number, compared without case. */
+const memberWords = ["id", "number", "no", "番号", "会員", "お客様", "customer", "member", "契約"];
+/**
+ * Names that read as a PIN, password, code or card value, which a member ID never is,
+ * even when they also hold one of `memberWords` (暗証番号, PIN number, card number).
+ */
+const notMemberWords = [
+  "暗証",
+  "pin",
+  "pass",
+  "パスワード",
+  "code",
+  "コード",
+  "card",
+  "カード",
+  "phone",
+  "電話",
+  "hidden",
+  "note",
+];
+/** The details read only from the login item's own custom fields (ADR 0061). */
+export const ownItemDetails: readonly LoginDetail[] = ["secret-answer", "member-id"];
 
 /**
  * Whether `field` of an item may give `detail`: a built-in source, or a Text or Hidden
@@ -41,7 +65,15 @@ export function givesDetail(
   if (detail === "card-last-4" || detail === "card-code") return false;
   if (!field.id.startsWith("custom.") || (field.kind !== "text" && field.kind !== "hidden"))
     return false;
-  const name = field.name?.toLowerCase() ?? "";
+  const name = field.name?.normalize("NFKC").toLowerCase() ?? "";
+  // A secret question's answer is in a field named after its question, checked against
+  // the page's own question before any fill.
+  if (detail === "secret-answer") return name.length > 0;
+  if (detail === "member-id")
+    return (
+      memberWords.some((word) => name.includes(word)) &&
+      !notMemberWords.some((word) => name.includes(word))
+    );
   return detail === "birth-date"
     ? birthWords.some((word) => name.includes(word))
     : /phone|tel|電話/u.test(name);
@@ -71,8 +103,9 @@ export function readBirthDate(
 
 /**
  * The value a page's input wants for `detail`, made from the linked field's value: the
- * date in `format`, the last four digits, or a card code of 3 or 4 digits as it is.
- * Undefined when the value is no date or has too few digits.
+ * date in `format`, the last four digits, a card code of 3 or 4 digits as it is, or an
+ * answer (up to 128 characters) or member ID (up to 64) trimmed. Undefined when the value
+ * is no date, has too few digits, or is empty or too long.
  */
 export function detailValue(
   detail: LoginDetail,
@@ -93,9 +126,34 @@ export function detailValue(
       mmdd: `${month}${day}`,
     }[format];
   }
+  if (detail === "secret-answer" || detail === "member-id") {
+    const text = value.trim();
+    return text.length >= 1 && text.length <= (detail === "secret-answer" ? 128 : 64)
+      ? text
+      : undefined;
+  }
   const digits = digitsOf(value);
   if (detail === "card-code") return /^\d{3,4}$/u.test(digits) ? digits : undefined;
   return digits.length >= 4 ? digits.slice(-4) : undefined;
+}
+
+/**
+ * The owner's saved links for the login item's `detail`: one at most, or for a secret
+ * question's answer one per question field.
+ */
+export function savedDetailLinks(
+  settings: Pick<LocalSettings, "detailLinks">,
+  owner: DetailOwner,
+  detail: LoginDetail,
+): DetailLink[] {
+  return (settings.detailLinks ?? []).filter(
+    (link) =>
+      link.origin === owner.origin &&
+      link.provider === owner.provider &&
+      link.userId === owner.userId &&
+      link.itemId === owner.itemId &&
+      link.detail === detail,
+  );
 }
 
 /** The owner's saved link for the login item's `detail`, if any. */
@@ -123,8 +181,10 @@ export function linkedField(
   settings: LocalSettings,
   catalog: VaultCatalog,
   connection: VaultConnectionMetadata,
-  link: Pick<DetailLink, "detail" | "source">,
-): { itemId: string; fieldId: string } | undefined {
+  link: Pick<DetailLink, "detail" | "source" | "itemId">,
+): { itemId: string; fieldId: string; name: string | null } | undefined {
+  // An answer or member ID is read from the login item itself, never another item.
+  if (ownItemDetails.includes(link.detail) && link.source.itemId !== link.itemId) return undefined;
   const item = connection.items.find((entry) => entry.id === link.source.itemId);
   if (!item || item.inactive || connection.quarantinedItemIds?.includes(item.id)) return undefined;
   const eligibility = getItemEligibility(settings, catalog, connection.id, item.id);
@@ -133,7 +193,7 @@ export function linkedField(
   const field = item.fields.find((entry) => entry.id === fieldId);
   if (!field || !eligibility.fieldIds.includes(field.id) || !givesDetail(link.detail, field))
     return undefined;
-  return { itemId: item.id, fieldId: field.id };
+  return { itemId: item.id, fieldId: field.id, name: field.name };
 }
 
 /** One vault field that could give a detail, as the popup offers it. */
@@ -148,21 +208,23 @@ export type DetailCandidate = {
 /**
  * The fields of the login item's connection that could give `detail` (ADR 0061), at most
  * `limit`, under the rules of `linkedField`: identity phone numbers, card numbers and
- * codes, and Text or Hidden custom fields whose name reads as a birth date or a phone. An item whose name shares a run of three or more ASCII
- * letters or digits with the page's host name, or appears whole in its title, comes
- * first; otherwise the catalog's order is kept.
+ * codes, and Text or Hidden custom fields whose name reads as a birth date, a phone or a
+ * member ID; an answer or member ID only from `loginItemId`, the login item. An item
+ * whose name shares a run of three or more ASCII letters or digits with the page's host
+ * name, or appears whole in its title, comes first; otherwise the catalog's order is kept.
  */
 export function detailCandidates(
   settings: LocalSettings,
   catalog: VaultCatalog,
   connection: VaultConnectionMetadata,
   detail: LoginDetail,
-  page: { host: string; title?: string | undefined },
+  page: { host: string; title?: string | undefined; loginItemId: string },
   limit = 20,
 ): DetailCandidate[] {
   const found: (DetailCandidate & { near: boolean })[] = [];
   for (const item of connection.items) {
     if (item.inactive || connection.quarantinedItemIds?.includes(item.id)) continue;
+    if (ownItemDetails.includes(detail) && item.id !== page.loginItemId) continue;
     const eligibility = getItemEligibility(settings, catalog, connection.id, item.id);
     if (!eligibility.eligible) continue;
     for (const field of item.fields) {
