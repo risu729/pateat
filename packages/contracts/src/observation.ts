@@ -1,5 +1,11 @@
 import { detailLength, loginMarkerTargetSchema, loginOriginSchema, loginStepSchema } from "./login";
-import { recipeSlotIdSchema, type DetailFormat, type LoginDetail } from "./settings";
+import {
+  recipeSlotIdSchema,
+  type DatePart,
+  type DetailFormat,
+  type DetailPartFormat,
+  type LoginDetail,
+} from "./settings";
 import * as v from "valibot";
 
 const identifier = v.pipe(
@@ -50,11 +56,19 @@ export const REDACTED_PATH_SEGMENT = "[id]";
 /**
  * Element roles an observation may describe. Fill roles accept a slot value; action
  * roles are clicked. Links and checkboxes are context (a reset or sign-up link), except
- * that a recipe's account switch may be a link.
+ * that a recipe's account switch may be a link. A `select` (a single-choice `<select>`,
+ * described only on a judged page, without its options) is only ever a split birth date's
+ * or card expiry date's part (ADR 0061).
  */
 export const fillRoles = ["text", "email", "tel", "number", "password"] as const;
 export const actionRoles = ["button"] as const;
-export const candidateRoleSchema = v.picklist([...fillRoles, ...actionRoles, "link", "checkbox"]);
+export const candidateRoleSchema = v.picklist([
+  ...fillRoles,
+  ...actionRoles,
+  "link",
+  "checkbox",
+  "select",
+]);
 
 const textLength = v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(1024));
 
@@ -487,8 +501,16 @@ export function totpCodeRefusal(
   return undefined;
 }
 
-/** The input roles each detail's fill rule admits; `card-code` also limits the length. */
-function admitsDetail(detail: LoginDetail, field: ObservedCandidate): boolean {
+/**
+ * The input roles each detail's fill rule admits; `card-code` also limits the length. A
+ * split date's part may also be a select; nothing else is.
+ */
+function admitsDetail(
+  detail: LoginDetail,
+  part: DatePart | number | undefined,
+  field: ObservedCandidate,
+): boolean {
+  if (typeof part === "string") return ["text", "tel", "number", "select"].includes(field.role);
   if (detail === "card-code")
     return (
       field.role === "password" ||
@@ -515,13 +537,24 @@ function admitsDetail(detail: LoginDetail, field: ObservedCandidate): boolean {
  * (`sign-in-field`), nor declare a `maxlength` shorter than the value (`too-short`); the
  * button must be a button (`submit-not-button`) of the field's form
  * (`submit-other-form`). The judge and the recipe assembly both check this.
+ *
+ * One input of a value split over several (`part`, ADR 0061): a date's year, month or
+ * day goes into a text, tel or number input or a select, and a `maxlength` must hold its
+ * format (4 for a four-digit year, 2 otherwise); a card number's or PIN's digit group goes
+ * where the whole value would, and the input must declare a `maxlength` (`no-length`),
+ * the group's `length` when the entry has one (`length-changed`).
  */
 export function detailInputRefusal(
-  entry: { detail: LoginDetail; format?: DetailFormat | undefined },
+  entry: {
+    detail: LoginDetail;
+    format?: DetailFormat | DetailPartFormat | undefined;
+    part?: DatePart | number | undefined;
+    length?: number | undefined;
+  },
   field: ObservedCandidate,
   button: ObservedCandidate,
 ): string | undefined {
-  const admitted = admitsDetail(entry.detail, field);
+  const admitted = admitsDetail(entry.detail, entry.part, field);
   if (!admitted) return "not-input";
   if (field.target.by === "text") return "text-locator";
   // An answer's label may be the account's own question, which a shared recipe never holds.
@@ -534,7 +567,18 @@ export function detailInputRefusal(
     field.autocomplete === "one-time-code"
   )
     return "sign-in-field";
-  if (field.maxLength !== undefined && field.maxLength < detailLength(entry)) return "too-short";
+  if (typeof entry.part === "number") {
+    if (field.maxLength === undefined) return "no-length";
+    if (entry.length !== undefined && field.maxLength !== entry.length) return "length-changed";
+  } else {
+    const needed =
+      entry.part === undefined
+        ? detailLength({ detail: entry.detail, format: entry.format as DetailFormat | undefined })
+        : entry.format === "yyyy"
+          ? 4
+          : 2;
+    if (field.maxLength !== undefined && field.maxLength < needed) return "too-short";
+  }
   if (button.role !== "button") return "submit-not-button";
   if (button.group !== field.group) return "submit-other-form";
   return undefined;

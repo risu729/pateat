@@ -1,6 +1,7 @@
 import {
   passwordVariants,
   recipeSlots,
+  type DetailField,
   type LoginMarkerTarget,
   type LoginRecipe,
   type ManageRecipe,
@@ -27,6 +28,20 @@ export const isActive = (entry: ManageRecipe): entry is ActiveRecipe =>
 type Step = LoginRecipe["steps"][number];
 
 const describeTarget = (target: LoginMarkerTarget) => `${target.by} "${target.value}"`;
+
+/**
+ * A `detail` handler's field: its input with the detail and format, or a value split over
+ * several inputs with each part, its format or its digit group's length (ADR 0061).
+ */
+const describeDetailField = (field: DetailField) =>
+  "parts" in field
+    ? `${field.detail} split over ${field.parts
+        .map(
+          (part) =>
+            `${describeTarget(part.target)} (${part.part}${part.format ? ` ${part.format}` : ""}${part.length ? `, ${part.length} digits` : ""})`,
+        )
+        .join(" + ")}`
+    : `${describeTarget(field.target)} (${field.detail}${field.format ? ` ${field.format}` : ""})`;
 
 /**
  * A slot name quoted and isolated, as a name taken from the page's text (ADR 0027) may hold
@@ -145,7 +160,7 @@ function recipeFacts(recipe: StoredLoginRecipe): {
                 handler.kind === "totp"
                   ? `totp fills ${describeTarget(handler.field)} and clicks ${describeTarget(handler.target)} on ${handler.path}`
                   : handler.kind === "detail"
-                    ? `detail fills one of ${handler.fields.map((field) => `${describeTarget(field.target)} (${field.detail}${field.format ? ` ${field.format}` : ""})`).join(", ")} and clicks ${describeTarget(handler.target)} on ${handler.path}`
+                    ? `detail fills one of ${handler.fields.map(describeDetailField).join(", ")} and clicks ${describeTarget(handler.target)} on ${handler.path}`
                     : `${handler.kind} clicks ${describeTarget(handler.target)} on ${handler.path}`,
               )
               .join("; ")

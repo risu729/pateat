@@ -6,12 +6,14 @@ import { isButton } from "../page/text";
 import { pressElement } from "../page/script-url-click";
 import { autocompleteTokens, findTargets } from "../page/targets";
 import {
+  choosable,
   clickable,
   passwordChoice,
   targetCheck,
   targetState,
   writable,
 } from "../page/target-state";
+import { chooseOption, optionFor } from "../page/select-option";
 import { identifierInput } from "../page/identifier-field";
 import {
   CODE_SETTLE_MS,
@@ -61,6 +63,7 @@ import {
   reconnectSchema,
   type ExecutionDetail,
   type LoginReadiness,
+  type LoginSecretKind,
   type TargetState,
 } from "./wire";
 import { newId } from "@pateat/contracts/ids";
@@ -79,8 +82,45 @@ function followable(element: Element | undefined): element is HTMLAnchorElement 
   return element instanceof HTMLAnchorElement && element.hasAttribute("href") && visible(element);
 }
 /** Whether `input` still asks the secret question named `question`, when the fill has one (ADR 0061). */
-const stillAsks = (input: HTMLInputElement, question: string | undefined) =>
-  question === undefined || askedQuestion(input, [question]) === 0;
+const stillAsks = (input: Control, question: string | undefined) =>
+  question === undefined ||
+  (input instanceof HTMLInputElement && askedQuestion(input, [question]) === 0);
+/** An input a fill types into, or a select a split date's part sets (ADR 0061). */
+type Control = HTMLInputElement | HTMLSelectElement;
+/**
+ * Whether `element` may take a value of `secret` now: a writable input, or, for a split
+ * birth date's or card expiry date's part only (ADR 0061), a choosable select.
+ */
+const takes = (element: Element | undefined, secret: LoginSecretKind | undefined) =>
+  writable(element) || (secret === "date-part" && choosable(element));
+/**
+ * Whether `value` fits `control` before anything is filled (ADR 0010): an input's type and
+ * declared lengths, and for a card number's or PIN's digit group a `maxlength` of exactly
+ * its length; a select needs one option that says the number (`optionFor`, ADR 0061).
+ */
+function fitsControl(control: Control, value: { value: string; group?: true | undefined }) {
+  if (control instanceof HTMLSelectElement) return optionFor(control, value.value) !== undefined;
+  return (
+    inputValueMismatch(control, value.value) === undefined &&
+    (value.group === undefined || control.maxLength === value.value.length)
+  );
+}
+/**
+ * Puts `value` into `control` as a person would: types it into an input (`typeValue`), or
+ * chooses a select's one option that says it (ADR 0061), never one by its position. A
+ * select whose choice the page's handlers undid is `refused`.
+ */
+async function enter<Cause extends string>(
+  control: Control,
+  value: string,
+  setter: (this: HTMLInputElement, value: string) => void,
+  options: Parameters<typeof typeValue<Cause>>[3],
+): Promise<Cause | "refused" | undefined> {
+  if (control instanceof HTMLInputElement) return typeValue(control, value, setter, options);
+  options?.beforeInput?.();
+  const index = optionFor(control, value);
+  return index !== undefined && chooseOption(control, index) ? undefined : "refused";
+}
 const isOnly = (found: readonly Element[], element: Element) =>
   found.length === 1 && found[0] === element;
 /** How long after a `wrong-account` result its account switch may still be clicked. */
@@ -110,6 +150,7 @@ function ready(readiness: LoginReadiness): boolean {
       const found = matches(target);
       if (found.length !== 1) return false;
       if (readiness.require === "writable") return writable(found[0]);
+      if (readiness.require === "settable") return writable(found[0]) || choosable(found[0]);
       // A control named by its accessible name may be a link to a fragment of its page.
       if (readiness.require === "clickable")
         return clickable(found[0], { fragment: target.by === "accessible-name" });
@@ -545,41 +586,64 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       return false;
     }
     if (command.type === "login.detail.fill") {
-      // The popup's fill of a personal detail (ADR 0061): one input, its radio first, and
-      // nothing pressed. The value never leaves this handler.
-      const { value } = command;
-      command.value = "";
+      // The popup's fill of a personal detail (ADR 0061): its input, or every input of a
+      // split value, each checked before any is filled, a radio first, and nothing
+      // pressed. The values never leave this handler.
+      const fields = command.fields.map((field) => ({ ...field }));
+      for (const field of command.fields) field.value = "";
       void (async () => {
-        const found = matches(command.target);
-        const input = found.length === 1 ? found[0] : undefined;
         const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+        const controls = fields.map((field) => {
+          const found = matches(field.target);
+          return found.length === 1 ? found[0] : undefined;
+        });
+        const usable = (control: Element | undefined, field: (typeof fields)[number]) =>
+          takes(control, field.secret) &&
+          acceptsSecret(control as Control, field.secret) &&
+          stillAsks(control as Control, field.question) &&
+          fitsControl(control as Control, field);
         if (
           cancelled ||
           pagePath() !== command.path ||
-          !writable(input) ||
-          !acceptsSecret(input, command.secret) ||
-          !stillAsks(input, command.question) ||
-          inputValueMismatch(input, value) !== undefined ||
-          !setter
+          !setter ||
+          fields.some((field, at) => !usable(controls[at], field))
         )
           return { ok: false };
-        // The radio's click may change the input, so its checks run again.
-        if (
-          !chooseFor(input) ||
-          !isOnly(matches(command.target), input) ||
-          !writable(input) ||
-          !acceptsSecret(input, command.secret) ||
-          !stillAsks(input, command.question)
-        )
-          return { ok: false };
-        const stopped = await typeValue(input, value, setter, {
-          between: () =>
-            cancelled || pagePath() !== command.path || !writable(input)
-              ? "field-changed"
-              : undefined,
-        });
-        return { ok: stopped === undefined };
-      })().then(respond, () => respond({ ok: false }));
+        for (const [at, field] of fields.entries()) {
+          const control = controls[at] as Control;
+          // The page's handlers for the previous input run first.
+          // eslint-disable-next-line no-await-in-loop
+          if (at > 0) await pause(FIELD_GAP_MS);
+          // The radio's click may change the input, so its checks run again.
+          if (
+            cancelled ||
+            pagePath() !== command.path ||
+            !chooseFor(control) ||
+            !isOnly(matches(field.target), control) ||
+            !usable(control, field)
+          )
+            return { ok: false };
+          // eslint-disable-next-line no-await-in-loop
+          const stopped = await enter(control, field.value, setter, {
+            between: () =>
+              cancelled || pagePath() !== command.path || !takes(control, field.secret)
+                ? "field-changed"
+                : undefined,
+          });
+          field.value = "";
+          if (stopped !== undefined) return { ok: false };
+        }
+        return { ok: true };
+      })().then(
+        (answer) => {
+          for (const field of fields) field.value = "";
+          respond(answer);
+        },
+        () => {
+          for (const field of fields) field.value = "";
+          respond({ ok: false });
+        },
+      );
       return true;
     }
     if (command.type === "login.cancel") {
@@ -937,7 +1001,11 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           const found = matches(field.target);
           return found.length === 1 ? found[0] : undefined;
         });
-        if (inputs.some((input) => !writable(input)))
+        // A split date's part may be a select (ADR 0061); every other value goes into an
+        // input.
+        const secretOf = (index: number) =>
+          command.values.find((entry) => entry.slot === step.fields[index]!.slot)?.secret;
+        if (inputs.some((input, index) => !takes(input, secretOf(index))))
           return fail("structural-mismatch", "target-missing");
         if (
           command.values.length !== step.fields.length ||
@@ -947,7 +1015,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         )
           return fail("structural-mismatch", "unexpected-values");
         // One step fills one form (or only inputs outside any form), and secrets only fit their inputs.
-        const writableInputs = inputs as HTMLInputElement[];
+        const writableInputs = inputs as Control[];
         const form = writableInputs[0]!.form;
         if (writableInputs.some((input) => input.form !== form))
           return fail("structural-mismatch", "fields-split");
@@ -1011,19 +1079,25 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         // input (ADR 0027, owner decision 2026-10-12 19:21 UTC).
         const split =
           command.code && step.effect === "prepare" && step.fields.length === 1
-            ? splitCodeInputs(writableInputs[0]!, command.values[0]!.value.length, writable)
+            ? splitCodeInputs(
+                writableInputs[0] as HTMLInputElement,
+                command.values[0]!.value.length,
+                writable,
+              )
             : undefined;
-        const fits = (input: HTMLInputElement, value: string) =>
+        const fits = (input: Control, value: (typeof command.values)[number]) =>
           split
-            ? split.every((digit, index) => inputValueMismatch(digit, value[index]!) === undefined)
-            : inputValueMismatch(input, value) === undefined;
+            ? split.every(
+                (digit, index) => inputValueMismatch(digit, value.value[index]!) === undefined,
+              )
+            : fitsControl(input, value);
         // Every value must fit its input before anything is filled (ADR 0010).
         if (
           step.fields.some(
             (field, index) =>
               !fits(
                 writableInputs[index]!,
-                command.values.find((entry) => entry.slot === field.slot)!.value,
+                command.values.find((entry) => entry.slot === field.slot)!,
               ),
           )
         )
@@ -1037,7 +1111,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         const code =
           command.code && step.effect === "prepare" && step.fields.length === 1
             ? watchCodeSubmission(
-                writableInputs[0]!,
+                writableInputs[0] as HTMLInputElement,
                 step.fields[0]!.target,
                 command.code.submit,
                 step.path,
@@ -1046,7 +1120,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         if (command.code && !code) return fail("structural-mismatch", "code-watch-failed");
         try {
           for (const [index, field] of step.fields.entries()) {
-            const input = inputs[index] as HTMLInputElement;
+            const input = inputs[index] as Control;
             // A preparing fill lets the page's handlers for the previous field run first.
             // eslint-disable-next-line no-await-in-loop
             if (index > 0 && step.effect === "prepare") await pause(FIELD_GAP_MS);
@@ -1059,10 +1133,10 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
               pagePath() !== step.path ||
               current.length !== 1 ||
               current[0] !== input ||
-              !writable(input) ||
+              !takes(input, value.secret) ||
               input.form !== form ||
               !acceptsSecret(input, value.secret) ||
-              !fits(input, value.value)
+              !fits(input, value)
             )
               return fail(
                 "cancelled",
@@ -1076,7 +1150,11 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             // and so is what the page shows before an effect (ADR 0029).
             if (index === 0) {
               measureNext();
-              if (step.effect !== "prepare") submitted = submittedPage(document, writableInputs);
+              if (step.effect !== "prepare")
+                submitted = submittedPage(
+                  document,
+                  writableInputs.filter((entry) => entry instanceof HTMLInputElement),
+                );
             }
             // Mark uncertainty before calling into DOM/page code, including a throwing setter.
             mutated = true;
@@ -1129,16 +1207,17 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                   cancelled ||
                   pagePath() !== step.path ||
                   !isOnly(matches(field.target), input) ||
-                  !writable(input) ||
+                  !takes(input, value.secret) ||
                   !acceptsSecret(input, value.secret) ||
                   !stillAsks(input, value.question))
               )
                 return fail("cancelled", "field-changed");
-              filled.add(input);
+              if (input instanceof HTMLInputElement) filled.add(input);
               // The code goes in now; the page's own reaction is measured from here. The
-              // page may change between characters, so each one repeats the checks.
+              // page may change between characters, so each one repeats the checks. A
+              // split date's select gets its option instead (ADR 0061).
               // eslint-disable-next-line no-await-in-loop
-              const stopped = await typeValue(input, value.value, setter, {
+              const stopped = await enter(input, value.value, setter, {
                 beforeInput: code?.typed,
                 between: () => {
                   if (cancelled) return "document-cancelled";
@@ -1146,10 +1225,10 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                   const now = matches(field.target);
                   return now.length !== 1 ||
                     now[0] !== input ||
-                    !writable(input) ||
+                    !takes(input, value.secret) ||
                     input.form !== form ||
                     !acceptsSecret(input, value.secret) ||
-                    !fits(input, value.value)
+                    !fits(input, value)
                     ? "field-changed"
                     : undefined;
                 },
@@ -1161,6 +1240,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             } else {
               // An advance or a submission through the page's own event gets that one event
               // alone, with no focus, keys or blur that could run its effect again.
+              if (!(input instanceof HTMLInputElement))
+                return fail("structural-mismatch", "unsupported-input");
               filled.add(input);
               setter.call(input, value.value);
               input.dispatchEvent(new Event(step.event!, { bubbles: true }));

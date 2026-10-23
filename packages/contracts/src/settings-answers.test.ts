@@ -3,6 +3,7 @@ import * as v from "valibot";
 import {
   createDefaultSettings,
   detailFormatFits,
+  detailPartFormatFits,
   localSettingsSchema,
   type DetailLink,
 } from "./settings";
@@ -56,5 +57,27 @@ describe("detail links and formats for card values and PINs", () => {
     expect(detailFormatFits("birth-date", "mmyy")).toBe(false);
     expect(detailFormatFits("card-number", undefined)).toBe(true);
     expect(detailFormatFits("pin", "mmyy")).toBe(false);
+  });
+});
+
+describe("formats of a split date's parts (owner, 2026-10-23 12:26 UTC)", () => {
+  it("fits a birth date's four-digit year, its month and its day, each with or without a zero", () => {
+    expect(detailPartFormatFits("birth-date", "year", "yyyy")).toBe(true);
+    expect(detailPartFormatFits("birth-date", "year", "yy")).toBe(false);
+    for (const format of ["mm", "m"] as const)
+      expect(detailPartFormatFits("birth-date", "month", format)).toBe(true);
+    for (const format of ["dd", "d"] as const)
+      expect(detailPartFormatFits("birth-date", "day", format)).toBe(true);
+    expect(detailPartFormatFits("birth-date", "month", "dd")).toBe(false);
+    expect(detailPartFormatFits("birth-date", "day", undefined)).toBe(false);
+  });
+
+  it("fits a card expiry date's month and its two- or four-digit year, and no day", () => {
+    for (const format of ["yy", "yyyy"] as const)
+      expect(detailPartFormatFits("card-expiry", "year", format)).toBe(true);
+    expect(detailPartFormatFits("card-expiry", "month", "m")).toBe(true);
+    expect(detailPartFormatFits("card-expiry", "day", "dd")).toBe(false);
+    for (const detail of ["card-number", "pin", "phone-last-4"] as const)
+      expect(detailPartFormatFits(detail, "year", "yyyy")).toBe(false);
   });
 });

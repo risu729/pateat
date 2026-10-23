@@ -24,6 +24,7 @@ const oneTimeCode = input({ autocomplete: "one-time-code" });
 const text = input();
 const longTel = input({ type: "tel", maxLength: 11 });
 const unboundedTel = input({ type: "tel" });
+const select: SecretInput = { type: "select-one", inputMode: "", getAttribute: () => null };
 
 describe("secret input rule", () => {
   it.each([
@@ -69,6 +70,21 @@ describe("secret input rule", () => {
     ["detail", password, false],
     ["detail", text, true],
     [undefined, text, true],
+    // A split date's part (owner, 2026-10-23 12:26 UTC) goes into a text, tel or number
+    // input or a single-choice select, and no other value goes into a select.
+    ["date-part", text, true],
+    ["date-part", pin, true],
+    ["date-part", number, true],
+    ["date-part", password, false],
+    ["date-part", select, true],
+    ["date-part", input({ type: "select-multiple" }), false],
+    ["detail", select, false],
+    ["card-number", select, false],
+    ["pin", select, false],
+    ["password", select, false],
+    ["hidden", select, false],
+    ["otp", select, false],
+    [undefined, select, false],
   ] as const)("%s into %o is %s", (secret, field, expected) => {
     expect(acceptsSecret(field, secret)).toBe(expected);
   });

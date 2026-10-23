@@ -975,7 +975,7 @@ function adjacentText(element: Element): string | undefined {
   return undefined;
 }
 
-function fieldLabel(input: HTMLInputElement): string | undefined {
+function fieldLabel(input: HTMLInputElement | HTMLSelectElement): string | undefined {
   const labels = [...(input.labels ?? [])].flatMap((label) => {
     const text = visibleText(label);
     return text ? [text] : [];
@@ -1004,7 +1004,9 @@ function actionLabel(element: HTMLElement): string | undefined {
   );
 }
 
-function autocomplete(input: HTMLInputElement): ObservedCandidate["autocomplete"] {
+function autocomplete(
+  input: HTMLInputElement | HTMLSelectElement,
+): ObservedCandidate["autocomplete"] {
   const tokens = autocompleteTokens(input);
   if (tokens.length === 1 && tokens[0] === "off") return "off";
   return observedAutocompleteTokens.find((token) => tokens.includes(token));
@@ -1128,6 +1130,32 @@ function describe(element: Element): Found | undefined {
 /** Every element the page shows that `describe` accepts, in document order. */
 const describeAll = (document: Document) =>
   [...document.querySelectorAll(observed)].map(describe).filter((entry) => entry !== undefined);
+
+/** How many selects a judged page's description carries at most (ADR 0061). */
+const maxSelects = 12;
+/**
+ * The shown, enabled single-choice selects of a judged page (ADR 0061), each as a `select`
+ * with its label and `autocomplete`, never its options: the judge may name one as a split
+ * birth date's or card expiry date's part, and the fill matches an option by its number.
+ */
+function describeSelects(document: Document): { form: HTMLFormElement | null; draft: Draft }[] {
+  return [...document.querySelectorAll("select")].flatMap((select) => {
+    if (select.multiple || select.matches(":disabled") || presence(select) !== "visible") return [];
+    const label = fieldLabel(select);
+    const hint = autocomplete(select);
+    return [
+      {
+        form: select.form,
+        draft: {
+          element: select,
+          role: "select" as const,
+          ...(label ? { label } : {}),
+          ...(hint ? { autocomplete: hint } : {}),
+        },
+      },
+    ];
+  });
+}
 
 /**
  * An icon button that never submits its form on its own, such as the eye that shows the
@@ -1849,7 +1877,10 @@ function mayBeSignIn(input: HTMLInputElement): boolean {
  * box with no ID, a password change form's field or a hotel search's read-only date
  * picker, is left out (owner, 2026-10-12, ADR 0029). A disabled one is left out too, but
  * the result says so (`disabledLeftOut`): it may be a code field waiting for a timer or a
- * sent code, so such a page completes only when the judge answers `signed-in`. Buttons
+ * sent code, so such a page completes only when the judge answers `signed-in`. Up to
+ * twelve shown single-choice selects follow the fields as `select`, by their label and
+ * `autocomplete` and never their options, located by a lasting attribute or left out, so
+ * the judge can name a split birth date's or card expiry date's parts (ADR 0061). Buttons
  * and links are only possible markers; those past the limit or without a locator are
  * left out, and an ID another load may change (`changingId`) locates no element but a
  * field that may be a sign-in field. A link is located by its text too, as for an
@@ -1922,6 +1953,9 @@ function describeSignedIn(document: Document): ObservationResult {
         : [];
     });
   const fieldsFound = located(fieldEntries);
+  // A select is no sign-in field: one without a lasting locator, or past the limit, is
+  // left out (ADR 0061).
+  const selectsFound = located(describeSelects(document)).slice(0, maxSelects);
   if (fieldsFound.length > maxCandidates) gap ??= "too-many-fields";
   // A field nothing can locate is left out unless it may be a sign-in field, as a search
   // box with no ID or a password change form's fields are not (S2 of ADR 0029: a new
@@ -1970,9 +2004,10 @@ function describeSignedIn(document: Document): ObservationResult {
     ];
   });
   const ranked = byLandmark(markersFound, openModals(document));
+  const fieldsShown = [...fieldsFound, ...selectsFound].slice(0, maxCandidates);
   const chosen = [
-    ...fieldsFound.slice(0, maxCandidates),
-    ...ranked.slice(0, Math.max(0, maxCandidates - fieldsFound.length)),
+    ...fieldsShown,
+    ...ranked.slice(0, Math.max(0, maxCandidates - fieldsShown.length)),
   ];
   if (chosen.length === 0) return { ok: false, reason: "no-candidates" };
   const result = observe(

@@ -9,6 +9,7 @@ import type {
 import {
   detailCandidates,
   detailFieldIds,
+  detailFieldValues,
   detailSecret,
   detailValue,
   givesDetail,
@@ -232,6 +233,98 @@ describe("links to card values and PINs", () => {
         connection,
         link("card-number", { itemId: "card", field: "card.code" }),
       ),
+    ).toBeUndefined();
+  });
+});
+
+describe("values split over several inputs (owner, 2026-10-23 12:26 UTC)", () => {
+  const at = (value: string) => ({ by: "name" as const, value });
+  const birth = (
+    ...parts: [part: "year" | "month" | "day", format: "yyyy" | "mm" | "m" | "dd" | "d"][]
+  ) => ({
+    detail: "birth-date" as const,
+    parts: parts.map(([part, format]) => ({ part, format, target: at(part) })),
+  });
+  const groups = (detail: "card-number" | "pin", ...lengths: number[]) => ({
+    detail,
+    parts: lengths.map((length, index) => ({ part: index + 1, length, target: at(`g${index}`) })),
+  });
+  const values = (made: { value: string }[] | undefined) => made?.map((entry) => entry.value);
+
+  it("makes a birth date's year, month and day in each part's format", () => {
+    const full = birth(["year", "yyyy"], ["month", "mm"], ["day", "dd"]);
+    expect(detailFieldValues(full, "1990-04-05")).toEqual(
+      ["1990", "04", "05"].map((value) => ({ value, secret: "date-part" })),
+    );
+    expect(
+      values(detailFieldValues(birth(["year", "yyyy"], ["month", "m"], ["day", "d"]), "1990/4/5")),
+    ).toEqual(["1990", "4", "5"]);
+    expect(
+      values(detailFieldValues(birth(["year", "yyyy"], ["month", "m"]), "1990年4月5日")),
+    ).toEqual(["1990", "4"]);
+    expect(values(detailFieldValues(birth(["month", "mm"], ["day", "d"]), "19901205"))).toEqual([
+      "12",
+      "5",
+    ]);
+    // A value that is no date gives none of the parts.
+    expect(detailFieldValues(full, "1990-02-30")).toBeUndefined();
+    expect(detailFieldValues(full, "April 1990")).toBeUndefined();
+  });
+
+  it("makes a card expiry's month and its year with two or four digits", () => {
+    const expiry = (year: "yy" | "yyyy", month: "mm" | "m") => ({
+      detail: "card-expiry" as const,
+      parts: [
+        { part: "month" as const, format: month, target: at("month") },
+        { part: "year" as const, format: year, target: at("year") },
+      ],
+    });
+    expect(detailFieldValues(expiry("yy", "mm"), "4", "2031")).toEqual([
+      { value: "04", secret: "date-part" },
+      { value: "31", secret: "date-part" },
+    ]);
+    expect(values(detailFieldValues(expiry("yyyy", "m"), "１２", "31"))).toEqual(["12", "2031"]);
+    expect(detailFieldValues(expiry("yy", "mm"), "13", "2031")).toBeUndefined();
+    expect(detailFieldValues(expiry("yy", "mm"), "4")).toBeUndefined();
+  });
+
+  it("cuts a card number's or a PIN's digits into its groups, which must hold all of them", () => {
+    expect(detailFieldValues(groups("card-number", 4, 4, 4, 4), "4000 0000 0000 0002")).toEqual(
+      ["4000", "0000", "0000", "0002"].map((value) => ({
+        value,
+        secret: "card-number",
+        group: true,
+      })),
+    );
+    expect(values(detailFieldValues(groups("card-number", 4, 6, 5), "3400-000000-00009"))).toEqual([
+      "3400",
+      "000000",
+      "00009",
+    ]);
+    expect(detailFieldValues(groups("pin", 2, 2), "０１２３")).toEqual([
+      { value: "01", secret: "pin", group: true },
+      { value: "23", secret: "pin", group: true },
+    ]);
+    // Too few or too many digits for the groups fill none of them.
+    expect(
+      detailFieldValues(groups("card-number", 4, 4, 4), "4000 0000 0000 0002"),
+    ).toBeUndefined();
+    expect(
+      detailFieldValues(groups("card-number", 4, 4, 4, 4, 4), "4000 0000 0000 0002"),
+    ).toBeUndefined();
+    expect(detailFieldValues(groups("pin", 2, 2), "12345")).toBeUndefined();
+    expect(detailFieldValues(groups("pin", 2, 2), "123")).toBeUndefined();
+  });
+
+  it("makes one input's value as before, and never a secret question's answer", () => {
+    expect(
+      detailFieldValues({ detail: "birth-date", format: "yyyymm", target: at("b") }, "1990-04-05"),
+    ).toEqual([{ value: "199004", secret: "detail" }]);
+    expect(detailFieldValues({ detail: "pin", target: at("p") }, "0123")).toEqual([
+      { value: "0123", secret: "pin" },
+    ]);
+    expect(
+      detailFieldValues({ detail: "secret-answer", target: at("a") }, "synthetic answer"),
     ).toBeUndefined();
   });
 });

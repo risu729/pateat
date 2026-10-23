@@ -58,16 +58,19 @@ import {
   siteDefaultConnection,
   templateLoginBinding,
   TOTP_HANDLER_SLOT,
-  DETAIL_HANDLER_SLOT,
-  detailFormatSchema,
+  detailFieldFormat,
+  detailFieldInputs,
+  detailFieldSchema,
+  detailSlot,
+  isDetailSlot,
   customFieldReference,
   resolveDetailSourceField,
   detailLinkSchema,
   loginDetailSchema,
-  loginFieldTargetSchema,
   loginTargetSchema,
   type DetailLink,
   type LoginDetail,
+  type LoginFieldTarget,
   transitionLoginAttempt,
   withdrawAccountSwitch,
   validateLoginOperation,
@@ -202,7 +205,7 @@ import {
   detailCandidates,
   detailFieldIds,
   detailFieldLabel,
-  detailSecret,
+  detailFieldValues,
   detailValue,
   linkedField,
   savedDetailLink,
@@ -629,17 +632,8 @@ const detailOfferSchema = v.strictObject({
   handler: v.pipe(v.number(), v.integer(), v.minValue(0)),
   /** The login item and its site. */
   account: v.strictObject({ connectionId: v.string(), itemId: v.string(), origin: v.string() }),
-  fields: v.pipe(
-    v.array(
-      v.strictObject({
-        detail: loginDetailSchema,
-        format: v.optional(detailFormatSchema),
-        target: loginFieldTargetSchema,
-      }),
-    ),
-    v.minLength(1),
-    v.maxLength(3),
-  ),
+  /** The handler's fields Pateat fills, each in one input or split over several. */
+  fields: v.pipe(v.array(detailFieldSchema), v.minLength(1), v.maxLength(3)),
   /** The handler's button, which must still show for the popup's fill. */
   target: loginTargetSchema,
 });
@@ -1845,7 +1839,9 @@ export type LoginReport = (
        * for a `detail` handler (ADR 0061), `detail-manual` when its inputs ask only for
        * details Pateat never fills, `detail-unlinked` when no usable vault field is linked
        * for a shown input, `detail-unreadable` when the linked value is no date or has too
-       * few digits, `detail-unavailable` when the vault could not give it, and, about the
+       * few digits, `detail-unavailable` when the vault could not give it, `detail-unfit`
+       * when a value split over several inputs fits none of them, as when no option of a
+       * select matches its part, and, about the
        * site's links, `detail-saved` when the popup's fill was saved after the login was
        * confirmed, `detail-forgotten` when a refused value's link was removed, and
        * `detail-kept` when it could not be removed now.
@@ -1860,6 +1856,7 @@ export type LoginReport = (
         | "detail-unlinked"
         | "detail-unreadable"
         | "detail-unavailable"
+        | "detail-unfit"
         | "detail-saved"
         | "detail-forgotten"
         | "detail-kept"
@@ -4944,26 +4941,35 @@ export function createLoginRuntime(
     const answers = answerSources(authorized, found);
     const linked = handler.fields.flatMap((field, index) => {
       if (manualDetails.includes(field.detail)) return [];
+      // A value split over several inputs needs every one of them (ADR 0061).
+      const targets = detailFieldInputs(field).map((input) => input.target);
       if (field.detail === "secret-answer")
-        return answers.length ? [{ index, target: field.target, answer: true }] : [];
+        return answers.length ? [{ index, targets, answer: true }] : [];
       if (refusedDetails.has(refusalKey(found.owner, field.detail))) return [];
       const link = savedDetailLink(authorized.settings, found.owner, field.detail);
       return link && linkedField(authorized.settings, authorized.catalog, found.connection, link)
-        ? [{ index, target: field.target, answer: false }]
+        ? [{ index, targets, answer: false }]
         : [];
     });
     if (!linked.length) return undefined;
+    const targets = linked.flatMap((entry) => entry.targets);
     const observed = await observe(
       run,
-      linked.map((entry) => entry.target),
-      linked.map(() => "writable" as const),
+      targets,
+      targets.map(() => "settable" as const),
     );
     if (!observed || observed.path !== run.live.path) return undefined;
-    for (const [at, entry] of linked.entries()) {
-      if (observed.targets[at] !== "unique") continue;
+    let first = 0;
+    for (const entry of linked) {
+      const states = observed.targets.slice(first, first + entry.targets.length);
+      first += entry.targets.length;
+      if (states.some((state) => state !== "unique")) continue;
       // An answer input needs one of the item's question fields to be the page's question.
-      // eslint-disable-next-line no-await-in-loop
-      if (!entry.answer || (await askedSource(run.live, handler.path, entry.target, answers)))
+      if (
+        !entry.answer ||
+        // eslint-disable-next-line no-await-in-loop
+        (await askedSource(run.live, handler.path, entry.targets[0]!, answers))
+      )
         return entry.index;
       if (!current(run)) return undefined;
     }
@@ -4991,7 +4997,7 @@ export function createLoginRuntime(
   async function askedSource<T extends { name: string }>(
     live: LiveDocument,
     path: string,
-    target: DetailHandler["fields"][number]["target"],
+    target: LoginFieldTarget,
     sources: readonly T[],
   ): Promise<T | undefined> {
     const named = sources.filter((entry) => entry.name.length <= 200).slice(0, 100);
@@ -5039,7 +5045,7 @@ export function createLoginRuntime(
       return name ? [{ fieldId: candidate.fieldId, name }] : [];
     });
     for (const field of handler.fields) {
-      if (field.detail !== "secret-answer") continue;
+      if (field.detail !== "secret-answer" || "parts" in field) continue;
       // eslint-disable-next-line no-await-in-loop
       const asked = await askedSource(run.live, handler.path, field.target, questions);
       if (asked) return asked.fieldId !== answeredId;
@@ -5279,7 +5285,9 @@ export function createLoginRuntime(
     authorized: Authorized,
     stepIndex: number,
   ): Promise<
-    { value: string; secret?: LoginSecretKind; question?: string } | "unreadable" | "unavailable"
+    | { value: string; secret?: LoginSecretKind; question?: string; group?: true }[]
+    | "unreadable"
+    | "unavailable"
   > {
     const index = attemptPlan(run.recipe, run.metadata)?.[stepIndex]?.handler;
     const handler = index === undefined ? undefined : run.recipe.handlers?.[index];
@@ -5290,6 +5298,7 @@ export function createLoginRuntime(
     let source: { itemId: string; fieldId: string } | undefined;
     let question: { field: DetailSourceField; name: string } | undefined;
     if (field.detail === "secret-answer") {
+      if ("parts" in field) return "unavailable";
       const asked = await askedSource(
         run.live,
         handler.path,
@@ -5315,17 +5324,23 @@ export function createLoginRuntime(
       source.fieldId,
     );
     if (read === undefined) return "unavailable";
-    const value = detailValue(field.detail, field.format, read[0], read[1]);
-    read.fill("");
-    if (value === undefined) return "unreadable";
-    if (question) {
+    if (question && !("parts" in field)) {
+      const value = detailValue(field.detail, field.format, read[0]);
+      read.fill("");
+      if (value === undefined) return "unreadable";
       // Refused, the answer's link is removed by its question field.
       (run.answers ??= new Map()).set(index, question.field);
-      return { value, secret: "answer", question: question.name };
+      return [{ value, secret: "answer", question: question.name }];
     }
-    // An answer always goes with its question.
-    if (field.detail === "secret-answer") return "unavailable";
-    return { value, secret: detailSecret(field.detail) };
+    // An answer always goes with its question. A split value is made into all its parts
+    // here, right after the read (ADR 0061).
+    if (field.detail === "secret-answer") {
+      read.fill("");
+      return "unavailable";
+    }
+    const values = detailFieldValues(field, read[0], read[1]);
+    read.fill("");
+    return values ?? "unreadable";
   }
   /** The tab's page, when it is an HTTP(S) page the popup has a section for. */
   async function popupPage(tabId: number) {
@@ -5355,7 +5370,7 @@ export function createLoginRuntime(
   async function askedCandidate<T extends { itemId: string; fieldId: string }>(
     live: LiveDocument,
     path: string,
-    target: DetailHandler["fields"][number]["target"],
+    target: LoginFieldTarget,
     connection: VaultConnectionMetadata,
     candidates: readonly T[],
   ): Promise<T | undefined> {
@@ -5400,14 +5415,17 @@ export function createLoginRuntime(
       if (field.detail === "secret-answer") {
         const asked =
           live &&
+          !("parts" in field) &&
           // eslint-disable-next-line no-await-in-loop
           (await askedCandidate(live, offer!.path, field.target, found.connection, candidates));
         candidates = asked ? [asked] : [];
       }
+      // A split birth date is named as the one input it reads as (ADR 0061).
+      const format = detailFieldFormat(field);
       if (candidates.length)
         details.push({
           detail: field.detail,
-          ...(field.format ? { format: field.format } : {}),
+          ...(format ? { format } : {}),
           candidates: candidates as [(typeof candidates)[number], ...typeof candidates],
           // A member ID's fields' names say little, so none is chosen for the owner.
           ...(field.detail === "member-id" ? { preselect: false as const } : {}),
@@ -5522,31 +5540,26 @@ export function createLoginRuntime(
     if (
       field.detail === "secret-answer" &&
       (!question ||
+        "parts" in field ||
         !(await askedCandidate(live, offer.path, field.target, found.connection, [chosen])))
     )
       return { ok: false, reason: "not-a-candidate" };
-    // Which inputs the value may fill; an answer goes only with its question.
-    const secret =
-      field.detail !== "secret-answer"
-        ? { secret: detailSecret(field.detail) }
-        : question
-          ? { secret: "answer" as const, question }
-          : undefined;
-    if (!secret) return { ok: false, reason: "not-a-candidate" };
     const item = found.connection.items.find((entry) => entry.id === request.itemId);
     const reference = request.fieldId.startsWith("custom.")
       ? item && customFieldReference(item.fields, request.fieldId)
       : request.fieldId;
     const source = v.safeParse(detailLinkSchema.entries.source.entries.field, reference);
     if (!source.success) return { ok: false, reason: "not-a-candidate" };
-    // The page must still show the handler: the input writable and its button shown.
+    // The page must still show the handler: its inputs writable, a split date's selects
+    // choosable (ADR 0061), and its button shown.
+    const targets = detailFieldInputs(field).map((input) => input.target);
     const observed = v.safeParse(
       observationSchema,
       await send(live, {
         type: "login.observe",
         path: offer.path,
-        targets: [field.target, offer.target],
-        require: ["writable", "shown"],
+        targets: [...targets, offer.target],
+        require: [...targets.map(() => "settable" as const), "shown"],
       }).catch(() => undefined),
     );
     if (
@@ -5563,18 +5576,26 @@ export function createLoginRuntime(
       request.fieldId,
     );
     if (read === undefined) return { ok: false, reason: "unavailable" };
-    const value = detailValue(field.detail, field.format, read[0], read[1]);
+    // An answer goes only with its question; every other value, a split one's parts
+    // included, is made here right after the read.
+    const values =
+      field.detail === "secret-answer" && !("parts" in field)
+        ? ((answer) =>
+            answer === undefined
+              ? undefined
+              : [{ value: answer, secret: "answer" as const, question: question! }])(
+            detailValue(field.detail, field.format, read[0]),
+          )
+        : detailFieldValues(field, read[0], read[1]);
     read.fill("");
-    if (value === undefined) return { ok: false, reason: "unreadable" };
+    if (values === undefined) return { ok: false, reason: "unreadable" };
     const command = {
       type: "login.detail.fill",
       path: offer.path,
-      target: field.target,
-      value,
-      ...secret,
+      fields: values.map((entry, at) => ({ ...entry, target: targets[at]! })),
     };
     const response = await send(live, command).catch(() => undefined);
-    command.value = "";
+    for (const entry of [...values, ...command.fields]) entry.value = "";
     if (!v.safeParse(v.object({ ok: v.literal(true) }), response).success)
       return { ok: false, reason: "not-filled" };
     const link: DetailLink = {
@@ -5743,7 +5764,7 @@ export function createLoginRuntime(
                 : handler.kind === "detail"
                   ? // Its inputs present, as a choice page may disable all but one, and its
                     // button shown (ADR 0061).
-                    ([...handler.fields.map(() => "present" as const), "shown"] as const)
+                    ([...targets.slice(0, -1).map(() => "present" as const), "shown"] as const)
                   : handler.kind === "password"
                     ? // Shown, and its rendered text names the password choice (ADR 0048).
                       (["password-choice"] as const)
@@ -7242,8 +7263,13 @@ export function createLoginRuntime(
         );
         return;
       }
-      const values: { slot: string; value: string; secret?: LoginSecretKind; question?: string }[] =
-        [];
+      const values: {
+        slot: string;
+        value: string;
+        secret?: LoginSecretKind;
+        question?: string;
+        group?: true;
+      }[] = [];
       let expected: { username: string } | undefined;
       let list: ({ username: string; others: string[] } & Record<string, unknown>) | undefined;
       let response: unknown;
@@ -7254,10 +7280,12 @@ export function createLoginRuntime(
             // not one of its own slots (ADR 0061).
             const own = attemptPlan(run.recipe, run.metadata)?.[operation.stepIndex]?.handler;
             if (
-              field.slot === DETAIL_HANDLER_SLOT &&
+              isDetailSlot(field.slot) &&
               own !== undefined &&
               run.recipe.handlers?.[own]?.kind === "detail"
             ) {
+              // Every part of a split value is made at once, after one read (ADR 0061).
+              if (values.some((entry) => isDetailSlot(entry.slot))) continue;
               const made = await detailFill(run, authorized, operation.stepIndex);
               if (!current(run)) return;
               if (typeof made === "string") {
@@ -7272,7 +7300,19 @@ export function createLoginRuntime(
                 );
                 return;
               }
-              values.push({ slot: field.slot, ...made });
+              const slots = operation.step.fields.filter((entry) => isDetailSlot(entry.slot));
+              if (made.length !== slots.length) {
+                for (const entry of made) entry.value = "";
+                await change(
+                  run,
+                  { type: "FAILED", reason: "structural-mismatch" },
+                  undefined,
+                  "unexpected-values",
+                );
+                return;
+              }
+              for (const [at, entry] of made.entries())
+                values.push({ slot: detailSlot(at), ...entry });
               continue;
             }
             const reference = authorized.binding.slots.find((entry) => entry.slot === field.slot);
@@ -7450,7 +7490,7 @@ export function createLoginRuntime(
           ...(passwordChoice ? { passwordChoice: true as const } : {}),
           // A `detail` handler's input is filled after its choosing radio (ADR 0061).
           ...(operation.step.kind === "fill" &&
-          operation.step.fields.some((field) => field.slot === DETAIL_HANDLER_SLOT)
+          operation.step.fields.some((field) => isDetailSlot(field.slot))
             ? { choose: true as const }
             : {}),
           // An advance whose next step is on its path has the document measure that step
@@ -7536,11 +7576,22 @@ export function createLoginRuntime(
         ((result.output.reason === "value-mismatch" && result.output.mutation === "none") ||
           (result.output.reason === "fill-rejected" && operation.step.effect === "prepare"))
       ) {
+        // A `detail` handler's value split over several inputs that fits none of them, as
+        // when no option of a select matches its part, fills nothing and leaves the page
+        // to the person (ADR 0061).
+        const own = attemptPlan(run.recipe, run.metadata)?.[operation.stepIndex]?.handler;
+        const unfit =
+          result.output.reason === "value-mismatch" &&
+          own !== undefined &&
+          run.recipe.handlers?.[own]?.kind === "detail" &&
+          operation.step.fields.filter((field) => isDetailSlot(field.slot)).length > 1;
+        if (unfit) reportDetail(run.live.document, run.recipe, own, "detail-unfit");
         await change(run, {
           type: "VALUE_REJECTED",
           operationId: operation.operationId,
           document: run.live.document,
           stage: result.output.reason === "value-mismatch" ? "before-fill" : "after-fill",
+          ...(unfit ? { challenge: true as const } : {}),
         });
         return;
       }

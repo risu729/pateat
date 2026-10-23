@@ -923,6 +923,26 @@ describe("submission and failure reconciliation", () => {
     expect(mismatch).toMatchObject({ state: "blocked", outcome: "value-mismatch", submissions: 0 });
     expect(mismatch.mutationIntent).toBeUndefined();
     expect(transitionLoginAttempt(mismatch, { type: "RETRY" })).toEqual(mismatch);
+    // A split detail value that fits none of its inputs, such as a select with no option
+    // for its part, leaves the page to the person (ADR 0061, owner 2026-10-23 12:26 UTC).
+    const unfit = transitionLoginAttempt(intent, {
+      type: "VALUE_REJECTED",
+      operationId: "fill-one",
+      document,
+      stage: "before-fill",
+      challenge: true,
+    });
+    expect(unfit).toMatchObject({ state: "blocked", outcome: "challenge", submissions: 0 });
+    expect(unfit.mutationIntent).toBeUndefined();
+    expect(
+      transitionLoginAttempt(intent, {
+        type: "VALUE_REJECTED",
+        operationId: "fill-one",
+        document,
+        stage: "after-fill",
+        challenge: true,
+      }),
+    ).toEqual(intent);
     const rejected = transitionLoginAttempt(intent, {
       type: "VALUE_REJECTED",
       operationId: "fill-one",

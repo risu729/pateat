@@ -1,5 +1,6 @@
 import * as v from "valibot";
 import {
+  isDetailSlot,
   listClickSchema,
   loginFieldTargetSchema,
   loginOperationSchema,
@@ -21,6 +22,7 @@ export const loginSecretKinds = [
   "card-number",
   "pin",
   "detail",
+  "date-part",
   "answer",
 ] as const;
 /** A custom field's name that a secret question's answer is filled under (ADR 0061). */
@@ -42,10 +44,13 @@ export type TargetState = v.InferOutput<typeof targetStateSchema>;
  * `password-choice` takes a shown button that names the password as the way to confirm the
  * sign-in, enabled or not: by its rendered text (`namesPasswordChoice`, ADR 0048), or with
  * an accessible name by that name and all the text it holds, hidden text too
- * (`namesPasswordControl`, its 2026-10-19 amendment).
+ * (`namesPasswordControl`, its 2026-10-19 amendment). `settable` takes a writable input or
+ * a shown enabled single-choice select, as a `detail` handler's fill of a split date's
+ * part may choose an option (ADR 0061).
  */
 export const targetRequirementSchema = v.picklist([
   "writable",
+  "settable",
   "clickable",
   "described-writable",
   "described-clickable",
@@ -99,12 +104,13 @@ export const inPlaceNextSchema = v.strictObject({
 export type InPlaceNext = v.InferOutput<typeof inPlaceNextSchema>;
 /**
  * Elements a step needs before it can run: each target matches exactly one element that
- * is a writable input (`fill`), an enabled visible button (`click`) or simply present.
- * No targets means the path alone is enough.
+ * is a writable input (`fill`; a writable input or a select for a `detail` handler's fill,
+ * ADR 0061), an enabled visible button (`click`) or simply present. No targets means the
+ * path alone is enough.
  */
 export const loginReadinessSchema = v.strictObject({
   path,
-  require: v.picklist(["writable", "clickable", "present"]),
+  require: v.picklist(["writable", "settable", "clickable", "present"]),
   targets: v.pipe(v.array(loginTargetSchema), v.maxLength(20)),
   /**
    * A chooser recipe's start (ADR 0028): ready on its path, without a sign-in input, once
@@ -128,7 +134,15 @@ export function loginReadiness(step: LoginStep): LoginReadiness {
         : [];
   return {
     path: step.path,
-    require: step.kind === "fill" ? "writable" : step.kind === "click" ? "clickable" : "present",
+    require:
+      step.kind === "fill"
+        ? // A split date's part may be a select (ADR 0061).
+          step.fields.some((field) => isDetailSlot(field.slot))
+          ? "settable"
+          : "writable"
+        : step.kind === "click"
+          ? "clickable"
+          : "present",
     targets,
   };
 }
@@ -411,6 +425,11 @@ export const commandSchema = v.variant("type", [
            * this field name (ADR 0061), checked just before it is typed.
            */
           question: v.optional(questionSchema),
+          /**
+           * A card number's or PIN's digit group goes only into an input whose `maxlength`
+           * is the group's length (ADR 0061).
+           */
+          group: v.optional(v.literal(true)),
         }),
       ),
       v.maxLength(20),
@@ -462,19 +481,30 @@ export const commandSchema = v.variant("type", [
   }),
   v.strictObject({ version: v.literal(1), type: v.literal("login.cancel"), token: id }),
   /**
-   * The popup's **Fill** of a personal detail (ADR 0061): types `value` into the one
-   * writable input `target` names on `path`, after checking its choosing radio button, and
-   * presses nothing. Outside any login: no operation, no submission.
+   * The popup's **Fill** of a personal detail (ADR 0061): types each value into the one
+   * writable input its `target` names on `path`, or chooses its option in a select for a
+   * split date's part, after checking the first input's choosing radio button, and presses
+   * nothing. Every input is checked before any is filled. Outside any login: no
+   * operation, no submission.
    */
   v.strictObject({
     version: v.literal(1),
     type: v.literal("login.detail.fill"),
     token: id,
     path,
-    target: loginFieldTargetSchema,
-    value: v.pipe(v.string(), v.minLength(1), v.maxLength(128)),
-    secret: v.optional(v.picklist(loginSecretKinds)),
-    question: v.optional(questionSchema),
+    fields: v.pipe(
+      v.array(
+        v.strictObject({
+          target: loginFieldTargetSchema,
+          value: v.pipe(v.string(), v.minLength(1), v.maxLength(128)),
+          secret: v.optional(v.picklist(loginSecretKinds)),
+          question: v.optional(questionSchema),
+          group: v.optional(v.literal(true)),
+        }),
+      ),
+      v.minLength(1),
+      v.maxLength(6),
+    ),
   }),
   /**
    * Which of the login item's custom field names is the secret question shown beside

@@ -407,13 +407,16 @@ export const loginAttemptEventSchema = v.variant("type", [
    * The page would not accept this fill's values (ADR 0010): `before-fill` when a value
    * does not fit its input and nothing was filled, `after-fill` when the page rejected
    * a preparing fill. It ends the attempt without a retry, since the same values would
-   * be rejected again.
+   * be rejected again. `challenge` marks a `detail` handler's value split over several
+   * inputs that fits none of them, as when no option of a select matches its part
+   * (ADR 0061): nothing was filled and the page is left to the person as a challenge.
    */
   v.strictObject({
     type: v.literal("VALUE_REJECTED"),
     operationId: identifier,
     document: loginDocumentSchema,
     stage: v.picklist(["before-fill", "after-fill"]),
+    challenge: v.optional(v.literal(true)),
   }),
   /**
    * The attempt takes over a newer revision of its recipe that only adds handlers or
@@ -726,7 +729,7 @@ function record(
     case "VALUE_REJECTED":
       if (event.stage === "after-fill") return { outcome: "fill-rejected" };
       return {
-        outcome: "value-mismatch",
+        outcome: event.challenge ? "challenge" : "value-mismatch",
         // As with a wrong account, the reserved fill effect never started.
         submissions:
           context.mutationIntent === true && (context.operationEffect ?? "prepare") !== "prepare"
@@ -976,7 +979,8 @@ function createLoginAttemptMachine() {
         context.operationKind === "fill" &&
         sameLoginDocument(context.document, event.document) &&
         // Only a preparing fill is checked after filling; an effectful one has submitted.
-        (event.stage === "before-fill" || context.operationEffect === "prepare"),
+        (event.stage === "before-fill" || context.operationEffect === "prepare") &&
+        !(event.challenge === true && event.stage !== "before-fill"),
       retryAvailable: ({ context, event }) =>
         context.retries < context.maxRetries && !(event.type === "RETRY" && event.final),
       failedPossibleMutation: ({ context, event }) =>

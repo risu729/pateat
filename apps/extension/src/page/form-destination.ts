@@ -79,7 +79,7 @@ function documentUrl(control: Element): string {
  * `formAction` reads the document's URL when the attribute is missing.
  */
 function destination(
-  control: HTMLButtonElement | HTMLInputElement,
+  control: HTMLButtonElement | HTMLInputElement | HTMLSelectElement,
   form: HTMLFormElement,
   submitter: boolean,
 ): URL | undefined {
@@ -102,7 +102,7 @@ function destination(
  * form's `action` counts there. A control outside any form has no submission to check.
  */
 export function formDestination(
-  control: HTMLButtonElement | HTMLInputElement,
+  control: HTMLButtonElement | HTMLInputElement | HTMLSelectElement,
   action: "fill" | "click",
 ): FormDestination {
   const { form } = control;
@@ -126,7 +126,7 @@ export function formDestination(
  * destination is not `allowed` ({@link formDestination}).
  */
 export function formRefusal(
-  control: HTMLButtonElement | HTMLInputElement,
+  control: HTMLButtonElement | HTMLInputElement | HTMLSelectElement,
   action: "fill" | "click",
 ): FormRefusal | undefined {
   return formDestination(control, action).kind === "allowed" ? undefined : "form-off-origin";
