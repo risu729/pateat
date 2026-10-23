@@ -149,6 +149,12 @@ describe("pair", () => {
       { error: "access_unavailable" },
       { kind: "failed", error: "pairing-unavailable" },
     ],
+    [
+      "unavailable Access signing keys",
+      503,
+      { error: "access_keys_unavailable" },
+      { kind: "failed", error: "access-keys-unavailable" },
+    ],
     ["a rate limit", 429, { error: "rate_limited" }, { kind: "failed", error: "rate-limited" }],
     ["an unknown 403", 403, { error: "other" }, { kind: "failed", error: "unexpected-response" }],
     [

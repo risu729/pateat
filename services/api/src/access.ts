@@ -111,9 +111,8 @@ function refuseApi(c: Context<ApiEnv>, failure: AccessFailure) {
   switch (failure) {
     case "unconfigured":
       return apiError(c, 503, { error: "access_unavailable" });
-    // No error code names an outage; the extension shows an unexpected answer.
     case "keys-unavailable":
-      return apiError(c, 500, { error: "internal_error" });
+      return apiError(c, 503, { error: "access_keys_unavailable" });
     case "missing":
       return apiError(c, 401, { error: "unauthorized" });
     case "rejected":

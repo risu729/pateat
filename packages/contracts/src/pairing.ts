@@ -48,6 +48,8 @@ export const pairErrorCodeSchema = v.picklist([
   "access_unavailable",
   /** The service's list of extension IDs is empty or malformed. */
   "pairing_unavailable",
+  /** Access's signing keys could not be fetched, so no login token can be checked. */
+  "access_keys_unavailable",
   "rate_limited",
   "method_not_allowed",
   "payload_too_large",

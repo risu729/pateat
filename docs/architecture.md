@@ -3025,7 +3025,8 @@ steady-state API calls carry no cookie.
   tokens, are refused. The public keys are edge-cached for five minutes, so a rotated
   key may be refused briefly. When they cannot be fetched (an error, an answer that is
   not a key set, or no answer within five seconds), the request fails as an outage
-  (owner pages 503, JSON routes 500 `internal_error`) rather than as a refused sign-in.
+  (owner pages and JSON routes 503 `access_keys_unavailable`) rather than as a refused
+  sign-in; the extension's settings page and the web UI ask to try again later.
 - Pairing. **Pair this device** on the settings page asks for site access to the
   service, then the extension's background service worker sends one `POST /pair` with
   the device label, `credentials: "include"`, `redirect: "manual"` and

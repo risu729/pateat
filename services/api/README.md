@@ -79,9 +79,9 @@ application exempts `/v1/*`, `/health`, `/.well-known/openid-configuration` and
 keys, the `ACCESS_TEAM_DOMAIN` issuer and the `ACCESS_AUD` audience. Without both
 secrets those routes answer 503. When the team's signing keys cannot be fetched (an
 error, an answer that is not a key set, or no answer within five seconds), owner pages
-answer 503 and the JSON routes 500 `internal_error`, not a refused sign-in. `POST /pair`
-and `GET /pair/signed-in` also accept the `ACCESS_PAIR_AUD` audience of the "pateat
-pair" Access application, which admits browsers without WARP to pairing only
+and the JSON routes answer 503 `access_keys_unavailable`, not a refused sign-in.
+`POST /pair` and `GET /pair/signed-in` also accept the `ACCESS_PAIR_AUD` audience of the
+"pateat pair" Access application, which admits browsers without WARP to pairing only
 ([ADR 0030](../../docs/adr/0030-pairing-without-warp.md)). An empty value turns it off
 only while that application does not exist. The owner is found by token issuer and
 subject, never by email. The
@@ -112,8 +112,9 @@ with host access skip CORS. Errors are `{ "error": code }`:
 | 413 | `payload_too_large` | The body exceeds 4 KiB |
 | 415 | `unsupported_media_type` | The body is not `application/json` |
 | 429 | `rate_limited` | Too many pairings by this identity, with `Retry-After: 60` |
-| 500 | `internal_error` | An unexpected failure, or Access's signing keys could not be fetched |
+| 500 | `internal_error` | An unexpected failure |
 | 503 | `access_unavailable` | The Access secrets are missing or invalid |
+| 503 | `access_keys_unavailable` | Access's signing keys could not be fetched; try again later |
 | 503 | `pairing_unavailable` | `PAIRING_EXTENSION_IDS` is missing, empty or malformed |
 
 Without an Access session, Access itself redirects to its login or answers with its own

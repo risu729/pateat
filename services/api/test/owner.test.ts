@@ -203,9 +203,9 @@ describe("Access verification", () => {
         expect(body).not.toContain("Access denied");
         expect(body).not.toContain("Pateat test app");
       }
-      expect(apiResponses.map((response) => response.status)).toEqual(apiResponses.map(() => 500));
+      expect(apiResponses.map((response) => response.status)).toEqual(apiResponses.map(() => 503));
       expect(await Promise.all(apiResponses.map((response) => response.json()))).toEqual(
-        apiResponses.map(() => ({ error: "internal_error" })),
+        apiResponses.map(() => ({ error: "access_keys_unavailable" })),
       );
       expect(missing.map((response) => response.status)).toEqual([401, 401]);
       // No owner was created by the pairing attempts.
@@ -233,7 +233,7 @@ describe("Access verification", () => {
           postPair((await pairOwner()).token),
         ]),
       );
-      expect(responses.map((response) => response.status)).toEqual([503, 500]);
+      expect(responses.map((response) => response.status)).toEqual([503, 503]);
       expect(requested).toEqual([5_000, 5_000]);
     } finally {
       spy.mockRestore();
