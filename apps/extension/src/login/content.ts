@@ -70,6 +70,8 @@ import { newId } from "@pateat/contracts/ids";
  * reads this, so a step on `/[id]/login` runs on the same page of any tenant.
  */
 const pagePath = () => observedPath(location.pathname);
+/** When a frame the worker asks about is read for a sign-in input or a secret answer. */
+const FRAME_READINGS_MS = [0, 1_000, 3_000, 6_000, LOGIN_STEP_WAIT_MS];
 /** Fixed locators deliberately reject duplicates rather than taking the first match. */
 function matches(target: LoginMarkerTarget, links = false): Element[] {
   return findTargets(document, target, { links });
@@ -336,7 +338,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     const accounts = bare ? listedAccounts(document) : undefined;
     if (accounts && logOnly(accounts)) void announce(false, false, accounts).catch(() => undefined);
     // Nothing was sent: the log says why (ADR 0019). A secret answer of `type="text"` looks
-    // like a verification that is never sent, so it is counted (ADR 0035).
+    // like a verification that is never sent, so it is counted (ADR 0035) when no other
+    // reason holds.
     else if (!cancelled && !starts.some(ready))
       void sendMessage("login", {
         version: 1,
@@ -344,37 +347,36 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         token,
         unoffered: {
           path: pagePath(),
-          why: answerInput(document)
-            ? "text-answer"
-            : afterSubmitted()
-              ? "after-sign-in"
-              : showsSignIn()
-                ? "sign-in-shown"
+          why: afterSubmitted()
+            ? "after-sign-in"
+            : showsSignIn()
+              ? "sign-in-shown"
+              : answerInput(document)
+                ? "text-answer"
                 : "no-list",
         },
       }).catch(() => undefined);
   }
   /**
    * Reports once, for the count of pages that look like a verification but are not sent, a
-   * sign-in input or a secret answer this frame shows within the step wait (ADR 0035).
+   * sign-in input or a secret answer this frame shows within the step wait (ADR 0035). The
+   * frame is read a few times, never watched, as many frames are ads that keep changing.
    */
   function watchFrame(): void {
     if (frameWatch || frameReported || cancelled) return;
-    let pending: ReturnType<typeof setTimeout> | undefined;
-    const changes = new MutationObserver(() => {
-      pending ??= setTimeout(look, 100);
-    });
-    const end = setTimeout(() => stop(), LOGIN_STEP_WAIT_MS);
+    let left = FRAME_READINGS_MS.length;
+    const timers = FRAME_READINGS_MS.map((delay) => setTimeout(look, delay));
     function stop(): void {
-      changes.disconnect();
-      clearTimeout(pending);
-      clearTimeout(end);
+      for (const reading of timers) clearTimeout(reading);
       frameWatch = undefined;
     }
     function look(): void {
-      pending = undefined;
-      if (cancelled) stop();
-      if (cancelled || frameReported || (!showsSignIn() && !answerInput(document))) return;
+      left -= 1;
+      if (cancelled || frameReported) return stop();
+      if (!showsSignIn() && !answerInput(document)) {
+        if (!left) stop();
+        return;
+      }
       frameReported = true;
       stop();
       void sendMessage("login", {
@@ -385,23 +387,6 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       }).catch(() => undefined);
     }
     frameWatch = stop;
-    changes.observe(document, {
-      subtree: true,
-      childList: true,
-      attributes: true,
-      attributeFilter: [
-        "type",
-        "autocomplete",
-        "hidden",
-        "style",
-        "class",
-        "disabled",
-        "readonly",
-        "aria-hidden",
-        "inert",
-      ],
-    });
-    look();
   }
   function watch(list: LoginReadiness[], offer = false, entryPage = false): void {
     starts = list;
@@ -413,8 +398,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       offerCap = setTimeout(decideOffer, offerWaitMs);
       offerWindow = setTimeout(endOffer, LOGIN_STEP_WAIT_MS);
     }
-    // A page Pateat does not fill keeps watching for its first step (ADR 0035).
-    if ((!starts.length && !generate && !confirmPage) || cancelled) {
+    // A page Pateat does not fill keeps watching until its first step is reported (ADR 0035).
+    const confirmWaiting = confirmPage !== undefined && !shown.has(confirmPage.path);
+    if ((!starts.length && !generate && !confirmWaiting) || cancelled) {
       unwatch();
       return;
     }
@@ -537,6 +523,31 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       token,
       shown: shownReport(path),
     }).catch(() => undefined);
+    // Nothing else to watch: only the path is followed, for a return to the page.
+    if (!starts.length && !generate) unwatch();
+  }
+  /**
+   * Follows the path of a page Pateat does not fill (ADR 0035). Left in place, its first
+   * step and the person's submit are reported again on a return, which the worker takes as
+   * a new visit; back on it, the page watches for its first step again.
+   */
+  const confirmPathChanged = () => {
+    if (!confirmPage || cancelled) return;
+    const { path } = confirmPage;
+    if (pagePath() !== path) {
+      shown.delete(path);
+      personSubmits.delete(path);
+    } else if (!shown.has(path) && !observer) {
+      watch(starts);
+      check();
+    }
+  };
+  function followConfirmPath(follow: boolean): void {
+    removeEventListener("popstate", confirmPathChanged);
+    navigation?.removeEventListener("currententrychange", confirmPathChanged);
+    if (!follow) return;
+    addEventListener("popstate", confirmPathChanged);
+    navigation?.addEventListener("currententrychange", confirmPathChanged);
   }
   /**
    * A `shown` report of `path`: on a page Pateat does not fill, with whether an amount shows
@@ -599,6 +610,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       // A page Pateat does not fill stays one until an answer on another path (ADR 0035).
       if (parsed.output.confirm) confirmPage = parsed.output.confirm;
       else if (confirmPage?.path !== announcedPath) confirmPage = undefined;
+      followConfirmPath(confirmPage !== undefined && !cancelled);
       if (parsed.output.frame) watchFrame();
     }
     if (parsed.success && parsed.output.ok && parsed.output.starts) {
@@ -649,6 +661,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       cancelled = true;
       unwatch();
       frameWatch?.();
+      followConfirmPath(false);
       respond({ ok: true });
       return false;
     }
@@ -1465,6 +1478,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     cancelled = true;
     unwatch();
     frameWatch?.();
+    followConfirmPath(false);
     document.removeEventListener("submit", onSubmit, true);
     removeEventListener("click", onClick, true);
     browser.runtime.onMessage.removeListener(listener);

@@ -1198,7 +1198,7 @@ export type RecentLog = {
   unsentVerifications: { reason: string; count: number }[];
 };
 /** The `recipe.generate` skip reasons of a page that looks like a verification (ADR 0035). */
-export const UNSENT_VERIFICATION_REASONS: ReadonlySet<string> = new Set(["text-answer", "frame"]);
+const UNSENT_VERIFICATION_REASONS: ReadonlySet<string> = new Set(["text-answer", "frame"]);
 
 export function recentLog(entries: readonly LogEntry[], now: number): RecentLog {
   const since = now - RECENT_WINDOW_MS;

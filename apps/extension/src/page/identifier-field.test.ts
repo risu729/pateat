@@ -111,15 +111,24 @@ describe("answerInput", () => {
     );
     expect(answers('<label>秘密の質問の答え<input type="text"></label>')).toBe(true);
     expect(answers('<input placeholder="合言葉">')).toBe(true);
-    expect(answers('<input aria-label="Your answer">')).toBe(true);
+    expect(answers('<input aria-label="Security question answer">')).toBe(true);
+    expect(answers('<input name="memorable_word">')).toBe(true);
+  });
+
+  it("leaves out a survey's or contact form's answer, a secret alone and a security code", () => {
+    expect(answers('<input aria-label="Your answer">')).toBe(false);
+    expect(answers('<label>回答<input type="text"></label>')).toBe(false);
+    expect(answers('<label>秘密保持の同意<input type="text"></label>')).toBe(false);
+    expect(answers('<input name="client_secret">')).toBe(false);
+    expect(answers('<input aria-label="Security code">')).toBe(false);
   });
 
   it("leaves out other, hidden, read-only, search and sign-up inputs", () => {
     expect(answers('<input type="text" name="nickname">')).toBe(false);
-    expect(answers('<input type="password" name="answer">')).toBe(false);
-    expect(answers('<input type="text" name="answer" readonly>')).toBe(false);
-    expect(answers('<input type="text" name="answer" style="display: none">')).toBe(false);
-    expect(answers('<form role="search"><input name="answer"></form>')).toBe(false);
+    expect(answers('<input type="password" name="secret_answer">')).toBe(false);
+    expect(answers('<input type="text" name="secret_answer" readonly>')).toBe(false);
+    expect(answers('<input type="text" name="secret_answer" style="display: none">')).toBe(false);
+    expect(answers('<form role="search"><input name="secret_answer"></form>')).toBe(false);
     expect(
       answers(
         '<form><input name="secretAnswer"><input type="password" autocomplete="new-password"></form>',

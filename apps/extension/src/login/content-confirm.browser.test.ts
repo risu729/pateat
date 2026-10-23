@@ -99,6 +99,50 @@ describe("a page Pateat does not fill (ADR 0035)", () => {
       ),
     );
   });
+
+  it("reports no amount when its first step is in no form", async () => {
+    reply.value = {
+      ok: false,
+      reason: "recipe-not-found",
+      starts: [],
+      confirm: { path: path(), require: "writable", targets: [{ by: "id", value: "code" }] },
+    };
+    document.body.innerHTML = `<main><p>¥1,200</p><input id="code"></main>`;
+    uninstall = installLoginContent();
+    await vi.waitFor(() =>
+      expect(ready()).toContainEqual(expect.objectContaining({ shown: { path: path() } })),
+    );
+  });
+
+  it("reports its first step and the person's submit again after a return in place", async () => {
+    const home = location.pathname;
+    reply.value = {
+      ok: false,
+      reason: "recipe-not-found",
+      starts: [],
+      confirm: { path: path(), require: "writable", targets: [{ by: "id", value: "code" }] },
+    };
+    document.body.innerHTML = `<form id="pay"><input id="code"><button id="confirm">Confirm</button></form>`;
+    document.forms[0]!.addEventListener("submit", (e) => e.preventDefault());
+    uninstall = installLoginContent();
+    const shownCount = () => ready().filter((message) => message["shown"]).length;
+    const submitted = () =>
+      sent.filter((message) => message["type"] === "login.document.person-submitted").length;
+    await vi.waitFor(() => expect(shownCount()).toBe(1));
+    await userEvent.click(document.querySelector("#confirm")!);
+    expect(submitted()).toBe(1);
+    try {
+      history.pushState(null, "", "/pateat-elsewhere");
+      await userEvent.click(document.querySelector("#confirm")!);
+      expect(submitted()).toBe(1);
+      history.pushState(null, "", home);
+      await vi.waitFor(() => expect(shownCount()).toBe(2));
+      await userEvent.click(document.querySelector("#confirm")!);
+      expect(submitted()).toBe(2);
+    } finally {
+      history.replaceState(null, "", home);
+    }
+  });
 });
 
 describe("a page that looks like a verification but is not sent (ADR 0035)", () => {
@@ -115,20 +159,33 @@ describe("a page that looks like a verification but is not sent (ADR 0035)", () 
     );
   });
 
-  it("reports a frame the worker asks about once it shows a secret answer", async () => {
+  it("reports a frame the worker asks about once a later reading finds a secret answer", async () => {
+    vi.useFakeTimers();
     reply.value = { ok: false, reason: "recipe-not-found", frame: true };
     document.body.innerHTML = `<main><p>Loading</p></main>`;
     uninstall = installLoginContent();
-    await vi.waitFor(() => expect(ready().length).toBe(1));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(ready()).toHaveLength(1);
     document.body.insertAdjacentHTML(
       "beforeend",
       `<form><input type="text" name="secret_answer" aria-label="Secret answer"></form>`,
     );
-    await vi.waitFor(() =>
-      expect(ready()).toContainEqual(
-        expect.objectContaining({ unoffered: { path: path(), why: "frame" } }),
-      ),
+    // The frame is read again a second later, not on each change.
+    expect(ready()).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(ready()).toContainEqual(
+      expect.objectContaining({ unoffered: { path: path(), why: "frame" } }),
     );
+    await vi.advanceTimersByTimeAsync(10_000);
     expect(ready().filter((message) => message["unoffered"])).toHaveLength(1);
+  });
+
+  it("never reports a frame whose readings find nothing", async () => {
+    vi.useFakeTimers();
+    reply.value = { ok: false, reason: "recipe-not-found", frame: true };
+    document.body.innerHTML = `<main><label>Your answer<input type="text"></label></main>`;
+    uninstall = installLoginContent();
+    await vi.advanceTimersByTimeAsync(11_000);
+    expect(ready()).toHaveLength(1);
   });
 });

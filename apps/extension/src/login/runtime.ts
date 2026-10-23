@@ -476,6 +476,8 @@ type LiveDocument = {
    * not fill (ADR 0035).
    */
   previousUrl?: string;
+  /** The tab's top page went on to a page Pateat does not admit, so it is no previous page. */
+  leftUnread?: true;
   /**
    * When this worker first saw the document. Only a page first seen after another tab's
    * login began to be watched ends that login (ADR 0027).
@@ -505,11 +507,13 @@ type ConfirmVisit = {
   path: string;
   url: string;
   recipe: Pick<LoginRecipe, "id" | "revision" | "pageKind">;
+  /** The recipe's first step, for the document to report once it shows. */
+  first: LoginReadiness;
   /** The person submitted the page's form themselves (a trusted `submit` event). */
   submitted: boolean;
   /**
    * Once the page was logged `confirm-unsupported`: resolves after that entry is written, to
-   * whether the tab's next page is read for E1 (the page's own E1 and E2 did not show).
+   * whether the tab's next page is read for E1 (neither its own E1 nor E2 showed).
    */
   logged?: Promise<boolean>;
 };
@@ -1592,9 +1596,10 @@ export type LoginReport = (
       /** The person submitted the page's form themselves: a trusted `submit` event. */
       personSubmitted: boolean;
       /**
-       * For a page whose own E1 and E2 did not show, the `signedIn` false its generation
-       * request carries: whether the tab's next page shows a signed-in marker of the
-       * origin's recipes (E1). Absent when the tab closed or its next page was not read.
+       * For a page that showed neither E1 nor E2 (E2 also when unread), read as the
+       * `signedIn` false its generation request carried: whether the tab's next page shows a
+       * signed-in marker of the origin's recipes (E1). Absent when the tab closed or its next
+       * page was not read.
        */
       nextE1?: boolean;
     }
@@ -6774,8 +6779,8 @@ export function createLoginRuntime(
     )
       return undefined;
     const hold = await generation.available(live.document.origin, live.path).catch(() => undefined);
-    // Without the service nothing would be sent, so a frame is not counted either.
-    if (framed) return hold === undefined || hold === "not-connected" ? undefined : "frame";
+    // A frame counts only where its page would be sent now.
+    if (framed) return hold === true ? "frame" : undefined;
     return hold;
   }
   /**
@@ -7200,42 +7205,55 @@ export function createLoginRuntime(
     return false;
   }
   /**
-   * The first step of `confirm`, a recipe generated as `confirm` or `unclear` that starts on
-   * the tab's page `live`, for the document to report (ADR 0035), and the tab's visit of that
-   * page, logged when the tab leaves it.
+   * The tab's visit of its page `live`, on whose path `confirm`, a recipe generated as
+   * `confirm` or `unclear`, starts (ADR 0035), logged when the tab leaves it. Admission
+   * already left a visit of another document or path.
    */
-  function confirmPage(live: LiveDocument, confirm: LoginRecipe): LoginReadiness {
+  function confirmPage(live: LiveDocument, confirm: LoginRecipe): ConfirmVisit {
     const { tabId, documentId } = live.document;
-    const visit = confirmVisits.get(tabId);
-    if (visit?.document.documentId !== documentId || visit.path !== live.path) {
-      if (visit) leaveConfirm(visit);
-      confirmVisits.set(tabId, {
-        document: live.document,
-        path: live.path,
-        url: live.url,
-        recipe: { id: confirm.id, revision: confirm.revision, pageKind: confirm.pageKind },
-        submitted: false,
-      });
-    }
-    return loginReadiness(confirm.steps[0]!);
+    const kept = confirmVisits.get(tabId);
+    const visit = (kept?.document.documentId === documentId && kept.path === live.path
+      ? kept
+      : undefined) ?? {
+      document: live.document,
+      path: live.path,
+      url: live.url,
+      recipe: { id: confirm.id, revision: confirm.revision, pageKind: confirm.pageKind },
+      first: loginReadiness(confirm.steps[0]!),
+      submitted: false,
+    };
+    confirmVisits.set(tabId, visit);
+    return visit;
   }
   /**
    * What a page Pateat does not fill shows, for the evaluation of page kinds (ADR 0035),
    * never a value or page text: whether a signed-in marker of the origin's recipes shows (E1)
    * and whether a matching item's username shows in its header or navigation (E2, absent
    * when the vault matched nothing or a username could not be read), read as the `signedIn`
-   * hint is, and the tab's previous page of the origin.
+   * hint is, and the tab's previous page of the origin. A header rendered after the form is
+   * waited for as on the next page: read a second apart at most `SITE_MOVE_READINGS` times
+   * until either shows or the page goes, both from the last reading.
    */
   async function confirmSigns(
     live: LiveDocument,
   ): Promise<{ e1: boolean; e2?: boolean; previousUrl?: string }> {
-    const e1 = await showsMarkers(
-      live,
-      await markerProofs(live.document.origin, live.document.origin),
-    );
+    const proofs = await markerProofs(live.document.origin, live.document.origin);
     const scope = await generationSlotsFor(live).catch(() => undefined);
     const usernames = scope && (await readUsernames(live.document.origin, usernameReads(scope)));
-    const e2 = usernames && (await showsUsername(live, usernames));
+    let e1 = false;
+    let e2: boolean | undefined;
+    // Each reading waits for the one before, as the page goes on rendering.
+    /* eslint-disable no-await-in-loop */
+    for (let reading = 0; reading < SITE_MOVE_READINGS; reading++) {
+      if (reading > 0)
+        await new Promise<void>((resolve) => setTimeout(resolve, SIGN_IN_RECHECK_MS));
+      const page = documents.get(frameKey(live.document));
+      if (page?.document.documentId !== live.document.documentId || page.path !== live.path) break;
+      e1 = await showsMarkers(page, proofs);
+      e2 = usernames && (await showsUsername(page, usernames));
+      if (e1 || e2) break;
+    }
+    /* eslint-enable no-await-in-loop */
     usernames?.fill("");
     return {
       e1,
@@ -7245,7 +7263,7 @@ export function createLoginRuntime(
   }
   /**
    * Logs the tab leaving `visit`'s page, once that page was logged (ADR 0035): whether the
-   * person submitted its form and, when its own E1 and E2 did not show, whether `next`, the
+   * person submitted its form and, when it showed neither E1 nor E2, whether `next`, the
    * tab's next page, shows E1. Without `next` (the tab closed, or its next page is not read)
    * that is left out.
    */
@@ -7298,6 +7316,24 @@ export function createLoginRuntime(
     }
     /* eslint-enable no-await-in-loop */
     return false;
+  }
+  /**
+   * The URL of the tab's previous page for its top `document`, newly announced on `path`,
+   * for the log of a page Pateat does not fill (ADR 0035): `oldLive`, the tab's last read
+   * top page, when it was another page of the same origin or this document before its path
+   * changed in place, and what `oldLive` had when this is the same page again. A page of
+   * another origin, or one Pateat did not admit in between, leaves it out.
+   */
+  function previousPage(
+    document: LoginDocument,
+    oldLive: LiveDocument | undefined,
+    sameDocument: boolean,
+    path: string,
+  ): string | undefined {
+    if (document.frameId !== 0 || !oldLive) return undefined;
+    if (sameDocument && oldLive.path === path) return oldLive.previousUrl;
+    if (oldLive.leftUnread || oldLive.document.origin !== document.origin) return undefined;
+    return oldLive.url;
   }
   /** Whether the document shows a step's elements now, without waiting for them. */
   async function showsNow(live: LiveDocument, readiness: LoginReadiness): Promise<boolean> {
@@ -8028,10 +8064,14 @@ export function createLoginRuntime(
     await Promise.all(clicksNoting);
     const document = await identify(sender);
     if (!document || !sender.url) {
-      // A page Pateat does not fill was left for a page it does not read (ADR 0035).
-      const visit = sender.tab?.id === undefined ? undefined : confirmVisits.get(sender.tab.id);
-      if (sender.frameId === 0 && visit && visit.document.documentId !== sender.documentId)
-        leaveConfirm(visit);
+      if (sender.frameId === 0 && sender.tab?.id !== undefined) {
+        // A page Pateat does not fill was left for a page it does not read, which is also
+        // the tab's previous page for the next one it reads (ADR 0035).
+        const visit = confirmVisits.get(sender.tab.id);
+        if (visit && visit.document.documentId !== sender.documentId) leaveConfirm(visit);
+        const top = documents.get(frameKey({ tabId: sender.tab.id, frameId: 0 }));
+        if (top && top.document.documentId !== sender.documentId) top.leftUnread = true;
+      }
       await noteUnadmitted(sender);
       return { ok: false, reason: "unauthorized-document" };
     }
@@ -8167,16 +8207,7 @@ export function createLoginRuntime(
     if (oldLive && !sameDocument)
       await send(oldLive, { type: "login.cancel" }).catch(() => undefined);
     const path = observedPath(new URL(url).pathname);
-    // The tab's previous page of the origin, or this document before its path changed in
-    // place, for the log of a page Pateat does not fill (ADR 0035).
-    const previousUrl =
-      document.frameId !== 0
-        ? undefined
-        : oldLive && !(sameDocument && oldLive.path === path)
-          ? oldLive.document.origin === document.origin
-            ? oldLive.url
-            : undefined
-          : oldLive?.previousUrl;
+    const previousUrl = previousPage(document, oldLive, sameDocument, path);
     const live: LiveDocument = {
       document,
       token,
@@ -8204,13 +8235,13 @@ export function createLoginRuntime(
     };
     documents.set(key, live);
     // The tab's next page after a page Pateat does not fill (ADR 0035).
-    const visit = confirmVisits.get(document.tabId);
+    const earlier = confirmVisits.get(document.tabId);
     if (
-      visit &&
+      earlier &&
       document.frameId === 0 &&
-      (visit.document.documentId !== document.documentId || visit.path !== path)
+      (earlier.document.documentId !== document.documentId || earlier.path !== path)
     )
-      leaveConfirm(visit, live);
+      leaveConfirm(earlier, live);
     // The first other top document of the tab after an effect step, when it comes soon
     // enough to be the site's answer to it (ADR 0029). One announced later, as after the
     // person's own retry in a page the login settled on, is never read as that answer.
@@ -8237,7 +8268,7 @@ export function createLoginRuntime(
     };
     // A sign-in input shows on this path, but the page only watches: logged once per
     // document and path, so a login that silently does not start can be told apart.
-    const notStarted = (detail: string, confirm?: LoginRecipe) => {
+    const notStarted = (detail: string, visit?: ConfirmVisit) => {
       if (shown?.path !== live.path || live.notStarted === detail) return;
       live.notStarted = detail;
       const refused = {
@@ -8248,7 +8279,7 @@ export function createLoginRuntime(
         detail,
         ...(document.frameId === 0 ? {} : { frame: true as const }),
       };
-      if (!confirm) {
+      if (!visit) {
         report(document, refused);
         return;
       }
@@ -8256,25 +8287,20 @@ export function createLoginRuntime(
       // (ADR 0035), read first, so the entry names this page's URL; its visit logs the
       // person's submission and the next page once the tab leaves it.
       const amount = shown?.amount;
-      const logged = confirmSigns(live).then((signs) => {
+      visit.logged = confirmSigns(live).then((signs) => {
         report(document, {
           ...refused,
-          recipeId: confirm.id,
-          recipeRevision: confirm.revision,
-          pageKind: confirm.pageKind,
+          recipeId: visit.recipe.id,
+          recipeRevision: visit.recipe.revision,
+          pageKind: visit.recipe.pageKind,
           ...(amount === undefined ? {} : { amount }),
           ...signs,
           url: live.url,
         });
-        return !signs.e1 && signs.e2 === false;
+        // Read as the `signedIn` hint false: neither shows, E2 also when it was not read.
+        return !signs.e1 && signs.e2 !== true;
       });
-      const confirmVisit = confirmVisits.get(document.tabId);
-      if (
-        confirmVisit?.document.documentId === document.documentId &&
-        confirmVisit.path === live.path
-      )
-        confirmVisit.logged = logged;
-      void logged.catch(() => undefined);
+      void visit.logged.catch(() => undefined);
     };
     // The page after a sign-in entry press is checked before anything else runs on it, and
     // one that blocked the entry is neither sent for generation nor logged in to (ADR 0031).
@@ -8649,14 +8675,14 @@ export function createLoginRuntime(
         const starts = await startsFor(document.origin);
         if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
         // Not a recipe's first step on its path, so not taken as a logout (ADR 0021 D).
-        const confirming = confirm && confirmPage(live, confirm);
-        if (confirm) notStarted("confirm-unsupported", confirm);
+        const visit = confirm && confirmPage(live, confirm);
+        if (visit) notStarted("confirm-unsupported", visit);
         else notStarted("logged-in");
         return {
           ok: false,
           reason: "logged-in",
           starts,
-          ...(confirming ? { confirm: confirming } : {}),
+          ...(visit ? { confirm: visit.first } : {}),
         };
       }
       // It shows again after a finished login: a logout. Only this tab's record for this
@@ -8716,14 +8742,14 @@ export function createLoginRuntime(
       if (start?.path !== live.path || confirm) {
         const starts = await startsFor(document.origin);
         if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
-        const confirming = confirm && confirmPage(live, confirm);
-        if (confirm) notStarted("confirm-unsupported", confirm);
+        const visit = confirm && confirmPage(live, confirm);
+        if (visit) notStarted("confirm-unsupported", visit);
         else notStarted("stopped-login");
         return {
           ok: false,
           reason: "login-stopped",
           starts,
-          ...(confirming ? { confirm: confirming } : {}),
+          ...(visit ? { confirm: visit.first } : {}),
         };
       }
       const released = recorded;
@@ -8948,12 +8974,12 @@ export function createLoginRuntime(
           : await confirmRecipeOn(document.origin, live.path);
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
       if (confirm) {
-        const confirming = confirmPage(live, confirm);
-        notStarted("confirm-unsupported", confirm);
+        const visit = confirmPage(live, confirm);
+        notStarted("confirm-unsupported", visit);
         live.state = "watching";
         delete live.reason;
         await publish(live);
-        return { ok: false, reason: "recipe-not-found", starts, confirm: confirming };
+        return { ok: false, reason: "recipe-not-found", starts, confirm: visit.first };
       }
       // The chooser's path shows a sign-in form instead of its list, and the chooser has no
       // `other` branch yet, as after the person pressed its button for another account: the
@@ -10615,6 +10641,8 @@ export function createLoginRuntime(
       .catch(() => {
         storageHealthy = false;
       });
+    // The discarded page was not left: it loads again in the new tab and is logged there.
+    confirmVisits.delete(removed);
     forgetTab(removed);
   });
   /** Forgets a closed tab, or the gone page of a replaced one. */
