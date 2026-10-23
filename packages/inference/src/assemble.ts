@@ -1,4 +1,5 @@
 import {
+  detailInputRefusal,
   extendsRecipe,
   fillRoles,
   handlerTargets,
@@ -13,6 +14,8 @@ import {
   routeFillTargets,
   sameLoginTarget as sameTarget,
   splitCodeInputs,
+  type BirthDateFormat,
+  type LoginDetail,
   type LoginFieldTarget,
   type LoginEntryRecipe,
   type LoginObservation,
@@ -70,7 +73,7 @@ const effects = (steps: readonly LoginStep[]) =>
   }).length;
 const stepTargets = (step: LoginStep) =>
   step.kind === "fill" ? step.fields.map((field) => field.target) : [step.target];
-/** Every element a handler of the recipe uses on `path`: buttons and code fields. */
+/** Every element a handler of the recipe uses on `path`: buttons, code and detail inputs. */
 const handlerElements = (recipe: LoginRecipe, path: string) =>
   (recipe.handlers ?? []).filter((handler) => handler.path === path).flatMap(handlerTargets);
 /** The code fields of the recipe's `totp` handlers on `path`. */
@@ -292,6 +295,11 @@ export type HandlerRejection =
    * handler's field is a field the route fills.
    */
   | "step-target"
+  /**
+   * A `detail` handler's input is not an input of the page that `detailInputRefusal`
+   * accepts with its button (ADR 0061).
+   */
+  | "not-detail-field"
   /** The recipe already has a handler of this kind on that path. */
   | "duplicate"
   /** The result breaks the recipe contract, such as its handler bound. */
@@ -315,7 +323,12 @@ export function addHandler(
   page: Pick<LoginObservation, "origin" | "path" | "candidates">,
   handler:
     | { kind: "passkey" | "password"; target: LoginTarget }
-    | { kind: "totp"; field: LoginFieldTarget; target: LoginTarget },
+    | { kind: "totp"; field: LoginFieldTarget; target: LoginTarget }
+    | {
+        kind: "detail";
+        fields: { detail: LoginDetail; format?: BirthDateFormat; target: LoginFieldTarget }[];
+        target: LoginTarget;
+      },
 ): { ok: true; recipe: LoginRecipe } | { ok: false; reason: HandlerRejection } {
   if (base.origin !== page.origin) return { ok: false, reason: "origin-mismatch" };
   const button = page.candidates.find(
@@ -331,7 +344,31 @@ export function addHandler(
     ...(base.completion ?? []).map((marker) => marker.target),
     ...handlerElements(base, page.path),
   ];
-  if (handler.kind !== "totp") {
+  if (handler.kind === "detail") {
+    // The judge's checks, again (ADR 0061). The route's sign-in form may still show beside
+    // the inputs, so no input or button is a route step's, a route fill field anywhere, or
+    // another element the recipe checks.
+    const inputs = handler.fields.map((entry) => ({
+      entry,
+      field: page.candidates.find(
+        (candidate) =>
+          (fillRoles as readonly string[]).includes(candidate.role) &&
+          sameTarget(candidate.target, entry.target),
+      ),
+    }));
+    if (inputs.some((input) => !input.field)) return { ok: false, reason: "not-on-page" };
+    if (inputs.some((input) => detailInputRefusal(input.entry, input.field!, button)))
+      return { ok: false, reason: "not-detail-field" };
+    const fills = routeFillTargets(base, "password");
+    if (
+      [...fills, ...routeTargets(base, page.path), ...others].some((element) =>
+        [...handler.fields.map((entry) => entry.target), handler.target].some((target) =>
+          sameTarget(element, target),
+        ),
+      )
+    )
+      return { ok: false, reason: "step-target" };
+  } else if (handler.kind !== "totp") {
     // The label, the text and an id, name or test ID locator all count.
     if (handler.kind === "passkey" && registersPasskey(button))
       return { ok: false, reason: "registration" };

@@ -893,7 +893,10 @@ than in this repository.
     connection client, stays: the options page tests render the page that way.
 - Personal details asked for during a login, filled from another Bitwarden item linked
   to the login. Moved from phase 4 (owner, 2026-10-22 04:23 UTC); a design proposal for
-  the owner comes before any code. エポスNet asks for the card's security code after the
+  the owner comes before any code. Proposed by Claude on 2026-10-23 on best guesses, at
+  the owner's request to go ahead and decide later, as
+  [ADR 0061](adr/0061-personal-details-during-a-login.md) (not confirmed); its delivery 1,
+  the `detail` handler that the judge learns, is implemented. エポスNet asks for the card's security code after the
   password (owner, 2026-10-12 04:18 UTC: it can wait), and other sites ask for a birth
   date or similar details as extra verification. The owner sees these as one need
   (2026-10-12 05:29 UTC): the value is in a card or identity item, not in the login

@@ -1033,8 +1033,11 @@ export async function judgeCompletion(
     // (ADR 0027).
     let changed: LoginRecipe | undefined;
     // Kinds and refusal reasons only: never an element, label or value.
-    const handlers: { kind: "passkey" | "password" | "totp"; kept: boolean; reason?: string }[] =
-      [];
+    const handlers: {
+      kind: "passkey" | "password" | "totp" | "detail";
+      kept: boolean;
+      reason?: string;
+    }[] = [];
     /** The handler added to the revision after the judged one, with what came before. */
     const keep = (handler: Parameters<typeof addHandler>[2]) => {
       const base = changed ?? recipe;
@@ -1057,6 +1060,12 @@ export async function judgeCompletion(
     // A code the judge named but its local checks refused is logged with why (ADR 0027).
     if (judgement.totpDropped && !stop)
       handlers.push({ kind: "totp", kept: false, reason: judgement.totpDropped });
+    // Nor are a stop's details (ADR 0036, ADR 0061); each dropped input is logged by why.
+    if (judgement.detail && stop) handlers.push({ kind: "detail", kept: false, reason: "stop" });
+    else if (judgement.detail) keep({ kind: "detail", ...judgement.detail });
+    if (!stop)
+      for (const reason of judgement.detailsDropped ?? [])
+        handlers.push({ kind: "detail", kept: false, reason });
     if (handlers.length) console.info("Judged page handlers", { recipeId, handlers });
     const withHandlers = changed && stored(head.recipe, branch, changed);
     if (!withHandlers) return { version: 1, status: "challenge" };

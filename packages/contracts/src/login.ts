@@ -220,6 +220,50 @@ export const loginRouteSchema = v.picklist(["password", "passkey"]);
  * button; `password` clicks a button such as "Password" on a page that asks how to
  * confirm the sign-in, which goes on to typing the password (ADR 0048).
  */
+/**
+ * The personal details a `detail` handler's input may ask for (ADR 0061), each read from
+ * a vault item the owner linked to the login and made into the value the page wants:
+ * a birth date in the input's `format`, the last four digits of a phone number or of a
+ * card number, or a card's security code.
+ */
+export const loginDetailSchema = v.picklist([
+  "birth-date",
+  "phone-last-4",
+  "card-last-4",
+  "card-code",
+]);
+/** How a `birth-date` input wants the date written (ADR 0061). */
+export const birthDateFormatSchema = v.picklist([
+  "yyyymmdd",
+  "yyyymm",
+  "yyyy-mm-dd",
+  "yyyy/mm/dd",
+  "mmdd",
+]);
+/**
+ * The details Pateat never fills, though it learns the page that asks for them (ADR 0061):
+ * none while card codes are filled; the owner's open choice may add `card-code`.
+ */
+export const manualDetails: readonly LoginDetail[] = [];
+/** The characters a detail's value has once made, which an input's `maxlength` must hold. */
+export function detailLength(entry: {
+  detail: LoginDetail;
+  format?: BirthDateFormat | undefined;
+}): number {
+  if (entry.detail !== "birth-date") return entry.detail === "card-code" ? 3 : 4;
+  return entry.format === undefined ? 8 : entry.format.length;
+}
+const detailFieldSchema = v.pipe(
+  v.strictObject({
+    detail: loginDetailSchema,
+    format: v.optional(birthDateFormatSchema),
+    target: loginFieldTargetSchema,
+  }),
+  v.check(
+    (entry) => (entry.detail === "birth-date") === (entry.format !== undefined),
+    "A birth date input has a format, and no other input does",
+  ),
+);
 export const loginHandlerSchema = v.variant("kind", [
   v.strictObject({ kind: v.literal("passkey"), path, target: loginTargetSchema }),
   v.strictObject({ kind: v.literal("password"), path, target: loginTargetSchema }),
@@ -234,6 +278,31 @@ export const loginHandlerSchema = v.variant("kind", [
       (handler) =>
         handler.field.by !== handler.target.by || handler.field.value !== handler.target.value,
       "The code field cannot be its submit button",
+    ),
+  ),
+  /**
+   * A page that asks for a personal detail (ADR 0061): one to three inputs, each with the
+   * detail it asks for, of which a login fills the first it has a linked value for, and
+   * the button that submits it. A page that offers a choice, as radio buttons do, lists
+   * each input.
+   */
+  v.pipe(
+    v.strictObject({
+      kind: v.literal("detail"),
+      path,
+      fields: v.pipe(v.array(detailFieldSchema), v.minLength(1), v.maxLength(3)),
+      target: loginTargetSchema,
+    }),
+    v.check(
+      (handler) => unique(handler.fields.map((field) => JSON.stringify(field.target))),
+      "Duplicate detail inputs",
+    ),
+    v.check(
+      (handler) =>
+        !handler.fields.some(
+          (field) => JSON.stringify(field.target) === JSON.stringify(handler.target),
+        ),
+      "A detail input cannot be its submit button",
     ),
   ),
 ]);
@@ -272,12 +341,16 @@ const completionTargetCount = (
 ) => (markers ?? []).reduce((count, marker) => count + 1 + (marker.absent?.length ?? 0), 0);
 /**
  * Every element a handler uses, in the order its steps use them: a `totp` handler's code
- * field, then its button. The handler is entered only when all of them show (ADR 0027).
+ * field or a `detail` handler's inputs, then its button. The handler is entered only when
+ * all of them show (ADR 0027).
  */
 export function handlerTargets(
   handler: v.InferOutput<typeof loginHandlerSchema>,
 ): v.InferOutput<typeof loginTargetSchema>[] {
-  return handler.kind === "totp" ? [handler.field, handler.target] : [handler.target];
+  if (handler.kind === "totp") return [handler.field, handler.target];
+  if (handler.kind === "detail")
+    return [...handler.fields.map((field) => field.target), handler.target];
+  return [handler.target];
 }
 /** The `passkey` route's one step: a click on its button that submits. */
 const passkeyStep = (passkey: {
@@ -564,24 +637,29 @@ export const loginRecipeSchema = v.pipe(
     );
   }, "Completion target is a handler target"),
   // A `totp` handler types a code into a field of its own: never one a route step uses on
-  // its path, such as the password input of a form that asks for the code after it.
+  // its path, such as the password input of a form that asks for the code after it. A
+  // `detail` handler's inputs and button are all its own (ADR 0061): the route's sign-in
+  // form may still show beside them.
   v.check(
     (recipe) =>
-      !(recipe.handlers ?? []).some(
-        (handler) =>
-          handler.kind === "totp" &&
-          variantsOf(recipe).some((variant) =>
-            variant.steps.some(
-              (step) =>
-                step.path === handler.path &&
-                (step.kind === "fill" ? step.fields.map((field) => field.target) : [step.target])
-                  .map(targetKey)
-                  .includes(targetKey(handler.field)),
-            ),
+      !(recipe.handlers ?? []).some((handler) => {
+        if (handler.kind !== "totp" && handler.kind !== "detail") return false;
+        const own = (handler.kind === "totp" ? [handler.field] : handlerTargets(handler)).map(
+          targetKey,
+        );
+        return variantsOf(recipe).some((variant) =>
+          variant.steps.some(
+            (step) =>
+              step.path === handler.path &&
+              (step.kind === "fill" ? step.fields.map((field) => field.target) : [step.target])
+                .map(targetKey)
+                .some((key) => own.includes(key)),
           ),
-      ),
-    "The code field is a route step target",
+        );
+      }),
+    "The code field or a detail handler's element is a route step target",
   ),
+
   // A `password` handler's button leads to the password a route step types: it is never a
   // route step's own element on its path (ADR 0048).
   v.check(
@@ -998,6 +1076,8 @@ export function storedRecipeSlots(recipe: StoredLoginRecipe): string[] {
 }
 export type LoginRoute = v.InferOutput<typeof loginRouteSchema>;
 export type LoginHandler = v.InferOutput<typeof loginHandlerSchema>;
+export type LoginDetail = v.InferOutput<typeof loginDetailSchema>;
+export type BirthDateFormat = v.InferOutput<typeof birthDateFormatSchema>;
 
 /**
  * One way through a route, as the executor records it when a login starts (ADR 0027).
@@ -1242,25 +1322,30 @@ export function passwordStopOrMiss(
 /** The slot a `totp` handler's fill uses; a binding for it reads the item's TOTP field. */
 export const TOTP_HANDLER_SLOT = "totp";
 /**
- * The steps a handler runs: a `passkey` handler's click, a `password` handler's click that
- * advances to the password page (ADR 0048), or a `totp` handler's fill of the code into
- * its field followed by the click on its submit button.
+ * The slot a `detail` handler's fill uses (ADR 0061). No binding slot reads it: the value
+ * comes from the item the binding's `details` link for the input's detail.
  */
-export function handlerSteps(handler: LoginHandler): LoginStep[] {
+export const DETAIL_HANDLER_SLOT = "detail";
+/**
+ * The steps a handler runs: a `passkey` handler's click, a `password` handler's click that
+ * advances to the password page (ADR 0048), a `totp` handler's fill of the code into its
+ * field, or a `detail` handler's fill of its input at `field` (ADR 0061), followed by the
+ * click on its submit button.
+ */
+export function handlerSteps(handler: LoginHandler, field = 0): LoginStep[] {
   const click: LoginStep = {
     kind: "click",
     path: handler.path,
     target: handler.target,
     purpose: handler.kind === "password" ? "advance" : "submit",
   };
-  if (handler.kind !== "totp") return [click];
+  if (handler.kind !== "totp" && handler.kind !== "detail") return [click];
+  const [slot, target] =
+    handler.kind === "totp"
+      ? [TOTP_HANDLER_SLOT, handler.field]
+      : [DETAIL_HANDLER_SLOT, (handler.fields[field] ?? handler.fields[0]!).target];
   return [
-    {
-      kind: "fill",
-      path: handler.path,
-      fields: [{ slot: TOTP_HANDLER_SLOT, target: handler.field }],
-      effect: "prepare",
-    },
+    { kind: "fill", path: handler.path, fields: [{ slot, target }], effect: "prepare" },
     click,
   ];
 }
@@ -1280,12 +1365,17 @@ export const loginItemFactsSchema = v.strictObject({
   discoverablePasskey: v.boolean(),
 });
 export type LoginItemFacts = v.InferOutput<typeof loginItemFactsSchema>;
-/** The fact each handler kind requires. */
+/**
+ * The fact each handler kind requires. A `detail` handler requires none of the item's
+ * own: it needs a linked value for one of its inputs, checked when it is entered (ADR
+ * 0061).
+ */
 export const handlerFact = {
   passkey: "passkey",
   password: "password",
   totp: "totp",
-} as const satisfies Record<LoginHandler["kind"], keyof LoginItemFacts>;
+  detail: undefined,
+} as const satisfies Record<LoginHandler["kind"], keyof LoginItemFacts | undefined>;
 /** The field a fill of `fieldId` reads: a Linked field's built-in source, or the field itself. */
 export function loginFieldSource(item: Pick<VaultItemMetadata, "fields">, fieldId: string): string {
   const field = item.fields.find((entry) => entry.id === fieldId);

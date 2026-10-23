@@ -23,6 +23,7 @@ import {
   isSiteExcluded,
   loginFieldFacts,
   loginFieldSource,
+  manualDetails,
   pagesLeft,
   loginDocumentSchema,
   loginDisplayNames,
@@ -1340,7 +1341,7 @@ type AdvanceMiss = {
  * login that types its password goes on to it rather than to a passkey beside it (ADR
  * 0048), then a passkey, which types nothing.
  */
-const handlerOrder = { password: 0, passkey: 1, totp: 2 } as const satisfies Record<
+const handlerOrder = { password: 0, passkey: 1, totp: 2, detail: 3 } as const satisfies Record<
   LoginHandler["kind"],
   number
 >;
@@ -1745,9 +1746,19 @@ export type LoginReport = (
        * `entered`; `shown-again` after this login already ran it; `missing-fact` when the
        * item lacks what the handler needs, including a `totp` handler's built-in field;
        * `code-used` when the login already types a TOTP code; `no-room` when the attempt's
-       * budget is spent, or the login is at its stop before a missing password (ADR 0036).
+       * budget is spent, or the login is at its stop before a missing password (ADR 0036);
+       * for a `detail` handler (ADR 0061), `detail-manual` when its inputs ask only for
+       * details Pateat never fills, such as a card's security code, and `detail-unlinked`
+       * when no vault item is linked for any of the others.
        */
-      outcome: "entered" | "shown-again" | "missing-fact" | "code-used" | "no-room";
+      outcome:
+        | "entered"
+        | "shown-again"
+        | "missing-fact"
+        | "code-used"
+        | "no-room"
+        | "detail-manual"
+        | "detail-unlinked";
       steps: number;
     }
 ) & {
@@ -4819,10 +4830,14 @@ export function createLoginRuntime(
               ? targets.map(() => "present" as const)
               : handler.kind === "totp"
                 ? (["writable", "shown"] as const)
-                : handler.kind === "password"
-                  ? // Shown, and its rendered text names the password choice (ADR 0048).
-                    (["password-choice"] as const)
-                  : (["shown"] as const)),
+                : handler.kind === "detail"
+                  ? // Its inputs present, as a choice page may disable all but one, and its
+                    // button shown (ADR 0061).
+                    ([...handler.fields.map(() => "present" as const), "shown"] as const)
+                  : handler.kind === "password"
+                    ? // Shown, and its rendered text names the password choice (ADR 0048).
+                      (["password-choice"] as const)
+                    : (["shown"] as const)),
             ...(sameForm ? routeFields.map(() => "writable" as const) : []),
           ],
           own: targets.length,
@@ -4879,14 +4894,23 @@ export function createLoginRuntime(
         : change(run, { type: "OBSERVED", result: "challenge", document: run.live.document });
     // A handler page shown again after its handler ran is left to the person, and so is a
     // second code in one login, so a wrong code or key is never retried into a lockout.
-    const refusal = (entry: (typeof entries)[number]) =>
-      run.metadata.handlers.some((entered) => entered.index === entry.index)
-        ? ("shown-again" as const)
-        : !run.metadata.facts[handlerFact[entry.handler.kind]]
-          ? ("missing-fact" as const)
-          : entry.handler.kind === "totp" && attemptUsesCode(run.recipe, run.metadata)
-            ? ("code-used" as const)
-            : undefined;
+    const refusal = (entry: (typeof entries)[number]) => {
+      if (run.metadata.handlers.some((entered) => entered.index === entry.index))
+        return "shown-again" as const;
+      const { handler } = entry;
+      // A `detail` handler fills a value of a vault item linked to the login (ADR 0061),
+      // which no login links yet: one that asks only for a detail Pateat never fills is
+      // left to the person as such.
+      if (handler.kind === "detail")
+        return handler.fields.every((field) => manualDetails.includes(field.detail))
+          ? ("detail-manual" as const)
+          : ("detail-unlinked" as const);
+      const fact = handlerFact[handler.kind];
+      if (!run.metadata.facts[fact]) return "missing-fact" as const;
+      return handler.kind === "totp" && attemptUsesCode(run.recipe, run.metadata)
+        ? ("code-used" as const)
+        : undefined;
+    };
     // A `password` handler goes first; refused, as when its button shows again after its
     // press, it ends the login there, so the passkey button beside it is never pressed by a
     // login that types its password (ADR 0048).
