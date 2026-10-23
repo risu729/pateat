@@ -1923,6 +1923,11 @@ export function createLoginRuntime(
      * keeps a page's own conditional request waiting.
      */
     passkeyItems?: (origin: string) => Promise<readonly PasskeyItem[]>;
+    /**
+     * Whether the origin's hostname was just chosen "Always for this site" and its settings
+     * write still waits (ADR 0007): the login treats it as listed already.
+     */
+    pendingBrowserSite?: (origin: string) => boolean;
     /** Receives each attempt state change, refusal and generation result. */
     report?: (report: LoginReport) => void;
     /**
@@ -1960,6 +1965,9 @@ export function createLoginRuntime(
     announced?: (tabId: number, url: string) => void;
   },
 ) {
+  /** A hostname whose passkey requests go to the browser, listed or just chosen (ADR 0007). */
+  const listedBrowserSite = (saved: LocalSettings, origin: string) =>
+    isPasskeyBrowserSite(saved, origin) || options.pendingBrowserSite?.(origin) === true;
   const { fields, sites, recipes = noLoginRecipes, uris, generation } = options;
   const badge =
     options.badge ?? createLoginBadge({ setBadge: setActionBadge, storage: memoryBadgeStorage() });
@@ -3838,7 +3846,7 @@ export function createLoginRuntime(
     // holds no passkey, so the login takes a password route or none.
     const passkeyScripts = passkeyScriptsRun(live.document.origin, probeMode);
     const browserSite =
-      passkeyScripts && isPasskeyBrowserSite(snapshot.snapshot.settings, live.document.origin);
+      passkeyScripts && listedBrowserSite(snapshot.snapshot.settings, live.document.origin);
     const passkeyPage = passkeyScripts && !browserSite;
     const factsOf = (resolved: Extract<Awaited<ReturnType<typeof resolveRoute>>, { ok: true }>) =>
       itemFacts(
@@ -6869,7 +6877,7 @@ export function createLoginRuntime(
     // unrelated RP matches never authorize generation. On a site whose passkey requests go
     // to the browser no item holds one Pateat may use (ADR 0007).
     if (passkeyOnly) {
-      const browserSite = isPasskeyBrowserSite(snapshot.snapshot.settings, live.document.origin);
+      const browserSite = listedBrowserSite(snapshot.snapshot.settings, live.document.origin);
       const leave = browserSite
         ? undefined
         : await options.vault?.enter(false).catch(() => undefined);

@@ -418,6 +418,8 @@ function harness(
     passkeys?: (account: unknown) => Promise<{ passkey: boolean; discoverable: boolean }>;
     /** The items holding a discoverable passkey for an origin (ADR 0034). */
     passkeyItems?: (origin: string) => Promise<readonly PasskeyItem[]>;
+    /** A hostname chosen "Always for this site" whose write still waits (ADR 0007). */
+    pendingBrowserSite?: (origin: string) => boolean;
     /** Automatic vault sync (ADR 0025). */
     vault?: Parameters<typeof createLoginRuntime>[1]["vault"];
     /** Receives the runtime's reports for the local log, without page URLs unless `urls`. */
@@ -586,6 +588,7 @@ function harness(
     ...(live.generation ? { generation: live.generation } : {}),
     ...(live.passkeys ? { passkeys: live.passkeys } : {}),
     ...(live.passkeyItems ? { passkeyItems: live.passkeyItems } : {}),
+    ...(live.pendingBrowserSite ? { pendingBrowserSite: live.pendingBrowserSite } : {}),
     ...(live.vault ? { vault: live.vault } : {}),
     ...(live.signedIn ? { signedIn: live.signedIn } : {}),
     ...(live.badge
@@ -16795,6 +16798,20 @@ describe("the start page's passkey route (ADR 0027)", () => {
     expect(clicks(button.value)).toBe(0);
     // The item's passkeys are not even looked up there.
     expect(passkeys).not.toHaveBeenCalled();
+  });
+
+  it('treats a hostname chosen "Always" as listed while its write waits (ADR 0007)', async () => {
+    fake.state.present = new Set(["password", "login", "Sign in with a passkey", "logout"]);
+    fake.state.observedPath = "/home";
+    const passkeys = discoverable();
+    const pendingBrowserSite = vi.fn((page: string) => page === origin);
+    const { h } = start(learned, { passkeys, pendingBrowserSite });
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
+    expect(status()![0]).toMatchObject({ route: "password", facts: { passkey: false } });
+    expect(clicks(button.value)).toBe(0);
+    expect(passkeys).not.toHaveBeenCalled();
+    expect(pendingBrowserSite).toHaveBeenCalledWith(origin);
   });
 
   it("never takes the passkey route on such a site, even for an item without a password", async () => {

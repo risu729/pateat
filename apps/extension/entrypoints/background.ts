@@ -20,6 +20,7 @@ import { createConnectionProbeTransport } from "../src/connections/probe";
 import {
   createPasskeyBrowserSites,
   PENDING_BROWSER_SITES_KEY,
+  watchSettingsWrites,
 } from "../src/passkeys/browser-sites";
 import { CHOOSER_PAGE, createPasskeyChooser } from "../src/passkeys/chooser";
 import { createPasskeyCreateHandler } from "../src/passkeys/create";
@@ -309,6 +310,8 @@ export default defineBackground(() => {
     passkeys: (account) => itemPasskeyFacts(vaultPasskeys, account),
     // ADR 0034: a popup choice keeps the page's request only when an item holds a passkey.
     passkeyItems: (origin) => originPasskeyItems(vaultPasskeys, origin),
+    // ADR 0007: a hostname chosen "Always" counts as listed while its write waits.
+    pendingBrowserSite: (origin) => browserSites.pending(origin),
     report: (report) => {
       diagnosticsLog.login(report);
       loginBadge.observe(report);
@@ -397,9 +400,9 @@ export default defineBackground(() => {
     added: () => settingsSaved(),
   });
   // Every write of the settings, from any path, is read again by the next request.
-  browser.storage.local.onChanged.addListener((changes) => {
-    if (SETTINGS_STORAGE_KEY in changes) browserSites.changed();
-  });
+  watchSettingsWrites(browser.storage.local.onChanged, SETTINGS_STORAGE_KEY, () =>
+    browserSites.changed(),
+  );
   const passkeyBrowserSite = (origin: string) => browserSites.has(origin);
   const addBrowserSite = (origin: string) => browserSites.add(origin);
   const passkeyProbe =

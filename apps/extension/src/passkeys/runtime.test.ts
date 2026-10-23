@@ -1398,6 +1398,44 @@ describe("a page's own conditional request through a login (ADR 0034)", () => {
     return { hold, events };
   }
 
+  it("hands on a parked request whose site was listed while it waited (ADR 0007)", async () => {
+    const backing = source();
+    const answered = vi.fn();
+    const { conditional, waiting } = decisions();
+    let listed = false;
+    const browserSite = vi.fn(async () => listed);
+    const runtime = createPasskeyRuntime(backing, { extensionId, conditional, browserSite });
+    const pending = runtime.handle(conditionalGet(), sender());
+    await vi.waitFor(() => expect(waiting).toHaveLength(1));
+    // "Always for this site" in another tab, while the request is parked for its login.
+    listed = true;
+    waiting[0]!.decide({ kind: "answer", item: loginItem, answered });
+    expect(await pending).toEqual({ kind: "delegate", reason: "browser-site" });
+    expect(backing.sign).not.toHaveBeenCalled();
+    expect(answered.mock.calls).toEqual([[false]]);
+  });
+
+  it("hands on a request whose site was listed during its lookup (ADR 0007)", async () => {
+    let listed = false;
+    const { promise: looked, resolve: look } = Promise.withResolvers<void>();
+    const backing = source({
+      candidates: vi.fn(async () => {
+        await looked;
+        return { candidates: [candidate], complete: true };
+      }),
+    });
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      browserSite: async () => listed,
+    });
+    const pending = runtime.handle(get(), sender());
+    await vi.waitFor(() => expect(backing.candidates).toHaveBeenCalled());
+    listed = true;
+    look();
+    expect(await pending).toEqual({ kind: "delegate", reason: "browser-site" });
+    expect(backing.sign).not.toHaveBeenCalled();
+  });
+
   it("waits for the login's decision and hands the request on with its reason", async () => {
     const report = vi.fn();
     const requested = vi.fn();

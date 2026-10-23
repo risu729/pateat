@@ -399,11 +399,23 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       : Promise.resolve(false);
     // Awaited by `unlisted`; a rejection is never left unhandled.
     listed.catch(() => undefined);
-    /** Throws ListedSite on a listed hostname; called before anything answers the request. */
+    /**
+     * Throws ListedSite on a listed hostname; called before anything answers the request.
+     * Asks again at each call, so a hostname chosen "Always" while the request waited, as a
+     * parked conditional one does, holds for it too.
+     */
     const unlisted = async (signal: AbortSignal) => {
       const current = step;
       step = "browser-site-lookup";
       if (await abortable(listed, signal)) throw new ListedSite();
+      if (
+        options.browserSite &&
+        (await abortable(
+          Promise.try(() => options.browserSite!(origin)),
+          signal,
+        ))
+      )
+        throw new ListedSite();
       step = current;
     };
     // Vault replacement waits while the vault is read for this request, never while a

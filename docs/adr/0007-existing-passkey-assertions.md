@@ -418,8 +418,10 @@ settings page only needs to remove it, not add it.
   `required`, `conditional` or Immediate UI, is handed on with `browser-site`, and so is
   every bridged `create`, which is then never refused. The list is read alongside the
   first lookups, so a request's deadline runs as it would without it, and nothing is
-  signed, no chooser opens and no login is waited for before the list is known. The
-  worker keeps the list it read until the settings change. A failed read of the list
+  signed, no chooser opens and no login is waited for before the list is known. Each of
+  those steps asks again, so a hostname listed while a request waits, as a parked
+  conditional one does, holds for it too. The worker keeps the list it read until the
+  settings change. A failed read of the list
   hands the request on too (`assertion-failed`, cause `browser-site-lookup`).
 - A login on such a page treats its item as holding no passkey: it takes a `password`
   route or refuses, never the `passkey` route, and a passkey-only page there is not sent
@@ -428,15 +430,18 @@ settings page only needs to remove it, not add it.
 - The extension's settings page lists the hostnames under "Sites whose passkey requests
   go to the browser", each with only a Remove button. A removal is a settings save, so
   the next request on that host is answered again without a reload.
-- The chosen hostname holds at once. It is kept in `storage.session`, so it also holds
-  after a worker restart, which resumes its write. The write waits up to two minutes for
-  a running login, which a settings write would stop, as a settings sync does (the
-  agent's addition, not confirmed by the owner). It is then written with the cause
-  `passkey-browser-site`, which a save conflict on the settings page treats as
+- The chosen hostname holds at once, for passkey requests and for logins. It is kept in
+  `storage.session`, so it also holds after a worker restart, which resumes its write
+  while it was still waiting and within the wait limit. A write that had started is
+  never repeated, so a removal on the settings page wins. The write waits up to two
+  minutes for a running login, which a settings write would stop, as a settings sync
+  does (the agent's addition, not confirmed by the owner). It is then written with the
+  cause `passkey-browser-site`, which a save conflict on the settings page treats as
   background work (ADR 0025), and uploaded. The hostname leaves `storage.session` once
   the write lands or is refused. A full list of 1,000 keeps its entries.
-- A passkey-only item's refusal on a listed hostname names the list in the popup, not a
-  missing passkey (`password-empty:passkey-browser-site`).
+- The refusal of an item without a password on a listed hostname names the list in the
+  popup, not a missing passkey, since its passkeys are not read there
+  (`password-empty:passkey-browser-site`).
 - Under [ADR 0024](0024-settings-profiles.md) the list is a profile part, like
   `excludedSites` (the agent's assignment, not confirmed by the owner); with one
   profile it syncs to every paired device.
