@@ -301,7 +301,8 @@ export function createRecipeSync(options: {
     let recovery: RecipeRecovery | undefined;
     if (reread) {
       // The checkpoint of the walk from the old cursor is replaced by one that skips
-      // nothing, so the cursor arriving there again never resumes that walk.
+      // nothing, so the cursor arriving there again never resumes that walk; then the reset
+      // is stored, so later runs keep the checkpoints of this walk from cursor 0.
       try {
         const neutral: RecipeRecovery = {
           version: 2,
@@ -314,6 +315,8 @@ export function createRecipeSync(options: {
       } catch {
         return "storage-unavailable";
       }
+      const failure = await writeCache(cache, { added: 0, updated: 0, removed: 0 });
+      if (failure) return failure;
     } else if (loaded) {
       try {
         const parsed = v.safeParse(recoverySchema, await storage.readRecovery());

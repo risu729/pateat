@@ -402,11 +402,15 @@ describe("recipe changes", () => {
       ["a change without a recipe ID", [{ ...newer, recipeId: "" }]],
       ["an unknown state", [{ ...newer, state: "paused" }]],
       ["a recipe left out twice", [newer, newer]],
-      ["a bad revision", [{ ...newer, revision: 0 }]],
+      ["a bad revision", [{ ...newer, revision: 0, recipe: { ...newer.recipe, revision: 0 } }]],
       ["a recipe of another ID", [{ ...newer, recipe: { ...newer.recipe, id: "shop-signin" } }]],
       ["a recipe of another revision", [{ ...newer, recipe: { ...newer.recipe, revision: 3 } }]],
       ["an active change without a recipe", [{ ...newer, recipe: undefined }]],
       ["another field on a change", [{ ...newer, note: "x" }]],
+      [
+        "a tombstone with a key a strict object refuses",
+        [JSON.parse('{"recipeId":"bank-signin","revision":2,"state":"revoked","constructor":1}')],
+      ],
       [
         "a recipe left out and read once",
         [newer, change("card-signin", { by: "id", value: "password" })],

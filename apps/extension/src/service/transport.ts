@@ -205,10 +205,12 @@ function readRecipeChanges(
 ): { page: SyncRecipeChanges; unreadable: string[] } | undefined {
   const envelope = v.safeParse(recipeChangesPageSchema, body);
   if (!envelope.success) return undefined;
+  // Each change is checked as sent: the identity read drops keys a strict object refuses.
+  const sent = (body as { changes: unknown[] }).changes;
   const changes: unknown[] = [];
   const unreadable: string[] = [];
-  for (const change of envelope.output.changes) {
-    if (v.is(syncRecipeChangeSchema, change)) changes.push(change);
+  for (const [index, change] of envelope.output.changes.entries()) {
+    if (v.is(syncRecipeChangeSchema, sent[index])) changes.push(sent[index]);
     else if (change.state === "active") unreadable.push(change.recipeId);
     else return undefined;
   }

@@ -433,7 +433,7 @@ describe("recipe sync", () => {
     expect(cache()).toMatchObject({ cursor: 4, unreadableBy: "1c42ad3" });
   });
 
-  it("keeps the old cursor and reads again when a reread fails before a page is written", async () => {
+  it("stores the reset of a reread before reading, so a failed one goes on from cursor 0", async () => {
     const stored = {
       version: 2,
       origin: SERVICE,
@@ -447,7 +447,9 @@ describe("recipe sync", () => {
       pages: [{ kind: "failed", error: "unreachable" }, page([], 6)],
     });
     expect(await sync.sync()).toBe("unreachable");
-    expect(cache()).toEqual(stored);
+    // The reset is stored before the first page is read, so a later run is an ordinary one.
+    const { unreadableBy: _, ...reset } = stored;
+    expect(cache()).toEqual({ ...reset, cursor: 0 });
     expect(await sync.sync()).toBe("synced");
     expect(transport.recipeChanges.mock.calls).toEqual([
       [SERVICE, CREDENTIAL, 0],
