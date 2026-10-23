@@ -149,13 +149,18 @@ export function ChooserApp({ client }: { client: ChooserClient }) {
               </span>
               {/* The passkey's user name leads; the item and its connection follow. */}
               <span className="flex min-w-0 flex-1 flex-col">
-                <span className="font-semibold wrap-anywhere">{entry.userName ?? entry.item}</span>
+                <span className="font-semibold wrap-anywhere">
+                  {entry.userName ?? entry.item ?? t("Unnamed item")}
+                </span>
                 {(entry.userName || entry.account) && (
                   <span className="text-[13px]/5 wrap-anywhere text-ink-muted">
                     {entry.userName
                       ? entry.account
-                        ? t("{{item}} in {{account}}", { item: entry.item, account: entry.account })
-                        : entry.item
+                        ? t("{{item}} in {{account}}", {
+                            item: entry.item ?? t("Unnamed item"),
+                            account: entry.account,
+                          })
+                        : (entry.item ?? t("Unnamed item"))
                       : entry.account}
                   </span>
                 )}

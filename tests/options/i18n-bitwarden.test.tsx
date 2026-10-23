@@ -114,39 +114,47 @@ test("language changes preserve sign-in inputs and focus, then localize a pendin
   expect(JSON.stringify(queries.getMutationCache().getAll())).not.toContain(PASSWORD);
 });
 
-test("a manual MFA draft survives translation and submits exactly once with the same provider", async () => {
-  const value = client();
-  // The authenticator: choosing email would send a code first (as the official extension).
-  value.begin.mockResolvedValue({ ok: true, kind: "mfa-required", flowId: FLOW, providers: [0] });
-  let finish!: (reply: SetupReply) => void;
-  value.continue.mockReturnValueOnce(
-    new Promise((resolve) => {
-      finish = resolve;
-    }),
-  );
-  await mount(value);
-  await credentials();
-  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
-  const code = page.getByLabelText("Verification code", { exact: true });
-  await code.fill("000123");
-  const element = code.element();
-  await i18n.changeLanguage("ja");
-  const translatedCode = page.getByLabelText(japanese("Verification code"), { exact: true });
-  await expect.element(translatedCode).toHaveValue("000123");
-  await expect.element(translatedCode).toHaveFocus();
-  expect(translatedCode.element()).toBe(element);
-  await page.getByRole("button", { name: japanese("Verify code"), exact: true }).click();
-  await vi.waitFor(() =>
-    expect(value.continue).toHaveBeenCalledExactlyOnceWith({
+// The authenticator (0) and email (1), which sends its code first as the official extension.
+test.each([0, 1] as const)(
+  "a manual MFA draft survives translation and submits exactly once with provider %i",
+  async (provider) => {
+    const value = client();
+    value.begin.mockResolvedValue({
+      ok: true,
+      kind: "mfa-required",
       flowId: FLOW,
-      twoFactor: { provider: 0, code: "000123" },
-    }),
-  );
-  await expect.element(translatedCode).toHaveValue("");
-  await i18n.changeLanguage("en");
-  expect(value.continue).toHaveBeenCalledOnce();
-  finish(ready());
-});
+      providers: [provider],
+    });
+    let finish!: (reply: SetupReply) => void;
+    value.continue.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    await mount(value);
+    await credentials();
+    await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+    const code = page.getByLabelText("Verification code", { exact: true });
+    await code.fill("000123");
+    const element = code.element();
+    await i18n.changeLanguage("ja");
+    const translatedCode = page.getByLabelText(japanese("Verification code"), { exact: true });
+    await expect.element(translatedCode).toHaveValue("000123");
+    await expect.element(translatedCode).toHaveFocus();
+    expect(translatedCode.element()).toBe(element);
+    await page.getByRole("button", { name: japanese("Verify code"), exact: true }).click();
+    await vi.waitFor(() =>
+      expect(value.continue).toHaveBeenCalledExactlyOnceWith({
+        flowId: FLOW,
+        twoFactor: { provider, code: "000123" },
+      }),
+    );
+    await expect.element(translatedCode).toHaveValue("");
+    await i18n.changeLanguage("en");
+    expect(value.continue).toHaveBeenCalledOnce();
+    finish(ready());
+  },
+);
 
 test("the email code's send result and Resend follow the language", async () => {
   const value = client();

@@ -23,6 +23,7 @@ export const en = {
   "Use this account for {{host}} from now on": "Use this account for {{host}} from now on",
   "Matching passkeys": "Matching passkeys",
   "{{item}} in {{account}}": "{{item}} in {{account}}",
+  "Unnamed item": "Unnamed item",
   Default: "Default",
   "Use the browser or another extension": "Use the browser or another extension",
   "Pateat on this site": "Pateat on this site",

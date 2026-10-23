@@ -6,6 +6,7 @@ export const diagnosticsJa = {
   Version: "バージョン",
   Install: "インストール方法",
   Browser: "ブラウザー",
+  "Unknown browser": "不明なブラウザー",
   Platform: "プラットフォーム",
   "Bitwarden protocol": "Bitwarden プロトコル",
   Permissions: "権限",
@@ -83,12 +84,12 @@ export const diagnosticsJa = {
   "Copied. Paste it into the bug report.": "コピーしました。不具合報告に貼り付けてください。",
   "Copy failed. Select the text above and copy it manually.":
     "コピーできませんでした。上のテキストを選択して手動でコピーしてください。",
-  "With site addresses included, a download names page paths and their parameters' names, not values; a path or a page's route can still hold a code or an ID. A site you had not set up when an entry was written stays pseudonymous, as {{origin}} or {{rp}}. Check the preview before sharing.":
-    "サイトのアドレスを含めると、ページのパスとパラメーター名が出力されます。パラメーターの値は含みませんが、パスやルートにはコードや ID が含まれることがあります。記録時に未設定だったサイトは {{origin}} や {{rp}} のような仮名のままです。共有前にプレビューを確認してください。",
+  "With site addresses included, a download names page paths and their parameters' names, not values; a path or a page's route can still hold a code or an ID. A site you had not set up when an entry was written stays pseudonymous, as <code>{{origin}}</code> or <code>{{rp}}</code>. Check the preview before sharing.":
+    "サイトのアドレスを含めると、ページのパスとパラメーター名が出力されます。パラメーターの値は含みませんが、パスやルートにはコードや ID が含まれることがあります。記録時に未設定だったサイトは <code>{{origin}}</code> や <code>{{rp}}</code> のような仮名のままです。共有前にプレビューを確認してください。",
   "This exact text is saved or copied. Check it before attaching it to a bug report.":
     "このテキストがそのまま保存またはコピーされます。不具合報告に添付する前に確認してください。",
-  "This exact text is copied. Check it before posting. Sites are numbered here, separately from a hidden Download logs, so site-1 may differ.":
-    "このテキストがそのままコピーされます。投稿前に確認してください。サイトを隠したログのダウンロードとは別に番号を付けるため、site-1 が指すサイトは異なる場合があります。",
+  "This exact text is copied. Check it before posting. Sites are numbered here, separately from a hidden <strong>Download logs</strong>, so <code>site-1</code> may differ.":
+    "このテキストがそのままコピーされます。投稿前に確認してください。サイトを隠した<strong>ログをダウンロード</strong>とは別に番号を付けるため、<code>site-1</code> が指すサイトは異なる場合があります。",
   "Bug report text and exported log entries stay in English and keep their diagnostic codes.":
     "不具合報告用のテキストと出力したログは英語のままで、診断コードも変わりません。",
   "{{version}} ({{revision}}) {{mode}} build": "{{version}}（{{revision}}）{{mode}} ビルド",
@@ -180,8 +181,8 @@ export const diagnosticsJa = {
   "diagnostics.code.review-required": "確認が必要（review-required）",
   "diagnostics.code.connected": "接続済み（connected）",
   "diagnostics.code.not-configured": "未設定（not-configured）",
-  "diagnostics.code.cloud-us": "Cloud US (cloud-us)",
-  "diagnostics.code.cloud-eu": "Cloud EU (cloud-eu)",
+  "diagnostics.code.cloud-us": "クラウド・米国（cloud-us）",
+  "diagnostics.code.cloud-eu": "クラウド・EU（cloud-eu）",
   "diagnostics.code.self-hosted": "セルフホスト（self-hosted）",
   "diagnostics.code.ok": "正常（ok）",
   "diagnostics.code.failed": "失敗（failed）",

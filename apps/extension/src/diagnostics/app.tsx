@@ -1,4 +1,4 @@
-import { useTranslation } from "react-i18next";
+import { Trans, useTranslation } from "react-i18next";
 import { formatLocale, i18n } from "../i18n";
 import { diagnosticsCheckLabel, diagnosticsCode } from "./presentation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -104,7 +104,8 @@ function Version({ status, browser }: { status: DiagnosticsStatus; browser: Brow
           {installLabel(browser.installType, t)} ({browser.installType})
         </Row>
         <Row term="Browser" id="diagnostics-browser">
-          {browser.name} {browser.version}
+          {browser.name === "Unknown browser" ? t("Unknown browser") : browser.name}{" "}
+          {browser.version}
         </Row>
         <Row term="Platform">
           {status.platform.os} {status.platform.arch}
@@ -188,7 +189,13 @@ function Connections({ status }: { status: DiagnosticsStatus }) {
             <Row term="Items">
               {t(
                 "{{total}} (login {{login}}, TOTP {{totp}}, passkey {{passkey}}) + {{unsupported}} unsupported",
-                entry.items,
+                {
+                  total: entry.items.total,
+                  login: entry.items.login,
+                  totp: entry.items.totp,
+                  passkey: entry.items.passkey,
+                  unsupported: entry.items.unsupported,
+                },
               )}
             </Row>
           )}
@@ -274,7 +281,11 @@ function Local({ status }: { status: DiagnosticsStatus }) {
           <Row term="Settings">
             {t(
               "excluded sites {{excludedSites}}, site defaults {{siteDefaults}}, bindings {{bindings}}",
-              status.settings,
+              {
+                excludedSites: status.settings.excludedSites,
+                siteDefaults: status.settings.siteDefaults,
+                bindings: status.settings.bindings,
+              },
             )}
           </Row>
         )}
@@ -486,10 +497,15 @@ function Logs({
           className="mt-0.5 shrink-0 text-warning"
         />
         <span>
-          {t(
-            "With site addresses included, a download names page paths and their parameters' names, not values; a path or a page's route can still hold a code or an ID. A site you had not set up when an entry was written stays pseudonymous, as {{origin}} or {{rp}}. Check the preview before sharing.",
-            { origin: "origin:7d2b91aa", rp: "rp:7d2b91aa" },
-          )}
+          <Trans
+            i18n={i18n}
+            t={t}
+            i18nKey={
+              "With site addresses included, a download names page paths and their parameters' names, not values; a path or a page's route can still hold a code or an ID. A site you had not set up when an entry was written stays pseudonymous, as <code>{{origin}}</code> or <code>{{rp}}</code>. Check the preview before sharing."
+            }
+            values={{ origin: "origin:7d2b91aa", rp: "rp:7d2b91aa" }}
+            components={{ code: <code /> }}
+          />
         </span>
       </div>
       {preview !== undefined && (
@@ -653,9 +669,14 @@ export function DiagnosticsApp({ client }: { client: DiagnosticsClient }) {
             {t("Bug report text")}
           </h2>
           <p className={NOTE}>
-            {t(
-              "This exact text is copied. Check it before posting. Sites are numbered here, separately from a hidden Download logs, so site-1 may differ.",
-            )}{" "}
+            <Trans
+              i18n={i18n}
+              t={t}
+              i18nKey={
+                "This exact text is copied. Check it before posting. Sites are numbered here, separately from a hidden <strong>Download logs</strong>, so <code>site-1</code> may differ."
+              }
+              components={{ code: <code />, strong: <strong /> }}
+            />{" "}
             {t(
               "Bug report text and exported log entries stay in English and keep their diagnostic codes.",
             )}

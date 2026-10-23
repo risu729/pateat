@@ -4,6 +4,7 @@ export const diagnosticsEn = {
   Version: "Version",
   Install: "Install",
   Browser: "Browser",
+  "Unknown browser": "Unknown browser",
   Platform: "Platform",
   "Bitwarden protocol": "Bitwarden protocol",
   Permissions: "Permissions",
@@ -79,12 +80,12 @@ export const diagnosticsEn = {
   "Copied. Paste it into the bug report.": "Copied. Paste it into the bug report.",
   "Copy failed. Select the text above and copy it manually.":
     "Copy failed. Select the text above and copy it manually.",
-  "With site addresses included, a download names page paths and their parameters' names, not values; a path or a page's route can still hold a code or an ID. A site you had not set up when an entry was written stays pseudonymous, as {{origin}} or {{rp}}. Check the preview before sharing.":
-    "With site addresses included, a download names page paths and their parameters' names, not values; a path or a page's route can still hold a code or an ID. A site you had not set up when an entry was written stays pseudonymous, as {{origin}} or {{rp}}. Check the preview before sharing.",
+  "With site addresses included, a download names page paths and their parameters' names, not values; a path or a page's route can still hold a code or an ID. A site you had not set up when an entry was written stays pseudonymous, as <code>{{origin}}</code> or <code>{{rp}}</code>. Check the preview before sharing.":
+    "With site addresses included, a download names page paths and their parameters' names, not values; a path or a page's route can still hold a code or an ID. A site you had not set up when an entry was written stays pseudonymous, as <code>{{origin}}</code> or <code>{{rp}}</code>. Check the preview before sharing.",
   "This exact text is saved or copied. Check it before attaching it to a bug report.":
     "This exact text is saved or copied. Check it before attaching it to a bug report.",
-  "This exact text is copied. Check it before posting. Sites are numbered here, separately from a hidden Download logs, so site-1 may differ.":
-    "This exact text is copied. Check it before posting. Sites are numbered here, separately from a hidden Download logs, so site-1 may differ.",
+  "This exact text is copied. Check it before posting. Sites are numbered here, separately from a hidden <strong>Download logs</strong>, so <code>site-1</code> may differ.":
+    "This exact text is copied. Check it before posting. Sites are numbered here, separately from a hidden <strong>Download logs</strong>, so <code>site-1</code> may differ.",
   "Bug report text and exported log entries stay in English and keep their diagnostic codes.":
     "Bug report text and exported log entries stay in English and keep their diagnostic codes.",
   "{{version}} ({{revision}}) {{mode}} build": "{{version}} ({{revision}}) {{mode}} build",

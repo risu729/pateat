@@ -117,10 +117,25 @@ export function watchLanguagePreference(
   return () => preferenceWatchers.delete(changed);
 }
 
+// Values this program wrote whose change event may still arrive. Its own events are not
+// applied again: after a quick ja then en, the late ja event would flip the page back.
+let ownWrites: unknown[] = [];
+
 /** Apply the choice at once; it lasts until the program ends if the store rejects it. */
 export function saveLanguagePreference(preference: LanguagePreference): void {
   applyLanguagePreference(preference);
+  ownWrites.push(preference);
   void store.set(preference).catch(() => undefined);
+}
+
+function storedChanged(value: unknown): void {
+  const own = ownWrites.indexOf(value);
+  if (own !== -1) {
+    ownWrites = ownWrites.slice(own + 1);
+    return;
+  }
+  ownWrites = [];
+  applyLanguagePreference(parseLanguagePreference(value));
 }
 
 /**
@@ -132,16 +147,23 @@ export async function followLanguagePreference(
   next: LanguageStore = extensionLanguageStore(),
 ): Promise<() => void> {
   store = next;
+  ownWrites = [];
   const before = applied;
+  // Watched before the read, so a write elsewhere while it runs is not missed.
+  let unwatch = () => {};
+  try {
+    unwatch = store.watch(storedChanged);
+  } catch {
+    // A store that cannot be watched still gives its value at start.
+  }
   let stored: unknown;
   try {
     stored = await store.get();
   } catch {
     stored = undefined;
   }
-  // A choice made here while the read ran is newer than what was read.
+  // A choice made here, or a change seen, while the read ran is newer than what was read.
   if (applied === before) applyLanguagePreference(parseLanguagePreference(stored));
-  const unwatch = store.watch((value) => applyLanguagePreference(parseLanguagePreference(value)));
   // Pages and the service worker both see `languagechange` when the browser's list changes.
   const browserChanged = () => applyLanguagePreference(activePreference);
   globalThis.addEventListener("languagechange", browserChanged);

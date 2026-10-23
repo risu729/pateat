@@ -17,7 +17,7 @@ export const bitwardenJa = {
   "The vault exceeds the local cache limit. Refresh to check the current vault status.":
     "保管庫がローカルキャッシュの上限を超えています。更新して保管庫の現在の状態を確認してください。",
   "The cache update could not be confirmed. Refresh and reload saved settings before using this vault.":
-    "キャッシュの更新を確認できませんでした。この保管庫を使う前に、更新し、保存済みの設定を読み込み直してください。",
+    "キャッシュの更新を確認できませんでした。この保管庫を使う前に、更新し、保存済みの設定を再読み込みしてください。",
   "This verification session expired. Start sign-in again.":
     "この確認セッションは期限切れです。ログインをやり直してください。",
   "This account uses an unsupported vault format. Setup is incomplete.":
@@ -29,7 +29,7 @@ export const bitwardenJa = {
   "The provider session expired. Sign in again to sync.":
     "プロバイダーのセッションは期限切れです。同期するには再ログインしてください。",
   "Saved settings changed. Reload saved settings and review the current field list before trying again.":
-    "保存済みの設定が変更されました。再試行する前に、保存済みの設定を読み込み直し、現在のフィールド一覧を確認してください。",
+    "保存済みの設定が変更されました。再試行する前に、保存済みの設定を再読み込みし、現在のフィールド一覧を確認してください。",
   "Connection operation unavailable ({{code}}). Refresh before trying again.":
     "接続の操作を利用できません（{{code}}）。再試行する前に更新してください。",
   "Local vault ready": "ローカル保管庫を利用できます",
@@ -50,7 +50,7 @@ export const bitwardenJa = {
   "Automatic unlock unknown": "自動ロック解除の状態は不明です",
   "Review changed fields in {{item}}": "{{item}} の変更されたフィールドを確認",
   "All current custom fields start excluded. Save this review before the item can be used; other saved exclusions stay in place.":
-    "現在のカスタムフィールドはすべて除外された状態です。このアイテムを使う前に、確認結果を保存してください。ほかの保存済みの除外設定は維持されます。",
+    "現在のカスタムフィールドはすべて除外された状態です。このアイテムを使う前に、確認結果を保存してください。ほかの保存済みの除外設定は保持されます。",
   "{{item}}: Review exclude {{field}} (field {{index}})":
     "{{item}}：{{field}}（フィールド {{index}}）の除外を確認",
   "Exclude {{field}} (field {{index}})": "{{field}}（フィールド {{index}}）を除外",
@@ -82,7 +82,7 @@ export const bitwardenJa = {
   "Automatic unlock disabled. Sign in again with Enable automatic unlock to restore it.":
     "自動ロック解除を無効にしました。復元するには、再ログイン時に自動ロック解除を有効にしてください。",
   "The operation could not be confirmed. Refresh and reload saved settings. Your previous draft is preserved.":
-    "処理の結果を確認できませんでした。更新し、保存済みの設定を読み込み直してください。それまでの下書きは維持されています。",
+    "処理の結果を確認できませんでした。更新し、保存済みの設定を再読み込みしてください。編集中の内容は保持されています。",
   "Enter a connection name, valid email and master password. Self-hosted addresses must be HTTPS roots, or HTTP on localhost or 127.0.0.1, without a path, credentials, query or fragment.":
     "接続名、有効なメールアドレス、マスターパスワードを入力してください。セルフホストのアドレスは HTTPS のルート（localhost と 127.0.0.1 では HTTP も可）とし、パス、認証情報、クエリ、フラグメントは含めないでください。",
   "Requesting provider access and connecting…": "プロバイダーへのアクセスを要求し、接続しています…",
@@ -125,7 +125,7 @@ export const bitwardenJa = {
   "Affected items stay unavailable until their field settings are reviewed; refreshing does not approve them.":
     "影響を受けるアイテムは、フィールド設定を確認するまで利用できません。更新しても承認は行われません。",
   "Reload saved settings to review the current field list. Your unsaved policy draft is preserved until you choose Reload.":
-    "現在のフィールド一覧を確認するには、保存済みの設定を読み込み直してください。「再読み込み」を選ぶまで、未保存のポリシーの下書きは維持されます。",
+    "現在のフィールド一覧を確認するには、保存済みの設定を再読み込みしてください。「再読み込み」を選ぶまで、未保存の編集内容は保持されます。",
   "Manual verification": "手動での確認",
   "Verification method": "確認方法",
   "Authenticator code": "認証アプリのコード",
@@ -184,7 +184,7 @@ export const bitwardenJa = {
   "{{vault}}: Exclude {{field}} from {{item}}": "{{vault}}：{{item}} の {{field}} を除外",
   "Exclude {{field}} from {{item}}": "{{item}} の {{field}} を除外",
   "Unavailable connection": "利用できない接続",
-  "{{id}}. Its saved settings are preserved.": "{{id}}。保存済みの設定は維持されています。",
+  "{{id}}. Its saved settings are preserved.": "{{id}}。保存済みの設定は保持されています。",
   "{{count}} item_one": "{{count}} 件のアイテム",
   "{{count}} item_other": "{{count}} 件のアイテム",
   "{{count}} field_one": "{{count}} 個のフィールド",

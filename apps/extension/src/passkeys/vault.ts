@@ -144,7 +144,7 @@ export async function findVaultPasskeys(input: {
         counter: entry.counter,
         preferred: preferred?.connectionId === connection.id && preferred.itemId === entry.itemId,
         display: {
-          item: item?.label ?? "Unnamed item",
+          ...(item?.label ? { item: item.label } : {}),
           ...(entry.userName ? { userName: entry.userName } : {}),
           account: connection.label,
         },

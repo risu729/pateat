@@ -26,13 +26,14 @@ export const ja = {
   "Use this account for {{host}} from now on": "今後 {{host}} ではこのアカウントを使う",
   "Matching passkeys": "一致するパスキー",
   "{{item}} in {{account}}": "{{account}} の {{item}}",
+  "Unnamed item": "名前のないアイテム",
   Default: "既定",
   "Use the browser or another extension": "ブラウザーまたは別の拡張機能を使う",
   "Pateat on this site": "このサイトで Pateat を使う",
   "{{item}}, ID {{id}}": "{{item}}、ID {{id}}",
   "Saving…": "保存中…",
   "Changed elsewhere and reloaded. Nothing was changed.":
-    "別の場所で設定が変更されたため、読み込み直しました。今回の変更は保存されていません。",
+    "別の場所で設定が変更されたため、再読み込みしました。今回の変更は保存されていません。",
   "The change could not be saved": "変更を保存できませんでした",
   "The change may not have been saved. Reopen this popup to see the saved settings.":
     "変更が保存されていない可能性があります。保存された設定を確認するには、このポップアップを開き直してください。",

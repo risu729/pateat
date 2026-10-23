@@ -114,11 +114,12 @@ export default defineBackground(() => {
     setBadge: setActionBadge,
     storage: sessionValue(LOGIN_BADGE_KEY),
   });
-  void loginBadge.restore();
-  // Tooltips follow the language chosen on the settings page (ADR 0043); a badge drawn
-  // before the stored choice is read is written again once it applies.
+  // Tooltips follow the language chosen on the settings page (ADR 0043). The stored badges
+  // are drawn once it is read; one drawn sooner is written again when it applies.
   i18n.on("languageChanged", () => loginBadge.relabel());
-  void followLanguagePreference();
+  void followLanguagePreference()
+    .catch(() => undefined)
+    .then(() => loginBadge.restore());
   // Chrome resets a tab's badge when its page commits a navigation, which a url change
   // marks; the url shows only on pages Pateat can read.
   browser.tabs.onUpdated.addListener((tabId, change, tab) => {

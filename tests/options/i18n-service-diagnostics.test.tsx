@@ -150,6 +150,11 @@ test("diagnostics UI relocalizes while the copied report and raw codes remain st
     .element(page.getByRole("heading", { name: japanese("Bug report text"), exact: true }))
     .toBeVisible();
   expect(document.getElementById("report-preview")?.textContent).toBe(english);
+  // The translated note keeps its markup around the button's name and the site number.
+  const codes = [...document.querySelectorAll("main code")].map((code) => code.textContent);
+  expect(codes).toContain("site-1");
+  const strong = [...document.querySelectorAll("main strong")].map((bold) => bold.textContent);
+  expect(strong).toContain(japanese("Download logs"));
   expect(document.getElementById("report-preview")).toBe(preview);
   expect(preview?.textContent).toContain("synthetic-sdk-version");
   expect(preview?.textContent).toContain("synthetic-protocol");
