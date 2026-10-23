@@ -49,6 +49,9 @@ const fake = vi.hoisted(() => {
       outcome?: string;
       /** `login.state`: the sign-in elements of a form shown again in a new document. */
       fields?: unknown[];
+      /** `login.observe`: the elements watched and the state each must reach. */
+      targets?: unknown[];
+      require?: string[];
     }[],
     /** Overrides the document's answer to an execution, such as a wrong-account refusal. */
     executeReply: undefined as
@@ -6355,10 +6358,9 @@ describe("production login document admission", () => {
       // Each layout's start elements are counted as shown, one observation each.
       const counted = fake.state.messages.filter(
         (entry) =>
-          entry.type === "login.observe" &&
-          (entry["require"] as string[] | undefined)?.every((value) => value === "shown"),
+          entry.type === "login.observe" && entry.require?.every((value) => value === "shown"),
       );
-      expect(counted.map((entry) => entry["targets"])).toEqual([
+      expect(counted.map((entry) => entry.targets)).toEqual([
         [target("password"), target("login")],
         [target("passcode"), target("continue")],
       ]);
