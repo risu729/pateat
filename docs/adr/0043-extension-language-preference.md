@@ -26,21 +26,21 @@ Keep `system`, `en` or `ja` in `chrome.storage.local` under `pateat.language`, p
 browser profile, independent of service pairing, vault state and synced policy. `system`
 uses the first English or Japanese entry of `navigator.languages`, which pages and the
 worker both see, and falls back to English. A stored value that is not one of the three,
-or a store that cannot be read, behaves like `system`; a choice whose write fails applies
-until the page closes.
+or a store that cannot be read, behaves like `system`; a choice whose write fails
+applies until the page closes.
 
 Each extension page awaits the stored value before its first render, so no English text
-flashes, and follows later writes and the browser's `languagechange`. The worker reads it
-at start and writes every tab's tooltip again when the language changes; tooltips keep
-catalog keys and parameters, translated when drawn. The theme stays in `localStorage`,
-since no worker reads it.
+flashes, and follows later writes and the browser's `languagechange`. The worker reads
+it at start and writes every tab's tooltip again when the language changes; tooltips
+keep catalog keys and parameters, translated when drawn. The theme stays in
+`localStorage`, since no worker reads it.
 
 Bundle English and Japanese catalogs with i18next and never fetch translations. English
 source strings are the keys, and the Japanese catalogs are type-checked against the
-English ones. Vault names, usernames, hostnames and unknown status codes are interpolated
-as text. Dates and lists use the browser's regional form of the UI language (`en-GB` for
-English when the browser lists it). Japanese terms follow the official Bitwarden Japanese
-client: 保管庫, アイテム, デバイス, マスターパスワード, 2 段階認証.
+English ones. Vault names, usernames, hostnames and unknown status codes are
+interpolated as text. Dates and lists use the browser's regional form of the UI language
+(`en-GB` for English when the browser lists it). Japanese terms follow the official
+Bitwarden Japanese client: 保管庫, アイテム, デバイス, マスターパスワード, 2 段階認証.
 
 These stay in one language whatever the setting: the bug report text, exported logs and
 diagnostic codes (English, for the people who read reports); the name "Pateat"; the
@@ -50,10 +50,10 @@ manifest. The service's own pages are later work.
 
 ## Consequences
 
-Language can be changed without pairing or changing login policy, and the toolbar follows
-it. No browser permission, messaging contract or service API is added; `storage` was
-already granted. Pages wait a few milliseconds for the read before rendering. Different
-profiles and the service's pages do not share the preference.
+Language can be changed without pairing or changing login policy, and the toolbar
+follows it. No browser permission, messaging contract or service API is added; `storage`
+was already granted. Pages wait a few milliseconds for the read before rendering.
+Different profiles and the service's pages do not share the preference.
 
 ## Alternatives
 

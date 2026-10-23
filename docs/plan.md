@@ -986,14 +986,15 @@ Once the fixes have settled:
   chose i18next with react-i18next (2026-10-12 14:31 UTC), so that the language can be
   chosen in Pateat's settings
   ([comparison](research/2026-10-12-extension-ui-translation.md),
-  [dependency policy](development.md#dependency-policy)). The owner chose on 2026-10-18 to
-  translate now. The extension's pages, toolbar tooltips and manifest description are
+  [dependency policy](development.md#dependency-policy)). The owner chose on 2026-10-18
+  to translate now. The extension's pages, toolbar tooltips and manifest description are
   translated on the proposed storage in
-  [ADR 0043](adr/0043-extension-language-preference.md), whose storage question the owner
-  has not answered yet; the README and user-facing docs are not. The owner chose
-  (2026-10-12 14:14 UTC) that "the docs" means the README and the user-facing pages, including those the docs website below
-  adds; ADRs, this plan and research notes stay in English. AGENTS.md's English rule
-  gets an exception for the Japanese pages when they land.
+  [ADR 0043](adr/0043-extension-language-preference.md), whose storage question the
+  owner has not answered yet; the README and user-facing docs are not. The owner chose
+  (2026-10-12 14:14 UTC) that "the docs" means the README and the user-facing pages,
+  including those the docs website below adds; ADRs, this plan and research notes stay
+  in English. AGENTS.md's English rule gets an exception for the Japanese pages when
+  they land.
 - The docs website (VitePress 2, see
   [decisions still requiring evidence](#decisions-still-requiring-evidence)) with
   user-facing pages for installation, setup and permissions, plus the M6 operational
