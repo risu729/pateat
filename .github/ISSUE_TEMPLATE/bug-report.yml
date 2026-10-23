@@ -1,0 +1,73 @@
+name: Bug report
+description: Pateat did something wrong, or nothing where it should act.
+labels:
+  - "type: bug"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Read [Before reporting a bug](https://github.com/risu729/pateat/blob/main/CONTRIBUTING.md#before-reporting-a-bug) first: much of what looks like a bug is recorded as intended. Issues are public; never include passwords, one-time codes, TOTP secrets, tokens or vault records. Write in English.
+  - type: checkboxes
+    id: checked
+    attributes:
+      label: Checks
+      options:
+        - label: I searched the docs and ADRs, and no document says this behaviour is intended.
+          required: true
+        - label: I searched the existing issues, open and closed.
+          required: true
+  - type: input
+    id: build
+    attributes:
+      label: Build
+      description: Link to the commit the extension was built from.
+      placeholder: "[5467900](https://github.com/risu729/pateat/commit/5467900)"
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where it was seen
+      options:
+        - Real Chrome, reproduced by hand
+        - Cloud Chromium
+        - Reported by a browser agent, not reproduced by hand
+    validations:
+      required: true
+  - type: input
+    id: page
+    attributes:
+      label: Page
+      description: The page's URL, with tokens and personal values in the query removed.
+      placeholder: https://accounts.example.com/signin/password
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps
+      placeholder: |
+        1. Open the page with one matching item.
+        2. Wait 20 seconds.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+      description: Quote the popup's and the toolbar badge's words exactly, and say what was filled or pressed.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected
+      description: What should happen, and the document that says so, or "not documented".
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: The text from settings, Diagnostics, **Copy for bug report**. Check it before posting.
+      render: text
