@@ -41,8 +41,8 @@ Some behaviour that is intended and has been reported as a bug:
   rule ([ADR 0033](docs/adr/0033-no-site-specific-features.md)).
 - An `http:` page is used only for items saved with an `http://` URI
   ([ADR 0050](docs/adr/0050-http-pages-for-http-items.md)).
-- Only Bitwarden vaults are supported, and of self-hosted Vaultwarden only its latest release
-  ([ADR 0059](docs/adr/0059-latest-vaultwarden-server.md)).
+- Only Bitwarden vaults are supported, and of self-hosted Vaultwarden only its latest
+  release ([ADR 0059](docs/adr/0059-latest-vaultwarden-server.md)).
 
 When a document says the behaviour is intended and you think it is wrong, report it as a
 change to that decision (a feature request) and link the document, not as a bug.
@@ -60,8 +60,9 @@ what Pateat did:
   without vault values ([ADR 0019](docs/adr/0019-local-diagnostics-and-logs.md)).
 - The owner can also read the service's records of the attempt on `/manage/problems`.
 
-Search the [open and closed issues](https://github.com/risu729/pateat/issues?q=is%3Aissue)
-for the site and the symptom before opening a new one.
+Search the
+[open and closed issues](https://github.com/risu729/pateat/issues?q=is%3Aissue) for the
+site and the symptom before opening a new one.
 
 ## Reporting a bug
 
