@@ -154,6 +154,8 @@ let held: Promise<void> | undefined;
 let tokenStatus = 200;
 /** How long the synthetic token exchange takes. */
 let tokenDelayMs = 0;
+/** Runs on each token exchange before its answer. */
+let tokenHook: (() => Promise<void>) | undefined;
 let sent: { authorization: string | null; apiKey: string | null; body: unknown }[] = [];
 const originalFetch = globalThis.fetch;
 
@@ -162,6 +164,7 @@ beforeAll(() => {
     const outbound = new Request(input, init);
     if (outbound.url === TOKEN_URL && tokenDelayMs > 0)
       await new Promise((resolve) => setTimeout(resolve, tokenDelayMs));
+    if (outbound.url === TOKEN_URL) await tokenHook?.();
     if (outbound.url === TOKEN_URL && tokenStatus !== 200)
       return Response.json({ error: "synthetic" }, { status: tokenStatus });
     if (outbound.url === TOKEN_URL)
@@ -219,6 +222,7 @@ beforeEach(() => {
   held = undefined;
   tokenStatus = 200;
   tokenDelayMs = 0;
+  tokenHook = undefined;
 });
 
 type Device = { ownerId: string; deviceId: string; token: string };
@@ -716,23 +720,27 @@ describe("recipe generation", () => {
     held = new Promise((resolve) => {
       release = resolve;
     });
-    // Five first pages of different start paths, so five recipes (owner 2026-10-23 22:06 UTC).
+    // Five first pages of different start paths, so five recipes.
     const pages = [1, 2, 3, 4, 5].map((index) => ({ ...emailPage, path: `/login/${index}` }));
     replies.push(...pages.map(() => ({ text: plan([["email", "email"]], "next", "advance") })));
     const running = pages.map((page) => generate(device, page));
-    await vi.waitFor(() => expect(sent).toHaveLength(5));
-    expect(
-      await rows(
-        "SELECT slot FROM inference_locks WHERE owner_id = ? ORDER BY slot",
-        device.ownerId,
-      ),
-    ).toEqual([{ slot: 0 }, { slot: 1 }, { slot: 2 }, { slot: 3 }, { slot: 4 }]);
-    expect(await generate(device, { ...emailPage, path: "/login/6" })).toEqual({
-      version: 1,
-      status: "unavailable",
-      reason: "busy",
-    });
-    release();
+    try {
+      await vi.waitFor(() => expect(sent).toHaveLength(5), { timeout: 5_000 });
+      expect(
+        await rows(
+          "SELECT slot FROM inference_locks WHERE owner_id = ? ORDER BY slot",
+          device.ownerId,
+        ),
+      ).toEqual([{ slot: 0 }, { slot: 1 }, { slot: 2 }, { slot: 3 }, { slot: 4 }]);
+      expect(await generate(device, { ...emailPage, path: "/login/6" })).toEqual({
+        version: 1,
+        status: "unavailable",
+        reason: "busy",
+      });
+    } finally {
+      // Never leave the five requests waiting into the next test.
+      release();
+    }
     const answers = await Promise.all(running);
     expect(answers.map((answer) => answer.status)).toEqual(Array(5).fill("recipe"));
     expect(
@@ -4277,6 +4285,54 @@ describe("page judgement (ADR 0027)", () => {
       reason: "judged-rejected",
     });
     expect(sent).toHaveLength(calls + 1);
+  });
+
+  it("sends a page that two requests got past the gate with at once only once", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    const calls = sent.length;
+    // Both requests wait at the token exchange, after their gates, until both are there.
+    let arrived = 0;
+    let bothGated!: () => void;
+    const gated = new Promise<void>((resolve) => {
+      bothGated = resolve;
+    });
+    tokenHook = async () => {
+      arrived += 1;
+      if (arrived === 2) bothGated();
+      await gated;
+    };
+    let release!: () => void;
+    held = new Promise((resolve) => {
+      release = resolve;
+    });
+    replies.push(judgeReply({ decision: "rejected" }));
+    const requests = [complete(device, change.recipeId, 2), complete(device, change.recipeId, 2)];
+    try {
+      // The request that did not take the page's row answers without a model call while
+      // the other one is still judged (ADR 0018).
+      expect((await Promise.race(requests)).body).toEqual({
+        version: 1,
+        status: "unavailable",
+        reason: "judgement-unanswered",
+      });
+      expect(arrived).toBe(2);
+    } finally {
+      release();
+    }
+    expect((await Promise.all(requests)).map(({ body }) => body)).toEqual(
+      expect.arrayContaining([
+        { version: 1, status: "rejected" },
+        { version: 1, status: "unavailable", reason: "judgement-unanswered" },
+      ]),
+    );
+    expect(sent).toHaveLength(calls + 1);
+    expect(
+      await rows(
+        "SELECT verdict FROM page_judgements WHERE owner_id = ? AND path = '/home'",
+        device.ownerId,
+      ),
+    ).toEqual([{ verdict: "rejected" }]);
   });
 
   // Owner, 2026-10-13 05:39 UTC: a login of an item without a password but with a passkey

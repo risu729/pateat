@@ -947,7 +947,8 @@ export async function generateEntry(
 
   /**
    * What the stored head means for this request: an answer without a model call, or the
-   * revision the new recipe follows (its tombstone's, or 0). Checked again once the request holds a call slot.
+   * revision the new recipe follows (its tombstone's, or 0). Checked again once the
+   * request holds a call slot.
    */
   const decide = async (
     head: SyncRecipeChange | null,
@@ -1232,6 +1233,34 @@ export async function judgeCompletion(
     path: observation.path,
     promptVersion,
   };
+  /**
+   * The answer a kept judgement of the page gives without a model call, if any. A later
+   * login of the revision completes on the path only after a `signed-in` or undecided
+   * verdict (ADR 0029): one judged `challenge` or `rejected`, still being judged, or whose
+   * request failed does not. A row of an earlier judge prompt does not count: a page it
+   * judged `challenge` but kept no handler for, such as a code split into one-digit inputs
+   * before those were learned, is judged again. A page the model could not decide on a
+   * description that left out a disabled field, as a code field waiting for its code may
+   * be, is judged again once the path is described in full; a description that leaves one
+   * out again is `already-judged`, which the extension never completes on. A page judged
+   * `optional` is judged again each time: another page of the same path, as a single-page
+   * sign-in shows, may ask for a step (ADR 0065).
+   */
+  const judgedAnswer = (
+    judged: { verdict: PageJudgementVerdict | null } | undefined,
+  ): GenerationUnavailableReason | undefined => {
+    if (!judged || (judged.verdict === "partial" && !partial) || judged.verdict === "optional")
+      return undefined;
+    return judged.verdict === "challenge"
+      ? "judged-challenge"
+      : judged.verdict === "rejected"
+        ? "judged-rejected"
+        : judged.verdict === null
+          ? "judgement-unanswered"
+          : judged.verdict === "signed-in"
+            ? "judged-signed-in"
+            : "already-judged";
+  };
   const call = await backend.call({
     ...logged(loginPaths),
     device: request.deviceModel,
@@ -1241,27 +1270,8 @@ export async function judgeCompletion(
     gate: async (now) => {
       const stale = staleHead(await backend.readHead(recipeId), head.revision);
       if (stale) return stale;
-      const judged = await backend.judgement(judgedPage);
-      // A later login of the revision completes on the path only after a `signed-in` or
-      // undecided verdict (ADR 0029): one judged `challenge` or `rejected`, still being
-      // judged, or whose request failed does not. A row of an earlier judge prompt does not
-      // count: a page it judged `challenge` but kept no handler for, such as a code split
-      // into one-digit inputs before those were learned, is judged again. A page the model
-      // could not decide on a description that left out a disabled field, as a code field
-      // waiting for its code may be, is judged again once the path is described in full; a
-      // description that leaves one out again is `already-judged`, which the extension
-      // never completes on. A page judged `optional` is judged again each time: another
-      // page of the same path, as a single-page sign-in shows, may ask for a step (ADR 0065).
-      if (judged && !(judged.verdict === "partial" && !partial) && judged.verdict !== "optional")
-        return judged.verdict === "challenge"
-          ? "judged-challenge"
-          : judged.verdict === "rejected"
-            ? "judged-rejected"
-            : judged.verdict === null
-              ? "judgement-unanswered"
-              : judged.verdict === "signed-in"
-                ? "judged-signed-in"
-                : "already-judged";
+      const judged = judgedAnswer(await backend.judgement(judgedPage));
+      if (judged) return judged;
       return (await backend.judgementsSince(recipeId, utcDayStart(now))) >=
         JUDGEMENTS_PER_RECIPE_DAY
         ? "judgement-limit"
@@ -1270,12 +1280,15 @@ export async function judgeCompletion(
     // A request the role refuses before sending gives the slot back, as a generation
     // attempt does (ADR 0027); a `partial` or `optional` row judged again takes today's
     // slot and waits for its new verdict. Rows of older revisions or judges go once their
-    // day is over.
-    beforeSend: (now) =>
-      backend.recordJudgement(judgedPage, now, {
+    // day is over. A row another request wrote since the gate stops this one unsent, so a
+    // page is never judged twice at once (ADR 0018): it answers as that row does.
+    beforeSend: async (now) =>
+      (await backend.recordJudgement(judgedPage, now, {
         expired: utcDayStart(now),
         versions: [usualVersion, stopVersion, besideVersion],
-      }),
+      }))
+        ? undefined
+        : (judgedAnswer(await backend.judgement(judgedPage)) ?? "judgement-unanswered"),
     invoke: (model) =>
       createCompletionJudge({ model, ...roleConfig })({
         observation,

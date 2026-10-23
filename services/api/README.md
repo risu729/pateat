@@ -474,17 +474,18 @@ a repeat answers `judged-signed-in` when the model answered `signed-in`,
 `already-judged` when it abstained (`unclear`), and `judged-challenge`,
 `judged-rejected` or `judgement-unanswered` when it judged the page `challenge` or
 `rejected` or the row has no verdict, as after the request failed or while it still runs
-(the row's `verdict`, ADR 0029). Two requests for the same page at once can both pass
-and both be judged; the later verdict stays. An abstention on a `partial` request is
-kept as `partial`: another `partial` request for the path answers `already-judged`, and
-one without it is judged again on the same row, which counts in the day it was first
-taken; that adds at most one model call per path, as the new verdict is never `partial`.
-A recipe judged 20 times since the start of the UTC day answers `judgement-limit`. A row
-of another judge prompt version does not answer a repeat, so a changed prompt judges the
-page again, as one that can now name a handler an earlier prompt could not. A change to
-the local checks that keep a handler alone does not; it needs a prompt change to reach
-pages already judged. The row is written just before the first model request, so a
-request the role refuses locally (`input-too-large`) gives the page back
+(the row's `verdict`, ADR 0029). Of two requests for the same page that pass the gate at
+once, only the one that writes the row is sent; the other answers as the row does. An
+abstention on a `partial` request is kept as `partial`: another `partial` request for
+the path answers `already-judged`, and one without it is judged again on the same row,
+which counts in the day it was first taken; that adds at most one model call per path,
+as the new verdict is never `partial`. A recipe judged 20 times since the start of the
+UTC day answers `judgement-limit`. A row of another judge prompt version does not answer
+a repeat, so a changed prompt judges the page again, as one that can now name a handler
+an earlier prompt could not. A change to the local checks that keep a handler alone does
+not; it needs a prompt change to reach pages already judged. The row is written just
+before the first model request, so a request the role refuses locally
+(`input-too-large`) gives the page back
 ([ADR 0027](../../docs/adr/0027-per-account-login-routes.md)). A stop's row is kept as
 `challenge` or undecided, so it answers only later stops' pages, and a stop's judgement
 counts toward the 20 a day. Rows of older revisions or of judge prompt versions other

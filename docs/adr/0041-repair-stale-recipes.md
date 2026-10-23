@@ -80,10 +80,10 @@ The page is sent as a first page with `repair: { recipeId, revision }`. The serv
   not a generated route recipe of the origin and start path;
 - allows **one repair per recipe, device and UTC day** (`recipe_repairs`), checked and
   reserved with the existing spend limits ($5 a day, up to five calls at a time since
-  [2026-10-23](0018-recipe-generation-route.md#five-calls-at-a-time), so two at once
-  from one device both pass), before the model is called; a second one answers
-  `unavailable` `repair-limit`. The ADR 0016 retry window and the recipe room check do
-  not apply.
+  [2026-10-23](0018-recipe-generation-route.md#five-calls-at-a-time), so two devices
+  repairing the recipe at once are both charged), before the model is called; a second
+  one answers `unavailable` `repair-limit`. The ADR 0016 retry window and the recipe
+  room check do not apply.
 
 The device holds the recipe until the next UTC day after any answer but a new revision,
 `busy`, or a request left free to send again, so a page that keeps missing does not send

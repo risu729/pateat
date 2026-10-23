@@ -8,6 +8,7 @@ import {
   parseRecipeBranch,
   type DeviceModel,
   type DeviceModelCall,
+  type GenerationUnavailableReason,
 } from "@pateat/contracts";
 import {
   MAX_OUTPUT_TOKENS,
@@ -508,6 +509,15 @@ type Reservation = {
   error?: unknown;
 };
 
+/** A request `beforeSend` stopped before its first model request, with the answer's reason. */
+class Unsent extends Error {
+  readonly reason: GenerationUnavailableReason;
+  constructor(reason: GenerationUnavailableReason) {
+    super("Model call not sent");
+    this.reason = reason;
+  }
+}
+
 function reserveOnce(write: () => Promise<void>): Reservation {
   let written: Promise<void> | undefined;
   const reservation: Reservation = {
@@ -635,7 +645,8 @@ async function runCall<T>(
     ]);
     const choices = roleChoices(config, call.role, fastFailing);
     const reservation = reserveOnce(async () => {
-      await call.beforeSend?.(Date.now());
+      const refused = await call.beforeSend?.(Date.now());
+      if (refused) throw new Unsent(refused);
     });
 
     // The role's choices in order (owner decision, 2026-10-23 11:31 UTC): a refusal asks
@@ -689,7 +700,13 @@ async function runCall<T>(
       const probe = await run(true);
       if (probe.status === "device-call") return probe;
     }
-    return await run(false);
+    try {
+      return await run(false);
+    } catch (error) {
+      // `beforeSend` stopped the request before its first model request was sent.
+      if (error instanceof Unsent) return { status: "unavailable", reason: error.reason };
+      throw error;
+    }
   } finally {
     // Only this request's slot: one it lost after `lockMs` belongs to another request now.
     await db
@@ -710,8 +727,9 @@ async function runCall<T>(
  * it. Nothing is reserved before the call (owner, 2026-10-23 11:31 and 12:16 UTC): with at
  * most `concurrentCalls` requests at a time per owner, a stop is overshot by at most the
  * calls running when it was crossed (owner, 2026-10-23 22:05 UTC).
- * `callClaude` keeps the calls running past a client disconnect so each is charged. A request the role refused locally was
- * never sent, so it gets no log row here: its route logs it (ADR 0012).
+ * `callClaude` keeps the calls running past a client disconnect so each is charged. A
+ * request the role refused locally was never sent, so it gets no log row here: its route
+ * logs it (ADR 0012).
  */
 async function sendCall<T>(
   db: Db,
