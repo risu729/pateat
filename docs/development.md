@@ -169,6 +169,11 @@ confidence or higher. A secret without a vendor prefix, such as a Bitwarden API
 task graph. `mise run fix` applies explicit formatting/lint fixes; the check task must
 not mutate source files. Renovate tracks the pinned dependencies and tooling.
 
+Oxlint's `max-lines` keeps every source and test file at 1,000 lines or fewer, blank
+lines and comments included (owner, 2026-10-23). Files that were already longer are
+listed in the last override of `.oxlintrc.json` with the rule off until each is split;
+remove a file from that list when its split lands, and do not add new ones.
+
 Focused tasks are available for diagnosis:
 
 | Task | Purpose |
