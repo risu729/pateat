@@ -363,8 +363,8 @@ than in this repository.
     entries without a connection row (the demo vaults, a connection this device no
     longer has) are listed under the rows, and the demo preview lists its vaults in a
     Demo vaults panel.
-  - Approved: `lucide-react` for icons in the polish (owner, 2026-10-12 20:53 UTC); the
-    first PR that uses it adds it.
+  - Done: `lucide-react` for icons in the polish (owner, 2026-10-12 20:53 UTC), used by
+    the extension's pages and `/manage`.
   - Done: the settings page marks Bitwarden (its section in the menu and each connection
     row) with the `lucide-react` `Shield` icon (owner, 2026-10-13 15:02 UTC). The owner
     asked for Bitwarden's own logo, but Bitwarden's
