@@ -397,6 +397,11 @@ describe("pageStatusLines", () => {
 
   it.each([
     ["password-empty:no-passkey", "the vault item has neither a password nor a passkey"],
+    // ADR 0007: a passkey-only item on a site listed by "Always for this site".
+    [
+      "password-empty:passkey-browser-site",
+      "the vault item has no password, and Pateat leaves passkey requests on this site to the browser, as listed in its settings",
+    ],
     [
       "password-empty:no-advance",
       "the vault item has no password, and the recipe has no way on without one. Pateat logs in with its passkey only when the passkey needs no username, and the page asks for a passkey or the recipe presses a passkey button",

@@ -302,6 +302,29 @@ describe("settings sync", () => {
     });
   });
 
+  it("reads a profile document stored before passkeyBrowserSites as listing no site", async () => {
+    const device = await enrollOwner();
+    // A profile document as the previous schema wrote it, without the list (ADR 0076).
+    const { connections: _connections, bindings, passkeyBrowserSites: _list, ...old } = settings();
+    await env.DB.batch([
+      env.DB.prepare(
+        "INSERT INTO settings (owner_id, revision, document, updated_at, updated_by_device_id) VALUES (?, 3, ?, 1000, NULL)",
+      ).bind(device.ownerId, JSON.stringify({ bindings })),
+      env.DB.prepare("UPDATE profiles SET document = ? WHERE owner_id = ?").bind(
+        JSON.stringify(old),
+        device.ownerId,
+      ),
+    ]);
+    const read = await api(device, "/v1/settings");
+    expect(read.status).toBe(200);
+    expect(await read.json()).toEqual({
+      version: 1,
+      profileId: expect.any(String),
+      revision: 3,
+      settings: { ...settings(), passkeyBrowserSites: [] },
+    });
+  });
+
   it("never lets a stale device overwrite a newer restriction", async () => {
     const laptop = await enrollOwner();
     const desktop = await addDevice(laptop.ownerId);

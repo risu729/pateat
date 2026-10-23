@@ -47,11 +47,14 @@ export const profiles = sqliteTable(
       .references(() => owners.id),
     id: text("id").notNull(),
     name: text("name").notNull(),
-    /** The profile's own parts; null until a device or the owner first writes them. */
+    /**
+     * The profile's own parts; null until a device or the owner first writes them, and
+     * again once the owner deletes the profile.
+     */
     document: text("document", { mode: "json" }),
     /**
-     * Set when the owner deleted the profile. The row stays, since revoked devices keep
-     * naming it; lists and writes skip it (ADR 0076).
+     * Set when the owner deleted the profile, which also clears its document. The row
+     * stays, since revoked devices keep naming it; lists and writes skip it (ADR 0076).
      */
     deletedAt: integer("deleted_at"),
   },

@@ -355,7 +355,8 @@ function totpCode(
   const refusal = totpCodeRefusal(page, field, submit);
   if (refusal || field.target.by === "text") return { totpDropped: refusal ?? "text-locator" };
   // A link named by its path is only ever a signed-in marker (ADR 0029), and a button named
-  // by its accessible name only a `password` handler's (ADR 0048 amendment of 2026-10-19).
+  // by its accessible name only a `password` handler's (ADR 0048 amendment of 2026-10-19)
+  // or a route step's click (ADR 0048 amendment of 2026-10-23), never a `totp` handler's.
   const target = submit?.target;
   if (field.target.by === "href" || (target && !isLoginTarget(target)))
     return { totpDropped: "href-locator" };

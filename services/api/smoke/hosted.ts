@@ -85,6 +85,7 @@ function settingsDocument(hostname: string) {
     connections: [],
     excludedSites: [{ hostname, includeSubdomains: true }],
     repromptSites: [],
+    passkeyBrowserSites: [],
     siteDefaults: [],
     bindings: [],
   };

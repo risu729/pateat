@@ -134,6 +134,7 @@ function dependencies(overrides: Partial<DiagnosticsDependencies> = {}): Diagnos
         excludedSites: [{ origin: "https://excluded.example" }],
         siteDefaults: [],
         bindings: [],
+        passkeyBrowserSites: [{ hostname: "bank.example" }],
       }) as never,
     logs: async () => ({ entries: 120, bytes: 18_000, recentErrors: 2, recentWarnings: 3 }),
     recentLog: async () => ({
@@ -206,7 +207,12 @@ describe("diagnostics status", () => {
       detail:
         "recipe generation off, no Claude credentials on the service (credentials-not-configured)",
     });
-    expect(status.settings).toEqual({ excludedSites: 1, siteDefaults: 0, bindings: 0 });
+    expect(status.settings).toEqual({
+      excludedSites: 1,
+      siteDefaults: 0,
+      bindings: 0,
+      passkeyBrowserSites: 1,
+    });
     expect(status.checks).toContainEqual({
       id: "clock",
       level: "warn",
