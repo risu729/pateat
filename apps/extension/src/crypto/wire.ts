@@ -1,5 +1,6 @@
 import * as v from "valibot";
 import {
+  derivesAuthenticationWithArgon2id,
   maxTargetUrlLength,
   type BitwardenResult,
   type LocalFieldReference,
@@ -9,6 +10,13 @@ import {
 export const CRYPTO_PORT = "pateat.crypto-host.v1";
 export const OFFSCREEN_PATH = "/crypto-offscreen.html";
 export const MAX_MESSAGE_BYTES = 32 * 1024 * 1024;
+/** How long a job may run in its Worker. */
+export const JOB_BUDGET_MS = 30_000;
+/**
+ * An Argon2id derivation's budget. Bitwarden allows up to 10 iterations and 1024 MiB, which
+ * took about 25 s in Node, so a slower device needs more than `JOB_BUDGET_MS`.
+ */
+export const ARGON2ID_JOB_BUDGET_MS = 60_000;
 const id = v.pipe(v.string(), v.minLength(1), v.maxLength(128));
 const uuid = v.pipe(v.string(), v.uuid());
 const base64Url = (minimum: number, maximum: number) =>
@@ -207,6 +215,15 @@ export const uriCandidatesSchema = v.strictObject({
 });
 export type UriCandidates = v.InferOutput<typeof uriCandidatesSchema>;
 export type HostCommand = v.InferOutput<typeof commandSchema>;
+
+/** Whether a job derives a key with Argon2id and so gets `ARGON2ID_JOB_BUDGET_MS`. */
+export function derivesArgon2id(operation: HostOperation | HostCommand["operation"]): boolean {
+  if (operation.kind === "derive-auth") return derivesAuthenticationWithArgon2id(operation.input);
+  // An open with a retained key runs no KDF.
+  if (operation.kind !== "open" || operation.unlock.kind !== "password") return false;
+  const kdf: unknown = (operation.prepared as { kdf?: unknown } | null | undefined)?.kdf;
+  return typeof kdf === "object" && kdf !== null && "argon2id" in kdf;
+}
 export const controlSchema = v.variant("type", [
   v.strictObject({ version: v.literal(1), type: v.literal("crypto.reset"), generation: uuid }),
   v.strictObject({

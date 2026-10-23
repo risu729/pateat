@@ -2025,6 +2025,40 @@ test("each connection's row holds its vault access, which waits for saved settin
   await expect.element(use).not.toBeChecked();
 });
 
+test("past Bitwarden's 5 accounts, adding and listing connections warns without refusing", async () => {
+  const warning =
+    "More than 5 connections. The official Bitwarden extension allows up to 5 accounts, and each unlocked vault uses more memory.";
+  const listed = (count: number) =>
+    Array.from({ length: count }, (_, index) => ({
+      ...registered,
+      connectionId: `listed-${index + 1}`,
+      label: `Vault ${index + 1}`,
+      state: "ready" as const,
+      providerSession: "active" as const,
+    }));
+  const client = mockClient();
+  client.list
+    .mockResolvedValueOnce({ ...status(), connections: listed(5) })
+    .mockResolvedValue({ ...status(), connections: listed(6) });
+  client.begin.mockImplementation(async () => ({ ...ready(), connectionId: "listed-6" }));
+  await mount(client);
+  // Five are within the official limit; the closed form holds the warning hidden.
+  await expect.element(page.getByText(warning)).not.toBeVisible();
+  await page.getByText("Add a connection", { exact: true }).first().click();
+  // The sixth connection is warned about in the form, and Connect stays available.
+  await expect.element(page.getByText(warning)).toBeVisible();
+  await fillNew();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  await expect
+    .element(page.getByRole("button", { name: "Vault 6: Sync", exact: true }))
+    .toBeVisible();
+  // With six listed, the warning stays under the list.
+  await expect.element(page.getByText(warning)).toBeVisible();
+  expect(
+    document.getElementById("bitwarden-connections")?.nextElementSibling?.textContent,
+  ).toContain(warning);
+});
+
 const statusOutput = () => page.elementLocator(document.getElementById("bitwarden-setup-status")!);
 
 test.each(["ready", "error", "cancel"] as const)(
