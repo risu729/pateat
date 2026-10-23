@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as sdk from "@bitwarden/sdk-internal/node/bitwarden_wasm_internal.js";
-import { derivePasswordAuthentication } from "./auth-crypto";
+import { derivePasswordAuthentication, derivesAuthenticationWithArgon2id } from "./auth-crypto";
 import { argon2Auth, authPassword, pbkdf2Auth } from "./__fixtures__/auth";
 
 const connectionId = "synthetic-auth-a";
@@ -337,5 +337,36 @@ describe("local authentication admission and cancellation", () => {
     expect(await pending).toEqual({ ok: false, error: { code: "cancelled" } });
     expect(derive).not.toHaveBeenCalled();
     expect(Array.from(retained ?? [])).toEqual(Array(32).fill(0));
+  });
+});
+
+describe("which sign-ins derive with Argon2id", () => {
+  const signIn = (mode: "legacy" | "password", response: unknown) => ({
+    connectionId: "synthetic-auth-a",
+    email: "synthetic-user@example.test",
+    password: authPassword,
+    prelogin: { mode, response },
+  });
+  it("reads the KDF type as the derivation does, from settings before the legacy fields", () => {
+    expect(
+      derivesAuthenticationWithArgon2id(
+        signIn("legacy", { kdf: 1, kdfIterations: 10, kdfMemory: 1024, kdfParallelism: 4 }),
+      ),
+    ).toBe(true);
+    expect(
+      derivesAuthenticationWithArgon2id(
+        signIn("password", {
+          kdfSettings: { kdfType: 1, iterations: 3, memory: 64, parallelism: 4 },
+          salt: "synthetic-salt",
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      derivesAuthenticationWithArgon2id(signIn("legacy", { kdf: 0, kdfIterations: 600_000 })),
+    ).toBe(false);
+  });
+  it("answers false for input the derivation would refuse", () => {
+    expect(derivesAuthenticationWithArgon2id({})).toBe(false);
+    expect(derivesAuthenticationWithArgon2id(signIn("legacy", { kdf: "1" }))).toBe(false);
   });
 });

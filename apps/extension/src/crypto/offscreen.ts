@@ -3,17 +3,23 @@ import { browser } from "wxt/browser";
 import { toBase64Url } from "../passkeys/encoding";
 import { withDigestKey } from "./custom-digest";
 import {
+  ARGON2ID_JOB_BUDGET_MS,
   boundedMessage,
   commandSchema,
   controlSchema,
   CRYPTO_PORT,
+  derivesArgon2id,
+  JOB_BUDGET_MS,
   replySchema,
   type HostCommand,
   type HostSessionRef,
 } from "./wire";
 
-/** Backstop for the host's caps: four connections, each with a live and a sync session. */
-const MAX_SESSIONS = 8;
+/**
+ * Backstop for the host's per-connection share: a live and a sync session. The number of
+ * connections is not capped.
+ */
+const MAX_SESSIONS_PER_CONNECTION = 2;
 
 /** One bundled offscreen document supervises local Workers; it does not persist credentials. */
 export function startCryptoOffscreen() {
@@ -90,7 +96,11 @@ export function startCryptoOffscreen() {
     const ephemeral = op.kind === "derive-auth" || op.kind === "open";
     if (ephemeral) {
       if (
-        (op.kind === "open" && sessions.size >= MAX_SESSIONS) ||
+        (op.kind === "open" &&
+          sessions
+            .values()
+            .filter((session) => session.ref.connectionId === command.connectionId)
+            .toArray().length >= MAX_SESSIONS_PER_CONNECTION) ||
         jobs.size >= 8 ||
         jobs.values().some((job) => job.ephemeral)
       ) {
@@ -164,10 +174,11 @@ export function startCryptoOffscreen() {
       }
     }
     const requestId = command.requestId;
+    const budget = derivesArgon2id(op) ? ARGON2ID_JOB_BUDGET_MS : JOB_BUDGET_MS;
     const timer = setTimeout(() => {
       const job = jobs.get(requestId);
       if (job?.worker === worker) terminate(worker, "timeout");
-    }, 30_000);
+    }, budget);
     jobs.set(command.requestId, {
       worker,
       command: {
@@ -178,7 +189,7 @@ export function startCryptoOffscreen() {
       },
       timer,
       ephemeral,
-      deadline: Date.now() + 30_000,
+      deadline: Date.now() + budget,
     });
     // Any key the background sent is replaced.
     worker.postMessage(withDigestKey(command, digestKey));

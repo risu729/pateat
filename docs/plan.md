@@ -1471,8 +1471,9 @@ progress sections below.
 Admission covers the whole Argon2id memory range Bitwarden's server allows, up to
 1024 MiB, with at most 20 iterations and 16 lanes; PBKDF2 stays at most 2,000,000
 iterations. At the server's own maximum of 10 iterations and 1024 MiB one derivation
-took about 25 seconds in Node on a cloud container (2026-10-17), inside the crypto
-host's 30-second budget; a slower device may run past it.
+took about 25 seconds in Node on a cloud container (2026-10-17), so Argon2id
+derivations, and only those, get a 60-second budget instead of 30 (owner's choice
+2026-10-23, [Architecture](architecture.md)).
 
 The pinned SDK's V2 version export also rewraps and re-signs an in-memory copy of
 verified key state. Pateat keeps only its version and does not send or persist

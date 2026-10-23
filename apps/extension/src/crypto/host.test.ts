@@ -98,9 +98,22 @@ function auth() {
   };
 }
 
+/** A sign-in whose prelogin asks for Argon2id. */
+function argon2idAuth(owner = "connection-2") {
+  return {
+    ...auth(),
+    connectionId: owner,
+    prelogin: {
+      mode: "legacy" as const,
+      response: { kdf: 1, kdfIterations: 2, kdfMemory: 16, kdfParallelism: 1 },
+    },
+  };
+}
+
 function harness(
   options: {
     timeoutMs?: number;
+    argon2idTimeoutMs?: number;
     existing?: boolean;
     automaticReady?: boolean;
     checkpoint?: (stage: "before-dispatch" | "after-result") => Promise<void>;
@@ -150,6 +163,9 @@ function harness(
     closeDocument,
     createDocument,
     ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
+    ...(options.argon2idTimeoutMs !== undefined
+      ? { argon2idTimeoutMs: options.argon2idTimeoutMs }
+      : {}),
     ...(options.checkpoint ? { checkpoint: options.checkpoint } : {}),
   });
   disposed.push(host);
@@ -986,37 +1002,65 @@ describe("cancellation, deadlines and host loss", () => {
     );
   });
 
-  it("opens a sync candidate for a connection while four connections have vaults open", async () => {
+  it("opens vaults for six connections, past Bitwarden's 5 accounts, each with a sync candidate", async () => {
     const h = harness();
-    const connections = [connectionId, "connection-2", "connection-3", "connection-4"];
+    const connections = [1, 2, 3, 4, 5, 6].map((index) => `connection-${index}`);
     // Each open answers its own delivered command, so they run one after another.
     // eslint-disable-next-line no-await-in-loop
     for (const owned of connections) await h.open(owned);
-    // A sync opens its candidate while the connection's live session is still open.
-    const candidate = await h.open("connection-2");
-    expect(candidate.connectionId).toBe("connection-2");
-    expect(h.host.status()).toMatchObject({ sessions: 5 });
+    // A sync opens each candidate while the connection's live session is still open.
+    // eslint-disable-next-line no-await-in-loop
+    for (const owned of connections) await h.open(owned);
+    expect(h.host.status()).toMatchObject({ sessions: 12 });
   });
 
-  it("refuses a fifth connection's vault and a third session of one connection", async () => {
+  it("refuses a third session of one connection", async () => {
     const h = harness();
-    const connections = [connectionId, "connection-2", "connection-3", "connection-4"];
-    // Each open answers its own delivered command, so they run one after another.
-    // eslint-disable-next-line no-await-in-loop
-    for (const owned of connections) await h.open(owned);
+    await h.open("connection-2");
     await h.open("connection-2");
     const sent = h.commands.length;
-    expect(await h.host.open(openInput("connection-5"))).toEqual({
-      ok: false,
-      error: { code: "resource-limit" },
-    });
     // The live session and one sync candidate are a connection's whole share.
     expect(await h.host.open(openInput("connection-2"))).toEqual({
       ok: false,
       error: { code: "resource-limit" },
     });
     expect(h.commands).toHaveLength(sent);
-    expect(h.host.status()).toMatchObject({ sessions: 5 });
+    expect(h.host.status()).toMatchObject({ sessions: 2 });
+  });
+
+  it("gives an Argon2id derivation its own longer budget", async () => {
+    const h = harness({ timeoutMs: 100, argon2idTimeoutMs: 400 });
+    const deriving = h.host.deriveAuthentication(argon2idAuth());
+    const deriveCommand = await h.command(0);
+    // Past the normal budget, within the Argon2id one.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const derived = { connectionId: "connection-2", masterPasswordHash: "synthetic-hash" };
+    h.reply(deriveCommand, { ok: true, data: derived });
+    expect(await deriving).toEqual({ ok: true, data: derived });
+  });
+
+  it("times out an Argon2id derivation once its own budget runs out", async () => {
+    const h = harness({ timeoutMs: 100, argon2idTimeoutMs: 200 });
+    const deriving = h.host.deriveAuthentication(argon2idAuth());
+    await h.command(0);
+    expect(await deriving).toEqual({ ok: false, error: { code: "timeout" } });
+  });
+
+  it("lets an open wait behind an Argon2id derivation for that derivation's budget", async () => {
+    const h = harness({ timeoutMs: 100, argon2idTimeoutMs: 400 });
+    const deriving = h.host.deriveAuthentication(argon2idAuth());
+    const deriveCommand = await h.command(0);
+    const opening = h.host.open(openInput());
+    // Past its own budget, it still waits instead of failing `resource-limit`.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(await within(opening, 1)).toBe("waiting");
+    h.reply(deriveCommand, {
+      ok: true,
+      data: { connectionId: "connection-2", masterPasswordHash: "synthetic-hash" },
+    });
+    expect(await deriving).toMatchObject({ ok: true });
+    h.answerOpen(await h.command(1));
+    expect(await opening).toMatchObject({ ok: true });
   });
 
   it("bounds native initialization work before the handshake by running one KDF job at a time", async () => {

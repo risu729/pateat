@@ -153,6 +153,8 @@ export const bitwardenJa = {
     "HTTPS のサーバーのアドレスを入力してください（localhost と 127.0.0.1 では HTTP も可）。",
   "Sign in and sync": "ログインして同期",
   "Connect Bitwarden": "Bitwarden に接続",
+  "More than 5 connections. The official Bitwarden extension allows up to 5 accounts, and each unlocked vault uses more memory.":
+    "接続が 5 件を超えています。Bitwarden 公式の拡張機能は 5 アカウントまでで、ロックを解除した保管庫ごとにメモリを多く使います。",
   "Add another connection": "別の接続を追加",
   "{{count}} item": "{{count}} 件のアイテム",
   "{{count}} field": "{{count}} 個のフィールド",

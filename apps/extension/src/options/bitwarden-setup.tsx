@@ -51,6 +51,11 @@ type Challenge = Extract<SetupReply, { kind: "mfa-required" | "new-device-verifi
 type EmailCode = "sending" | Extract<SetupReply, { kind: "email-code" }>["result"];
 /** Below Chrome's 30-second idle limit for an extension service worker. */
 const KEEP_ALIVE_MS = 20_000;
+/**
+ * The official browser extension's `ACCOUNT_LIMIT`. Pateat does not cap connections but
+ * warns past it, since each unlocked vault keeps its own Worker in memory.
+ */
+const BITWARDEN_ACCOUNT_LIMIT = 5;
 const emailCodeLines: Record<EmailCode, { tone: Tone; text: string }> = {
   sending: { tone: "idle", text: "Asking the server to email a verification code…" },
   sent: {
@@ -850,6 +855,19 @@ export function BitwardenSetup({
           );
         })}
       </RowList>
+      {connections.length > BITWARDEN_ACCOUNT_LIMIT && (
+        <StatusLines
+          lines={[
+            {
+              tone: "warn",
+              icon: TriangleAlert,
+              text: t(
+                "More than 5 connections. The official Bitwarden extension allows up to 5 accounts, and each unlocked vault uses more memory.",
+              ),
+            },
+          ]}
+        />
+      )}
       <AlertDialog.Root
         handle={deleteDialog}
         onOpenChange={(open, details) => {
@@ -1177,6 +1195,18 @@ export function BitwardenSetup({
             <StatusLines
               muted
               lines={[
+                // Past the limit, the same warning already stands under the list.
+                ...(!existing && connections.length === BITWARDEN_ACCOUNT_LIMIT
+                  ? [
+                      {
+                        tone: "warn" as const,
+                        icon: TriangleAlert,
+                        text: t(
+                          "More than 5 connections. The official Bitwarden extension allows up to 5 accounts, and each unlocked vault uses more memory.",
+                        ),
+                      },
+                    ]
+                  : []),
                 {
                   tone: "idle",
                   icon: Lock,

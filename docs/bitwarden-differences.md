@@ -192,6 +192,23 @@ Pateat's rule is `besideForm` in `packages/inference/src/plan.ts`
   extension CSP cannot name (`http://localhost` reaches a server listening on `::1`;
   leaving it out is the agent's narrowing, not confirmed by the owner).
 
+## Connections and key derivation
+
+- The official browser extension lets at most 5 accounts be logged in at once
+  (`ACCOUNT_LIMIT = 5`,
+  [account-switcher.service.ts](https://github.com/bitwarden/clients/blob/dd4d85816be0bed40c92d0890d6e7f1a497a85e8/apps/browser/src/auth/popup/account-switching/services/account-switcher.service.ts#L47-L74))
+  and then offers no "Add account". Pateat does not cap connections; with more than 5,
+  the options page warns that the official extension allows 5 accounts and that each
+  unlocked vault uses more memory (`BITWARDEN_ACCOUNT_LIMIT` in
+  `apps/extension/src/options/bitwarden-setup.tsx`, owner's choice 2026-10-23 at 12:31
+  UTC). Each connection with an open vault keeps its own Worker with the SDK.
+- The official clients run a key derivation without a time limit. Pateat runs it in a
+  Worker it stops after 30 seconds, or 60 seconds for Argon2id (`ARGON2ID_JOB_BUDGET_MS`
+  in `apps/extension/src/crypto/wire.ts`, owner's choice 2026-10-23), so a stuck Worker
+  is reclaimed. It accepts the whole Argon2id range the official clients allow, memory
+  16–1024 MiB
+  ([kdf-config.ts](https://github.com/bitwarden/clients/blob/dd4d85816be0bed40c92d0890d6e7f1a497a85e8/libs/legacy-crypto/src/models/kdf-config.ts#L71-L73)).
+
 ## Email two-step codes
 
 - Both send one code when email becomes the chosen method and another on "Resend code"

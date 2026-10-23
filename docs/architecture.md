@@ -235,23 +235,30 @@ job at a time, so the host delivers a session's jobs in turn: a job for a busy s
 waits instead of failing `resource-limit`, as when a passkey is signed while a login
 matches the page's URI. Opens and password derivations likewise wait their turn one at a
 time, as when a page restores one connection while a sync opens another's candidate. A
-waiting job gets a full budget once it is delivered, so it can take up to twice its
-budget in all. A job cancelled while it waits, or whose wait outlasts its budget
-(`resource-limit`), never reaches the Worker and leaves the session open. Locking or
-closing the session fails its waiting jobs with `crypto-locked`, and the pending limit
-still refuses extra jobs with `resource-limit`. At most four connections can have an
-open vault at once, each with one sync candidate besides its live session; an open
-beyond that fails `resource-limit`, checked again when a waiting open's turn comes. A
-fifth connection's vault therefore cannot open while four are open, and it shows as
-unavailable. The vault manager forgets a live session the host has ended (a timeout,
-cancellation, Worker failure or a lost offscreen document), so while automatic unlock is
-enabled the next vault read restores it from the retained key instead of failing until
-the service worker restarts; with it off, the restore fails `auto-unlock-disabled`. The
-initial caller remains a synthetic compatibility probe. Durable cache, retained unlock
-material and production connection setup are separate gates. Opening a new snapshot does
-not itself accept it or retire older sessions. The future cache manager must explicitly
-retire superseded handles and invalidate affected policy/recipe references before
-accepting a replacement snapshot for credential release.
+job's budget is 30 seconds, and 60 seconds for an Argon2id derivation (a sign-in's hash,
+or an open with the master password), whose largest Bitwarden setting took about 25
+seconds in Node (owner's choice 2026-10-23); the offscreen document applies the same
+budgets. A job may wait for its turn as long as the longest budget of the jobs ahead of
+it, so an open behind an Argon2id derivation waits up to 60 seconds, and it gets a full
+budget once it is delivered. A job cancelled while it waits, or whose wait outlasts that
+limit (`resource-limit`), never reaches the Worker and leaves the session open. Locking
+or closing the session fails its waiting jobs with `crypto-locked`, and the pending
+limit still refuses extra jobs with `resource-limit`. The number of connections with an
+open vault is not capped (owner's choice 2026-10-23); each connection has room for one
+sync candidate besides its live session, and a third open for it fails `resource-limit`,
+checked again when a waiting open's turn comes. The offscreen document backs this up
+with the same two sessions per connection. Past 5 connections the options page warns
+that the official extension allows 5 accounts and that each unlocked vault uses more
+memory ([differences](bitwarden-differences.md#connections-and-key-derivation)). The
+vault manager forgets a live session the host has ended (a timeout, cancellation, Worker
+failure or a lost offscreen document), so while automatic unlock is enabled the next
+vault read restores it from the retained key instead of failing until the service worker
+restarts; with it off, the restore fails `auto-unlock-disabled`. The initial caller
+remains a synthetic compatibility probe. Durable cache, retained unlock material and
+production connection setup are separate gates. Opening a new snapshot does not itself
+accept it or retire older sessions. The future cache manager must explicitly retire
+superseded handles and invalidate affected policy/recipe references before accepting a
+replacement snapshot for credential release.
 
 Design later personal API key, SSO, device approval and Bitwarden passkey login
 flows without assuming every user has a master password. Authentication and

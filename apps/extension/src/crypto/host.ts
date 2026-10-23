@@ -10,10 +10,13 @@ import type {
 } from "@pateat/bitwarden";
 import { localVaultMetadataSchema } from "@pateat/bitwarden";
 import {
+  ARGON2ID_JOB_BUDGET_MS,
   boundedMessage,
   commandSchema,
   CRYPTO_PORT,
   customDigestsSchema,
+  derivesArgon2id,
+  JOB_BUDGET_MS,
   lifecycleSchema,
   progressSchema,
   replySchema,
@@ -60,10 +63,12 @@ export interface CryptoHostDependencies {
   randomId?: () => string;
   nowMs?: () => number;
   timeoutMs?: number;
+  /** An Argon2id derivation's budget in place of `timeoutMs`. */
+  argon2idTimeoutMs?: number;
   /** Only the probe build supplies deterministic metadata-only barriers. */
   checkpoint?: (stage: "before-dispatch" | "after-result") => Promise<void>;
   /** Probe-only shortened operation budget; bootstrap always retains its own budget. */
-  requestTimeoutMs?: () => number;
+  requestTimeoutMs?: () => number | undefined;
 }
 const fail = (
   code:
@@ -94,8 +99,6 @@ function sameOrigin(targetUrl: string, origin: string): boolean {
   return URL.parse(targetUrl)?.origin === origin;
 }
 
-/** At most this many connections have open sessions at once. */
-const MAX_SESSION_CONNECTIONS = 4;
 /** A connection's live session plus the candidate a sync opens before retiring it. */
 const MAX_SESSIONS_PER_CONNECTION = 2;
 /** Opens and password derivations share this turn lane; session IDs are UUIDs, never this. */
@@ -105,7 +108,8 @@ const KDF_LANE = "kdf";
 export function createCryptoHost(deps: CryptoHostDependencies) {
   const random = deps.randomId ?? newId;
   const generation = random();
-  const timeoutMs = deps.timeoutMs ?? 30_000;
+  const timeoutMs = deps.timeoutMs ?? JOB_BUDGET_MS;
+  const argon2idTimeoutMs = deps.argon2idTimeoutMs ?? ARGON2ID_JOB_BUDGET_MS;
   const now = deps.nowMs ?? Date.now;
   let disposed = false;
   let ready = false;
@@ -123,6 +127,8 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
     {
       connectionId: string;
       operation: HostOperation;
+      lane: string | undefined;
+      budget: number;
       deadline: number;
       dispatched: boolean;
       resolve(result: BitwardenResult<unknown>): void;
@@ -506,7 +512,7 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
     const bootstrap = (async () => {
       if (
         timeoutMs < 1 ||
-        timeoutMs > 30_000 ||
+        timeoutMs > JOB_BUDGET_MS ||
         !Number.isInteger(timeoutMs) ||
         !v.safeParse(v.pipe(v.string(), v.uuid()), generation).success
       )
@@ -546,15 +552,16 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
       creation = undefined;
     }
   }
-  /** Whether another session for this connection would exceed the session caps. */
+  /**
+   * Whether another session for this connection would exceed its share. The number of
+   * connections is not capped; the options page warns past Bitwarden's 5 accounts.
+   */
   function sessionLimitReached(connectionId: string) {
-    const owners = new Map<string, number>();
-    for (const ref of sessions.values())
-      owners.set(ref.connectionId, (owners.get(ref.connectionId) ?? 0) + 1);
-    const owned = owners.get(connectionId) ?? 0;
     return (
-      owned >= MAX_SESSIONS_PER_CONNECTION ||
-      (owned === 0 && owners.size >= MAX_SESSION_CONNECTIONS)
+      sessions
+        .values()
+        .filter((ref) => ref.connectionId === connectionId)
+        .toArray().length >= MAX_SESSIONS_PER_CONNECTION
     );
   }
   function validSession(input: HostSessionRef): boolean {
@@ -576,8 +583,6 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
     if (disposed) return fail("crypto-locked");
     if (closing.has(connectionId) && operation.kind !== "close") return fail("crypto-locked");
     if (signal?.aborted) return fail("cancelled");
-    const budget = deps.requestTimeoutMs?.() ?? timeoutMs;
-    if (!Number.isInteger(budget) || budget < 1 || budget > 30_000) return fail("invalid-request");
     let command: {
       version: number;
       type: string;
@@ -605,6 +610,14 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
     )
       return fail("invalid-request");
     operation = command.operation;
+    const argon2id = derivesArgon2id(operation);
+    const budget = deps.requestTimeoutMs?.() ?? (argon2id ? argon2idTimeoutMs : timeoutMs);
+    if (
+      !Number.isInteger(budget) ||
+      budget < 1 ||
+      budget > (argon2id ? ARGON2ID_JOB_BUDGET_MS : JOB_BUDGET_MS)
+    )
+      return fail("invalid-request");
     if (operation.kind === "custom-digest" && !unique(operation.itemIds))
       return fail("invalid-request");
     if (
@@ -631,6 +644,17 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
           ? operation.session.sessionId
           : undefined;
     const before = lane ? turns.get(lane) : undefined;
+    // A job may wait as long as the slowest job ahead of it may run, so one waiting behind an
+    // Argon2id derivation is not refused before that derivation's own budget runs out.
+    const waitBudget = before
+      ? Math.max(
+          budget,
+          ...pending
+            .values()
+            .filter((job) => job.lane === lane)
+            .map((job) => job.budget),
+        )
+      : budget;
     let ended: (() => void) | undefined;
     // While it waits for its turn the job has reached no Worker, so cancelling it leaves the
     // session alone.
@@ -662,10 +686,12 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
         }
       };
       const aborted = () => cancel("cancelled");
-      const timer = setTimeout(() => cancel("timeout"), budget);
+      const timer = setTimeout(() => cancel("timeout"), waitBudget);
       pending.set(command.requestId, {
         connectionId,
         operation,
+        lane,
+        budget,
         deadline: now() + budget,
         dispatched: false,
         timer,

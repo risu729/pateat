@@ -22,6 +22,16 @@ function normalizeSalt(value: string) {
   return value.replace(/^\p{White_Space}+|\p{White_Space}+$/gu, "").toLowerCase();
 }
 
+/** Whether `derivePasswordAuthentication` would derive this input's hash with Argon2id. */
+export function derivesAuthenticationWithArgon2id(input: unknown): boolean {
+  const parsed = v.safeParse(requestSchema, input);
+  if (!parsed.success) return false;
+  const { prelogin } = parsed.output;
+  const response = parsePreloginResponse(prelogin.response, prelogin.mode);
+  const settings = prelogin.mode === "password" ? response?.kdfSettings : undefined;
+  return (settings?.kdfType ?? response?.kdf) === 1;
+}
+
 /** Local server-authorization hash only. Authentication KDF/salt is independent of unlock. */
 export async function derivePasswordAuthentication(
   input: unknown,
