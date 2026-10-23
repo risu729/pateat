@@ -24,6 +24,7 @@ import {
   loginFieldFacts,
   loginFieldSource,
   pagesLeft,
+  watchedAtStop,
   loginDocumentSchema,
   loginDisplayNames,
   loginObservationSchema,
@@ -5411,7 +5412,10 @@ export function createLoginRuntime(
   async function learn(run: Execution, reading?: SignInReading): Promise<boolean> {
     const { recipe, metadata } = run;
     const { operationId } = metadata;
-    if (!generation || !effectful(metadata) || !operationId) return false;
+    // A login watched at its stop has no step in flight; its watch's pages are judged as any
+    // watched login's are (ADR 0036, ADR 0027).
+    const stopWatched = watchedAtStop(metadata);
+    if (!generation || (!stopWatched && (!effectful(metadata) || !operationId))) return false;
     const notSent = (reason: string) => notJudged(run, reason);
     if (pagesLeft(metadata, operationId) <= 0) return notSent("page-limit");
     // Every variant's fill fields and paths count, as on the service, which is never told
@@ -5593,6 +5597,9 @@ export function createLoginRuntime(
     // found signed in or rejected and with no handler taken over, takes the login to its
     // stop, where the page's passkey request is answered (ADR 0036).
     if (result === "challenge" && (await toStop(run))) return true;
+    // A login watched at its stop submitted no password, so a page judged rejected refuses
+    // none: the login stays watched (ADR 0036).
+    if (stopWatched && result === "credential-rejected") return true;
     const unconfirmed = result === "authenticated" && !confirmed;
     if (unconfirmed) delete run.choice;
     await change(run, {
