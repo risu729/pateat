@@ -269,7 +269,8 @@ test("forced colors keep the selected account and the switch position visible", 
   expect(toggle.checked).toBe(true);
   const track = getComputedStyle(toggle);
   const knob = getComputedStyle(toggle, "::after");
-  const canvas = getComputedStyle(document.body).backgroundColor;
+  // The switch's row has an opaque Canvas background; the page body has none.
+  const canvas = getComputedStyle(toggle.parentElement!).backgroundColor;
   expect(Number.parseFloat(track.borderTopWidth)).toBeGreaterThan(0);
   expect(track.borderTopColor).not.toBe(canvas);
   const on = { track: track.backgroundColor, knob: knob.backgroundColor };
@@ -283,11 +284,16 @@ test("forced colors keep the selected account and the switch position visible", 
   const probeTrack = getComputedStyle(probe);
   const probeKnob = getComputedStyle(probe, "::after");
   const off = { track: probeTrack.backgroundColor, knob: probeKnob.backgroundColor };
+  // Off, the track is Canvas like its row, so only its border outlines the switch.
+  expect(Number.parseFloat(probeTrack.borderTopWidth)).toBeGreaterThan(0);
+  expect(probeTrack.borderTopColor).not.toBe(canvas);
   expect(off.knob).not.toBe(off.track);
   expect(off.track).not.toBe(on.track);
   probe.disabled = true;
   const disabled = { track: probeTrack.backgroundColor, knob: probeKnob.backgroundColor };
   expect(disabled.knob).not.toBe(disabled.track);
+  expect(disabled.knob).not.toBe(off.knob);
+  expect(probeTrack.opacity).toBe("1");
   probe.remove();
   expect(toggle.getBoundingClientRect()).toMatchObject({ width: 36, height: 20 });
 });

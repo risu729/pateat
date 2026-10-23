@@ -1678,6 +1678,13 @@ pages allow inline script (the MV3 policy, and the owner web UI's `script-src 's
 the choice is applied from the page's module, so a page whose stored choice differs from
 the browser's scheme may paint one frame in the browser's scheme first.
 
+Forced colors, such as Windows contrast themes, replace the popup's accent colors and
+drop its shadows, so the popup gives its selected account card and its switch system
+colors of their own (owner, 2026-10-23 12:57 UTC): the selected card has a 2px
+`Highlight` border; the switch has a 1px `ButtonText` border and knob, a `Highlight`
+track with a `HighlightText` knob when on, and `GrayText` while disabled. Both keep
+their sizes.
+
 Deleting a Bitwarden connection in settings asks in a modal Base UI `AlertDialog`. It
 names the connection and explains removal of its local vault cache, unlock key and sync
 sign-in. Focus starts on **Keep connection**; Keep and Escape close without deleting,
