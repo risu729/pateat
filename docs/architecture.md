@@ -3043,6 +3043,12 @@ people.
   request limit. The owner deletes all three on the web UI's Request log page. Devices
   are not counted: each pairing needs an interactive Access login.
 
+The [offline synthetic measurement report](research/2026-10-23-synthetic-limits.md)
+provides a reproducible UTF-8 serialization check against these configured limits: a
+valid wide-marker shape reaches the 1.5 MiB owner byte cap at 710 recipes, whose cache
+still fits the 2 MiB device cap. It is not hosted enforcement, storage-quota or
+performance evidence.
+
 ### Unsupported service edge cases
 
 Status: recorded on 2026-10-17 from a reading of the Worker code; none of these is a

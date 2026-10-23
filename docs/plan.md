@@ -1076,7 +1076,10 @@ Once the fixes have settled:
   without the service that gets recipes from a model API directly reopens the question.
 - Proposed: the checks that matter once other people install Pateat: the install-time
   site-access warning and the prompt after site access was withheld, installed-Chrome
-  dummy-account tests and measured limits.
+  dummy-account tests and measured limits. The
+  [offline synthetic report](research/2026-10-23-synthetic-limits.md) measures
+  configured byte/count limits and JSON sizes reproducibly; browser quotas, hosted
+  load and latency are unmeasured and the integrated M6 gate remains open.
 - Adopting Anthropic's
   [Claude Security plugin](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/claude-security)
   for Claude Code: agents map the architecture, build a threat model, look for
