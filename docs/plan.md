@@ -457,21 +457,20 @@ than in this repository.
 ### Phase 2: use it and fix what comes up
 
 - First, right after phase 1 (owner, 2026-10-12 21:29 UTC):
-  [ADR 0035](adr/0035-page-kinds-per-site.md) delivery 1. Generation answers each
-  page's kind, recipes generated as `confirm` neither run nor count as logouts, a
-  passkey re-verification after Pateat's login in the tab is handed on, and the logs for
-  judging whether `confirm` can be split are kept. The request log's recipe ID and
-  revision landed ahead of it, and every row is kept one year (owner, 2026-10-18 06:08
-  UTC,
+  [ADR 0035](adr/0035-page-kinds-per-site.md) delivery 1. Generation answers each page's
+  kind, recipes generated as `confirm` neither run nor count as logouts, a passkey
+  re-verification after Pateat's login in the tab is handed on, and the logs for judging
+  whether `confirm` can be split are kept. The request log's recipe ID and revision
+  landed ahead of it, and every row is kept one year (owner, 2026-10-18 06:08 UTC,
   [ADR 0012](adr/0012-inference-request-log.md#amendment-2026-10-18-rows-for-a-real-page-corpus)),
   so its retention rule needs no work. The first login result of each revision reaches
   the service as codes
   ([ADR 0035](adr/0035-page-kinds-per-site.md#amendment-2026-10-18-login-results-on-the-service)).
   Implemented on 2026-10-23
-  ([ADR 0035](adr/0035-page-kinds-per-site.md#implementation-of-delivery-1)) except the
-  local evaluation fields of `confirm-unsupported` pages beyond the recipe and its kind,
-  and the counts of pages not sent, which come next. Covered by unit, Worker and
-  fake-model tests only; no real site or paid generation checked it.
+  ([ADR 0035](adr/0035-page-kinds-per-site.md#implementation-of-delivery-1)), with the
+  local evaluation fields of `confirm-unsupported` pages and the counts of pages not
+  sent following the same day. Covered by unit, Browser Mode, Worker and fake-model
+  tests only; no real site or paid generation checked it.
 - Done: the toolbar badge counts the matching items on every HTTP(S) site (on an `http:`
   page only items saved with an `http://` URI;
   [ADR 0050](adr/0050-http-pages-for-http-items.md)): teal with the usable count, light

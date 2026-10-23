@@ -36,6 +36,7 @@ import {
 } from "./badge";
 import type { GenerationOutcome, LoginGeneration, LoginRecipeStart, LoginReport } from "./runtime";
 import type { LoginFieldSource } from "./vault";
+import { loginReadiness } from "./wire";
 import type { ConditionalDecision, PasskeyItem } from "../passkeys/runtime";
 
 const fake = vi.hoisted(() => {
@@ -6184,10 +6185,17 @@ describe("production login document admission", () => {
           fake.state.pageUrl = `${origin}/verify`;
           // The page announces its first step ready, as one that read the origin's starts
           // before its recipe was generated again as `confirm` would: a logout before.
+          // The reply names the page's first step, so the document reports it shown at once.
+          const confirming = {
+            path: "/verify",
+            require: "writable",
+            targets: [target("password")],
+          };
           expect(await h.hello({ documentId: "verify" })).toEqual({
             ok: false,
             reason: "logged-in",
             starts: [signinStart],
+            confirm: confirming,
           });
           expect(report).not.toHaveBeenCalledWith(expect.objectContaining({ type: "logout" }));
           expect(attempts()).toMatchObject([{ state: "authenticated" }]);
@@ -6195,26 +6203,55 @@ describe("production login document admission", () => {
             ok: false,
             reason: "logged-in",
             starts: [signinStart],
+            confirm: confirming,
           });
-          expect(
-            report.mock.calls.map(([entry]) => entry).filter((entry) => entry.type === "refused"),
-          ).toEqual([
-            {
-              type: "refused",
-              tabId: 1,
-              origin,
-              reason: "not-started",
-              detail: "confirm-unsupported",
-              recipeId: "gen-confirm",
-              recipeRevision: confirm.revision,
-              pageKind: "confirm",
-            },
-          ]);
+          // It logs what the page showed, never a value: the recipes' signed-in marker (E1),
+          // and the tab's previous page of the origin, where the action was chosen.
+          const refusals = () =>
+            report.mock.calls.map(([entry]) => entry).filter((entry) => entry.type === "refused");
+          await vi.waitFor(() =>
+            expect(refusals()).toEqual([
+              {
+                type: "refused",
+                tabId: 1,
+                origin,
+                reason: "not-started",
+                detail: "confirm-unsupported",
+                recipeId: "gen-confirm",
+                recipeRevision: confirm.revision,
+                pageKind: "confirm",
+                e1: true,
+                e2: false,
+                previousUrl: `${origin}/signin`,
+              },
+            ]),
+          );
           // Nothing is filled, and the login stays signed in.
           expect(fake.state.messages.filter((entry) => entry.type === "login.execute")).toEqual(
             executed,
           );
           expect(attempts()).toMatchObject([{ state: "authenticated" }]);
+          // The tab leaves the page without the person's submit. E1 showed there, so the
+          // next page is not read for it.
+          fake.state.pageUrl = `${origin}/home`;
+          await h.hello({ documentId: "home" }, false);
+          await vi.waitFor(() =>
+            expect(
+              report.mock.calls
+                .map(([entry]) => entry)
+                .filter((entry) => entry.type === "confirm-left"),
+            ).toEqual([
+              {
+                type: "confirm-left",
+                tabId: 1,
+                origin,
+                recipeId: "gen-confirm",
+                recipeRevision: confirm.revision,
+                pageKind: "confirm",
+                personSubmitted: false,
+              },
+            ]),
+          );
         });
         it("asks in other tabs of the site while it asks, and a pick there logs in", async () => {
           const h = await loggedOut();
@@ -6801,34 +6838,350 @@ describe("production login document admission", () => {
         generation: service,
         report,
       });
-      const confirm = parseLoginRecipe({ ...generated, pageKind: "unclear" });
+      const confirm = parseLoginRecipe({
+        ...generated,
+        pageKind: "unclear",
+        completion: [{ target: target("account") }],
+      });
+      // Nothing of the recipe shows yet, so its signed-in marker does not either.
+      fake.state.present = new Set();
       h.recipes.recipe.mockResolvedValue(undefined);
       h.recipes.starts.mockResolvedValue(startsOf([]));
       h.recipes.routes.mockResolvedValue([confirm]);
-      expect(await h.hello({}, false)).toEqual({
-        ok: false,
-        reason: "recipe-not-found",
-        starts: [],
-      });
-      expect(await shownHello(h)).toEqual({ ok: false, reason: "recipe-not-found", starts: [] });
-      expect(await h.signIn()).toEqual({ ok: false, reason: "recipe-not-found", starts: [] });
+      const confirming = loginReadiness(confirm.steps[0]!);
+      const watching = { ok: false, reason: "recipe-not-found", starts: [], confirm: confirming };
+      expect(await h.hello({}, false)).toEqual(watching);
+      // The document reports the page's first step shown, and whether its form shows an amount.
+      expect(
+        await h.login.handle(
+          {
+            version: 1,
+            type: "login.document.ready",
+            token: "synthetic-token",
+            shown: { path: reportedPath(fake.state.pageUrl), amount: true },
+          },
+          sender(),
+        ),
+      ).toEqual(watching);
+      expect(await h.signIn()).toEqual(watching);
       expect(service.available).not.toHaveBeenCalled();
       expect(service.generate).not.toHaveBeenCalled();
-      expect(h.fields).not.toHaveBeenCalled();
-      expect(
-        report.mock.calls.map(([entry]) => entry).filter((entry) => entry.type === "refused"),
-      ).toEqual([
-        {
-          type: "refused",
-          tabId: 1,
-          origin,
-          reason: "not-started",
-          detail: "confirm-unsupported",
-          recipeId: generated.id,
-          recipeRevision: generated.revision,
-          pageKind: "unclear",
-        },
-      ]);
+      await vi.waitFor(() =>
+        expect(
+          report.mock.calls.map(([entry]) => entry).filter((entry) => entry.type === "refused"),
+        ).toEqual([
+          {
+            type: "refused",
+            tabId: 1,
+            origin,
+            reason: "not-started",
+            detail: "confirm-unsupported",
+            recipeId: generated.id,
+            recipeRevision: generated.revision,
+            pageKind: "unclear",
+            amount: true,
+            e1: false,
+            e2: false,
+          },
+        ]),
+      );
+      // Only the matching item's username is read, for E2; nothing is filled.
+      expect(h.fields.mock.calls.map(([source]) => source.fieldId)).toEqual(["login.username"]);
+      expect(fake.state.messages.filter((entry) => entry.type === "login.execute")).toEqual([]);
+      // The person submits the page's form; a message from another document counts for nothing.
+      const submitted = {
+        version: 1,
+        type: "login.document.person-submitted",
+        token: "synthetic-token",
+      };
+      await h.login.handle(submitted, sender({ documentId: "other" }));
+      await h.login.handle(submitted, sender());
+      // Neither E1 nor E2 showed, so the tab's next page is read for E1, here once it renders.
+      fake.state.pageUrl = `${origin}/done`;
+      await h.hello({ documentId: "done" }, false);
+      fake.state.present = new Set(["account"]);
+      await vi.waitFor(() =>
+        expect(
+          report.mock.calls
+            .map(([entry]) => entry)
+            .filter((entry) => entry.type === "confirm-left"),
+        ).toEqual([
+          {
+            type: "confirm-left",
+            tabId: 1,
+            origin,
+            recipeId: generated.id,
+            recipeRevision: generated.revision,
+            pageKind: "unclear",
+            personSubmitted: true,
+            nextE1: true,
+          },
+        ]),
+      );
+    });
+
+    it("logs a page Pateat does not fill as left without a next page when its tab closes (ADR 0035)", async () => {
+      fake.state.extracted = { login: loginPage };
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness(unsaved, {
+        allowedOrigins: [],
+        uris,
+        username: true,
+        custom: [],
+        generation: generation(),
+        report,
+      });
+      const confirm = parseLoginRecipe({
+        ...generated,
+        pageKind: "confirm",
+        completion: [{ target: target("account") }],
+      });
+      fake.state.present = new Set();
+      h.recipes.recipe.mockResolvedValue(undefined);
+      h.recipes.starts.mockResolvedValue(startsOf([]));
+      h.recipes.routes.mockResolvedValue([confirm]);
+      await h.hello({}, false);
+      // Without its first step shown, the page is not logged, nor is its visit.
+      fake.state.pageUrl = `${origin}/other`;
+      await h.hello({ documentId: "other" }, false);
+      fake.state.pageUrl = `${origin}/signin`;
+      await h.hello({ documentId: "again" }, false);
+      await shownHello(h, { documentId: "again" });
+      await vi.waitFor(() =>
+        expect(report).toHaveBeenCalledWith(
+          expect.objectContaining({ type: "refused", detail: "confirm-unsupported" }),
+        ),
+      );
+      for (const removed of fake.state.removed) removed(1);
+      await vi.waitFor(() =>
+        expect(
+          report.mock.calls
+            .map(([entry]) => entry)
+            .filter((entry) => entry.type === "confirm-left"),
+        ).toEqual([
+          {
+            type: "confirm-left",
+            tabId: 1,
+            origin,
+            recipeId: generated.id,
+            recipeRevision: generated.revision,
+            pageKind: "confirm",
+            personSubmitted: false,
+          },
+        ]),
+      );
+    });
+
+    /** A harness whose `/signin` is the first page of a recipe generated as `confirm`. */
+    function confirmHarness(live: { urls?: boolean; matched?: boolean } = {}) {
+      fake.state.extracted = { login: loginPage };
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness(unsaved, {
+        allowedOrigins: [],
+        uris: async () => ({
+          ok: true as const,
+          data: live.matched === false ? uriMatch({ candidates: [] }) : uriMatch(),
+        }),
+        username: true,
+        custom: [],
+        generation: generation(),
+        report,
+        ...(live.urls ? { urls: true } : {}),
+      });
+      const confirm = parseLoginRecipe({
+        ...generated,
+        pageKind: "confirm",
+        completion: [{ target: target("account") }],
+      });
+      // Nothing of the recipe shows, so neither does its signed-in marker.
+      fake.state.present = new Set();
+      h.recipes.recipe.mockResolvedValue(undefined);
+      h.recipes.starts.mockResolvedValue(startsOf([]));
+      h.recipes.routes.mockResolvedValue([confirm]);
+      const entries = <T extends LoginReport["type"]>(type: T) =>
+        report.mock.calls.flatMap(([entry]) =>
+          entry.type === type ? [entry as Extract<LoginReport, { type: T }>] : [],
+        );
+      /** The page at `url` in a new document, its first step shown, and its entry logged. */
+      const visit = async (documentId: string, url = `${origin}/signin`) => {
+        const logged = entries("refused").length;
+        fake.state.pageUrl = url;
+        await h.hello({ documentId }, false);
+        await shownHello(h, { documentId });
+        await vi.waitFor(() => expect(entries("refused")).toHaveLength(logged + 1), 7_000);
+        return entries("refused").at(-1);
+      };
+      const left = {
+        type: "confirm-left",
+        tabId: 1,
+        origin,
+        recipeId: generated.id,
+        recipeRevision: generated.revision,
+        pageKind: "confirm",
+      } as const;
+      const refused = {
+        type: "refused",
+        tabId: 1,
+        origin,
+        reason: "not-started",
+        detail: "confirm-unsupported",
+        recipeId: generated.id,
+        recipeRevision: generated.revision,
+        pageKind: "confirm",
+        e1: false,
+      } as const;
+      return { h, entries, visit, left, refused };
+    }
+
+    it("logs the URL of a page Pateat does not fill and of the tab's previous page of its origin only (ADR 0035)", async () => {
+      const { h, entries, visit, left, refused } = confirmHarness({ urls: true });
+      // The previous page is the same document before its path changed in place.
+      fake.state.pageUrl = `${origin}/home?tab=1`;
+      await h.hello({ documentId: "home" }, false);
+      expect(await visit("home")).toEqual({
+        ...refused,
+        e2: false,
+        url: `${origin}/signin`,
+        previousUrl: `${origin}/home?tab=1`,
+      });
+      // A page of another origin next is no sign-in on this one.
+      fake.state.pageUrl = "https://elsewhere.example/";
+      await h.hello({ documentId: "elsewhere" }, false);
+      await vi.waitFor(() =>
+        expect(entries("confirm-left")).toEqual([
+          { ...left, personSubmitted: false, nextE1: false, url: `${origin}/signin` },
+        ]),
+      );
+      // Nor is it the previous page of the next one on this origin.
+      expect(await visit("back")).toEqual({ ...refused, e2: false, url: `${origin}/signin` });
+      // A page Pateat does not admit in between is not read, so it ends the visit without a
+      // next page, and the page before it is not the previous page of the one after.
+      fake.state.granted = false;
+      fake.state.pageUrl = `${origin}/home`;
+      expect(await h.hello({ documentId: "blocked" }, false)).toEqual({
+        ok: false,
+        reason: "unauthorized-document",
+      });
+      await vi.waitFor(() =>
+        expect(entries("confirm-left").at(-1)).toEqual({
+          ...left,
+          personSubmitted: false,
+          url: `${origin}/signin`,
+        }),
+      );
+      fake.state.granted = true;
+      expect(await visit("after")).toEqual({ ...refused, e2: false, url: `${origin}/signin` });
+      // A discarded tab loads its page again in a new tab, so the page was not left.
+      for (const replaced of fake.state.replaced) replaced(5, 1);
+      for (let flush = 0; flush < 5; flush++)
+        // oxlint-disable-next-line no-await-in-loop -- each turn lets a pending log run
+        await new Promise((resolve) => setImmediate(resolve));
+      expect(entries("confirm-left")).toHaveLength(2);
+    });
+
+    it("reads the next page for E1 without a vault match, but not one that went before its first reading (ADR 0035)", async () => {
+      const { h, entries, visit, left, refused } = confirmHarness({ matched: false });
+      // E2 is not read without a matching item, so the next page is read for E1.
+      expect(await visit("verify")).toEqual(refused);
+      const submitted = {
+        version: 1,
+        type: "login.document.person-submitted",
+        token: "synthetic-token",
+      };
+      // A frame's submit is not the page's.
+      await h.login.handle(submitted, sender({ documentId: "verify", frameId: 2 }));
+      fake.state.pageUrl = `${origin}/done`;
+      await h.hello({ documentId: "done" }, false);
+      fake.state.present = new Set(["account"]);
+      await vi.waitFor(() =>
+        expect(entries("confirm-left")).toEqual([
+          { ...left, personSubmitted: false, nextE1: true },
+        ]),
+      );
+      // On the real clock, the next page goes while the page's own readings wait a second.
+      realTime();
+      fake.state.present = new Set();
+      fake.state.pageUrl = `${origin}/signin`;
+      await h.hello({ documentId: "again" }, false);
+      await shownHello(h, { documentId: "again" });
+      // The left page's late submit counts for nothing.
+      await h.login.handle(submitted, sender({ documentId: "verify" }));
+      fake.state.pageUrl = `${origin}/done`;
+      await h.hello({ documentId: "done-again" }, false);
+      fake.state.pageUrl = `${origin}/gone`;
+      await h.hello({ documentId: "gone" }, false);
+      await vi.waitFor(
+        () =>
+          expect(entries("confirm-left")).toEqual([
+            { ...left, personSubmitted: false, nextE1: true },
+            { ...left, personSubmitted: false },
+          ]),
+        3_000,
+      );
+      expect(entries("refused")).toHaveLength(2);
+    });
+
+    it("logs neither E1 nor E2 for a page gone before its first reading, nor reads its next page (ADR 0035)", async () => {
+      const { h, entries, left, refused } = confirmHarness();
+      // The matching item's username is read slowly, and the person leaves meanwhile.
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      h.fields.mockImplementation(async () => {
+        await held;
+        return "synthetic-user";
+      });
+      fake.state.pageUrl = `${origin}/signin`;
+      await h.hello({ documentId: "verify" }, false);
+      await shownHello(h, { documentId: "verify" });
+      await vi.waitFor(() => expect(h.fields).toHaveBeenCalled());
+      fake.state.present = new Set(["account"]);
+      fake.state.pageUrl = `${origin}/done`;
+      await h.hello({ documentId: "done" }, false);
+      release();
+      await vi.waitFor(() =>
+        expect(entries("confirm-left")).toEqual([{ ...left, personSubmitted: false }]),
+      );
+      const { e1: _unread, ...unread } = refused;
+      expect(entries("refused")).toEqual([unread]);
+    });
+
+    it("logs a return in place to a page Pateat does not fill as a new visit (ADR 0035)", async () => {
+      const { h, entries, visit, left, refused } = confirmHarness({ urls: true });
+      expect(await visit("app")).toEqual({ ...refused, e2: false, url: `${origin}/signin` });
+      await h.login.handle(
+        { version: 1, type: "login.document.person-submitted", token: "synthetic-token" },
+        sender({ documentId: "app" }),
+      );
+      // The same document moves on in place, as the content script announces.
+      fake.state.present = new Set(["account"]);
+      fake.state.pageUrl = `${origin}/done`;
+      await h.hello({ documentId: "app" }, false);
+      await vi.waitFor(() =>
+        expect(entries("confirm-left")).toEqual([
+          { ...left, personSubmitted: true, nextE1: true, url: `${origin}/signin` },
+        ]),
+      );
+      // Back on the page in place: a new visit, whose previous page is the one it left.
+      fake.state.present = new Set();
+      expect(await visit("app")).toEqual({
+        ...refused,
+        e2: false,
+        url: `${origin}/signin`,
+        previousUrl: `${origin}/done`,
+      });
+      fake.state.pageUrl = `${origin}/home`;
+      await h.hello({ documentId: "app" }, false);
+      await vi.waitFor(() =>
+        expect(entries("confirm-left").at(-1)).toEqual({
+          ...left,
+          personSubmitted: false,
+          nextE1: false,
+          url: `${origin}/signin`,
+        }),
+      );
+      expect(entries("confirm-left")).toHaveLength(2);
     });
 
     it("still sends a page on a chooser branch's first-page path, which is a sign-in page (ADR 0028)", async () => {
@@ -6908,6 +7261,9 @@ describe("production login document admission", () => {
     });
 
     it("tells the popup that the page went to the AI, then what came back", async () => {
+      // The popup is polled while the request is out; on the fake clock the spin's own limit
+      // could pass between two polls.
+      realTime();
       fake.state.extracted = { login: loginPage };
       let answer!: (outcome: GenerationOutcome) => void;
       const service = generation({
@@ -10513,9 +10869,115 @@ describe("production login document admission", () => {
             tab: { id: 1, url: "https://login.example/" },
           }),
         ),
-      ).toEqual({ ok: false, reason: "recipe-not-found" });
+        // A frame is never sent, only asked to report a verification it shows (ADR 0035).
+      ).toEqual({ ok: false, reason: "recipe-not-found", frame: true });
       expect(service.generate).not.toHaveBeenCalled();
     }, 10_000);
+
+    it("counts a frame or a secret answer that looks like a verification, never sending it (ADR 0035)", async () => {
+      const service = generation();
+      const report = vi.fn<(report: LoginReport) => void>();
+      let matched = true;
+      const h = harness(unsaved, {
+        allowedOrigins: [],
+        uris: async () =>
+          matched
+            ? { ok: true as const, data: uriMatch() }
+            : { ok: true as const, data: uriMatch({ candidates: [] }) },
+        username: true,
+        generation: service,
+        report,
+      });
+      h.recipes.recipe.mockResolvedValue(undefined);
+      h.recipes.starts.mockResolvedValue(startsOf([]));
+      const skips = () =>
+        report.mock.calls.flatMap(([value]) =>
+          value.type === "generation" && value.outcome === "skipped" ? [value] : [],
+        );
+      const unoffered = (why: string, from: Record<string, unknown> = {}) =>
+        h.login.handle(
+          {
+            version: 1,
+            type: "login.document.ready",
+            token: String(from["token"] ?? "synthetic-token"),
+            unoffered: { path: String(from["path"] ?? "/signin"), why },
+          },
+          sender(from),
+        );
+      // A page offered for generation that ends its wait with a `type="text"` answer.
+      expect(await h.hello({}, false)).toMatchObject({ generate: true });
+      expect(await unoffered("text-answer")).toMatchObject({ generate: true });
+      expect(skips()).toEqual([
+        { type: "generation", tabId: 1, origin, outcome: "skipped", reason: "text-answer" },
+      ]);
+      // A frame inside another site's page: asked to report, then counted, never sent.
+      fake.state.tabUrls = { 1: "https://top.example/" };
+      const frame = {
+        frameId: 3,
+        documentId: "frame-document",
+        token: "frame-token",
+        path: "/",
+        url: "https://login.example/",
+        tab: { id: 1, url: "https://top.example/" },
+      };
+      expect(
+        await h.login.handle(
+          { version: 1, type: "login.document.ready", token: "frame-token" },
+          sender(frame),
+        ),
+      ).toEqual({ ok: false, reason: "recipe-not-found", frame: true });
+      expect(await unoffered("frame", frame)).toMatchObject({ frame: true });
+      expect(skips().at(-1)).toEqual({
+        type: "generation",
+        tabId: 1,
+        origin,
+        outcome: "skipped",
+        reason: "frame",
+      });
+      // A frame whose page would not be sent now, as one sent recently, is not asked.
+      service.available.mockResolvedValueOnce("sent");
+      expect(
+        await h.login.handle(
+          { version: 1, type: "login.document.ready", token: "held-token" },
+          sender({ ...frame, documentId: "held-frame", token: "held-token", frameId: 4 }),
+        ),
+      ).toEqual({ ok: false, reason: "recipe-not-found" });
+      // Without a vault match neither counts: the answer is logged as nothing offered.
+      matched = false;
+      fake.state.tabUrls = {};
+      expect(await h.hello({ documentId: "other-page" }, false)).toMatchObject({ generate: true });
+      expect(await unoffered("text-answer", { documentId: "other-page" })).toMatchObject({
+        generate: true,
+      });
+      expect(skips().at(-1)).toEqual({
+        type: "generation",
+        tabId: 1,
+        origin,
+        outcome: "skipped",
+        reason: "nothing-offered",
+        detail: "text-answer",
+      });
+      // Right after this tab's password submit, the answer is part of that sign-in: not counted.
+      matched = true;
+      await h.login.handle(
+        { version: 1, type: "login.document.submitted", token: "synthetic-token" },
+        sender({ documentId: "other-page" }),
+      );
+      expect(await h.hello({ documentId: "question" }, false)).toMatchObject({ generate: true });
+      await unoffered("text-answer", { documentId: "question" });
+      expect(skips().at(-1)).toEqual({
+        type: "generation",
+        tabId: 1,
+        origin,
+        outcome: "skipped",
+        reason: "nothing-offered",
+        detail: "after-sign-in",
+      });
+      expect(skips().filter((skip) => skip.reason === "text-answer")).toHaveLength(1);
+      expect(skips().filter((skip) => skip.reason === "frame")).toHaveLength(1);
+      expect(service.generate).not.toHaveBeenCalled();
+      expect(h.fields).not.toHaveBeenCalled();
+    });
 
     it("offers the page an account switch leads to when no recipe starts on its path", async () => {
       const service = generation();

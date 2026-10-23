@@ -146,24 +146,27 @@ const serviceSchema = v.strictObject({
   device: v.optional(deviceSchema),
 });
 
+/** Counts by reason code, at most `RECENT_DELEGATION_REASONS` of them. */
+const reasonCounts = v.pipe(
+  v.array(
+    v.strictObject({
+      reason: v.pipe(v.string(), v.regex(/^[a-z0-9][a-z0-9.:-]{0,63}$/u)),
+      count,
+    }),
+  ),
+  v.maxLength(32),
+);
 /**
  * `recentLog` in `log.ts`: lines of at most `RECENT_LINE_LENGTH`, `RECENT_PROBLEMS` lines,
- * `RECENT_DELEGATION_REASONS` reasons, and its revision and code checks.
+ * `RECENT_DELEGATION_REASONS` reasons per count, and its revision and code checks.
  */
 export const recentLogSchema = v.strictObject({
   problems: v.pipe(v.array(v.pipe(v.string(), v.maxLength(2048))), v.maxLength(10)),
   updated: v.optional(
     v.strictObject({ time, from: v.pipe(v.string(), v.regex(/^[0-9A-Za-z._-]{1,64}$/u)) }),
   ),
-  passkeyDelegations: v.pipe(
-    v.array(
-      v.strictObject({
-        reason: v.pipe(v.string(), v.regex(/^[a-z0-9][a-z0-9.:-]{0,63}$/u)),
-        count,
-      }),
-    ),
-    v.maxLength(32),
-  ),
+  passkeyDelegations: reasonCounts,
+  unsentVerifications: reasonCounts,
 });
 
 export const diagnosticsStatusSchema = v.strictObject({

@@ -927,6 +927,15 @@ export async function startLoginFixture(
           : '<h2 id="rejected">Credentials rejected</h2>');`,
         ),
       );
+    } else if (path === "/confirm-transfer") {
+      // A transfer confirmed with the account's password in a form that shows its amount,
+      // the page a recipe generated as `confirm` starts on (ADR 0035). Its form goes to the
+      // account result page.
+      response.end(
+        html(
+          '<h1>Synthetic transfer confirmation</h1><form id="transfer" action="/authenticated"><p>Total ¥1,200</p><label>Password<input id="confirm-password" type="password"></label><button id="confirm">Confirm</button></form>',
+        ),
+      );
     } else if (path === "/ambiguous") {
       response.end(
         html(

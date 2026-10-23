@@ -151,10 +151,19 @@ export const HELD_CLICK_WAIT_MS = 120_000;
  * Why a page offered for generation sent nothing by the end of the step wait: it showed no
  * list of accounts, sign-in entry or identifier input when its offer wait ended (ADR 0057)
  * and no sign-in input since (`no-list`), it is the page right after a submitted password
- * form (`after-sign-in`), or a sign-in input showed only at the end of the wait
- * (`sign-in-shown`).
+ * form (`after-sign-in`), a sign-in input showed only at the end of the wait
+ * (`sign-in-shown`), or it shows a `type="text"` input named as a secret answer, which
+ * looks like a verification but is never sent (`text-answer`, ADR 0035). `frame`: a frame,
+ * which is never sent, showed a sign-in input or such an answer within the step wait after
+ * the worker asked it to report one (ADR 0035).
  */
-export const unofferedReasons = ["no-list", "after-sign-in", "sign-in-shown"] as const;
+export const unofferedReasons = [
+  "no-list",
+  "after-sign-in",
+  "sign-in-shown",
+  "text-answer",
+  "frame",
+] as const;
 export const helloSchema = v.strictObject({
   version: v.literal(1),
   type: v.literal("login.document.ready"),
@@ -184,9 +193,13 @@ export const helloSchema = v.strictObject({
   ),
   /**
    * Such an input shows on this path but no first step is ready; sent once per path, only
-   * for the log of a login that did not start.
+   * for the log of a login that did not start. On a page the worker named a verification
+   * Pateat does not fill (`confirm` in its answer), it is sent as soon as that page's first
+   * step shows, with `amount`: whether an amount (`¥`, `円` or `$` with digits) shows in the
+   * form of that step's elements, never the amount, and absent when they are in no form
+   * (ADR 0035).
    */
-  shown: v.optional(v.strictObject({ path })),
+  shown: v.optional(v.strictObject({ path, amount: v.optional(v.boolean()) })),
   /**
    * After the offer wait (ADR 0057), this path shows no sign-in input but lists accounts (ADR
    * 0028): an entry or a text beside at most three buttons with an email, masked or not.
@@ -231,6 +244,16 @@ export const submittedSchema = v.strictObject({
   token: id,
 });
 /**
+ * The person submitted the form of a page the worker named a verification Pateat does not
+ * fill (ADR 0035): a trusted `submit` event of the form that holds the page's first step,
+ * reported before the page leaves. No button text or value is sent.
+ */
+export const personSubmittedSchema = v.strictObject({
+  version: v.literal(1),
+  type: v.literal("login.document.person-submitted"),
+  token: id,
+});
+/**
  * A control that logs out was clicked in this document by the person (ADR 0021 D, owner
  * 2026-10-16): nothing about the control or the page is sent.
  */
@@ -255,6 +278,18 @@ export const readySchema = v.strictObject({
    * sign-in entry; announce again with `entry` when no sign-in input showed (ADR 0031).
    */
   entry: v.optional(v.literal(true)),
+  /**
+   * A recipe generated as `confirm` or `unclear` starts on this path, so Pateat only watches
+   * (ADR 0035): its first step, whose showing the document reports with `shown`, and whose
+   * form's trusted submission it reports with `login.document.person-submitted`.
+   */
+  confirm: v.optional(loginReadinessSchema),
+  /**
+   * The document is a frame, which is never sent for generation: it announces once with
+   * `unoffered` `frame` if a sign-in input or a secret answer shows within the step wait,
+   * so such pages are counted (ADR 0035).
+   */
+  frame: v.optional(v.literal(true)),
 });
 export const reconnectSchema = v.strictObject({
   version: v.literal(1),
