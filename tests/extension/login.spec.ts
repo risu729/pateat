@@ -1901,15 +1901,19 @@ test("navigation invalidates a pending wait before it can fill the replacement d
       };
       const originalDocument = before.attempts[0]!.document.documentId;
       await page.goto(`${fixture.origin}/single`);
+      // Nothing was submitted, so the replacement page settles no unknown result: the wait
+      // ends there without one (ADR 0022).
       await expect
         .poll(async () =>
           JSON.stringify(await send(options, { version: 1, type: "login.probe.status" })),
         )
-        .toContain("unknown-submit");
+        .toContain('"state":"blocked"');
       const after = (await send(options, { version: 1, type: "login.probe.status" })) as {
-        attempts: { document: { documentId: string } }[];
+        attempts: { document: { documentId: string }; outcome?: string; submissions: number }[];
       };
       expect(after.attempts[0]!.document.documentId).not.toBe(originalDocument);
+      expect(after.attempts[0]).toMatchObject({ submissions: 0 });
+      expect(after.attempts[0]!.outcome).not.toBe("unknown-submit");
       await expect(page.locator("#password")).toHaveValue("");
       expect(await clicks(page)).toBe(0);
     });
