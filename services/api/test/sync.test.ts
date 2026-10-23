@@ -3,7 +3,7 @@ import {
   DEVICE_IDLE_LIMIT_MS,
   MAX_ACTIVE_RECIPE_BYTES,
   type LocalSettings,
-  type LoginRecipe,
+  type LoginRecipeDocument,
   type SyncRecipeChanges,
 } from "@pateat/contracts";
 import type { D1Migration } from "cloudflare:test";
@@ -74,27 +74,40 @@ function settings(hostname = "excluded.example"): LocalSettings {
   };
 }
 
-function recipe(id: string, revision: number): LoginRecipe {
+/** A stored recipe with one layout (ADR 0060). */
+function recipe(id: string, revision: number): LoginRecipeDocument {
   return {
     version: 1,
     id,
     revision,
     origin: "https://bank.example",
-    slots: ["username", "password"],
-    steps: [
+    layouts: [
       {
-        kind: "fill",
-        effect: "prepare",
-        path: "/login",
-        fields: [
-          { slot: "username", target: { by: "id", value: "username" } },
-          { slot: "password", target: { by: "id", value: "password" } },
+        key: "1000",
+        language: "en",
+        createdAt: 1000,
+        slots: ["username", "password"],
+        steps: [
+          {
+            kind: "fill",
+            effect: "prepare",
+            path: "/login",
+            fields: [
+              { slot: "username", target: { by: "id", value: "username" } },
+              { slot: "password", target: { by: "id", value: "password" } },
+            ],
+          },
+          {
+            kind: "click",
+            path: "/login",
+            target: { by: "id", value: "submit" },
+            purpose: "submit",
+          },
         ],
+        completion: [{ target: { by: "id", value: "welcome" } }],
+        maxSubmissions: 1,
       },
-      { kind: "click", path: "/login", target: { by: "id", value: "submit" }, purpose: "submit" },
     ],
-    completion: [{ target: { by: "id", value: "welcome" } }],
-    maxSubmissions: 1,
   };
 }
 
@@ -718,12 +731,12 @@ describe("recipe sync", () => {
     expect(await (await api(device, "/v1/recipes")).json()).toMatchObject({
       changes: [{ recipeId: "bank-entry", revision: 1, state: "active", recipe: entry }],
     });
-    const { slots, steps, maxSubmissions } = recipe("bank-mixed", 1);
+    const { layouts } = recipe("bank-mixed", 1);
     const mixed = await put(device, "/v1/recipes/bank-mixed", {
       version: 1,
       expectedRevision: 0,
       state: "active",
-      recipe: { ...entry, id: "bank-mixed", slots, steps, maxSubmissions },
+      recipe: { ...entry, id: "bank-mixed", layouts },
     });
     expect(mixed.status).toBe(400);
     const revoked = await put(device, "/v1/recipes/bank-entry", {
@@ -824,11 +837,11 @@ describe("per-owner limits", () => {
   it("caps UTF-8 head bytes for creates and growth, while equal, shrinking and revoke writes pass", async () => {
     const device = await enrollOwner();
     const japanese = recipe("japanese", 1);
-    japanese.completion = [{ target: { by: "text", value: "ようこそ".repeat(20) } }];
+    japanese.layouts[0]!.completion = [{ target: { by: "text", value: "ようこそ".repeat(20) } }];
     const bytes = documentBytes(japanese);
     expect(bytes).toBeGreaterThan(JSON.stringify(japanese).length);
     await seedRecipeBytes(device.ownerId, MAX_ACTIVE_RECIPE_BYTES - bytes);
-    const write = (document: LoginRecipe, expectedRevision: number) =>
+    const write = (document: LoginRecipeDocument, expectedRevision: number) =>
       put(device, `/v1/recipes/${document.id}`, {
         version: 1,
         state: "active",
@@ -840,7 +853,12 @@ describe("per-owner limits", () => {
     const growing = {
       ...japanese,
       revision: 2,
-      completion: [{ target: { by: "text" as const, value: "ようこそ".repeat(21) } }],
+      layouts: [
+        {
+          ...japanese.layouts[0]!,
+          completion: [{ target: { by: "text" as const, value: "ようこそ".repeat(21) } }],
+        },
+      ],
     };
     const refused = await write(growing, 1);
     expect(refused.status).toBe(409);

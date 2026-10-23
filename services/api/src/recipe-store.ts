@@ -1,13 +1,15 @@
 import {
   MAX_ACTIVE_RECIPE_BYTES,
+  storedLayouts,
   syncRecipeChangeSchema,
+  type StoredLoginRecipe,
   type SyncRecipeChange,
   type SyncRecipeWrite,
 } from "@pateat/contracts";
-import { and, asc, eq, lt, or, sql, type SQL } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/d1";
+import { and, asc, eq, gte, lt, or, sql, type SQL } from "drizzle-orm";
+import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
 import * as v from "valibot";
-import { owners, recipeHeads, recipeRevisions } from "./db/schema";
+import { owners, recipeHeads, recipeLayoutUses, recipeRevisions } from "./db/schema";
 import {
   KEPT_RECIPE_REVISIONS,
   MAX_ACTIVE_RECIPES,
@@ -155,7 +157,10 @@ export async function hasRecipeRoom(db: D1Database, ownerId: string): Promise<bo
  * A write that would make the owner hold more than `MAX_ACTIVE_RECIPES` active recipes
  * or exceed `MAX_ACTIVE_RECIPE_BYTES` by creating or growing one
  * changes nothing and is `limited`. A winning write deletes revisions older than the
- * newest `KEPT_RECIPE_REVISIONS`, or every older one when it revokes the recipe.
+ * newest `KEPT_RECIPE_REVISIONS`, or every older one when it revokes the recipe, and the
+ * last use of each layout (ADR 0060) the written document no longer has. With `used:
+ * false`, as when the owner or the idle check removes a layout, the write does not mark
+ * the recipe used.
  */
 export async function writeRecipe(
   db: D1Database,
@@ -163,7 +168,7 @@ export async function writeRecipe(
   recipeId: string,
   write: SyncRecipeWrite,
   writer: string | null,
-  options: { unusedBefore?: number } = {},
+  options: { unusedBefore?: number; used?: boolean } = {},
 ): Promise<
   | { ok: true; change: SyncRecipeChange }
   | { ok: false; limited: false; current: SyncRecipeChange | null }
@@ -184,7 +189,7 @@ export async function writeRecipe(
     sequence: nextSequence,
     writeId,
     updatedAt: now,
-    lastUsedAt: now,
+    ...(options.used === false ? {} : { lastUsedAt: now }),
   };
   // Only a write that makes a recipe active can add one; updates and revocations cannot.
   const hasRoom = sql`${activeRecipes(ownerId)} < ${MAX_ACTIVE_RECIPES}`;
@@ -268,7 +273,23 @@ export async function writeRecipe(
         sql`${recipeRevisions.revision} <= (SELECT ${recipeHeads.revision} - CASE ${recipeHeads.state} WHEN 'revoked' THEN 1 ELSE ${KEPT_RECIPE_REVISIONS} END FROM ${recipeHeads} WHERE ${recipeHeads.ownerId} = ${ownerId} AND ${recipeHeads.recipeId} = ${recipeId} AND ${recipeHeads.writeId} = ${writeId})`,
       ),
     );
-  const [claimed, recorded] = await orm.batch([claim, history, pruned]);
+  // Runs only after this request's claim won: the uses of layouts the document dropped,
+  // every one for a tombstone.
+  const kept = document === null ? [] : storedLayouts(document).map((layout) => layout.key);
+  const unusedLayouts = orm.delete(recipeLayoutUses).where(
+    and(
+      eq(recipeLayoutUses.ownerId, ownerId),
+      eq(recipeLayoutUses.recipeId, recipeId),
+      sql`EXISTS (SELECT 1 FROM ${recipeHeads} WHERE ${recipeHeads.ownerId} = ${ownerId} AND ${recipeHeads.recipeId} = ${recipeId} AND ${recipeHeads.writeId} = ${writeId})`,
+      kept.length
+        ? sql`${recipeLayoutUses.layout} NOT IN (${sql.join(
+            kept.map((key) => sql`${key}`),
+            sql`, `,
+          )})`
+        : undefined,
+    ),
+  );
+  const [claimed, recorded] = await orm.batch([claim, history, pruned, unusedLayouts]);
   if (claimed.meta.changes === 1 && recorded.meta.changes !== 1)
     throw new Error("Recipe head was claimed without its history row");
   if (claimed.meta.changes !== 1) {
@@ -290,6 +311,118 @@ export async function writeRecipe(
         : { recipeId, revision, state: write.state, recipe: document },
     ),
   };
+}
+
+/**
+ * Marks one layout of an active recipe used now (ADR 0060), for a batch: a login reported
+ * on it, or a write of it that a login's page caused. Nothing unless the active head still
+ * has the layout, so a report of one removed meanwhile, or made up, leaves no row.
+ */
+/** Stored layouts, of a login recipe or a chooser, as JSON rows of the head's document. */
+const layoutRows = (path: string) =>
+  sql`json_each(${recipeRevisions.document}, ${path}) AS layout_row`;
+/** Whether the head's document has the layout among those at `path`. */
+const hasLayout = (path: string, layout: string) =>
+  sql`EXISTS (SELECT 1 FROM ${layoutRows(path)}
+    WHERE json_extract(layout_row.value, '$.key') = ${layout})`;
+export function markLayoutUsed(
+  orm: DrizzleD1Database,
+  ownerId: string,
+  recipeId: string,
+  layout: string,
+  now: number,
+) {
+  return orm
+    .insert(recipeLayoutUses)
+    .select(
+      orm
+        .select({
+          ownerId: recipeHeads.ownerId,
+          recipeId: recipeHeads.recipeId,
+          layout: sql`${layout}`.as("layout"),
+          lastUsedAt: sql`${now}`.as("last_used_at"),
+        })
+        .from(recipeHeads)
+        .innerJoin(
+          recipeRevisions,
+          and(
+            eq(recipeRevisions.ownerId, recipeHeads.ownerId),
+            eq(recipeRevisions.recipeId, recipeHeads.recipeId),
+            eq(recipeRevisions.revision, recipeHeads.revision),
+          ),
+        )
+        .where(
+          and(
+            eq(recipeHeads.ownerId, ownerId),
+            eq(recipeHeads.recipeId, recipeId),
+            eq(recipeHeads.state, "active"),
+            sql`(${hasLayout("$.layouts", layout)} OR ${hasLayout("$.chooser.layouts", layout)})`,
+          ),
+        ),
+    )
+    .onConflictDoUpdate({
+      target: [recipeLayoutUses.ownerId, recipeLayoutUses.recipeId, recipeLayoutUses.layout],
+      set: { lastUsedAt: now },
+    });
+}
+
+/** When each layout of the owner's recipes was last used, by recipe ID and layout key. */
+export async function readLayoutUses(
+  db: D1Database,
+  ownerId: string,
+  recipeId?: string,
+): Promise<Map<string, Map<string, number>>> {
+  const rows = await drizzle(db)
+    .select()
+    .from(recipeLayoutUses)
+    .where(
+      and(
+        eq(recipeLayoutUses.ownerId, ownerId),
+        recipeId === undefined ? undefined : eq(recipeLayoutUses.recipeId, recipeId),
+      ),
+    );
+  const uses = new Map<string, Map<string, number>>();
+  for (const row of rows) {
+    const recipe = uses.get(row.recipeId) ?? new Map<string, number>();
+    recipe.set(row.layout, row.lastUsedAt);
+    uses.set(row.recipeId, recipe);
+  }
+  return uses;
+}
+
+/**
+ * The stored recipe without its layouts unused since `unusedBefore` (ADR 0060): a layout
+ * counts as used when it was created and at its last reported use. `undefined` when none is
+ * unused, or every one is, which the recipe's own idle check revokes instead.
+ */
+export function withoutUnusedLayouts(
+  recipe: StoredLoginRecipe,
+  uses: ReadonlyMap<string, number>,
+  unusedBefore: number,
+): StoredLoginRecipe | undefined {
+  const idle = new Set(
+    storedLayouts(recipe)
+      .filter((layout) => Math.max(layout.createdAt, uses.get(layout.key) ?? 0) < unusedBefore)
+      .map((layout) => layout.key),
+  );
+  if (!idle.size || idle.size === storedLayouts(recipe).length) return undefined;
+  const revision = recipe.revision + 1;
+  if ("layouts" in recipe)
+    return {
+      ...recipe,
+      revision,
+      layouts: recipe.layouts.filter((layout) => !idle.has(layout.key)),
+    };
+  if ("chooser" in recipe)
+    return {
+      ...recipe,
+      revision,
+      chooser: {
+        ...recipe.chooser,
+        layouts: recipe.chooser.layouts.filter((layout) => !idle.has(layout.key)),
+      },
+    };
+  return undefined;
 }
 
 /**
@@ -327,5 +460,55 @@ export async function revokeUnusedRecipes(
     );
     if (result.ok) revoked += 1;
   }
+  await removeUnusedLayouts(db, ownerId, unusedBefore);
   return revoked;
+}
+
+/**
+ * Removes the layouts of the owner's recipes unused since `unusedBefore` while another
+ * layout of the same recipe is used (ADR 0060), at most `MAX_IDLE_REVOCATIONS` recipes per
+ * call, as service writes that do not mark the recipe used. A recipe written meanwhile
+ * keeps its layouts until the next check.
+ */
+async function removeUnusedLayouts(db: D1Database, ownerId: string, unusedBefore: number) {
+  // Only recipes holding a layout created before the limit and not used since are read.
+  const idleLayout = (path: string) =>
+    sql`EXISTS (SELECT 1 FROM ${layoutRows(path)}
+      WHERE json_extract(layout_row.value, '$.createdAt') < ${unusedBefore}
+        AND NOT EXISTS (SELECT 1 FROM ${recipeLayoutUses}
+          WHERE ${recipeLayoutUses.ownerId} = ${recipeHeads.ownerId}
+            AND ${recipeLayoutUses.recipeId} = ${recipeHeads.recipeId}
+            AND ${recipeLayoutUses.layout} = json_extract(layout_row.value, '$.key')
+            AND ${recipeLayoutUses.lastUsedAt} >= ${unusedBefore}))`;
+  const candidates = await selectHeads(
+    db,
+    ownerId,
+    eq(recipeHeads.state, "active"),
+    gte(recipeHeads.lastUsedAt, unusedBefore),
+    sql`(${idleLayout("$.layouts")} OR ${idleLayout("$.chooser.layouts")})`,
+  )
+    .orderBy(asc(recipeHeads.lastUsedAt))
+    .limit(MAX_IDLE_REVOCATIONS);
+  if (!candidates.length) return;
+  const uses = await readLayoutUses(db, ownerId);
+  for (const row of candidates) {
+    const { change } = readChange(row);
+    if (change.state !== "active" || "entry" in change.recipe) continue;
+    const next = withoutUnusedLayouts(
+      change.recipe,
+      uses.get(row.recipeId) ?? new Map(),
+      unusedBefore,
+    );
+    if (!next) continue;
+    // Sequential: each write takes the owner's next sequence number.
+    // eslint-disable-next-line no-await-in-loop
+    await writeRecipe(
+      db,
+      ownerId,
+      row.recipeId,
+      { version: 1, expectedRevision: row.revision, state: "active", recipe: next },
+      null,
+      { used: false },
+    );
+  }
 }

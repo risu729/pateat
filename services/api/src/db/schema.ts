@@ -139,6 +139,32 @@ export const recipeRevisions = sqliteTable(
 );
 
 /**
+ * When each layout of an active recipe was last used (ADR 0060): by a login that reported
+ * starting or ending on it, or a write of the layout that a login's page caused. A layout
+ * without a row counts as used when it was created. A layout unused for
+ * `RECIPE_IDLE_LIMIT_MS` is removed from its recipe while another one is used; the recipe
+ * itself is revoked by its own `lastUsedAt` (ADR 0058). Rows of layouts a write removes go
+ * with that write.
+ */
+export const recipeLayoutUses = sqliteTable(
+  "recipe_layout_uses",
+  {
+    ownerId: text("owner_id").notNull(),
+    recipeId: text("recipe_id").notNull(),
+    /** The layout's key (`recipeLayoutKeySchema`). */
+    layout: text("layout").notNull(),
+    lastUsedAt: integer("last_used_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.ownerId, table.recipeId, table.layout] }),
+    foreignKey({
+      columns: [table.ownerId, table.recipeId],
+      foreignColumns: [recipeHeads.ownerId, recipeHeads.recipeId],
+    }),
+  ],
+);
+
+/**
  * The owner's Claude credential (ADR 0015). Workload Identity Federation stores only
  * the identifiers of the owner's own Anthropic federation rule, never a key.
  */
@@ -213,7 +239,10 @@ export const inferenceLog = sqliteTable(
     outcome: text("outcome").notNull(),
     /** The generated recipe the call is for: the one it starts or continues, or judges. */
     recipeId: text("recipe_id"),
-    /** The chooser branch (ADR 0028), or empty for any other page. */
+    /**
+     * The recipe layout (ADR 0060) and chooser branch (ADR 0028) as `recipeBranchSchema`
+     * names them, or empty for a recipe's first page.
+     */
     branch: text("branch"),
     /**
      * The recipe's head revision when the call was made: 0 when it had none, the
@@ -289,7 +318,10 @@ export const loginOutcomes = sqliteTable(
       .notNull()
       .references(() => owners.id),
     recipeId: text("recipe_id").notNull(),
-    /** The chooser branch the login took (ADR 0028), or empty for any other recipe. */
+    /**
+     * The layout the login ran (ADR 0060) and the chooser branch it took (ADR 0028), as
+     * `recipeBranchSchema` names them; empty only in rows written before layouts.
+     */
     branch: text("branch").notNull().default(""),
     revision: integer("revision").notNull(),
     /** A `loginOutcomeSchema` code. */
@@ -320,7 +352,10 @@ export const loginTimings = sqliteTable(
       .notNull()
       .references(() => owners.id),
     recipeId: text("recipe_id").notNull(),
-    /** The chooser branch the login took (ADR 0028), or empty for any other recipe. */
+    /**
+     * The layout the login ran (ADR 0060) and the chooser branch it took (ADR 0028), as
+     * `recipeBranchSchema` names them; empty only in rows written before layouts.
+     */
     branch: text("branch").notNull().default(""),
     revision: integer("revision").notNull(),
     /** The recipe's origin, from the reported revision or else its newest kept one. */
@@ -383,7 +418,10 @@ export const generationAttempts = sqliteTable(
       .references(() => owners.id),
     /** The generated recipe the page starts or continues; one origin can hold several. */
     recipeId: text("recipe_id").notNull(),
-    /** The chooser branch the page continues (ADR 0028), or empty for any other page. */
+    /**
+     * The layout (ADR 0060) and chooser branch (ADR 0028) the page continues, as
+     * `recipeBranchSchema` names them, or empty for a recipe's first page.
+     */
     branch: text("branch").notNull().default(""),
     origin: text("origin").notNull(),
     path: text("path").notNull(),
@@ -421,7 +459,10 @@ export const pageJudgements = sqliteTable(
       .notNull()
       .references(() => owners.id),
     recipeId: text("recipe_id").notNull(),
-    /** The chooser branch whose route was judged (ADR 0028), or empty for a route recipe. */
+    /**
+     * The layout (ADR 0060) and chooser branch (ADR 0028) whose route was judged, as
+     * `recipeBranchSchema` names them.
+     */
     branch: text("branch").notNull().default(""),
     revision: integer("revision").notNull(),
     /**

@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, test, vi } from "vitest";
 import { page } from "vitest/browser";
 import { cleanup, render } from "vitest-browser-react";
-import type { LoginRecipe, ManageRecipes } from "../../packages/contracts/src/index";
+import type { LoginRecipeDocument, ManageRecipes } from "../../packages/contracts/src/index";
 import { ManageApiError, type ManageClient } from "../../services/api/web/api";
 import { ManageApp } from "../../services/api/web/app";
 
@@ -10,28 +10,43 @@ import { ManageApp } from "../../services/api/web/app";
 
 const UPDATED = Date.UTC(2026, 9, 11, 8, 15);
 
-function recipe(id: string, revision: number): LoginRecipe {
+/** The key of a recipe's one layout (ADR 0060), created a day before it was updated. */
+const LAYOUT = String(UPDATED - 24 * 60 * 60 * 1000);
+
+function recipe(id: string, revision: number): LoginRecipeDocument {
   return {
     version: 1,
     id,
     revision,
     origin: "https://bank.example",
-    slots: ["username", "password"],
-    steps: [
+    layouts: [
       {
-        kind: "fill",
-        effect: "prepare",
-        path: "/login",
-        fields: [
-          { slot: "username", target: { by: "id", value: "username" } },
-          { slot: "password", target: { by: "name", value: "pass" } },
+        key: LAYOUT,
+        language: "en",
+        createdAt: Number(LAYOUT),
+        slots: ["username", "password"],
+        steps: [
+          {
+            kind: "fill",
+            effect: "prepare",
+            path: "/login",
+            fields: [
+              { slot: "username", target: { by: "id", value: "username" } },
+              { slot: "password", target: { by: "name", value: "pass" } },
+            ],
+          },
+          {
+            kind: "click",
+            path: "/login",
+            target: { by: "test-id", value: "go" },
+            purpose: "submit",
+          },
         ],
+        completion: [{ target: { by: "id", value: "welcome" } }],
+        rejection: { by: "id", value: "login-error" },
+        maxSubmissions: 1,
       },
-      { kind: "click", path: "/login", target: { by: "test-id", value: "go" }, purpose: "submit" },
     ],
-    completion: [{ target: { by: "id", value: "welcome" } }],
-    rejection: { by: "id", value: "login-error" },
-    maxSubmissions: 1,
   };
 }
 
@@ -50,9 +65,10 @@ function mockClient(initial: Listed) {
     })),
     saveSettings: vi.fn<ManageClient["saveSettings"]>(),
     recipes: vi.fn<ManageClient["recipes"]>(async () => structuredClone(current)),
+    revokeLayout: vi.fn<ManageClient["revokeLayout"]>(),
     revokeRecipe: vi.fn<ManageClient["revokeRecipe"]>(async (recipeId, expectedRevision) => {
       const change = { recipeId, revision: expectedRevision + 1, state: "revoked" as const };
-      const revoked = { change, updatedAt: UPDATED + 60_000 };
+      const revoked = { change, updatedAt: UPDATED + 60_000, layouts: [] };
       current = {
         version: 1,
         recipes: [
@@ -93,6 +109,7 @@ afterEach(async () => {
 const active = (id: string, revision = 1) => ({
   change: { recipeId: id, revision, state: "active" as const, recipe: recipe(id, revision) },
   updatedAt: UPDATED,
+  layouts: [{ key: LAYOUT, lastUsedAt: UPDATED }],
 });
 
 test("shows a recipe's steps, targets and JSON, then revokes it", async () => {

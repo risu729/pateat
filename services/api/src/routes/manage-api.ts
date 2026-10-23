@@ -3,7 +3,10 @@ import {
   manageDashboardRangeSchema,
   manageRecipeRevokeSchema,
   manageSettingsWriteSchema,
+  recipeLayoutKeySchema,
+  storedLayouts,
   syncRecipeIdSchema,
+  withoutLayout,
   type ManageDevices,
   type ManageRecipes,
   type ManageRequestLog,
@@ -18,12 +21,23 @@ import { readDashboard } from "../dashboard";
 import { devices, inferenceLog, loginOutcomes, loginTimings, recipeHeads } from "../db/schema";
 import { apiError } from "../http";
 import { findOwner } from "../owners";
-import { readChange, revokeUnusedRecipes, selectHeads, writeRecipe } from "../recipe-store";
+import {
+  readChange,
+  readHead,
+  readLayoutUses,
+  revokeUnusedRecipes,
+  selectHeads,
+  writeRecipe,
+} from "../recipe-store";
 import { readSettings, writeSettings } from "../settings-store";
 import { jsonBody, requireJsonBody, validate } from "../validation";
 
 const deviceParamSchema = v.strictObject({ deviceId: deviceIdSchema });
 const recipeParamSchema = v.strictObject({ recipeId: syncRecipeIdSchema });
+const layoutParamSchema = v.strictObject({
+  recipeId: syncRecipeIdSchema,
+  layout: recipeLayoutKeySchema,
+});
 const dashboardQuerySchema = v.object({
   range: v.optional(manageDashboardRangeSchema, "7d"),
 });
@@ -107,11 +121,23 @@ export const manageApiRoutes = new Hono<ApiEnv>()
         await selectHeads(c.env.DB, ownerId).orderBy(desc(recipeHeads.sequence))
       : [];
     const read = rows.map((row) => ({ ...readChange(row), updatedAt: row.updatedAt }));
+    const uses = ownerId ? await readLayoutUses(c.env.DB, ownerId) : new Map();
     return c.json({
       version: 1,
       recipes: read
         .filter((entry) => !entry.unreadable)
-        .map(({ change, updatedAt }) => ({ change, updatedAt })),
+        .map(({ change, updatedAt }) => ({
+          change,
+          updatedAt,
+          // Each layout's last use (ADR 0060); a tombstone has none.
+          layouts:
+            change.state === "active"
+              ? storedLayouts(change.recipe).map(({ key }) => ({
+                  key,
+                  lastUsedAt: uses.get(change.recipeId)?.get(key) ?? null,
+                }))
+              : [],
+        })),
       // Devices read these as revoked; the owner sees and revokes them here.
       unreadable: read
         .filter((entry) => entry.unreadable)
@@ -141,6 +167,41 @@ export const manageApiRoutes = new Hono<ApiEnv>()
       );
       if (result.ok) return c.json({ version: 1 as const, change: result.change });
       // A revocation never adds an active recipe, so the limit cannot refuse it.
+      if (result.limited || !result.current) return apiError(c, 404, { error: "not_found" });
+      return c.json({ error: "recipe_conflict" as const, current: result.current }, 409);
+    },
+  )
+  // One layout of a recipe (ADR 0060): the next revision keeps the others, and removing the
+  // last one revokes the recipe. Removing a layout is not a use of the recipe.
+  .post(
+    "/recipes/:recipeId/layouts/:layout/revoke",
+    validate("param", layoutParamSchema, { status: 404, error: "not_found" }),
+    requireJsonBody,
+    jsonBody(manageRecipeRevokeSchema),
+    async (c) => {
+      const { recipeId, layout } = c.req.valid("param");
+      const ownerId = await findOwner(c.env.DB, c.get("identity"));
+      if (!ownerId) return apiError(c, 404, { error: "not_found" });
+      const { expectedRevision } = c.req.valid("json");
+      const head = await readHead(c.env.DB, ownerId, recipeId);
+      if (!head) return apiError(c, 404, { error: "not_found" });
+      if (head.state !== "active" || head.revision !== expectedRevision)
+        return c.json({ error: "recipe_conflict" as const, current: head }, 409);
+      const keys = storedLayouts(head.recipe).map((entry) => entry.key);
+      if (!keys.includes(layout)) return apiError(c, 404, { error: "not_found" });
+      const next = withoutLayout(head.recipe, layout);
+      const result = await writeRecipe(
+        c.env.DB,
+        ownerId,
+        recipeId,
+        next
+          ? { version: 1, expectedRevision, state: "active", recipe: next }
+          : { version: 1, expectedRevision, state: "revoked" },
+        null,
+        { used: false },
+      );
+      if (result.ok) return c.json({ version: 1 as const, change: result.change });
+      // Removing a layout only shrinks the recipe, so the limits cannot refuse it.
       if (result.limited || !result.current) return apiError(c, 404, { error: "not_found" });
       return c.json({ error: "recipe_conflict" as const, current: result.current }, 409);
     },

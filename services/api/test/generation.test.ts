@@ -1,6 +1,7 @@
 import {
   isLoginRouteRecipe,
   MAX_ACTIVE_RECIPE_BYTES,
+  storedLayoutRecipe,
   type EntryGenerationResult,
   type LoginObservation,
   type LoginRecipe,
@@ -114,10 +115,14 @@ const bigPage = (): LoginObservation => ({
   headings: Array.from({ length: 8 }, () => WIDE),
 });
 
-/** A stored recipe that must be a route recipe, as every form page's answer is. */
+/**
+ * A stored recipe's newest layout as the route recipe a login runs (ADR 0060), as every
+ * form page's answer has.
+ */
 const route = (recipe: StoredLoginRecipe): LoginRecipe => {
-  if (!isLoginRouteRecipe(recipe)) throw new Error("Expected a route recipe");
-  return recipe;
+  const projected = storedLayoutRecipe(recipe);
+  if (!projected || !isLoginRouteRecipe(projected)) throw new Error("Expected a route recipe");
+  return projected;
 };
 const plan = (fields: [string, string][], action: string, purpose: "advance" | "submit") =>
   JSON.stringify({
@@ -4580,6 +4585,8 @@ describe("account lists and chooser branches (ADR 0028)", () => {
     if (account.status !== "recipe" || !("chooser" in account.change.recipe))
       throw new Error(account.status);
     const atTwo = account.change.recipe;
+    const [layout] = atTwo.chooser.layouts;
+    const completion = [{ target: { by: "id" as const, value: "logout" } }];
     // While the other branch's page is generated, a judgement of the account branch on
     // another device stores revision 3.
     const judged = {
@@ -4587,11 +4594,7 @@ describe("account lists and chooser branches (ADR 0028)", () => {
       revision: 3,
       chooser: {
         ...atTwo.chooser,
-        afterAccount: {
-          ...atTwo.chooser.afterAccount!,
-          revision: 3,
-          completion: [{ target: { by: "id", value: "logout" } }],
-        },
+        layouts: [{ ...layout!, afterAccount: { ...layout!.afterAccount!, completion } }],
       },
     };
     during = async () => {
@@ -4613,8 +4616,7 @@ describe("account lists and chooser branches (ADR 0028)", () => {
         recipe: {
           revision: 4,
           chooser: {
-            afterAccount: { revision: 4, completion: judged.chooser.afterAccount.completion },
-            afterOther: { revision: 4, slots: ["email"] },
+            layouts: [{ afterAccount: { completion }, afterOther: { slots: ["email"] } }],
           },
         },
       },
