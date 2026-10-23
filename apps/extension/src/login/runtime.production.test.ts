@@ -8276,6 +8276,26 @@ describe("production login document admission", () => {
             });
           });
 
+        it("never sends a page offered as a passkey button whose only field is no sign-in input", async () => {
+          vi.useFakeTimers({ toFake: ["setTimeout"], shouldAdvanceTime: true });
+          onTestFinished(() => void vi.useRealTimers());
+          const passkeyItems = vi.fn(async () => [{ connectionId, itemId }]);
+          const { service, h, generations } = named({ passkeyItems });
+          // A search box rendered after the offer: its description would be accepted.
+          fake.state.extracted = { login: loginPage };
+          fake.state.entry.check = { ok: true, signIn: false, start: false, signUp: false };
+          expect(await h.hello({}, false)).toMatchObject({ generate: true });
+          expect(await passkeyListHello(h, ["Help"])).toEqual({ ok: false, reason: "generating" });
+          await vi.advanceTimersByTimeAsync(10_000);
+          await vi.waitFor(() =>
+            expect(generations()).toEqual([
+              { type: "generation", tabId: 1, origin, outcome: "skipped", reason: "no-candidates" },
+            ]),
+          );
+          expect(service.generate).not.toHaveBeenCalled();
+          expect(extracted()).not.toContainEqual(expect.objectContaining({ page: "login" }));
+        });
+
         it("handles the list as without the button for an item without a passkey", async () => {
           const passkeyItems = vi.fn(async () => []);
           const { service, h, generations } = named({ passkeyItems });

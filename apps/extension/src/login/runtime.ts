@@ -7409,8 +7409,20 @@ export function createLoginRuntime(
         }
         // A page offered as a list of accounts or a passkey button before its form rendered,
         // as x.com's sign-in while it loads (2026-10-23), may show a sign-in form instead by
-        // now: it is sent as a sign-in page.
-        if (unsent === "no-candidates" && (list || passkeyOnly)) {
+        // now: it is sent as a sign-in page, only when it shows an input the document would
+        // have offered as one (ADR 0016), never for a search or newsletter field alone.
+        const shows =
+          unsent === "no-candidates" && (list || passkeyOnly)
+            ? v.safeParse(
+                entryCheckResultSchema,
+                // eslint-disable-next-line no-await-in-loop
+                await send(live, { type: "login.entry.check", starts: [], timeoutMs: 0 }).catch(
+                  () => undefined,
+                ),
+              )
+            : undefined;
+        if (documents.get(key) !== live) return;
+        if (shows?.success && shows.output.signIn) {
           const signIn = v.safeParse(
             extractResultSchema,
             // eslint-disable-next-line no-await-in-loop

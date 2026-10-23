@@ -122,8 +122,8 @@ new owner decision:
   Since 2026-10-23 (added after this decision, not confirmed by the owner, after x.com's
   sign-in was offered as a passkey or list page while it loaded and then never sent), a
   page offered as a list of accounts or a passkey button whose description finds none
-  (`no-candidates`) is read as a sign-in page, and sent as one when it shows a sign-in
-  form by then.
+  (`no-candidates`) is read as a sign-in page, and sent as one when it shows by then an
+  input it would have been offered for as one above.
 - The vault match is checked only once the input shows, and only matching items'
   built-in fields decide which of the `username`, `password` and `totp` slots are
   offered.
