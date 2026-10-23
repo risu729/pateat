@@ -50,11 +50,12 @@ credentials and deployment authorization; the read-only diagnosis below does not
 | Generation credentials fail | Inspect `/manage/claude` and the diagnostics outcome. Its token-exchange test calls no model; real inference is separately paid and authorized. Check WIF identifiers and issuer/JWKS configuration using the [API guide](../services/api/README.md#claude-credentials). Never put tokens or private signing JWKs in a report. |
 
 **Delete connection** removes the connection from this device with its local vault
-cache, unlock key, sync sign-in and this device's settings for it; synced saved
-accounts and account bindings stay and apply again when the same account is added back. Use it for deliberate removal, not as an initial troubleshooting step.
-**Forget sync sign-in** removes only the local provider session; it is not a Bitwarden
-server logout. Revoke a lost service device and secure the browser/profile
-separately: service revocation cannot erase offline secrets.
+cache, unlock key, sync sign-in and this device's settings for it; synced saved accounts
+and account bindings stay and apply again when the same account is added back. Use it
+for deliberate removal, not as an initial troubleshooting step. **Forget sync sign-in**
+removes only the local provider session; it is not a Bitwarden server logout. Revoke a
+lost service device and secure the browser/profile separately: service revocation cannot
+erase offline secrets.
 
 ## A failed server release
 
