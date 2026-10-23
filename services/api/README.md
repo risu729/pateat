@@ -175,9 +175,11 @@ active recipes whose `last_used_at` is more than 90 days old, oldest first and n
 entry recipe, as tombstones with no writing device; a write that marks one used before
 its revocation lands keeps it
 ([ADR 0058](../../docs/adr/0058-automatic-recipe-removal.md)). The same check then
-removes, from up to 50 recipes, each layout whose newer of creation and last use is more
-than 90 days old while another layout of the recipe is newer, as the next revision
-without it. A failed check is logged and the request goes on.
+goes through up to 50 active recipes whose own `last_used_at` is within those 90 days
+and removes each layout whose newer of creation and last use is more than 90 days old,
+as the next revision without it, as long as another layout stays. The write wins only
+while none of the removed layouts was used since the check read their uses. A failed
+check is logged and the request goes on.
 
 ## Claude credentials
 
@@ -241,20 +243,22 @@ the path ending before it), or `{ check: "plan", reason }` with the plan check's
   `<key>:account` / `<key>:other` for a chooser's branch), and a branch the stored
   recipe does not have answers `recipe-conflict`. Without `base`, an active recipe is
   returned as is; with `base`, the page's steps are appended after that layout's last
-  `advance` step. A stale `base` gets the current recipe back, a `base` whose recipe is
-  revoked answers `recipe-revoked` while the revoked recipe's start page is generated
-  again as the revision after its tombstone, a `base` whose recipe was not generated for
-  this origin and its start path answers `recipe-conflict`. A first page needs room
-  under the active recipe count limit; every generated page, including continuations and
-  entry pages, needs at least 32 KiB of byte room before the model call. A refused write
-  after the call also answers `recipe-limit`. A judge write refused for bytes keeps the
-  page's answer (`challenge`, or `signed-in` once the recipe has a marker or the page is
-  on another origin of the site) and is logged; only a first marker on the recipe's own
-  origin refused for bytes answers `recipe-limit`. A `base` that is not a generated
-  recipe ID is 400. The model maps the slots, the plan is checked with
-  `validateGeneratedPage`, and the steps are stored with a conditional write. Up to 20
-  slots are accepted; a slot with a `fieldName` (and `fieldPosition` for a duplicate
-  name) is a custom-field offer, and each offer names a different field
+  `advance` step. A continuation whose write loses to a write of another layout, or of
+  the chooser layout's other branch, is written once more onto that newer revision while
+  its own layout or branch is unchanged. A stale `base` gets the current recipe back, a
+  `base` whose recipe is revoked answers `recipe-revoked` while the revoked recipe's
+  start page is generated again as the revision after its tombstone, a `base` whose
+  recipe was not generated for this origin and its start path answers `recipe-conflict`.
+  A first page needs room under the active recipe count limit; every generated page,
+  including continuations and entry pages, needs at least 32 KiB of byte room before the
+  model call. A refused write after the call also answers `recipe-limit`. A judge write
+  refused for bytes keeps the page's answer (`challenge`, or `signed-in` once the recipe
+  has a marker or the page is on another origin of the site) and is logged; only a first
+  marker on the recipe's own origin refused for bytes answers `recipe-limit`. A `base`
+  that is not a generated recipe ID is 400. The model maps the slots, the plan is
+  checked with `validateGeneratedPage`, and the steps are stored with a conditional
+  write. Up to 20 slots are accepted; a slot with a `fieldName` (and `fieldPosition` for
+  a duplicate name) is a custom-field offer, and each offer names a different field
   ([ADR 0027](../../docs/adr/0027-per-account-login-routes.md)). Each offer the plan
   uses is named from the page's text for its element, such as `店番号`
   (`customSlotNames` in `packages/inference`), and the steps store that name instead of
@@ -293,12 +297,16 @@ the path ending before it), or `{ check: "plan", reason }` with the plan check's
   passkey-only one may (400 otherwise): no slot, field name or value shape goes with a
   list, whose instructions say so
   ([ADR 0028](../../docs/adr/0028-account-chooser-login-pages.md#amendment-2026-10-23-sent-without-slots)).
-  Every plan answers `pageKind` (`sign-in`, `confirm` or `unclear`) and
-  `irreversible` (`yes`, `no` or `unclear`, for evaluation only). Each layout stores its
-  first page's `pageKind` (ADR 0060): a continuation keeps the layout's, and a chooser
-  branch's pages are `sign-in` whatever the model answers. `irreversible` is never
-  stored on a recipe. A recipe stored without `pageKind` no longer validates, so it
-  reads as revoked and its page is generated again rather than taken as `sign-in`.
+  Every plan answers `pageKind` (`sign-in`, `confirm` or `unclear`) and `irreversible`
+  (`yes`, `no` or `unclear`, for evaluation only). Each layout stores its first page's
+  `pageKind` (ADR 0060): a continuation keeps the layout's, and a chooser branch's pages
+  are `sign-in` whatever the model answers. Every layout of a recipe has the same
+  `pageKind`, so a document mixing them fails validation (400 on a `PUT`), and a layout
+  of another kind written by `withLoginLayout` replaces the recipe's layouts. A document
+  also holds at most 20 slots over all its layouts and at most 120 KiB of JSON.
+  `irreversible` is never stored on a recipe. A recipe stored without `pageKind` no
+  longer validates, so it reads as revoked and its page is generated again rather than
+  taken as `sign-in`.
 - `POST /v1/recipes/generate` also takes `{ version: 1, observation }` without `slots`:
   an entry request ([ADR 0031](../../docs/adr/0031-sign-in-entry-pages.md)) for a page
   without a login form, whose observation has no fill candidate and no `accounts`, and

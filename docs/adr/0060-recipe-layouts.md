@@ -9,7 +9,10 @@ not decided by this ADR. Implemented on `claude/review-issue-prs-j7hli2` (local 
 only, not tried on real sites, not deployed); see [Delivery](#delivery). Amends
 [ADR 0016](0016-recipe-generation-trigger.md) (what a continuation and a judgement
 name), [ADR 0028](0028-account-chooser-login-pages.md) (the chooser's shape and branch
-names), [ADR 0049](0049-start-at-a-later-step.md) (which recipe a later step starts) and
+names), [ADR 0029](0029-local-sign-in-state.md) (E1 reads every layout's markers),
+[ADR 0035](0035-page-kinds-per-site.md) (the page kind is kept per layout),
+[ADR 0049](0049-start-at-a-later-step.md) (which recipe a later step starts),
+[ADR 0055](0055-login-records-sent-to-the-service.md) (`branch` names the layout) and
 [ADR 0058](0058-automatic-recipe-removal.md) (part B counts use per layout).
 
 Date: 2026-10-23
@@ -39,8 +42,17 @@ accounts in another language fails the same way.
   `sign-in` layout is chosen for a login or counts as a logout, and a layout generated
   as `confirm` or `unclear` never reports use, so it is never removed as idle and its
   recipe is never revoked as idle. A chooser branch's route is `sign-in`, as in ADR
-  0035. (Added when ADR 0035's first delivery was merged in; not confirmed by the
-  owner.)
+  0035. The per-layout `pageKind` is part of the layout shape the owner accepted at
+  11:41 UTC.
+- Every layout of a recipe has the same `pageKind`, since they share one start page: the
+  document schema refuses a mix, and `withLoginLayout` writes a layout of another kind
+  as the recipe's only layout, replacing the others, as the page is now of that kind. So
+  a recipe runs, or is kept as a `confirm` or `unclear` page, as a whole. (Added on
+  2026-10-23 after review; not confirmed by the owner.)
+- The slots of all layouts together are at most 20, as one binding per recipe holds
+  them, and a document is at most 120 KiB as JSON (`MAX_RECIPE_DOCUMENT_BYTES`), so a
+  device can write back any document within the service's 128 KiB body limit. (Added on
+  2026-10-23 after review; not confirmed by the owner.)
 - The key never changes and is the decimal creation time, made unique within the
   document. Every record refers to a layout by its key, never by its place in the array,
   which removals shift.
@@ -69,32 +81,46 @@ accounts in another language fails the same way.
   [ADR 0029](0029-local-sign-in-state.md) and the later-step marker check of
   [ADR 0049](0049-start-at-a-later-step.md)) read every layout's markers.
 - The content script watches every layout's first step, as it watched every recipe of
-  the origin, and reports the page's language with a ready start.
-- A new login on a start page chooses the layout in this order: the layouts that show
-  the most of the start path's elements their first step and passkey button name; among
-  them the first whose plan passes for the account (route, slots and binding);
-  preferring a layout of the page's language; then the newest. When no plan passes, the
-  first refusal stands as before. The last-used layout is never a criterion, so a newer
-  layout made after a redesign is not passed over for an old one.
+  the origin.
+- A new login on a start page chooses the layout in this order. It keeps the layouts
+  that fit the page best, read in one observation of the elements of every route's and
+  variant's steps on the start path: first those one of whose first steps shows whole,
+  then those with the fewest of those elements missing, then those with the most shown.
+  Among them it takes the first whose plan passes for the account (route, slots and
+  binding), preferring a layout of the page's language, then the newest. When no plan
+  passes, the first refusal stands as before. The last-used layout is never a criterion,
+  so a newer layout made after a redesign is not passed over for an old one. (The order
+  of the first three was changed on 2026-10-23 after review from the most elements shown
+  alone, which let a larger layout missing its own submit button win.)
+- The page's language is read the way the layout's was at generation, from the page's
+  description (`language` of its observation), and only when the best layouts differ in
+  language.
 - The attempt records the layout's key, and a resumed login loads the same layout.
   A newer revision whose projection of that layout is unchanged, or only adds handlers
   or markers, is taken over as before, so adding or removing another layout does not
   stop a running login.
 - A login that starts at a later step ([ADR 0049](0049-start-at-a-later-step.md))
-  chooses among the layouts of the recipe that owns the step in the same order.
-- A new chooser login chooses the layout whose list buttons (`other`, `continue`) show
-  most, then one of the page's language, then the newest. The account's plan does not
-  take part, since which account the list holds is decided only once the layout is. The
-  login records the layout and reports it in its branch.
+  chooses among the layouts of the recipe that owns the step by how many of their later
+  steps show, then the plan, the page's language and age as above.
+- A new chooser login ranks the layouts by their list buttons (`other`, `continue`) as
+  a start page's elements, all of them being its first step, then by the page's
+  language, then the newest. The account's plan does not take part, since which account
+  the list holds is decided only once the layout is. The login records the layout and
+  reports it in its branch.
 
 ### Generation and judgement
 
 - The first page of a recipe writes a document with one layout. A first list of
   accounts writes a chooser with one layout.
 - A continuation (`base` with `branch`) appends to the named layout, or to that
-  chooser layout's branch, and writes the document at its next revision. A request
-  without `branch`, for a layout the document no longer has, or naming a chooser branch
-  on a login recipe answers `recipe-conflict` without a model call.
+  chooser layout's branch, and writes the document at its next revision. A `base`
+  without `branch`, or a `branch` without `base`, fails the request's schema (400
+  `bad_request`); a layout the document no longer has, a chooser branch on a login
+  recipe or a login layout on a chooser answers `recipe-conflict` without a model call.
+- A continuation whose write loses to a write of another layout, or of the chooser
+  layout's other branch, such as a judgement or a removal there, is written once more
+  onto that newer revision while its own layout or branch is unchanged, so the paid
+  answer is kept.
 - The request log keeps the layout of each generation and judge row in `layout`: the
   one `branch` names, or for a recipe's first page sent to the model the key of the
   layout its answer creates, chosen before the call (not confirmed by the owner).
@@ -103,8 +129,8 @@ accounts in another language fails the same way.
   share the once-per-page rule.
 - `buildLoginLayout` in `services/api/src/recipes/generate.ts` builds a layout from the
   model's answer without writing it; the write is separate. Until repair lands, new
-  generation writes the recipe's first layout only, and `withLoginLayout` refuses a
-  fourth layout.
+  generation writes the recipe's first layout only, and the document schema refuses a
+  fourth layout that `withLoginLayout` adds.
 
 ### Existing recipes
 
@@ -112,9 +138,10 @@ Existing recipes are discarded, not converted. The rule of
 [Compatibility before release](../development.md#compatibility-before-release) forbids
 a migration whose only purpose is older data, and wrapping each recipe as
 `layouts: [body]` would be one. Migration 0028 deletes every recipe revision and head,
-with the judged pages, generation attempts and first-login results that named a branch
-the old way. The request log and login records stay. The device's recipe cache moves to
-version 2, so a version 1 cache is ignored and the device syncs from the start.
+and every judged page, generation attempt and first-login result, since their `branch`
+named a route the old way. The request log and login records stay. The device's recipe
+cache moves to version 2, so a version 1 cache is ignored and the device syncs from the
+start.
 
 ### Use and removal (amends ADR 0058 B)
 
@@ -125,8 +152,10 @@ version 2, so a version 1 cache is ignored and the device syncs from the start.
   only removes layouts is no use of the recipe.
 - A layout's last use is the newer of its creation and its last reported use. A layout
   unused for 90 days is removed by the same check that revokes idle recipes, as a new
-  revision without it, while another layout of the recipe is still in use. When every
-  layout is idle, the recipe is revoked as before.
+  revision without it, while the recipe itself was used in those 90 days (any write or
+  login of it, at its head's `lastUsedAt`) and another layout stays. A use of that
+  layout reported after the check read the uses keeps it. When every layout is idle,
+  nothing is removed, and the recipe is revoked as before once it is idle itself.
 - A write removes the use rows of layouts the document no longer has.
 
 ### Management page
@@ -166,6 +195,12 @@ Recorded on 2026-10-23 from the owner; neither is designed or decided here:
 - A device of an older build keeps its cached recipes and cannot read the new shape;
   the recipe sequence of each owner restarts at 1 after the deletion, so only a device
   whose cache was reset, as this build's is, sees every change.
+- Revisions restart at 1 too, while `inference_log` and `login_timings` keep the old
+  rows' `(recipe_id, revision)` for their retention, so the dashboard may show an old
+  and a new revision 1 of one recipe side by side, and a device's local entry block
+  (`pateat.login-entry-blocks.v1`) kept for an old revision 1 also holds for the new
+  revision 1. Both are accepted under the compatibility rule: nothing is released, and
+  the dashboard rows age out.
 - Up to three layouts fit in the 1.5 MiB recipe bytes an owner may hold: a typical
   layout is about 1.1 KiB. The limit of 1,000 active recipes counts documents.
 - The login's scope (account, origin, tab, frame and document), the extension's

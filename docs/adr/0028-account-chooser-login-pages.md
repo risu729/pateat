@@ -24,8 +24,9 @@ Amended on 2026-10-23 by [ADR 0060](0060-recipe-layouts.md) (accepted by the own
 2026-10-23 at 11:41 UTC; implemented on a branch, local tests only): a chooser holds up
 to three layouts under its `path`, each with its own `other`, `continue`, `afterAccount`
 and `afterOther`, and a branch is named `<layout>:account` or `<layout>:other`. A new
-login on the list takes the layout whose list buttons show most, then one of the page's
-language, then the newest.
+login on the list takes the layout whose list buttons fit the page best (all shown, then
+the fewest missing, then the most shown), then one of the page's language, then the
+newest.
 
 Amended on 2026-10-23 (owner, 11:48 UTC, implemented):
 [a list is sent without slots](#amendment-2026-10-23-sent-without-slots) or value
