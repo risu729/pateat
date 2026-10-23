@@ -117,6 +117,11 @@ const landmarks = chromeSelector;
  * list). The body and the root element never count, so this never takes the whole page.
  */
 const besideDepth = 2;
+/**
+ * How far above the fields outside every form a control the executor cannot act on still
+ * counts as theirs (`formlessFieldsArea`); a footer's language picker is farther away.
+ */
+const formlessDepth = 4;
 const maxBeside = 4;
 const maxHeadings = 8;
 export const maxText = 120;
@@ -1034,7 +1039,12 @@ type Found =
    * `field` holds a text or password field that cannot be filled: read-only (as with
    * software keyboards), disabled until another step, or transparent or tiny.
    */
-  | { kind: "unsupported"; form: HTMLFormElement | null; field: HTMLInputElement | undefined };
+  | {
+      kind: "unsupported";
+      form: HTMLFormElement | null;
+      field: HTMLInputElement | undefined;
+      element: HTMLElement;
+    };
 
 /** A control a click step may press: a button, a submit, button or image input, or a script button. */
 const actionControl = (element: HTMLElement) =>
@@ -1051,7 +1061,7 @@ function describe(element: Element): Found | undefined {
     : presence(element);
   if (element instanceof HTMLInputElement && fillTypes[element.type] && present !== "absent") {
     if (present === "faint" || element.readOnly || element.disabled)
-      return { kind: "unsupported", form: element.form, field: element };
+      return { kind: "unsupported", form: element.form, field: element, element };
   } else if (present !== "visible") return undefined;
   if (element instanceof HTMLInputElement) {
     const type = element.type;
@@ -1091,12 +1101,12 @@ function describe(element: Element): Found | undefined {
       };
     }
     // Radio groups and other input types have no executor support yet.
-    return { kind: "unsupported", form: element.form, field: undefined };
+    return { kind: "unsupported", form: element.form, field: undefined, element };
   }
   if (element instanceof HTMLSelectElement || element instanceof HTMLTextAreaElement)
     return element.disabled
       ? undefined
-      : { kind: "unsupported", form: element.form, field: undefined };
+      : { kind: "unsupported", form: element.form, field: undefined, element };
   if (element instanceof HTMLButtonElement) {
     if (element.type === "reset") return undefined;
     const label = actionLabel(element);
@@ -1212,7 +1222,8 @@ function loginFormsOf(
  * ARIA, or the rendered text next to a field, with private-looking parts redacted.
  *
  * Only forms that hold a field matter: their buttons, checkboxes and, as context, their
- * links (or, for fields outside any form, every control outside a form). Up to four
+ * links (or, for fields outside any form, every control outside a form; a control the
+ * executor cannot act on counts there only near those fields, `formlessFieldsArea`). Up to four
  * buttons outside every form but near a login form with a password field
  * (`besideDepth`), such as a passkey button, are kept when they can be located and never
  * make the observation incomplete. A field or button that cannot be located (other than
@@ -1307,6 +1318,7 @@ export function extractLoginObservation(
     // Never the whole page, as when the form sits directly in the body.
     return area && area !== document.body && area !== document.documentElement ? [area] : [];
   });
+  const formlessArea = loginForms.has(null) ? formlessFieldsArea(found, document) : undefined;
   for (const entry of found) {
     if (
       entry.kind === "candidate" &&
@@ -1320,9 +1332,13 @@ export function extractLoginObservation(
       continue;
     }
     if (!fieldForms.has(entry.form)) continue;
-    if (entry.kind === "unsupported")
+    if (entry.kind === "unsupported") {
+      // Outside every form, a control far from the sign-in fields, such as a language
+      // picker in the page's footer, is not one the sign-in needs.
+      if (!entry.field && entry.form === null && formlessArea?.contains(entry.element) === false)
+        continue;
       flaw(entry.form, entry.field ? "unfillable-field" : "unsupported-control");
-    else if (entry.draft.role === "link") {
+    } else if (entry.draft.role === "link") {
       if (entry.form) links.push(entry);
     } else if (isScriptButton(entry.draft.element)) scripted.push(entry);
     else if (iconButton(entry.draft.element)) icons.push(entry);
@@ -1376,6 +1392,25 @@ export function extractLoginObservation(
   ];
   if (chosen.length === 0) return { ok: false, reason: unlocated ? "no-locator" : "no-candidates" };
   return withGap(observe(document, chosen, gap === undefined), gap);
+}
+
+/**
+ * Where the fillable fields outside every form sit: their nearest common ancestor (a
+ * lone field itself) and up to `formlessDepth` levels above it, or `undefined` when that
+ * reaches the body or the root element, so the whole page counts. With no `<form>` to
+ * start from, this reaches a little further than `besideDepth` does above a form, so a
+ * row of fields beside a row with a select still holds both.
+ */
+function formlessFieldsArea(found: readonly Found[], document: Document): Element | undefined {
+  const inputs = found.flatMap((entry) =>
+    entry.kind === "candidate" && entry.form === null && fillTypes[entry.draft.role]
+      ? [entry.draft.element]
+      : [],
+  );
+  let area: Element | null = inputs[0] ?? null;
+  while (area && !inputs.every((input) => area!.contains(input))) area = area.parentElement;
+  for (let depth = 0; depth < formlessDepth && area; depth++) area = area.parentElement;
+  return area && area !== document.body && area !== document.documentElement ? area : undefined;
 }
 
 /** The gap a login form's control without a locator makes, by its role. */
