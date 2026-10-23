@@ -6496,6 +6496,13 @@ describe("recipe layouts (ADR 0060)", () => {
         device.ownerId,
       ),
     ).toEqual([{ layout: key, branch: "", recipe_page: "first", revision: 1 }]);
+    // The revision records the device whose request generated it.
+    expect(
+      await rows(
+        "SELECT revision, created_by_device_id FROM recipe_revisions WHERE owner_id = ?",
+        device.ownerId,
+      ),
+    ).toEqual([{ revision: 1, created_by_device_id: device.deviceId }]);
     // A page in both languages gives its layout none.
     const mixed = await owner();
     replies.push({ text: plan([["email", "email"]], "next", "advance") });
@@ -6602,6 +6609,17 @@ describe("recipe layouts (ADR 0060)", () => {
         device.ownerId,
       ),
     ).toEqual([{ role: "judge", layout: "2000", branch: "2000" }]);
+    // The judged marker's revision records the device whose login sent the page, and a
+    // later removal of an idle layout by the service records none (owner.test.ts).
+    expect(
+      await rows(
+        "SELECT revision, created_by_device_id FROM recipe_revisions WHERE owner_id = ? ORDER BY revision",
+        device.ownerId,
+      ),
+    ).toEqual([
+      { revision: 1, created_by_device_id: device.deviceId },
+      { revision: 2, created_by_device_id: device.deviceId },
+    ]);
   });
 
   it("builds a layout from the model's answer without writing it", async () => {

@@ -120,8 +120,9 @@ export const recipeRevisions = sqliteTable(
     document: text("document", { mode: "json" }),
     createdAt: integer("created_at").notNull(),
     /**
-     * Null when the owner web UI or the service wrote the revision, such as a revocation
-     * of an unused recipe (ADR 0058).
+     * The device that wrote the revision or whose generation or judgement request did. Null
+     * when the owner web UI or the service's own checks wrote it, such as a revocation of an
+     * unused recipe (ADR 0058) or the removal of an idle layout (ADR 0060).
      */
     createdByDeviceId: text("created_by_device_id").references(() => devices.id),
   },

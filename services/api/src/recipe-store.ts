@@ -150,7 +150,9 @@ export async function hasRecipeRoom(db: D1Database, ownerId: string): Promise<bo
 
 /**
  * Writes the next revision of one recipe when `expectedRevision` is still its head.
- * `writer` is the writing device, or null for the owner web UI or the service. A stale
+ * `writer` is the device the write is for: the one that wrote it (`PUT /v1/recipes/:id`) or
+ * whose request generated or judged it. It is null for a write no device asked for, by the
+ * owner web UI or the service's own checks, such as the idle check (ADR 0058). A stale
  * writer changes nothing and gets the current head back (null when the recipe never
  * existed). Every winning write marks the recipe used (`lastUsedAt`, ADR 0058); with
  * `unusedBefore`, the write wins only while the head was last used before that time, so a
