@@ -31,10 +31,6 @@ export const chooserViewSchema = v.strictObject({
     v.maxLength(MAX_CHOOSER_ENTRIES),
   ),
   replacesDefault: v.boolean(),
-  /** Pateat signed in from this tab before; the person may have signed out to switch. */
-  again: v.boolean(),
-  /** With `again`: the person logged out of the site in this tab instead (ADR 0021 D). */
-  loggedOut: v.optional(v.literal(true)),
 });
 export type ChooserView = v.InferOutput<typeof chooserViewSchema>;
 
@@ -152,8 +148,6 @@ export function createPasskeyChooser(browser: ChooserBrowser): PasskeyChooser & 
           ...(entry.preferred === true ? { preferred: true as const } : {}),
         })) satisfies PasskeyDisplay[],
         replacesDefault: input.replacesDefault,
-        again: input.again,
-        ...(input.again && input.loggedOut ? { loggedOut: true } : {}),
       });
       if (!view.success) return { kind: "unavailable" };
       const token = newId();

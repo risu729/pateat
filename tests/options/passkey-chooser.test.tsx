@@ -20,7 +20,6 @@ function view(overrides: Partial<ChooserView> = {}): ChooserView {
       { item: "Unnamed item" },
     ],
     replacesDefault: false,
-    again: false,
     ...overrides,
   };
 }
@@ -52,24 +51,10 @@ test("names the site and lists each passkey by its user name, item and connectio
     .toHaveTextContent("synthetic-user-2Example (work) in Probe");
   await expect.element(list.getByRole("button").nth(2)).toHaveTextContent("Unnamed item");
   await expect
-    .element(page.getByText("Pateat signed in here from this tab before"))
-    .not.toBeInTheDocument();
-  await expect
     .element(
       page.getByRole("checkbox", { name: "Use this account for login.example.test from now on" }),
     )
     .toBeChecked();
-});
-
-test("says why it asks again: Pateat's sign-in in the tab, or a logout clicked there", async () => {
-  await render(<ChooserApp client={client(view({ again: true }))} />);
-  await expect.element(page.getByText("Pateat signed in here from this tab before")).toBeVisible();
-  await cleanup();
-  await render(<ChooserApp client={client(view({ again: true, loggedOut: true }))} />);
-  await expect.element(page.getByText("You logged out of this site in this tab")).toBeVisible();
-  await expect
-    .element(page.getByText("Pateat signed in here from this tab before"))
-    .not.toBeInTheDocument();
 });
 
 test("offers to replace an existing default, unticked", async () => {

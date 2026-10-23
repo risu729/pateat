@@ -22,7 +22,6 @@ import { createPasskeyCreateHandler } from "../src/passkeys/create";
 import { createProbePasskeySource } from "../src/passkeys/probe";
 import { createPasskeyRuntime } from "../src/passkeys/runtime";
 import { createSignIns, SIGN_INS_KEY } from "../src/passkeys/sign-ins";
-import { createSignedTabs, SIGNED_TABS_KEY } from "../src/passkeys/signed-tabs";
 import { sessionValue } from "../src/storage";
 import { createLoginBadge, LOGIN_BADGE_KEY, setActionBadge } from "../src/login/badge";
 import {
@@ -297,16 +296,10 @@ export default defineBackground(() => {
     onTabRemoved: (listener) => browser.tabs.onRemoved.addListener(listener),
     keepAlive,
   });
-  // ADR 0021 D: after Pateat signed in a tab, a username-less request there asks again.
-  const signedTabs = createSignedTabs(sessionValue(SIGNED_TABS_KEY), (listener) =>
-    browser.tabs.onRemoved.addListener(listener),
-  );
-
   // A tab Chrome discards to save memory gets a new ID; its sign-ins and badge stay with it.
   browser.tabs.onReplaced.addListener((added, removed) => {
     loginBadge.replaced(added, removed);
     void signIns.replaced(added, removed).catch(() => {});
-    void signedTabs.replaced(added, removed).catch(() => {});
   });
   // Saving bumps the revision every login attempt checks; never stop a running login with it.
   const rememberPasskey = async (origin: string, candidate: VaultPasskeyCandidate) => {
@@ -345,9 +338,6 @@ export default defineBackground(() => {
         loginAccount: login.loginAccount,
         requested: login.passkeyRequested,
         answered: passkeyAnswered,
-        signedTabs,
-        // ADR 0021 D: so does one after a control that logs out was clicked in the tab.
-        logoutClicked: login.logoutClicked,
         conditional: login.conditionalRequest,
         hold: () => vaultSync.enter(false),
       })
@@ -363,9 +353,6 @@ export default defineBackground(() => {
         requested: login.passkeyRequested,
         // ADR 0022: a login that moves on to the passkey's site after an answer completes.
         answered: passkeyAnswered,
-        signedTabs,
-        // ADR 0021 D: so does one after a control that logs out was clicked in the tab.
-        logoutClicked: login.logoutClicked,
         // ADR 0034: the page's own conditional request waits for the login of its page.
         conditional: login.conditionalRequest,
         // The open vault is not replaced while a passkey request is looked up or signed.

@@ -4,33 +4,31 @@ const id = v.pipe(v.string(), v.minLength(1), v.maxLength(120));
 const tabId = v.pipe(v.number(), v.integer(), v.minValue(0));
 
 /**
- * Why a tab asks for an account after a logout (ADR 0021 D): it logged out of the site
- * (`this-tab`), the site did not accept its last login (`rejected`), another tab of the
- * site logged out (`other-tab`), or this tab's own login stopped after a submission or its
- * watch ended before it signed in (`stopped-login`).
+ * Why a tab asks for an account instead of logging in, filling nothing (ADR 0021 D, ADR
+ * 0062): the site did not accept its last login (`rejected`) or another tab's that still
+ * asks (`rejected-elsewhere`), this tab's own login stopped after a submission or its
+ * watch ended before it signed in (`stopped-login`), or two automatic logins of the site
+ * ended signed in within 10 minutes (`relogin-limit`).
  */
-export const logoutReasonSchema = v.picklist([
-  "this-tab",
+export const askReasonSchema = v.picklist([
   "rejected",
-  "other-tab",
+  "rejected-elsewhere",
   "stopped-login",
+  "relogin-limit",
 ]);
-export type LogoutReason = v.InferOutput<typeof logoutReasonSchema>;
+export type AskReason = v.InferOutput<typeof askReasonSchema>;
 /** The toolbar popup's line saying why it asks for an account (ADR 0021). */
-export function choiceReason(
-  logout: LogoutReason | undefined,
-  matches: number,
-  paused = false,
-): string {
+export function choiceReason(ask: AskReason | undefined, matches: number, paused = false): string {
   // A paused site asks with any matching account, also with one (ADR 0062).
   if (paused) return "Automatic login is paused on this site";
-  if (logout === undefined) return `${matches} accounts match this page`;
+  if (ask === undefined) return `${matches} accounts match this page`;
   return {
-    "this-tab": "You logged out of this site in this tab",
     rejected: "The site did not accept the last login in this tab",
-    "other-tab": "You logged out of this site in another tab",
+    "rejected-elsewhere": "The site did not accept the last login in another tab",
     "stopped-login": "The last login on this site stopped in this tab",
-  }[logout];
+    "relogin-limit":
+      "Pateat logged in to this site twice in the last 10 minutes, so it waits for you to choose",
+  }[ask];
 }
 /** The toolbar popup asks which accounts the refused login in a tab could use (ADR 0021). */
 export const choiceRequestSchema = v.strictObject({
@@ -54,14 +52,14 @@ export const choiceResponseSchema = v.variant("ok", [
     ok: v.literal(true),
     origin: v.string(),
     documentId: id,
-    /** Several match, or (`logout`) any one after a logout, with the saved default first. */
+    /** Several match, or (`ask`) any one while the tab asks, with the saved default first. */
     candidates: v.pipe(
       v.array(v.strictObject({ connectionId: id, itemId: id })),
       v.minLength(1),
       v.maxLength(100),
     ),
-    /** The tab asks after a logout (ADR 0021 D), and why. */
-    logout: v.optional(logoutReasonSchema),
+    /** The tab asks for an account (ADR 0021 D, ADR 0062), and why. */
+    ask: v.optional(askReasonSchema),
     /**
      * Automatic login of the page's site is paused (ADR 0062): any matching account, also
      * the saved default or the only match, is offered, and a pick logs in once.
@@ -149,8 +147,7 @@ export const statusResponseSchema = v.variant("ok", [
     /**
      * The tab's last login on this origin's page: `started`, then its state and outcome;
      * `settled` while it is `reconciling` with a result that settled as unknown, which is
-     * watched from the next page on (ADR 0027); `fillOnly` for a login that only fills the
-     * form after a logout and never presses anything (ADR 0021 D).
+     * watched from the next page on (ADR 0027).
      */
     login: v.optional(
       v.strictObject({
@@ -158,7 +155,6 @@ export const statusResponseSchema = v.variant("ok", [
         outcome: v.optional(code),
         cause: v.optional(code),
         unconfirmed: v.optional(v.literal(true)),
-        fillOnly: v.optional(v.literal(true)),
         settled: v.optional(v.literal(true)),
       }),
     ),

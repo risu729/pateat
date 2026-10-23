@@ -818,7 +818,7 @@ export const loginOutcomeSchema = v.picklist([
   // another account; nothing was clicked (ADR 0028).
   "account-not-listed",
   // A watched login that never signed in (ADR 0027): the recipe's first step showed again
-  // in a new page, as after a code or an approval expired; not a logout (ADR 0021 D).
+  // in a new page, as after a code or an approval expired.
   // `challenge-abandoned` for a login stopped at `challenge`, `watch-abandoned` for one
   // whose result settled as unknown.
   "challenge-abandoned",
