@@ -15,6 +15,7 @@ import {
   fillLoginBinding,
   findLoginBinding,
   loginDisplayNames,
+  layoutStartTargets,
   loginLayoutCandidates,
   loginRecipesForOrigin,
   rankLayouts,
@@ -137,6 +138,40 @@ describe("recipe selection", () => {
     ]);
     // Layouts of one recipe never make its start ambiguous.
     expect(loginRecipesForOrigin([layered], origin)).toHaveLength(1);
+  });
+
+  it("counts the elements of every route's steps on the start path, each once", () => {
+    const route = recipe("bank-signin", "/login");
+    expect(layoutStartTargets(route)).toEqual([target("user")]);
+    const single = parseLoginRecipe({
+      ...route,
+      steps: [
+        { kind: "fill", path: "/login", fields: [{ slot: "username", target: target("user") }] },
+        { kind: "wait", path: "/login", target: target("spinner"), present: false, timeoutMs: 100 },
+        { kind: "fill", path: "/login", fields: [{ slot: "password", target: target("pass") }] },
+        { kind: "click", path: "/login", target: target("login"), purpose: "submit" },
+      ],
+      passkey: { path: "/login", target: target("passkey") },
+      alternatives: [
+        {
+          slots: ["email", "password"],
+          steps: [
+            {
+              kind: "fill",
+              path: "/login",
+              fields: [
+                { slot: "email", target: target("email") },
+                { slot: "password", target: target("pass") },
+              ],
+            },
+            { kind: "click", path: "/login", target: target("go"), purpose: "submit" },
+          ],
+        },
+      ],
+    });
+    expect(layoutStartTargets(single)).toEqual(
+      ["passkey", "user", "pass", "login", "email", "go"].map(target),
+    );
   });
 
   it("ranks layouts by visible start elements, then the page's language, then age", () => {

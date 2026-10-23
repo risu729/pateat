@@ -153,7 +153,7 @@ export const LOG_EVENTS = {
   // A login that started on a recipe revision, sent so the recipe is kept (ADR 0058).
   "service.use": {
     level: "info",
-    fields: { recipe: "recipe", recipeRevision: "count", result: "code" },
+    fields: { recipe: "recipe", recipeRevision: "count", layout: "code", result: "code" },
   },
   "settings.changed": { level: "info", fields: { source: "code", revision: "count" } },
   "login.attempt": {
@@ -271,6 +271,9 @@ export const LOG_EVENTS = {
       origin: "origin",
       recipe: "recipe",
       recipeRevision: "count",
+      // The layout the login runs, and how many it chose among (ADR 0060).
+      layout: "code",
+      layouts: "count",
       route: "code",
       variant: "count",
       account: "code",

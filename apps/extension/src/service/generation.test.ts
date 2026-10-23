@@ -1,5 +1,6 @@
 import {
   PAGE_SAMPLE_INTERVAL_MS,
+  type LoginChooserDocument,
   type EntryGenerationRequest,
   type LoginObservation,
   type RecipeGenerationRequest,
@@ -38,27 +39,73 @@ const request: RecipeGenerationRequest = {
   observation,
   slots: [{ id: "password", kind: "secret", description: "account password" }],
 };
+/** The layout key of the synthetic recipes: their creation time (ADR 0060). */
+const KEY = "1760000000000";
+type Identity = { version: 1; id: string; revision: number; origin: string };
+/** A recipe a login runs, stored as the one layout of a recipe (ADR 0060). */
+function storedOf<T extends Identity & { layout?: string }>(recipe: T, key = KEY) {
+  const { version, id, revision, origin, layout: _layout, ...body } = recipe;
+  return { version, id, revision, origin, layouts: [{ key, createdAt: Number(key), ...body }] };
+}
+/** A chooser a login runs, stored as the one layout of a chooser (ADR 0060). */
+function chooserOf<T extends Identity & { chooser: { path: string } & Record<string, unknown> }>(
+  recipe: T,
+  key = KEY,
+) {
+  const { version, id, revision, origin } = recipe;
+  const { path, afterAccount, afterOther, ...buttons } = recipe.chooser as {
+    path: string;
+    afterAccount?: Identity & Record<string, unknown>;
+    afterOther?: Identity & Record<string, unknown>;
+  } & Record<string, unknown>;
+  const body = (branch: (Identity & Record<string, unknown>) | undefined) => {
+    if (!branch) return undefined;
+    const { version: _v, id: _i, revision: _r, origin: _o, layout: _l, ...route } = branch;
+    return route;
+  };
+  return {
+    version,
+    id,
+    revision,
+    origin,
+    chooser: {
+      path,
+      layouts: [
+        {
+          key,
+          createdAt: Number(key),
+          ...buttons,
+          ...(afterAccount ? { afterAccount: body(afterAccount) } : {}),
+          ...(afterOther ? { afterOther: body(afterOther) } : {}),
+        },
+      ],
+    },
+  } as unknown as LoginChooserDocument;
+}
+const route = {
+  version: 1 as const,
+  id: "gen-0123456789abcdef0123456789abcdef",
+  revision: 1,
+  origin: "https://shop.example",
+  slots: ["password"],
+  steps: [
+    {
+      kind: "fill" as const,
+      path: "/login",
+      fields: [{ slot: "password", target: { by: "id" as const, value: "password" } }],
+      effect: "submit" as const,
+      event: "change" as const,
+    },
+  ],
+  maxSubmissions: 1,
+};
+/** The route as a login runs it: the layout of the stored recipe. */
+const runs = { ...route, layout: KEY };
 const recipeChange = {
   recipeId: "gen-0123456789abcdef0123456789abcdef",
   revision: 1,
   state: "active" as const,
-  recipe: {
-    version: 1 as const,
-    id: "gen-0123456789abcdef0123456789abcdef",
-    revision: 1,
-    origin: "https://shop.example",
-    slots: ["password"],
-    steps: [
-      {
-        kind: "fill" as const,
-        path: "/login",
-        fields: [{ slot: "password", target: { by: "id" as const, value: "password" } }],
-        effect: "submit" as const,
-        event: "change" as const,
-      },
-    ],
-    maxSubmissions: 1,
-  },
+  recipe: storedOf(route),
 };
 
 const entryChange = {
@@ -117,7 +164,7 @@ function setup(
   };
   const sync = vi.fn(async () => "synced");
   const refresh = vi.fn(async () => "synced");
-  const generation = createLoginGeneration({
+  const created = createLoginGeneration({
     service,
     transport,
     storage,
@@ -126,8 +173,16 @@ function setup(
     refresh,
     now: () => now,
   });
+  // The logins of these tests run the recipe's one layout (ADR 0060) unless they say.
+  const generation: typeof created = {
+    ...created,
+    judge: (recipeId, revision, judged, page, sent, branch = KEY, ...rest) =>
+      created.judge(recipeId, revision, judged, page, sent, branch, ...rest),
+  };
   return {
     generation,
+    /** The generation as the runtime calls it, without a layout unless one is passed. */
+    raw: created,
     transport,
     service,
     storage,
@@ -165,56 +220,54 @@ describe("recipe generation requests", () => {
   });
 
   it("takes a chooser recipe (ADR 0028) as the answer to a list of accounts only", async () => {
-    const chooser = {
-      ...recipeChange,
-      recipe: {
-        version: 1 as const,
-        id: recipeChange.recipeId,
-        revision: 1,
-        origin: observation.origin,
-        chooser: { path: "/login", other: { by: "text" as const, value: "Use another" } },
-      },
+    const runsChooser = {
+      version: 1 as const,
+      id: recipeChange.recipeId,
+      revision: 1,
+      origin: observation.origin,
+      chooser: { path: "/login", other: { by: "text" as const, value: "Use another" } },
     };
+    const chooser = { ...recipeChange, recipe: chooserOf(runsChooser) };
     const list = { ...request, observation: { ...observation, accounts: ["[email]"] } };
     const h = setup({ kind: "result", result: { version: 1, status: "recipe", change: chooser } });
+    // The login runs the chooser's newest layout, which the list's page created (ADR 0060).
     expect(await h.generation.generate(list)).toEqual({
       outcome: "recipe",
-      recipe: chooser.recipe,
+      recipe: { ...runsChooser, layout: KEY },
     });
     expect(h.sync).toHaveBeenCalled();
     // A route recipe never answers a list.
-    const route = setup({
+    const routed = setup({
       kind: "result",
       result: { version: 1, status: "recipe", change: recipeChange },
     });
-    expect(await route.generation.generate(list)).toEqual({
+    expect(await routed.generation.generate(list)).toEqual({
       outcome: "unavailable",
       reason: "recipe-conflict",
     });
   });
 
   it("takes a chooser recipe (ADR 0028) as the answer to a branch's page, claimed per branch", async () => {
-    const chooser = {
-      ...recipeChange,
+    const runsChooser = {
+      version: 1 as const,
+      id: recipeChange.recipeId,
       revision: 2,
-      recipe: {
-        version: 1 as const,
-        id: recipeChange.recipeId,
-        revision: 2,
-        origin: observation.origin,
-        chooser: {
-          path: "/login",
-          other: { by: "text" as const, value: "Use another" },
-          afterAccount: { ...recipeChange.recipe, revision: 2 },
-        },
+      origin: observation.origin,
+      layout: KEY,
+      chooser: {
+        path: "/login",
+        other: { by: "text" as const, value: "Use another" },
+        afterAccount: { ...runs, revision: 2 },
       },
     };
+    const chooser = { ...recipeChange, revision: 2, recipe: chooserOf(runsChooser) };
     const h = setup({ kind: "result", result: { version: 1, status: "recipe", change: chooser } });
     const base = { recipeId: recipeChange.recipeId, revision: 1 };
-    const account = { ...request, base, branch: "account" as const };
+    // The branch names the chooser's layout it continues (ADR 0060).
+    const account = { ...request, base, branch: `${KEY}:account` };
     expect(await h.generation.generate(account)).toEqual({
       outcome: "recipe",
-      recipe: chooser.recipe,
+      recipe: runsChooser,
     });
     expect(h.transport.generateRecipe).toHaveBeenCalledWith(
       connection.origin,
@@ -226,18 +279,31 @@ describe("recipe generation requests", () => {
     expect(h.sync).not.toHaveBeenCalled();
     // The same page of the other branch is a request of its own, and so is its hold.
     expect(await h.generation.generate(account)).toEqual({ outcome: "skipped", reason: "sent" });
-    expect(await h.generation.available(observation.origin, "/login", base, "account")).toBe(
+    expect(await h.generation.available(observation.origin, "/login", base, `${KEY}:account`)).toBe(
       "sent",
     );
-    expect(await h.generation.available(observation.origin, "/login", base, "other")).toBe(true);
+    expect(await h.generation.available(observation.origin, "/login", base, `${KEY}:other`)).toBe(
+      true,
+    );
     expect(await h.generation.available(observation.origin, "/login")).toBe(true);
-    expect(await h.generation.generate({ ...account, branch: "other" })).toMatchObject({
+    expect(await h.generation.generate({ ...account, branch: `${KEY}:other` })).toMatchObject({
       outcome: "recipe",
     });
-    expect(await h.generation.available(observation.origin, "/login", base, "other")).toBe("sent");
+    expect(await h.generation.available(observation.origin, "/login", base, `${KEY}:other`)).toBe(
+      "sent",
+    );
+    // A layout the chooser does not hold is no answer.
+    const elsewhere = setup({
+      kind: "result",
+      result: { version: 1, status: "recipe", change: chooser },
+    });
+    expect(await elsewhere.generation.generate({ ...account, branch: "1:account" })).toEqual({
+      outcome: "unavailable",
+      reason: "recipe-conflict",
+    });
     // A route recipe never answers a branch's page.
-    const route = setup();
-    expect(await route.generation.generate(account)).toEqual({
+    const routed = setup();
+    expect(await routed.generation.generate(account)).toEqual({
       outcome: "unavailable",
       reason: "recipe-conflict",
     });
@@ -246,13 +312,13 @@ describe("recipe generation requests", () => {
   it("takes no chooser recipe (ADR 0028) as the answer to a form page", async () => {
     const chooser = {
       ...recipeChange,
-      recipe: {
+      recipe: chooserOf({
         version: 1 as const,
         id: recipeChange.recipeId,
         revision: 1,
         origin: observation.origin,
         chooser: { path: "/login" },
-      },
+      }),
     };
     const h = setup({ kind: "result", result: { version: 1, status: "recipe", change: chooser } });
     expect(await h.generation.generate(request)).toEqual({
@@ -546,6 +612,20 @@ describe("recipe generation requests", () => {
     expect(h.transport.generateRecipe).not.toHaveBeenCalled();
   });
 
+  it("sends no judgement for a login without a layout (ADR 0060)", async () => {
+    const h = setup();
+    const home = { ...observation, path: "/home" };
+    // The service judges the route of the layout the login ran.
+    expect(await h.raw.judge(recipeChange.recipeId, 1, "password", home)).toEqual({
+      verdict: "unclear",
+      reason: "no-layout",
+    });
+    expect(
+      await h.raw.judge(recipeChange.recipeId, 1, "password", home, undefined, "account"),
+    ).toEqual({ verdict: "unclear", reason: "no-layout" });
+    expect(h.transport.judgeCompletion).not.toHaveBeenCalled();
+  });
+
   it("maps the completion judgement and refreshes the cache after a sign-in", async () => {
     const h = setup();
     h.transport.judgeCompletion.mockResolvedValueOnce({
@@ -556,11 +636,11 @@ describe("recipe generation requests", () => {
         change: {
           ...recipeChange,
           revision: 2,
-          recipe: {
-            ...recipeChange.recipe,
+          recipe: storedOf({
+            ...route,
             revision: 2,
-            completion: [{ target: { by: "id", value: "logout" } }],
-          },
+            completion: [{ target: { by: "id" as const, value: "logout" } }],
+          }),
         },
       },
     });
@@ -572,7 +652,7 @@ describe("recipe generation requests", () => {
       connection.origin,
       connection.credential,
       recipeChange.recipeId,
-      { version: 1, revision: 1, route: "password", observation: home },
+      { version: 1, revision: 1, route: "password", branch: KEY, observation: home },
     );
     await vi.waitFor(() => expect(h.refresh).toHaveBeenCalledTimes(1));
     h.transport.judgeCompletion.mockResolvedValueOnce({
@@ -613,7 +693,14 @@ describe("recipe generation requests", () => {
       connection.origin,
       connection.credential,
       recipeChange.recipeId,
-      { version: 1, revision: 1, route: "password", observation: home, partial: true },
+      {
+        version: 1,
+        revision: 1,
+        route: "password",
+        branch: KEY,
+        observation: home,
+        partial: true,
+      },
     );
     // A page at a login's stop before its item's missing password says so (ADR 0036).
     h.transport.judgeCompletion.mockResolvedValueOnce({
@@ -634,7 +721,14 @@ describe("recipe generation requests", () => {
       connection.origin,
       connection.credential,
       recipeChange.recipeId,
-      { version: 1, revision: 1, route: "password", observation: home, stop: true },
+      {
+        version: 1,
+        revision: 1,
+        route: "password",
+        branch: KEY,
+        observation: home,
+        stop: true,
+      },
     );
   });
 
@@ -775,21 +869,19 @@ describe("request timing for the local log (ADR 0019)", () => {
 
 describe("handlers and code fields in generation requests (ADR 0027)", () => {
   const totp = { id: "totp", kind: "one-time-code" as const, description: "one-time code" };
-  const handled = {
-    ...recipeChange,
+  /** The judged layout as the login runs it, with the handler the judge added. */
+  const handledRuns = {
+    ...runs,
     revision: 2,
-    recipe: {
-      ...recipeChange.recipe,
-      revision: 2,
-      handlers: [
-        {
-          kind: "passkey" as const,
-          path: "/login/webauthn",
-          target: { by: "text" as const, value: "Use security key" },
-        },
-      ],
-    },
+    handlers: [
+      {
+        kind: "passkey" as const,
+        path: "/login/webauthn",
+        target: { by: "text" as const, value: "Use security key" },
+      },
+    ],
   };
+  const handled = { ...recipeChange, revision: 2, recipe: storedOf(handledRuns) };
   const webauthn = { ...observation, path: "/login/webauthn" };
 
   it("hands a judged handler's recipe to the login without waiting for the cache", async () => {
@@ -801,14 +893,14 @@ describe("handlers and code fields in generation requests (ADR 0027)", () => {
     });
     expect(await h.generation.judge(recipeChange.recipeId, 1, "password", webauthn)).toEqual({
       verdict: "challenge",
-      recipe: handled.recipe,
+      recipe: handledRuns,
     });
     expect(h.refresh).toHaveBeenCalledTimes(1);
     expect(h.transport.judgeCompletion).toHaveBeenCalledWith(
       connection.origin,
       connection.credential,
       recipeChange.recipeId,
-      { version: 1, revision: 1, route: "password", observation: webauthn },
+      { version: 1, revision: 1, route: "password", branch: KEY, observation: webauthn },
     );
     // A failed refresh still hands the recipe over; the login checks it before use.
     h.refresh.mockRejectedValueOnce(new Error("offline"));
@@ -818,22 +910,21 @@ describe("handlers and code fields in generation requests (ADR 0027)", () => {
     });
     expect(await h.generation.judge(recipeChange.recipeId, 1, "password", webauthn)).toEqual({
       verdict: "challenge",
-      recipe: handled.recipe,
+      recipe: handledRuns,
     });
   });
 
   it("judges a chooser login's page on its branch and hands the chooser over (ADR 0028)", async () => {
     const h = setup();
-    const chooser = {
-      ...handled,
-      recipe: {
-        version: 1 as const,
-        id: handled.recipe.id,
-        revision: handled.recipe.revision,
-        origin: handled.recipe.origin,
-        chooser: { path: "/login", afterAccount: handled.recipe },
-      },
+    const runsChooser = {
+      version: 1 as const,
+      id: handledRuns.id,
+      revision: handledRuns.revision,
+      origin: handledRuns.origin,
+      layout: KEY,
+      chooser: { path: "/login", afterAccount: handledRuns },
     };
+    const chooser = { ...handled, recipe: chooserOf(runsChooser) };
     h.transport.judgeCompletion.mockResolvedValueOnce({
       kind: "result",
       result: { version: 1, status: "challenge", change: chooser },
@@ -845,14 +936,20 @@ describe("handlers and code fields in generation requests (ADR 0027)", () => {
         "password",
         webauthn,
         undefined,
-        "account",
+        `${KEY}:account`,
       ),
-    ).toEqual({ verdict: "challenge", recipe: chooser.recipe });
+    ).toEqual({ verdict: "challenge", recipe: runsChooser });
     expect(h.transport.judgeCompletion).toHaveBeenCalledWith(
       connection.origin,
       connection.credential,
       recipeChange.recipeId,
-      { version: 1, revision: 1, route: "password", branch: "account", observation: webauthn },
+      {
+        version: 1,
+        revision: 1,
+        route: "password",
+        branch: `${KEY}:account`,
+        observation: webauthn,
+      },
     );
     // A route login never takes a chooser over.
     h.transport.judgeCompletion.mockResolvedValueOnce({
@@ -866,10 +963,10 @@ describe("handlers and code fields in generation requests (ADR 0027)", () => {
 
   const completed = {
     ...handled,
-    recipe: {
-      ...handled.recipe,
+    recipe: storedOf({
+      ...handledRuns,
       completion: [{ target: { by: "id" as const, value: "logout" } }],
-    },
+    }),
   };
   it.each([
     ["signed-in", completed],
@@ -959,11 +1056,12 @@ describe("handlers and code fields in generation requests (ADR 0027)", () => {
 describe("continuing a recipe after its final advance (ADR 0018)", () => {
   const base = { recipeId: recipeChange.recipeId, revision: 1 };
   // The password page, sent with the revision it continues.
-  const continuation: RecipeGenerationRequest = { ...request, base };
+  // It names the layout it continues (ADR 0060).
+  const continuation: RecipeGenerationRequest = { ...request, base, branch: KEY };
   const continued = {
     ...recipeChange,
     revision: 2,
-    recipe: { ...recipeChange.recipe, revision: 2 },
+    recipe: storedOf({ ...route, revision: 2 }),
   };
 
   it("returns the continued recipe after pulling recipes only", async () => {
@@ -973,7 +1071,7 @@ describe("continuing a recipe after its final advance (ADR 0018)", () => {
     });
     expect(await h.generation.generate(continuation)).toEqual({
       outcome: "recipe",
-      recipe: continued.recipe,
+      recipe: { ...runs, revision: 2 },
     });
     expect(h.transport.generateRecipe).toHaveBeenCalledWith(
       connection.origin,
@@ -1027,13 +1125,14 @@ describe("continuing a recipe after its final advance (ADR 0018)", () => {
 
 describe("continuation claims and answers, probed independently (ADR 0018)", () => {
   const base = { recipeId: recipeChange.recipeId, revision: 1 };
-  const continuation: RecipeGenerationRequest = { ...request, base };
+  // It names the layout it continues (ADR 0060).
+  const continuation: RecipeGenerationRequest = { ...request, base, branch: KEY };
   const answerOf = (revision: number) => ({
     kind: "result" as const,
     result: {
       version: 1 as const,
       status: "recipe" as const,
-      change: { ...recipeChange, revision, recipe: { ...recipeChange.recipe, revision } },
+      change: { ...recipeChange, revision, recipe: storedOf({ ...route, revision }) },
     },
   });
   const sent = { outcome: "skipped", reason: "sent" };
@@ -1055,7 +1154,7 @@ describe("continuation claims and answers, probed independently (ADR 0018)", () 
     // Another device continued revision 1 first; the service answers with its revision 3.
     const h = setup(answerOf(3));
     const answer = await h.generation.generate(continuation);
-    expect(answer).toEqual({ outcome: "recipe", recipe: answerOf(3).result.change.recipe });
+    expect(answer).toEqual({ outcome: "recipe", recipe: { ...runs, revision: 3 } });
     expect(h.refresh).toHaveBeenCalledTimes(1);
     expect(h.sync).not.toHaveBeenCalled();
   });
@@ -1239,6 +1338,7 @@ describe("continuation claims and answers, probed independently (ADR 0018)", () 
           origin: observation.origin,
           path: "/login",
           base,
+          branch: KEY,
           state: "sending",
           at: expect.any(Number),
         },
@@ -1249,7 +1349,14 @@ describe("continuation claims and answers, probed independently (ADR 0018)", () 
     expect(h.storage.write).toHaveBeenLastCalledWith({
       version: 1,
       attempts: [
-        { origin: observation.origin, path: "/login", base, state: "sent", at: expect.any(Number) },
+        {
+          origin: observation.origin,
+          path: "/login",
+          base,
+          branch: KEY,
+          state: "sent",
+          at: expect.any(Number),
+        },
       ],
     });
   });
@@ -1490,13 +1597,13 @@ describe("generated slot maps (ADR 0027)", () => {
   const continued = {
     ...recipeChange,
     revision: 2,
-    recipe: {
-      ...recipeChange.recipe,
+    recipe: storedOf({
+      ...route,
       revision: 2,
       slots: ["password", "店番号", "暗証番号"],
-    },
+    }),
   };
-  const continuation = { ...offered, base: { recipeId, revision: 1 } };
+  const continuation = { ...offered, base: { recipeId, revision: 1 }, branch: KEY };
 
   it("adds a continuation's slots to the map of the recipe it continues", async () => {
     const other = ownMap(idOf(5), [{ slot: "old-slot", field: { custom: "Old" } }]);
@@ -1514,8 +1621,8 @@ describe("generated slot maps (ADR 0027)", () => {
   it("keeps the slots of every password variant of the recipe it answers (ADR 0027)", async () => {
     const varied = {
       ...continued,
-      recipe: {
-        ...recipeChange.recipe,
+      recipe: storedOf({
+        ...route,
         revision: 2,
         alternatives: [
           {
@@ -1539,7 +1646,7 @@ describe("generated slot maps (ADR 0027)", () => {
             ],
           },
         ],
-      },
+      }),
     };
     const h = slotSetup({
       stored: { version: 1, maps: [ownMap(recipeId, [mapped[0]!])] },
@@ -1616,7 +1723,8 @@ describe("generated slot maps (ADR 0027)", () => {
 describe("signed-in page samples (ADR 0029, owner 2026-10-18 08:05 UTC)", () => {
   const recipeId = "gen-0123456789abcdef0123456789abcdef";
   const signedIn: LoginObservation = { ...observation, path: "/home", candidates: [] };
-  const sample = { recipeId, revision: 2, route: "password" as const };
+  // The layout the login ran (ADR 0060).
+  const sample = { recipeId, revision: 2, route: "password" as const, branch: KEY };
   function sampleSetup(paired = true) {
     let stored: unknown;
     let now = 5_000_000_000;
@@ -1677,12 +1785,19 @@ describe("signed-in page samples (ADR 0029, owner 2026-10-18 08:05 UTC)", () => 
       version: 1,
       revision: 2,
       route: "password",
+      branch: KEY,
       observation: signedIn,
     });
     expect(h.stored()).toEqual({
       version: 1,
       samples: [
-        { service: connection.origin, deviceId: connection.deviceId, recipeId, at: 5_000_000_000 },
+        {
+          service: connection.origin,
+          deviceId: connection.deviceId,
+          recipeId,
+          branch: KEY,
+          at: 5_000_000_000,
+        },
       ],
     });
     // Within 30 days the page is not even described.
@@ -1692,18 +1807,29 @@ describe("signed-in page samples (ADR 0029, owner 2026-10-18 08:05 UTC)", () => 
     expect(h.samplePage).toHaveBeenCalledTimes(1);
     // Another branch of a chooser is sampled on its own.
     expect(
-      await h.generation.samplePage!({ ...sample, branch: "account" }, h.describePage),
+      await h.generation.samplePage!({ ...sample, branch: `${KEY}:account` }, h.describePage),
     ).toEqual({
       outcome: "kept",
     });
-    expect(h.samplePage.mock.calls[1]![3]).toMatchObject({ branch: "account" });
+    expect(h.samplePage.mock.calls[1]![3]).toMatchObject({ branch: `${KEY}:account` });
     h.advance(1);
     expect(await h.generation.samplePage!(sample, h.describePage)).toEqual({ outcome: "kept" });
     expect(h.samplePage).toHaveBeenCalledTimes(3);
     // Expired samples are dropped when the next is recorded.
     expect(
       (h.stored() as { samples: { branch?: string }[] }).samples.map((entry) => entry.branch),
-    ).toEqual(["account", undefined]);
+    ).toEqual([`${KEY}:account`, KEY]);
+  });
+
+  it("samples no page of a login without a layout (ADR 0060)", async () => {
+    const h = sampleSetup();
+    const { branch: _branch, ...unnamed } = sample;
+    expect(await h.generation.samplePage!(unnamed, h.describePage)).toEqual({
+      outcome: "not-due",
+      reason: "no-layout",
+    });
+    expect(h.describePage).not.toHaveBeenCalled();
+    expect(h.samplePage).not.toHaveBeenCalled();
   });
 
   it("sends nothing and describes nothing without a paired service", async () => {
@@ -1747,12 +1873,14 @@ describe("signed-in page samples (ADR 0029, owner 2026-10-18 08:05 UTC)", () => 
     });
     expect(await h.generation.samplePage!(sample, h.describePage)).toEqual({ outcome: "not-due" });
     h.samplePage.mockResolvedValueOnce({ kind: "recent" });
-    expect(await h.generation.samplePage!({ ...sample, branch: "other" }, h.describePage)).toEqual({
+    expect(
+      await h.generation.samplePage!({ ...sample, branch: `${KEY}:other` }, h.describePage),
+    ).toEqual({
       outcome: "recent",
     });
     h.samplePage.mockResolvedValueOnce({ kind: "rejected" });
     expect(
-      await h.generation.samplePage!({ ...sample, branch: "account" }, h.describePage),
+      await h.generation.samplePage!({ ...sample, branch: `${KEY}:account` }, h.describePage),
     ).toEqual({
       outcome: "failed",
       reason: "device-rejected",
@@ -1784,7 +1912,11 @@ describe("signed-in page samples (ADR 0029, owner 2026-10-18 08:05 UTC)", () => 
       throw new Error("synthetic settings failure");
     });
     expect(
-      await h.generation.samplePage!({ ...sample, branch: "account" }, h.describePage, failing),
+      await h.generation.samplePage!(
+        { ...sample, branch: `${KEY}:account` },
+        h.describePage,
+        failing,
+      ),
     ).toEqual({ outcome: "not-sent", reason: "settings-unavailable" });
     expect(h.samplePage).not.toHaveBeenCalled();
   });
@@ -2156,7 +2288,7 @@ describe("revoking a recipe the chosen item cannot run (ADR 0058 A)", () => {
     const newer = {
       ...recipeChange,
       revision: 5,
-      recipe: { ...recipeChange.recipe, revision: 5 },
+      recipe: storedOf({ ...route, revision: 5 }),
     };
     const h = replaceSetup({ answer: { kind: "conflict", current: newer, timing } });
     expect(await h.generation.replace!(target)).toEqual({ outcome: "conflict", timing });

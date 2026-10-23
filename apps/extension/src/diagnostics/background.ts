@@ -328,7 +328,12 @@ export function createDiagnosticsLog(options: {
     recipeUse(sent: RecipeUseSent) {
       void logger.log(
         "service.use",
-        { recipe: sent.recipeId, recipeRevision: sent.revision, result: sent.result },
+        {
+          recipe: sent.recipeId,
+          recipeRevision: sent.revision,
+          layout: sent.layout,
+          result: sent.result,
+        },
         {
           level: QUIET_RECIPE_USES.has(sent.result)
             ? "debug"
@@ -385,6 +390,8 @@ export function createDiagnosticsLog(options: {
             url: report.url,
             recipe: report.recipeId,
             recipeRevision: report.recipeRevision,
+            layout: report.layout,
+            layouts: report.layouts,
             route: report.route,
             variant: report.variant,
             account: report.account,

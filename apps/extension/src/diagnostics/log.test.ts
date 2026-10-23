@@ -331,10 +331,18 @@ describe("diagnostics log", () => {
       (entry) => entry.event === "service.outcome",
     );
     expect(entries.map(({ level, fields }) => ({ level, fields }))).toEqual([
-      { level: "info", fields: { recipe: "gen-0123", recipeRevision: 3, result: "kept" } },
       {
         level: "info",
-        fields: { recipe: "gen-0123", recipeRevision: 4, result: "failed:unreachable" },
+        fields: { recipe: "gen-0123", recipeRevision: 3, layout: "1000", result: "kept" },
+      },
+      {
+        level: "info",
+        fields: {
+          recipe: "gen-0123",
+          recipeRevision: 4,
+          layout: "1000",
+          result: "failed:unreachable",
+        },
       },
       {
         level: "warn",
@@ -372,7 +380,10 @@ describe("diagnostics log", () => {
     );
     const entries = (await log.logger.entries()).filter((entry) => entry.event === "service.login");
     expect(entries.map(({ level, fields }) => ({ level, fields }))).toEqual([
-      { level: "info", fields: { recipe: "gen-0123", recipeRevision: 3, result: "kept" } },
+      {
+        level: "info",
+        fields: { recipe: "gen-0123", recipeRevision: 3, layout: "1000", result: "kept" },
+      },
       // A service without the route refuses it; that is expected, not a problem.
       {
         level: "info",
@@ -380,7 +391,12 @@ describe("diagnostics log", () => {
       },
       {
         level: "warn",
-        fields: { recipe: "gen-0123", recipeRevision: 4, result: "failed:invalid-record" },
+        fields: {
+          recipe: "gen-0123",
+          recipeRevision: 4,
+          layout: "1000",
+          result: "failed:invalid-record",
+        },
       },
     ]);
     vi.restoreAllMocks();
@@ -402,33 +418,66 @@ describe("diagnostics log", () => {
     const uses = async () =>
       (await log.logger.entries()).filter((entry) => entry.event === "service.use");
     // Without debug logging a kept or refused use leaves no entry.
-    log.recipeUse({ recipeId: "gen-0123", revision: 3, result: "kept" });
-    log.recipeUse({ recipeId: "gen-0123", revision: 4, result: "failed:unreachable" });
+    log.recipeUse({ recipeId: "gen-0123", layout: "1000", revision: 3, result: "kept" });
+    log.recipeUse({
+      recipeId: "gen-0123",
+      layout: "1000",
+      revision: 4,
+      result: "failed:unreachable",
+    });
     await vi.waitFor(async () => expect(await uses()).toHaveLength(1));
     await log.logger.enableDebug();
-    log.recipeUse({ recipeId: "gen-0123", revision: 3, result: "kept" });
+    log.recipeUse({ recipeId: "gen-0123", layout: "1000", revision: 3, result: "kept" });
     // A recipe revoked meanwhile, or a service without the route, refuses it.
-    log.recipeUse({ recipeId: "gen-0123", revision: 5, result: "refused" });
-    log.recipeUse({ recipeId: "gen-0123", revision: 6, result: "rejected" });
-    log.recipeUse({ recipeId: "gen-0123", revision: 7, result: "failed:unexpected-response" });
-    log.recipeUse({ recipeId: "gen-0123", revision: 8, result: "failed:threw" });
+    log.recipeUse({ recipeId: "gen-0123", layout: "1000", revision: 5, result: "refused" });
+    log.recipeUse({ recipeId: "gen-0123", layout: "1000", revision: 6, result: "rejected" });
+    log.recipeUse({
+      recipeId: "gen-0123",
+      layout: "1000",
+      revision: 7,
+      result: "failed:unexpected-response",
+    });
+    log.recipeUse({ recipeId: "gen-0123", layout: "1000", revision: 8, result: "failed:threw" });
     await vi.waitFor(async () => expect(await uses()).toHaveLength(6));
     expect((await uses()).map(({ level, fields }) => ({ level, fields }))).toEqual([
       {
         level: "info",
-        fields: { recipe: "gen-0123", recipeRevision: 4, result: "failed:unreachable" },
+        fields: {
+          recipe: "gen-0123",
+          recipeRevision: 4,
+          layout: "1000",
+          result: "failed:unreachable",
+        },
       },
-      { level: "debug", fields: { recipe: "gen-0123", recipeRevision: 3, result: "kept" } },
-      { level: "debug", fields: { recipe: "gen-0123", recipeRevision: 5, result: "refused" } },
-      { level: "warn", fields: { recipe: "gen-0123", recipeRevision: 6, result: "rejected" } },
+      {
+        level: "debug",
+        fields: { recipe: "gen-0123", recipeRevision: 3, layout: "1000", result: "kept" },
+      },
+      {
+        level: "debug",
+        fields: { recipe: "gen-0123", recipeRevision: 5, layout: "1000", result: "refused" },
+      },
       {
         level: "warn",
-        fields: { recipe: "gen-0123", recipeRevision: 7, result: "failed:unexpected-response" },
+        fields: { recipe: "gen-0123", recipeRevision: 6, layout: "1000", result: "rejected" },
       },
-      { level: "warn", fields: { recipe: "gen-0123", recipeRevision: 8, result: "failed:threw" } },
+      {
+        level: "warn",
+        fields: {
+          recipe: "gen-0123",
+          recipeRevision: 7,
+          layout: "1000",
+          result: "failed:unexpected-response",
+        },
+      },
+      {
+        level: "warn",
+        fields: { recipe: "gen-0123", recipeRevision: 8, layout: "1000", result: "failed:threw" },
+      },
     ]);
     // The event allows no other fields, as the origin or a branch.
     expect(Object.keys(LOG_EVENTS["service.use"].fields).toSorted()).toEqual([
+      "layout",
       "recipe",
       "recipeRevision",
       "result",

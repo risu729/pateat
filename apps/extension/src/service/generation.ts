@@ -1,13 +1,12 @@
 import {
-  chooserBranchSchema,
   customSlotIdSchema,
-  isLoginRouteRecipe,
+  recipeBranchSchema,
+  storedLayoutRecipe,
   PAGE_SAMPLE_INTERVAL_MS,
   storedRecipeSlots,
   slotsForPage,
   syncRecipeIdSchema,
   vaultFieldReferenceSchema,
-  type ChooserBranch,
   type EntryGenerationRequest,
   type EntryGenerationResult,
   type GenerationOutputRejection,
@@ -58,6 +57,20 @@ type GenerationBase = NonNullable<RecipeGenerationRequest["base"]>;
  * continues a recipe is claimed under that recipe revision, not under its path alone
  * (ADR 0018), as the service's own rule does.
  */
+/**
+ * A branch name as `recipeBranch` gives it: a layout key, a chooser branch, or both (ADR
+ * 0060); the service's contract takes only those with a layout.
+ */
+const branchName = v.pipe(
+  v.string(),
+  v.regex(/^(?:\d{1,16}(?::(?:account|other))?|account|other)$/u),
+);
+/** The layout key a branch name holds, if any. */
+const layoutOf = (branch: string | undefined) =>
+  branch?.split(":").find((part) => /^\d+$/u.test(part));
+/** Whether a branch name names a chooser's branch (ADR 0028). */
+const chooserBranchOf = (branch: string | undefined) =>
+  branch !== undefined && /(?:^|:)(?:account|other)$/u.test(branch);
 const attemptsSchema = v.strictObject({
   version: v.literal(1),
   attempts: v.pipe(
@@ -72,8 +85,11 @@ const attemptsSchema = v.strictObject({
             revision: v.pipe(v.number(), v.integer(), v.minValue(1)),
           }),
         ),
-        /** For a chooser's page (ADR 0028): the branch it continues. */
-        branch: v.optional(chooserBranchSchema),
+        /**
+         * The layout it continues (ADR 0060), and for a chooser's page (ADR 0028) the branch,
+         * as `recipeBranch` names them.
+         */
+        branch: v.optional(branchName),
         at: v.pipe(v.number(), v.integer(), v.minValue(0)),
       }),
     ),
@@ -136,7 +152,7 @@ const samplesSchema = v.strictObject({
         service: v.pipe(v.string(), v.maxLength(2048)),
         deviceId: v.pipe(v.string(), v.maxLength(200)),
         recipeId: syncRecipeIdSchema,
-        branch: v.optional(chooserBranchSchema),
+        branch: v.optional(branchName),
         at: v.pipe(v.number(), v.integer(), v.minValue(0)),
       }),
     ),
@@ -390,7 +406,7 @@ export function createLoginGeneration(options: {
     return next.catch(() => false);
   }
   const same =
-    (origin: string, path: string, base?: GenerationBase, branch?: ChooserBranch) =>
+    (origin: string, path: string, base?: GenerationBase, branch?: string) =>
     (entry: GenerationAttempts["attempts"][number]) =>
       entry.origin === origin &&
       entry.path === path &&
@@ -407,7 +423,7 @@ export function createLoginGeneration(options: {
       : [];
   }
   const sameSample =
-    (connection: ServiceConnection, recipeId: string, branch: ChooserBranch | undefined) =>
+    (connection: ServiceConnection, recipeId: string, branch: string | undefined) =>
     (entry: PageSamples["samples"][number]) =>
       entry.service === connection.origin &&
       entry.deviceId === connection.deviceId &&
@@ -421,7 +437,7 @@ export function createLoginGeneration(options: {
   function claimSample(
     connection: ServiceConnection,
     recipeId: string,
-    branch: ChooserBranch | undefined,
+    branch: string | undefined,
   ): Promise<"claimed" | "recent" | "unavailable"> {
     const next = sampleQueue.then(async () => {
       const samples = await recentSamples();
@@ -529,7 +545,7 @@ export function createLoginGeneration(options: {
   async function claimed<Result extends { status: string; error?: string }>(
     page: { origin: string; path: string },
     base: GenerationBase | undefined,
-    branch: ChooserBranch | undefined,
+    branch: string | undefined,
     sent: (() => void) | undefined,
     call: (connection: ServiceConnection) => Promise<InferenceResult<Result>>,
   ): Promise<
@@ -603,7 +619,7 @@ export function createLoginGeneration(options: {
     origin: string,
     path: string,
     base?: GenerationBase,
-    branch?: ChooserBranch,
+    branch?: string,
   ): Promise<true | GenerationHold> {
     if (!(await connected())) return "not-connected";
     await queue;
@@ -682,12 +698,11 @@ export function createLoginGeneration(options: {
       // the custom slots from it until a binding is saved (ADR 0027).
       const { customSlots, change } = answer.result;
       // A chooser recipe (ADR 0028) answers a list of accounts or a branch's page, and
-      // only those.
-      if (
-        request.observation.accounts !== undefined || request.branch !== undefined
-          ? !("chooser" in change.recipe)
-          : !isLoginRouteRecipe(change.recipe)
-      )
+      // only those. The login runs the layout its page continues, or the newest one, which
+      // a first page creates (ADR 0060).
+      const chooserPage = request.observation.accounts !== undefined || chooserBranchOf(branch);
+      const recipe = storedLayoutRecipe(change.recipe, layoutOf(branch));
+      if (!recipe || chooserPage !== "chooser" in recipe)
         return { outcome: "unavailable", reason: "recipe-conflict", ...timed };
       const fields = customSlots && slotFieldsOf(request, customSlots);
       if (fields)
@@ -706,7 +721,7 @@ export function createLoginGeneration(options: {
       // A continuation's login takes the recipe over at once; a full sync could apply a
       // settings change that stops it (ADR 0018, ADR 0027). Settings follow at the next one.
       await (base ? refresh() : sync()).catch(() => undefined);
-      return { outcome: "recipe", recipe: change.recipe, ...timed };
+      return { outcome: "recipe", recipe, ...timed };
     },
     async generateEntry(request: EntryGenerationRequest, sent): Promise<EntryGenerationOutcome> {
       const claim = await claimed(request.observation, undefined, undefined, sent, (connection) =>
@@ -737,6 +752,8 @@ export function createLoginGeneration(options: {
       const connection = await connected();
       if (!connection) return { outcome: "not-due", reason: "not-connected" };
       const { recipeId, branch } = sample;
+      // The service files a sample under the layout the login ran (ADR 0060).
+      if (!v.is(recipeBranchSchema, branch)) return { outcome: "not-due", reason: "no-layout" };
       await sampleQueue;
       const due = await recentSamples().then(
         (samples) => !samples.some(sameSample(connection, recipeId, branch)),
@@ -760,7 +777,7 @@ export function createLoginGeneration(options: {
           version: 1,
           revision: sample.revision,
           route: sample.route,
-          ...(branch ? { branch } : {}),
+          branch,
           observation: described.observation,
         },
       );
@@ -774,12 +791,14 @@ export function createLoginGeneration(options: {
       route: LoginRoute,
       observation: LoginObservation,
       sent?: () => void,
-      branch?: ChooserBranch,
+      branch?: string,
       partial?: true,
       stop?: true,
     ) {
       const connection = await connected();
       if (!connection) return { verdict: "retry", reason: "not-connected" };
+      // The service judges the route of the layout the login ran (ADR 0060).
+      if (!v.is(recipeBranchSchema, branch)) return { verdict: "unclear", reason: "no-layout" };
       sent?.();
       const answer = await transport.judgeCompletion(
         connection.origin,
@@ -789,7 +808,7 @@ export function createLoginGeneration(options: {
           version: 1,
           revision,
           route,
-          ...(branch ? { branch } : {}),
+          branch,
           observation,
           ...(partial ? { partial } : {}),
           ...(stop ? { stop } : {}),
@@ -804,8 +823,10 @@ export function createLoginGeneration(options: {
       if (result?.status === "challenge" && result.change) {
         void refresh().catch(() => undefined);
         // A chooser login's (ADR 0028) is the whole chooser; an entry recipe is never one.
-        if (branch ? "chooser" in result.change.recipe : isLoginRouteRecipe(result.change.recipe))
-          return { verdict: "challenge", recipe: result.change.recipe, ...timed };
+        // Either is the judged layout (ADR 0060).
+        const recipe = storedLayoutRecipe(result.change.recipe, layoutOf(branch));
+        if (recipe && chooserBranchOf(branch) === "chooser" in recipe)
+          return { verdict: "challenge", recipe, ...timed };
       }
       if (
         result?.status === "signed-in" ||

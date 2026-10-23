@@ -1154,6 +1154,15 @@ function inShadow(shadow: ShadowRoot, selector: string): boolean {
 /** True for a path with a segment that may carry a token (`tokenSegment`). */
 const tokenPath = (pathname: string) => pathname.split("/").some(tokenSegment);
 
+/**
+ * The language of a page's visible text, as its observation would name it: a new login
+ * prefers a recipe layout of that language (ADR 0060). Only the first part of the text is
+ * read.
+ */
+export function pageLanguage(root: Document = document): LoginObservation["language"] {
+  return language([(root.body?.innerText ?? "").slice(0, 4000)]);
+}
+
 function language(texts: readonly string[]): LoginObservation["language"] {
   const joined = texts.join(" ").replace(/\[(?:email|masked|number)\]/gu, " ");
   const japanese = joined.match(/[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/gu);

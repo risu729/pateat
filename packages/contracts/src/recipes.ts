@@ -2,8 +2,12 @@ import * as v from "valibot";
 import {
   isLoginRecipeDocument,
   newestLayout,
+  passwordVariants,
   recipeLayouts,
+  routeSteps,
+  sameLoginTarget,
   type LoginRecipe,
+  type LoginTarget,
   type LoginRecipeDocument,
   type RecipeLanguage,
   type StoredLoginRecipe,
@@ -47,6 +51,31 @@ export function loginLayoutCandidates(recipe: LoginRecipeDocument): LayoutCandid
     ...(recipe.layouts[index]!.language ? { language: recipe.layouts[index]!.language } : {}),
     createdAt: recipe.layouts[index]!.createdAt,
   }));
+}
+
+/**
+ * The elements a layout's start page shows (ADR 0060): those of every route's and
+ * variant's steps on the recipe's start path, each once, the passkey button first; a
+ * `passkey` route without a button names the first step's element. A new
+ * login counts which of them are visible to tell layouts of one start path apart.
+ */
+export function layoutStartTargets(recipe: LoginRecipe): LoginTarget[] {
+  const start = recipe.steps[0]!.path;
+  const steps = [
+    ...(recipe.passkey ? routeSteps(recipe, { route: "passkey" }) : []),
+    ...passwordVariants(recipe).flatMap((variant) => variant.steps),
+  ].filter((step) => step.path === start);
+  // A step that waits for an element to go names none the page shows.
+  const targets = steps.flatMap((step) =>
+    step.kind === "fill"
+      ? step.fields.map((field) => field.target)
+      : step.kind === "click" || step.present
+        ? [step.target]
+        : [],
+  );
+  return targets.filter(
+    (target, index) => targets.findIndex((other) => sameLoginTarget(other, target)) === index,
+  );
 }
 
 /**

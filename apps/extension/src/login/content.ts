@@ -28,6 +28,7 @@ import {
   extractLoginObservation,
   extractPasskeyObservation,
   extractSignedInObservation,
+  pageLanguage,
   presence,
 } from "../observation/extract";
 import { listChoice, listControls } from "../page/account-list";
@@ -474,7 +475,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       version: 1,
       type: "login.document.ready",
       token,
-      ...(start ? { start: { path: pagePath() } } : {}),
+      // The page's language lets a new login prefer a recipe layout of it (ADR 0060).
+      ...(start ? { start: { path: pagePath(), language: pageLanguage() } } : {}),
       ...(signIn
         ? {
             signIn: {

@@ -1207,6 +1207,31 @@ export function withChooserLayout(
     },
   };
 }
+/**
+ * One layout of a stored login or chooser recipe as the recipe a login runs (ADR 0060):
+ * the layout of the key, or the newest one without a key; `undefined` for an entry recipe
+ * or a key of no layout.
+ */
+export function storedLayoutRecipe(
+  recipe: StoredLoginRecipe,
+  key?: string,
+): LoginRecipe | LoginChooserRecipe | undefined {
+  if ("layouts" in recipe) {
+    const layout =
+      key === undefined
+        ? newestLayout(recipe.layouts)
+        : recipe.layouts.find((entry) => entry.key === key);
+    return layout && layoutRecipe(recipe, layout);
+  }
+  if ("chooser" in recipe) {
+    const layout =
+      key === undefined
+        ? newestLayout(recipe.chooser.layouts)
+        : recipe.chooser.layouts.find((entry) => entry.key === key);
+    return layout && chooserLayoutRecipe(recipe, layout);
+  }
+  return undefined;
+}
 /** The key, language and creation time of each layout of a stored recipe; none for an entry. */
 export function storedLayouts(recipe: StoredLoginRecipe): LayoutMeta[] {
   if ("layouts" in recipe) return recipe.layouts.map(layoutMeta);

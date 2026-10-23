@@ -66,6 +66,7 @@ import {
   withLoginLayout,
   withoutLayout,
   chooserLayouts,
+  storedLayoutRecipe,
   type LoginRecipeDocument,
 } from "./login";
 import {
@@ -2650,6 +2651,8 @@ describe("recipe layouts (ADR 0060)", () => {
     expect(other?.layout).toBe("2000");
     expect(findLayoutRecipe(two, "2000")).toEqual(other);
     expect(findLayoutRecipe(two, "3000")).toBeUndefined();
+    expect(storedLayoutRecipe(two)).toEqual(other);
+    expect(storedLayoutRecipe(two, "1000")).toEqual(first);
     expect(layoutRecipe(two, two.layouts[0]!)).toEqual(first);
     expect(routeBodyOf(first!)).not.toHaveProperty("layout");
     expect(storedLayouts(two)).toEqual([
@@ -2749,6 +2752,9 @@ describe("recipe layouts (ADR 0060)", () => {
     expect(other?.chooser.afterAccount).toEqual({ ...recipe(), revision: 3, layout: "2000" });
     expect(v.is(loginChooserRecipeSchema, other)).toBe(true);
     expect(findChooserLayout(stored, "2000")).toEqual(other);
+    expect(storedLayoutRecipe(stored)).toEqual(other);
+    expect(storedLayoutRecipe(stored, "1000")).toEqual(first);
+    expect(storedLayoutRecipe(stored, "3000")).toBeUndefined();
     expect(chooserRoute(other!, "entry")?.layout).toBe("2000");
     expect(storedBranchRoute(stored, "2000:account")?.route).toEqual(other?.chooser.afterAccount);
     expect(storedBranchRoute(stored, "1000:other")).toEqual({ route: undefined, chooser: first });

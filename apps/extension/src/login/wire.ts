@@ -153,8 +153,13 @@ export const helloSchema = v.strictObject({
   version: v.literal(1),
   type: v.literal("login.document.ready"),
   token: id,
-  /** The first step's elements are ready on this path; a new attempt may start. */
-  start: v.optional(v.strictObject({ path })),
+  /**
+   * The first step's elements are ready on this path; a new attempt may start. `language`
+   * is the page's, as its observation would name it, to choose a recipe layout (ADR 0060).
+   */
+  start: v.optional(
+    v.strictObject({ path, language: v.optional(v.picklist(["ja", "en", "mixed"])) }),
+  ),
   /**
    * A visible password, username or one-time-code input shows on this path, so a page
    * without a recipe may be sent for generation (ADR 0016); `identifier` when the page,
