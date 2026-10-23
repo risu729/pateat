@@ -383,6 +383,8 @@ export const LOG_EVENTS = {
       moved: "flag",
       // `password` for the page of a login's stop before its item's missing password (ADR 0036).
       stop: "code",
+      // A page that still shows the sign-in form beside another form (ADR 0061).
+      beside: "flag",
       // How long the request took (ADR 0019, amended 2026-10-18).
       roundTripMs: "count",
       serverMs: "count",

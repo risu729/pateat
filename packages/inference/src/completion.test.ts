@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  completionBesideInstructions,
   completionInstructions,
   completionStopInstructions,
   createCompletionJudge,
@@ -835,5 +836,110 @@ describe("sign-in judge at a stop before the password", () => {
     expect(
       await judge({ observation: passwordPage, loginPaths: ["/login"], stop: true }),
     ).toMatchObject({ status: "failed", error: "invalid-output" });
+  });
+});
+
+// ADR 0061: a page that still shows the sign-in form Pateat filled, beside another form
+// that asks for a detail, as a lightbox over the sign-in sidebar. Synthetic page.
+describe("sign-in judge beside the sign-in form", () => {
+  const besidePage = {
+    version: 1,
+    origin: "https://card.example",
+    path: "/members/",
+    language: "en",
+    complete: true,
+    candidates: [
+      { id: "c1", role: "text", target: { by: "id", value: "user" }, label: "ID", group: "g1" },
+      {
+        id: "c2",
+        role: "password",
+        target: { by: "id", value: "pw" },
+        label: "Password",
+        group: "g1",
+      },
+      {
+        id: "c3",
+        role: "button",
+        target: { by: "id", value: "login" },
+        label: "Log in",
+        group: "g1",
+      },
+      {
+        id: "c4",
+        role: "text",
+        target: { by: "name", value: "birth" },
+        label: "Birth year and month",
+        group: "g2",
+        maxLength: 6,
+      },
+      {
+        id: "c5",
+        role: "text",
+        target: { by: "name", value: "phone" },
+        label: "Last 4 digits of your phone",
+        group: "g2",
+        maxLength: 4,
+      },
+      {
+        id: "c6",
+        role: "button",
+        target: { by: "id", value: "submit" },
+        label: "Log in",
+        group: "g2",
+      },
+    ],
+  };
+  function judgeAt(result: unknown) {
+    const model = textModel(async () => textResult(JSON.stringify({ result })));
+    return { model, judge: createCompletionJudge({ model, limits, maxOutputTokens: 512 }) };
+  }
+  const system = (model: ReturnType<typeof judgeAt>["model"]) =>
+    model.doGenerateCalls[0]!.prompt.filter((message) => message.role === "system").map(
+      (message) => message.content,
+    );
+
+  it("sends the beside instructions and keeps the other form's details", async () => {
+    const { model, judge } = judgeAt({
+      decision: "challenge",
+      details: [
+        { field: "c4", value: "birth-date", format: "yyyymm" },
+        { field: "c5", value: "phone-last-4" },
+      ],
+      detailSubmit: "c6",
+    });
+    expect(
+      await judge({ observation: besidePage, loginPaths: ["/members/"], beside: true }),
+    ).toMatchObject({
+      status: "ok",
+      value: {
+        decision: "challenge",
+        detail: {
+          fields: [
+            { detail: "birth-date", format: "yyyymm", target: { by: "name", value: "birth" } },
+            { detail: "phone-last-4", target: { by: "name", value: "phone" } },
+          ],
+          target: { by: "id", value: "submit" },
+        },
+      },
+    });
+    expect(system(model)).toEqual([completionBesideInstructions]);
+    expect(completionBesideInstructions.startsWith(completionInstructions)).toBe(true);
+    expect(completionBesideInstructions).toMatch(/details and detailSubmit when that other form/u);
+    expect(completionBesideInstructions).not.toBe(completionStopInstructions);
+  });
+
+  it("still fails closed on a signed-in answer while the password field shows", async () => {
+    const { judge } = judgeAt({ decision: "signed-in", marker: "c6" });
+    expect(
+      await judge({ observation: besidePage, loginPaths: ["/members/"], beside: true }),
+    ).toMatchObject({ status: "failed", error: "invalid-output" });
+  });
+
+  it("never judges a page as both a stop's and beside the sign-in form", async () => {
+    const { model, judge } = judgeAt({ decision: "unclear" });
+    expect(
+      await judge({ observation: besidePage, loginPaths: ["/members/"], beside: true, stop: true }),
+    ).toMatchObject({ status: "failed", error: "invalid-request", calls: 0 });
+    expect(model.doGenerateCalls).toHaveLength(0);
   });
 });

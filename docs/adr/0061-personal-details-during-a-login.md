@@ -4,7 +4,8 @@ Status: proposed by Claude on 2026-10-23 and not confirmed by the owner. The own
 on 2026-10-23 (05:28 UTC) for this work to go ahead on best guesses, left to the owner
 to decide afterwards; each guess is listed under [Assumed](#assumed-not-confirmed), and
 the owner's own decisions under [Decided by the owner](#decided-by-the-owner). The
-design was reviewed against the code by another AI before it was built. Implements the
+design was reviewed against the code by another AI before it was built. Deliveries 1
+and 2 are implemented; delivery 3 is not. Implements the
 [phase 2](../plan.md#phase-2-use-it-and-fix-what-comes-up) item on personal details
 asked for during a login, in parts (see [Delivery](#delivery)). Amends
 [ADR 0027](0027-per-account-login-routes.md) (a fourth handler kind and what the judge
