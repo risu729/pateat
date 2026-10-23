@@ -3,6 +3,7 @@ import {
   clickDestinations,
   clickRefusal,
   formDestination,
+  formDestinations,
   formRefusal,
   submitsForm,
 } from "./form-destination";
@@ -343,6 +344,44 @@ describe("formDestination", () => {
       form(`<form action="${action}"><input name="password"></form>`);
       expect(formDestination(control(), "fill"), action).toEqual({ kind });
     }
+  });
+
+  it("checks a component's field against every form around it (ADR 0070)", () => {
+    // A field in a component's shadow tree inside an off-origin form.
+    document.body.innerHTML = `<form action="${attacker}"><x-field id="host"></x-field></form>`;
+    const root = document.querySelector("#host")!.attachShadow({ mode: "open" });
+    root.innerHTML =
+      '<input name="password"><button id="submit" formaction="/login">Log in</button>';
+    const password = root.querySelector("input")!;
+    expect(password.form).toBeNull();
+    expect(formDestination(password, "fill")).toEqual({ kind: "other-origin", url: attacker });
+    // The button's `formaction` is not the outer form's own, so the form's action counts.
+    const button = root.querySelector("button")!;
+    expect(submitsForm(button)).toBe(true);
+    expect(formDestination(button, "click")).toEqual({ kind: "other-origin", url: attacker });
+    // A form of the component's own on the origin does not hide the one around it.
+    const inner = document.createElement("form");
+    inner.action = "/login";
+    const field = document.createElement("input");
+    inner.append(field);
+    root.append(inner);
+    expect(field.form).toBe(inner);
+    expect(formDestination(field, "fill")).toEqual({ kind: "other-origin", url: attacker });
+    document.querySelector("form")!.setAttribute("action", "/login");
+    expect(formDestination(field, "fill")).toEqual({ kind: "allowed" });
+    // Each form gets its own destination, so one the background allows hides no other.
+    inner.action = otherHost();
+    document.querySelector("form")!.setAttribute("action", attacker);
+    expect(formDestinations(field, "fill")).toEqual([
+      { kind: "other-origin", url: otherHost() },
+      { kind: "other-origin", url: attacker },
+    ]);
+    const submit = document.createElement("button");
+    inner.append(submit);
+    expect(clickDestinations(submit)).toEqual([
+      { kind: "other-origin", url: otherHost() },
+      { kind: "other-origin", url: attacker },
+    ]);
   });
 
   it("names each control a click submits through", () => {

@@ -387,6 +387,7 @@ describe("settings sync after the first", () => {
       siteDefaults: [account("https://bank.example", "item-service")],
       bindings: [binding("https://bank.example", "totp")],
       detailLinks: [],
+      popupPageSection: true,
     });
   });
 
@@ -402,6 +403,38 @@ describe("settings sync after the first", () => {
     expect(
       mergeSyncedSettings({ service: base, local: base }, local, service).repromptSites,
     ).toEqual([site("mail.example"), site("shop.example")]);
+  });
+
+  it("merges the popup's This page choice like one entry", () => {
+    const shown = syncedSettings(agreed);
+    const hidden = syncedSettings({ ...agreed, popupPageSection: false });
+    // A document without the choice shows the section.
+    expect(shown.popupPageSection).toBe(true);
+    const merge = (base: typeof shown, local: typeof shown, service: typeof shown) =>
+      mergeSyncedSettings({ service: base, local: base }, local, service).popupPageSection;
+    // Hidden on this device only: uploaded.
+    expect(merge(shown, hidden, shown)).toBe(false);
+    // Hidden on another device: applied here.
+    expect(merge(shown, shown, hidden)).toBe(false);
+    // Shown again on another device while this one kept it hidden: the service wins.
+    expect(merge(hidden, hidden, shown)).toBe(true);
+    // Shown again on this device: uploaded.
+    expect(merge(hidden, shown, hidden)).toBe(true);
+  });
+
+  it("uploads the popup's This page choice made on this device", async () => {
+    const {
+      sync,
+      service,
+      local: after,
+    } = setup({
+      local: { ...agreed, popupPageSection: false },
+      service: state(4, agreed),
+      base: baseOf(4, agreed),
+    });
+    expect(await sync.run(CONNECTION, never)).toBe("synced");
+    expect(service()).toMatchObject({ revision: 5, settings: { popupPageSection: false } });
+    expect(after()!.settings.popupPageSection).toBe(false);
   });
 
   it("applies a default that differs only in its item name once, then stays settled", async () => {

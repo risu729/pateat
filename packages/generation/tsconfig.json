@@ -1,0 +1,21 @@
+{
+  "extends": "@risu729/tsconfigs/bundler",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": [
+      "ES2022",
+      "ES2023.Array",
+      "ES2024.Promise",
+      "ES2024.Collection",
+      "ESNext.TypedArrays",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "types": [],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noEmit": true,
+    "skipLibCheck": true
+  },
+  "include": ["src"]
+}

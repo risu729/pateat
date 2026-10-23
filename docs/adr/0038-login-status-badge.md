@@ -141,3 +141,19 @@ not be confirmed." The report and stored page status carry `unconfirmed`; the po
 retains the explanation after the badge expires and across a worker restart, under
 the existing origin and tab lifetime rules. The earlier table above is retained as
 history; all other badge priorities and lifetimes are unchanged.
+
+## Amendment: a synced setting hides the popup's section (2026-10-23)
+
+The owner's decision at 12:47 UTC (choice B for the earlier draft
+[#608](https://github.com/risu729/pateat/pull/608)) adds the setting this ADR left for
+later. The settings page's **Show "This page" in the popup** checkbox, under the Theme
+select, is checked by default. Unchecking it stores `popupPageSection: false` in the
+settings document, a profile part synced like the site exclusions
+([ADR 0024](0024-settings-profiles.md)), so every paired device follows it. While it is
+hidden the popup shows neither the page's status nor its **Open the detailed log** link
+and does not ask the worker for the page's status; the badge is unchanged. The personal
+details a page asks for ([ADR 0061](0061-personal-details-during-a-login.md)) are
+something to do on the page rather than its status, so they still show under the "This
+page" heading. A document without the field shows the section. The official extension
+keeps its popup display options on each device
+([Bitwarden differences](../bitwarden-differences.md#popup-display)).

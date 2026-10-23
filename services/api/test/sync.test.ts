@@ -485,6 +485,28 @@ describe("settings sync", () => {
     });
   });
 
+  it("keeps the popup's hidden page status in the profile and drops a shown one", async () => {
+    const device = await enrollOwner();
+    const hidden = { ...settings(), popupPageSection: false };
+    const saved = await put(device, "/v1/settings", {
+      version: 1,
+      expectedRevision: 0,
+      settings: hidden,
+    });
+    expect(await saved.json()).toMatchObject({ revision: 1, settings: hidden });
+    expect(await (await api(device, "/v1/settings")).json()).toMatchObject({ settings: hidden });
+    // Shown is the default, so it is stored as no field at all.
+    const shown = await put(device, "/v1/settings", {
+      version: 1,
+      expectedRevision: 1,
+      settings: { ...settings(), popupPageSection: true },
+    });
+    expect(shown.status).toBe(200);
+    const read = (await (await api(device, "/v1/settings")).json()) as { settings: LocalSettings };
+    expect(read.settings).toEqual(settings());
+    expect(read.settings).not.toHaveProperty("popupPageSection");
+  });
+
   it("never lets a stale device overwrite a newer restriction", async () => {
     const laptop = await enrollOwner();
     const desktop = await addDevice(laptop.ownerId);

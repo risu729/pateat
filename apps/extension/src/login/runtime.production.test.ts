@@ -24267,7 +24267,7 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
     inPlace(
       () =>
         (fake.state.extracted = {
-          login: { ...passwordPage("/signin", false), gap: "shadow-control" },
+          login: { ...passwordPage("/signin", false), gap: "unsupported-control" },
         }),
     );
     const service = generation();
@@ -24286,7 +24286,7 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
         origin,
         outcome: "skipped",
         reason: "incomplete-observation",
-        detail: "shadow-control",
+        detail: "unsupported-control",
         recipeId: emailFirst.id,
         baseRevision: 1,
       },

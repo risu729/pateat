@@ -259,6 +259,7 @@ for (const [button, marker] of [
   ["anchor", "button"],
   ["script-link", "button"],
   ["script-url", "button"],
+  ["shadow", "button"],
   ["labelled", "button"],
   ["button", "link"],
 ] as const)

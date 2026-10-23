@@ -12,6 +12,63 @@ afterEach(() => {
 });
 
 describe("findTargets", () => {
+  it("looks only inside the shadow trees of the hosts a locator names (ADR 0070)", () => {
+    page(`<x-field id="user"></x-field><x-field id="pass"></x-field><x-field id="twin"></x-field>
+      <x-field id="twin"></x-field>`);
+    const [user, pass, ...twins] = [...document.querySelectorAll("x-field")].map((host) => {
+      const root = host.attachShadow({ mode: "open" });
+      root.innerHTML = `<input id="input" name="field"><x-inner id="inner"></x-inner>`;
+      return root;
+    });
+    const nested = user!.querySelector("#inner")!.attachShadow({ mode: "open" });
+    nested.innerHTML = `<input id="deep">`;
+    const within = (...hosts: string[]) => hosts.map((value) => ({ by: "id" as const, value }));
+    expect(findTargets(document, { by: "id", value: "input" })).toHaveLength(4);
+    expect(findTargets(document, { by: "id", value: "input", within: within("pass") })).toEqual([
+      pass!.querySelector("input"),
+    ]);
+    // A host's tree includes the trees nested in it, and a later host is one of them.
+    expect(findTargets(document, { by: "id", value: "deep", within: within("user") })).toEqual([
+      nested.querySelector("input"),
+    ]);
+    expect(
+      findTargets(document, { by: "id", value: "deep", within: within("user", "inner") }),
+    ).toEqual([nested.querySelector("input")]);
+    expect(findTargets(document, { by: "id", value: "deep", within: within("pass") })).toEqual([]);
+    // Hosts that share an ID give both trees' matches, which the caller refuses.
+    expect(findTargets(document, { by: "name", value: "field", within: within("twin") })).toEqual(
+      twins.map((root) => root.querySelector("input")),
+    );
+    expect(findTargets(document, { by: "id", value: "input", within: within("none") })).toEqual([]);
+  });
+
+  it("names a host by data-test and finds a component's field in the sign-in form around it", () => {
+    page(`<form><x-field data-test="account"></x-field><x-field id="pw"></x-field></form>
+      <form><x-field id="new"></x-field></form>`);
+    const [account, password, other] = [...document.querySelectorAll("x-field")].map((host) => {
+      const root = host.attachShadow({ mode: "open" });
+      root.innerHTML = `<input name="acct">`;
+      return root;
+    });
+    password!.innerHTML = `<input type="password" name="pw">`;
+    other!.host.insertAdjacentHTML(
+      "afterend",
+      `<input type="password" autocomplete="new-password">`,
+    );
+    expect(
+      findTargets(document, {
+        by: "name",
+        value: "acct",
+        within: [{ by: "data-test", value: "account" }],
+      }),
+    ).toEqual([account!.querySelector("input")]);
+    // The component's password input belongs to the form around its host (ADR 0070), so
+    // that form is the sign-in form and the create-account one is not (ADR 0072).
+    expect(findTargets(document, { by: "password-form-name", value: "acct" })).toEqual([
+      account!.querySelector("input"),
+    ]);
+  });
+
   it("matches links to the page's own origin by their exact path, never script links", () => {
     page(
       `<a id="a" href="/my?tab=1#top">A</a><a id="b" href="/my/">B</a>
