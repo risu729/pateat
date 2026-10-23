@@ -79,7 +79,8 @@ application exempts `/v1/*`, `/health`, `/.well-known/openid-configuration` and
 keys, the `ACCESS_TEAM_DOMAIN` issuer and the `ACCESS_AUD` audience. Without both
 secrets those routes answer 503. When the team's signing keys cannot be fetched (an
 error, an answer that is not a key set, or no answer within five seconds), owner pages
-and the JSON routes answer 503 `access_keys_unavailable`, not a refused sign-in.
+answer 503 asking to try again later and the JSON routes 503 `access_keys_unavailable`,
+not a refused sign-in.
 `POST /pair` and `GET /pair/signed-in` also accept the `ACCESS_PAIR_AUD` audience of the
 "pateat pair" Access application, which admits browsers without WARP to pairing only
 ([ADR 0030](../../docs/adr/0030-pairing-without-warp.md)). An empty value turns it off
@@ -128,11 +129,12 @@ assets, all with a Content Security Policy that allows only this origin's script
 framing. `/manage/api` answers with JSON and its contracts are in
 `packages/contracts/src/manage.ts`; failures are `unauthorized` (no token), `forbidden`
 (a token that fails verification, or a state-changing request without this origin's
-`Origin`) and `access_unavailable` (no Access configuration). An identity that never
-approved a pairing has no owner and sees no data; its settings requests answer 404
-`not_paired`. Settings and recipe revisions written here record no device as their
-writer. The bundle includes GPL-3.0-only `packages/contracts` code; each page links its
-source and the GPL text at the built commit, and the third-party notices served with it
+`Origin`), `access_unavailable` (no Access configuration) and `access_keys_unavailable`
+(Access's signing keys could not be fetched). An identity that never approved a pairing
+has no owner and sees no data; its settings requests answer 404 `not_paired`. Settings
+and recipe revisions written here record no device as their writer. The bundle includes
+GPL-3.0-only `packages/contracts` code; each page links its source and the GPL text at
+the built commit, and the third-party notices served with it
 (`public/manage/assets/notices.md` and the build's `licenses.md`).
 
 Recipe revisions are immutable. A write claims the head with a conditional statement and

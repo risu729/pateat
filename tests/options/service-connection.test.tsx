@@ -214,6 +214,7 @@ test.each([
   ["sign-in-rejected", /did not accept your sign-in/],
   ["extension-not-allowed", /does not accept this build of Pateat.*PAIRING_EXTENSION_IDS/],
   ["pairing-unavailable", /Pairing is not configured on this service/],
+  ["access-keys-unavailable", /could not check your sign-in/],
   ["unreachable", /could not be reached/],
   ["rate-limited", /slow down/],
   ["unexpected-response", /unexpected answer/],
