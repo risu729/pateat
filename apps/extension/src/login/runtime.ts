@@ -9697,13 +9697,11 @@ export function createLoginRuntime(
       ask = "relogin-limit";
     // A pick that did not make its account the default makes the site ask every time until
     // the browser closes or a default is saved for it (ADR 0063).
-    if (
-      !ask &&
+    const everyTime =
       !previous &&
       !switched &&
-      (await asksEveryTime(document.origin, incognito === true, snapshot))
-    )
-      ask = "one-time-pick";
+      (await asksEveryTime(document.origin, incognito === true, snapshot));
+    if (!ask && everyTime) ask = "one-time-pick";
     if (ask && heldElsewhere(document.tabId, document.origin)) {
       showHeld(document.tabId);
       return refuse("origin-busy");
@@ -9717,10 +9715,12 @@ export function createLoginRuntime(
     // limit fills nothing (ADR 0062). A single-page app that shows its next step in place,
     // as a password page after its email page, gets that step filled as a new document
     // would (ADR 0049). A page the site rejected a login on is never filled again, on any
-    // path.
+    // path. A site that asks every time after a one-time pick fills nothing, also while
+    // the tab asks for another reason (ADR 0063).
     const filledKey = `${documentKey(document)} ${live.path}`;
     const fill =
       asking === "account-asked" &&
+      !everyTime &&
       !previous &&
       !switched &&
       !askFills.has(documentKey(document)) &&
