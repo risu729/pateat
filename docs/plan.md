@@ -2993,12 +2993,12 @@ digit too), security key and method-choice pages, rejected, locked and returned 
 pages, a CAPTCHA, a push approval, an emailed link, a stay-signed-in prompt, a passkey
 offer, pages with no sign of an account, and two stops before the password (ADR 0036).
 It scores the model's own answer in candidate IDs: the decision, then the marker, the
-passkey and password buttons and the code it names. Every run below was on main `381116f` plus this
-change (the #875 columns on #875's `df2003f` plus it), one call per case with no retries; latency was
-measured from the cloud container and includes the network. The "Japanese 71" and
-"web 18" columns ran on the pages of #875 before its review, so a label may still
-change. Accuracy is the mean over runs, with the number of runs in brackets; cost per
-call is from reported usage at the published rates.
+passkey and password buttons and the code it names. Every run below was on main
+`381116f` plus this change (the #875 columns on #875's `df2003f` plus it), one call per
+case with no retries; latency was measured from the cloud container and includes the
+network. The "Japanese 71" and "web 18" columns ran on the pages of #875 before its
+review, so a label may still change. Accuracy is the mean over runs, with the number of
+runs in brackets; cost per call is from reported usage at the published rates.
 
 | Generation | Synthetic 17 | Formasaurus 131 | Japanese 71 | Web 18 | p50 / p95 s (131) | USD per call |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -3018,11 +3018,11 @@ synthetic corpus Opus 5.5, Fable and Haiku abstain on `en-label-injection`
 暗証番号 for the password slot) in nearly every run, which Sonnet 5.5 maps; Opus 5 maps
 the first, and Opus 5.5 maps the second in one `medium` run and the fast run. Sonnet's
 whole lead is these 2 pages and 2 Formasaurus sign-up pages; the Japanese and web pages
-do not separate the models, and the single-run columns are within one page. The Formasaurus failures are
-`invalid-output` with `unexpected-entry`: on the sign-up pages formasaurus-1, -62 and
--407, expected to abstain, the Opus and Fable models name the "Log in" link as a
-sign-in entry, which a request with slots refuses. Fable 5.1 refused `ja-mufg-direct`
-and Opus 5 `ja-bank-unlabeled-lengths` (`cyber`).
+do not separate the models, and the single-run columns are within one page. The
+Formasaurus failures are `invalid-output` with `unexpected-entry`: on the sign-up pages
+formasaurus-1, -62 and -407, expected to abstain, the Opus and Fable models name the
+"Log in" link as a sign-in entry, which a request with slots refuses. Fable 5.1 refused
+`ja-mufg-direct` and Opus 5 `ja-bank-unlabeled-lengths` (`cyber`).
 
 | Judge (31) | Accuracy | Wrong detail | Wrong decision | False signed-in | Failed | p50 / p95 s | USD per call |
 | --- | --- | --- | --- | --- | --- | --- | --- |
