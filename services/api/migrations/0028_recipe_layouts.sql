@@ -19,6 +19,8 @@ CREATE TABLE `recipe_unit_sources` (
 	`recipe_id` text NOT NULL,
 	`layout` text,
 	`unit` text NOT NULL,
+	`digest` text NOT NULL,
+	`revision` integer NOT NULL,
 	`origin` text NOT NULL,
 	`provider` text,
 	`model` text,
@@ -35,6 +37,8 @@ CREATE TABLE `recipe_unit_sources` (
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `recipe_unit_sources_unit_unique` ON `recipe_unit_sources` (`owner_id`,`recipe_id`,`layout`,`unit`);--> statement-breakpoint
+CREATE UNIQUE INDEX `recipe_unit_sources_entry_unique` ON `recipe_unit_sources` (`owner_id`,`recipe_id`,`unit`) WHERE "recipe_unit_sources"."layout" IS NULL;--> statement-breakpoint
+CREATE INDEX `recipe_unit_sources_owner_unit` ON `recipe_unit_sources` (`owner_id`,`unit`);--> statement-breakpoint
 ALTER TABLE `inference_log` ADD `layout` text;--> statement-breakpoint
 DELETE FROM `recipe_revisions`;--> statement-breakpoint
 DELETE FROM `recipe_heads`;--> statement-breakpoint

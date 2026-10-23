@@ -642,16 +642,6 @@ describe("owner web UI recipes", () => {
         .bind(ownerId)
         .all()
     ).results;
-  /** The marker unit's hash of the `welcome` marker every layout of `recipe` has. */
-  const welcomeMarker = async () =>
-    new Uint8Array(
-      await crypto.subtle.digest(
-        "SHA-256",
-        new TextEncoder().encode(JSON.stringify(["", { by: "id", value: "welcome" }])),
-      ),
-    )
-      .toHex()
-      .slice(0, 12);
 
   it("lists only the owner's recipes, most recently changed first, with their documents", async () => {
     const first = await owner();
@@ -897,7 +887,7 @@ describe("owner web UI recipes", () => {
     ]);
     // The removed layout's units go with it (ADR 0060).
     expect(await unitSources(ownerId!)).toEqual([
-      { recipe_id: "bank-signin", layout: "2000", unit: `marker:${await welcomeMarker()}` },
+      { recipe_id: "bank-signin", layout: "2000", unit: "marker:0" },
       { recipe_id: "bank-signin", layout: "2000", unit: "page:0" },
     ]);
     // Removing the last layout revokes the recipe, and its layouts' uses go with it.
@@ -1100,11 +1090,21 @@ describe("owner web UI request log", () => {
       });
       expect(written.status).toBe(200);
     }
-    const unitCount = (ownerId: string) =>
-      env.DB.prepare("SELECT COUNT(*) AS n FROM recipe_unit_sources WHERE owner_id = ?")
-        .bind(ownerId)
-        .first("n");
-    expect(await unitCount(mine!)).toBe(1);
+    /** The owner's unit rows: which device and log row each names. */
+    const units = async (ownerId: string) =>
+      (
+        await env.DB.prepare(
+          "SELECT unit, origin, device_id, log_id FROM recipe_unit_sources WHERE owner_id = ?",
+        )
+          .bind(ownerId)
+          .all()
+      ).results;
+    const [myDevice, theirDevice] = devicesOf.map(({ deviceId }) => deviceId);
+    // Stands in for the log row a generated unit names.
+    await env.DB.prepare("UPDATE recipe_unit_sources SET log_id = 'log-1'").run();
+    expect(await units(mine!)).toEqual([
+      { unit: "entry", origin: "device", device_id: myDevice, log_id: "log-1" },
+    ]);
     const oldest = Date.now() - 40 * DAY_MS;
     await env.DB.batch([
       insertLog(mine!, Date.now() - 30 * DAY_MS),
@@ -1161,9 +1161,14 @@ describe("owner web UI request log", () => {
     expect(await logCount(theirs!)).toBe(1);
     expect(await outcomeCount(theirs!)).toBe(1);
     expect(await loginCount(theirs!)).toBe(1);
-    // The record of which call made each part of a recipe goes with the log (ADR 0060).
-    expect(await unitCount(mine!)).toBe(0);
-    expect(await unitCount(theirs!)).toBe(1);
+    // The record of which call made each part of a recipe stays without the device and the
+    // log row it named (ADR 0060).
+    expect(await units(mine!)).toEqual([
+      { unit: "entry", origin: "device", device_id: null, log_id: null },
+    ]);
+    expect(await units(theirs!)).toEqual([
+      { unit: "entry", origin: "device", device_id: theirDevice, log_id: "log-1" },
+    ]);
     // Only the log goes: the spend the limits count, judged pages, settings and recipes stay.
     const kept = await env.DB.batch([
       env.DB.prepare("SELECT calls FROM inference_spend WHERE owner_id = ?").bind(mine),

@@ -164,7 +164,7 @@ const languageNames = { ja: "Japanese", en: "English" } as const;
 function firstPageSource(source: ManageLayoutSource | null | undefined): string {
   if (!source) return "Not recorded";
   const at = formatTime(source.createdAt);
-  return source.model ? `${source.model}, ${at}` : `Written by a device, ${at}`;
+  return source.model ? `${source.model}, ${at}` : `A device, ${at}`;
 }
 
 /** One layout's steps, each identifier set under its own heading when it has several. */
@@ -259,7 +259,11 @@ function RecipeDetails({
                 ["Language", layout.language ? languageNames[layout.language] : "Not known"],
                 ["Created", formatTime(layout.createdAt)],
                 ["Last used", lastUsed ? formatTime(lastUsed) : "Not used yet"],
-                ["First page", firstPageSource(firstPage)],
+                // A chooser's first page is its list of accounts.
+                [
+                  "chooser" in recipe ? "Account list made by" : "First page made by",
+                  firstPageSource(firstPage),
+                ],
                 ["Steps", `${variants.reduce((sum, variant) => sum + variant.steps.length, 0)}`],
                 ...facts,
               ]}

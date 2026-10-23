@@ -171,12 +171,12 @@ export type RecipeUnitOrigin = (typeof recipeUnitOrigins)[number];
 /**
  * Which call made each part ("unit") of an active recipe and when (ADR 0060): the service's
  * own record, never synced to devices and never in the recipe document. A unit is a page of
- * a layout's route (`page:<n>`), a handler (`handler:<kind>:<path>`), a signed-in marker
- * (`marker:<hash>`), a chooser layout's list buttons (`list`) or an entry recipe (`entry`);
- * a chooser branch's units start with `account/` or `other/` (`recipeUnitId`). Rows are
+ * a layout's route (`page:<n>`), a handler (`handler:<i>`), a signed-in marker
+ * (`marker:<i>`), a chooser layout's list buttons (`list`) or an entry recipe (`entry`); a
+ * chooser branch's units start with `account/` or `other/` (`src/recipe-units.ts`). Rows are
  * written in the batch of the recipe write that adds the unit and only when that write
- * wins; rows of layouts a write drops go with that write, every row of the recipe with its
- * revocation, and every row of the owner with the request log's delete-all.
+ * wins; rows of layouts a write drops go with that write, and every row of the recipe with
+ * its revocation. The request log's delete-all clears `device_id` and `log_id`.
  */
 export const recipeUnitSources = sqliteTable(
   "recipe_unit_sources",
@@ -185,11 +185,15 @@ export const recipeUnitSources = sqliteTable(
     recipeId: text("recipe_id").notNull(),
     /** The layout's key (`recipeLayoutKeySchema`); null for an entry recipe, which has none. */
     layout: text("layout"),
-    /** The unit's ID within its layout (`recipeUnitId`). */
+    /** The unit's ID within its layout (`src/recipe-units.ts`). */
     unit: text("unit").notNull(),
+    /** 32 hex digits of the SHA-256 of the unit's content as written (`documentUnits`). */
+    digest: text("digest").notNull(),
+    /** The recipe revision whose write recorded the unit. */
+    revision: integer("revision").notNull(),
     /**
      * `generated` for a page the generation role answered, `judged` for a handler or marker
-     * the judge answered, `device` for every unit of a document a device wrote itself.
+     * the judge answered, `device` for a unit a device's own document added or changed.
      */
     origin: text("origin", { enum: recipeUnitOrigins }).notNull(),
     /** The model that answered (`ServedModel`); null for a `device` unit. */
@@ -203,24 +207,32 @@ export const recipeUnitSources = sqliteTable(
     build: text("build").notNull(),
     /**
      * The device the recipe revision records as its writer: the one whose request generated
-     * or judged the unit, or that wrote the document.
+     * or judged the unit, or that wrote the document. Null after the request log's
+     * delete-all.
      */
     deviceId: text("device_id").references(() => devices.id),
     /**
      * The request log row of the call (`inference_log.id`), not a foreign key: the log is
-     * kept one year and its rows may be deleted before the unit's.
+     * kept one year and its rows may be deleted before the unit's. Null after the request
+     * log's delete-all.
      */
     logId: text("log_id"),
+    /** When the winning recipe write recorded the unit, not when its call started. */
     createdAt: integer("created_at").notNull(),
   },
   (table) => [
-    // An entry recipe's one unit has no layout; its write replaces its row explicitly.
     uniqueIndex("recipe_unit_sources_unit_unique").on(
       table.ownerId,
       table.recipeId,
       table.layout,
       table.unit,
     ),
+    // SQLite counts null layouts as distinct, so an entry recipe's unit has its own index.
+    uniqueIndex("recipe_unit_sources_entry_unique")
+      .on(table.ownerId, table.recipeId, table.unit)
+      .where(sql`${table.layout} IS NULL`),
+    // `/manage` reads the owner's first pages and lists alone.
+    index("recipe_unit_sources_owner_unit").on(table.ownerId, table.unit),
     foreignKey({
       columns: [table.ownerId, table.recipeId],
       foreignColumns: [recipeHeads.ownerId, recipeHeads.recipeId],

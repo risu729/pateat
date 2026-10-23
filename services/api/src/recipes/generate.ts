@@ -1276,7 +1276,8 @@ export async function judgeCompletion(
     const withHandlers = changed && stored(head.recipe, branch, changed);
     if (!withHandlers) return { version: 1, status: "challenge" };
     // Handlers are only appended, so the ones after the judged route's are this call's.
-    const added = (changed?.handlers ?? []).slice(recipe.handlers?.length ?? 0);
+    const before = recipe.handlers?.length ?? 0;
+    const added = (changed?.handlers ?? []).slice(before).map((_, index) => before + index);
     const written = await writeRecipe(
       env.DB,
       scope.ownerId,
@@ -1306,14 +1307,14 @@ export async function judgeCompletion(
   const learnedRecipe = stored(head.recipe, branch, learned.recipe);
   if (!learnedRecipe) return signedInAnyway ? signedIn : failed("recipe-invalid");
   // The marker learned is the route's last one.
-  const marker = learned.recipe.completion?.at(-1);
+  const learnedMarkers = learned.recipe.completion?.length ?? 0;
   const written = await writeRecipe(
     env.DB,
     scope.ownerId,
     recipeId,
     { version: 1, state: "active", expectedRevision: head.revision, recipe: learnedRecipe },
     scope.deviceId,
-    { sources: judged(marker ? [await markerUnit(marker)] : []) },
+    { sources: judged(learnedMarkers ? [markerUnit(learnedMarkers - 1)] : []) },
   );
   if (written.ok) {
     await keepLogRevision(env.DB, scope.ownerId, call.logId, written.change.revision);

@@ -6808,6 +6808,8 @@ describe("generation provenance (ADR 0060)", () => {
   type SourceRow = {
     layout: string | null;
     unit: string;
+    digest: string;
+    revision: number;
     origin: string;
     provider: string | null;
     model: string | null;
@@ -6822,10 +6824,29 @@ describe("generation provenance (ADR 0060)", () => {
   /** The owner's unit rows of a recipe, in the order they were written. */
   const sources = async (ownerId: string, recipeId: string) =>
     (await rows(
-      "SELECT layout, unit, origin, provider, model, effort, speed, prompt_version, build, device_id, log_id, created_at FROM recipe_unit_sources WHERE owner_id = ? AND recipe_id = ? ORDER BY created_at, unit",
+      "SELECT layout, unit, digest, revision, origin, provider, model, effort, speed, prompt_version, build, device_id, log_id, created_at FROM recipe_unit_sources WHERE owner_id = ? AND recipe_id = ? ORDER BY revision, layout, unit",
       ownerId,
       recipeId,
     )) as unknown as SourceRow[];
+  /** Each row's layout, unit, origin and revision, as one line. */
+  const summary = async (ownerId: string, recipeId: string) =>
+    (await sources(ownerId, recipeId))
+      .map(({ layout, unit, origin, revision }) => `${layout} ${unit} ${origin} ${revision}`)
+      .toSorted();
+  /**
+   * Whether every row's digest is its unit's in the stored head, split at the recorded
+   * pages: units keep their digest while later writes add to the recipe.
+   */
+  async function digestsMatch(ownerId: string, recipeId: string) {
+    const recorded = await sources(ownerId, recipeId);
+    const head = (await storedHead(ownerId, recipeId)) as StoredLoginRecipe;
+    const units = await documentUnits(head, recorded);
+    expect(
+      recorded.map(({ layout, unit, digest }) => ({ layout, unit, digest })).toSorted(byUnit),
+    ).toEqual(units.toSorted(byUnit));
+  }
+  const byUnit = (a: { layout: string | null; unit: string }, b: typeof a) =>
+    `${a.layout} ${a.unit}`.localeCompare(`${b.layout} ${b.unit}`);
   /**
    * A row as a call wrote it: the model, effort, speed and prompt version its request log
    * row names, the test build, and the device that asked.
@@ -6833,9 +6854,15 @@ describe("generation provenance (ADR 0060)", () => {
   async function fromCall(
     device: Device,
     row: SourceRow,
-    expected: { layout: string | null; unit: string; origin: "generated" | "judged" },
+    expected: {
+      layout: string | null;
+      unit: string;
+      origin: "generated" | "judged";
+      revision: number;
+    },
   ) {
     expect(row).toMatchObject({ ...expected, build: "test-revision", device_id: device.deviceId });
+    expect(row.digest).toMatch(/^[0-9a-f]{32}$/u);
     const [logged] = await rows(
       "SELECT role, provider, model_id, effort, speed, prompt_version FROM inference_log WHERE owner_id = ? AND id = ?",
       device.ownerId,
@@ -6852,8 +6879,6 @@ describe("generation provenance (ADR 0060)", () => {
     expect(row.provider).toBe("anthropic");
     expect(row.model).toEqual(expect.any(String));
   }
-  const markerId = async (target: unknown, origin = "") =>
-    `marker:${await hashOf([origin, target])}`;
 
   it("records each page, the judge's handlers and its marker as units of their layout", async () => {
     const device = await owner();
@@ -6889,32 +6914,53 @@ describe("generation provenance (ADR 0060)", () => {
       change: { revision: 4 },
     });
     const written = await sources(device.ownerId, recipeId);
-    expect(written.map(({ unit }) => unit).toSorted()).toEqual(
-      [
-        "page:0",
-        // The email page's fill and click come first, so the password page starts at 2.
-        "page:2",
-        "handler:passkey:/login/mfa",
-        "handler:totp:/login/mfa",
-        await markerId({ by: "id", value: "logout" }),
-      ].toSorted(),
-    );
+    // The email page's fill and click come first, so the password page starts at 2; the
+    // handlers and the marker are named by their index.
+    expect(written.map(({ unit }) => unit)).toEqual([
+      "page:0",
+      "page:2",
+      "handler:0",
+      "handler:1",
+      "marker:0",
+    ]);
     const unit = (id: string) => written.find((row) => row.unit === id)!;
-    await fromCall(device, unit("page:0"), { layout: key, unit: "page:0", origin: "generated" });
-    await fromCall(device, unit("page:2"), { layout: key, unit: "page:2", origin: "generated" });
-    for (const id of ["handler:passkey:/login/mfa", "handler:totp:/login/mfa"])
+    await fromCall(device, unit("page:0"), {
+      layout: key,
+      unit: "page:0",
+      origin: "generated",
+      revision: 1,
+    });
+    await fromCall(device, unit("page:2"), {
+      layout: key,
+      unit: "page:2",
+      origin: "generated",
+      revision: 2,
+    });
+    for (const id of ["handler:0", "handler:1"])
       // oxlint-disable-next-line no-await-in-loop -- Each row is read on its own.
-      await fromCall(device, unit(id), { layout: key, unit: id, origin: "judged" });
-    expect(unit("handler:passkey:/login/mfa").log_id).toBe(unit("handler:totp:/login/mfa").log_id);
-    const marker = await markerId({ by: "id", value: "logout" });
-    await fromCall(device, unit(marker), { layout: key, unit: marker, origin: "judged" });
+      await fromCall(device, unit(id), { layout: key, unit: id, origin: "judged", revision: 3 });
+    expect(unit("handler:0").log_id).toBe(unit("handler:1").log_id);
+    await fromCall(device, unit("marker:0"), {
+      layout: key,
+      unit: "marker:0",
+      origin: "judged",
+      revision: 4,
+    });
     // Each unit names its own call, and the generation rows their prompt version.
     expect(new Set(written.map((row) => row.log_id)).size).toBe(4);
     expect(unit("page:0").prompt_version).toBe(await generationPromptVersion());
-    expect(unit(marker).prompt_version).toBe(await completionPromptVersion());
+    expect(unit("marker:0").prompt_version).toBe(await completionPromptVersion());
+    // The first page's digest, written at revision 1, still names its content at revision 4.
+    await digestsMatch(device.ownerId, recipeId);
     // The synced document carries none of it.
     const document = JSON.stringify(await storedHead(device.ownerId, recipeId));
-    for (const value of [device.deviceId, device.ownerId, unit("page:0").model!, "test-revision"])
+    for (const value of [
+      device.deviceId,
+      device.ownerId,
+      unit("page:0").model!,
+      unit("page:0").digest,
+      "test-revision",
+    ])
       expect(document).not.toContain(value);
   });
 
@@ -6958,20 +7004,106 @@ describe("generation provenance (ADR 0060)", () => {
       observation: observation("/login/webauthn", [element("key", "button", "Use security key")]),
     });
     expect(await judged.json()).toMatchObject({ status: "challenge", change: { revision: 5 } });
-    const written = await sources(device.ownerId, recipeId);
-    expect(written.map(({ layout, unit, origin }) => ({ layout, unit, origin }))).toEqual(
-      expect.arrayContaining([
-        { layout: key, unit: "list", origin: "generated" },
-        { layout: key, unit: "account/page:0", origin: "generated" },
-        { layout: key, unit: "other/page:0", origin: "generated" },
-        { layout: key, unit: "other/page:2", origin: "generated" },
-        { layout: key, unit: "account/handler:passkey:/login/webauthn", origin: "judged" },
-      ]),
+    expect(await summary(device.ownerId, recipeId)).toEqual(
+      [
+        `${key} list generated 1`,
+        `${key} account/page:0 generated 2`,
+        `${key} other/page:0 generated 3`,
+        `${key} other/page:2 generated 4`,
+        `${key} account/handler:0 judged 5`,
+      ].toSorted(),
     );
-    expect(written).toHaveLength(5);
+    const written = await sources(device.ownerId, recipeId);
     expect(written.find((row) => row.unit === "list")!.prompt_version).toBe(
       await accountListGenerationPromptVersion(),
     );
+    await digestsMatch(device.ownerId, recipeId);
+  });
+
+  it("writes a branch's page rebased onto the other branch's newer head as its own unit", async () => {
+    const device = await owner();
+    const listPage: LoginObservation = {
+      ...observation("/login", [
+        element("other", "button", "Sign in with another profile"),
+        element("help", "link", "Help"),
+      ]),
+      accounts: ["[email] Last used", "[email]"],
+    };
+    replies.push({
+      text: JSON.stringify({ result: { decision: "account-list", other: "other" } }),
+    });
+    const list = await generate(device, listPage);
+    if (list.status !== "recipe") throw new Error(list.status);
+    const { recipeId } = list.change;
+    const key = (await layoutKey(device.ownerId, recipeId))!;
+    const branchPage = async (page: LoginObservation, revision: number, branch: string) =>
+      post(device, "/v1/recipes/generate", {
+        version: 1,
+        observation: page,
+        slots,
+        base: { recipeId, revision },
+        branch,
+      });
+    replies.push({ text: plan([["password", "password"]], "sign-in", "submit") });
+    expect((await branchPage(passwordPage, 1, "account")).status).toBe(200);
+    // While the other branch's first page is generated, another device stores a marker of
+    // the account branch, so the other page loses once and is written again onto that head.
+    const atTwo = (await storedHead(device.ownerId, recipeId)) as LoginChooserDocument;
+    const [layout] = atTwo.chooser.layouts;
+    during = async () => {
+      const put = await post(
+        device,
+        `/v1/recipes/${recipeId}`,
+        {
+          version: 1,
+          expectedRevision: 2,
+          state: "active",
+          recipe: {
+            ...atTwo,
+            revision: 3,
+            chooser: {
+              ...atTwo.chooser,
+              layouts: [
+                {
+                  ...layout!,
+                  afterAccount: {
+                    ...layout!.afterAccount!,
+                    completion: [{ target: { by: "id", value: "logout" } }],
+                  },
+                },
+              ],
+            },
+          },
+        },
+        "PUT",
+      );
+      expect(put.status).toBe(200);
+    };
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    expect(await (await branchPage(emailPage, 2, "other")).json()).toMatchObject({
+      status: "recipe",
+      change: { revision: 4 },
+    });
+    // The rebased write records its page once, at the revision it stored; the device's
+    // marker is its own, and the units it left as they were keep their calls.
+    expect(await summary(device.ownerId, recipeId)).toEqual(
+      [
+        `${key} list generated 1`,
+        `${key} account/page:0 generated 2`,
+        `${key} account/marker:0 device 3`,
+        `${key} other/page:0 generated 4`,
+      ].toSorted(),
+    );
+    const written = await sources(device.ownerId, recipeId);
+    const other = written.find((row) => row.unit === "other/page:0")!;
+    // The other page's row names the other page's own call.
+    const [logged] = await rows(
+      "SELECT branch, revision FROM inference_log WHERE owner_id = ? AND id = ?",
+      device.ownerId,
+      other.log_id,
+    );
+    expect(logged).toEqual({ branch: `${key}:other`, revision: 4 });
+    await digestsMatch(device.ownerId, recipeId);
   });
 
   it("records an entry recipe as one unit without a layout", async () => {
@@ -6988,26 +7120,52 @@ describe("generation provenance (ADR 0060)", () => {
     const recipeId = await generatedRecipeId(ORIGIN, "/en/");
     const [row, ...others] = await sources(device.ownerId, recipeId);
     expect(others).toEqual([]);
-    await fromCall(device, row!, { layout: null, unit: "entry", origin: "generated" });
+    await fromCall(device, row!, { layout: null, unit: "entry", origin: "generated", revision: 1 });
     expect(row!.prompt_version).toBe(await entryGenerationPromptVersion());
+    // The database refuses a second row for it, though its layout is null.
+    await expect(
+      env.DB.prepare(
+        "INSERT INTO recipe_unit_sources SELECT owner_id, recipe_id, layout, unit, digest, revision, origin, provider, model, effort, speed, prompt_version, build, device_id, log_id, created_at FROM recipe_unit_sources WHERE owner_id = ?",
+      )
+        .bind(device.ownerId)
+        .run(),
+    ).rejects.toThrow(/UNIQUE/u);
   });
 
-  it("marks every unit of a document a device writes as the device's, replacing the calls'", async () => {
+  it("marks only the units a device's document changes or adds as the device's", async () => {
     const device = await owner();
     const change = await twoPageRecipe(device);
     const { recipeId } = change;
     const key = (await layoutKey(device.ownerId, recipeId))!;
+    const put = async (expectedRevision: number, recipe: unknown) =>
+      (
+        await post(
+          device,
+          `/v1/recipes/${recipeId}`,
+          { version: 1, expectedRevision, state: "active", recipe },
+          "PUT",
+        )
+      ).status;
     const stored = (await storedHead(device.ownerId, recipeId)) as Extract<
       StoredLoginRecipe,
       { layouts: unknown }
     >;
     const [layout] = stored.layouts;
-    const written = {
+    // The same document written back keeps every row as the calls wrote it.
+    expect(await put(2, { ...stored, revision: 3 })).toBe(200);
+    expect(await summary(device.ownerId, recipeId)).toEqual(
+      [`${key} page:0 generated 1`, `${key} page:2 generated 2`].toSorted(),
+    );
+    // A changed second page, a handler, a marker and another layout are the device's; the
+    // first page it left as it was keeps its call.
+    const [fill, click, ...rest] = layout!.steps;
+    const changed = {
       ...stored,
-      revision: 3,
+      revision: 4,
       layouts: [
         {
           ...layout!,
+          steps: [fill!, click!, ...rest.map((step) => ({ ...step, path: "/signin" }))],
           handlers: [
             { kind: "passkey" as const, path: "/mfa", target: { by: "id" as const, value: "key" } },
           ],
@@ -7016,26 +7174,21 @@ describe("generation provenance (ADR 0060)", () => {
         { ...layout!, key: "1000", createdAt: 1000 },
       ],
     };
-    const put = await post(
-      device,
-      `/v1/recipes/${recipeId}`,
-      { version: 1, expectedRevision: 2, state: "active", recipe: written },
-      "PUT",
-    );
-    expect(put.status).toBe(200);
-    const rowsAfter = await sources(device.ownerId, recipeId);
-    // A device's document does not say where a page ended: its route is one `page:0`.
-    expect(rowsAfter.map(({ layout: at, unit }) => `${at} ${unit}`).toSorted()).toEqual(
+    expect(await put(3, changed)).toBe(200);
+    expect(await summary(device.ownerId, recipeId)).toEqual(
       [
-        `${key} page:0`,
-        `${key} handler:passkey:/mfa`,
-        `${key} ${await markerId({ by: "id", value: "logout" })}`,
-        "1000 page:0",
+        `${key} page:0 generated 1`,
+        `${key} page:2 device 4`,
+        `${key} handler:0 device 4`,
+        `${key} marker:0 device 4`,
+        // A layout with no recorded pages is one `page:0`.
+        "1000 page:0 device 4",
       ].toSorted(),
     );
-    for (const row of rowsAfter)
+    for (const row of (await sources(device.ownerId, recipeId)).filter(
+      (entry) => entry.origin === "device",
+    ))
       expect(row).toMatchObject({
-        origin: "device",
         provider: null,
         model: null,
         effort: null,
@@ -7045,11 +7198,23 @@ describe("generation provenance (ADR 0060)", () => {
         device_id: device.deviceId,
         log_id: null,
       });
+    await digestsMatch(device.ownerId, recipeId);
+    // A document without the handler, the marker and the other layout drops their rows.
+    expect(
+      await put(4, {
+        ...changed,
+        revision: 5,
+        layouts: [{ ...changed.layouts[0]!, handlers: undefined, completion: undefined }],
+      }),
+    ).toBe(200);
+    expect(await summary(device.ownerId, recipeId)).toEqual(
+      [`${key} page:0 generated 1`, `${key} page:2 device 4`].toSorted(),
+    );
     // A device's revocation deletes every row of the recipe.
     const revoked = await post(
       device,
       `/v1/recipes/${recipeId}`,
-      { version: 1, expectedRevision: 3, state: "revoked" },
+      { version: 1, expectedRevision: 5, state: "revoked" },
       "PUT",
     );
     expect(revoked.status).toBe(200);
@@ -7064,22 +7229,34 @@ describe("generation provenance (ADR 0060)", () => {
     const { recipeId } = first.change;
     // Another device's write lands while the continuation's call runs.
     during = async () => {
-      const head = (await storedHead(device.ownerId, recipeId)) as StoredLoginRecipe;
+      const head = (await storedHead(device.ownerId, recipeId)) as Extract<
+        StoredLoginRecipe,
+        { layouts: unknown }
+      >;
       const result = await writeRecipe(
         env.DB,
         device.ownerId,
         recipeId,
-        { version: 1, expectedRevision: 1, state: "active", recipe: { ...head, revision: 2 } },
+        {
+          version: 1,
+          expectedRevision: 1,
+          state: "active",
+          recipe: {
+            ...head,
+            revision: 2,
+            layouts: [{ ...head.layouts[0]!, rejection: { by: "id", value: "error" } }],
+          },
+        },
         device.deviceId,
-        { sources: { origin: "device", units: await documentUnits(head) } },
+        { sources: { origin: "device" } },
       );
       expect(result.ok).toBe(true);
     };
     replies.push({ text: plan([["password", "password"]], "sign-in", "submit") });
     await generate(device, passwordPage, { recipeId, revision: 1 });
     // The device's row replaced the first page's; the page that lost added none.
-    expect(
-      (await sources(device.ownerId, recipeId)).map(({ unit, origin }) => ({ unit, origin })),
-    ).toEqual([{ unit: "page:0", origin: "device" }]);
+    expect(await summary(device.ownerId, recipeId)).toEqual([
+      `${await layoutKey(device.ownerId, recipeId)} page:0 device 2`,
+    ]);
   });
 });

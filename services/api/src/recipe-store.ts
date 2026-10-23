@@ -33,7 +33,7 @@ import {
   recipeUnitSources,
   type RecipeUnitOrigin,
 } from "./db/schema";
-import { LIST_UNIT, pageUnit, type RecipeUnit } from "./recipe-units";
+import { documentUnits, LIST_UNIT, namedUnits, pageUnit, type RecipeUnit } from "./recipe-units";
 import {
   KEPT_RECIPE_REVISIONS,
   MAX_ACTIVE_RECIPES,
@@ -172,8 +172,8 @@ export async function hasRecipeRoom(db: D1Database, ownerId: string): Promise<bo
 }
 
 /**
- * What a recipe write records of the units it adds (ADR 0060, generation provenance): the
- * call that made them, which a `device` write has none of.
+ * What a recipe write records of its units (ADR 0060, generation provenance): the units a
+ * call made and the call, or a device's whole document, which names no call.
  */
 export type UnitSources =
   | {
@@ -183,7 +183,7 @@ export type UnitSources =
       promptVersion: string;
       logId: string | undefined;
     }
-  | { origin: "device"; units: readonly RecipeUnit[] };
+  | { origin: "device" };
 
 /**
  * Writes the next revision of one recipe when `expectedRevision` is still its head.
@@ -202,9 +202,11 @@ export type UnitSources =
  * false`, as when the owner or the idle check removes a layout, the write does not mark
  * the recipe used.
  * The same batch keeps `recipe_unit_sources` (ADR 0060): it deletes the rows of layouts the
- * document no longer has, every row of a revoked recipe, and with `sources` writes a row
- * for each unit named there, replacing that unit's earlier row; a `device` write replaces
- * every row of the recipe. `writer` is each row's device.
+ * document no longer has and every row of a revoked recipe, and with a call's `sources`
+ * writes a row for each unit named there, replacing that unit's earlier row. A `device`
+ * write keeps the rows of units whose digest it left unchanged, deletes the rows of units
+ * its document no longer has, and writes a `device` row for each unit it changed or
+ * added. `writer` is each row's device.
  */
 export async function writeRecipe(
   db: D1Database,
@@ -334,44 +336,54 @@ export async function writeRecipe(
     ),
   );
   // The provenance of the recipe's units (ADR 0060), kept only after this request's claim
-  // won: rows of layouts the document dropped go (every row for a tombstone, or for a
-  // device's document, which replaces them all), then each unit written gets its new row.
-  const won = sql`EXISTS (SELECT 1 FROM ${recipeHeads} WHERE ${recipeHeads.ownerId} = ${ownerId} AND ${recipeHeads.recipeId} = ${recipeId} AND ${recipeHeads.writeId} = ${writeId})`;
+  // won. A device's document does not say where its pages end, so it is split where the
+  // recorded pages start; a write that wins finds these rows unchanged, since every write
+  // of them changes the head.
   const { sources } = options;
-  const ofRecipe = and(
-    eq(recipeUnitSources.ownerId, ownerId),
-    eq(recipeUnitSources.recipeId, recipeId),
-    won,
-  );
-  const droppedSources = orm
-    .delete(recipeUnitSources)
-    .where(
-      and(
-        ofRecipe,
-        document === null || sources?.origin === "device"
-          ? undefined
-          : "entry" in document
-            ? isNotNull(recipeUnitSources.layout)
-            : or(isNull(recipeUnitSources.layout), notInArray(recipeUnitSources.layout, kept)),
-      ),
-    );
-  const units = document === null ? [] : (sources?.units ?? []);
+  const device = sources?.origin === "device";
+  const call = sources && sources.origin !== "device" ? sources : undefined;
+  const units =
+    document === null || !sources
+      ? []
+      : call
+        ? await namedUnits(document, call.units)
+        : await documentUnits(document, await readPageUnits(db, ownerId, recipeId));
+  const won = sql`EXISTS (SELECT 1 FROM ${recipeHeads} WHERE ${recipeHeads.ownerId} = ${ownerId} AND ${recipeHeads.recipeId} = ${recipeId} AND ${recipeHeads.writeId} = ${writeId})`;
   const unitRows = sql`json_each(${JSON.stringify(units)}) AS unit_row`;
   const unitLayout = sql`json_extract(unit_row.value, '$.layout')`;
   const unitId = sql`json_extract(unit_row.value, '$.unit')`;
-  const call = sources && sources.origin !== "device" ? sources : undefined;
+  const unitDigest = sql`json_extract(unit_row.value, '$.digest')`;
+  /** Whether the written units name the row's unit, and with `digest` its content too. */
+  const listed = (digest: boolean) =>
+    sql`EXISTS (SELECT 1 FROM ${unitRows} WHERE ${unitId} = ${recipeUnitSources.unit} AND ${unitLayout} IS ${recipeUnitSources.layout}${digest ? sql` AND ${unitDigest} = ${recipeUnitSources.digest}` : sql``})`;
+  // A tombstone drops every row; a device's document every row it did not keep as it was;
+  // a call's write the rows of layouts the document dropped and of the units it rewrote.
+  const staleSources = orm
+    .delete(recipeUnitSources)
+    .where(
+      and(
+        eq(recipeUnitSources.ownerId, ownerId),
+        eq(recipeUnitSources.recipeId, recipeId),
+        won,
+        document === null
+          ? undefined
+          : device
+            ? sql`NOT ${listed(true)}`
+            : or(
+                "entry" in document
+                  ? isNotNull(recipeUnitSources.layout)
+                  : or(
+                      isNull(recipeUnitSources.layout),
+                      notInArray(recipeUnitSources.layout, kept),
+                    ),
+                listed(false),
+              ),
+      ),
+    );
   const writtenSources = units.length
     ? [
-        orm
-          .delete(recipeUnitSources)
-          .where(
-            and(
-              ofRecipe,
-              sql`EXISTS (SELECT 1 FROM ${unitRows} WHERE ${unitId} = ${recipeUnitSources.unit} AND ${unitLayout} IS ${recipeUnitSources.layout})`,
-            ),
-          ),
         // Drizzle fills INSERT ... SELECT positionally: keep these fields in the
-        // recipeUnitSources column order.
+        // recipeUnitSources column order. A unit whose row stayed keeps it.
         orm.insert(recipeUnitSources).select(
           orm
             .select({
@@ -379,6 +391,8 @@ export async function writeRecipe(
               recipeId: sql`${recipeId}`.as("recipe_id"),
               layout: unitLayout.as("layout"),
               unit: unitId.as("unit"),
+              digest: unitDigest.as("digest"),
+              revision: sql`${revision}`.as("revision"),
               origin: sql`${sources!.origin}`.as("origin"),
               provider: sql`${call?.served.provider ?? null}`.as("provider"),
               model: sql`${call?.served.model ?? null}`.as("model"),
@@ -391,7 +405,12 @@ export async function writeRecipe(
               createdAt: sql`${now}`.as("created_at"),
             })
             .from(unitRows)
-            .where(won),
+            .where(
+              and(
+                won,
+                sql`NOT EXISTS (SELECT 1 FROM ${recipeUnitSources} WHERE ${recipeUnitSources.ownerId} = ${ownerId} AND ${recipeUnitSources.recipeId} = ${recipeId} AND ${recipeUnitSources.unit} = ${unitId} AND ${recipeUnitSources.layout} IS ${unitLayout})`,
+              ),
+            ),
         ),
       ]
     : [];
@@ -400,7 +419,7 @@ export async function writeRecipe(
     history,
     pruned,
     unusedLayouts,
-    droppedSources,
+    staleSources,
     ...writtenSources,
   ]);
   if (claimed.meta.changes === 1 && recorded.meta.changes !== 1)
@@ -501,6 +520,24 @@ export async function readLayoutUses(
     uses.set(row.recipeId, recipe);
   }
   return uses;
+}
+
+/** The recorded page units of a recipe (ADR 0060), where a device's document is split. */
+async function readPageUnits(
+  db: D1Database,
+  ownerId: string,
+  recipeId: string,
+): Promise<RecipeUnit[]> {
+  return drizzle(db)
+    .select({ layout: recipeUnitSources.layout, unit: recipeUnitSources.unit })
+    .from(recipeUnitSources)
+    .where(
+      and(
+        eq(recipeUnitSources.ownerId, ownerId),
+        eq(recipeUnitSources.recipeId, recipeId),
+        sql`${recipeUnitSources.unit} GLOB '*page:*'`,
+      ),
+    );
 }
 
 /**

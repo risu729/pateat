@@ -5,9 +5,10 @@ Status: proposed by Claude on 2026-10-23 and accepted by the owner on 2026-10-23
 the recipe-schema proposal), including keeping the layouts in the recipe document and
 discarding existing recipes. Chooser layouts are part of the decision. The owner's
 wording is not quoted here; the note under [Later](#later) records a further wish, not
-decided by this ADR. [Generation provenance](#generation-provenance) is the recommended
-answer to the owner's decision card posted on 2026-10-23, implemented on that
-recommendation while the owner's choice on the card is pending. Implemented on
+decided by this ADR. In the same message the owner asked for what
+[Generation provenance](#generation-provenance) and
+[Changing the recipe schema later](#changing-the-recipe-schema-later) record, and to
+proceed without asking unless something needed explaining. Implemented on
 `claude/review-issue-prs-j7hli2` (local tests only, not tried on real sites, not
 deployed); see [Delivery](#delivery). Amends
 [ADR 0016](0016-recipe-generation-trigger.md) (what a continuation and a judgement
@@ -142,47 +143,53 @@ the whole recipe. Removing the last layout revokes the recipe.
 
 ### Generation provenance
 
-The service records which call made each part of a recipe, so that layouts of trusted
-owners can later be merged into a canonical recipe the server keeps (see
-[Later](#later)) with the model, prompt and time of each part known. This was the
-recommended option (A) of the owner's decision card posted on 2026-10-23 ("where does
-generation metadata live"), after an independent review of the proposal; the owner has
-not chosen on the card yet, and the work proceeds on the recommendation.
+The owner's request (2026-10-23 11:41 UTC): layouts must be mergeable later into a
+canonical recipe the server keeps, once the user who made them is judged trustworthy
+(see [Later](#later)), and the model and time of each generation are stored and taken
+into account for that merge. The service therefore records which call made each part of
+a recipe. Where the record lives (a service table, not the document) follows the
+recommended option of the owner's decision card of 2026-10-23, reviewed independently;
+the owner has not tapped the card yet.
 
 - The record is the service-only D1 table `recipe_unit_sources`, one row per unit of
   an active recipe. It is never synced and never part of the recipe document, and the
   owner's and device's identity stay out of the document.
-- A unit is a part one call makes, named by a stable ID within its layout (the row's
-  `layout`, null for an entry recipe):
+- A unit is a part one call makes, named within its layout (the row's `layout`, null
+  for an entry recipe) by a position that no write shifts, so a migration that renames
+  members leaves the IDs valid:
   - `page:<n>`: a page of the layout's route whose steps start at index `n` of
-    `steps`, which only grow at the end. `page:0` is the start page with its slots,
-    alternatives, passkey route, page kind and account switch; a later page holds the
-    steps a continuation appended and the account switch it named first.
-  - `handler:<kind>:<path>`: a handler the judge added (`passkey`, `password` or
-    `totp`; one per kind and path, as the recipe allows). One judgement may add
-    several: each gets its row, all naming the same request log row.
-  - `marker:<hash>`: a signed-in marker the judge added, by 12 hex digits of the SHA-256
-    of `[origin ?? "", target]` as JSON, the pair the recipe keeps markers unique by.
-    The judge never writes `rejection`, so it is no unit of its own.
+    `steps`, which only grow at the end.
+  - `handler:<i>` and `marker:<i>`: the route's handler or signed-in marker at index
+    `i`. The judge only appends them (`addHandler`, `addCompletion`), and continuations
+    and `withLoginLayout` keep them. One judgement may add several handlers: each gets
+    its row, all naming the same request log row. The judge never writes `rejection`.
   - `list`: a chooser layout's list buttons (`other`, `continue`).
   - `account/<unit>` and `other/<unit>`: the units of a chooser layout's branch, such
-    as `account/page:0`, so each is unique within the layout.
+    as `account/page:0`.
   - `entry`: an entry recipe ([ADR 0031](0031-sign-in-entry-pages.md)).
-- A row holds the owner, recipe, layout and unit, its `origin` (`generated` for a page,
-  `judged` for a handler or marker, `device` for a document a device wrote), the model
-  that answered (`provider`, `model`, `effort`, `speed`: the `served` model `callClaude`
-  reports), the role's prompt version, the time, the service build, the device the
-  recipe revision records as its writer, and the request log row's ID (not a foreign
-  key, since the log is kept one year).
+- Each row keeps `digest`, 32 hex digits of the SHA-256 of the unit's content as
+  canonical JSON, so a merge can check that a unit is still what its call produced. A
+  page holds its own steps; `page:0` also holds the variants, passkey route, page kind,
+  rejection and the layout's language. The slots and submission count follow from the
+  steps, and a later page may keep, add or drop the account switch, so these are no
+  unit's content; a merge takes them from the route.
+- A row also holds its `origin` (`generated` for a page, `judged` for a handler or
+  marker, `device` for a unit a device's document changed or added), the model that
+  answered (`provider`, `model`, `effort`, `speed`: the `served` model `callClaude`
+  reports), the role's prompt version, the service build, the recipe `revision` whose
+  write recorded it (to join `login_outcomes` and judgements after older revisions are
+  pruned), the device the revision records as its writer, the request log row's ID (not
+  a foreign key, since the log is kept one year), and `created_at`, the time of that
+  winning write rather than of the call.
 - The rows are written in the batch of the recipe write that adds the unit, only when
-  that write wins. A device's `PUT` of an active document marks every unit of it
-  `device`, replacing the recipe's rows: the service does not work out which units the
-  device changed, and the document does not say where a page ended, so each route is
-  one `page:0` there.
-- The rows go as the recipe's records do: a write drops the rows of the layouts the
-  document no longer has, a revocation (by a device, the owner or the idle check)
-  every row of the recipe, and the request log's Delete all every row of the owner,
-  since they record the same calls.
+  that write wins. A device's `PUT` of an active document splits each route at the
+  recorded pages, keeps the rows of units whose digest is unchanged, deletes the rows of
+  units the document no longer has, and writes a `device` row for each unit it changed
+  or added; a route with no recorded pages is one `page:0`.
+- A write drops the rows of the layouts the document no longer has, and a revocation (by
+  a device, the owner or the idle check) every row of the recipe. The request log's
+  Delete all keeps the rows but clears their `device_id` and `log_id`; the model, prompt
+  version, build, revision, digest and time identify no person.
 - `/manage` shows, for each layout, the model and time of its first page (its `list`
   for a chooser).
 
@@ -201,15 +208,24 @@ The record is not in the document because:
 
 ### Changing the recipe schema later
 
-A change to the stored recipe schema that needs no new model output, such as renaming or
-moving a member, rewrites the stored recipes in a migration (the exception the owner
-chose for migration 0013,
-[development](../development.md#compatibility-before-release)). A change that needs new
-model output, as `pageKind` did, is rebuilt from the observations the request log keeps
-by a separate tool that sends them to the current roles again; that tool is not part of
-this change. This ADR's own change still discards the stored recipes
-([Existing recipes](#existing-recipes)): recipes stored before the page kinds of
-[ADR 0035](0035-page-kinds-per-site.md) would need new model output in any case.
+The owner asked in the same request that a later schema change backfill stored recipes
+from the logs without opening login pages where possible, since the schema may change
+again, and allowed opening them again where it is not. So:
+
+- A change that needs no new model output, such as renaming or moving a member,
+  rewrites the stored recipes in a migration, as migration 0013 did
+  ([development](../development.md#compatibility-before-release)). Unit IDs are
+  positions, so `recipe_unit_sources` keeps its rows; digests of changed units are
+  recomputed by a Worker step, since D1 has no SHA-256.
+- A change that needs new model output, as `pageKind` did, is rebuilt by a separate tool
+  that sends the logged observations to the current roles again. It finds each unit's
+  observation through `recipe_unit_sources.log_id`, so it reaches only units whose log
+  row is still kept. That tool is not part of this change.
+- A recipe with a unit that cannot be rebuilt (its log row expired after a year or was
+  deleted by Delete all, or a device wrote it) is discarded by such a change and
+  generated again on the site's next visit, as this ADR's own change discards every
+  recipe ([Existing recipes](#existing-recipes)): recipes stored before the page kinds
+  of [ADR 0035](0035-page-kinds-per-site.md) would need new model output in any case.
 
 ### Left for later
 
@@ -228,7 +244,8 @@ rewrite of ADR 0041. The repair work builds on this ADR.
 Recorded on 2026-10-23 from the owner; not designed or decided here:
 
 - The owner wants layouts from trusted users to be mergeable into a canonical recipe
-  kept by the server later, once several users share recipes.
+  kept by the server later, once several users share recipes. The merge itself is not
+  designed; [Generation provenance](#generation-provenance) records what it needs.
 
 ## Consequences
 

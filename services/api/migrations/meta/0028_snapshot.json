@@ -1324,6 +1324,20 @@
           "notNull": true,
           "autoincrement": false
         },
+        "digest": {
+          "name": "digest",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
         "origin": {
           "name": "origin",
           "type": "text",
@@ -1400,6 +1414,17 @@
           "name": "recipe_unit_sources_unit_unique",
           "columns": ["owner_id", "recipe_id", "layout", "unit"],
           "isUnique": true
+        },
+        "recipe_unit_sources_entry_unique": {
+          "name": "recipe_unit_sources_entry_unique",
+          "columns": ["owner_id", "recipe_id", "unit"],
+          "isUnique": true,
+          "where": "\"recipe_unit_sources\".\"layout\" IS NULL"
+        },
+        "recipe_unit_sources_owner_unit": {
+          "name": "recipe_unit_sources_owner_unit",
+          "columns": ["owner_id", "unit"],
+          "isUnique": false
         }
       },
       "foreignKeys": {

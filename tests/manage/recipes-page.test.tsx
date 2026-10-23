@@ -432,7 +432,13 @@ test("shows a chooser recipe's buttons and branches, which devices do not use ye
           },
         },
         updatedAt: UPDATED,
-        layouts: [{ key: LAYOUT, lastUsedAt: null, firstPage: null }],
+        layouts: [
+          {
+            key: LAYOUT,
+            lastUsedAt: null,
+            firstPage: { origin: "generated", model: "claude-synthetic", createdAt: UPDATED },
+          },
+        ],
       },
     ],
   });
@@ -440,6 +446,8 @@ test("shows a chooser recipe's buttons and branches, which devices do not use ye
   await page.getByText("JSON of bank-chooser").click();
   const details = recipeItem("bank-chooser");
   for (const text of [
+    // The chooser's first page is its list (ADR 0060).
+    "Account list made byclaude-synthetic, 2026-10-11 08:15 UTC",
     "Account listOn /login, click the entry of the chosen item's account. Devices do not do this yet.",
     'Shown accountClick text "Log back in"',
     'Another accountClick text "Use another account"',
@@ -638,12 +646,12 @@ test("lists each layout of a recipe and removes one after a confirmation (ADR 00
     "LanguageJapanese",
     "Created2026-10-10 08:15 UTC",
     "Last used2026-10-11 08:15 UTC",
-    "First pageclaude-synthetic, 2026-10-11 08:15 UTC",
+    "First page made byclaude-synthetic, 2026-10-11 08:15 UTC",
     "Steps2",
     "Layout 2",
     "LanguageEnglish",
     "Last usedNot used yet",
-    "First pageWritten by a device, 2026-10-11 08:15 UTC",
+    "First page made byA device, 2026-10-11 08:15 UTC",
     "Steps1",
   ])
     // oxlint-disable-next-line no-await-in-loop -- one element, checked in order

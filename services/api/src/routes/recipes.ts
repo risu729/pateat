@@ -27,7 +27,6 @@ import {
   toChange,
   writeRecipe,
 } from "../recipe-store";
-import { documentUnits } from "../recipe-units";
 import { generateEntry, generateRecipe, judgeCompletion, samplePage } from "../recipes/generate";
 import { jsonBody, requireJsonBody, validate } from "../validation";
 
@@ -330,18 +329,11 @@ export const recipeRoutes = new Hono<ApiEnv>()
     if (write.state === "active" && write.recipe.id !== recipeId)
       return apiError(c, 400, { error: "bad_request" });
 
-    // Every unit of a document a device wrote is the device's (ADR 0060): the service
-    // cannot tell which ones it changed, and does not try.
-    const result = await writeRecipe(
-      c.env.DB,
-      scope.ownerId,
-      recipeId,
-      write,
-      scope.deviceId,
-      write.state === "active"
-        ? { sources: { origin: "device", units: await documentUnits(write.recipe) } }
-        : {},
-    );
+    // A unit the device's document changed or added is the device's (ADR 0060); one it
+    // left as it was keeps the call that made it.
+    const result = await writeRecipe(c.env.DB, scope.ownerId, recipeId, write, scope.deviceId, {
+      sources: { origin: "device" },
+    });
     if (!result.ok)
       return result.limited
         ? apiError(c, 409, { error: "recipe_limit" })

@@ -58,8 +58,8 @@ export const manageSettingsConflictSchema = v.strictObject({
 
 /**
  * Who made a layout's first page, a chooser layout's list included (ADR 0060, generation
- * provenance): the model that generated it, or none when a device wrote the document, and
- * when.
+ * provenance): the model that generated it, or none when a device's document changed or
+ * added it, and when that write was recorded.
  */
 export const manageLayoutSourceSchema = v.strictObject({
   origin: v.picklist(["generated", "judged", "device"]),
@@ -70,7 +70,7 @@ export const manageLayoutSourceSchema = v.strictObject({
  * One recipe's current head: the active recipe, or a tombstone once revoked, and when each
  * of its layouts was last used (ADR 0058, ADR 0060): by a login that started or ended on it,
  * or a write the login's page caused. `null` for a layout no login used yet. `firstPage` is
- * `null` when the service has no record of it, as after the request log was deleted.
+ * `null` when the service has no record of it.
  */
 export const manageRecipeSchema = v.strictObject({
   change: syncRecipeChangeSchema,

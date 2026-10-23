@@ -2125,11 +2125,13 @@ The service records which call made each unit of a recipe in the service-only ta
 `recipe_unit_sources`
 ([generation provenance](adr/0060-recipe-layouts.md#generation-provenance)), never in
 the synced document: each page of a layout (`page:<n>` by its first step), each handler
-and marker the judge adds, a chooser's list and branch units (`account/…`, `other/…`)
-and an entry recipe, with the model, effort, speed, prompt version, time, build, writing
-device and request log row. A device's own document marks all its units `device`. The
-rows go with their layout, the recipe's revocation and the request log's Delete all.
-`/manage` shows the model and time of each layout's first page.
+and marker the judge adds (by index), a chooser's list and branch units (`account/…`,
+`other/…`) and an entry recipe, with the unit's content digest, the recipe revision, the
+model, effort, speed, prompt version, write time, build, writing device and request log
+row. A device's own document marks only the units it changed or added `device`. The rows
+go with their layout and the recipe's revocation; the request log's Delete all clears
+their device and log row. `/manage` shows the model and time of each layout's first
+page.
 
 A generated recipe has no signed-in marker until the page after its first sign-in is
 judged ([ADR 0018](adr/0018-recipe-generation-route.md)). Until then the executor

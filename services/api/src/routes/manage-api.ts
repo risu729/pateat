@@ -245,9 +245,9 @@ export const manageApiRoutes = new Hono<ApiEnv>()
   )
   // The owner's ADR 0012 request log, the login result codes devices sent (ADR 0019,
   // amended 2026-10-18) and their login records (ADR 0055): how much they hold, and
-  // deleting all of it, with the record of which call made each part of a recipe (ADR
-  // 0060), which names the same calls. Only these go: recipes, settings, judged pages and
-  // the spend the limits count stay.
+  // deleting all of it. The record of which call made each part of a recipe (ADR 0060)
+  // stays without the device and the log row it named. Only these go: recipes, settings,
+  // judged pages and the spend the limits count stay.
   .get("/request-log", async (c) => {
     const ownerId = await findOwner(c.env.DB, c.get("identity"));
     const db = drizzle(c.env.DB);
@@ -286,7 +286,10 @@ export const manageApiRoutes = new Hono<ApiEnv>()
           db.delete(inferenceLog).where(eq(inferenceLog.ownerId, ownerId)),
           db.delete(loginOutcomes).where(eq(loginOutcomes.ownerId, ownerId)),
           db.delete(loginTimings).where(eq(loginTimings.ownerId, ownerId)),
-          db.delete(recipeUnitSources).where(eq(recipeUnitSources.ownerId, ownerId)),
+          db
+            .update(recipeUnitSources)
+            .set({ deviceId: null, logId: null })
+            .where(eq(recipeUnitSources.ownerId, ownerId)),
         ])
       : [];
     return c.json({
