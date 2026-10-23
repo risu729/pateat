@@ -491,10 +491,12 @@ export function totpCodeRefusal(
  * Why `field` and `button` of this page may not be a `detail` handler's input for
  * `entry` and the button that submits it (ADR 0061), for the log, or undefined when they
  * may. The field must be an input the detail's fill rule admits (`not-input`): a text,
- * tel or number input for a birth date or the last four digits; a password input, or a
- * text or tel input limited to 3 or 4 characters, for a card's security code, the only
- * detail a password input takes, so a PIN or second password the judge mislabels is not
- * kept. It must not be located by its text (`text-locator`) or marked as a sign-in,
+ * tel or number input for a birth date, the last four digits or a member ID; a password
+ * input, or a text or tel input limited to 3 or 4 characters, for a card's security
+ * code; a text or password input for a secret question's answer. No other detail takes a
+ * password input, so a PIN or second password the judge mislabels is not kept. It must
+ * not be located by its text (`text-locator`), an answer not by its label
+ * (`label-locator`), nor be marked as a sign-in,
  * email or code field (`sign-in-field`), nor declare a `maxlength` shorter
  * than the value (`too-short`); the button must be a button (`submit-not-button`) of the
  * field's form (`submit-other-form`). The judge and the recipe assembly both check this.
@@ -505,15 +507,17 @@ export function detailInputRefusal(
   button: ObservedCandidate,
 ): string | undefined {
   const admitted =
-    entry.detail === "birth-date"
-      ? ["text", "tel", "number"].includes(field.role)
-      : entry.detail === "card-code"
-        ? field.role === "password" ||
-          ((field.role === "text" || field.role === "tel") &&
-            (field.maxLength === 3 || field.maxLength === 4))
+    entry.detail === "card-code"
+      ? field.role === "password" ||
+        ((field.role === "text" || field.role === "tel") &&
+          (field.maxLength === 3 || field.maxLength === 4))
+      : entry.detail === "secret-answer"
+        ? field.role === "text" || field.role === "password"
         : ["text", "tel", "number"].includes(field.role);
   if (!admitted) return "not-input";
   if (field.target.by === "text") return "text-locator";
+  // An answer's label may be the account's own question, which a shared recipe never holds.
+  if (entry.detail === "secret-answer" && field.target.by === "label") return "label-locator";
   if (
     field.autocomplete === "username" ||
     field.autocomplete === "email" ||

@@ -24,8 +24,9 @@ export function shortNumericInput(input: SecretInput): boolean {
  * password in a search box or comment field. A TOTP code may also use a short numeric
  * field, and a Hidden custom field may use a password input or a short numeric field
  * (for example a PIN), never a plain text input. A personal detail (ADR 0061) goes into
- * a text, tel or number input, and a card's security code into a password input or a
- * text or tel input of 3 or 4 characters.
+ * a text, tel or number input, a secret question's answer into a text or password input,
+ * and a card's security code into a password input or a text or tel input of 3 or 4
+ * characters.
  */
 export function acceptsSecret(input: SecretInput, secret: LoginSecretKind | undefined): boolean {
   if (secret === "password") return passwordInput(input);
@@ -33,6 +34,7 @@ export function acceptsSecret(input: SecretInput, secret: LoginSecretKind | unde
   if (secret === "otp")
     return autocompleteTokens(input).includes("one-time-code") || shortNumericInput(input);
   if (secret === "detail") return ["text", "tel", "number"].includes(input.type);
+  if (secret === "answer") return input.type === "text" || input.type === "password";
   if (secret === "card-code")
     return (
       passwordInput(input) ||

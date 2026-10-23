@@ -74,6 +74,8 @@ make each value. A page that asks for anything else stays `challenge`.
 | `phone-last-4` | `identity.phone`, or a Text or Hidden custom field named as one (below) | its last four digits | a text, tel or number input |
 | `card-last-4` | `card.number` | its last four digits | a text, tel or number input |
 | `card-code` | `card.code` | as it is, 3 or 4 digits | a password input, or a text or tel input with `maxlength` 3 or 4 |
+| `secret-answer` | a Text or Hidden custom field of the login item named as the question (below) | as it is, trimmed, 1 to 128 characters | a text or password input |
+| `member-id` | a Text or Hidden custom field of the login item named as a member ID (below) | as it is, trimmed, 1 to 64 characters | a text, tel or number input |
 
 These rules replace the Hidden-field rule for these values: a birth date kept in a
 Hidden field may go into a text input. `format` is one of `yyyymmdd`, `yyyymm`,
@@ -83,6 +85,65 @@ month and day from `1990-04-01`, `1990/4/1`, `1990.04.01`, `1990年4月1日` or
 but ASCII digits (after NFKC); fewer than four is not a value. The value is made in the
 service worker right after the vault read: the whole phone or card number never reaches
 the page's content script.
+
+### Secret-question answers and member IDs
+
+Bitwarden keeps neither in a fixed field, so both are read only from custom fields of
+the login item itself, never another item, and only after the owner confirmed the field
+in the popup once (as every link). A Hidden field may fill a visible input here too, an
+exception to [ADR 0013](0013-service-held-recipes-and-settings.md)'s Hidden-field rule
+like the birth date's.
+
+- `member-id`: a field whose name, after NFKC and without case, holds `id`, `number`,
+  `no`, `番号`, `会員`, `お客様`, `customer`, `member` or `契約`, and none of `暗証`,
+  `pin`, `pass`, `パスワード`, `code`, `コード`, `card`, `カード`, `phone`, `電話`,
+  `hidden` or `note`. The popup proposes these fields but selects none, as their names
+  say little.
+- `secret-answer`: people name the field after its question (a Hidden field named
+  「母親の旧姓は？」). The link names the field, as bindings do; no question text is
+  stored anywhere new. A site that asks one of several questions has one link per
+  question field, and the settings' duplicate check keys `secret-answer` links by field.
+- Which answer: the worker sends the names of the linked fields to the input's document
+  (`login.detail.question`); the document answers which one is shown. It reads the
+  rendered text of the input's nearest ancestor that holds no other fillable input,
+  stopping at the form, at most 4,000 characters; it compares both after NFKC, without
+  case, with curly apostrophes made straight, white space collapsed and a trailing `?`
+  or `:` removed. The longest name of at least 4 characters contained in that text is
+  the question; none, or two of that length, fills nothing and the login ends
+  `challenge` (`detail-unlinked`), so a generic label such as 「回答」 never picks an
+  answer. Page text never leaves the document.
+- The fill carries the field's name, and the content script checks again, in the same
+  task as the typing, that the input still asks it, so a question changed between the
+  read and the fill gets no answer.
+- The popup offers, for an answer input, only the login item's field named as the
+  page's question; a page whose question matches no field name offers none, so the
+  field must be named after the question.
+- Refusal: the handler's page shown again after an answer is a refusal of that answer
+  only while the page asks the same question, or one the item has no field for. A page
+  that now asks another of the item's questions keeps the first link, ends `challenge`,
+  and the popup proposes the field for the new question. A rejected login removes the
+  answer link it used, as for every detail.
+- The judge names `secret-answer` for an input that asks the answer to a question shown
+  on the page, and `member-id` for a member, customer or contract number that is not
+  the account's sign-in ID. An answer input located by its label is refused
+  (`label-locator`): the label may be the account's own question, which a shared recipe
+  never holds.
+
+Security notes:
+
+- The model picks the page input; the content script checks only its type, its
+  `maxlength`, that it is no sign-in field and, for an answer, that the question beside
+  it is the field's name. An answer can still land in an input that shows it on screen.
+- A compromised page on the same origin (XSS) can read a filled value, as it can read a
+  password today, and could show another question's text to obtain that answer; an
+  answer goes only beside its own question's text.
+- Links are per login item and are not slots, so `templateLoginBinding`, which copies a
+  binding's same-named slots to another account, never copies them: every account
+  confirms its own fields.
+- The names of the linked fields are stored in the owner's settings on the service as
+  references, as binding references to custom fields already are. A field named after
+  its question therefore puts the question's text on the service, though never the
+  answer; decided 5 holds for values.
 
 ### A `detail` handler
 
@@ -244,9 +305,10 @@ an item name.
 
 ## Assumed (not confirmed)
 
-1. The values are the four in the table. Secret-question answers and member numbers are
-   not in it: Bitwarden keeps them in no fixed place, and they are not facts about the
-   person.
+1. The values are the six in the table. Secret-question answers and member IDs were
+   added on the recipe-schema plan's §2.6 answered by assumption as its option b: filled
+   after one confirmation per field in the popup, read only from the login item, with
+   SMS and email codes left to the person. The owner may still drop them.
 2. Card security codes are filled after the one confirmation, as ADR 0035 and the plan
    record. The owner's open card on which values may be filled on a page after the
    submission was answered by assumption elsewhere as "no card code"; if the owner
@@ -269,6 +331,7 @@ an item name.
    `challenge` with `detail-unlinked`.
 2. Judging a page beside the sign-in form (`beside`).
 3. Links, the value rules, choice radios, the popup's proposal, and removal on refusal.
+4. Secret-question answers and member IDs.
 
 ## Not covered
 

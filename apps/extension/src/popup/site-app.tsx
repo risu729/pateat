@@ -16,9 +16,11 @@ import {
   CircleX,
   Clock,
   CreditCard,
+  IdCard,
   Info,
   LoaderCircle,
   LogIn,
+  MessageCircleQuestionMark,
   Settings2,
   Smartphone,
   Star,
@@ -267,6 +269,8 @@ const DETAIL_ICON = {
   "phone-last-4": Smartphone,
   "card-last-4": CreditCard,
   "card-code": CreditCard,
+  "secret-answer": MessageCircleQuestionMark,
+  "member-id": IdCard,
 } as const satisfies Record<LoginDetail, unknown>;
 
 const sourceValue = (source: DetailSource) =>
@@ -348,9 +352,12 @@ function DetailSection({
 }) {
   return (
     <>
-      {offer?.details.map(({ detail, format, candidates }) => {
+      {offer?.details.map(({ detail, format, candidates, preselect }) => {
         const picked = picks[detail];
-        const shown = candidates.find((source) => sourceValue(source) === picked) ?? candidates[0]!;
+        // A detail whose candidates are no guess starts with none selected.
+        const shown =
+          candidates.find((source) => sourceValue(source) === picked) ??
+          (preselect === false ? undefined : candidates[0]);
         return (
           <fieldset key={detail} className="popup-fieldset popup-detail">
             <legend id={`popup-detail-${detail}`} className="popup-detail-ask">
@@ -359,7 +366,7 @@ function DetailSection({
             <DetailChoices
               detail={detail}
               candidates={candidates}
-              checked={sourceValue(shown)}
+              checked={shown ? sourceValue(shown) : ""}
               disabled={busy}
               onChange={(value) => onPick(detail, value)}
             />
@@ -369,10 +376,10 @@ function DetailSection({
               className="w-full gap-2"
               // Kept focusable while a fill runs, since Chrome moves focus away from a
               // focused control that becomes disabled.
-              disabled={busy}
+              disabled={busy || !shown}
               focusableWhenDisabled
               aria-describedby={`popup-detail-${detail}`}
-              onClick={() => onFill(detail, shown)}
+              onClick={() => shown && onFill(detail, shown)}
             >
               <TextCursorInput size={16} strokeWidth={2} aria-hidden="true" />
               Fill

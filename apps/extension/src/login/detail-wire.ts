@@ -40,6 +40,11 @@ export const detailResponseSchema = v.variant("ok", [
               detail: loginDetailSchema,
               format: v.optional(birthDateFormatSchema),
               candidates: v.pipe(v.array(sourceSchema), v.minLength(1), v.maxLength(20)),
+              /**
+               * The first candidate is no guess and is not selected, as for a member ID,
+               * whose fields' names say little.
+               */
+              preselect: v.optional(v.literal(false)),
             }),
           ),
           v.minLength(1),
@@ -131,6 +136,8 @@ export function detailName(detail: LoginDetail, format?: string): string {
     "phone-last-4": "the last 4 digits of your phone number",
     "card-last-4": "the last 4 digits of your card number",
     "card-code": "your card's security code",
+    "secret-answer": "the answer to your secret question",
+    "member-id": "your member or customer number",
   }[detail];
 }
 
