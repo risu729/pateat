@@ -36,8 +36,31 @@ export async function readSettings(
   });
 }
 
-  type LocalSettings,
-  type SavedLoginBinding,
+/**
+ * The slots of the owner's saved bindings for one recipe of one origin, every account's,
+ * for naming a generated page's custom-field slots (ADR 0027, amended 2026-10-19): only
+ * slot names and field references, never the item or account a binding names. Bindings
+ * are shared by every profile.
+ */
+export async function recipeBindingSlots(
+  db: D1Database,
+  ownerId: string,
+  origin: string,
+  recipeId: string,
+): Promise<Pick<SavedLoginBinding, "slots">[]> {
+  const row = await db
+    .prepare("SELECT document FROM settings WHERE owner_id = ?")
+    .bind(ownerId)
+    .first<{ document: string | null }>();
+  const bindings: SavedLoginBinding[] = row?.document
+    ? (JSON.parse(row.document).bindings ?? [])
+    : [];
+  return bindings.flatMap((binding) =>
+    binding.origin === origin && binding.recipeId === recipeId ? [{ slots: binding.slots }] : [],
+  );
+}
+
+/** One owner revision covers shared bindings and every profile. D1 batches are atomic. */
 export async function writeSettings(
   db: D1Database,
   ownerId: string,
