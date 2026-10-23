@@ -1,31 +1,39 @@
-import { INFERENCE_LOG_RETENTION_MS } from "@pateat/contracts";
+import { INFERENCE_LOG_RETENTION_MS, PROBLEM_LOG_RETENTION_MS } from "@pateat/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Clock, FileText, ShieldCheck } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { describeError, type ManageClient } from "./api";
 import { Button } from "./button";
 import { formatTime } from "./devices";
+import { PROBLEMS_QUERY_KEY } from "./problems";
 import { ErrorNotice, Line, Lines, PAGE_TITLE_CLASSES, SuccessNotice } from "./ui";
 
 export const REQUEST_LOG_QUERY_KEY = ["request-log"] as const;
 
 const RETENTION_DAYS = INFERENCE_LOG_RETENTION_MS / (24 * 60 * 60 * 1000);
+const PROBLEM_RETENTION_DAYS = PROBLEM_LOG_RETENTION_MS / (24 * 60 * 60 * 1000);
 const requests = (n: number) => `${n} request${n === 1 ? "" : "s"}`;
 const results = (n: number) => `${n} first login result${n === 1 ? "" : "s"}`;
 const logins = (n: number) => `${n} login record${n === 1 ? "" : "s"}`;
-/** The requests, login results and records there are, or `0 requests` when there are none. */
-const held = (counts: { entries: number; outcomes: number; logins: number }) =>
+const problems = (n: number) => `${n} problem line${n === 1 ? "" : "s"}`;
+/**
+ * The requests, login results, records and problem lines there are, or `0 requests` when
+ * there are none.
+ */
+const held = (counts: { entries: number; outcomes: number; logins: number; problems: number }) =>
   new Intl.ListFormat("en", { type: "conjunction" }).format(
     [
       counts.entries ? requests(counts.entries) : "",
       counts.outcomes ? results(counts.outcomes) : "",
       counts.logins ? logins(counts.logins) : "",
+      counts.problems ? problems(counts.problems) : "",
     ].filter(Boolean),
   ) || requests(0);
 
 /**
  * The service's log of the generation and judgement requests it received (ADR 0012), the login
- * result codes (ADR 0019) and login records (ADR 0055) devices sent, and deleting all of it.
+ * result codes (ADR 0019), login records (ADR 0055) and problem lines (ADR 0066)
+ * devices sent, and deleting all of it.
  * Deletion cannot be undone, so it takes a second, explicit confirmation.
  */
 export function RequestLogPage({ client }: { client: ManageClient }) {
@@ -45,6 +53,8 @@ export function RequestLogPage({ client }: { client: ManageClient }) {
     onSettled: () => {
       setConfirming(false);
       void queryClient.invalidateQueries({ queryKey: REQUEST_LOG_QUERY_KEY });
+      // Delete all deletes the problem lines too (ADR 0066).
+      void queryClient.invalidateQueries({ queryKey: PROBLEMS_QUERY_KEY });
     },
   });
   useEffect(() => {
@@ -58,6 +68,7 @@ export function RequestLogPage({ client }: { client: ManageClient }) {
     entries: log.data?.entries ?? 0,
     outcomes: log.data?.outcomes ?? 0,
     logins: log.data?.logins ?? 0,
+    problems: log.data?.problems ?? 0,
   };
   return (
     <section aria-labelledby="request-log-heading" className="space-y-4">
@@ -70,7 +81,9 @@ export function RequestLogPage({ client }: { client: ManageClient }) {
         over a spend limit, is kept with its reason. For the first login with each recipe version,
         it also keeps how the login ended, as a result code without any page text or value. They are
         used to evaluate and improve generation. For every login with a recipe, it keeps a record of
-        how it ended and how long it took, with the site and time, for the dashboard.
+        how it ended and how long it took, with the site and time, for the dashboard. Devices also
+        send the warnings and errors of their logs, shown on the Problems page, which are kept for{" "}
+        {PROBLEM_RETENTION_DAYS} days.
       </p>
       <SuccessNotice
         id="request-log-deleted"
@@ -120,7 +133,10 @@ export function RequestLogPage({ client }: { client: ManageClient }) {
         <Button
           id="request-log-delete"
           variant="danger"
-          disabled={counts.entries + counts.outcomes + counts.logins === 0 || remove.isPending}
+          disabled={
+            counts.entries + counts.outcomes + counts.logins + counts.problems === 0 ||
+            remove.isPending
+          }
           onClick={() => {
             setConfirming(true);
             focusTarget.current = "request-log-confirm";

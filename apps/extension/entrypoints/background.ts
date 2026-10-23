@@ -53,6 +53,7 @@ import {
 import { createLoginGeneration } from "../src/service/generation";
 import { createLoginRecords } from "../src/service/login-records";
 import { createLoginOutcomes } from "../src/service/outcomes";
+import { createProblemReports } from "../src/service/problems";
 import { createRecipeUse } from "../src/service/recipe-use";
 import { createRecipeSync } from "../src/service/recipes";
 import { createServiceRuntime } from "../src/service/runtime";
@@ -88,8 +89,12 @@ export default defineBackground(() => {
     settings: () => settings.read(),
     recipeCache: () => recipeCacheStorage.read(),
     connections: () => connections.service.status(),
+    onProblem: () => problemReports?.schedule(),
   });
   const { logger } = diagnosticsLog;
+  // ADR 0066: warning and error lines go to the paired service; set below, once
+  // the service is.
+  let problemReports: ReturnType<typeof createProblemReports> | undefined;
   const catalog = import.meta.env.MODE === "probe" ? createProbeCatalog() : undefined;
   const cryptoControls = import.meta.env.MODE === "probe" ? createCryptoProbeControls() : undefined;
   const cryptoHost = createBrowserCryptoHost(
@@ -221,6 +226,8 @@ export default defineBackground(() => {
     // Chrome match patterns do not carry ports; site access is granted per host.
     hasSiteAccess: (origin) =>
       browser.permissions.contains({ origins: [`https://${new URL(origin).hostname}/*`] }),
+    // ADR 0066: a new device's lines start at its pairing.
+    onPaired: (connection) => void problemReports?.paired(connection),
   });
   const settingsBaseStorage = createBrowserSettingsBaseStorage();
   const settingsHoldStorage = createBrowserSettingsHoldStorage();
@@ -257,6 +264,15 @@ export default defineBackground(() => {
     build: PATEAT_BUILD_REVISION,
     report: diagnosticsLog.loginRecord,
   });
+  problemReports = createProblemReports({
+    service,
+    transport: serviceTransport,
+    log: logger,
+    build: PATEAT_BUILD_REVISION,
+    report: diagnosticsLog.problemsSent,
+  });
+  // Lines a stopped worker had not sent yet go now.
+  void problemReports.flush();
   // ADR 0058: every login that starts on a recipe revision tells the service it was used.
   const recipeUse = createRecipeUse({
     service,
@@ -273,7 +289,10 @@ export default defineBackground(() => {
     settings: settingsSync,
     report: (outcome, changes) => {
       diagnosticsLog.recipeSync(outcome, changes);
-      if (outcome === "synced") void loginOutcomes.flush();
+      if (outcome === "synced") {
+        void loginOutcomes.flush();
+        void problemReports?.flush();
+      }
     },
   });
   // Workers stop when idle, so the persisted schedule, not each start, paces syncs.

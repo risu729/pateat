@@ -11,6 +11,7 @@ import type { PasskeyCreateReport } from "../passkeys/create";
 import type { PasskeyRequestReport } from "../passkeys/runtime";
 import type { LoginRecordSent } from "../service/login-records";
 import type { LoginOutcomeSent } from "../service/outcomes";
+import type { ProblemsSent } from "../service/problems";
 import type { RecipeUseSent } from "../service/recipe-use";
 import type { RecipeSyncChanges, RecipeSyncOutcome } from "../service/recipes";
 import type { ServiceTiming } from "../service/transport";
@@ -84,6 +85,8 @@ export function createDiagnosticsLog(options: {
   settings(): Promise<{ revision: number; settings: LocalSettings }>;
   recipeCache(): Promise<unknown>;
   connections(): Promise<SetupReply>;
+  /** Told after each `warn` or `error` entry is stored (ADR 0066). */
+  onProblem?: () => void;
   /** For tests: another database and event target than the worker's. */
   databaseName?: string;
   scope?: Pick<typeof globalThis, "addEventListener">;
@@ -93,6 +96,7 @@ export function createDiagnosticsLog(options: {
   );
   const logger = createLogger({
     pseudonym: pseudonyms,
+    ...(options.onProblem ? { onProblem: options.onProblem } : {}),
     ...(options.databaseName ? { databaseName: options.databaseName } : {}),
     build: options.build,
     async knownSites(): Promise<KnownSites> {
@@ -366,6 +370,17 @@ export function createDiagnosticsLog(options: {
               ? "info"
               : "warn",
         },
+      );
+    },
+    /**
+     * Warning and error lines sent to the service (ADR 0066): debug when kept, else
+     * info, never warn, so a failed send does not become a line to send in turn.
+     */
+    problemsSent(sent: ProblemsSent) {
+      void logger.log(
+        "service.problems",
+        { lines: sent.lines, result: sent.result },
+        { level: sent.result === "kept" ? "debug" : "info" },
       );
     },
     /**

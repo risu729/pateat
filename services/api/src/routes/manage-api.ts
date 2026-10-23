@@ -1,11 +1,14 @@
 import {
+  MANAGE_PROBLEMS_LIMIT,
   deviceIdSchema,
   manageDashboardRangeSchema,
   manageModelsWriteSchema,
+  manageProblemSchema,
   manageRecipeRevokeSchema,
   manageSettingsWriteSchema,
   syncRecipeIdSchema,
   type ManageDevices,
+  type ManageProblems,
   type ManageRecipes,
   type ManageRequestLog,
   type ManageRequestLogDeleted,
@@ -17,7 +20,14 @@ import * as v from "valibot";
 import type { ApiEnv } from "../auth";
 import { configOffered, manageModels, readModelCatalog, saveModelConfig } from "../claude/models";
 import { readDashboard } from "../dashboard";
-import { devices, inferenceLog, loginOutcomes, loginTimings, recipeHeads } from "../db/schema";
+import {
+  devices,
+  inferenceLog,
+  loginOutcomes,
+  loginTimings,
+  problemLog,
+  recipeHeads,
+} from "../db/schema";
 import { apiError } from "../http";
 import { findOwner } from "../owners";
 import { readChange, revokeUnusedRecipes, selectHeads, writeRecipe } from "../recipe-store";
@@ -168,13 +178,13 @@ export const manageApiRoutes = new Hono<ApiEnv>()
     },
   )
   // The owner's ADR 0012 request log, the login result codes devices sent (ADR 0019,
-  // amended 2026-10-18) and their login records (ADR 0055): how much they hold, and
-  // deleting all of it. Only these go: recipes, settings, judged pages and the spend the
-  // limits count stay.
+  // amended 2026-10-18), their login records (ADR 0055) and problem lines (proposed ADR
+  // 0066): how much they hold, and deleting all of it. Only these go: recipes, settings,
+  // judged pages and the spend the limits count stay.
   .get("/request-log", async (c) => {
     const ownerId = await findOwner(c.env.DB, c.get("identity"));
     const db = drizzle(c.env.DB);
-    const [[requests], [outcomes], [logins]] = ownerId
+    const [[requests], [outcomes], [logins], [problems]] = ownerId
       ? await db.batch([
           db
             .select({ entries: count(), oldestAt: min(inferenceLog.createdAt) })
@@ -188,27 +198,36 @@ export const manageApiRoutes = new Hono<ApiEnv>()
             .select({ entries: count(), oldestAt: min(loginTimings.createdAt) })
             .from(loginTimings)
             .where(eq(loginTimings.ownerId, ownerId)),
+          db
+            .select({ entries: count(), oldestAt: min(problemLog.createdAt) })
+            .from(problemLog)
+            .where(eq(problemLog.ownerId, ownerId)),
         ])
-      : [[], [], []];
-    const oldest = [requests?.oldestAt, outcomes?.oldestAt, logins?.oldestAt].filter(
-      (at): at is number => typeof at === "number",
-    );
+      : [[], [], [], []];
+    const oldest = [
+      requests?.oldestAt,
+      outcomes?.oldestAt,
+      logins?.oldestAt,
+      problems?.oldestAt,
+    ].filter((at): at is number => typeof at === "number");
     return c.json({
       version: 1,
       entries: requests?.entries ?? 0,
       outcomes: outcomes?.entries ?? 0,
       logins: logins?.entries ?? 0,
+      problems: problems?.entries ?? 0,
       oldestAt: oldest.length ? Math.min(...oldest) : null,
     } satisfies ManageRequestLog);
   })
   .delete("/request-log", async (c) => {
     const ownerId = await findOwner(c.env.DB, c.get("identity"));
     const db = drizzle(c.env.DB);
-    const [requests, outcomes, logins] = ownerId
+    const [requests, outcomes, logins, problems] = ownerId
       ? await db.batch([
           db.delete(inferenceLog).where(eq(inferenceLog.ownerId, ownerId)),
           db.delete(loginOutcomes).where(eq(loginOutcomes.ownerId, ownerId)),
           db.delete(loginTimings).where(eq(loginTimings.ownerId, ownerId)),
+          db.delete(problemLog).where(eq(problemLog.ownerId, ownerId)),
         ])
       : [];
     return c.json({
@@ -216,5 +235,41 @@ export const manageApiRoutes = new Hono<ApiEnv>()
       deleted: requests?.meta.changes ?? 0,
       outcomes: outcomes?.meta.changes ?? 0,
       logins: logins?.meta.changes ?? 0,
+      problems: problems?.meta.changes ?? 0,
     } satisfies ManageRequestLogDeleted);
+  })
+  // The newest problem lines the owner's devices sent (ADR 0066), with each
+  // device's label. A stored line that no longer passes the contract is left out.
+  .get("/problems", async (c) => {
+    const ownerId = await findOwner(c.env.DB, c.get("identity"));
+    const rows = ownerId
+      ? await drizzle(c.env.DB)
+          .select({
+            device: devices.label,
+            extensionBuild: problemLog.extensionBuild,
+            level: problemLog.level,
+            event: problemLog.event,
+            fields: problemLog.fields,
+            loggedAt: problemLog.loggedAt,
+            receivedAt: problemLog.createdAt,
+          })
+          .from(problemLog)
+          .innerJoin(devices, eq(devices.id, problemLog.deviceId))
+          .where(eq(problemLog.ownerId, ownerId))
+          .orderBy(desc(problemLog.createdAt), desc(problemLog.seq))
+          .limit(MANAGE_PROBLEMS_LIMIT)
+      : [];
+    return c.json({
+      version: 1,
+      problems: rows.flatMap((row) => {
+        let fields: unknown;
+        try {
+          fields = JSON.parse(row.fields);
+        } catch {
+          return [];
+        }
+        const parsed = v.safeParse(manageProblemSchema, { ...row, fields });
+        return parsed.success ? [parsed.output] : [];
+      }),
+    } satisfies ManageProblems);
   });

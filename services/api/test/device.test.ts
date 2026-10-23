@@ -147,3 +147,180 @@ describe("device state", () => {
     expect((await get(device)).status).toBe(401);
   });
 });
+
+describe("problem reports (ADR 0066)", () => {
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const LOGGED_AT = Date.UTC(2026, 9, 23, 1, 2, 3);
+  const line = (seq: number, fields: Record<string, unknown> = {}) => ({
+    seq,
+    time: LOGGED_AT,
+    level: "warn",
+    event: "login.attempt",
+    fields: {
+      origin: "https://bank.example",
+      recipe: "gen-0123456789abcdef0123456789abcdef",
+      recipeRevision: 4,
+      state: "blocked",
+      outcome: "target-missing",
+      cause: "step-timeout",
+      settled: false,
+      url: "/[id]/signin",
+      tab: 12,
+      ...fields,
+    },
+  });
+  const report = (...entries: unknown[]) => ({ version: 1, extensionBuild: "1c42ad3", entries });
+  const send = (device: Device | undefined, body: unknown, type = "application/json") =>
+    exports.default.fetch("https://pateat.invalid/v1/device/problems", {
+      method: "POST",
+      headers: {
+        "Content-Type": type,
+        ...(device ? { Authorization: `Bearer ${device.token}` } : {}),
+      },
+      body: typeof body === "string" ? body : JSON.stringify(body),
+    });
+  const stored = async (ownerId: string) =>
+    (
+      await env.DB.prepare(
+        "SELECT device_id, seq, extension_build, level, event, fields, logged_at FROM problem_log WHERE owner_id = ? ORDER BY created_at, device_id, seq",
+      )
+        .bind(ownerId)
+        .all()
+    ).results;
+
+  it("keeps each line once per device, with the build and the device's time", async () => {
+    const device = await owner();
+    const other = await addDevice(device.ownerId);
+    expect((await send(device, report(line(41), line(42)))).status).toBe(204);
+    // A retry repeats a line's seq and changes nothing; another device's seq is its own.
+    expect((await send(device, report(line(42), line(43)))).status).toBe(204);
+    expect((await send(other, report(line(41)))).status).toBe(204);
+    const rows = await stored(device.ownerId);
+    expect(
+      rows.map((row) => `${row["device_id"] === device.deviceId ? "a" : "b"}${row["seq"]}`).sort(),
+    ).toEqual(["a41", "a42", "a43", "b41"]);
+    const kept = rows.find((row) => row["device_id"] === device.deviceId && row["seq"] === 41)!;
+    expect(kept).toMatchObject({
+      extension_build: "1c42ad3",
+      level: "warn",
+      event: "login.attempt",
+      logged_at: LOGGED_AT,
+    });
+    expect(JSON.parse(String(kept["fields"]))).toEqual(line(41).fields);
+  });
+
+  it("keeps the lines that pass beside ones it refuses, as from a newer extension", async () => {
+    const device = await owner();
+    const response = await send(
+      device,
+      report(
+        line(1),
+        { ...line(2), event: "login.later" },
+        line(3, { later: "field" }),
+        { ...line(4), level: "fatal" },
+        "not a line",
+        line(5),
+      ),
+    );
+    expect(response.status).toBe(204);
+    expect((await stored(device.ownerId)).map((row) => row["seq"])).toEqual([1, 5]);
+    // A retry adds nothing, and the refused line stays out.
+    expect((await send(device, report(line(1), line(3, { later: "field" })))).status).toBe(204);
+    expect((await stored(device.ownerId)).map((row) => row["seq"])).toEqual([1, 5]);
+  });
+
+  it("refuses free text, other levels and anything beyond the contract, without echoing it", async () => {
+    const device = await owner();
+    const refused = [
+      report(),
+      report({ ...line(1), level: "info" }),
+      report({ ...line(1), level: "debug" }),
+      report({ ...line(1), message: "extra" }),
+      report(line(1, { reason: "Wrong password for alice@example.com\nTry again" })),
+      report(line(1, { outcome: "パスワード" })),
+      report(line(1, { reason: "wrong password" })),
+      report(line(1, { url: "https://bank.example/cb?code=abc" })),
+      report(line(1, { url: "/u/alice@example.com" })),
+      report(line(1, { origin: "https://bank.example/login" })),
+      report(line(1, { label: "x" })),
+      report(line(1, { item: "item:0123abcd" })),
+      report({ ...line(1), event: "login.unknown" }),
+      report(line(1, { nested: { value: "x" } })),
+      report(line(1, { long: "a".repeat(513) })),
+      report(line(1, { negative: -1 })),
+      report(line(1, { "bad-key": "x" })),
+      report({ ...line(1), event: "Login Attempt" }),
+      report(line(0)),
+      { ...report(line(1)), extensionBuild: "main" },
+      { ...report(line(1)), device: "laptop" },
+      report(...Array.from({ length: 101 }, (_, at) => line(at + 1))),
+    ];
+    for (const body of refused) {
+      // oxlint-disable-next-line no-await-in-loop -- one request at a time
+      const response = await send(device, body);
+      expect(response.status).toBe(400);
+      // oxlint-disable-next-line no-await-in-loop -- one request at a time
+      expect(await response.json()).toEqual({ error: "bad_request" });
+    }
+    expect((await send(device, report(line(1)), "text/plain")).status).toBe(415);
+    const wide = Object.fromEntries(
+      Array.from({ length: 20 }, (_, at) => [`field${at}`, "x".repeat(30)]),
+    );
+    // Within the 128 KiB every device request may carry, past this route's 64 KiB.
+    const huge = report(...Array.from({ length: 100 }, (_, at) => line(at + 1, wide)));
+    expect(JSON.stringify(huge).length).toBeGreaterThan(64 * 1024);
+    expect(JSON.stringify(huge).length).toBeLessThan(128 * 1024);
+    expect((await send(device, huge)).status).toBe(413);
+    expect(await stored(device.ownerId)).toEqual([]);
+  });
+
+  it("refuses a report that would pass the owner's lines for 24 hours, and takes it later", async () => {
+    const device = await owner();
+    const other = await addDevice(device.ownerId);
+    // 1,999 lines from the owner's other device within the last day.
+    await env.DB.prepare(
+      "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 1999) INSERT INTO problem_log (owner_id, device_id, seq, extension_build, level, event, fields, logged_at, created_at) SELECT ?, ?, i, 'development', 'warn', 'login.attempt', '{}', ?, ? FROM n",
+    )
+      .bind(device.ownerId, other.deviceId, Date.now(), Date.now() - 1000)
+      .run();
+    const limited = await send(device, report(line(1), line(2)));
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get("Retry-After")).toBe("3600");
+    expect(await limited.json()).toEqual({ error: "rate_limited" });
+    expect((await send(device, report(line(1)))).status).toBe(204);
+    // A retry of a line already kept adds nothing and is not counted, even at the limit.
+    expect((await send(device, report(line(1)))).status).toBe(204);
+    expect((await send(device, report(line(1), line(2)))).status).toBe(429);
+    // Lines older than a day no longer count.
+    await env.DB.prepare("UPDATE problem_log SET created_at = ? WHERE owner_id = ?")
+      .bind(Date.now() - DAY_MS - 1000, device.ownerId)
+      .run();
+    expect((await send(device, report(line(2), line(3)))).status).toBe(204);
+  });
+
+  it("deletes lines older than 30 days when a report is kept", async () => {
+    const device = await owner();
+    const insert = (seq: number, age: number) =>
+      env.DB.prepare(
+        "INSERT INTO problem_log (owner_id, device_id, seq, extension_build, level, event, fields, logged_at, created_at) VALUES (?, ?, ?, 'development', 'error', 'error.unhandled', '{}', ?, ?)",
+      ).bind(device.ownerId, device.deviceId, seq, Date.now() - age, Date.now() - age);
+    await env.DB.batch([insert(1, 31 * DAY_MS), insert(2, 29 * DAY_MS)]);
+    expect((await send(device, report(line(3)))).status).toBe(204);
+    expect((await stored(device.ownerId)).map((row) => row["seq"])).toEqual([2, 3]);
+  });
+
+  it("requires a live device credential and answers other methods with 405", async () => {
+    expect((await send(undefined, report(line(1)))).status).toBe(401);
+    const device = await owner();
+    const wrong = await exports.default.fetch("https://pateat.invalid/v1/device/problems", {
+      headers: { Authorization: `Bearer ${device.token}` },
+    });
+    expect(wrong.status).toBe(405);
+    expect(wrong.headers.get("Allow")).toBe("POST");
+    await env.DB.prepare("UPDATE devices SET revoked_at = ? WHERE id = ?")
+      .bind(Date.now(), device.deviceId)
+      .run();
+    expect((await send(device, report(line(1)))).status).toBe(401);
+    expect(await stored(device.ownerId)).toEqual([]);
+  });
+});

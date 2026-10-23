@@ -9,6 +9,7 @@ import {
 } from "../../packages/contracts/src/index";
 import { createManageClient, ManageApiError, type ManageClient } from "../../services/api/web/api";
 import { ManageApp } from "../../services/api/web/app";
+import { PROBLEMS_QUERY_KEY } from "../../services/api/web/problems";
 
 // Synthetic devices only; the client is replaced, so nothing leaves the page.
 
@@ -48,6 +49,7 @@ function mockClient(initial = devices()) {
     entries: 3,
     outcomes: 1,
     logins: 12,
+    problems: 0,
     oldestAt: PAIRED,
   };
   return {
@@ -75,20 +77,46 @@ function mockClient(initial = devices()) {
     revokeRecipe: vi.fn<ManageClient["revokeRecipe"]>(),
     requestLog: vi.fn<ManageClient["requestLog"]>(async () => structuredClone(logged)),
     deleteRequestLog: vi.fn<ManageClient["deleteRequestLog"]>(async () => {
-      const { entries: deleted, outcomes, logins } = logged;
-      logged = { version: 1, entries: 0, outcomes: 0, logins: 0, oldestAt: null };
-      return { version: 1, deleted, outcomes, logins };
+      const { entries: deleted, outcomes, logins, problems } = logged;
+      logged = { version: 1, entries: 0, outcomes: 0, logins: 0, problems: 0, oldestAt: null };
+      return { version: 1, deleted, outcomes, logins, problems };
     }),
     models: vi.fn<ManageClient["models"]>(),
     saveModels: vi.fn<ManageClient["saveModels"]>(),
     claude: vi.fn<ManageClient["claude"]>(),
     saveClaude: vi.fn<ManageClient["saveClaude"]>(),
     testClaude: vi.fn<ManageClient["testClaude"]>(),
+    problems: vi.fn<ManageClient["problems"]>(async () => ({
+      version: 1,
+      problems: [
+        {
+          device: "Work laptop",
+          extensionBuild: "1c42ad3",
+          level: "warn",
+          event: "login.attempt",
+          fields: { origin: "https://bank.example", outcome: "target-missing", step: 2 },
+          loggedAt: LAPTOP_USED,
+          receivedAt: LAPTOP_USED,
+        },
+        {
+          device: "",
+          extensionBuild: "development",
+          level: "error",
+          event: "error.unhandled",
+          fields: { name: "TypeError", stack: "background.js:1:2" },
+          loggedAt: PHONE_USED,
+          receivedAt: PHONE_USED,
+        },
+      ],
+    })),
   } satisfies ManageClient;
 }
 
-async function mount(client: ManageClient, path = "/manage") {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+async function mount(
+  client: ManageClient,
+  path = "/manage",
+  queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+) {
   return render(
     <QueryClientProvider client={queryClient}>
       <ManageApp client={client} path={path} />
@@ -105,6 +133,7 @@ test.each([
   ["/manage", "Devices – Pateat"],
   ["/manage/sites", "Sites – Pateat"],
   ["/manage/request-log", "Request log – Pateat"],
+  ["/manage/problems", "Problems – Pateat"],
   ["/manage/sites/https/bank.example", "https://bank.example – Pateat"],
   ["/manage/sites/http/bank.example:8080", "http://bank.example:8080 – Pateat"],
   ["/manage/sites/https/BANK.example", "Pateat"],
@@ -265,6 +294,7 @@ test("names only the login results and records when no request is logged", async
     entries: 0,
     outcomes: 2,
     logins: 1,
+    problems: 0,
     oldestAt: PAIRED,
   });
   await mount(client, "/manage/request-log");
@@ -279,6 +309,63 @@ test("names only the login results and records when no request is logged", async
       page.getByText("Delete all 2 first login results and 1 login record? This cannot be undone."),
     )
     .toBeVisible();
+});
+
+test("counts problem lines and deletes them with the log (ADR 0066)", async () => {
+  const client = mockClient();
+  client.requestLog.mockResolvedValue({
+    version: 1,
+    entries: 0,
+    outcomes: 0,
+    logins: 0,
+    problems: 1,
+    oldestAt: PAIRED,
+  });
+  await mount(client, "/manage/request-log");
+  await expect
+    .element(page.getByText(`1 problem line logged since ${formatted(PAIRED)}.`))
+    .toBeVisible();
+  await expect.element(page.getByRole("button", { name: "Delete all" })).toBeEnabled();
+  // The Problems page read before shows none once they are deleted.
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  queryClient.setQueryData(PROBLEMS_QUERY_KEY, await client.problems());
+  await cleanup();
+  await mount(client, "/manage/request-log", queryClient);
+  await page.getByRole("button", { name: "Delete all" }).click();
+  await page.getByRole("button", { name: "Confirm" }).click();
+  await vi.waitFor(() =>
+    expect(queryClient.getQueryState(PROBLEMS_QUERY_KEY)?.isInvalidated).toBe(true),
+  );
+});
+
+test("lists the problem lines devices sent, newest first (ADR 0066)", async () => {
+  const client = mockClient();
+  await mount(client, "/manage/problems");
+  await expect
+    .element(page.getByRole("link", { name: "Problems" }))
+    .toHaveAttribute("aria-current", "page");
+  const rows = page.getByRole("listitem").filter({ hasText: /login\.attempt|error\.unhandled/ });
+  // Each row reads: event, when, device, build, its fields, and the level.
+  await expect
+    .element(rows.nth(0))
+    .toHaveTextContent(
+      `login.attempt${formatted(LAPTOP_USED)}, Work laptop, 1c42ad3` +
+        "origin=https://bank.example outcome=target-missing step=2warn",
+    );
+  await expect
+    .element(rows.nth(1))
+    .toHaveTextContent(
+      `error.unhandled${formatted(PHONE_USED)}, Unnamed device, development` +
+        "name=TypeError stack=background.js:1:2error",
+    );
+  await expect.element(page.getByText(/^Each line is kept for 30 days/)).toBeVisible();
+});
+
+test("says when no problem line was sent", async () => {
+  const client = mockClient();
+  client.problems.mockResolvedValue({ version: 1, problems: [] });
+  await mount(client, "/manage/problems");
+  await expect.element(page.getByText("No problems were sent.")).toBeVisible();
 });
 
 test("reports a failed deletion and keeps the log shown", async () => {
@@ -326,12 +413,15 @@ test("the client sends same-origin requests and validates answers", async () => 
     redirect: "error",
   });
 
-  fetcher.mockResolvedValueOnce(Response.json({ version: 1, deleted: 2, outcomes: 1, logins: 3 }));
+  fetcher.mockResolvedValueOnce(
+    Response.json({ version: 1, deleted: 2, outcomes: 1, logins: 3, problems: 4 }),
+  );
   expect(await client.deleteRequestLog()).toEqual({
     version: 1,
     deleted: 2,
     outcomes: 1,
     logins: 3,
+    problems: 4,
   });
   expect(fetcher).toHaveBeenLastCalledWith("/manage/api/request-log", {
     method: "DELETE",

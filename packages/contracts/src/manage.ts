@@ -1,6 +1,12 @@
 import * as v from "valibot";
 import { deviceIdSchema } from "./pairing";
 import {
+  problemEventSchema,
+  problemFieldsAllowed,
+  problemFieldsSchema,
+  problemLevelSchema,
+} from "./problems";
+import {
   MAX_SETTINGS_DOCUMENT_BYTES,
   settingsDocumentBytes,
   syncRecipeChangeSchema,
@@ -96,28 +102,57 @@ export const INFERENCE_LOG_RETENTION_MS = 365 * 24 * 60 * 60 * 1000;
  * 2026-10-18 08:05 UTC: once in 30 days), on the service and on each device.
  */
 export const PAGE_SAMPLE_INTERVAL_MS = 30 * 24 * 60 * 60 * 1000;
+/**
+ * How long the service keeps each problem line devices sent (ADR 0066): long enough
+ * to find and fix a failure, shorter than the request log, since it is not for evaluation.
+ */
+export const PROBLEM_LOG_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 const rowCount = v.pipe(v.number(), v.integer(), v.minValue(0));
 /**
  * The owner's request log (ADR 0012): how many requests it holds, how many login result
  * codes devices sent (ADR 0019, amended 2026-10-18), how many login records (ADR 0055),
- * and the oldest row's time of any of them.
+ * how many problem lines (ADR 0066), and the oldest row's time of any of them.
  */
 export const manageRequestLogSchema = v.strictObject({
   version: v.literal(1),
   entries: rowCount,
   outcomes: rowCount,
   logins: rowCount,
+  problems: rowCount,
   oldestAt: v.nullable(timestamp),
 });
 /**
- * Deleting the whole request log: how many requests, login result codes and login records
- * it removed.
+ * Deleting the whole request log: how many requests, login result codes, login records and
+ * problem lines it removed.
  */
 export const manageRequestLogDeletedSchema = v.strictObject({
   version: v.literal(1),
   deleted: rowCount,
   outcomes: rowCount,
   logins: rowCount,
+  problems: rowCount,
+});
+/** Problem lines `/manage/api/problems` lists at most, newest first. */
+export const MANAGE_PROBLEMS_LIMIT = 200;
+/** One problem line a device sent (ADR 0066), with the device's label. */
+export const manageProblemSchema = v.pipe(
+  v.strictObject({
+    /** Empty for a device paired without a label. */
+    device: v.pipe(v.string(), v.maxLength(64)),
+    extensionBuild: v.pipe(v.string(), v.maxLength(40)),
+    level: problemLevelSchema,
+    event: problemEventSchema,
+    fields: problemFieldsSchema,
+    /** When the device wrote it, by its clock. */
+    loggedAt: timestamp,
+    /** When the service received it. */
+    receivedAt: timestamp,
+  }),
+  v.check((problem) => problemFieldsAllowed(problem.event, problem.fields)),
+);
+export const manageProblemsSchema = v.strictObject({
+  version: v.literal(1),
+  problems: v.pipe(v.array(manageProblemSchema), v.maxLength(MANAGE_PROBLEMS_LIMIT)),
 });
 
 /** The periods the dashboard summarizes, ending now. */
@@ -442,6 +477,8 @@ export type ManageUnreadableRecipe = v.InferOutput<typeof manageUnreadableRecipe
 export type ManageRecipes = v.InferOutput<typeof manageRecipesSchema>;
 export type ManageRequestLog = v.InferOutput<typeof manageRequestLogSchema>;
 export type ManageRequestLogDeleted = v.InferOutput<typeof manageRequestLogDeletedSchema>;
+export type ManageProblem = v.InferOutput<typeof manageProblemSchema>;
+export type ManageProblems = v.InferOutput<typeof manageProblemsSchema>;
 export type ManageDashboardRange = v.InferOutput<typeof manageDashboardRangeSchema>;
 export type ManageDurations = v.InferOutput<typeof manageDurationsSchema>;
 export type ManageLoginParts = v.InferOutput<typeof manageLoginPartsSchema>;

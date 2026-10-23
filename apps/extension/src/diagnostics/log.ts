@@ -1,7 +1,14 @@
 // The local diagnostics log (ADR 0019). Only the service worker writes it, one IndexedDB
 // transaction per entry, from decisions it already makes. Every event allowlists its
 // fields by kind; identifiers become pseudonyms and unknown origins never appear in full.
+import {
+  PROBLEM_EVENT_FIELDS,
+  PROBLEM_PAGE_FIELDS,
+  REDACTED_PATH_SEGMENT,
+  type ProblemFieldKind,
+} from "@pateat/contracts";
 import type { IDBPObjectStore } from "idb";
+import { observedPath } from "../observation/path";
 import { isoMinute, isoTime } from "../time";
 import * as v from "valibot";
 import {
@@ -158,6 +165,9 @@ export const LOG_EVENTS = {
     level: "info",
     fields: { recipe: "recipe", recipeRevision: "count", result: "code" },
   },
+  // Warning and error lines sent to the service (ADR 0066). Never `warn`, so a
+  // failed send is not itself a line to send.
+  "service.problems": { level: "info", fields: { lines: "count", result: "code" } },
   "settings.changed": { level: "info", fields: { source: "code", revision: "count" } },
   "login.attempt": {
     level: "info",
@@ -585,6 +595,10 @@ const entrySchema = v.object({
   fields: v.record(v.string(), v.union([v.string(), v.number(), v.boolean()])),
 });
 export type LogEntry = v.InferOutput<typeof entrySchema>;
+/** An entry with its key in the `entries` store. */
+export type KeyedEntry = { key: number; entry: LogEntry };
+/** Problem entries read after a key, and the last key the read looked at. */
+export type ProblemsRead = { entries: KeyedEntry[]; scanned: number };
 
 /** Sites the user configured; only these appear by name in the log. */
 export type KnownSites = {
@@ -603,6 +617,8 @@ export type LoggerDependencies = {
   limits?: { entries: number; problems: number; pruneEvery: number };
   /** {@link DEBUG_STAYS_ON} unless a test says otherwise. */
   debugStaysOn?: boolean;
+  /** Told after each `warn` or `error` entry is stored (ADR 0066). */
+  onProblem?: () => void;
 };
 
 export type LogSummary = {
@@ -620,6 +636,9 @@ const MAX_WINDOWS = 500;
 const OVERFLOW_WINDOW = "overflow";
 const BUILD_KEY = "previous-build";
 const DEBUG_KEY = "debug-until";
+const PROBLEM_CURSOR_KEY = "problem-cursor";
+/** Entries one read of problem entries looks at most, so a long log never holds the queue. */
+const PROBLEM_SCAN_LIMIT = 2_000;
 
 function hostMatches(hostname: string, sites: KnownSites): boolean {
   return sites.hosts.some(
@@ -807,6 +826,12 @@ export function createLogger(deps: LoggerDependencies) {
     const entry: LogEntry = { time: now(), level, event, fields: recorded };
     out[level]("Pateat", event, recorded);
     await write(entry);
+    if (level === "warn" || level === "error")
+      try {
+        deps.onProblem?.();
+      } catch {
+        // Whoever listens never changes the log.
+      }
   }
 
   /** Logs drops not yet counted: for windows that have ended, or for all with `all`. */
@@ -986,6 +1011,41 @@ export function createLogger(deps: LoggerDependencies) {
     });
   }
 
+  /**
+   * Up to `limit` `warn` and `error` entries stored after the key `after`, oldest first,
+   * with their keys, looking at no more than {@link PROBLEM_SCAN_LIMIT} entries; `scanned`
+   * is the last key looked at, or `after` when there was none, so the next read starts
+   * past the `debug` and `info` entries already passed over. Keys count up from the
+   * database's creation, also across a clear.
+   */
+  async function problemsAfter(after: number, limit: number): Promise<ProblemsRead> {
+    const transaction = (await open()).transaction(ENTRIES_STORE);
+    const found: KeyedEntry[] = [];
+    let scanned = after;
+    let cursor = await transaction.store.openCursor(IDBKeyRange.lowerBound(after, true));
+    for (let looked = 0; cursor && found.length < limit && looked < PROBLEM_SCAN_LIMIT;) {
+      looked += 1;
+      scanned = cursor.key;
+      const parsed = v.safeParse(entrySchema, cursor.value);
+      if (parsed.success && (parsed.output.level === "warn" || parsed.output.level === "error"))
+        found.push({ key: cursor.key, entry: parsed.output });
+      // oxlint-disable-next-line no-await-in-loop -- one cursor, one entry at a time
+      cursor = found.length < limit ? await cursor.continue() : null;
+    }
+    await transaction.done;
+    return { entries: found, scanned };
+  }
+
+  /** The newest entry's key, or 0 when there is none. */
+  async function lastKey(): Promise<number> {
+    const transaction = (await open()).transaction(ENTRIES_STORE);
+    const [cursor] = await Promise.all([
+      transaction.store.openCursor(null, "prev"),
+      transaction.done,
+    ]);
+    return cursor?.key ?? 0;
+  }
+
   /** Records the worker start, and an update when the build revision changed. */
   async function started(): Promise<void> {
     await serial(async () => {
@@ -1008,6 +1068,12 @@ export function createLogger(deps: LoggerDependencies) {
     started,
     prune: () => serial(prune),
     entries: () => serial(entries),
+    /** Problem entries to send to the service (ADR 0066). */
+    problemsAfter: (after: number, limit: number) => serial(() => problemsAfter(after, limit)),
+    lastKey: () => serial(lastKey),
+    /** Where sending problem entries got to; kept in `meta`, so a log clear keeps it. */
+    problemCursor: () => serial(() => meta(PROBLEM_CURSOR_KEY, v.unknown())),
+    setProblemCursor: (cursor: unknown) => serial(() => putMeta(PROBLEM_CURSOR_KEY, cursor)),
     /** The log's lines for a bug report. */
     async recent(): Promise<RecentLog> {
       return recentLog(await serial(entries), now());
@@ -1152,6 +1218,87 @@ function exportedFields(entry: LogEntry, substitute?: Substitute): Record<string
         : value;
   }
   return fields;
+}
+
+export type ProblemLine = {
+  level: "warn" | "error";
+  event: LogEventName;
+  time: number;
+  fields: Record<string, FieldValue>;
+};
+
+/**
+ * True for a path segment that holds `@`, as it is or percent-decoded up to three times
+ * as `tokenSegment` decodes: it may be an email address.
+ */
+function emailSegment(segment: string): boolean {
+  let form = segment;
+  for (let round = 0; round < 4; round += 1) {
+    if (form.includes("@")) return true;
+    try {
+      const decoded = decodeURIComponent(form);
+      if (decoded === form) return false;
+      form = decoded;
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
+/**
+ * Whether a line's page is one after a submit, likely signed in, whose path may hold an
+ * account's own identifier: a login watched for its result or settled (`login.attempt`),
+ * a judged page and a signed-in page sample. The log cannot read the vault to hide a
+ * username there, so such a line sends no path.
+ */
+function afterSubmit(entry: LogEntry): boolean {
+  if (entry.event === "recipe.judge" || entry.event === "recipe.sample") return true;
+  return (
+    entry.event === "login.attempt" &&
+    (entry.fields["state"] === "watching" || entry.fields["settled"] === true)
+  );
+}
+
+/**
+ * A stored page path as it leaves in a problem line: without its query's and fragment's
+ * parameter names, each segment that may carry a token or an email address replaced by
+ * `[id]` as in an observation (ADR 0039), and a last segment that a cut at the field limit
+ * may have left partial replaced too.
+ */
+function problemPath(stored: string): string {
+  const path = stored.split(/[?#]/u, 1)[0]!;
+  const segments = observedPath(path).split("/");
+  if (path === stored && stored.length >= MAX_FIELD_LENGTH)
+    segments[segments.length - 1] = REDACTED_PATH_SEGMENT;
+  return segments
+    .map((segment) => (emailSegment(segment) ? REDACTED_PATH_SEGMENT : segment))
+    .join("/");
+}
+
+/**
+ * A `warn` or `error` entry as it is sent to the service (ADR 0066), or nothing
+ * for any other level: the fields a download carries with sites shown that the contract
+ * lets the event carry (`PROBLEM_EVENT_FIELDS`, which leaves out the item and connection
+ * pseudonyms), with a page URL as {@link problemPath}, none for a page after a submit
+ * ({@link afterSubmit}), and no value the log cut. Origins of sites not set up stay
+ * pseudonyms.
+ */
+export function problemLine(entry: LogEntry): ProblemLine | undefined {
+  if (entry.level !== "warn" && entry.level !== "error") return undefined;
+  const kinds: Readonly<Record<string, ProblemFieldKind>> = {
+    ...PROBLEM_PAGE_FIELDS,
+    ...(Object.hasOwn(PROBLEM_EVENT_FIELDS, entry.event) ? PROBLEM_EVENT_FIELDS[entry.event] : {}),
+  };
+  const fields: Record<string, FieldValue> = {};
+  for (const [key, value] of Object.entries(exportedFields(entry))) {
+    const kind = Object.hasOwn(kinds, key) ? kinds[key] : undefined;
+    if (!kind || value === TRUNCATED) continue;
+    if (kind === "path") {
+      if (typeof value === "string" && !afterSubmit(entry)) fields[key] = problemPath(value);
+    } else fields[key] = value;
+  }
+  return { level: entry.level, event: entry.event, time: entry.time, fields };
 }
 
 /**

@@ -13,6 +13,12 @@ export const KEPT_RECIPE_REVISIONS = 10;
 export const RECIPE_IDLE_LIMIT_MS = 90 * 24 * 60 * 60 * 1000;
 /** Unused recipes one check revokes at most; the next check revokes the rest (ADR 0058). */
 export const MAX_IDLE_REVOCATIONS = 50;
+/**
+ * Problem lines an owner's devices may send in any 24 hours (ADR 0066); a device
+ * keeps its local allowance of 1,000 `warn` and `error` lines (ADR 0019), so this is about
+ * two full allowances a day.
+ */
+export const MAX_PROBLEM_LINES_PER_DAY = 2_000;
 
 /**
  * Refuses a request once `binding` has seen too many for the key this request maps to,

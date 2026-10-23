@@ -1,3 +1,4 @@
+import type { ProblemReport } from "@pateat/contracts";
 import { describe, expect, it, vi } from "vitest";
 import {
   DEVICE_TIMEOUT_MS,
@@ -801,6 +802,35 @@ describe("reportUse", () => {
       throw new TypeError("Failed to fetch");
     });
     expect(await send(fetch)).toEqual({ kind: "failed", error: "unreachable" });
+  });
+});
+
+describe("reportProblems (ADR 0066)", () => {
+  const report: ProblemReport = {
+    version: 1,
+    extensionBuild: "1c42ad3",
+    entries: [{ seq: 1, time: 1, level: "warn", event: "vault.sync", fields: {} }],
+  };
+  const send = (fetch: typeof globalThis.fetch) =>
+    createServiceTransport({ fetch }).reportProblems(ORIGIN, CREDENTIAL, report);
+
+  it("posts the lines with the device credential", async () => {
+    const fetch = respond(204);
+    expect(await send(fetch)).toEqual({ kind: "kept" });
+    const [url, init] = fetch.mock.calls[0]!;
+    expect(url).toBe(`${ORIGIN}/v1/device/problems`);
+    expect(init).toMatchObject({ method: "POST", credentials: "omit" });
+    expect(JSON.parse(init!.body as string)).toEqual(report);
+  });
+
+  it("passes on how long a rate limit asks to wait", async () => {
+    expect(
+      await send(respond(429, { error: "rate_limited" }, { headers: { "Retry-After": "3600" } })),
+    ).toEqual({ kind: "failed", error: "rate-limited", retryAfterMs: 3_600_000 });
+    expect(
+      await send(respond(429, { error: "rate_limited" }, { headers: { "Retry-After": "soon" } })),
+    ).toEqual({ kind: "failed", error: "rate-limited" });
+    expect(await send(respond(400, { error: "bad_request" }))).toEqual({ kind: "refused" });
   });
 });
 

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { PROBLEM_EVENT_FIELDS } from "@pateat/contracts";
 import { createDiagnosticsLog } from "./background";
 import {
   DEBUG_LOGGING_MS,
@@ -11,6 +12,7 @@ import {
   TRUNCATED,
   createLogger,
   formatLogExport,
+  problemLine,
   recentLog,
   stackPositions,
   type KnownSites,
@@ -2880,5 +2882,200 @@ describe("unhandled errors", () => {
         `Error: chrome-extension://${EXTENSION}/secret.js:1:2\n    at https://site.example/app.js:3:4`,
       ),
     ).toBeUndefined();
+  });
+});
+
+describe("problem lines (ADR 0066)", () => {
+  it("tells of each stored warning and error only", async () => {
+    const onProblem = vi.fn(() => {
+      throw new Error("listener");
+    });
+    const { logger } = setup({ onProblem, debugStaysOn: true });
+    await logger.enableDebug();
+    await logger.log("login.refused", { origin: "https://bank.example", reason: "no-account" });
+    await logger.log("runtime.started", { build: "1c42ad3" });
+    expect(onProblem).not.toHaveBeenCalled();
+    await logger.log("login.exception", { origin: "https://bank.example", name: "TypeError" });
+    await logger.log("error.unhandled", { source: "error", name: "Error" });
+    // A listener that throws changes nothing.
+    expect(onProblem).toHaveBeenCalledTimes(2);
+    expect((await logger.entries()).map((entry) => entry.event)).toContain("error.unhandled");
+  });
+
+  it("reads warnings and errors after a key, oldest first, and keeps its cursor across a clear", async () => {
+    const { logger } = setup();
+    expect(await logger.lastKey()).toBe(0);
+    expect(await logger.problemsAfter(0, 10)).toEqual({ entries: [], scanned: 0 });
+    await logger.log("login.exception", { origin: "https://bank.example", name: "TypeError" });
+    await logger.log("login.refused", { origin: "https://bank.example", reason: "no-account" });
+    await logger.log(
+      "vault.sync",
+      { connection: "raw-connection", outcome: "unreachable" },
+      { level: "warn" },
+    );
+    await logger.log("error.unhandled", { source: "error", name: "Error" });
+    await logger.log("login.refused", { origin: "https://bank.example", reason: "no-account" });
+    const all = await logger.problemsAfter(0, 10);
+    expect(all.entries.map(({ entry }) => entry.event)).toEqual([
+      "login.exception",
+      "vault.sync",
+      "error.unhandled",
+    ]);
+    const keys = all.entries.map(({ key }) => key);
+    expect(keys).toEqual([...keys].sort((a, b) => a - b));
+    // The read looked at the `info` entry after the last warning too.
+    expect(all.scanned).toBe(await logger.lastKey());
+    expect(all.scanned).toBeGreaterThan(keys[2]!);
+    // A read that stops at its limit looked no further than its last entry.
+    expect(await logger.problemsAfter(keys[0]!, 1)).toMatchObject({
+      entries: [{ key: keys[1] }],
+      scanned: keys[1],
+    });
+    expect(await logger.problemsAfter(all.scanned, 10)).toEqual({
+      entries: [],
+      scanned: all.scanned,
+    });
+
+    await logger.setProblemCursor({ service: "https://pateat.example", deviceId: "d", after: 4 });
+    await logger.clear();
+    expect(await logger.problemCursor()).toEqual({
+      service: "https://pateat.example",
+      deviceId: "d",
+      after: 4,
+    });
+    // Keys keep counting up after a clear, so the cursor never skips a new entry.
+    await logger.log("error.unhandled", { source: "error", name: "Error" });
+    const [after] = (await logger.problemsAfter(keys[2]!, 10)).entries;
+    expect(after?.key).toBeGreaterThan(keys[2]!);
+  });
+
+  it("lets only codes, counts, recipe IDs, known origins and redacted paths leave", async () => {
+    const { logger, pseudonym } = setup();
+    await logger.log(
+      "login.attempt",
+      {
+        origin: "https://bank.example",
+        recipe: "gen-0123456789abcdef0123456789abcdef",
+        recipeRevision: 2,
+        state: "blocked",
+        outcome: "target-missing",
+        url: "https://bank.example/u/aus1a2b3c4d5e6f7g8h9/alice@example.com/b%2540c.example/login?user=alice@example.com#/step?code=1",
+      },
+      { level: "warn", source: { tabId: 9, origin: "https://bank.example" } },
+    );
+    await logger.log("login.start", {
+      origin: "https://shop.example",
+      item: "raw-item-id",
+      url: "https://shop.example/login",
+    });
+    await logger.log(
+      "vault.state",
+      { connection: "raw-connection-id", state: "unavailable" },
+      { level: "warn" },
+    );
+    await logger.log(
+      "login.popup",
+      { origin: "https://shop.example", choice: "none", url: "https://shop.example/signin" },
+      { level: "warn" },
+    );
+    const entries = await logger.entries();
+    const lines = entries.map(problemLine);
+    expect(lines[0]).toEqual({
+      level: "warn",
+      event: "login.attempt",
+      time: entries[0]!.time,
+      fields: {
+        origin: "https://bank.example",
+        recipe: "gen-0123456789abcdef0123456789abcdef",
+        recipeRevision: 2,
+        state: "blocked",
+        outcome: "target-missing",
+        // The token, the email address and the doubly encoded one become `[id]`.
+        url: "/u/[id]/[id]/[id]/login",
+        tab: 9,
+      },
+    });
+    // An `info` entry never leaves.
+    expect(lines[1]).toBeUndefined();
+    // No vault pseudonym leaves.
+    expect(lines[2]?.fields).toEqual({ state: "unavailable" });
+    // A site not set up stays a pseudonym, and gets no path.
+    expect(lines[3]?.fields).toEqual({
+      origin: `origin:${await pseudonym("origin", "https://shop.example", 8)}`,
+      choice: "none",
+    });
+    expect(JSON.stringify(lines)).not.toMatch(/alice|code=|user=|raw-|b%25/u);
+  });
+
+  it("sends no path of a page after a submit, nor a cut value", async () => {
+    const { logger } = setup();
+    const page = { origin: "https://bank.example", url: "https://bank.example/users/alice/home" };
+    await logger.log("login.attempt", { ...page, state: "watching" }, { level: "warn" });
+    await logger.log("login.attempt", { ...page, state: "unknown", settled: true });
+    await logger.log("recipe.judge", { ...page, verdict: "unclear", watched: true });
+    await logger.log("recipe.sample", { ...page, outcome: "failed" }, { level: "warn" });
+    await logger.log("login.attempt", { ...page, state: "blocked" });
+    await logger.log("login.attempt", {
+      origin: "https://bank.example",
+      state: "blocked",
+      reason: "x".repeat(600),
+      url: `https://bank.example/${"a/".repeat(300)}partial`,
+    });
+    const lines = (await logger.entries()).map((entry) => problemLine({ ...entry, level: "warn" }));
+    for (const line of lines.slice(0, 4)) expect(line?.fields).not.toHaveProperty("url");
+    expect(lines[4]?.fields["url"]).toBe("/users/alice/home");
+    // A path cut at the field limit loses its last, maybe partial, segment.
+    const cut = lines[5]?.fields["url"];
+    expect(cut).toMatch(/^\/(?:a\/)+\[id\]$/u);
+    expect(lines[5]?.fields).not.toHaveProperty("reason");
+  });
+
+  it("carries only what the contract lets each event carry", () => {
+    // Each log event and its fields, less vault pseudonyms and with a URL as a path, is
+    // what `PROBLEM_EVENT_FIELDS` lists, so the contract refuses nothing the log keeps.
+    const fromLog = Object.fromEntries(
+      Object.entries(LOG_EVENTS).map(([event, definition]) => [
+        event,
+        Object.fromEntries(
+          Object.entries(definition.fields as Record<string, string>)
+            .filter(([, kind]) => kind !== "item" && kind !== "connection")
+            .map(([field, kind]) => [field, kind === "url" ? "path" : kind]),
+        ),
+      ]),
+    );
+    expect(fromLog).toEqual(PROBLEM_EVENT_FIELDS);
+  });
+
+  it("logs a send at debug when kept and at info otherwise, never as a problem", async () => {
+    const onProblem = vi.fn();
+    const log = createDiagnosticsLog({
+      build: { version: "0.1.0", revision: "1c42ad3" },
+      settings: async () => {
+        throw new Error("not needed");
+      },
+      recipeCache: async () => undefined,
+      connections: async () => ({ ok: true, kind: "status", connections: [] }),
+      onProblem,
+      databaseName: `log-test-${crypto.randomUUID()}`,
+      scope: { addEventListener: () => undefined } as never,
+    });
+    for (const level of ["debug", "info", "warn"] as const)
+      vi.spyOn(console, level).mockImplementation(() => undefined);
+    await log.logger.enableDebug();
+    log.problemsSent({ lines: 3, result: "kept" });
+    log.problemsSent({ lines: 2, result: "failed:unreachable" });
+    log.problemsSent({ lines: 1, result: "refused" });
+    await vi.waitFor(async () =>
+      expect(
+        (await log.logger.entries())
+          .filter((entry) => entry.event === "service.problems")
+          .map(({ level, fields }) => [level, fields["result"]]),
+      ).toEqual([
+        ["debug", "kept"],
+        ["info", "failed:unreachable"],
+        ["info", "refused"],
+      ]),
+    );
+    expect(onProblem).not.toHaveBeenCalled();
   });
 });

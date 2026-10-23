@@ -1944,6 +1944,7 @@ be told apart
 | `service.outcome` | info for `kept` and `failed:unreachable`, else warn | recipe ID and revision (`recipeRevision`), the chooser branch, and the result of one [first login result](#first-login-results-on-the-service) request: `kept`, `refused`, `rejected` or `failed:<code>` |
 | `service.login` | info for `kept`, `refused` and `failed:unreachable`, else warn | recipe ID and revision (`recipeRevision`), the chooser branch, and the result of one [login record](#login-records-on-the-service) request: `kept`, `refused`, `rejected` or `failed:<code>`, or `failed:invalid-record` for a record the contract refuses, which is not sent |
 | `service.use` | debug for `kept` and `refused`, info for `failed:unreachable`, else warn | recipe ID and revision (`recipeRevision`) and the result of one [recipe use](#recipe-use-on-the-service) request: `kept`, `refused` (a 404, as for a recipe revoked meanwhile), `rejected` or `failed:<code>` |
+| `service.problems` | debug for `kept`, else info, never warn | the lines (`lines`) and result of one [problem lines](#problem-lines-on-the-service) request (ADR 0066): `kept`, `refused`, `rejected` or `failed:<code>` |
 | `settings.changed` | info | `synced` (a settings sync wrote local settings) or `saved` (the settings page); the settings revision when the entry is written. Running logins and passkey requests stop; a watched login stops only if the new settings no longer allow its account |
 | `login.attempt` | debug when a new page resumes the attempt without changing its state or outcome; otherwise info for `authenticated` and `retryable`, for a route change and for the end of a fill-only login after a logout, warn for other `blocked`, for `watching` and when the result settles as unknown (`unknown-submit`, marked `settled`), so a login that did not finish counts as a warning, info for `document-gone` with a reason other than `no-receiver` and for `captcha-shown`, else debug | origin, recipe ID and revision (`recipeRevision`), route and `password` variant, state, step, step count, the current step's kind (`fill`, `click`, `wait`, `assert`) and effect (`prepare`, `advance`, `submit`), the entered handler the step belongs to, outcome (`challenge-abandoned` or `watch-abandoned` when a watched login's first step showed again before it signed in, [ADR 0027](adr/0027-per-account-login-routes.md#watching-after-a-challenge)); for `policy-changed`, its cause and a refused plan's reason; else `fill-only` as the reason for a login that only fills the form after a logout (ADR 0021 D); `routeChange` when the login changed route ([ADR 0034](adr/0034-answer-page-passkey-requests.md)): `page-request` (to the `passkey` route, because the page asked for a passkey), or back to the `password` route as `request-missing`, `answer-failed`, `sign-in-rejected` or `sign-in-shown`; `stop` (`password`) on every entry of a login that stops before its item's missing password, also one whose stop lies just past its route's last step, and `password-empty` as the reason when it ends `challenge` at that stop, or `password-empty:<why>` (such as `password-empty:fills-lacking`) when a continuation of a stop past the plan's last step could not take the stop over ([ADR 0036](adr/0036-passkey-after-the-identifier.md)); the item's lack of a password shows as the `no-route` detail does, never a value. A result that settles as unknown (`unknown-submit`) on a page that still shows a sign-in element of the route, with no failure that acted (S1, [ADR 0029](adr/0029-local-sign-in-state.md)), names `sign-in-shown` as its `cause`. A login that failed or was cancelled names its `cause` when one is known (a plain wait timeout or a cancel without a reason has none): the step's elements did not show in time (`elements-timeout`), a code page neither submitted the code nor took the click (`code-not-submitted`), no operation could be built (`no-operation`), the login's item could not answer the page's passkey request (`answer-failed`), the operation no longer validated (`operation-invalid`), a field had no vault binding (`slot-unbound`), the page did not answer or its answer failed its check (`no-answer`), a code page said it submitted the code itself but no check confirmed it (`page-submitted`), the page showed a CAPTCHA, so the click was left to the person and the attempt waits in `awaiting-result` (`captcha-shown`), the document stopped answering, as when a submit replaced it, so the attempt waits in `reconciling` for the next document to resume it (`document-gone`, with what the browser said as the reason: `no-receiver` when no listener was left or the page went into the back/forward cache, logged at debug as a submit's usual navigation, else `port-closed` when the listener did not answer or `send-failed`, logged at info as they may hide a fault), or the page's own reason: the worker did not authorize the step (`not-authorized`), the document was cancelled (`document-cancelled`), the operation was used (`operation-used`) or expired (`operation-expired`), the page moved to another path (`page-changed`, also with a `timeout` outcome when the wait ended on another path), a field changed under the fill (`field-changed`), the step threw (`threw`), the form was replaced (`form-replaced`), the target is missing or not writable, or a `password` handler's button no longer names the password at the press ([ADR 0048](adr/0048-password-method-button.md)) (`target-missing`), the form changed before a click (`form-changed`), an `assert` did not hold (`assert-failed`), the step was sent values it does not fill (`unexpected-values`), two of its fields name the same input (`fields-shared`), its fields are in different forms (`fields-split`), an input refused its secret (`secret-refused`), the page's inputs have no value setter (`unsupported-input`), a code field's submission watch could not start (`code-watch-failed`), the form or the clicked button would send the form off the document's origin to a destination the background did not allow (`form-off-origin`), or the background could not decide that now (`form-destination-unchecked`, [ADR 0051](adr/0051-form-destinations-by-item-uri-match.md)); `unconfirmed` for an undecided completion without a confirmed sign-in (ADR 0029); on the entry where a login ends signed in or blocked (a watched login when its watch ends), how long it took: `totalMs`, `serviceMs`, `networkMs`, `personMs`, `pageMs` and `otherMs` ([timing](#request-and-login-timing)) |
 | `login.handler` | info | origin, recipe ID and revision (`recipeRevision`), handler index, kind (`passkey`, `password` or `totp`), step count; `entered`, `shown-again` (left to the person after this login ran it), `missing-fact` (the item lacks what the handler needs, including a `totp` handler's code field: the built-in TOTP field, or the flagged Text or Hidden custom field a saved binding or the default names for `totp`), `code-used` (a `totp` handler in a login that already types a TOTP code) or `no-room` (the attempt's step or submission budget is spent) |
@@ -2149,6 +2150,33 @@ login ended, a repeat report sends none, and a failed send is not retried or sto
 each send logs a value-free `service.login` line, and a record the contract refuses,
 such as one with a build it does not accept, is not sent and logs
 `failed:invalid-record` instead. Logs never go from the service to a device.
+
+### Problem lines on the service
+
+Status: the owner's decision of 2026-10-23 (12:28 UTC,
+[ADR 0066](adr/0066-problem-lines-sent-to-the-service.md)); implemented and tested
+locally, not deployed. The worker
+(`apps/extension/src/service/problems.ts`) sends the local log's `warn` and `error`
+entries to `POST /v1/device/problems`, oldest first and each once, 5 seconds after such
+an entry is stored, at worker start and after a successful recipe sync: at most 50 lines
+and 32 KiB a request and 4 requests a run. Each line is the event, level, device time
+and the fields `problemLine` lets leave: those a log download carries with sites shown
+that the contract's `PROBLEM_EVENT_FIELDS` lists for the event (the log's allowlist less
+the item and connection pseudonyms; a test holds the two equal), with a page URL as its
+path alone, token-like and email-like segments as `[id]`, and no path at all for a page
+after a submit (a watched or settled `login.attempt`, `recipe.judge`, `recipe.sample`).
+A line identical to the last one sent less than an hour before it is left out. A cursor
+in the diagnostics database's `meta` store, per service and device, holds the last key
+sent or passed over, the failures in a row, when the next run may send and the last line
+sent; pairing starts it after the newest entry. A failed request keeps the lines and
+holds off runs from 1 minute, doubling to an hour, or as long as a 429's `Retry-After`
+asks (at most an hour), across worker restarts; a refused batch is skipped. Each request
+logs `service.problems` at `debug` or `info`, never `warn`. The service checks each
+line on its own, each field against the event's kinds, leaves out a line that does not
+pass and keeps the others, so a newer extension loses only the lines an older service
+does not know; it keeps one `problem_log` row per line for 30 days (at
+most 2,000 new lines per owner in 24 hours), lists the newest on `/manage/problems` and
+deletes them with the request log.
 
 ### Recipe use on the service
 
@@ -3031,7 +3059,9 @@ sync, pairing and device management routes and the recipe generation routes of
 keeps the result codes devices send for the first login of each recipe revision
 ([first login results](#first-login-results-on-the-service)) in `login_outcomes` and a
 record of every login ([login records](#login-records-on-the-service)) in
-`login_timings`, as described in [its README](../services/api/README.md).
+`login_timings`, and devices' warning and error log lines
+([problem lines](#problem-lines-on-the-service)) in `problem_log`, as described in
+[its README](../services/api/README.md).
 
 Initial human service authentication uses Cloudflare Access, validated through a
 supported integration or verified JWT, not an untrusted email header. Access-free
