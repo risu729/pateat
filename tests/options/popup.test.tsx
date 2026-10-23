@@ -576,6 +576,30 @@ test("a change saved elsewhere first is reloaded instead of overwritten", async 
   ]);
 });
 
+test("a private window says automatic login is off there and links to the setting (ADR 0062)", async () => {
+  const { client } = store();
+  const choices = onPage({ recipe: "page" });
+  const host = await mount(client, "https://bank.example/login", choices, true);
+  await expect.element(page.getByText("Automatic login is off in private windows")).toBeVisible();
+  // Neither a pause nor Resume is offered; the setting changes it.
+  expect(page.getByRole("group", { name: "Pause automatic login" }).query()).toBeNull();
+  expect(page.getByRole("button", { name: "Resume" }).query()).toBeNull();
+  await userEvent.click(
+    page.getByRole("link", { name: "Change automatic login in private windows in settings" }),
+  );
+  expect(host.openSettings).toHaveBeenCalledWith("private-windows");
+  expect(choices.pause).not.toHaveBeenCalled();
+});
+
+test("a private window offers the pause once automatic login is on there (ADR 0062)", async () => {
+  const settings = createDefaultSettings();
+  settings.loginInPrivateWindows = true;
+  const { client } = store(saved(0, settings));
+  await mount(client, "https://bank.example/login", onPage({ recipe: "page" }), true);
+  await expect.element(page.getByRole("group", { name: "Pause automatic login" })).toBeVisible();
+  expect(page.getByText("Automatic login is off in private windows").query()).toBeNull();
+});
+
 test("settings that cannot be loaded change nothing", async () => {
   const { client } = store();
   client.getSettings.mockResolvedValue({

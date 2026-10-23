@@ -173,6 +173,7 @@ import {
   LOGIN_PAUSES_KEY,
   pauseSite,
   pausedByRule,
+  pausedInPrivate,
   type LoginPauses,
   type PauseLength,
   type PauseState,
@@ -191,7 +192,7 @@ import {
 } from "./sign-in-state";
 import { judgedCompletionResult, settleCompletion, undecidedCandidate } from "./completion-policy";
 import type { AlertMiss } from "../page/sign-in-state";
-import type { LoginSites } from "./sites";
+import type { LoginSites, PausingSettings } from "./sites";
 import { linkRefusal, namesReturnPath, type OnSite } from "./entry";
 import type { ConditionalDecision, PasskeyItem } from "../passkeys/runtime";
 import { passkeyOrigin, passkeyScriptsRun } from "../passkeys/rp-id";
@@ -744,6 +745,8 @@ type ParkedRequest = {
   tabId: number;
   origin: string;
   documentId: string;
+  /** Whether its tab is incognito, as its sender or the tab says; absent when not known. */
+  incognito?: boolean;
   since: number;
   /** The login of its document was seen running, so its end decides the request. */
   during?: true;
@@ -2037,14 +2040,31 @@ export function createLoginRuntime(
     incognito?: boolean | undefined;
   }) => pauses.until([live.url, live.topUrl], live.incognito).catch(() => undefined);
   /**
-   * The saved exclusion rules, read as document admission reads them, before any recipe or
-   * vault access; undefined when they cannot be read, or without site admission.
+   * What of the saved settings pauses automatic login, read as document admission reads
+   * them, before any recipe or vault access; undefined when they cannot be read, or without
+   * site admission.
    */
-  const exclusionRules = () => sites?.rules().catch(() => undefined) ?? Promise.resolve(undefined);
+  const pausingSettings = () =>
+    sites?.pausing().catch(() => undefined) ?? Promise.resolve(undefined);
   /**
-   * What pauses automatic login of a document, if anything (ADR 0062): an exclusion rule of
-   * the settings covering its site or its tab's, which holds until turned back on, else a
-   * pause of a chosen length. Settings or pauses that cannot be read count as none.
+   * What of `policy` pauses a document (ADR 0062): automatic login being off in private
+   * windows, for a page of one, else an exclusion rule covering its site or its tab's.
+   */
+  const settingsPause = (
+    policy: PausingSettings | undefined,
+    live: { url: string; topUrl?: string | undefined; incognito?: boolean | undefined },
+  ): PauseState | undefined => {
+    if (!policy) return undefined;
+    if (pausedInPrivate(policy, live.incognito)) return { private: true };
+    return [live.url, live.topUrl].some((page) => page !== undefined && pausedByRule(policy, page))
+      ? { rule: true }
+      : undefined;
+  };
+  /**
+   * What pauses automatic login of a document, if anything (ADR 0062): automatic login
+   * being off in private windows, or an exclusion rule of the settings covering its site or
+   * its tab's, both until changed in the settings, else a pause of a chosen length. Settings
+   * or pauses that cannot be read count as none.
    */
   const pauseOf = async (live: {
     url: string;
@@ -2052,15 +2072,8 @@ export function createLoginRuntime(
     incognito?: boolean | undefined;
   }): Promise<PauseState | undefined> => {
     // Both are read at once, so the pause costs a request no more time than before.
-    const [excludedSites, until] = await Promise.all([exclusionRules(), pausedUntil(live)]);
-    if (
-      excludedSites &&
-      [live.url, live.topUrl].some(
-        (page) => page !== undefined && pausedByRule({ excludedSites }, page),
-      )
-    )
-      return { rule: true };
-    return until === undefined ? undefined : { until };
+    const [policy, until] = await Promise.all([pausingSettings(), pausedUntil(live)]);
+    return settingsPause(policy, live) ?? (until === undefined ? undefined : { until });
   };
   /** Spins the tab's badge from a model request's `sent` until `stop`, once the request returns. */
   function spinning(tabId: number) {
@@ -10922,55 +10935,61 @@ export function createLoginRuntime(
     void choiceDefaults();
     void rulesChanged(stopped).catch(() => undefined);
   }
-  /** The exclusion rules last applied (ADR 0062), so a settings change can tell what moved. */
-  let appliedRules: LocalSettings["excludedSites"] | undefined;
-  const rulesRead = (async () => {
-    appliedRules ??= await exclusionRules();
+  /**
+   * The pausing settings last applied (ADR 0062): the exclusion rules and automatic login
+   * in private windows, so a settings change can tell what moved.
+   */
+  let appliedPolicy: PausingSettings | undefined;
+  const policyRead = (async () => {
+    appliedPolicy ??= await pausingSettings();
   })();
   /**
-   * Applies changed exclusion rules, which pause automatic login until turned back on, as
-   * the popup's pause and resume apply a pause (ADR 0062): every tab's badge shows its page's
-   * pause, waiting conditional passkey requests of a page a rule now pauses go to the
-   * browser, and the tabs of a login that the settings change stopped on such a page
-   * announce again, so they ask as paused pages. A page refused as paused, or a choice
-   * offered because of a pause, that only a removed rule paused announces again, so it logs
-   * in at once; one a running pause still covers stays.
+   * Applies changed pausing settings, exclusion rules or automatic login in private
+   * windows, as the popup's pause and resume apply a pause (ADR 0062): every tab's badge
+   * shows its page's pause, waiting conditional passkey requests of a page the settings now
+   * pause go to the browser, and the tabs of a login that the settings change stopped on
+   * such a page announce again, so they ask as paused pages. A page refused as paused, or a
+   * choice offered because of a pause, that only the old settings paused announces again,
+   * so it logs in at once; one a running pause still covers stays.
    */
   async function rulesChanged(stopped: ReadonlySet<number>): Promise<void> {
     await sessionLoaded;
-    await rulesRead;
-    const after = await exclusionRules();
+    await policyRead;
+    const after = await pausingSettings();
     if (!after) return;
-    const before = appliedRules;
-    appliedRules = after;
+    const before = appliedPolicy;
+    appliedPolicy = after;
     if (before !== undefined && JSON.stringify(before) === JSON.stringify(after)) return;
-    const was = (page: string | undefined) =>
-      before !== undefined && page !== undefined && pausedByRule({ excludedSites: before }, page);
+    const was = (page: {
+      url: string;
+      topUrl?: string | undefined;
+      incognito?: boolean | undefined;
+    }) => settingsPause(before, page) !== undefined;
     const tabs = await browser.tabs.query({}).catch(() => []);
     await Promise.all(tabs.map((tab) => showTabPause(tab).catch(() => undefined)));
     const incognitoOf = new Map(tabs.map((tab) => [tab.id, tab.incognito]));
     const announce = new Set<number>();
     for (const parked of [...parkedRequests])
-      if (pausedByRule({ excludedSites: after }, parked.origin))
+      if (
+        settingsPause(after, {
+          url: parked.origin,
+          incognito: parked.incognito ?? incognitoOf.get(parked.tabId),
+        })
+      )
         parked.settle({ kind: "delegate", reason: "paused" });
     reviewRequests();
     for (const live of documents.values()) {
       // eslint-disable-next-line no-await-in-loop
       const now = await pauseOf(live);
       if (now && stopped.has(live.document.tabId)) announce.add(live.document.tabId);
-      else if (!now && live.reason === "paused" && (was(live.url) || was(live.topUrl)))
-        announce.add(live.document.tabId);
+      else if (!now && live.reason === "paused" && was(live)) announce.add(live.document.tabId);
     }
     for (const [tabId, waiting] of [...pending]) {
       if (!waiting.paused) continue;
       const live = documents.get(frameKey(waiting.document));
       const page = live ?? { url: waiting.document.origin, incognito: incognitoOf.get(tabId) };
       // eslint-disable-next-line no-await-in-loop
-      if (
-        !(await pauseOf(page)) &&
-        (was(page.url) || was(live?.topUrl)) &&
-        pending.get(tabId) === waiting
-      ) {
+      if (!(await pauseOf(page)) && was(page) && pending.get(tabId) === waiting) {
         clearChoice(tabId);
         announce.add(tabId);
       }
@@ -11781,6 +11800,7 @@ export function createLoginRuntime(
         tabId: input.tabId,
         origin: input.origin,
         documentId: input.documentId,
+        ...(incognito === undefined ? {} : { incognito }),
         since: Date.now(),
         settle(decision) {
           if (!parkedRequests.delete(parked)) return false;

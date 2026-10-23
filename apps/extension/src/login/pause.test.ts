@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { localClock } from "../time";
-import { createLoginPauses, PAUSE_LENGTHS, pausedByRule, pauseSite } from "./pause";
+import {
+  createLoginPauses,
+  PAUSE_LENGTHS,
+  pausedByRule,
+  pausedInPrivate,
+  pauseSite,
+} from "./pause";
 
 function memory(initial?: unknown) {
   const box = { value: initial, writes: 0, fail: false, unreadable: 0 };
@@ -43,6 +49,16 @@ describe("pausedByRule", () => {
     expect(pausedByRule(settings, "https://example.net/")).toBe(false);
     // A page Pateat does not run on is not a paused site.
     expect(pausedByRule(settings, "chrome://newtab/")).toBe(false);
+  });
+});
+
+describe("pausedInPrivate", () => {
+  it("pauses private windows only, until automatic login is turned on there", () => {
+    expect(pausedInPrivate({}, true)).toBe(true);
+    expect(pausedInPrivate({}, false)).toBe(false);
+    // A window whose kind is not known is not counted as private.
+    expect(pausedInPrivate({}, undefined)).toBe(false);
+    expect(pausedInPrivate({ loginInPrivateWindows: true }, true)).toBe(false);
   });
 });
 

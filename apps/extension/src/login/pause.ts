@@ -43,7 +43,12 @@ export type PauseState =
   /** A pause of a length the person chose, until then, in epoch milliseconds. */
   | { readonly until: number }
   /** An exclusion rule of the settings covers the site: paused until turned back on. */
-  | { readonly rule: true };
+  | { readonly rule: true }
+  /**
+   * The page is in a private window, where automatic login is off until the setting is
+   * turned on (ADR 0062).
+   */
+  | { readonly private: true };
 
 /**
  * Whether an exclusion rule of the settings covers the page, which pauses automatic login
@@ -51,6 +56,17 @@ export type PauseState =
  */
 export function pausedByRule(settings: Pick<LocalSettings, "excludedSites">, url: string): boolean {
   return isSupportedSite(url) && isSiteExcluded(settings, url);
+}
+
+/**
+ * Whether a page of a private window is paused because automatic login is off in private
+ * windows, the default (ADR 0062). A window whose kind is not known is not counted.
+ */
+export function pausedInPrivate(
+  settings: Pick<LocalSettings, "loginInPrivateWindows">,
+  incognito: boolean | undefined,
+): boolean {
+  return incognito === true && settings.loginInPrivateWindows !== true;
 }
 
 export type LoginPauses = ReturnType<typeof createLoginPauses>;

@@ -487,6 +487,9 @@ function harness(
     ],
     excludedSites: [],
     siteDefaults: [{ origin, provider: "bitwarden", userId, itemId }],
+    // Automatic login runs in private windows too, so the tests of incognito tabs see a
+    // login; `privateOff` turns it off, the default (ADR 0062).
+    loginInPrivateWindows: true,
     bindings: [savedBinding],
     ...overrides,
   };
@@ -26422,18 +26425,17 @@ describe("pausing automatic login of a site (ADR 0062)", () => {
     (fake.state.storage["pateat.login-attempts.v6"] ?? []) as Record<string, unknown>[];
   const executes = () => fake.state.messages.filter((entry) => entry.type === "login.execute");
   /** A runtime whose reports and badge the test reads. */
-  const paused = (live: Parameters<typeof harness>[1] = {}) => {
+  const paused = (
+    live: Parameters<typeof harness>[1] = {},
+    overrides: Parameters<typeof harness>[0] = {},
+  ) => {
     const reports: LoginReport[] = [];
-    const h = harness(
-      {},
-      {
-        ...live,
-        report: (entry) => reports.push(entry),
-        badge:
-          live.badge ??
-          createLoginBadge({ setBadge: setActionBadge, storage: memoryBadgeStorage() }),
-      },
-    );
+    const h = harness(overrides, {
+      ...live,
+      report: (entry) => reports.push(entry),
+      badge:
+        live.badge ?? createLoginBadge({ setBadge: setActionBadge, storage: memoryBadgeStorage() }),
+    });
     const refused = () => reports.filter((entry) => entry.type === "refused");
     return { h, reports, refused };
   };
@@ -26883,6 +26885,89 @@ describe("pausing automatic login of a site (ADR 0062)", () => {
     h.login.settingsChanged("saved");
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(fake.state.reconnects).toEqual([]);
+  });
+
+  /** A runtime of the default settings, where automatic login is off in private windows. */
+  const privateOff = () =>
+    paused({}, { loginInPrivateWindows: undefined } as Parameters<typeof harness>[0]);
+  const PRIVATE_TITLE = "Pateat: automatic login is off in private windows.";
+
+  it("pauses every site of a private window while automatic login is off there, not a normal window", async () => {
+    fake.state.openTabs = [1, 2, 3];
+    fake.state.incognito = new Set([2, 3]);
+    fake.state.tabUrls[2] = fake.state.pageUrl;
+    fake.state.tabUrls[3] = "https://elsewhere.example/";
+    const { h } = privateOff();
+    // The private window's tabs show II as the worker starts, whatever their site.
+    await vi.waitFor(() =>
+      expect(fake.state.badges[2]).toEqual({ text: "II", title: PRIVATE_TITLE }),
+    );
+    await vi.waitFor(() =>
+      expect(fake.state.badges[3]).toEqual({ text: "II", title: PRIVATE_TITLE }),
+    );
+    expect(fake.state.badges[1]?.text ?? "").toBe("");
+    expect(await h.hello({ tab: { id: 2 }, documentId: "incognito" })).toEqual({
+      ok: false,
+      reason: "paused",
+    });
+    expect(executes()).toEqual([]);
+    // The page offers its account in the popup, as a paused page does.
+    expect(
+      await h.login.handle({ version: 1, type: "login.choice.get", tabId: 2 }, popup),
+    ).toMatchObject({ ok: true, paused: true });
+    // The page's own passkey requests: a conditional one goes to the browser, and the
+    // others treat the default as unset.
+    expect(
+      await h.login.conditionalRequest({
+        tabId: 2,
+        origin,
+        documentId: "incognito",
+        signal: new AbortController().signal,
+        incognito: true,
+      }),
+    ).toEqual({ kind: "delegate", reason: "paused" });
+    expect(await h.login.defaultUnset(origin, true)).toBe("paused");
+    expect(await h.login.defaultUnset(origin, false)).toBe(false);
+    // The private window keeps no pause of a length; the popup reads the setting.
+    expect(await status(h, 2)).not.toHaveProperty("pause");
+    expect(fake.state.session[PAUSES]).toBeUndefined();
+    // The normal window's tab of the same site still logs in.
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(stored()).toMatchObject([{ state: "authenticated", document: { tabId: 1 } }]),
+    );
+  });
+
+  it("applies automatic login in private windows as soon as it is turned on or off", async () => {
+    fake.state.openTabs = [1, 2];
+    fake.state.incognito = new Set([2]);
+    fake.state.tabUrls[2] = fake.state.pageUrl;
+    const { h } = privateOff();
+    expect(await h.hello({ tab: { id: 2 }, documentId: "incognito" })).toEqual({
+      ok: false,
+      reason: "paused",
+    });
+    // Its waiting choice shows its count over the pause.
+    await vi.waitFor(() => expect(fake.state.badges[2]?.text).toBe("1"));
+    // Turned on elsewhere: the paused page announces again and logs in.
+    fake.state.reconnects = [];
+    fake.state.onReconnect = () => h.hello({ tab: { id: 2 }, documentId: "incognito" });
+    h.settings.settings.loginInPrivateWindows = true;
+    h.login.settingsChanged("synced");
+    await vi.waitFor(() => expect(fake.state.reconnects).toContainEqual({ tabId: 2 }));
+    await vi.waitFor(() =>
+      expect(stored()).toMatchObject([{ state: "authenticated", document: { tabId: 2 } }]),
+    );
+    expect(["1", "II"]).not.toContain(fake.state.badges[2]?.text);
+    expect(fake.state.badges[1]?.text ?? "").toBe("");
+    // Turned off again: the private window's tabs are paused once more.
+    fake.state.onReconnect = undefined;
+    delete h.settings.settings.loginInPrivateWindows;
+    h.login.settingsChanged("saved");
+    await vi.waitFor(() =>
+      expect(fake.state.badges[2]).toEqual({ text: "II", title: PRIVATE_TITLE }),
+    );
+    expect(await h.login.defaultUnset(origin, true)).toBe("paused");
   });
 
   it("pauses for the length the person chose, and logs it", async () => {

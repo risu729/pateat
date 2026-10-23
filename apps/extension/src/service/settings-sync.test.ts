@@ -327,6 +327,29 @@ describe("settings sync after the first", () => {
     });
   });
 
+  it("syncs automatic login in private windows as one value (ADR 0062)", async () => {
+    const on = { ...agreed, loginInPrivateWindows: true as const };
+    const merge = (base: LocalSettings, local: LocalSettings, service: LocalSettings) =>
+      mergeSyncedSettings(
+        { service: syncedSettings(base), local: syncedSettings(base) },
+        syncedSettings(local),
+        syncedSettings(service),
+      ).loginInPrivateWindows;
+    // A change on either side wins over the base; the service's wins over a local one.
+    expect(merge(agreed, on, agreed)).toBe(true);
+    expect(merge(on, agreed, on)).toBeUndefined();
+    expect(merge(agreed, agreed, on)).toBe(true);
+    expect(merge(on, on, agreed)).toBeUndefined();
+    // Turned on here, it is uploaded; turned off on the service, it goes here as well.
+    const up = setup({ local: on, service: state(4, agreed), base: baseOf(4, agreed) });
+    expect(await up.sync.run(CONNECTION, never)).toBe("synced");
+    expect(up.service().settings).toMatchObject({ loginInPrivateWindows: true });
+    const down = setup({ local: on, service: state(5, agreed), base: baseOf(4, on) });
+    expect(await down.sync.run(CONNECTION, never)).toBe("synced");
+    expect(down.local()?.settings).not.toHaveProperty("loginInPrivateWindows");
+    expect(down.transport.saveSettings).not.toHaveBeenCalled();
+  });
+
   it("applies a default that differs only in its item name once, then stays settled", async () => {
     const named = { ...account("https://bank.example"), itemName: "Example Bank" };
     const serviceSettings = { ...agreed, siteDefaults: [named] };

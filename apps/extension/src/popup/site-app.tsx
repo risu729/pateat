@@ -34,7 +34,14 @@ import {
   type PauseLength,
 } from "../login/choice-wire";
 import { PageStatusSection } from "./page-status";
-import { PAUSE_CHOICES, PauseControl, pauseShown, siteRules, type SitePause } from "./pause";
+import {
+  PAUSE_CHOICES,
+  PauseControl,
+  pauseShown,
+  privatePaused,
+  siteRules,
+  type SitePause,
+} from "./pause";
 
 /**
  * How long the popup waits for the site's matches. Each vault lookup of the search is
@@ -51,7 +58,8 @@ export interface PopupHost {
   currentTab(): Promise<
     { id: number | undefined; url: string | undefined; incognito: boolean } | undefined
   >;
-  openSettings(): void;
+  /** Opens the settings page, at the section of that ID when given. */
+  openSettings(section?: string): void;
   /** Opens the diagnostics page with the detailed log. */
   openDiagnostics(): void;
   /** Closes the popup, as once a picked login has started. */
@@ -701,23 +709,27 @@ export function SiteApp({
         </ul>
       </section>
     );
-    // Only a site Pateat runs on can be paused (ADR 0062). A rule pauses it until turned
-    // back on, and wins over a pause of a length.
-    const pause: SitePause = rules.shared.length
-      ? { kind: "shared", rules: rules.shared }
-      : rules.rules.length
-        ? { kind: "rule" }
-        : status?.pause
-          ? { kind: "until", until: status.pause.until }
-          : { kind: "running" };
-    if (pauseShown(status, Boolean(found?.accounts.length), rules.rules.length > 0))
+    // Only a site Pateat runs on can be paused (ADR 0062). In a private window automatic
+    // login is off until turned on in the settings, which wins over the rest; a rule pauses
+    // the site until turned back on, and wins over a pause of a length.
+    const inPrivate = privatePaused(saved.snapshot.settings, tab.data?.incognito);
+    const pause: SitePause = inPrivate
+      ? { kind: "private" }
+      : rules.shared.length
+        ? { kind: "shared", rules: rules.shared }
+        : rules.rules.length
+          ? { kind: "rule" }
+          : status?.pause
+            ? { kind: "until", until: status.pause.until }
+            : { kind: "running" };
+    if (pauseShown(status, Boolean(found?.accounts.length), inPrivate || rules.rules.length > 0))
       pauseControl = (
         <PauseControl
           pause={pause}
           busy={busy}
           onPause={(length) => void setPause(length)}
           onResume={() => void setPause(undefined)}
-          onOpenSettings={() => openSettings()}
+          onOpenSettings={(section) => host.openSettings(section)}
         />
       );
     body = (

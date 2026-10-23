@@ -184,6 +184,13 @@ export const localSettingsSchema = v.pipe(
         "Duplicate origins",
       ),
     ),
+    /**
+     * Whether Pateat logs in by itself in private (incognito) windows; absent means off, the
+     * default. While off, every site in a private window is paused as a site is by the
+     * popup's pause (ADR 0062): Pateat logs in only with an account picked in the popup.
+     * Synced with the sites' rules, as part of the profile (ADR 0024).
+     */
+    loginInPrivateWindows: v.optional(v.literal(true)),
     /** Synced account bindings (ADR 0013). */
     bindings: v.pipe(
       v.array(savedLoginBindingSchema),

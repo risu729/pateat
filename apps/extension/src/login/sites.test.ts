@@ -49,6 +49,20 @@ describe("createLoginSites", () => {
     expect(await sites.admission(new URL("http://router.example/"))).toBe("admitted");
   });
 
+  it("reads what of the settings pauses automatic login (ADR 0062)", async () => {
+    const rules = [{ hostname: "router.example", includeSubdomains: false }];
+    expect(
+      await sitesWith((settings) => {
+        settings.excludedSites = rules;
+      }).pausing(),
+    ).toEqual({ excludedSites: rules });
+    expect(
+      await sitesWith((settings) => {
+        settings.loginInPrivateWindows = true;
+      }).pausing(),
+    ).toEqual({ excludedSites: [], loginInPrivateWindows: true });
+  });
+
   it("lists saved defaults of HTTP and HTTPS origins whose host access is granted", async () => {
     granted.clear();
     granted.add("http://router.example/*");

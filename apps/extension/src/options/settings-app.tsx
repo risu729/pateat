@@ -6,13 +6,15 @@ import {
 } from "@pateat/contracts";
 import { useForm, useSelector } from "@tanstack/react-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bug, Globe, Info, Link, Shield, Vault, type LucideIcon } from "lucide-react";
+import { Bug, EyeOff, Globe, Info, Link, Shield, Vault, type LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import * as v from "valibot";
 import { Logo } from "../logo";
 import { Button } from "./button";
 import { SETTINGS_QUERY_KEY, type SettingsClient } from "./client";
 import { VaultAccess, VaultRows } from "./connections";
+import { PRIVATE_WINDOWS_SECTION } from "../popup/pause";
+import { PrivateWindows } from "./private-windows";
 import { SitePolicy } from "./site-policy";
 import { BitwardenSetup } from "./bitwarden-setup";
 import type { ConnectionClient } from "./connection-client";
@@ -188,6 +190,7 @@ export function SettingsApp({
     form.setFieldValue("connections", next.connections);
     form.setFieldValue("excludedSites", next.excludedSites);
     form.setFieldValue("siteDefaults", next.siteDefaults);
+    form.setFieldValue("loginInPrivateWindows", next.loginInPrivateWindows);
     edits.current += 1;
     setDirty(true);
     dirtyRef.current = true;
@@ -297,6 +300,7 @@ export function SettingsApp({
       ? { id: "bitwarden", label: "Bitwarden", icon: Shield }
       : { id: "demo-vaults", label: "Demo vaults", icon: Vault },
     { id: "sites", label: "Sites", icon: Globe },
+    { id: PRIVATE_WINDOWS_SECTION, label: "Private windows", icon: EyeOff },
     ...(serviceClient ? [{ id: "sync", label: "Sync service", icon: Link }] : []),
   ];
   return (
@@ -425,6 +429,7 @@ export function SettingsApp({
                 <ul id="site-list" className="hidden" />
               </Panel>
             )}
+            {accepted && <PrivateWindows draft={draft} edit={edit} />}
           </fieldset>
           {serviceClient && <ServiceConnection client={serviceClient} />}
           <footer className="flex flex-wrap gap-4 text-[0.8125rem] leading-5 text-ink-muted">

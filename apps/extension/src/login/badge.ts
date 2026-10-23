@@ -243,9 +243,12 @@ export function createLoginBadge(deps: {
       return {
         text: PAUSED_TEXT,
         ...STYLES.paused,
-        title: `Pateat: automatic login is paused on this site until ${
-          "until" in paused ? localClock(paused.until) : "turned back on"
-        }.`,
+        title:
+          "private" in paused
+            ? "Pateat: automatic login is off in private windows."
+            : `Pateat: automatic login is paused on this site until ${
+                "until" in paused ? localClock(paused.until) : "turned back on"
+              }.`,
       };
     const result = results.get(tabId);
     if (result && (result.until === undefined || result.until > now()))

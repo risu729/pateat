@@ -9,18 +9,33 @@ type Status = Extract<StatusResponse, { ok: true }>;
 type ExcludedSite = LocalSettings["excludedSites"][number];
 
 /** The popup's line while automatic login of the tab's site is paused (ADR 0062). */
-export function pauseLine(until: number | "rule", timeZone?: string): string {
+export function pauseLine(until: number | "rule" | "private", timeZone?: string): string {
+  if (until === "private") return "Automatic login is off in private windows";
   return until === "rule"
     ? "Paused until turned back on"
     : `Paused until ${localClock(until, timeZone)}`;
+}
+
+/** The options page section that holds automatic login in private windows (ADR 0062). */
+export const PRIVATE_WINDOWS_SECTION = "private-windows";
+
+/**
+ * Whether the tab's page is paused because automatic login is off in private windows, the
+ * default (ADR 0062).
+ */
+export function privatePaused(
+  settings: Pick<LocalSettings, "loginInPrivateWindows">,
+  incognito: boolean | undefined,
+): boolean {
+  return incognito === true && settings.loginInPrivateWindows !== true;
 }
 
 /**
  * Whether the popup offers to pause automatic login of the tab's site (ADR 0062): on an
  * HTTP(S) page Pateat runs on, once the worker answered for it, when a vault item matches
  * the site or the site has a recipe, as only then can Pateat log in there by itself. A
- * running pause, or an exclusion rule covering the site, always shows, so it can be
- * resumed or followed to the settings.
+ * running pause, an exclusion rule covering the site, or automatic login being off in a
+ * private window, always shows, so it can be resumed or followed to the settings.
  */
 export function pauseShown(status: Status | undefined, matched: boolean, ruled = false): boolean {
   if (ruled) return true;
@@ -80,7 +95,9 @@ export type SitePause =
   /** The site's own rule: paused until turned back on, and Resume removes it. */
   | { readonly kind: "rule" }
   /** A rule for other sites too covers the site; it is changed in settings. */
-  | { readonly kind: "shared"; readonly rules: readonly ExcludedSite[] };
+  | { readonly kind: "shared"; readonly rules: readonly ExcludedSite[] }
+  /** The tab is in a private window, where automatic login is off; changed in settings. */
+  | { readonly kind: "private" };
 
 /**
  * The pause row at the top of the popup (ADR 0062): "Pause automatic login" for 10
@@ -97,7 +114,8 @@ export function PauseControl({
   busy: boolean;
   onPause: (length: PauseLength | "rule") => void;
   onResume: () => void;
-  onOpenSettings: () => void;
+  /** Opens the settings page, at `section` when given. */
+  onOpenSettings: (section?: string) => void;
 }) {
   if (pause.kind === "running")
     return (
@@ -122,6 +140,27 @@ export function PauseControl({
             </Button>
           ))}
         </div>
+      </div>
+    );
+  if (pause.kind === "private")
+    return (
+      <div className="popup-pause">
+        <p id="popup-paused" className="popup-muted popup-status">
+          <Pause size={16} strokeWidth={2} aria-hidden="true" />
+          {pauseLine("private")}
+        </p>
+        <a
+          id="popup-private-settings"
+          href={`options.html#${PRIVATE_WINDOWS_SECTION}`}
+          className="popup-link"
+          aria-label="Change automatic login in private windows in settings"
+          onClick={(event) => {
+            event.preventDefault();
+            onOpenSettings(PRIVATE_WINDOWS_SECTION);
+          }}
+        >
+          Change in settings
+        </a>
       </div>
     );
   return (

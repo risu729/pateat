@@ -29,8 +29,13 @@ createRoot(root).render(
           const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
           return tab && { id: tab.id, url: tab.url, incognito: tab.incognito };
         },
-        openSettings() {
-          void browser.runtime.openOptionsPage();
+        openSettings(section) {
+          // A section is opened at its anchor in a tab of its own.
+          if (section)
+            void browser.tabs.create({
+              url: `${browser.runtime.getURL("/options.html")}#${encodeURIComponent(section)}`,
+            });
+          else void browser.runtime.openOptionsPage();
           window.close();
         },
         openDiagnostics() {

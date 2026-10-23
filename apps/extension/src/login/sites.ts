@@ -9,6 +9,11 @@ export type SiteRefusal =
   | "no-site-access"
   | "settings-unavailable";
 
+export type PausingSettings = Pick<
+  SettingsSnapshot["settings"],
+  "excludedSites" | "loginInPrivateWindows"
+>;
+
 export interface LoginSites {
   /** Exact HTTP(S) origins with a saved default and host access still granted. */
   origins(): Promise<string[]>;
@@ -18,10 +23,11 @@ export interface LoginSites {
    */
   admission(url: URL): Promise<"admitted" | SiteRefusal>;
   /**
-   * The exclusion rules of the saved settings, which pause automatic login until turned
-   * back on (ADR 0062), read as admission reads the settings.
+   * What of the saved settings pauses automatic login (ADR 0062), read as admission reads
+   * the settings: the exclusion rules, which pause it until turned back on, and whether it
+   * runs in private windows.
    */
-  rules(): Promise<SettingsSnapshot["settings"]["excludedSites"]>;
+  pausing(): Promise<PausingSettings>;
 }
 
 const webOrigin = (origin: string) => origin.startsWith("https://") || origin.startsWith("http://");
@@ -58,7 +64,10 @@ export function createLoginSites(settings: { read(): Promise<SettingsSnapshot> }
   }
   return {
     origins,
-    rules: async () => (await settings.read()).settings.excludedSites,
+    async pausing() {
+      const { excludedSites, loginInPrivateWindows } = (await settings.read()).settings;
+      return { excludedSites, ...(loginInPrivateWindows ? { loginInPrivateWindows } : {}) };
+    },
     async admission(url) {
       if (url.protocol !== "https:" && url.protocol !== "http:") return "not-web";
       try {

@@ -153,6 +153,30 @@ test("each change is saved at once and refreshes never replace a pending draft",
     .not.toBeChecked();
 });
 
+test("automatic login in private windows starts off and is saved at once when turned on or off (ADR 0062)", async () => {
+  const client = mockClient();
+  await mount(client);
+  const toggle = page.getByRole("checkbox", { name: "Log in automatically in private windows" });
+  await expect.element(toggle).not.toBeChecked();
+  await expect
+    .element(page.getByText(/^Off: every site in a private window is paused/))
+    .toBeVisible();
+  await expect
+    .element(page.getByRole("navigation", { name: "Sections" }).getByText("Private windows"))
+    .toBeVisible();
+  await toggle.click();
+  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 1");
+  expect(client.saveSettings.mock.calls[0]?.[0]).toMatchObject({
+    expectedRevision: 0,
+    settings: { loginInPrivateWindows: true },
+  });
+  await expect.element(toggle).toBeChecked();
+  await toggle.click();
+  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 2");
+  expect(client.saveSettings.mock.calls[1]?.[0].settings.loginInPrivateWindows).toBeUndefined();
+  await expect.element(toggle).not.toBeChecked();
+});
+
 test("an unknown save outcome is never retried and requires a successful explicit reload", async () => {
   const client = mockClient();
   client.saveSettings.mockRejectedValue(new Error("Synthetic transport lost its response"));

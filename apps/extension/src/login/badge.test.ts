@@ -405,6 +405,23 @@ describe("login badge", () => {
     expect(h.view()).toMatchObject(NONE);
   });
 
+  it("shows II in a private window while automatic login is off there (ADR 0062)", async () => {
+    const h = harness();
+    h.badge.paused(tabId, { private: true });
+    await h.flush();
+    expect(h.view()).toEqual({
+      text: PAUSED_TEXT,
+      color: "#6b7280",
+      textColor: "#ffffff",
+      title: "Pateat: automatic login is off in private windows.",
+    });
+    await vi.advanceTimersByTimeAsync(24 * 60 * 60_000);
+    expect(h.view()).toMatchObject({ text: PAUSED_TEXT });
+    h.badge.paused(tabId, undefined);
+    await h.flush();
+    expect(h.view()).toMatchObject(NONE);
+  });
+
   it("keeps the tab's badge through a revocation report (ADR 0058 A)", async () => {
     const h = harness();
     h.badge.observe(attempt({ outcome: "credential-rejected" }));

@@ -337,6 +337,17 @@ describe("scoped metadata eligibility and next-login defaults", () => {
 });
 
 describe("strict settings schema", () => {
+  it("keeps automatic login in private windows off unless turned on (ADR 0062)", () => {
+    const settings = createDefaultSettings();
+    // Off is the absent field, so a document from before the setting means the same.
+    expect(settings).not.toHaveProperty("loginInPrivateWindows");
+    expect(parseLocalSettings(settings)).not.toHaveProperty("loginInPrivateWindows");
+    expect(parseLocalSettings({ ...settings, loginInPrivateWindows: true })).toMatchObject({
+      loginInPrivateWindows: true,
+    });
+    for (const value of [false, "true", 1, null])
+      expect(() => parseLocalSettings({ ...settings, loginInPrivateWindows: value })).toThrow();
+  });
   it("rejects secret-shaped extras, duplicates, ambiguous hosts and non-origin defaults", () => {
     expect(parseLocalSettings(createDefaultSettings())).toEqual(createDefaultSettings());
     const settings = createDefaultSettings();
