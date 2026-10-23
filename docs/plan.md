@@ -390,10 +390,10 @@ than in this repository.
     structure; only its visuals and copy change.
   - Done: the toolbar popup. Its header shows the toolbar icon's mark, the hostname, the
     "Pateat on this site" switch and an Open settings icon button (a `lucide-react`
-    icon). Turning the switch off adds an exclusion rule for the exact
-    hostname without subdomains, and turning it on removes that rule. Whenever a rule
-    for a parent domain, or one that includes subdomains, covers the hostname, the
-    switch is disabled, "Excluded by a rule for other sites too" names the reason, and
+    icon). Turning the switch off adds an exclusion rule for the exact hostname without
+    subdomains, and turning it on removes that rule. Whenever a rule for a parent
+    domain, or one that includes subdomains, covers the hostname, the switch is
+    disabled, "Excluded by a rule that also covers other sites." names the reason, and
     each such rule has a "Change in settings" link; before, the popup could remove the
     site's own exact rule while a parent rule kept it excluded. Default accounts and the
     account choice are native radios shown as cards: the username as the title, the item
@@ -411,9 +411,9 @@ than in this repository.
     removed, and one that is not among the choice's accounts is named. The "Pateat on
     this site" switch is a row of its own under the hostname, with its label on the left
     and the switch on the right, and the sections use one spacing scale.
-  - Done: the passkey chooser window is restyled with the same behavior: "Sign in to"
+  - Done: the passkey chooser window is restyled with the same behavior: "Log in to"
     the site, each passkey as a choice led by its user name, the site default marked
-    **Default**, a one-line note after a Pateat sign-in from the tab, and the save
+    **Default**, a one-line note after a Pateat passkey answer in the tab, and the save
     checkbox above the list.
   - Done: the `/manage` header shows the logo beside "Pateat" and the sections as tabs;
     Devices is a list with a Revoke button, a Revoked or Expired badge and the idle
@@ -984,10 +984,20 @@ Once the fixes have settled:
   line the popup and the icon's title show when another tab of the site logged out or
   the site did not accept that tab's login: both say "You logged out of this site in
   another tab" (`choiceReason` in `apps/extension/src/login/choice-wire.ts`, the
-  `other-tab` title in `apps/extension/src/login/runtime.ts`), which reads wrong after a
-  rejection. The review comes before the Japanese text below, so that the English text
-  is settled before it is translated (owner, 2026-10-13 15:17 UTC). Not started without
-  the owner's confirmation (owner, 2026-10-13 15:10 UTC).
+  `other-tab` title, now `choiceTitle` in `apps/extension/src/login/badge.ts`), which
+  reads wrong after a rejection. The review comes before the Japanese text below, so
+  that the English text is settled before it is translated (owner, 2026-10-13 15:17
+  UTC). The owner gave the go-ahead on 2026-10-15 at 00:44 UTC.
+  - Done (2026-10-23): the popup, the icon's title, the settings page and the passkey
+    chooser follow the [UI text](architecture.md#ui-text) rules, which the owner
+    accepted on 2026-10-23 at 12:46 UTC
+    ([#601](https://github.com/risu729/pateat/pull/601), rebuilt on the i18next
+    catalogs, Japanese included). The reason line now says "You were logged out of this
+    site in another tab, or the site did not accept a login there.", and "The site did
+    not accept a login in another tab." when the popup knows another tab still asks
+    after a rejection. Pateat shows no prompt inside a page; the passkey chooser window
+    is the only prompt outside the popup. The diagnostics page, a developer page, and
+    the settings store's messages keep their text.
 - Before publishing, turn off or remove `DEBUG_STAYS_ON` in
   `apps/extension/src/diagnostics/log.ts`, which keeps debug logging on until it is
   turned off, or keep it only behind a feature flag (owner, 2026-10-18 01:50 UTC;

@@ -65,7 +65,8 @@ const generation = (
 
 const NONE = { text: "", title: "Pateat" };
 // The tooltip of a choice after a logout in another tab, whatever the count.
-const OTHER_TAB = "Pateat: you logged out of this site in another tab. Click to choose an account.";
+const OTHER_TAB =
+  "Pateat: you were logged out of this site in another tab, or the site did not accept a login there. Click to choose an account.";
 const choose = (count: number) => `Pateat: ${count} accounts match this page. Click to choose one.`;
 const CHOICE = { color: "#8a5a00", textColor: "#ffffff" };
 const BUSY = { color: "#4f46e5", textColor: "#ffffff" };
@@ -312,7 +313,7 @@ describe("login badge", () => {
     h.badge.observe(attempt({ outcome: "credential-rejected" }));
     await h.flush();
     expect(h.view().title).toBe(
-      "Pateat：ログインに成功しませんでした（credential-rejected）。詳しくは Pateat を開いてください。",
+      "Pateat：ログインに成功しませんでした（credential-rejected）。詳しくはクリックしてください。",
     );
   });
 
@@ -336,7 +337,7 @@ describe("login badge", () => {
     expect(h.view()).toEqual({
       text: "3",
       ...CHOICE,
-      title: "Pateat: you logged out of this site in this tab. Click to choose an account.",
+      title: "Pateat: you were logged out of this site in this tab. Click to choose an account.",
     });
 
     h.badge.choice(tabId, undefined);
@@ -1460,7 +1461,7 @@ describe("page status", () => {
     await h.flush();
     expect(h.view()).toMatchObject(FAILED);
     expect(h.view().title).toBe(
-      "Pateat: the login did not succeed (no-route: password-empty:no-passkey). Open Pateat for details.",
+      "Pateat: the login did not succeed (no-route: password-empty:no-passkey). Click for details.",
     );
     // A failure stays.
     await vi.advanceTimersByTimeAsync(60_000);

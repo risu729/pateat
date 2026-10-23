@@ -456,12 +456,13 @@ guess:
 - Accounts that cannot sign in and unlock with a master password. A sign-in refused
   because an organization requires SSO ends `interaction-required` with reason `sso`
   (`packages/bitwarden/src/auth-models.ts`), or `unsupported-challenge` when the answer
-  names no organization; the page shows "Setup is incomplete: sso. This interaction is
-  not supported here." Key Connector, a forced password reset or a sync without
-  master-password unlock data ends with `unsupported-unlock`
-  (`packages/bitwarden/src/account.ts`), shown as "Connection operation unavailable
-  (unsupported-unlock)". Trusted-device encryption has no path of its own. Passkey and
-  login-with-device sign-in are not offered: setup sends only the password grant.
+  names no organization; the page shows "Setup is incomplete: Bitwarden asks for a step
+  Pateat does not support (sso)." Key Connector, a forced password reset or a sync
+  without master-password unlock data ends with `unsupported-unlock`
+  (`packages/bitwarden/src/account.ts`), shown as "The connection could not do this
+  (unsupported-unlock). Refresh, then try again." Trusted-device encryption has no path
+  of its own. Passkey and login-with-device sign-in are not offered: setup sends only
+  the password grant.
 - Two-step methods other than an authenticator app (provider 0) and email (provider 1),
   such as Duo, YubiKey OTP, FIDO2/WebAuthn or a recovery code. Choosing email sends one
   code, and "Resend code" sends another (ADR 0059). The page never asks Bitwarden to
@@ -513,7 +514,7 @@ guess:
   minutes." once `expiresAt` passed, else "The sign-in ended early, by 8:24 PM, before
   its 5 minutes. This usually means Chrome stopped Pateat's background." (the time is
   when the page found out; Chrome restarting the worker is the usual cause, but a
-  permission removal or a second settings page's Disable automatic unlock ends it the
+  permission removal or a second settings page's Turn off automatic unlock ends it the
   same way); any other error that ends a waiting sign-in is said there too; the panel
   status says "The sign-in timed out waiting for the code." or "The sign-in ended before
   the code was entered." The local log records it as `vault.sign-in` with step
@@ -1445,7 +1446,7 @@ disabled field, and the model abstained or the service answered `already-judged`
 `signed-in` verdict or `unclear` with `judged-signed-in` is confirmed; other undecided
 completions carry `unconfirmed: true`, save no pending account choice and note no
 sign-in for passkey registration refusal. They show the yellow unsettled badge and
-the popup says the sign-in could not be confirmed. Automation still stops, the site
+the popup says the login could not be confirmed. Automation still stops, the site
 is released to other tabs and later logout detection is unchanged
 ([ADR 0029 amendment](adr/0029-local-sign-in-state.md#amendment-unconfirmed-completion-2026-10-14)).
 An `unclear` answer on a page with
@@ -1702,6 +1703,47 @@ Bug report text, exported log entries and diagnostic codes stay English. The man
 description comes from `public/_locales` by Chrome's own UI language. The service's
 pages, such as `/manage`, are not translated yet.
 
+## UI text
+
+The owner accepted these rules for the text of the extension's popup, toolbar icon
+title, settings page and passkey chooser on 2026-10-23 at 12:46 UTC
+([#601](https://github.com/risu729/pateat/pull/601)). The diagnostics page, the messages
+of the settings store in `packages/contracts` and the service's pages are not covered
+yet. The Japanese catalogs (`apps/extension/src/locales/ja.ts` and `*-ja.ts`) follow the
+same rules, with full-width punctuation (。、：), 保管庫, アイテム and デバイス, and
+toolbar titles that start "Pateat：".
+
+- A line that is a sentence ends with a period: notices, status lines, notes, errors
+  and the icon's title. Labels, headings, buttons, menu items, options, badges and short
+  state lines such as "Local vault ready" or "Automatic unlock off" do not.
+- What Pateat does on a site is "log in" and "login"; "sign in" names only Bitwarden's
+  and the sync service's sign-ins and a site's own sign-in page, form or link.
+- Pateat is the subject, not "the extension"; Bitwarden is named, not "the provider".
+  Failures say "could not", not "unable to", and what to do next.
+- A line says only what is known. A logout that another tab or the site may have
+  caused says "You were logged out", and the reason for an account choice after
+  another tab's logout or rejected login covers both unless the popup knows which one
+  it was (`choiceReason` in `apps/extension/src/login/choice-wire.ts`, which says "The
+  site did not accept a login in another tab." with the choice's `rejectedElsewhere`).
+  The icon's title (`choiceTitle` in `apps/extension/src/login/badge.ts`) repeats that
+  line in its own whole-sentence catalog keys but never knows which one it was, so it
+  keeps the sentence that covers both. A login whose result is unknown is not called a
+  failure.
+- A switch is turned on or off ("Turn off automatic unlock", "The vault connection is
+  turned off"); "excluded" is kept for sites and vault items.
+- The settings page's unsaved changes are "unsaved changes", not a draft; a message that
+  asks for **Reload saved settings** says that reloading drops them, and only while
+  there are unsaved changes.
+- Codes the log names, such as `credential-rejected`, show only in parentheses after a
+  plain sentence or where no sentence exists yet.
+- A catalog key is the whole English sentence where it can be, so a variant, such as a
+  message with or without unsaved changes, or the icon's title beside the popup's
+  reason line, is its own key rather than text recased at run time. A few lines are
+  still joined from whole-sentence keys: the settings page's matching-accounts note
+  adds its incomplete-list sentence, a no-route refusal adds the passkey sentence after
+  its reason (`{{text}}. Pateat logs in…`), and the icon's count title adds its
+  follow-up sentences (`{{first}} {{next}}`).
+
 ## Page styles and theme
 
 The extension's pages (settings, popup, diagnostics and the passkey chooser) and the
@@ -1749,7 +1791,7 @@ by Back. Chrome sends `pointerdown` for a press on the page's scrollbar too, whi
 `tests/extension/foundation.spec.ts` checks with the scrollbar shown.
 
 Deleting a Bitwarden connection in settings asks in a modal Base UI `AlertDialog`. It
-names the connection and explains removal of its local vault cache, unlock key and sync
+names the connection and explains removal of its local vault copy, unlock key and sync
 sign-in. Focus starts on **Keep connection**; Keep and Escape close without deleting,
 report "Connection kept." and return focus to that row's **More** button. Backdrop
 clicks leave the question open, and the page behind it is blocked until it closes.
@@ -2859,11 +2901,12 @@ adds `http://localhost/*` scripts and a synthetic test-vector key for that origi
 When several signable passkeys match and none is the site default, the background opens
 the chooser window `passkey-picker.html`
 ([ADR 0021](adr/0021-account-choice-outside-settings.md)) with `chrome.windows.create`.
-It shows only item names, passkey user names and connection labels: under "Sign in to"
+It shows only item names, passkey user names and connection labels: under "Log in to"
 the site's host, each passkey as its user name over its item and connection, with the
-site default marked **Default**, and "Pateat signed in here from this tab before" when
-the tab's earlier sign-in opened it, or "You logged out of this site in this tab" when a
-control that logs out, clicked in the tab, did (ADR 0021 D). The background
+site default marked **Default**, and "Pateat answered a passkey request from this site
+in this tab before." when the tab's earlier passkey answer opened it, or "You were
+logged out of this site in this tab." when a control that logs out, clicked in the tab,
+did (ADR 0021 D). The background
 answers its messages only from that page, for the request token in its URL and from the
 window it opened, and keeps the worker alive while the window waits. Choosing signs with
 that passkey; a ticked checkbox then saves it as the origin's site default. When the

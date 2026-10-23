@@ -3,13 +3,18 @@ export const settingsEn = {
   Settings: "Settings",
   "Reload saved settings": "Reload saved settings",
   "Loading saved settings…": "Loading saved settings…",
-  "Saving local settings…": "Saving local settings…",
-  "Settings saved locally. Revision {{revision}}": "Settings saved locally. Revision {{revision}}",
-  "Saved settings loaded. Revision {{revision}}": "Saved settings loaded. Revision {{revision}}",
-  "Vault metadata changed while settings were being saved. Your draft has been preserved. Reload saved settings before saving again. Reloading discards the draft.":
-    "Vault metadata changed while settings were being saved. Your draft has been preserved. Reload saved settings before saving again. Reloading discards the draft.",
-  "Saved settings changed before this save: {{reasons}}. Your unsaved draft has been preserved. Reload saved settings to review the latest version before saving. Reloading discards the draft.":
-    "Saved settings changed before this save: {{reasons}}. Your unsaved draft has been preserved. Reload saved settings to review the latest version before saving. Reloading discards the draft.",
+  "Saving settings…": "Saving settings…",
+  "Settings saved (revision {{revision}}).": "Settings saved (revision {{revision}}).",
+  "Saved settings loaded (revision {{revision}}).":
+    "Saved settings loaded (revision {{revision}}).",
+  "Your vaults changed while the settings were being saved. Your unsaved changes are kept. Reload saved settings before you change anything else; reloading drops them.":
+    "Your vaults changed while the settings were being saved. Your unsaved changes are kept. Reload saved settings before you change anything else; reloading drops them.",
+  "Your vaults changed while the settings were being saved. The change was saved; reload saved settings before you change anything else.":
+    "Your vaults changed while the settings were being saved. The change was saved; reload saved settings before you change anything else.",
+  "Your vaults changed while the settings were being saved. The change was saved, and later changes are kept. Reload saved settings before you change anything else; reloading drops them.":
+    "Your vaults changed while the settings were being saved. The change was saved, and later changes are kept. Reload saved settings before you change anything else; reloading drops them.",
+  "The saved settings changed before this save: {{reasons}}. Your unsaved changes are kept. Reload saved settings to see the latest ones before you change anything else; reloading drops them.":
+    "The saved settings changed before this save: {{reasons}}. Your unsaved changes are kept. Reload saved settings to see the latest ones before you change anything else; reloading drops them.",
   "settings were saved in another window or the toolbar popup":
     "settings were saved in another window or the toolbar popup",
   "a Bitwarden vault was added": "a Bitwarden vault was added",
@@ -19,33 +24,38 @@ export const settingsEn = {
   "custom fields were reviewed": "custom fields were reviewed",
   "settings were merged with the Pateat sync service":
     "settings were merged with the Pateat sync service",
-  "an account used to sign in on a site was saved for that site":
-    "an account used to sign in on a site was saved for that site",
+  "an account used to log in on a site was saved for that site":
+    "an account used to log in on a site was saved for that site",
   "settings changed for a reason no longer recorded":
     "settings changed for a reason no longer recorded",
-  "{{error}} Your unsaved draft has been preserved.":
-    "{{error}} Your unsaved draft has been preserved.",
-  "{{error}} Your unsaved draft has been preserved. Reload saved settings to retry. Reloading discards the draft.":
-    "{{error}} Your unsaved draft has been preserved. Reload saved settings to retry. Reloading discards the draft.",
-  "Unable to confirm saved settings. Your unsaved draft has been preserved. Reload saved settings before trying again. Reloading discards the draft.":
-    "Unable to confirm saved settings. Your unsaved draft has been preserved. Reload saved settings before trying again. Reloading discards the draft.",
-  "Unable to read saved settings. Your existing draft has been preserved. Reload saved settings to retry. Reloading discards the draft.":
-    "Unable to read saved settings. Your existing draft has been preserved. Reload saved settings to retry. Reloading discards the draft.",
-  "{{error}} Reload saved settings to retry. Your existing draft has been preserved. Reloading discards the draft.":
-    "{{error}} Reload saved settings to retry. Your existing draft has been preserved. Reloading discards the draft.",
-  "Vault metadata changed while settings were loading. Reload saved settings to read the current catalog.":
-    "Vault metadata changed while settings were loading. Reload saved settings to read the current catalog.",
-  "This change is kept in the draft but was not saved. Reload saved settings before editing; reloading discards the draft.":
-    "This change is kept in the draft but was not saved. Reload saved settings before editing; reloading discards the draft.",
-  "Vault metadata changed while settings were loading. Your draft has been preserved. Reload saved settings again. Reloading discards the draft.":
-    "Vault metadata changed while settings were loading. Your draft has been preserved. Reload saved settings again. Reloading discards the draft.",
-  "Invalid settings. Your unsaved draft has been preserved. Review this draft; the next change saves it again.":
-    "Invalid settings. Your unsaved draft has been preserved. Review this draft; the next change saves it again.",
-  "Vault metadata changed. Your unsaved draft has been preserved. Reload saved settings to review the latest catalog before saving. Reloading discards the draft.":
-    "Vault metadata changed. Your unsaved draft has been preserved. Reload saved settings to review the latest catalog before saving. Reloading discards the draft.",
-  "Exclusions win over selected groups and items": "Exclusions win over selected groups and items",
-  "These limits apply to Pateat only and do not change vault permissions":
-    "These limits apply to Pateat only and do not change vault permissions",
+  "{{error}} Your unsaved changes are kept.": "{{error}} Your unsaved changes are kept.",
+  "{{error}} Your unsaved changes are kept. Reload saved settings to try again; reloading drops them.":
+    "{{error}} Your unsaved changes are kept. Reload saved settings to try again; reloading drops them.",
+  "Pateat could not confirm that the settings were saved. Your unsaved changes are kept. Reload saved settings before you try again; reloading drops any that were not saved.":
+    "Pateat could not confirm that the settings were saved. Your unsaved changes are kept. Reload saved settings before you try again; reloading drops any that were not saved.",
+  "Pateat could not read the saved settings. Reload saved settings to try again.":
+    "Pateat could not read the saved settings. Reload saved settings to try again.",
+  "Pateat could not read the saved settings. Your unsaved changes are kept. Reload saved settings to try again; reloading drops them.":
+    "Pateat could not read the saved settings. Your unsaved changes are kept. Reload saved settings to try again; reloading drops them.",
+  "{{error}} Reload saved settings to try again.": "{{error}} Reload saved settings to try again.",
+  "Your vaults changed while the settings were loading. Reload saved settings to see the current vaults.":
+    "Your vaults changed while the settings were loading. Reload saved settings to see the current vaults.",
+  "This change was kept but not saved. Reload saved settings before you change anything else; reloading drops it.":
+    "This change was kept but not saved. Reload saved settings before you change anything else; reloading drops it.",
+  "Your vaults changed while the settings were loading. Your unsaved changes are kept. Reload saved settings again; reloading drops them.":
+    "Your vaults changed while the settings were loading. Your unsaved changes are kept. Reload saved settings again; reloading drops them.",
+  "Your vaults changed while the settings were loading. Reload saved settings again.":
+    "Your vaults changed while the settings were loading. Reload saved settings again.",
+  "These settings are not valid, so they were not saved. Your unsaved changes are kept. Correct them, and the next change saves them again.":
+    "These settings are not valid, so they were not saved. Your unsaved changes are kept. Correct them, and the next change saves them again.",
+  "Your vaults changed. Your unsaved changes are kept. Reload saved settings to see the current vaults before you change anything else; reloading drops them.":
+    "Your vaults changed. Your unsaved changes are kept. Reload saved settings to see the current vaults before you change anything else; reloading drops them.",
+  "Your vaults changed. Reload saved settings to see the current vaults before you change anything else.":
+    "Your vaults changed. Reload saved settings to see the current vaults before you change anything else.",
+  "Exclusions win over selected groups and items.":
+    "Exclusions win over selected groups and items.",
+  "These limits apply to Pateat only and do not change vault permissions.":
+    "These limits apply to Pateat only and do not change vault permissions.",
   "Demo vaults": "Demo vaults",
   Sites: "Sites",
   "Sync service": "Sync service",
@@ -69,18 +79,18 @@ export const settingsEn = {
     "The protected exclusions exceed the supported settings limits.",
   "The settings request did not match the supported schema.":
     "The settings request did not match the supported schema.",
-  "Enter an exact HTTP(S) origin without a path or trailing slash.":
-    "Enter an exact HTTP(S) origin without a path or trailing slash.",
+  "Enter an origin such as https://bank.example, without a path or trailing slash.":
+    "Enter an origin such as https://bank.example, without a path or trailing slash.",
   "The destination is invalid.": "The destination is invalid.",
   "This site is excluded.": "This site is excluded.",
-  "No default account is configured.": "No default account is configured.",
+  "No default account is set.": "No default account is set.",
   "This account does not match the exact origin.": "This account does not match the exact origin.",
   "The vault connection is unavailable.": "The vault connection is unavailable.",
   "This vault account is connected more than once.":
     "This vault account is connected more than once.",
   "The vault is locked or unavailable.": "The vault is locked or unavailable.",
-  "The vault connection is disabled.": "The vault connection is disabled.",
-  "The account is unavailable.": "The account is unavailable.",
+  "The vault connection is turned off.": "The vault connection is turned off.",
+  "This account is no longer in its vault.": "This account is no longer in its vault.",
   "This account is excluded.": "This account is excluded.",
   "This account is outside the selected groups and items.":
     "This account is outside the selected groups and items.",
@@ -104,17 +114,17 @@ export const settingsEn = {
   "The matching accounts could not be listed.": "The matching accounts could not be listed.",
   "No vault item matches this origin. Add the site's URI or passkey to the item in your vault, then sync.":
     "No vault item matches this origin. Add the site's URI or passkey to the item in your vault, then sync.",
-  matchingItems_one: "{{count}} matching item.",
-  matchingItems_other: "{{count}} matching items.",
-  matchingItems: "{{count}} matching items.",
+  matchingItems_one: "{{count}} item matches this origin.",
+  matchingItems_other: "{{count}} items match this origin.",
+  matchingItems: "{{count}} items match this origin.",
   " Some vaults or items could not be checked, so this list may be incomplete.":
     " Some vaults or items could not be checked, so this list may be incomplete.",
-  "Matches this origin by {{method}}; checked again on each login":
-    "Matches this origin by {{method}}; checked again on each login",
-  "No URI rule or passkey of this item matches this origin; a URI rule on a longer path is checked on each login":
-    "No URI rule or passkey of this item matches this origin; a URI rule on a longer path is checked on each login",
-  "Whether it matches the page is checked against the vault's URI rules or passkeys on each login":
-    "Whether it matches the page is checked against the vault's URI rules or passkeys on each login",
+  "Matches this origin by {{method}}. It is checked again at each login.":
+    "Matches this origin by {{method}}. It is checked again at each login.",
+  "No URI rule or passkey of this item matches this origin. A URI rule on a longer path is checked at each login.":
+    "No URI rule or passkey of this item matches this origin. A URI rule on a longer path is checked at each login.",
+  "Whether it matches a page is checked against its URI rules or passkeys at each login.":
+    "Whether it matches a page is checked against its URI rules or passkeys at each login.",
   "account {{id}}": "account {{id}}",
   "{{item}} in {{account}}{{availability}}": "{{item}} in {{account}}{{availability}}",
   " (not available here)": " (not available here)",
@@ -123,8 +133,8 @@ export const settingsEn = {
   "Exclude {{origin}}, all schemes and ports": "Exclude {{origin}}, all schemes and ports",
   Exclude: "Exclude",
   Excluded: "Excluded",
-  "Default for {{origin}} kept, unused while excluded":
-    "Default for {{origin}} kept, unused while excluded",
+  "The default for {{origin}} is kept but not used while the site is excluded.":
+    "The default for {{origin}} is kept but not used while the site is excluded.",
   "Remove default for {{origin}}": "Remove default for {{origin}}",
   "Allow {{name}}": "Allow {{name}}",
   Allow: "Allow",
@@ -134,8 +144,9 @@ export const settingsEn = {
   "Exclude subdomains too": "Exclude subdomains too",
   "Save default": "Save default",
   "Exclude site": "Exclude site",
-  "Excluding a site covers every scheme and port": "Excluding a site covers every scheme and port",
-  "A default account takes effect at the next login":
-    "A default account takes effect at the next login",
+  "Excluding a site covers every scheme and port.":
+    "Excluding a site covers every scheme and port.",
+  "A default account takes effect at the next login.":
+    "A default account takes effect at the next login.",
   "{{item}} ({{method}})": "{{item}} ({{method}})",
 } as const;

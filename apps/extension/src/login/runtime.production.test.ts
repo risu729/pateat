@@ -5854,7 +5854,8 @@ describe("production login document admission", () => {
           expect(attempts()).toEqual([]);
           expect(fake.state.badges[1]).toEqual({
             text: "2",
-            title: "Pateat: you logged out of this site in this tab. Click to choose an account.",
+            title:
+              "Pateat: you were logged out of this site in this tab. Click to choose an account.",
           });
           expect(await ask(h)).toEqual({
             ok: true,
@@ -5928,7 +5929,7 @@ describe("production login document admission", () => {
             await h.login.handle({ version: 1, type: "login.choice.get", tabId: 2 }, popup),
           ).toMatchObject({ documentId: "restored", logout: "this-tab" });
           expect(fake.state.badges[2]?.title).toBe(
-            "Pateat: you logged out of this site in this tab. Click to choose an account.",
+            "Pateat: you were logged out of this site in this tab. Click to choose an account.",
           );
         });
         it("keeps the tab's login with it after Chrome replaces the tab", async () => {
@@ -6262,7 +6263,7 @@ describe("production login document admission", () => {
           expect(fake.state.badges[2]).toEqual({
             text: "2",
             title:
-              "Pateat: you logged out of this site in another tab. Click to choose an account.",
+              "Pateat: you were logged out of this site in another tab, or the site did not accept a login there. Click to choose an account.",
           });
           expect(h.fields).toHaveBeenCalledTimes(3);
           fake.state.onReconnect = () => h.hello({ tab: { id: 2 }, documentId: "other-tab" });
@@ -6301,7 +6302,7 @@ describe("production login document admission", () => {
               .map((step) => step.kind),
           ).toContain("click");
           expect(fake.state.badges[2]?.title).not.toBe(
-            "Pateat: you logged out of this site in another tab. Click to choose an account.",
+            "Pateat: you were logged out of this site in another tab, or the site did not accept a login there. Click to choose an account.",
           );
           expect(logouts()).toEqual([{ tabId: 1, origin }]);
         });
@@ -25709,7 +25710,7 @@ describe("an item without a password, up to its password (ADR 0036)", () => {
           tabId: 1,
           text: "!",
           title:
-            "Pateat: the login did not succeed (no-route: password-empty:no-passkey). Open Pateat for details.",
+            "Pateat: the login did not succeed (no-route: password-empty:no-passkey). Click for details.",
         }),
       ),
     );

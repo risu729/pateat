@@ -108,36 +108,36 @@ function errorMessage(code: string, check?: string): Message {
   if (code === "account-mismatch")
     return (translate) =>
       translate(
-        "The provider's sign-in and vault data did not agree{{check}}. Setup is incomplete; report this check name.",
+        "Bitwarden's sign-in and vault data did not agree{{check}}. Setup is incomplete; report this check name.",
         { check: check ? translate(" (check: {{check}})", { check }) : "" },
       );
   const messages: Record<string, string> = {
     "provider-permission-required":
-      "Provider access was not granted. Use the connection button to grant access.",
+      "Pateat does not have access to the Bitwarden server. Connect or sync again, and allow access when Chrome asks.",
     "setup-reauthentication-required":
       "Sign in again to sync. The saved local vault can still unlock independently.",
     "auto-unlock-disabled":
-      "Automatic unlock is off for this connection, and Sync needs it. Sign in again and check Enable automatic unlock on this device to restore it.",
+      "Automatic unlock is off for this connection, and Sync needs it. To turn it back on, sign in again with Enable automatic unlock on this device checked.",
     "crypto-locked": "The vault is locked. Refresh to check recovery options.",
     "resource-limit":
       "The operation reached a resource limit. Refresh to check the current vault status before trying again.",
     "cache-quota-exceeded":
-      "The vault exceeds the local cache limit. Refresh to check the current vault status.",
+      "The vault is larger than Pateat's local copy can hold. Refresh to check the current vault status.",
     "storage-uncertain":
-      "The cache update could not be confirmed. Refresh and reload saved settings before using this vault.",
+      "Pateat could not confirm that the local vault copy was updated. Refresh and reload saved settings before using this vault.",
     "setup-expired": "This verification session expired. Start sign-in again.",
     "unsupported-crypto": "This account uses an unsupported vault format. Setup is incomplete.",
-    "invalid-response": "The provider response could not be accepted. Setup is incomplete.",
+    "invalid-response": "Bitwarden's answer could not be accepted. Setup is incomplete.",
     "authentication-rejected":
-      "The provider rejected this sign-in. Review the account and password before starting again.",
-    "authentication-expired": "The provider session expired. Sign in again to sync.",
+      "Bitwarden did not accept this sign-in. Check the email and master password, then try again.",
+    "authentication-expired": "The Bitwarden sign-in expired. Sign in again to sync.",
     "revision-conflict":
-      "Saved settings changed. Reload saved settings and review the current field list before trying again.",
+      "The saved settings changed. Reload saved settings and review the current fields, then try again.",
   };
   return Object.hasOwn(messages, code)
     ? messages[code]!
     : (translate) =>
-        translate("Connection operation unavailable ({{code}}). Refresh before trying again.", {
+        translate("The connection could not do this ({{code}}). Refresh, then try again.", {
           code,
         });
 }
@@ -154,7 +154,7 @@ function statusLines(connection: Connection, t: TFunction, language: string): Li
       lines.push({
         tone: "warn",
         icon: TriangleAlert,
-        text: t("Some items need their field settings reviewed before use"),
+        text: t("Some items need their field settings reviewed before use."),
       });
       break;
     case "configured":
@@ -280,6 +280,7 @@ export function BitwardenSetup({
   onCatalogChanged,
   acceptedSettings,
   reviewBlocked = true,
+  unsavedChanges = false,
   renderAccess,
   renderOthers,
 }: {
@@ -287,6 +288,8 @@ export function BitwardenSetup({
   onCatalogChanged: () => void;
   acceptedSettings?: Extract<SettingsResponse, { ok: true }> | undefined;
   reviewBlocked?: boolean;
+  /** The settings page has unsaved changes, which reloading saved settings would drop. */
+  unsavedChanges?: boolean;
   /** Which items Pateat may use from a connection, shown in its row. */
   renderAccess?: (connectionId: string) => ReactNode;
   /** What goes under the rows, given the listed connections once their status was read. */
@@ -399,7 +402,7 @@ export function BitwardenSetup({
       })
       .catch(() => {
         if (epoch === generation.current)
-          say("Unable to read connection status. Refresh to retry.");
+          say("Pateat could not read the connection status. Refresh to try again.");
       })
       .finally(() => {
         if (epoch === generation.current) {
@@ -480,16 +483,19 @@ export function BitwardenSetup({
                 "Vault accepted. {{count}} item needs its field settings reviewed before use.",
                 { count: result.policyReviewItemIds.length },
               )
-          : "Vault verified and local cache accepted. Check automatic-unlock status below.",
+          : "Vault verified and copied to this device. Check the automatic unlock line below.",
       );
       setExisting(undefined);
       catalogChanged.current();
       await readConnections(epoch, endsAdd);
     } else if (result.kind === "interaction-required") {
       say((translate) =>
-        translate("Setup is incomplete: {{reason}}. This interaction is not supported here.", {
-          reason: result.reason,
-        }),
+        translate(
+          "Setup is incomplete: Bitwarden asks for a step Pateat does not support ({{reason}}).",
+          {
+            reason: result.reason,
+          },
+        ),
       );
       await rereadConnections(epoch, endsAdd, endsAdd);
     } else if (result.kind === "cancelled") {
@@ -503,14 +509,16 @@ export function BitwardenSetup({
       await readConnections(epoch);
     } else if (result.kind === "deleted") {
       say(
-        "Connection deleted from this device, with its local vault cache, unlock key and sync sign-in. This does not sign out other sessions. Saved settings that referred to it now show it as unavailable.",
+        "Connection deleted from this device, with its local vault copy, unlock key and sync sign-in. This does not sign out other sessions. Saved settings that referred to it now show it as unavailable.",
       );
       const deleted = result.connectionId;
       setExisting((previous) => (previous?.connectionId === deleted ? undefined : previous));
       catalogChanged.current();
       await readConnections(epoch);
     } else if (result.kind === "disabled") {
-      say("Automatic unlock disabled. Sign in again with Enable automatic unlock to restore it.");
+      say(
+        "Automatic unlock is off. To turn it back on, sign in again with Enable automatic unlock on this device checked.",
+      );
       catalogChanged.current();
       await readConnections(epoch);
     }
@@ -526,9 +534,7 @@ export function BitwardenSetup({
         if (epoch !== generation.current) return;
         deadline.current = undefined;
         setChallenge(undefined);
-        say(
-          "The operation could not be confirmed. Refresh and reload saved settings. Your previous draft is preserved.",
-        );
+        say("Pateat could not confirm the result. Refresh, then reload saved settings.");
         catalogChanged.current();
       })
       .finally(() => {
@@ -547,7 +553,7 @@ export function BitwardenSetup({
     const profile = normalizeBitwardenProfile({ connectionId: "setup-preview", environment });
     if (!profile.ok || (!existing && (!name.trim() || !v.is(bitwardenEmail, email))) || !password) {
       say(
-        "Enter a connection name, valid email and master password. Self-hosted addresses must be HTTPS roots, or HTTP on localhost or 127.0.0.1, without a path, credentials, query or fragment.",
+        "Enter a name, a valid email and the master password. A self-hosted server address is an HTTPS address such as https://vault.example.com, or HTTP on localhost or 127.0.0.1, with no path, credentials, query or fragment.",
       );
       return;
     }
@@ -568,12 +574,12 @@ export function BitwardenSetup({
         };
     clearSecrets();
     setEnded(undefined);
-    say("Requesting provider access and connecting…");
+    say("Asking Chrome for access to the Bitwarden server, then connecting…");
     start(async (epoch) => {
       const granted = await client.requestProviderPermission(profile.data.environment);
       if (epoch !== generation.current) return;
       if (!granted) {
-        say("Provider access was not granted. No sign-in request was sent.");
+        say("Chrome did not grant access to the Bitwarden server, so nothing was sent.");
         return;
       }
       // A sign-in again leaves an add still pending after a stop in place.
@@ -668,7 +674,7 @@ export function BitwardenSetup({
       document.removeEventListener("visibilitychange", shown);
     };
   }, [challenge]);
-  function cancel(stopped = "Setup stopped. Refresh to confirm the latest state.") {
+  function cancel(stopped = "Setup stopped. Refresh to see the current state.") {
     cancelled.current = true;
     clearSecrets();
     setExisting(undefined);
@@ -696,7 +702,7 @@ export function BitwardenSetup({
         })
         .catch(() => {
           if (epoch === generation.current)
-            say("Unable to read connection status. Refresh to retry.");
+            say("Pateat could not read the connection status. Refresh to try again.");
         })
         .finally(() => {
           // As after the first read: other settings show even when the status is unreadable.
@@ -716,7 +722,7 @@ export function BitwardenSetup({
       const granted = await client.requestProviderPermission(connection.environment);
       if (epoch !== generation.current) return;
       if (!granted) {
-        say("Provider access was not granted. No sync request was sent.");
+        say("Chrome did not grant access to the Bitwarden server, so nothing was synced.");
         return;
       }
       await receive(await client.sync(connection.connectionId), epoch);
@@ -736,8 +742,8 @@ export function BitwardenSetup({
     if (!explain) return;
     say(
       unfinished
-        ? "Enter the master password to finish setting up this connection. Automatic unlock is enabled, as when adding it."
-        : "Enter the master password to sign in again. Automatic unlock stays unchanged unless explicitly enabled.",
+        ? "Enter the master password to finish setting up this connection. Automatic unlock is turned on, as when adding it."
+        : "Enter the master password to sign in again. Automatic unlock stays as it is unless you check Enable automatic unlock on this device.",
     );
   }
   useEffect(() => {
@@ -798,7 +804,7 @@ export function BitwardenSetup({
             <Button
               type="button"
               variant="outline"
-              onClick={() => cancel("Stopped. Refresh to confirm the latest state.")}
+              onClick={() => cancel("Stopped. Refresh to see the current state.")}
             >
               {t("Cancel")}
             </Button>
@@ -911,7 +917,7 @@ export function BitwardenSetup({
                           )}
                           <Menu.Item
                             className={menuItemClass}
-                            aria-label={t("{{name}}: Disable automatic unlock", {
+                            aria-label={t("{{name}}: Turn off automatic unlock", {
                               name: connection.label,
                             })}
                             disabled={connection.autoUnlock === "disabled"}
@@ -925,7 +931,7 @@ export function BitwardenSetup({
                             }
                           >
                             <Pause aria-hidden size={16} strokeWidth={2} />
-                            {t("Disable automatic unlock")}
+                            {t("Turn off automatic unlock")}
                           </Menu.Item>
                           <Menu.Item
                             className={menuItemClass}
@@ -1009,7 +1015,7 @@ export function BitwardenSetup({
               </AlertDialog.Title>
               <AlertDialog.Description className="my-4 text-sm leading-6">
                 {t(
-                  "This removes the connection, its local vault cache, unlock key and sync sign-in from this device. It does not sign out other sessions, and saved settings that refer to it will show it as unavailable.",
+                  "This removes the connection, its local vault copy, unlock key and sync sign-in from this device. It does not sign out other sessions, and saved settings that refer to it will show it as unavailable.",
                 )}
               </AlertDialog.Description>
               <div className="flex flex-wrap justify-end gap-2">
@@ -1069,7 +1075,9 @@ export function BitwardenSetup({
                         tone: "warn" as const,
                         icon: TriangleAlert,
                         text: t(
-                          "Reload saved settings to review the current field list. Your unsaved policy draft is preserved until you choose Reload.",
+                          unsavedChanges
+                            ? "Reload saved settings to review the current fields. Your unsaved settings changes are kept until you reload."
+                            : "Reload saved settings to review the current fields.",
                         ),
                       },
                     ]
@@ -1362,7 +1370,7 @@ export function BitwardenSetup({
                   checked={enabled}
                   onChange={(event) => setEnabled(event.target.checked)}
                 />
-                {t("Use this connection")}
+                {t("Use this vault")}
               </label>
             )}
             <StatusLines
@@ -1391,7 +1399,7 @@ export function BitwardenSetup({
                   ? {
                       tone: "idle",
                       icon: Globe,
-                      text: t("Chrome asks for access to {{hosts}}", {
+                      text: t("Chrome asks for access to {{hosts}}.", {
                         hosts: listHosts(origins.data, formatLocale()),
                       }),
                     }

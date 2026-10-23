@@ -307,7 +307,7 @@ export function VaultRows({
           main={
             <>
               <RowTitle>{t("Unavailable connection")}</RowTitle>
-              <RowSub>{t("{{id}}. Its saved settings are preserved.", { id })}</RowSub>
+              <RowSub>{t("{{id}}. Its saved settings are kept.", { id })}</RowSub>
             </>
           }
         />
