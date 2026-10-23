@@ -537,7 +537,7 @@ export function BitwardenSetup({
     const environment: BitwardenProfile["environment"] =
       existing?.environment ??
       (region === "self-hosted"
-        ? { kind: "self-hosted", baseUrl }
+        ? { kind: "self-hosted", baseUrl: baseUrl.trim() }
         : { kind: "cloud", region: region === "eu" ? "eu" : "us" });
     const profile = normalizeBitwardenProfile({ connectionId: "setup-preview", environment });
     if (!profile.ok || (!existing && (!name.trim() || !v.is(bitwardenEmail, email))) || !password) {
@@ -583,11 +583,13 @@ export function BitwardenSetup({
     });
   }
   function continueSetup() {
-    if (!challenge || !code || operation.current) return;
+    // As the official clients, only the ends are trimmed, so a pasted code keeps its digits.
+    const value = code.trim();
+    if (!challenge || !value || operation.current) return;
     const input =
       challenge.kind === "mfa-required"
-        ? { flowId: challenge.flowId, twoFactor: { provider, code } }
-        : { flowId: challenge.flowId, newDeviceOtp: code };
+        ? { flowId: challenge.flowId, twoFactor: { provider, code: value } }
+        : { flowId: challenge.flowId, newDeviceOtp: value };
     clearSecrets();
     start(async (epoch) => {
       await receive(await client.continue(input), epoch, adding.current);
@@ -769,7 +771,7 @@ export function BitwardenSetup({
   const previewEnvironment: BitwardenProfile["environment"] =
     existing?.environment ??
     (region === "self-hosted"
-      ? { kind: "self-hosted", baseUrl }
+      ? { kind: "self-hosted", baseUrl: baseUrl.trim() }
       : { kind: "cloud", region: region === "eu" ? "eu" : "us" });
   const origins = providerPermissionOrigins(previewEnvironment);
   const formOpen = addOpen ?? !connections.length;
@@ -1203,7 +1205,9 @@ export function BitwardenSetup({
               type="button"
               focusableWhenDisabled={busy}
               disabled={
-                busy || !code || (challenge.kind === "mfa-required" && !challenge.providers.length)
+                busy ||
+                !code.trim() ||
+                (challenge.kind === "mfa-required" && !challenge.providers.length)
               }
               onClick={continueSetup}
             >

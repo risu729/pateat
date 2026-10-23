@@ -425,7 +425,8 @@ guess:
   identity and API addresses: the address must be an HTTPS origin, or an HTTP origin on
   exactly `localhost` or `127.0.0.1` (`normalizeBitwardenProfile` in
   `packages/bitwarden/src/environment.ts`). Plain HTTP on any other host, `[::1]`
-  included, is refused.
+  included, is refused. The page trims a typed address's ends before checking it and
+  asking for site access.
 - Accounts that cannot sign in and unlock with a master password. A sign-in refused
   because an organization requires SSO ends `interaction-required` with reason `sso`
   (`packages/bitwarden/src/auth-models.ts`), or `unsupported-challenge` when the answer
@@ -439,6 +440,11 @@ guess:
   such as Duo, YubiKey OTP, FIDO2/WebAuthn or a recovery code. Choosing email sends one
   code, and "Resend code" sends another (ADR 0059). The page never asks Bitwarden to
   remember the device, so every password sign-in asks for a code.
+- A verification code with a space inside, such as `123 456`. The official clients trim
+  a code's ends only (`tokenFormValue.trim()` in `two-factor-auth.component.ts`; the
+  new-device page trims a pasted code only), and the settings page trims every code's
+  ends: it sends ` 123456 ` as `123456` but `123 456` as typed, which the server
+  refuses.
 - Email addresses that the official Bitwarden login page refuses. The settings page and
   the worker use that page's rule (Angular's `Validators.email`), as `bitwardenEmail` in
   `packages/bitwarden/src/email.ts`: only ASCII, no leading, trailing or repeated `.`
