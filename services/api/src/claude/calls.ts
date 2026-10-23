@@ -543,19 +543,38 @@ export async function callClaude<T>(
 
 type Called<T> = Extract<ClaudeCallResult<T>, { status: "called" }>;
 
-/** A request's `beforeSend` writes, run once before its first model request. */
-type Reservation = { run: () => Promise<void>; error?: unknown };
+/**
+ * A request's `beforeSend` writes, run once before its first model request. `settled`
+ * waits for a write that outlived the call, as one the role's timeout cut short; `ms` is
+ * its duration, which belongs before the model call.
+ */
+type Reservation = {
+  run: () => Promise<void>;
+  settled: () => Promise<void>;
+  ms: number;
+  error?: unknown;
+};
 
 function reserveOnce(write: () => Promise<void>): Reservation {
   let written: Promise<void> | undefined;
   const reservation: Reservation = {
     run: () => {
-      written ??= write().catch((error: unknown) => {
-        reservation.error = error;
-        throw error;
-      });
+      written ??= (async () => {
+        const start = Date.now();
+        try {
+          await write();
+        } catch (error) {
+          reservation.error = error;
+          throw error;
+        }
+        reservation.ms = Date.now() - start;
+      })();
       return written;
     },
+    settled: async () => {
+      await written?.catch(() => {});
+    },
+    ms: 0,
   };
   return reservation;
 }
@@ -685,12 +704,16 @@ async function sendCall<T>(
     outcome = { status: "failed", error: "provider-error", calls: 1, usage: unknownUsage };
   }
   // A failed write stopped the request before it was sent, so it fails as before a call.
+  await reservation.settled();
   if (reservation.error !== undefined) throw reservation.error;
-  // Date.now() advances across I/O on Workers, which is all these spans wait on.
+  // Date.now() advances across I/O on Workers, which is all these spans wait on. The
+  // first call's writes count before the model call, as they did before it was sent.
+  const reservedMs = reservation.ms;
+  reservation.ms = 0;
   const timings = {
-    preModelMs: modelStart - time.startedAt,
+    preModelMs: modelStart - time.startedAt + reservedMs,
     tokenMs: time.tokenMs,
-    modelMs: Date.now() - modelStart,
+    modelMs: Date.now() - modelStart - reservedMs,
   };
   const estimate = estimateClaudeCostUsd(outcome.usage, choice.rates);
   if (outcome.calls === 0) return { outcome, timings };
