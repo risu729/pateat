@@ -416,8 +416,8 @@ and the owner accepted that:
 
 A page is still judged once per revision and path: a request whose gate passed but
 that finds another request's judgement row when it writes its own stops before sending
-and answers as that row does (`judgement-unanswered` while it is judged), so no verdict
-can disagree with the revision that was written.
+and answers as that row does, or `judgement-unanswered` while it is judged or when the
+row could be taken again, so two verdicts for one page cannot race the recipe write.
 
 ## Consequences
 

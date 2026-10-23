@@ -475,7 +475,8 @@ a repeat answers `judged-signed-in` when the model answered `signed-in`,
 `judged-rejected` or `judgement-unanswered` when it judged the page `challenge` or
 `rejected` or the row has no verdict, as after the request failed or while it still runs
 (the row's `verdict`, ADR 0029). Of two requests for the same page that pass the gate at
-once, only the one that writes the row is sent; the other answers as the row does. An
+once, only the one that writes the row is sent; the other answers as the row does, or
+`judgement-unanswered`. An
 abstention on a `partial` request is kept as `partial`: another `partial` request for
 the path answers `already-judged`, and one without it is judged again on the same row,
 which counts in the day it was first taken; that adds at most one model call per path,
