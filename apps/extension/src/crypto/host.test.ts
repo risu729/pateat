@@ -827,6 +827,35 @@ describe("fixed operations, session scope and reply fencing", () => {
     expect(await signed).toEqual({ ok: true, data: passkeySignature });
   });
 
+  it("sends a master password check to the session's Worker and returns its answer", async () => {
+    const h = harness();
+    const session = await h.open();
+    const checked = h.host.verifyMasterPassword(session, "synthetic-guess");
+    const checking = await h.command(1);
+    expect(checking.operation).toEqual({
+      kind: "verify-password",
+      session,
+      password: "synthetic-guess",
+    });
+    h.reply(checking, { ok: true, data: { matches: false } });
+    expect(await checked).toEqual({ ok: true, data: { matches: false } });
+  });
+
+  it.each([{ matches: "yes" }, { matches: true, userKey: "synthetic-key" }, null])(
+    "locks the session on a master password check reply of another shape case %#",
+    async (data) => {
+      const h = harness();
+      const session = await h.open();
+      const pending = h.host.verifyMasterPassword(session, "synthetic-guess");
+      h.reply(await h.command(1), { ok: true, data });
+      expect(await pending).toEqual({ ok: false, error: { code: "crypto-locked" } });
+      expect(await h.host.catalog(session)).toEqual({
+        ok: false,
+        error: { code: "crypto-locked" },
+      });
+    },
+  );
+
   it("forwards a per-item passkey failure without locking the session", async () => {
     const h = harness();
     const session = await h.open();

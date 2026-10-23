@@ -46,6 +46,7 @@ export type HostOperation =
       nowMs?: number;
     }
   | { kind: "match-uris"; session: HostSessionRef; targetUrl: string }
+  | { kind: "verify-password"; session: HostSessionRef; password: string }
   | { kind: "custom-digest"; session: HostSessionRef; itemIds: readonly string[] }
   | { kind: "passkey-find"; session: HostSessionRef; rpId: string }
   | {
@@ -101,6 +102,11 @@ export const commandSchema = v.strictObject({
       nowMs: v.optional(
         v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(Number.MAX_SAFE_INTEGER)),
       ),
+    }),
+    v.strictObject({
+      kind: v.literal("verify-password"),
+      session: sessionSchema,
+      password: v.pipe(v.string(), v.minLength(1)),
     }),
     v.strictObject({
       kind: v.literal("match-uris"),

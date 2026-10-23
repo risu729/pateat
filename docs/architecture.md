@@ -112,6 +112,11 @@ mechanism"
 ([Master Password Re-prompt](https://bitwarden.com/help/master-password-re-prompt/),
 checked 2026-10-14), so the vault data does not enforce it. A setting to honour it
 is planned for [phase 3](plan.md#phase-3-public-release) (owner, 2026-10-13 21:57 UTC).
+For it, the crypto Worker checks a typed master password offline against the open
+session's account: the SDK unwraps the user key from the accepted record's encrypted
+master-password unlock data (`decrypt_user_key_with_master_password`), and the result
+must equal the session's user key. The answer is only `matches: true` or `false`;
+nothing derived from the password is kept (implemented, not used yet).
 
 Expose authentication, unlock, sync, eligible references, field resolution, OTP
 generation and signing capabilities. Reserve create/update capabilities for
