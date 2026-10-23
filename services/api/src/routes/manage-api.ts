@@ -1,6 +1,7 @@
 import {
   deviceIdSchema,
   manageDashboardRangeSchema,
+  manageModelsWriteSchema,
   manageRecipeRevokeSchema,
   manageSettingsWriteSchema,
   syncRecipeIdSchema,
@@ -14,6 +15,7 @@ import { drizzle } from "drizzle-orm/d1";
 import { Hono } from "hono";
 import * as v from "valibot";
 import type { ApiEnv } from "../auth";
+import { configOffered, manageModels, readModelCatalog, saveModelConfig } from "../claude/models";
 import { readDashboard } from "../dashboard";
 import { devices, inferenceLog, loginOutcomes, loginTimings, recipeHeads } from "../db/schema";
 import { apiError } from "../http";
@@ -91,6 +93,26 @@ export const manageApiRoutes = new Hono<ApiEnv>()
     if (!result.ok)
       return c.json({ error: "settings_conflict" as const, current: result.current }, 409);
     return c.json(result.state);
+  })
+  // The owner's model configuration (ADR 0014). Only this API reads or writes it: device
+  // tokens cannot, so a stolen one cannot raise the cost of each call.
+  .get("/models", async (c) => {
+    const ownerId = await findOwner(c.env.DB, c.get("identity"));
+    if (!ownerId) return apiError(c, 404, { error: "not_paired" });
+    const catalog = await readModelCatalog(c.env, ownerId, Date.now());
+    return c.json(manageModels(catalog, catalog.config, catalog.saved));
+  })
+  .put("/models", requireJsonBody, jsonBody(manageModelsWriteSchema), async (c) => {
+    const ownerId = await findOwner(c.env.DB, c.get("identity"));
+    if (!ownerId) return apiError(c, 404, { error: "not_paired" });
+    const { config } = c.req.valid("json");
+    // Checked against what the page offers for the saved configuration, read now with the
+    // owner's credential: the newest model of each line, or one already chosen.
+    const catalog = await readModelCatalog(c.env, ownerId, Date.now());
+    if (!configOffered(config, manageModels(catalog, catalog.config, catalog.saved).models))
+      return apiError(c, 400, { error: "model_unavailable" });
+    await saveModelConfig(c.env.DB, ownerId, config);
+    return c.json(manageModels(catalog, config, true));
   })
   // The recipes devices sync through /v1/recipes; the web UI only reads and revokes them.
   .get("/recipes", async (c) => {

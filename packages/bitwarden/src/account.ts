@@ -452,6 +452,8 @@ function tokenClaims(token: unknown, now: number): RecordValue {
   };
   record(JSON.parse(decode(parts[0]!)));
   const claims = record(JSON.parse(decode(parts[1]!)));
+  // Like the official clients' TokenService, only exp decides expiry; nbf is the server's issue
+  // second and a local clock behind the server must still accept a fresh token.
   const exp = integer(claims["exp"]);
   if (exp <= now) reject("authentication-expired");
   for (const name of ["nbf", "iat"]) {
@@ -461,7 +463,6 @@ function tokenClaims(token: unknown, now: number): RecordValue {
     )
       reject();
   }
-  if (typeof claims["nbf"] === "number" && claims["nbf"] > now) reject("authentication-expired");
   if (claims["iss"] != null) requiredText(claims["iss"], 2048);
   if (claims["aud"] != null) {
     const values = typeof claims["aud"] === "string" ? [claims["aud"]] : list(claims["aud"], 100);

@@ -1,14 +1,15 @@
-// Observes public Japanese login pages live for the Japanese corpus (ADR 0012): one empty
-// browser context per page (no profile, cookies or account), locale ja-JP, nothing typed
-// or clicked. `--refresh` observes every corpus page again and moves its label to the new
-// observation; listed URLs are observed into a local report, labelled by hand.
+// Observes public login pages live for the Japanese and English corpora (ADR 0012): one
+// empty browser context per page (no profile, cookies or account), locale ja-JP, nothing
+// typed or clicked. `--refresh` observes every page of the Japanese corpus, or of the one
+// `--corpus` names, again and moves its label to the new observation; listed URLs are
+// observed into a local report, labelled by hand.
 /* oxlint-disable no-await-in-loop -- one browser observes the pages one at a time */
 import { execFileSync } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import type { LoginObservation } from "@pateat/contracts";
-import { chromium, type Browser } from "@playwright/test";
+import { chromium, type Browser, type Page } from "@playwright/test";
 import { carryLabel } from "../../packages/inference/src/corpus/carry";
 import type { JapanesePageCase } from "../../packages/inference/src/corpus/real";
 import type { ProbeResult } from "../formasaurus/probe";
@@ -92,7 +93,10 @@ async function observe(browser: Browser, url: string): Promise<PageReport> {
     for (const frame of page.frames()) {
       let probe: ProbeResult;
       try {
-        probe = (await frame.evaluate(`${probeSource}\n;pateatProbe()`)) as ProbeResult;
+        probe =
+          frame === page.mainFrame()
+            ? await probeMainFrame(page)
+            : ((await frame.evaluate(`${probeSource}\n;pateatProbe()`)) as ProbeResult);
       } catch (error) {
         probe = { ok: false, reason: firstLine(error) };
       }
@@ -101,6 +105,32 @@ async function observe(browser: Browser, url: string): Promise<PageReport> {
     return { url, ok: true, ...(status ? { status } : {}), final: page.url(), frames };
   } finally {
     await context.close();
+  }
+}
+
+/**
+ * Probes the main frame in a world of its own, as the extension's content script runs:
+ * the page's own scripts may replace built-ins such as `URL.parse` or `eval`.
+ */
+async function probeMainFrame(page: Page): Promise<ProbeResult> {
+  const session = await page.context().newCDPSession(page);
+  try {
+    const { frameTree } = await session.send("Page.getFrameTree");
+    const { executionContextId } = await session.send("Page.createIsolatedWorld", {
+      frameId: frameTree.frame.id,
+      worldName: "pateat-probe",
+    });
+    const { result, exceptionDetails } = await session.send("Runtime.evaluate", {
+      expression: `${probeSource}\n;pateatProbe()`,
+      contextId: executionContextId,
+      returnByValue: true,
+    });
+    if (exceptionDetails) {
+      throw new Error(exceptionDetails.exception?.description ?? exceptionDetails.text);
+    }
+    return result.value as ProbeResult;
+  } finally {
+    await session.detach();
   }
 }
 

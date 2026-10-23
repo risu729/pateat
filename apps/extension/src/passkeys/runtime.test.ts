@@ -1791,3 +1791,60 @@ describe("Immediate UI requests (ADR 0052)", () => {
     );
   });
 });
+
+describe("passkey re-verification after Pateat's login (ADR 0035)", () => {
+  const named = () => ({
+    ...get(),
+    request: { ...request, allowCredentials: [{ type: "public-key", id: "AQID" }] },
+  });
+
+  it("hands a request naming its credentials on in the tab whose login signed in", async () => {
+    const backing = source();
+    const report = vi.fn();
+    const reverification = vi.fn(
+      async (tabId: number, page: string, rpId: string) =>
+        tabId === 7 && page === origin && rpId === "example.com",
+    );
+    const runtime = createPasskeyRuntime(backing, { extensionId, reverification, report });
+    expect(await runtime.handle(named(), sender())).toEqual({
+      kind: "delegate",
+      reason: "confirm-fill",
+    });
+    expect(backing.candidates).not.toHaveBeenCalled();
+    expect(backing.sign).not.toHaveBeenCalled();
+    await vi.waitFor(() =>
+      expect(report).toHaveBeenCalledWith(
+        expect.objectContaining({
+          outcome: "delegate",
+          reason: "confirm-fill",
+          allowCredentials: 1,
+        }),
+      ),
+    );
+    // A username-less request there, as a sign-in after a logout, and a named one in
+    // another tab are answered as before.
+    expect(await runtime.handle(get(), sender())).toMatchObject({ kind: "assertion" });
+    expect(await runtime.handle(named(), sender({ tab: { id: 8 } }))).toMatchObject({
+      kind: "assertion",
+    });
+    expect(reverification).toHaveBeenCalledTimes(2);
+  });
+
+  it("delegates when the lookup fails, and answers as before without a login", async () => {
+    const failing = createPasskeyRuntime(source(), {
+      extensionId,
+      reverification: async () => {
+        throw new Error("synthetic");
+      },
+    });
+    expect(await failing.handle(named(), sender())).toMatchObject({
+      kind: "delegate",
+      reason: "assertion-failed",
+    });
+    const none = createPasskeyRuntime(source(), {
+      extensionId,
+      reverification: async () => false,
+    });
+    expect(await none.handle(named(), sender())).toMatchObject({ kind: "assertion" });
+  });
+});

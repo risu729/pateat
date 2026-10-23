@@ -255,10 +255,12 @@ export const loginObservationSchema = v.pipe(
     (observation) =>
       observation.candidates.every(
         ({ role, target }) =>
-          (target.by !== "autocomplete" && target.by !== "label") ||
+          (target.by !== "autocomplete" &&
+            target.by !== "label" &&
+            target.by !== "password-form-name") ||
           (fillRoles as readonly string[]).includes(role),
       ),
-    "Autocomplete and label locators apply only to fields",
+    "Autocomplete, label and password-form name locators apply only to fields",
   ),
   // Only a signed-in page's description offers one, for a button that may go on to the
   // password (ADR 0048 amendment of 2026-10-19).

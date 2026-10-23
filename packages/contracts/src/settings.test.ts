@@ -10,8 +10,10 @@ import {
   parseSettingsResponse,
   parseSiteUrl,
   resolveSiteAccount,
+  SETTINGS_CHANGE_HISTORY,
   siteDefaultConnection,
   vaultCatalogSchema,
+  type SettingsSnapshot,
 } from "./settings";
 import { createSettingsStore, type SettingsStorage } from "./settings-store";
 
@@ -511,6 +513,142 @@ describe("serialized persistent settings store", () => {
     settings.connections[0]!.enabled = false;
     settings.siteDefaults[0]!.itemId = "secondary";
     expect(await pending).toMatchObject({ ok: true, snapshot: { settings: withDefault() } });
+  });
+});
+
+describe("settings change causes (ADR 0025)", () => {
+  const same = (snapshot: SettingsSnapshot) => snapshot;
+
+  it("records a save as settings-save", async () => {
+    const memory = memoryStorage();
+    const store = createSettingsStore(memory.storage);
+    expect(await store.handle(save(0))).toMatchObject({
+      ok: true,
+      snapshot: { revision: 1, changes: [{ revision: 1, cause: "settings-save" }] },
+    });
+    expect(memory.value).toMatchObject({ changes: [{ revision: 1, cause: "settings-save" }] });
+  });
+
+  it("records an update's cause, which a mutation cannot drop or rewrite", async () => {
+    const memory = memoryStorage();
+    const store = createSettingsStore(memory.storage);
+    await store.update(undefined, "vault-added", same);
+    const dropped = await store.update(undefined, "vault-sync", (snapshot) => {
+      const { changes: _changes, ...rest } = snapshot;
+      return rest;
+    });
+    expect(dropped.changes).toEqual([
+      { revision: 1, cause: "vault-added" },
+      { revision: 2, cause: "vault-sync" },
+    ]);
+    const rewritten = await store.update(undefined, "field-review", (snapshot) => ({
+      ...snapshot,
+      changes: [{ revision: 2, cause: "settings-save" }],
+    }));
+    expect(rewritten.changes).toEqual([
+      { revision: 1, cause: "vault-added" },
+      { revision: 2, cause: "vault-sync" },
+      { revision: 3, cause: "field-review" },
+    ]);
+    expect(memory.value).toMatchObject({ revision: 3, changes: rewritten.changes });
+  });
+
+  it("keeps only the newest causes", async () => {
+    const memory = memoryStorage();
+    const store = createSettingsStore(memory.storage);
+    await store.update(undefined, "vault-added", same);
+    for (let index = 0; index < SETTINGS_CHANGE_HISTORY; index++)
+      // oxlint-disable-next-line no-await-in-loop -- each update advances one revision
+      await store.update(undefined, "automatic-vault-sync", same);
+    const snapshot = await store.read();
+    expect(snapshot.revision).toBe(SETTINGS_CHANGE_HISTORY + 1);
+    expect(snapshot.changes).toHaveLength(SETTINGS_CHANGE_HISTORY);
+    expect(snapshot.changes![0]).toEqual({ revision: 2, cause: "automatic-vault-sync" });
+    expect(snapshot.changes!.at(-1)).toEqual({
+      revision: SETTINGS_CHANGE_HISTORY + 1,
+      cause: "automatic-vault-sync",
+    });
+    // The history covers every revision after 1, but not revision 1 itself.
+    expect(await store.handle(save(1))).toMatchObject({
+      ok: false,
+      error: { code: "revision-conflict", causes: ["automatic-vault-sync"] },
+    });
+    expect(parseSettingsResponse(await store.handle(save(0)))).toMatchObject({
+      ok: false,
+      error: { code: "revision-conflict", causes: ["unknown", "automatic-vault-sync"] },
+    });
+  });
+
+  it("names an automatic vault sync to a stale save", async () => {
+    const memory = memoryStorage();
+    const store = createSettingsStore(memory.storage);
+    await store.handle(save(0));
+    await store.update(undefined, "automatic-vault-sync", same);
+    const response = await store.handle(save(1));
+    expect(parseSettingsResponse(response)).toEqual({
+      version: 1,
+      ok: false,
+      error: {
+        code: "revision-conflict",
+        message: expect.any(String),
+        causes: ["automatic-vault-sync"],
+      },
+    });
+    expect(memory.writes).toHaveLength(2);
+  });
+
+  it("returns each cause once, oldest first", async () => {
+    const memory = memoryStorage();
+    const store = createSettingsStore(memory.storage);
+    await store.handle(save(0));
+    await store.update(undefined, "automatic-vault-sync", same);
+    await store.update(undefined, "service-sync", same);
+    await store.update(undefined, "automatic-vault-sync", same);
+    await store.update(undefined, "account-choice", same);
+    expect(await store.handle(save(1))).toMatchObject({
+      error: {
+        code: "revision-conflict",
+        causes: ["automatic-vault-sync", "service-sync", "account-choice"],
+      },
+    });
+    expect(await store.handle(save(0))).toMatchObject({
+      error: {
+        code: "revision-conflict",
+        causes: ["settings-save", "automatic-vault-sync", "service-sync", "account-choice"],
+      },
+    });
+    expect(await store.handle(save(3))).toMatchObject({
+      error: { code: "revision-conflict", causes: ["automatic-vault-sync", "account-choice"] },
+    });
+  });
+
+  it("returns unknown for revisions without a recorded cause", async () => {
+    const memory = memoryStorage({ version: 1, revision: 4, settings: withDefault() });
+    const store = createSettingsStore(memory.storage);
+    expect(await store.handle(save(2))).toMatchObject({
+      error: { code: "revision-conflict", causes: ["unknown"] },
+    });
+    await store.update(undefined, "vault-sync", same);
+    expect(await store.handle(save(2))).toMatchObject({
+      error: { code: "revision-conflict", causes: ["unknown", "vault-sync"] },
+    });
+    expect(await store.handle(save(4))).toMatchObject({
+      error: { code: "revision-conflict", causes: ["vault-sync"] },
+    });
+  });
+
+  it("returns unknown when the store is behind the expected revision", async () => {
+    const empty = createSettingsStore(memoryStorage().storage);
+    expect(await empty.handle(save(3))).toMatchObject({
+      error: { code: "revision-conflict", causes: ["unknown"] },
+    });
+    const memory = memoryStorage();
+    const store = createSettingsStore(memory.storage);
+    await store.handle(save(0));
+    await store.update(undefined, "vault-added", same);
+    expect(await store.handle(save(5))).toMatchObject({
+      error: { code: "revision-conflict", causes: ["unknown"] },
+    });
   });
 });
 
