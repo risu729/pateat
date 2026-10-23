@@ -56,6 +56,14 @@ export function createServiceRuntime(options: {
   hasSiteAccess: (origin: string) => Promise<boolean>;
   /** Told once a new device's credential is stored; never changes the pairing. */
   onPaired?: (connection: { origin: string; deviceId: string }) => void;
+  /** The recipes this device holds as its own (ADR 0040). */
+  deviceRecipes?: {
+    /** How many; undefined when they cannot be read. */
+    count(): Promise<number | undefined>;
+    /** Keeps the paired device's synced recipes as its own; rejects when they do not fit. */
+    keepSynced(): Promise<void>;
+    clear(): Promise<void>;
+  };
 }) {
   const { storage, transport } = options;
   const hasSiteAccess = (origin: string) => options.hasSiteAccess(origin).catch(() => false);
@@ -142,6 +150,13 @@ export function createServiceRuntime(options: {
     const record = await current();
 
     switch (request.type) {
+      case "service.delete-recipes": {
+        if (record) return fail("wrong-state", record);
+        await options.deviceRecipes?.clear().catch(() => {
+          throw new StorageUnavailable();
+        });
+        return ok(undefined);
+      }
       case "service.get":
         return ok(record);
       case "service.pair": {
@@ -187,6 +202,15 @@ export function createServiceRuntime(options: {
       }
       case "service.disconnect": {
         if (!record) return fail("wrong-state", record);
+        // The synced recipes are kept before anything is revoked, so a device that cannot
+        // keep them stays paired (ADR 0040).
+        if (request.keepRecipes && options.deviceRecipes) {
+          try {
+            await options.deviceRecipes.keepSynced();
+          } catch {
+            return fail("recipes-not-kept", record);
+          }
+        }
         const result = await transport.revoke(record.origin, record.credential);
         // Forget the credential even when the service is unreachable; the owner
         // can still revoke this device from the service's management page.
@@ -194,6 +218,14 @@ export function createServiceRuntime(options: {
         return ok(undefined, result.kind === "revoked");
       }
     }
+  }
+
+  /** A disconnected state says how many recipes this device holds as its own. */
+  async function withKeptRecipes(response: ServiceResponse): Promise<ServiceResponse> {
+    if (response.state?.kind !== "disconnected" || !options.deviceRecipes) return response;
+    const kept = await options.deviceRecipes.count();
+    if (kept === 0) return response;
+    return { ...response, state: { kind: "disconnected", keptRecipes: kept ?? -1 } };
   }
 
   function enqueue<T>(task: () => Promise<T>): Promise<T> {
@@ -205,7 +237,7 @@ export function createServiceRuntime(options: {
   return {
     handle(input: unknown): Promise<ServiceResponse> {
       return enqueue(() =>
-        run(input).catch((error: unknown) => {
+        run(input).then(withKeptRecipes, (error: unknown) => {
           if (error instanceof StorageUnavailable)
             return { ok: false, error: "storage-unavailable" } as const;
           if (error instanceof StorageCorrupt)

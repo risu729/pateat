@@ -26,6 +26,7 @@ function mockClient() {
     }),
     disconnect: vi.fn<ServiceClient["disconnect"]>().mockResolvedValue(disconnected),
     openSignIn: vi.fn<ServiceClient["openSignIn"]>().mockResolvedValue(undefined),
+    deleteRecipes: vi.fn<ServiceClient["deleteRecipes"]>(),
   };
 }
 

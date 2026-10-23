@@ -1025,6 +1025,7 @@ function disconnectedService(): ServiceClient {
     forget: vi.fn<ServiceClient["forget"]>().mockResolvedValue(disconnected),
     pair: vi.fn<ServiceClient["pair"]>(),
     disconnect: vi.fn<ServiceClient["disconnect"]>().mockResolvedValue(disconnected),
+    deleteRecipes: vi.fn<ServiceClient["deleteRecipes"]>().mockResolvedValue(disconnected),
     openSignIn: vi.fn<ServiceClient["openSignIn"]>().mockResolvedValue(undefined),
   };
 }

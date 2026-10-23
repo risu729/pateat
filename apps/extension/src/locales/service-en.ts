@@ -106,4 +106,21 @@ export const serviceEn = {
     "Profile saved. Devices use it after their next settings sync.",
   "Save profile": "Save profile",
   "Reload profile": "Reload profile",
+  "The recipes could not be kept on this device, so it is still paired. Disconnect and delete them, or try again.":
+    "The recipes could not be kept on this device, so it is still paired. Disconnect and delete them, or try again.",
+  "Keep the synced recipes on this device?": "Keep the synced recipes on this device?",
+  "Kept recipes stay this device's own, so logins go on without the service, and a service paired later receives them once. Settings stay on this device either way.":
+    "Kept recipes stay this device's own, so logins go on without the service, and a service paired later receives them once. Settings stay on this device either way.",
+  "Disconnect and keep recipes": "Disconnect and keep recipes",
+  "Disconnect and delete recipes": "Disconnect and delete recipes",
+  "The recipes kept on this device cannot be read. Delete them to start again.":
+    "The recipes kept on this device cannot be read. Delete them to start again.",
+  keptRecipes_one:
+    "{{count}} recipe kept on this device. Logins use it without a service, and a service paired later receives it once.",
+  keptRecipes_other:
+    "{{count}} recipes kept on this device. Logins use them without a service, and a service paired later receives them once.",
+  keptRecipes:
+    "{{count}} recipes kept on this device. Logins use them without a service, and a service paired later receives them once.",
+  "Delete recipes on this device": "Delete recipes on this device",
+  "The recipes kept on this device were deleted.": "The recipes kept on this device were deleted.",
 } as const;

@@ -20,10 +20,12 @@ import {
   type LoginEntryRecipe,
   type LoginStep,
   type LoginTarget,
+  type StoredLoginRecipe,
   type SyncRecipeChanges,
 } from "@pateat/contracts";
 import * as v from "valibot";
 import type { LoginRecipes } from "../login/runtime";
+import type { DeviceRecipeUpload } from "./device-recipes";
 import { loginReadiness } from "../login/wire";
 import type { RecipeSyncRecord, ServiceConnection } from "./runtime";
 import type { SettingsSyncOutcome } from "./settings-sync";
@@ -157,6 +159,14 @@ export function createRecipeSync(options: {
     ): Promise<SettingsSyncOutcome>;
     clear(): Promise<void>;
   };
+  /**
+   * The recipes this device holds as its own (ADR 0040): logins use them while no service
+   * is paired, and each full sync uploads them to the paired service.
+   */
+  device?: {
+    list(): Promise<readonly StoredLoginRecipe[]>;
+    upload(connection: ServiceConnection, stale: () => boolean): Promise<DeviceRecipeUpload>;
+  };
   /** Receives the outcome of each sync run and what it changed, for the local log. */
   report?: (outcome: RecipeSyncOutcome, changes: RecipeSyncChanges) => void;
   /** The extension's build: its commit, or `development` for a build outside git. */
@@ -246,6 +256,10 @@ export function createRecipeSync(options: {
       return "not-connected";
     }
     if (connection.rejected) return "rejected";
+    // The recipes this device holds go up first, so the pull below brings them back
+    // (owner, 2026-10-23 12:36 UTC).
+    if (withSettings && options.device)
+      await options.device.upload(connection, () => generation !== started).catch(() => undefined);
     const recipesOutcome = await pullRecipes(connection, started, changed);
     if (["not-connected", "rejected", "unreachable", "rate-limited"].includes(recipesOutcome))
       return recipesOutcome;
@@ -570,25 +584,46 @@ export function createRecipeSync(options: {
     await Promise.all([cleared, options.settings?.clear()]);
   }
 
-  /** The cache of the paired device, refreshed in the background when `refresh` is set. */
-  async function current(refresh: boolean): Promise<RecipeCache | undefined> {
-    const connection = await service.connection().catch(() => undefined);
-    if (!connection) return undefined;
+  /**
+   * The recipes logins use: the paired device's cache, refreshed in the background when
+   * `refresh` is set, or without a pairing those this device holds (ADR 0040). None when
+   * the pairing or those recipes cannot be read.
+   */
+  async function current(
+    refresh: boolean,
+  ): Promise<{ recipes: readonly StoredLoginRecipe[] } | undefined> {
+    let connection: ServiceConnection | undefined;
+    try {
+      connection = await service.connection();
+    } catch {
+      return undefined;
+    }
+    if (!connection) {
+      const held = await options.device?.list().catch(() => undefined);
+      return held ? { recipes: held } : undefined;
+    }
     if (refresh && !connection.rejected) refreshIfStale();
     return load(connection);
   }
-  const choosersOf = (cache: RecipeCache, origin: string) =>
+  type Held = { recipes: readonly StoredLoginRecipe[] };
+  /** The paired device's synced recipes, as a disconnect keeps them; none unpaired. */
+  async function synced(): Promise<readonly StoredLoginRecipe[] | undefined> {
+    const connection = await service.connection();
+    if (!connection) return undefined;
+    return (await load(connection))?.recipes;
+  }
+  const choosersOf = (cache: Held, origin: string) =>
     cache.recipes.filter(
       (recipe): recipe is LoginChooserDocument => "chooser" in recipe && recipe.origin === origin,
     );
-  const documentOf = (cache: RecipeCache, origin: string, recipeId: string) =>
+  const documentOf = (cache: Held, origin: string, recipeId: string) =>
     loginRecipesForOrigin(cache.recipes, origin).find((recipe) => recipe.id === recipeId);
   /**
    * The chooser documents whose list shows on the path. The service keeps one generated
    * recipe per origin and start path; a path where several start, or where a login recipe
    * starts as well, starts none (ADR 0013).
    */
-  function choosersOn(cache: RecipeCache, origin: string, path: string) {
+  function choosersOn(cache: Held, origin: string, path: string) {
     const here = choosersOf(cache, origin).filter((recipe) => recipe.chooser.path === path);
     return here.length === 1 &&
       !loginRecipesForOrigin(cache.recipes, origin).some(
@@ -735,9 +770,7 @@ export function createRecipeSync(options: {
         .filter((recipe) => laterStartSteps(recipe).some(({ step }) => step.path === path));
     },
     async routes(origin: string) {
-      const connection = await service.connection().catch(() => undefined);
-      if (!connection) return [];
-      const cache = await load(connection);
+      const cache = await current(false);
       if (!cache) return [];
       // Every layout of each login recipe whatever its kind, and every chooser layout's
       // branches (ADR 0060).
@@ -764,5 +797,5 @@ export function createRecipeSync(options: {
     },
   };
 
-  return { sync, refreshIfStale, clear, recipes };
+  return { sync, refreshIfStale, clear, synced, recipes };
 }

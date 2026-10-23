@@ -25,6 +25,7 @@ function service() {
     forget: vi.fn<ServiceClient["forget"]>(),
     disconnect: vi.fn<ServiceClient["disconnect"]>(),
     openSignIn: vi.fn<ServiceClient["openSignIn"]>(),
+    deleteRecipes: vi.fn<ServiceClient["deleteRecipes"]>(),
   };
 }
 const status: DiagnosticsStatus = {

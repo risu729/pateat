@@ -109,4 +109,21 @@ export const serviceJa = {
     "プロファイルを保存しました。各デバイスには次回の設定の同期で反映されます。",
   "Save profile": "プロファイルを保存",
   "Reload profile": "プロファイルを再読み込み",
+  "The recipes could not be kept on this device, so it is still paired. Disconnect and delete them, or try again.":
+    "レシピをこのデバイスに残せなかったため、接続したままです。削除して接続を解除するか、もう一度試してください。",
+  "Keep the synced recipes on this device?": "同期したレシピをこのデバイスに残しますか?",
+  "Kept recipes stay this device's own, so logins go on without the service, and a service paired later receives them once. Settings stay on this device either way.":
+    "残したレシピはこのデバイスのものになり、サービスなしでもログインに使われます。後でペアリングしたサービスには 1 回だけ送られます。設定はどちらでもこのデバイスに残ります。",
+  "Disconnect and keep recipes": "レシピを残して接続を解除",
+  "Disconnect and delete recipes": "レシピを削除して接続を解除",
+  "The recipes kept on this device cannot be read. Delete them to start again.":
+    "このデバイスに残したレシピを読み込めません。削除してやり直してください。",
+  keptRecipes_one:
+    "このデバイスに {{count}} 件のレシピがあります。サービスなしでもログインに使われ、後でペアリングしたサービスには 1 回だけ送られます。",
+  keptRecipes_other:
+    "このデバイスに {{count}} 件のレシピがあります。サービスなしでもログインに使われ、後でペアリングしたサービスには 1 回だけ送られます。",
+  keptRecipes:
+    "このデバイスに {{count}} 件のレシピがあります。サービスなしでもログインに使われ、後でペアリングしたサービスには 1 回だけ送られます。",
+  "Delete recipes on this device": "このデバイスのレシピを削除",
+  "The recipes kept on this device were deleted.": "このデバイスに残したレシピを削除しました。",
 } satisfies Record<keyof typeof serviceEn, string>;

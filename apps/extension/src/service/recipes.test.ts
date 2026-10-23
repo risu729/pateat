@@ -189,6 +189,7 @@ function setup(
     now?: () => number;
     settings?: SettingsSyncOutcome;
     build?: string;
+    device?: NonNullable<Parameters<typeof createRecipeSync>[0]["device"]>;
   } = {},
 ) {
   let value = options.stored;
@@ -244,6 +245,7 @@ function setup(
     build: options.build ?? "1c42ad3",
     now: options.now ?? (() => 5_000),
     ...(options.settings ? { settings: settingsSync } : {}),
+    ...(options.device ? { device: options.device } : {}),
   });
   return {
     sync,
@@ -1990,5 +1992,89 @@ describe("cached recipe lookup", () => {
     expect(await sync.recipes.recipe(SITE, "/login")).toEqual(projected(signin));
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(transport.recipeChanges).not.toHaveBeenCalled();
+  });
+});
+
+describe("recipes this device holds as its own (ADR 0040)", () => {
+  const held = recipe("bank-held", "/login");
+  function device(recipes: readonly StoredLoginRecipe[] | Error = [held]) {
+    return {
+      list: vi.fn(async () => {
+        if (recipes instanceof Error) throw recipes;
+        return recipes;
+      }),
+      upload: vi.fn<NonNullable<Parameters<typeof createRecipeSync>[0]["device"]>["upload"]>(
+        async () => "done",
+      ),
+    };
+  }
+
+  it("serves them for logins while no service is paired", async () => {
+    const { sync, transport } = setup({ connection: undefined, device: device() });
+    expect(await sync.recipes.recipe(SITE, "/login")).toEqual(projected(held));
+    expect(await sync.recipes.routes!(SITE)).toHaveLength(1);
+    expect(await sync.recipes.recipe("https://other.example", "/login")).toBeUndefined();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(transport.recipeChanges).not.toHaveBeenCalled();
+  });
+
+  it("serves none when they or the pairing cannot be read", async () => {
+    expect(
+      await setup({
+        connection: undefined,
+        device: device(new Error("unreadable")),
+      }).sync.recipes.recipe(SITE, "/login"),
+    ).toBeUndefined();
+    const broken = setup({ device: device() });
+    broken.service.connection.mockRejectedValue(new Error("unreadable"));
+    expect(await broken.sync.recipes.recipe(SITE, "/login")).toBeUndefined();
+  });
+
+  it("uses the paired service's cache, not them, while paired", async () => {
+    const signin = recipe("bank-signin", "/login");
+    const { sync } = setup({
+      stored: { version: 2, origin: SERVICE, deviceId: DEVICE, cursor: 2, recipes: [signin] },
+      device: device(),
+    });
+    expect(await sync.recipes.recipe(SITE, "/login")).toEqual(projected(signin));
+    expect(await sync.recipes.recipe(SITE, "/login", "bank-held")).toBeUndefined();
+  });
+
+  it("uploads them on a full sync before pulling, so the pull brings them back", async () => {
+    const own = device();
+    const { sync, transport } = setup({ device: own });
+    own.upload.mockImplementation(async () => {
+      expect(transport.recipeChanges).not.toHaveBeenCalled();
+      return "done";
+    });
+    expect(await sync.sync()).toBe("synced");
+    expect(own.upload).toHaveBeenCalledExactlyOnceWith(
+      { origin: SERVICE, deviceId: DEVICE, credential: CREDENTIAL, rejected: false },
+      expect.any(Function),
+    );
+    expect(transport.recipeChanges).toHaveBeenCalled();
+  });
+
+  it("does not upload on a recipes-only sync, for a rejected device, or unpaired", async () => {
+    const devices = [device(), device(), device()] as const;
+    expect(await setup({ device: devices[0] }).sync.sync({ settings: false })).toBe("synced");
+    expect(
+      await setup({
+        device: devices[1],
+        connection: { origin: SERVICE, deviceId: DEVICE, credential: CREDENTIAL, rejected: true },
+      }).sync.sync(),
+    ).toBe("rejected");
+    expect(await setup({ device: devices[2], connection: undefined }).sync.sync()).toBe(
+      "not-connected",
+    );
+    for (const own of devices) expect(own.upload).not.toHaveBeenCalled();
+  });
+
+  it("still pulls when an upload fails", async () => {
+    const own = device();
+    own.upload.mockRejectedValue(new Error("unavailable"));
+    const { sync, transport } = setup({ device: own });
+    expect(await sync.sync()).toBe("synced");
+    expect(transport.recipeChanges).toHaveBeenCalled();
   });
 });
