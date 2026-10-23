@@ -95,6 +95,7 @@ import {
   type SavedLoginBinding,
   type SemanticSlot,
   type SettingsResponse,
+  type SettingsChangeCause,
   type SettingsSnapshot,
   type ValueShape,
   type VaultCatalog,
@@ -416,6 +417,7 @@ type SettingsRuntime = {
   /** Trusted background mutation; saves an automatic account choice after confirmed `authenticated`. */
   update?(
     expectedRevision: number | undefined,
+    cause: SettingsChangeCause,
     mutate: (snapshot: SettingsSnapshot) => SettingsSnapshot,
   ): Promise<SettingsSnapshot>;
 };
@@ -3101,7 +3103,7 @@ export function createLoginRuntime(
       }
       writing = true;
       const written = await settings
-        .update(run.metadata.policyRevision, (snapshot) => ({
+        .update(run.metadata.policyRevision, "account-choice", (snapshot) => ({
           ...snapshot,
           settings: withChoice(snapshot.settings, choice),
         }))
