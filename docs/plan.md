@@ -2905,8 +2905,9 @@ never contribute. Only forms that hold a field count, or every control outside a
 when a field is outside one. In those forms the candidates are visible text, email, tel,
 number and password inputs, checkboxes, buttons (disabled ones too, since many enable
 after typing), script links (an `<a>` without `href` that has an `onclick` attribute or
-`role="button"` or sets a pointer cursor itself, as IIJmio's login, approved by the
-owner on 2026-10-23, or an `<a href>` with a `javascript:` URL or with an empty or
+`role="button"` or sets a pointer cursor itself, as IIJmio's login (owner-approved
+2026-10-23), or an
+`<a href>` with a `javascript:` URL or with an empty or
 fragment-only `href` and an `onclick` attribute or `role="button"`) as buttons, other
 elements with `role="button"` that have an `id`, `name` or `data-testid`, or in a login
 form or beside a password form a unique text (as
@@ -2938,73 +2939,76 @@ element transparent only because it or each transparent ancestor has a running o
 CSS animation, CSS transition or script animation that still takes its opacity above 0
 later in its current iteration, in the direction it plays (one still in its delay from
 the iteration's start), counts as opaque, wherever the content script reads whether an
-element is shown (fields, buttons and their text, lists of accounts, sign-in entries and
-the signed-in page). An input at opacity 0 with no such animation stays transparent, as
-does one under an animation that holds the opacity at 0 for the rest of its iteration (a
-fade-out that then holds, a carousel's slide hidden until its next cycle) or finished at
-0. Labels come from `aria-labelledby`, `aria-label`, `<label>`, the text next to a field
-(the preceding table cell, `<dt>` or sibling, at most three levels up, never across
-another control or its label), then `title`; image `alt` names buttons, including
-`<input type="image">`. A text, email, tel, number or password field also gets a
-`description`: the rendered text of the elements its `aria-describedby` names, such as
-`半角数字3桁` under a branch number field, left out when it equals the label. Error
-messages can echo what the user typed, so a field marked `aria-invalid="true"` gets no
-description, and neither an element the field's `aria-errormessage` names nor the text
-of an alert, status or other live region, around the description or inside it, ever
-counts. An error message with none of these marks is still read. The description reaches
-the generation, finite-choice and completion roles as untrusted page text, like labels.
-The owner chose on 2026-10-12 to add only this now and to consider the rest only if
-field or button mapping gets worse on real pages. Not observed today: text after a field
-that no `aria-describedby` names (a hint printed under an input), a second label source
-once one is found (the text next to a field when a `<label>` exists), text around a
-button (a line above a passkey button, or which `h1`-`h3` heading a button sits under)
-and a button's `aria-describedby`, the `pattern` attribute, and whether a button is
-disabled. Whatever the model saw, the executor still checks a field's `maxlength` and
-`minlength` before it fills and the browser's validation, `pattern` included, before it
-clicks. Text is redacted as [architecture](architecture.md#declarative-recipes-and-ai)
-describes. Each target is the first of `id`, `name` and `data-testid` that matches
-exactly one element, as the executor resolves it, skipping an `id` React's `useId`
-generated and trying one holding a random-looking run or Mantine's `mantine-` prefix
-(2026-10-13) last, and for an input without one, its first `autocomplete` token that is
-`username`, `email`, `current-password`, `one-time-code` or `webauthn` and that no other
-input carries, then its visible name when no other shown fillable input has it, before
-such an `id` ([ADR 0037](adr/0037-fields-by-visible-name.md)); a button without one gets
-a text locator when its text matches exactly one button and redaction leaves it
-unchanged, and a script link when its text matches no button and exactly one script
-link. In a login form, a field, button or required checkbox without a target (a checkbox
-is context only, so one without `required` or `aria-required="true"` and without a
-target is left out, 2026-10-23, as Stripe's and 1Password's "Remember me"), a control
-the executor cannot act on (a select, radio, text area, another input type, or a
-read-only, disabled, transparent or tiny field) or a control in a shadow root makes the
-observation incomplete, as do more than 48 candidates, so inference rejects it; a page
-without a field, or where nothing in a login form can be located or acted on, is
-refused. The login forms are those with one password field that is not `new-password`,
-or with a `username` or `one-time-code` field, as ADR 0016 detects a login; failing
-that, any with a password field; otherwise every form that holds a field. Any other form
-with such a control, such as a search form with a category select or a sign-up form with
-a birth-date select, is left out entirely, so every form the observation describes is
-complete. On the 233 observed Formasaurus login pages of the real-page corpus
-(2026-10-11), this cut the incomplete ones from 108 to 52: 55 became complete, each
-still showing the form Formasaurus labels as the login form, and one whose login form
-has no locatable control now gives no observation. Fields outside every form count as
-one more form, whose controls are those outside every form; since 2026-10-23 a control
-the executor cannot act on that is not a field counts there only inside the fields'
-area, their nearest common ancestor (a lone field itself) and up to four levels above it
-(never the body or the root element), so a language picker in a page footer without
-footer markup, as on dアカウント's login page (`cfg.smt.docomo.ne.jp`, read in cloud
-Chromium on main `381116f`), no longer makes the page incomplete (agent fix, local tests
-only; not checked in the owner's Chrome). A field in any open shadow root marks it
-incomplete too, as it may be the real login. Links are context only: the plan check
-accepts only a button as the page action. Known limits: a read-only username shown again
-on a password step makes that step incomplete, and honeypot inputs moved to the right or
-clipped by `overflow: hidden` stay candidates. `extractSignedInObservation` describes
-the page after a generated recipe's final submission the same way, but over the whole
-page: every field, then buttons and links up to 48 candidates, listed in document order.
-A field it cannot describe marks it incomplete, except a read-only, transparent or tiny
-field that does not look like a sign-in field, which is left out since 2026-10-12: the
-page after アパホテル's login was logged as `unfillable-field` and never judged, and a
-read-only date picker of its hotel search is the inferred cause. In the owner's Chrome
-on 2026-10-12 (06:17 UTC) the page after the login was then judged `signed-in` with the
+element is shown (fields, buttons and their text,
+lists of accounts, sign-in entries and the signed-in page). An input at opacity 0 with
+no such animation stays transparent, as does one under an animation that holds the
+opacity at 0 for the rest of its iteration (a fade-out that then holds, a carousel's
+slide hidden until its next cycle) or finished at 0. Labels come from
+`aria-labelledby`, `aria-label`, `<label>`, the text next to a field (the preceding
+table cell, `<dt>` or sibling, at most three levels up, never across another control or
+its label), then `title`; image `alt` names buttons, including `<input type="image">`. A
+text, email, tel, number or password field also gets a `description`: the rendered text
+of the elements its `aria-describedby` names, such as `半角数字3桁` under a branch
+number field, left out when it equals the label. Error messages can echo what the user
+typed, so a field marked `aria-invalid="true"` gets no description, and neither an
+element the field's `aria-errormessage` names nor the text of an alert, status or other
+live region, around the description or inside it, ever counts. An error message with
+none of these marks is still read. The description reaches the generation, finite-choice
+and completion roles as untrusted page text, like labels. The owner chose on 2026-10-12
+to add only this now and to consider the rest only if field or button mapping gets worse
+on real pages. Not observed today: text after a field that no `aria-describedby` names
+(a hint printed under an input), a second label source once one is found (the text next
+to a field when a `<label>` exists), text around a button (a line above a passkey
+button, or which `h1`-`h3` heading a button sits under) and a button's
+`aria-describedby`, the `pattern` attribute, and whether a button is disabled. Whatever
+the model saw, the executor still checks a field's `maxlength` and `minlength` before it
+fills and the browser's validation, `pattern` included, before it clicks. Text is
+redacted as [architecture](architecture.md#declarative-recipes-and-ai) describes. Each
+target is the first of `id`, `name` and `data-testid` that matches exactly one element,
+as the executor resolves it, skipping an `id` React's `useId` generated and trying one
+holding a random-looking run or Mantine's `mantine-` prefix (2026-10-13) last, and for
+an input without one, its first `autocomplete` token that is `username`, `email`,
+`current-password`, `one-time-code` or `webauthn` and that no other input carries, then
+its visible name when no other shown fillable input has it, before such an `id`
+([ADR 0037](adr/0037-fields-by-visible-name.md)); a button without one gets a text
+locator when its text matches exactly one button and redaction leaves it unchanged, and
+a script link when its text matches no button and exactly one script link. In a login
+form, a field, button or required checkbox without a target (a checkbox is context
+only, so one without `required` or `aria-required="true"` and without a target is left
+out, 2026-10-23, as Stripe's and 1Password's "Remember me"), a control the executor
+cannot act on (a select, radio, text area, another input type, or a read-only, disabled,
+transparent or tiny field) or a control in a shadow root makes the observation
+incomplete, as do more than 48 candidates, so inference rejects it; a page without a
+field, or where nothing in a login form can be located or acted on, is refused. The
+login forms are
+those with one password field that is not `new-password`, or with a `username` or
+`one-time-code` field, as ADR 0016 detects a login; failing that, any with a password
+field; otherwise every form that holds a field. Any other form with such a control, such
+as a search form with a category select or a sign-up form with a birth-date select, is
+left out entirely, so every form the observation describes is complete. On the 233
+observed Formasaurus login pages of the real-page corpus (2026-10-11), this cut the
+incomplete ones from 108 to 52: 55 became complete, each still showing the form
+Formasaurus labels as the login form, and one whose login form has no locatable control
+now gives no observation. Fields outside every form count as one more form, whose
+controls are those outside every form; since 2026-10-23 a control the executor cannot
+act on that is not a field counts there only inside the fields' area, their nearest
+common ancestor (a lone field itself) and up to four levels above it (never the body or
+the root element), so a language picker in a page footer without footer markup, as on
+dアカウント's login page
+(`cfg.smt.docomo.ne.jp`, read in cloud Chromium on main `381116f`), no longer makes the
+page incomplete (agent fix, local tests only; not checked in the owner's Chrome). A
+field in any open shadow root marks it incomplete too, as it
+may be the real login. Links are context only: the plan check accepts only a button as
+the page action. Known limits: a read-only username shown again on a password step makes
+that step incomplete, and honeypot inputs moved to the right or clipped by
+`overflow: hidden` stay candidates. `extractSignedInObservation` describes the page
+after a generated recipe's final submission the same way, but over the whole page: every
+field, then buttons and links up to 48 candidates, listed in document order. A field it
+cannot describe marks it incomplete, except a read-only, transparent or tiny field that
+does not look like a sign-in field, which is left out since 2026-10-12: the page after
+アパホテル's login was logged as `unfillable-field` and never judged, and a read-only
+date picker of its hotel search is the inferred cause. In the owner's Chrome on
+2026-10-12 (06:17 UTC) the page after the login was then judged `signed-in` with the
 ログアウト button as its marker. A disabled field that does not look like a sign-in
 field is left out too since 2026-10-12 (22:03 UTC), but such a page completes only on
 `signed-in` ([ADR 0029](adr/0029-local-sign-in-state.md)): Q-move's signed-in page was
