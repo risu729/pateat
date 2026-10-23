@@ -559,6 +559,13 @@ than in this repository.
   - A vault item edit picked up by the automatic sync
     ([#222](https://github.com/risu729/pateat/pull/222),
     [#224](https://github.com/risu729/pateat/pull/224)).
+  - Added on 2026-10-23, not moved by the owner: synced vault policy
+    ([ADR 0023](adr/0023-synced-vault-policy.md)), implemented and tested with
+    synthetic vaults and an in-memory service only. On the deployed service, with the
+    owner's real vault: a device's first settings sync after the update, item
+    selection and a custom-field exclusion made on one device applying on a second,
+    and a custom-field edit in Bitwarden making the item wait for review on the
+    settings page until it is reviewed.
   - Added on 2026-10-13, not moved by the owner: a security-key second factor behind a
     button labelled only "Verify", as on Oracle Cloud. Confirmed in the owner's Chrome
     on `8b60ff2` (2026-10-13 06:48 UTC), after the Oracle recipe was revoked: the judge
@@ -1069,15 +1076,21 @@ Once the fixes have settled:
 - The docs website (VitePress 2, see
   [decisions still requiring evidence](#decisions-still-requiring-evidence)) with
   user-facing pages for installation, setup and permissions, plus the M6 operational
-  docs. The [operations runbook](operations.md) now documents current retry/revert
-  procedures and the unverified D1 restore and rollback-automation boundaries; this
-  does not complete installed-Chrome or disaster-recovery acceptance.
+  docs. Started: [`apps/docs`](development.md#docs-website) builds in CI with English
+  pages for installation, setup, permissions and a draft privacy policy with the Chrome
+  Web Store Limited Use statement. Still to do: deploying it (a public assets-only
+  Worker with per-PR previews, owner 2026-10-23), the M6 operational docs, the Japanese
+  pages, and updating the installation page once releases exist. The
+  [operations runbook](operations.md) now documents current retry/revert procedures and
+  the unverified D1 restore and rollback-automation boundaries; this does not complete
+  installed-Chrome or disaster-recovery acceptance.
 - A mode without the service, designed with the owner on 2026-10-23
   ([ADR 0040](adr/0040-running-without-the-service.md)): a device may hold its own
   Anthropic API key and call the model itself, also while paired, where the service only
-  checks, stores and shares the results. The paired part is implemented; generation on
-  an unpaired device with the one-time upload after pairing, and export and import with
-  the choice to keep or delete on unpairing, follow in that order.
+  checks, stores and shares the results. The paired part is implemented, and so are the
+  recipes a device keeps on unpairing, which logins use without the service and which
+  are uploaded once after pairing again. Generation on an unpaired device, then export
+  and import, follow in that order.
 - The finite-choice role with Clef, which the owner chose to implement here. On
   2026-10-11 the owner asked for a larger corpus of real pages before planning it. After
   Clef has been tried, compare it with Jev on the same pages (owner, 2026-10-13 15:11
@@ -1115,7 +1128,8 @@ Once the fixes have settled:
   developer account and will also publish there if the store's policies allow it
   (2026-10-11). The owner accepted on 2026-10-11 (18:36 UTC) that a store item gets a
   store-assigned extension ID, so devices pair again, and that the store requires a
-  privacy policy and a Limited Use statement. Risk: the
+  privacy policy and a Limited Use statement; drafts of both are on the docs website's
+  privacy page (`apps/docs/src/privacy.md`), not reviewed by the owner yet. Risk: the
   [MV3 code rules](https://developer.chrome.com/docs/webstore/program-policies/mv3-requirements)
   forbid "building an interpreter to run complex commands fetched from a remote source,
   even if those commands are fetched as data". A reviewer may count service-held recipes
@@ -1313,10 +1327,12 @@ items the owner mentioned and gates still open on 2026-10-11.
     [phase 2](#phase-2-use-it-and-fix-what-comes-up); deliveries 2 to 4 (the settings
     and fill-only `sign-in`, filling `confirm` pages, personal details) are here.
 - The items under [later work](#initial-delivery-and-later-scope) and the ADRs' later
-  sections, including synced vault policy ([ADR 0023](adr/0023-synced-vault-policy.md)),
-  profile inheritance ([ADR 0076](adr/0076-settings-profiles-delivered.md)), the ADR
-  0025 later work and the ADR 0027 cases it does not handle. Generation for passkey-only
-  start pages moved to [phase 2](#phase-2-use-it-and-fix-what-comes-up) on 2026-10-19.
+  sections, including the toolbar popup's part of synced vault policy (reporting items
+  that wait for review, and binding review;
+  [ADR 0023](adr/0023-synced-vault-policy.md)), profile inheritance
+  ([ADR 0076](adr/0076-settings-profiles-delivered.md)), the ADR 0025 later work and the
+  ADR 0027 cases it does not handle. Generation for passkey-only start pages moved to
+  [phase 2](#phase-2-use-it-and-fix-what-comes-up) on 2026-10-19.
 - Real-account checks of individual Bitwarden two-step methods, other KDFs, V2 keys and
   organization items. The owner moved them after the public release on 2026-10-11
   (18:35 UTC), since few users are expected to need them; each needs the owner's
@@ -1781,6 +1797,12 @@ Protected snapshot bindings survive even a review choosing no exclusions. Generi
 cannot clear unresolved exclusions or that binding history. Separate cache/settings
 stores detect mismatched state after interruption; they do not provide one atomic
 combined commit. Catalog bounds are validated before unlock-key export and cache commit.
+Since 2026-10-23 ([ADR 0023](adr/0023-synced-vault-policy.md)) the snapshot-scoped
+references and `fieldPolicies` are gone: custom fields are excluded by name, position
+and count in synced `itemPolicies`, and a synced `customFieldReviews` record keeps the
+encrypted custom-field evidence and revision date of the last review. An item whose
+evidence differs waits for review on the settings page, or for its vault to sync when
+its revision date is older than the record's.
 
 The settings page can delete a connection locally, as
 [Development](development.md#manual-bitwarden-setup-preview) describes. Unit, options
@@ -2116,17 +2138,22 @@ in-memory storage; sync against the deployed service has no recorded check yet.
 The fifth slice syncs the device-independent settings in the same run, after recipes:
 site exclusions, site defaults that name a provider account and item, account bindings,
 and the links to the vault fields that hold a login's personal details (ADR 0061). Vault
-connections, item selection and field exclusions stay on the device; the service
-document always has an empty `connections` list. The background reads `GET /v1/settings`
-and merges three copies per entry (exclusions by hostname, defaults by origin, bindings
-by recipe, origin and account, detail links by login item, site and detail, and an
-answer's link also by its field): the last agreed base, stored under
+connections stay on the device; the service document always has an empty `connections`
+list. Since 2026-10-15 the same run also syncs `accountPolicies`, `itemPolicies` (merged
+per provider account and item) and `customFieldReviews`, keyed by provider, server and
+user ID ([ADR 0023](adr/0023-synced-vault-policy.md)); the dummy provider's entries stay
+local, and no vault item is used before a device's first settings sync. The background
+reads `GET /v1/settings` and merges three copies per entry (exclusions by hostname,
+defaults by origin, bindings by recipe, origin and account, detail links by login item,
+site and detail, and an answer's link also by its field): the last agreed base, stored
+under
 `pateat.sync-settings.v1`, the local settings and the service's. A side that changed an
 entry since that base wins, and the service wins when both changed it; removing an entry
 counts as a change. When a local link stores a question that the service's copy already
 gives another field of the same login item, the service's link stands and the local one
-is dropped. The base keeps the service's copy and the local copy it accounts for. Both
-are the same after a complete sync; after an upload whose local write has not
+falls back to the service's copy of it, or is left out without one. The base keeps the
+service's copy and the local copy it accounts for. Both are the same after a complete
+sync; after an upload whose local write has not
 happened yet, the local copy is still the one the merge started from, so a merged entry
 the device has not written yet is not read as a local removal, and a local edit made
 meanwhile still wins. The base is used only when the service revision is newer than the
@@ -2186,10 +2213,11 @@ tests cover it.
   page while signed in to Access finished in one click with "This device is paired.",
   and `/manage` listed the new device "risu-thinkpad Chrome" as paired at 14:00 UTC
   (check step 2). Step 3 (signed out) and the cookie settings are not recorded yet.
-- Settings that use device-local connection IDs, such as item selection and field
-  exclusions, are not synced yet.
-  [ADR 0023](adr/0023-synced-vault-policy.md) decides their synced form and custom-field
-  review; it is not implemented.
+- Done on 2026-10-23, except the popup's part: item selection, field exclusions and
+  custom-field review are synced per provider account
+  ([ADR 0023](adr/0023-synced-vault-policy.md) and its implementation notes, which the
+  owner approved on 2026-10-23). Not checked against the deployed service or a real
+  vault yet (see [phase 2](#phase-2-use-it-and-fix-what-comes-up)).
 - Done: the [owner web UI](architecture.md#owner-web-ui) serves its React app, assets
   and JSON API behind Access, with the devices, sites, account bindings and recipes
   pages. Settings edits and recipe revocations there use the same revision checks as
@@ -3508,7 +3536,7 @@ support for every site or vault format. Keep observed limitations explicit.
 - Per [ADR 0013](adr/0013-service-held-recipes-and-settings.md), decide how to choose
   among several URI-matched items. How synced field exclusions move to
   device-independent references, and where custom-field review happens, are decided in
-  [ADR 0023](adr/0023-synced-vault-policy.md).
+  [ADR 0023](adr/0023-synced-vault-policy.md) and implemented since 2026-10-23.
 - Pairing and device credential lifetime (90 days unused, renewed on use; see
   [service sync progress](#service-sync-progress)) are settled, and a lost
   device is replaced by pairing a new one, since the service holds settings and recipes
@@ -3552,13 +3580,14 @@ own interoperability/recovery evidence.
 
 Extension releases on GitHub Releases, with their continuous delivery, are planned for
 [phase 3](#phase-3-public-release), with the Chrome Web Store if its policies allow;
-public recipe sharing and hosted
-browser installation are outside the plan. A simple docs website comes in phase 3 and is
-not a phase 1 gate. The owner chose VitePress for it on
-2026-10-11, as risu729/biwa uses, so biwa's Bun and mise build, assets-only Cloudflare
-Worker and per-PR previews can be reused. The owner chose VitePress 2 even before its
-stable release (on 2026-10-11 the npm `next` tag was 2.0.0-alpha.20, as biwa uses), and
-nothing is installed before the site is built. Starlight and Docusaurus were the
+public recipe sharing and hosted browser installation are outside the plan. A simple
+docs website comes in phase 3 and is not a phase 1 gate. The owner chose VitePress for
+it on 2026-10-11, as risu729/biwa uses, so biwa's Bun and mise build, assets-only
+Cloudflare Worker and per-PR previews can be reused. The owner chose VitePress 2 even
+before its stable release (on 2026-10-11 the npm `next` tag was 2.0.0-alpha.20, as biwa
+uses), and nothing was installed before the site was built; `apps/docs` pins
+2.0.0-alpha.20, still the `next` tag on 2026-10-15. Starlight and Docusaurus were the
 alternatives. The docs/ pages are written for development, so user-facing pages
-(installation, setup, permissions) are still to be written for the site. Extension build
-and automated tests remain in CI scope. Native helpers are not required by the product.
+(installation, setup, permissions) are written for the site in `apps/docs/src`.
+Extension build and automated tests remain in CI scope. Native helpers are not required
+by the product.

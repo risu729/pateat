@@ -2,10 +2,19 @@ import { expect, test, type BrowserContext, type Page, type Worker } from "@play
 import {
   newLayoutKey,
   toLoginLayout,
+  type LocalSettings,
   type LoginRecipe,
   type LoginRecipeDocument,
+  type VaultItemMetadata,
 } from "../../packages/contracts/src/index";
-import { beginInput, settingsRequest, setupProbe, setupRequest } from "./connection-fixture";
+import {
+  beginInput,
+  catalogAccount,
+  settingsRequest,
+  setupProbe,
+  setupRequest,
+  useOnly,
+} from "./connection-fixture";
 import { logs } from "./login-fixture";
 import { startLoginFixture } from "./login-server";
 import { startSyncService } from "./sync-service";
@@ -96,12 +105,27 @@ type VaultBrowser = {
   extensionId: string;
 };
 
+type Account = { provider: string; server: string; userId: string };
+/** The synthetic account's vault policy as another device synced it (ADR 0023). */
+type SyncedPolicy = Pick<LocalSettings, "accountPolicies" | "itemPolicies" | "customFieldReviews">;
+
+/** The settings-page query for items that may log in to the site. */
+function siteAccounts(options: Page, settings: LocalSettings) {
+  return send(options, { version: 1, type: "settings.site-accounts", origin: site, settings });
+}
+
 /**
  * Connects the synthetic Bitwarden account, publishes the recipe and a binding to the
  * service and pairs the device, so the site's recipe and binding come only from the
- * service and no site default is saved.
+ * service and no site default is saved. `policy` is the account's vault policy the
+ * service holds, as another device wrote it.
  */
-async function prepare(browser: VaultBrowser, service: SyncService, others: { id: string }[] = []) {
+async function prepare(
+  browser: VaultBrowser,
+  service: SyncService,
+  policy?: (account: Account, item: VaultItemMetadata) => SyncedPolicy,
+  others: { id: string }[] = [],
+) {
   const options = await browser.context.newPage();
   await options.goto(`chrome-extension://${browser.extensionId}/options.html`);
   const accepted = await setupRequest(options, {
@@ -112,24 +136,26 @@ async function prepare(browser: VaultBrowser, service: SyncService, others: { id
   const initial = await settingsRequest(options);
   // The probe build's bundled demo vaults cannot answer URI queries; a choice by URI
   // match refuses while any enabled connection is unanswered, so leave only Bitwarden.
-  const settings = initial.snapshot.settings;
-  settings.connections = settings.connections.map((entry) => ({
-    ...entry,
-    enabled: entry.connectionId === accepted.connectionId,
-  }));
+  const settings = useOnly(initial.snapshot.settings, initial.catalog, accepted.connectionId);
   const local = await settingsRequest(options, {
     version: 1,
     type: "settings.save",
     expectedRevision: initial.snapshot.revision,
     settings,
   });
-  expect(local.snapshot.settings.connections.filter((entry) => entry.enabled)).toHaveLength(1);
+  const vaultAccount = catalogAccount(local.catalog, accepted.connectionId);
+  // The add form's choice became the account's policy once the account was known.
+  expect(local.snapshot.settings.accountPolicies.filter((entry) => entry.enabled)).toEqual([
+    { ...vaultAccount, accountName: "Synthetic vault", enabled: true, selection: { mode: "all" } },
+  ]);
   const connection = local.catalog.connections.find((entry) => entry.id === accepted.connectionId);
   const item = connection?.items[0];
   if (!connection?.userId || !item) throw new Error("Synthetic vault item missing");
+  expect(local.catalog.settingsSyncPending).toBeUndefined();
   // Nothing local names this site: the default and binding come only from the service.
   expect(local.snapshot.settings.siteDefaults).toEqual([]);
   expect(local.snapshot.settings.bindings).toEqual([]);
+  const beforePairing = await siteAccounts(options, local.snapshot.settings);
 
   const published = await service.request(`/v1/recipes/${recipeId}`, {
     method: "PUT",
@@ -144,7 +170,7 @@ async function prepare(browser: VaultBrowser, service: SyncService, others: { id
     });
     expect(stored.status).toBe(200);
   }
-  const account = { provider: "bitwarden", userId: connection.userId, itemId: item.id };
+  const account = { ...vaultAccount, itemId: item.id };
   const binding = {
     recipeId,
     origin: site,
@@ -156,6 +182,20 @@ async function prepare(browser: VaultBrowser, service: SyncService, others: { id
       { slot: "password", field: "password" },
     ],
   };
+  // A paired device takes its settings profile's lists at its first sync (ADR 0076), so
+  // the service's profile uses this account too unless a test says otherwise.
+  const synced: SyncedPolicy = policy?.(vaultAccount, item) ?? {
+    accountPolicies: [
+      {
+        ...vaultAccount,
+        accountName: "Synthetic vault",
+        enabled: true,
+        selection: { mode: "all" },
+      },
+    ],
+    itemPolicies: [],
+    customFieldReviews: [],
+  };
   const stored = await service.request("/v1/settings", {
     method: "PUT",
     body: {
@@ -163,6 +203,7 @@ async function prepare(browser: VaultBrowser, service: SyncService, others: { id
       expectedRevision: 0,
       settings: {
         connections: [],
+        ...synced,
         excludedSites: [],
         passkeyBrowserSites: [],
         siteDefaults: [],
@@ -189,6 +230,15 @@ async function prepare(browser: VaultBrowser, service: SyncService, others: { id
       credential: service.credential,
     },
   );
+  // Until its first settings sync, a paired device uses no vault item: the account's
+  // synced policy may say otherwise (ADR 0023). Nothing has started a sync yet.
+  const pending = await settingsRequest(options);
+  expect(pending.catalog.settingsSyncPending).toBe(true);
+  expect(await siteAccounts(options, pending.snapshot.settings)).toMatchObject({
+    ok: true,
+    accounts: [],
+    complete: false,
+  });
   expect(await send(options, { version: 1, type: "service.get" })).toMatchObject({
     ok: true,
     state: { kind: "connected" },
@@ -197,8 +247,8 @@ async function prepare(browser: VaultBrowser, service: SyncService, others: { id
   await settingsRequest(options, {
     version: 1,
     type: "settings.save",
-    expectedRevision: local.snapshot.revision,
-    settings: local.snapshot.settings,
+    expectedRevision: pending.snapshot.revision,
+    settings: pending.snapshot.settings,
   });
   for (const id of [recipeId, ...others.map((other) => other.id)])
     // oxlint-disable-next-line no-await-in-loop -- each recipe arrives with the same sync
@@ -210,7 +260,20 @@ async function prepare(browser: VaultBrowser, service: SyncService, others: { id
   await expect
     .poll(async () => (await settingsRequest(options)).snapshot.settings.bindings)
     .toEqual([named]);
-  return { options, accepted, connection, item, account, binding, named };
+  const after = await settingsRequest(options);
+  expect(after.catalog.settingsSyncPending).toBeUndefined();
+  return { options, accepted, connection, item, account, binding, named, beforePairing, after };
+}
+
+/** The account's synced policy entries in the local settings, without the demo vaults'. */
+function bitwardenPolicy(settings: LocalSettings): SyncedPolicy {
+  const own = <T extends { provider: string }>(entries: T[]) =>
+    entries.filter((entry) => entry.provider === "bitwarden");
+  return {
+    accountPolicies: own(settings.accountPolicies),
+    itemPolicies: own(settings.itemPolicies),
+    customFieldReviews: own(settings.customFieldReviews),
+  };
 }
 
 test("a recipe and binding synced from the service log in with the live vault and upload the chosen account", async () => {
@@ -222,7 +285,60 @@ test("a recipe and binding synced from the service log in with the live vault an
         const browser = await open();
         await serveSite(browser.context, fixture);
         await setupProbe(browser.page, { action: "configure", variant: "uri" });
-        const { options, connection, item, account, named } = await prepare(browser, service);
+        // Another device chose this item only, excluded a custom field the binding does not
+        // use, and reviewed the item's custom fields; this device applies that after sync.
+        let synced: SyncedPolicy | undefined;
+        const { options, connection, item, account, named, beforePairing, after } = await prepare(
+          browser,
+          service,
+          (vaultAccount, vaultItem) => {
+            synced = {
+              accountPolicies: [
+                {
+                  ...vaultAccount,
+                  accountName: "Synthetic vault",
+                  enabled: true,
+                  selection: { mode: "selected", groups: [] },
+                },
+              ],
+              itemPolicies: [
+                {
+                  ...vaultAccount,
+                  itemId: vaultItem.id,
+                  itemName: vaultItem.label,
+                  selected: true,
+                  excluded: false,
+                  excludedFields: [{ custom: "duplicate", position: 3, count: 3 }],
+                },
+              ],
+              customFieldReviews: [
+                {
+                  ...vaultAccount,
+                  itemId: vaultItem.id,
+                  evidence: vaultItem.evidence!,
+                  revisionDate: vaultItem.revisionDate!,
+                },
+              ],
+            };
+            return synced;
+          },
+        );
+        // Before pairing, the item matched the site by its URI.
+        expect(beforePairing).toMatchObject({
+          ok: true,
+          accounts: [{ connectionId: connection.id, itemId: item.id, uri: true }],
+        });
+        expect(bitwardenPolicy(after.snapshot.settings)).toEqual(synced);
+        // Its review matches this device's copy, so the item is not held for review.
+        expect(
+          after.catalog.connections.find((entry) => entry.id === connection.id)
+            ?.quarantinedItemIds ?? [],
+        ).toEqual([]);
+        // The excluded custom field is the Boolean one, which the binding does not use.
+        expect(await setupProbe(browser.page, { action: "resolve", field: "custom-1" })).toEqual({
+          ok: true,
+          matched: true,
+        });
 
         const runId = fixture.createRun();
         const page = await browser.context.newPage();
@@ -412,6 +528,83 @@ test("a password page shown alone, as for an account the site remembers, logs in
   }
 });
 
+for (const [name, policy] of [
+  [
+    "excludes the item",
+    (account: Account, item: VaultItemMetadata): SyncedPolicy => ({
+      accountPolicies: [
+        { ...account, accountName: "Synthetic vault", enabled: true, selection: { mode: "all" } },
+      ],
+      itemPolicies: [
+        {
+          ...account,
+          itemId: item.id,
+          itemName: item.label,
+          selected: false,
+          excluded: true,
+          excludedFields: [],
+        },
+      ],
+      customFieldReviews: [],
+    }),
+  ],
+  [
+    "selects other items only",
+    (account: Account): SyncedPolicy => ({
+      accountPolicies: [
+        {
+          ...account,
+          accountName: "Synthetic vault",
+          enabled: true,
+          selection: { mode: "selected", groups: [{ id: "other-group", name: "Other" }] },
+        },
+      ],
+      itemPolicies: [],
+      customFieldReviews: [],
+    }),
+  ],
+] as const) {
+  test(`a synced account policy that ${name} keeps the vault item from logging in`, async () => {
+    const fixture = await startLoginFixture(0, { password: "test_password" });
+    const service = await startSyncService();
+    try {
+      await withVaultProfile(
+        async (open) => {
+          const browser = await open();
+          await serveSite(browser.context, fixture);
+          await setupProbe(browser.page, { action: "configure", variant: "uri" });
+          let synced: SyncedPolicy | undefined;
+          const { options, after } = await prepare(browser, service, (account, vaultItem) => {
+            synced = policy(account, vaultItem);
+            return synced;
+          });
+          // The service's policy replaced the add form's one on this device.
+          expect(bitwardenPolicy(after.snapshot.settings)).toEqual(synced);
+          expect(await siteAccounts(options, after.snapshot.settings)).toMatchObject({
+            ok: true,
+            accounts: [],
+          });
+
+          const runId = fixture.createRun();
+          const page = await browser.context.newPage();
+          await page.goto(`${site}/identity?runId=${runId}`);
+          await expect
+            .poll(async () => send(options, { version: 1, type: "login.probe.status" }))
+            .toMatchObject({ attempts: [], documents: [{ origin: site }] });
+          await expect(page.locator("#branch")).toHaveValue("");
+          await expect(page.locator("#account")).toHaveValue("");
+          expect(fixture.evidence(runId).posts).toBe(0);
+          // No site default names the item, since it was never chosen.
+          expect((await settingsRequest(options)).snapshot.settings.siteDefaults).toEqual([]);
+        },
+        { args: ["--ignore-certificate-errors"] },
+      );
+    } finally {
+      await service.close();
+      await fixture.close();
+    }
+  });
+}
 test("a page whose recipe was generated as a verification only watches, and logs what it showed and how the person left it (ADR 0035)", async () => {
   const fixture = await startLoginFixture(0, { password: "test_password" });
   const service = await startSyncService();
@@ -452,7 +645,7 @@ test("a page whose recipe was generated as a verification only watches, and logs
           origin: site,
           layouts: [toLoginLayout(confirmRoute, { key: newLayoutKey(createdAt, []), createdAt })],
         };
-        const { options } = await prepare(browser, service, [confirm]);
+        const { options } = await prepare(browser, service, undefined, [confirm]);
 
         const page = await browser.context.newPage();
         // The site still knows the account, so its result page shows the recipes' marker.

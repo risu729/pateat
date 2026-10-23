@@ -226,13 +226,14 @@ export function selectLoginRecipe(
 export function findLoginBinding(
   bindings: readonly SavedLoginBinding[],
   recipe: Pick<LoginRecipe, "id" | "origin">,
-  account: { provider: string; userId: string; itemId: string },
+  account: { provider: string; server: string; userId: string; itemId: string },
 ): SavedLoginBinding | undefined {
   return bindings.find(
     (entry) =>
       entry.recipeId === recipe.id &&
       entry.origin === recipe.origin &&
       entry.provider === account.provider &&
+      entry.server === account.server &&
       entry.userId === account.userId &&
       entry.itemId === account.itemId,
   );
@@ -408,6 +409,7 @@ export function defaultLoginBinding(
   recipe: Pick<LoginRecipe, "id" | "origin">,
   account: {
     provider: string;
+    server: string;
     userId: string;
     itemId: string;
     itemName: string;
@@ -463,6 +465,7 @@ export function templateLoginBinding(
   recipe: Pick<LoginRecipe, "id" | "origin">,
   account: {
     provider: string;
+    server: string;
     userId: string;
     itemId: string;
     itemName: string;
@@ -611,6 +614,7 @@ export function sameLoginBinding(left: SavedLoginBinding, right: SavedLoginBindi
     left.recipeId === right.recipeId &&
     left.origin === right.origin &&
     left.provider === right.provider &&
+    left.server === right.server &&
     left.userId === right.userId &&
     left.itemId === right.itemId
   );
@@ -674,6 +678,7 @@ export function saveLoginChoice(
     saved &&
     saved.itemId === binding.itemId &&
     saved.provider === binding.provider &&
+    saved.server === binding.server &&
     saved.userId === binding.userId;
   if (saved && !sameAccount && !options.replace) return settings;
   const kept = sameAccount ? saved : undefined;
@@ -704,6 +709,7 @@ export function saveLoginChoice(
           {
             origin: binding.origin,
             provider: binding.provider,
+            server: binding.server,
             userId: binding.userId,
             itemId: binding.itemId,
             itemName: binding.itemName,

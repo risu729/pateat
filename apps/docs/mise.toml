@@ -1,0 +1,22 @@
+#:schema https://mise.jdx.dev/schema/mise.json
+
+[tasks.dev]
+description = "Serve the docs website with live reload."
+run = "node node_modules/vitepress/bin/vitepress.js dev"
+
+[tasks.build]
+description = "Render the docs website into .vitepress/dist."
+run = "node node_modules/vitepress/bin/vitepress.js build"
+
+[tasks.preview]
+description = "Build the docs website and serve the built pages."
+depends = [":build"]
+run = "node node_modules/vitepress/bin/vitepress.js preview"
+
+[tasks.typecheck]
+run = "tsc --noEmit -p tsconfig.json"
+
+[tasks.test]
+description = "Build the docs website and check every local link in the built pages."
+depends = [":build"]
+run = "node check-links.mjs"

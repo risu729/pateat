@@ -1,16 +1,18 @@
 import type { LocalVaultMetadata } from "@pateat/bitwarden";
-import type { VaultCatalog } from "@pateat/contracts";
+import type { VaultCatalog, VaultServer } from "@pateat/contracts";
 
 /** The settings catalog's entry for an open vault's metadata projection. */
 export function catalogEntry(
   connectionId: string,
   connectionLabel: string,
+  server: VaultServer,
   projected: LocalVaultMetadata,
 ): VaultCatalog["connections"][number] {
   return {
     id: connectionId,
     label: connectionLabel,
     provider: "bitwarden",
+    server,
     userId: projected.userId,
     snapshotId: projected.snapshotId,
     groups: projected.groups,

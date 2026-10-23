@@ -30,14 +30,23 @@ type SiteDefault = LocalSettings["siteDefaults"][number];
 type ExcludedSite = LocalSettings["excludedSites"][number];
 type PasskeyBrowserSite = LocalSettings["passkeyBrowserSites"][number];
 type Binding = LocalSettings["bindings"][number];
+type AccountPolicy = LocalSettings["accountPolicies"][number];
+type ItemPolicy = LocalSettings["itemPolicies"][number];
+type CustomFieldReview = LocalSettings["customFieldReviews"][number];
 type DetailLink = NonNullable<LocalSettings["detailLinks"]>[number];
 
 /**
- * The part of the settings that means the same on every device (ADR 0013). Vault
- * connections, item selection and field exclusions stay on this device. Bindings and
- * personal-detail links (ADR 0061) belong to the owner; the rest to a profile (ADR 0076).
+ * The part of the settings that means the same on every device (ADR 0013): site
+ * exclusions, defaults and bindings, each provider account's vault policy and
+ * custom-field reviews (ADR 0023), and the links to the vault fields that hold a login's
+ * personal details (ADR 0061). Bindings and detail links belong to the owner; the rest to
+ * a profile (ADR 0076). Vault connections stay on this device, and so does the policy of
+ * the unsynced demo provider.
  */
 export type SyncedSettings = {
+  accountPolicies: AccountPolicy[];
+  itemPolicies: ItemPolicy[];
+  customFieldReviews: CustomFieldReview[];
   excludedSites: ExcludedSite[];
   passkeyBrowserSites: PasskeyBrowserSite[];
   repromptSites: ExcludedSite[];
@@ -46,8 +55,17 @@ export type SyncedSettings = {
   detailLinks: DetailLink[];
 };
 
+const LOCAL_PROVIDER = "dummy";
+const shared = <T extends { provider: string }>(entries: T[]) =>
+  entries.filter((entry) => entry.provider !== LOCAL_PROVIDER);
+const localOnly = <T extends { provider: string }>(entries: T[]) =>
+  entries.filter((entry) => entry.provider === LOCAL_PROVIDER);
+
 export function syncedSettings(settings: LocalSettings): SyncedSettings {
   return {
+    accountPolicies: shared(settings.accountPolicies),
+    itemPolicies: shared(settings.itemPolicies),
+    customFieldReviews: shared(settings.customFieldReviews),
     excludedSites: settings.excludedSites,
     passkeyBrowserSites: settings.passkeyBrowserSites,
     repromptSites: settings.repromptSites,
@@ -58,6 +76,9 @@ export function syncedSettings(settings: LocalSettings): SyncedSettings {
 }
 
 const emptySynced: SyncedSettings = {
+  accountPolicies: [],
+  itemPolicies: [],
+  customFieldReviews: [],
   excludedSites: [],
   passkeyBrowserSites: [],
   repromptSites: [],
@@ -126,8 +147,22 @@ export type SettingsSyncOutcome =
 const siteKey = (entry: ExcludedSite | PasskeyBrowserSite) => entry.hostname;
 const defaultKey = (entry: SiteDefault) => entry.origin;
 const bindingKey = (entry: Binding) =>
-  JSON.stringify([entry.recipeId, entry.origin, entry.provider, entry.userId, entry.itemId]);
-/** The settings' duplicate check for detail links: one per field for an answer (ADR 0061). */
+  JSON.stringify([
+    entry.recipeId,
+    entry.origin,
+    entry.provider,
+    entry.server,
+    entry.userId,
+    entry.itemId,
+  ]);
+const accountKey = (entry: AccountPolicy) =>
+  JSON.stringify([entry.provider, entry.server, entry.userId]);
+const itemKey = (entry: ItemPolicy | CustomFieldReview) =>
+  JSON.stringify([entry.provider, entry.server, entry.userId, entry.itemId]);
+/**
+ * The settings' duplicate check for detail links, so a merge never pairs two links the
+ * schema refuses together: one per field for an answer (ADR 0061).
+ */
 const detailLinkKey = (link: DetailLink) =>
   JSON.stringify([
     link.origin,
@@ -137,11 +172,18 @@ const detailLinkKey = (link: DetailLink) =>
     link.detail,
     link.detail === "secret-answer" ? link.source.field : null,
   ]);
-/** A stored question belongs to one answer of a login item (ADR 0061). */
+/** A stored question belongs to one answer of a login item (ADR 0061), as the schema checks. */
 const detailQuestionKey = (link: DetailLink) =>
   link.question === undefined
     ? undefined
-    : JSON.stringify([link.origin, link.provider, link.userId, link.itemId, link.question]);
+    : JSON.stringify([
+        link.origin,
+        link.provider,
+        link.server,
+        link.userId,
+        link.itemId,
+        link.question,
+      ]);
 const same = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
 
 /** What each side last agreed to: the service's copy and the local copy it accounts for. */
@@ -173,7 +215,8 @@ function mergeEntries<T>(
 /**
  * Detail links merge per link like bindings. Two answers of one login item may also not
  * store the same question; when a local link takes a question the service's copy already
- * gives another field, the service's link stands and the local one is dropped.
+ * gives another field, the service's link stands, and that local link falls back to the
+ * service's copy of it, or is left out when the service has none.
  */
 function mergeDetailLinks(
   base: { service: DetailLink[]; local: DetailLink[] },
@@ -184,14 +227,44 @@ function mergeDetailLinks(
   const serviceLinks = new Map(service.map((link) => [detailLinkKey(link), link]));
   const fromService = (link: DetailLink) => same(link, serviceLinks.get(detailLinkKey(link)));
   const claimed = new Set<string>();
-  const dropped = new Set<DetailLink>();
-  for (const link of [...merged.filter(fromService), ...merged.filter((l) => !fromService(l))]) {
+  /** Claims the link's question; false when another link already holds it. */
+  const claim = (link: DetailLink) => {
     const question = detailQuestionKey(link);
-    if (question === undefined) continue;
-    if (claimed.has(question)) dropped.add(link);
-    else claimed.add(question);
+    if (question === undefined) return true;
+    if (claimed.has(question)) return false;
+    claimed.add(question);
+    return true;
+  };
+  // The service's links are valid together, so they claim their questions first.
+  for (const link of merged.filter(fromService)) claim(link);
+  const settled = new Map<DetailLink, DetailLink | undefined>();
+  for (const link of merged.filter((entry) => !fromService(entry))) {
+    if (claim(link)) continue;
+    const fallback = serviceLinks.get(detailLinkKey(link));
+    settled.set(link, fallback && claim(fallback) ? fallback : undefined);
   }
-  return merged.filter((link) => !dropped.has(link));
+  return merged.flatMap((link) => {
+    if (!settled.has(link)) return [link];
+    const fallback = settled.get(link);
+    return fallback ? [fallback] : [];
+  });
+}
+
+/**
+ * An item's policy and its custom-field review merged as one entry: a review changes
+ * both, and taking one from each side could pair a review with custom-field exclusions it
+ * did not choose, making a field the reviewer excluded usable (ADR 0023).
+ */
+type ItemEntry = { key: string; policy?: ItemPolicy; review?: CustomFieldReview };
+
+function itemEntries(policies: ItemPolicy[], reviews: CustomFieldReview[]): ItemEntry[] {
+  const entries = new Map<string, ItemEntry>();
+  for (const policy of policies) entries.set(itemKey(policy), { key: itemKey(policy), policy });
+  for (const review of reviews) {
+    const key = itemKey(review);
+    entries.set(key, { key, ...entries.get(key), review });
+  }
+  return [...entries.values()];
 }
 
 export function mergeSyncedSettings(
@@ -203,7 +276,24 @@ export function mergeSyncedSettings(
     service: base.service[name],
     local: base.local[name],
   });
+  const items = mergeEntries(
+    {
+      service: itemEntries(base.service.itemPolicies, base.service.customFieldReviews),
+      local: itemEntries(base.local.itemPolicies, base.local.customFieldReviews),
+    },
+    itemEntries(local.itemPolicies, local.customFieldReviews),
+    itemEntries(service.itemPolicies, service.customFieldReviews),
+    (entry) => entry.key,
+  );
   return {
+    accountPolicies: mergeEntries(
+      part("accountPolicies"),
+      local.accountPolicies,
+      service.accountPolicies,
+      accountKey,
+    ),
+    itemPolicies: items.flatMap((entry) => (entry.policy ? [entry.policy] : [])),
+    customFieldReviews: items.flatMap((entry) => (entry.review ? [entry.review] : [])),
     excludedSites: mergeEntries(
       part("excludedSites"),
       local.excludedSites,
@@ -263,13 +353,9 @@ export function refreshDisplayNames(synced: SyncedSettings, catalog: VaultCatalo
     return next.success ? next.output : entry;
   }
   return {
-    excludedSites: synced.excludedSites,
-    passkeyBrowserSites: synced.passkeyBrowserSites,
-    repromptSites: synced.repromptSites,
+    ...synced,
     siteDefaults: synced.siteDefaults.map((entry) => refresh(entry, siteDefaultSchema)),
     bindings: synced.bindings.map((entry) => refresh(entry, savedLoginBindingSchema)),
-    // Links carry no display names: an item name of a card often holds its last digits.
-    detailLinks: synced.detailLinks,
   };
 }
 
@@ -284,6 +370,9 @@ function equalSynced(left: SyncedSettings, right: SyncedSettings): boolean {
   const sorted = <T>(entries: T[], key: (entry: T) => string) =>
     entries.map((entry) => [key(entry), entry] as const).sort(([a], [b]) => (a < b ? -1 : 1));
   return (
+    same(sorted(left.accountPolicies, accountKey), sorted(right.accountPolicies, accountKey)) &&
+    same(sorted(left.itemPolicies, itemKey), sorted(right.itemPolicies, itemKey)) &&
+    same(sorted(left.customFieldReviews, itemKey), sorted(right.customFieldReviews, itemKey)) &&
     same(sorted(left.excludedSites, siteKey), sorted(right.excludedSites, siteKey)) &&
     same(sorted(left.passkeyBrowserSites, siteKey), sorted(right.passkeyBrowserSites, siteKey)) &&
     same(sorted(left.repromptSites, siteKey), sorted(right.repromptSites, siteKey)) &&
@@ -293,9 +382,15 @@ function equalSynced(left: SyncedSettings, right: SyncedSettings): boolean {
   );
 }
 
-/** Local settings with the synced part replaced. */
-function applySynced(settings: LocalSettings, synced: SyncedSettings): LocalSettings {
-  return { ...settings, ...synced };
+/** Local settings with the synced part replaced; the demo provider's policy stays. */
+function applySynced(settings: LocalSettings, merged: SyncedSettings): LocalSettings {
+  return {
+    ...settings,
+    ...merged,
+    accountPolicies: [...merged.accountPolicies, ...localOnly(settings.accountPolicies)],
+    itemPolicies: [...merged.itemPolicies, ...localOnly(settings.itemPolicies)],
+    customFieldReviews: [...merged.customFieldReviews, ...localOnly(settings.customFieldReviews)],
+  };
 }
 
 /** The service holds only the synced part; it never stores device-local connections. */

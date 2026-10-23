@@ -4,7 +4,12 @@ import type {
   SetupContinuation,
   SetupReply,
 } from "../../apps/extension/src/connections/types";
-import type { SettingsRequest, SettingsResponse } from "../../packages/contracts/src/index";
+import type {
+  LocalSettings,
+  SettingsRequest,
+  SettingsResponse,
+  VaultCatalog,
+} from "../../packages/contracts/src/index";
 import type { CustomAccountVariant } from "../../packages/bitwarden/src/__fixtures__/connection";
 import { v1Email, v1Password } from "../../packages/bitwarden/src/__fixtures__/crypto";
 import { sendToBackground } from "./background-message";
@@ -134,6 +139,33 @@ export async function settingsRequest(
   if (!result.ok) throw new Error(`Synthetic settings operation: ${result.error.code}`);
   return result;
 }
+/**
+ * The provider account a catalog connection names, which keys its synced policy
+ * (ADR 0023). Throws while the connection cannot name it.
+ */
+export function catalogAccount(catalog: VaultCatalog, connectionId: string) {
+  const connection = catalog.connections.find((entry) => entry.id === connectionId);
+  if (!connection?.userId) throw new Error("Synthetic connection account unknown");
+  return { provider: connection.provider, server: connection.server, userId: connection.userId };
+}
+
+/**
+ * Leaves only the account of one connection in use: its synced account policy on, every
+ * other one (such as the probe build's demo vaults) off. The add form's choice already
+ * created the policy when the account first synced.
+ */
+export function useOnly(settings: LocalSettings, catalog: VaultCatalog, connectionId: string) {
+  const account = catalogAccount(catalog, connectionId);
+  const same = (entry: typeof account) =>
+    entry.provider === account.provider &&
+    entry.server === account.server &&
+    entry.userId === account.userId;
+  if (!settings.accountPolicies.some(same))
+    throw new Error("Synthetic connection has no account policy");
+  for (const policy of settings.accountPolicies) policy.enabled = same(policy);
+  return settings;
+}
+
 /** Return flags only, never durable keys or an arbitrary decrypted object. */
 export function inspectSetupPersistence(page: Page) {
   return page.evaluate(async () => {

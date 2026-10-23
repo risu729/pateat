@@ -87,6 +87,7 @@ function detailLink(origin = "https://bank.example", custom = "Birth date") {
   return {
     origin,
     provider: "bitwarden",
+    server: "cloud-us",
     userId: "00000000-0000-4000-8000-000000000001",
     itemId: "item-1",
     detail: "birth-date" as const,
@@ -370,6 +371,9 @@ describe("settings sync", () => {
       newProfile: true,
       settings: {
         connections: [],
+        accountPolicies: [],
+        itemPolicies: [],
+        customFieldReviews: [],
         excludedSites: [],
         repromptSites: [],
         passkeyBrowserSites: [],
@@ -392,10 +396,56 @@ describe("settings sync", () => {
     });
   });
 
+  it("keeps the stored detail links when a write leaves the key out", async () => {
+    const device = await enrollOwner();
+    const linked = { ...settings(), detailLinks: [detailLink()] };
+    expect(
+      (await put(device, "/v1/settings", { version: 1, expectedRevision: 0, settings: linked }))
+        .status,
+    ).toBe(200);
+    // A write without the key, as from a client that does not know it, changes the rest.
+    const omitted = await put(device, "/v1/settings", {
+      version: 1,
+      expectedRevision: 1,
+      settings: settings("other.example"),
+    });
+    expect(omitted.status).toBe(200);
+    const expected = { ...settings("other.example"), detailLinks: [detailLink()] };
+    expect(await omitted.json()).toMatchObject({ revision: 2, settings: expected });
+    expect(await (await api(device, "/v1/settings")).json()).toEqual({
+      version: 1,
+      profileId: expect.any(String),
+      revision: 2,
+      settings: expected,
+    });
+    // An empty list is a removal.
+    const cleared = await put(device, "/v1/settings", {
+      version: 1,
+      expectedRevision: 2,
+      settings: { ...settings("other.example"), detailLinks: [] },
+    });
+    expect(cleared.status).toBe(200);
+    expect(await (await api(device, "/v1/settings")).json()).toMatchObject({
+      revision: 3,
+      settings: { detailLinks: [] },
+    });
+    // A stale write without the key still loses its compare-and-swap.
+    const stale = await put(device, "/v1/settings", {
+      version: 1,
+      expectedRevision: 2,
+      settings: settings(),
+    });
+    expect(stale.status).toBe(409);
+    expect(await (await api(device, "/v1/settings")).json()).toMatchObject({
+      revision: 3,
+      settings: { excludedSites: settings("other.example").excludedSites, detailLinks: [] },
+    });
+  });
+
   it("refuses detail links that push the document over its limit", async () => {
     const device = await enrollOwner();
     // Under the request body limit, over the settings document's.
-    const detailLinks = Array.from({ length: 340 }, (_, index) =>
+    const detailLinks = Array.from({ length: 325 }, (_, index) =>
       detailLink(`https://site-${index}.example`, `${"F".repeat(160)}${index}`),
     );
     const write = {
@@ -618,6 +668,35 @@ describe("settings sync", () => {
     )
       .bind(device.ownerId, JSON.stringify({ synthetic: "corrupt" }), device.deviceId)
       .run();
+    const response = await api(device, "/v1/settings");
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "internal_error" });
+  });
+
+  it("fails closed when a stored document's policy list is over its limit", async () => {
+    const device = await enrollOwner();
+    const over = {
+      ...settings(),
+      accountPolicies: Array.from({ length: 101 }, (_, index) => ({
+        provider: "bitwarden",
+        server: "cloud-us",
+        userId: `user-${index}`,
+        accountName: "Vault",
+        enabled: true,
+        selection: { mode: "all" },
+      })),
+    };
+    // The lists are profile parts (ADR 0024), kept in the device's Default profile.
+    await env.DB.batch([
+      env.DB.prepare(
+        "INSERT INTO settings (owner_id, revision, document, updated_at, updated_by_device_id) VALUES (?, 1, ?, 0, ?)",
+      ).bind(device.ownerId, JSON.stringify({ bindings: [] }), device.deviceId),
+      env.DB.prepare("UPDATE profiles SET document = ? WHERE owner_id = ? AND id = ?").bind(
+        JSON.stringify(over),
+        device.ownerId,
+        device.ownerId,
+      ),
+    ]);
     const response = await api(device, "/v1/settings");
     expect(response.status).toBe(500);
     expect(await response.json()).toEqual({ error: "internal_error" });

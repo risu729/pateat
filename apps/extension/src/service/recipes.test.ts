@@ -189,6 +189,7 @@ function setup(
     now?: () => number;
     settings?: SettingsSyncOutcome;
     build?: string;
+    device?: NonNullable<Parameters<typeof createRecipeSync>[0]["device"]>;
   } = {},
 ) {
   let value = options.stored;
@@ -214,10 +215,17 @@ function setup(
       recovery = undefined;
     }),
   };
+  // A device that completed its first settings sync, unless a test says otherwise.
   const connection =
     "connection" in options
       ? options.connection
-      : { origin: SERVICE, deviceId: DEVICE, credential: CREDENTIAL, rejected: false };
+      : {
+          origin: SERVICE,
+          deviceId: DEVICE,
+          credential: CREDENTIAL,
+          rejected: false,
+          settingsSynced: true as const,
+        };
   const service = {
     connection: vi.fn<() => Promise<ServiceConnection | undefined>>(async () => connection),
     recordSync: vi.fn(async () => undefined),
@@ -235,20 +243,24 @@ function setup(
     clear: vi.fn(async () => undefined),
   };
   const report = vi.fn();
+  const settingsSynced = vi.fn();
   const sync = createRecipeSync({
     service,
     transport,
     storage,
     schedule,
     report,
+    settingsSynced,
     build: options.build ?? "1c42ad3",
     now: options.now ?? (() => 5_000),
     ...(options.settings ? { settings: settingsSync } : {}),
+    ...(options.device ? { device: options.device } : {}),
   });
   return {
     sync,
     report,
     settingsSync,
+    settingsSynced,
     service,
     transport,
     storage,
@@ -1603,7 +1615,13 @@ describe("settings in the same sync", () => {
     const { sync, settingsSync, service } = setup({ settings: "synced" });
     expect(await sync.sync()).toBe("synced");
     expect(settingsSync.run).toHaveBeenCalledWith(
-      { origin: SERVICE, deviceId: DEVICE, credential: CREDENTIAL, rejected: false },
+      {
+        origin: SERVICE,
+        deviceId: DEVICE,
+        credential: CREDENTIAL,
+        rejected: false,
+        settingsSynced: true,
+      },
       expect.any(Function),
       expect.any(Function),
     );
@@ -1679,6 +1697,78 @@ describe("settings in the same sync", () => {
     const { sync, settingsSync } = setup({ settings: "synced" });
     await sync.clear();
     expect(settingsSync.clear).toHaveBeenCalledOnce();
+  });
+});
+
+describe("the first settings sync since pairing (ADR 0023)", () => {
+  const unsynced: ServiceConnection = {
+    origin: SERVICE,
+    deviceId: DEVICE,
+    credential: CREDENTIAL,
+    rejected: false,
+  };
+
+  it("records that settings synced, then the complete sync", async () => {
+    const { sync, service, settingsSynced } = setup({ connection: unsynced, settings: "synced" });
+    expect(await sync.sync()).toBe("synced");
+    expect(service.recordSync.mock.calls).toEqual([
+      [DEVICE, { settingsSynced: true }],
+      [DEVICE, { syncedAt: 5_000 }],
+    ]);
+    // Its listeners read the vault items again, even when the merge changed nothing.
+    expect(settingsSynced).toHaveBeenCalledOnce();
+    // A later sync of an already synced device does not call it again.
+    const again = setup({ settings: "synced" });
+    expect(await again.sync.sync()).toBe("synced");
+    expect(again.settingsSynced).not.toHaveBeenCalled();
+  });
+
+  it("records it even when the recipes did not fit, since the settings did sync", async () => {
+    const size = new TextEncoder().encode(JSON.stringify(recipe("site-0", "/login"))).byteLength;
+    const many = Array.from({ length: Math.ceil(MAX_RECIPE_CACHE_BYTES / size) + 1 }, (_, index) =>
+      active(recipe(`site-${index}`, "/login", 1, `https://site-${index}.example`)),
+    );
+    const { sync, service } = setup({
+      connection: unsynced,
+      settings: "synced",
+      pages: [page(many, 1), page(many, 1)],
+    });
+    expect(await sync.sync()).toBe("cache-full");
+    expect(service.recordSync).toHaveBeenCalledWith(DEVICE, { settingsSynced: true });
+  });
+
+  it("records it once only", async () => {
+    const { sync, service } = setup({ settings: "synced" });
+    expect(await sync.sync()).toBe("synced");
+    expect(service.recordSync).not.toHaveBeenCalledWith(DEVICE, { settingsSynced: true });
+  });
+
+  it.each<SettingsSyncOutcome>([
+    "too-large",
+    "rejected",
+    "busy",
+    "unreachable",
+    "storage-unavailable",
+  ])("does not record it when settings ended %s", async (outcome) => {
+    const { sync, service } = setup({ connection: unsynced, settings: outcome });
+    await sync.sync();
+    expect(service.recordSync).not.toHaveBeenCalledWith(DEVICE, { settingsSynced: true });
+  });
+
+  it("does not record it for a rejected recipe request or a recipes-only sync", async () => {
+    const rejected = setup({
+      connection: unsynced,
+      settings: "synced",
+      pages: [{ kind: "rejected" }],
+    });
+    expect(await rejected.sync.sync()).toBe("rejected");
+    expect(rejected.settingsSync.run).not.toHaveBeenCalled();
+    expect(rejected.service.recordSync).toHaveBeenCalledExactlyOnceWith(DEVICE, {
+      rejected: true,
+    });
+    const recipesOnly = setup({ connection: unsynced, settings: "synced" });
+    expect(await recipesOnly.sync.sync({ settings: false })).toBe("synced");
+    expect(recipesOnly.service.recordSync).not.toHaveBeenCalled();
   });
 });
 
@@ -1990,5 +2080,144 @@ describe("cached recipe lookup", () => {
     expect(await sync.recipes.recipe(SITE, "/login")).toEqual(projected(signin));
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(transport.recipeChanges).not.toHaveBeenCalled();
+  });
+});
+
+describe("recipes this device holds as its own (ADR 0040)", () => {
+  const held = recipe("bank-held", "/login");
+  function device(recipes: readonly StoredLoginRecipe[] | Error = [held]) {
+    return {
+      list: vi.fn(async () => {
+        if (recipes instanceof Error) throw recipes;
+        return recipes;
+      }),
+      upload: vi.fn<NonNullable<Parameters<typeof createRecipeSync>[0]["device"]>["upload"]>(
+        async () => "done",
+      ),
+      forget: vi.fn<NonNullable<Parameters<typeof createRecipeSync>[0]["device"]>["forget"]>(
+        async () => undefined,
+      ),
+    };
+  }
+
+  it("serves them for logins while no service is paired", async () => {
+    const { sync, transport } = setup({ connection: undefined, device: device() });
+    expect(await sync.recipes.recipe(SITE, "/login")).toEqual(projected(held));
+    expect(await sync.recipes.routes!(SITE)).toHaveLength(1);
+    expect(await sync.recipes.recipe("https://other.example", "/login")).toBeUndefined();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(transport.recipeChanges).not.toHaveBeenCalled();
+  });
+
+  it("serves none when they or the pairing cannot be read", async () => {
+    expect(
+      await setup({
+        connection: undefined,
+        device: device(new Error("unreadable")),
+      }).sync.recipes.recipe(SITE, "/login"),
+    ).toBeUndefined();
+    const broken = setup({ device: device() });
+    broken.service.connection.mockRejectedValue(new Error("unreadable"));
+    expect(await broken.sync.recipes.recipe(SITE, "/login")).toBeUndefined();
+  });
+
+  it("uses the paired service's cache, not them, while paired", async () => {
+    const signin = recipe("bank-signin", "/login");
+    const { sync } = setup({
+      stored: { version: 2, origin: SERVICE, deviceId: DEVICE, cursor: 2, recipes: [signin] },
+      device: device(),
+    });
+    expect(await sync.recipes.recipe(SITE, "/login")).toEqual(projected(signin));
+    expect(await sync.recipes.recipe(SITE, "/login", "bank-held")).toBeUndefined();
+  });
+
+  it("uploads them on a full sync before pulling, so the pull brings them back", async () => {
+    const own = device();
+    const { sync, transport } = setup({ device: own });
+    own.upload.mockImplementation(async () => {
+      expect(transport.recipeChanges).not.toHaveBeenCalled();
+      return "done";
+    });
+    expect(await sync.sync()).toBe("synced");
+    expect(own.upload).toHaveBeenCalledExactlyOnceWith(
+      {
+        origin: SERVICE,
+        deviceId: DEVICE,
+        credential: CREDENTIAL,
+        rejected: false,
+        settingsSynced: true,
+      },
+      expect.any(Function),
+    );
+    expect(transport.recipeChanges).toHaveBeenCalled();
+  });
+
+  it("does not upload on a recipes-only sync, for a rejected device, or unpaired", async () => {
+    const devices = [device(), device(), device()] as const;
+    expect(await setup({ device: devices[0] }).sync.sync({ settings: false })).toBe("synced");
+    expect(
+      await setup({
+        device: devices[1],
+        connection: { origin: SERVICE, deviceId: DEVICE, credential: CREDENTIAL, rejected: true },
+      }).sync.sync(),
+    ).toBe("rejected");
+    expect(await setup({ device: devices[2], connection: undefined }).sync.sync()).toBe(
+      "not-connected",
+    );
+    for (const own of devices) expect(own.upload).not.toHaveBeenCalled();
+  });
+
+  it("still pulls when an upload fails", async () => {
+    const own = device();
+    own.upload.mockRejectedValue(new Error("unavailable"));
+    const { sync, transport } = setup({ device: own });
+    expect(await sync.sync()).toBe("synced");
+    expect(transport.recipeChanges).toHaveBeenCalled();
+  });
+
+  it("forgets those the synced cache holds after the pull", async () => {
+    const own = device();
+    const { sync } = setup({ device: own, pages: [page([active(held)], 3)] });
+    expect(await sync.sync()).toBe("synced");
+    expect(own.forget).toHaveBeenCalledExactlyOnceWith(
+      new Set(["bank-held"]),
+      expect.any(Function),
+    );
+    expect(own.forget.mock.calls[0]![1]()).toBe(false);
+  });
+
+  it("stops a running sync before a disconnect copies the synced recipes", async () => {
+    const own = device();
+    const signin = recipe("bank-signin", "/login");
+    const h = setup({
+      device: own,
+      stored: { version: 2, origin: SERVICE, deviceId: DEVICE, cursor: 2, recipes: [signin] },
+    });
+    let release: (result: RecipeChangesResult) => void = () => undefined;
+    h.transport.recipeChanges.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    const running = h.sync.sync();
+    await vi.waitFor(() => expect(h.transport.recipeChanges).toHaveBeenCalledOnce());
+    expect(await h.sync.synced()).toEqual([signin]);
+    const [, stale] = own.upload.mock.calls[0]!;
+    expect(stale()).toBe(true);
+    release(page([active(held)], 3));
+    expect(await running).toBe("not-connected");
+    expect(own.forget).not.toHaveBeenCalled();
+  });
+
+  it("refuses to copy a synced cache it cannot read", async () => {
+    const h = setup({ device: device(), stored: { version: 2, broken: true } });
+    await expect(h.sync.synced()).rejects.toThrow();
+    const down = setup({ device: device() });
+    down.storage.read.mockRejectedValueOnce(new Error("unavailable"));
+    await expect(down.sync.synced()).rejects.toThrow();
+    // No cache yet: nothing to keep.
+    await expect(setup({ device: device() }).sync.synced()).resolves.toEqual([]);
+    expect(await setup({ device: device(), connection: undefined }).sync.synced()).toBeUndefined();
   });
 });

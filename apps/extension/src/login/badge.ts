@@ -182,6 +182,10 @@ const UNCHECKED_TITLES = {
   unreadable: "Pateat: the vault could not be read, so this site's accounts were not counted.",
   updating: "Pateat: the vault is being updated, so this site's accounts were not counted.",
   busy: "Pateat: a login or a page check was using the vault, so this site's accounts were not counted yet.",
+  "settings-sync":
+    "Pateat: this device has not finished its first settings sync with the sync service, so this site's accounts were not counted.",
+  "account-ambiguous":
+    "Pateat: saved settings name a vault's account on another server, so this site's accounts were not counted.",
 } as const satisfies Record<UncheckedReason, string>;
 
 /** The badge text, colours and title of a site count (ADR 0021); no text for none. */

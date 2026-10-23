@@ -6,6 +6,7 @@ import {
   manageRequestLogDeletedSchema,
   manageRequestLogSchema,
   type DevicePairResult,
+  type LocalSettings,
   type LoginRecipeDocument,
   type PageKind,
 } from "@pateat/contracts";
@@ -30,6 +31,7 @@ import {
   type Owner,
 } from "./access-helpers";
 import { writeRecipe } from "../src/recipe-store";
+import { profileDocument } from "../src/settings-store";
 import { OWNER_LIMIT, withLimiter } from "./limiter";
 
 // Synthetic Access keys, identities and extension IDs only. Every test uses fresh
@@ -116,6 +118,7 @@ describe("Access verification", () => {
       "/manage/dashboard",
       "/manage/sites",
       "/manage/sites/https/bank.example",
+      "/manage/vaults",
       "/manage/assets/app.js",
       "/manage/claude",
     ];
@@ -454,6 +457,9 @@ describe("owner web UI", () => {
 describe("owner web UI settings", () => {
   const settings = {
     connections: [],
+    accountPolicies: [],
+    itemPolicies: [],
+    customFieldReviews: [],
     excludedSites: [{ hostname: "intranet.example", includeSubdomains: true }],
     passkeyBrowserSites: [],
     repromptSites: [],
@@ -536,6 +542,213 @@ describe("owner web UI settings", () => {
     expect(await stale.json()).toEqual({
       error: "settings_conflict",
       current: { version: 1, profileId: expect.any(String), revision: 2, settings: web },
+    });
+  });
+
+  describe("synced vault policy (ADR 0023)", () => {
+    const account = {
+      provider: "bitwarden",
+      server: "https://vault.example",
+      userId: "00000000-0000-4000-8000-000000000001",
+    };
+    const itemId = "00000000-0000-4000-8000-000000000002";
+    const policy: LocalSettings = {
+      ...settings,
+      accountPolicies: [
+        {
+          ...account,
+          accountName: "Personal vault",
+          enabled: true,
+          selection: { mode: "selected", groups: [{ id: "folder-1", name: "Banking" }] },
+        },
+        {
+          ...account,
+          server: "cloud-eu",
+          accountName: "Work vault",
+          enabled: false,
+          selection: { mode: "all" },
+        },
+      ],
+      itemPolicies: [
+        {
+          ...account,
+          itemId,
+          itemName: "Example Bank",
+          selected: true,
+          excluded: false,
+          excludedFields: [
+            "login.totp",
+            { custom: "PIN", position: 2, count: 2 },
+            { custom: null, position: 1, count: 1 },
+          ],
+        },
+      ],
+      customFieldReviews: [
+        {
+          ...account,
+          itemId,
+          evidence: `bitwarden-v1:sha256:${"a".repeat(64)}`,
+          revisionDate: "2026-10-11T07:10:03.1234567Z",
+        },
+      ],
+    };
+
+    it("round-trips the policy lists between devices and the web UI with revision conflicts", async () => {
+      const by = await owner();
+      const device = await pairDevice(by);
+      const deviceWrite = (expectedRevision: number, body: unknown) =>
+        deviceApi(device.credential, "/v1/settings", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ version: 1, expectedRevision, settings: body }),
+        });
+      // The lists are profile parts (ADR 0024): stored with the device's profile, the
+      // owner's Default one here, under the owner's revision.
+      const stored = async () =>
+        env.DB.prepare(
+          `SELECT s.revision, p.document, s.updated_by_device_id FROM settings s
+          JOIN profiles p ON p.owner_id = s.owner_id AND p.id = s.owner_id WHERE s.owner_id = ?`,
+        )
+          .bind(await ownerIdFor(by.subject))
+          .first<{ revision: number; document: string; updated_by_device_id: string | null }>();
+
+      // A device writes the lists; the web UI reads them unchanged.
+      const written = await deviceWrite(0, policy);
+      expect(written.status).toBe(200);
+      expect(await written.json()).toEqual({
+        version: 1,
+        profileId: expect.any(String),
+        revision: 1,
+        settings: policy,
+      });
+      const read = await request(await profileSettingsPath(by), { access: by.token });
+      expect(await read.json()).toEqual({
+        version: 1,
+        profileId: expect.any(String),
+        revision: 1,
+        settings: policy,
+      });
+      const first = await stored();
+      expect(first?.revision).toBe(1);
+      expect(JSON.parse(first!.document)).toEqual(profileDocument(policy));
+
+      // The web UI writes the next revision; the device reads it back.
+      const web: LocalSettings = {
+        ...policy,
+        accountPolicies: [{ ...policy.accountPolicies[0]!, enabled: false }],
+        itemPolicies: [],
+      };
+      const webWrite = await putSettings(by, { version: 1, expectedRevision: 1, settings: web });
+      expect(webWrite.status).toBe(200);
+      expect(await webWrite.json()).toEqual({
+        version: 1,
+        profileId: expect.any(String),
+        revision: 2,
+        settings: web,
+      });
+      expect(await (await deviceApi(device.credential)).json()).toEqual({
+        version: 1,
+        profileId: expect.any(String),
+        revision: 2,
+        settings: web,
+      });
+      const second = await stored();
+      expect(second?.revision).toBe(2);
+      expect(second?.updated_by_device_id).toBeNull();
+      expect(JSON.parse(second!.document)).toEqual(profileDocument(web));
+
+      // Stale writers on either side change nothing and get the current lists back.
+      const conflict = {
+        error: "settings_conflict",
+        current: { version: 1, profileId: expect.any(String), revision: 2, settings: web },
+      };
+      const staleDevice = await deviceWrite(1, policy);
+      expect(staleDevice.status).toBe(409);
+      expect(await staleDevice.json()).toEqual(conflict);
+      const staleWeb = await putSettings(by, { version: 1, expectedRevision: 1, settings: policy });
+      expect(staleWeb.status).toBe(409);
+      expect(await staleWeb.json()).toEqual(conflict);
+      expect(JSON.parse((await stored())!.document)).toEqual(profileDocument(web));
+
+      // The device rebases on the current revision.
+      const rebased = await deviceWrite(2, policy);
+      expect(rebased.status).toBe(200);
+      expect(await rebased.json()).toEqual({
+        version: 1,
+        profileId: expect.any(String),
+        revision: 3,
+        settings: policy,
+      });
+      expect((await stored())?.updated_by_device_id).toBe(device.deviceId);
+    });
+
+    it("refuses lists over their limits and duplicate keys on both paths", async () => {
+      const by = await owner();
+      const device = await pairDevice(by);
+      const accounts = Array.from({ length: 101 }, (_, index) => ({
+        ...policy.accountPolicies[0]!,
+        userId: `user-${index}`,
+      }));
+      const fields = Array.from({ length: 1001 }, (_, index) => `field.${index}`);
+      const invalid = [
+        { ...policy, accountPolicies: accounts },
+        { ...policy, itemPolicies: [{ ...policy.itemPolicies[0]!, excludedFields: fields }] },
+        { ...policy, itemPolicies: [policy.itemPolicies[0]!, policy.itemPolicies[0]!] },
+        {
+          ...policy,
+          customFieldReviews: [
+            policy.customFieldReviews[0]!,
+            { ...policy.customFieldReviews[0]!, evidence: `bitwarden-v1:sha256:${"b".repeat(64)}` },
+          ],
+        },
+        {
+          ...policy,
+          accountPolicies: [{ ...policy.accountPolicies[0]!, server: "http://vault.example" }],
+        },
+        { ...policy, fieldPolicies: [] },
+      ];
+      const responses = await Promise.all(
+        invalid.flatMap((body) => [
+          deviceApi(device.credential, "/v1/settings", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ version: 1, expectedRevision: 0, settings: body }),
+          }),
+          putSettings(by, { version: 1, expectedRevision: 0, settings: body }),
+        ]),
+      );
+      expect(responses.map((response) => response.status)).toEqual(
+        invalid.flatMap(() => [400, 400]),
+      );
+      expect(await Promise.all(responses.map((response) => response.json()))).toEqual(
+        responses.map(() => ({ error: "bad_request" })),
+      );
+      // At the limits, both paths accept the document.
+      const atLimit = {
+        ...policy,
+        accountPolicies: accounts.slice(0, 100),
+        itemPolicies: [{ ...policy.itemPolicies[0]!, excludedFields: fields.slice(0, 1000) }],
+      };
+      expect(
+        (
+          await deviceApi(device.credential, "/v1/settings", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ version: 1, expectedRevision: 0, settings: atLimit }),
+          })
+        ).status,
+      ).toBe(200);
+      expect(
+        (await putSettings(by, { version: 1, expectedRevision: 1, settings: atLimit })).status,
+      ).toBe(200);
+      expect(
+        await (await request(await profileSettingsPath(by), { access: by.token })).json(),
+      ).toEqual({
+        version: 1,
+        profileId: expect.any(String),
+        revision: 2,
+        settings: atLimit,
+      });
     });
   });
 
@@ -632,13 +845,8 @@ describe("owner web UI settings", () => {
   it("refuses vault connections, invalid documents, other media types and other origins", async () => {
     const by = await owner();
     await pairDevice(by);
-    const connection = {
-      connectionId: "connection-1",
-      enabled: true,
-      selection: { mode: "all", groupIds: [], itemIds: [] },
-      excludedItemIds: [],
-      excludedFields: [],
-    };
+    // A device-local add-form choice is valid on a device and never stored by the web UI.
+    const connection = { connectionId: "connection-1", enabled: true };
     const responses = await Promise.all([
       putSettings(by, {
         version: 1,
@@ -664,20 +872,22 @@ describe("owner web UI settings", () => {
     });
   });
 
-  it("serves the sites list and each site's page", async () => {
+  it("serves the sites list, each site's page and the vaults page", async () => {
     const { token } = await owner();
     const paths = [
       "/manage/sites",
       "/manage/sites/https/bank.example",
       "/manage/sites/http/localhost:8443",
+      "/manage/vaults",
     ];
     const [signedIn, anonymous] = await Promise.all([
       Promise.all(paths.map((path) => request(path, { access: token }))),
       Promise.all(paths.map((path) => request(path))),
     ]);
-    expect(signedIn.map((response) => response.status)).toEqual([200, 200, 200]);
+    expect(signedIn.map((response) => response.status)).toEqual([200, 200, 200, 200]);
     expect(await signedIn[1]!.text()).toContain("Pateat test app");
-    expect(anonymous.map((response) => response.status)).toEqual([401, 401, 401]);
+    expect(await signedIn[3]!.text()).toContain("Pateat test app");
+    expect(anonymous.map((response) => response.status)).toEqual([401, 401, 401, 401]);
     // Only an HTTP(S) origin has a page; the former bindings and recipes pages are gone.
     const missing = [
       "/manage/sites/ftp/bank.example",
@@ -692,6 +902,13 @@ describe("owner web UI settings", () => {
       method: "POST",
     });
     expect(post.status).toBe(405);
+    const writes = await Promise.all(
+      ["POST", "PUT", "DELETE"].map((method) =>
+        request("/manage/vaults", { access: token, method }),
+      ),
+    );
+    expect(writes.map((response) => response.status)).toEqual([405, 405, 405]);
+    expect(writes[0]!.headers.get("Allow")).toBe("GET");
   });
 });
 
@@ -1357,6 +1574,9 @@ describe("owner web UI request log", () => {
         expectedRevision: 0,
         settings: {
           connections: [],
+          accountPolicies: [],
+          itemPolicies: [],
+          customFieldReviews: [],
           excludedSites: [],
           passkeyBrowserSites: [],
           repromptSites: [],

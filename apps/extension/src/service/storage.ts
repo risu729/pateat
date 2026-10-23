@@ -1,4 +1,5 @@
 import type { VaultSyncRecord } from "../connections/auto-sync";
+import type { DeviceRecipeStorage } from "./device-recipes";
 import type { ServiceStorage } from "./runtime";
 import type {
   GeneratedSlotStorage,
@@ -33,6 +34,11 @@ export function createBrowserRecipeCacheStorage(): RecipeCacheStorage {
 }
 
 /** When the next background recipe sync is due, kept across service worker restarts. */
+/** The recipes this device holds as its own (ADR 0040). */
+export function createBrowserDeviceRecipeStorage(): DeviceRecipeStorage {
+  return trustedRecord("pateat.device-recipes.v1");
+}
+
 export function createBrowserRecipeScheduleStorage(): RecipeScheduleStorage {
   return trustedRecord("pateat.sync-recipes-schedule.v1");
 }

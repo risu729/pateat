@@ -1,5 +1,11 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
-import { beginInput, settingsRequest, setupProbe, setupRequest } from "./connection-fixture";
+import {
+  beginInput,
+  settingsRequest,
+  setupProbe,
+  setupRequest,
+  useOnly,
+} from "./connection-fixture";
 import { logs } from "./login-fixture";
 import { startLoginFixture } from "./login-server";
 import { startSyncService } from "./sync-service";
@@ -108,13 +114,16 @@ function syntheticClaude({ abstainOnPassword = false }: { abstainOnPassword?: bo
         ({ target }) => target.by === "id" && target.value === value,
       );
     // The `script-link` and `script-url` fixtures' login links have no id, so only their
-    // text names them; the `redesign` fixture's button is `continue`.
+    // text names them, and the `labelled` fixture's submit input only its accessible name;
+    // the `redesign` fixture's button is `continue`.
     const login = () =>
       hasId("login")
         ? byTarget("login")
         : hasId("continue")
           ? byTarget("continue")
-          : byTarget("Log in", "text");
+          : prompt.observation.candidates.some(({ target }) => target.by === "accessible-name")
+            ? byTarget("Log in", "accessible-name")
+            : byTarget("Log in", "text");
     // The `redesign` fixture names its password input `passcode`.
     const passwordField = hasId("password") ? "password" : hasId("passcode") ? "passcode" : "";
     const passwordPage = passwordField !== "";
@@ -204,11 +213,7 @@ async function connect(
   if (!accepted.ok || accepted.kind !== "ready") throw new Error("Synthetic setup failed");
   // The probe build's demo vaults cannot answer URI queries; leave only Bitwarden.
   const initial = await settingsRequest(options);
-  const settings = initial.snapshot.settings;
-  settings.connections = settings.connections.map((entry) => ({
-    ...entry,
-    enabled: entry.connectionId === accepted.connectionId,
-  }));
+  const settings = useOnly(initial.snapshot.settings, initial.catalog, accepted.connectionId);
   const saved = await settingsRequest(options, {
     version: 1,
     type: "settings.save",
@@ -242,6 +247,10 @@ async function connect(
     expectedRevision: saved.snapshot.revision,
     settings: saved.snapshot.settings,
   });
+  // A paired device uses no vault item until its first settings sync (ADR 0023).
+  await expect
+    .poll(async () => (await settingsRequest(options)).catalog.settingsSyncPending)
+    .toBeUndefined();
   return options;
 }
 
@@ -250,6 +259,7 @@ for (const [button, marker] of [
   ["anchor", "button"],
   ["script-link", "button"],
   ["script-url", "button"],
+  ["labelled", "button"],
   ["button", "link"],
 ] as const)
   test(`a login page without a recipe is generated on the service, logs in and learns its completion (${button}, ${marker} marker)`, async () => {
@@ -734,9 +744,9 @@ test("a login whose saved binding names only the username takes over the continu
         // was watched (ADR 0027): the site default and a binding of the recipe that names
         // only the username slot, which revision 1 fills.
         const current = await settingsRequest(options);
-        const enabled = current.snapshot.settings.connections.find((entry) => entry.enabled)!;
+        // `connect` left only the Bitwarden connection in use.
         const connection = current.catalog.connections.find(
-          (entry) => entry.id === enabled.connectionId,
+          (entry) => entry.provider === "bitwarden",
         )!;
         const item = connection.items[0]!;
         const digest = await crypto.subtle.digest(
@@ -747,6 +757,7 @@ test("a login whose saved binding names only the username takes over the continu
         const owner = {
           origin: site,
           provider: connection.provider,
+          server: connection.server,
           userId: connection.userId!,
           itemId: item.id,
           itemName: item.label,

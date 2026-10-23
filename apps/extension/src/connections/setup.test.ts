@@ -220,6 +220,7 @@ function harness(options: { existing?: boolean; prelogin?: unknown } = {}) {
     register: vi.fn<ConnectionSetupDependencies["policy"]["register"]>(async () => {
       events.push("register");
     }),
+    forget: vi.fn<NonNullable<ConnectionSetupDependencies["policy"]["forget"]>>(async () => {}),
     protectedItems: vi.fn<NonNullable<ConnectionSetupDependencies["policy"]["protectedItems"]>>(
       async () => [],
     ),
@@ -1640,6 +1641,7 @@ describe("durable provider sessions", () => {
     expect(h.manager.remove).toHaveBeenCalledTimes(1);
     expect(h.durable()).toBeNull();
     expect(h.registry.remove).toHaveBeenCalledWith(accountProfile.connectionId);
+    expect(h.policy.forget).toHaveBeenCalledWith(accountProfile.connectionId);
     expect(h.configurations.size).toBe(0);
     expect(h.manager.disableAutoUnlock).not.toHaveBeenCalled();
     expect(await h.caller.status()).toEqual({ ok: true, kind: "status", connections: [] });
