@@ -6,6 +6,7 @@ import {
   ACTION_ICON_PATHS,
   actionIconState,
   createActionIcon,
+  notifyingVaultManager,
   notifyingVaultStore,
   vaultRecordState,
 } from "./action-icon";
@@ -104,5 +105,33 @@ describe("toolbar lock icon", () => {
     await retry.refresh();
     await retry.refresh();
     expect(failing).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("vault opened notice", () => {
+  it("tells once an accepted or restored vault serves its snapshot", async () => {
+    let handle = "old";
+    const opened = vi.fn(() => expect(manager.status()).toBe("new"));
+    const base = {
+      generation: "g",
+      status: () => handle,
+      accept: vi.fn(async (ok: boolean) => {
+        if (ok) handle = "new";
+        return ok ? { ok: true as const, data: 1 } : vaultFailure("cancelled");
+      }),
+      restore: vi.fn(async () => {
+        handle = "new";
+        return { ok: true as const, data: 2 };
+      }),
+    };
+    const manager = notifyingVaultManager(base, opened);
+    expect(manager.generation).toBe("g");
+    await expect(manager.accept(false)).resolves.toMatchObject({ ok: false });
+    expect(opened).not.toHaveBeenCalled();
+    await expect(manager.accept(true)).resolves.toEqual({ ok: true, data: 1 });
+    expect(opened).toHaveBeenCalledTimes(1);
+    handle = "old";
+    await expect(manager.restore()).resolves.toEqual({ ok: true, data: 2 });
+    expect(opened).toHaveBeenCalledTimes(2);
   });
 });

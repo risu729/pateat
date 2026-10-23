@@ -39,8 +39,34 @@ async function createSigningKey(kid: string): Promise<SigningKey> {
 
 let accessKey: SigningKey;
 let impostorKey: SigningKey;
-/** Set `available` to false to make the mocked key set fail. */
-export const jwks = { available: true };
+/**
+ * How the mocked key set answers: `ok` serves the keys; the others are outages, a
+ * non-OK status, a JSON body that is not a key set, a body that is not JSON, a fetch
+ * that rejects, and a fetch that never answers until its signal aborts.
+ */
+export type JwksMode = "ok" | "status" | "malformed" | "not-json" | "reject" | "hang";
+export const jwks: { mode: JwksMode } = { mode: "ok" };
+
+function serveJwks(init: RequestInit | undefined): Promise<Response> | Response {
+  switch (jwks.mode) {
+    case "ok":
+      return Response.json({ keys: [accessKey.publicJwk] });
+    case "status":
+      return new Response("unavailable", { status: 503 });
+    case "malformed":
+      return Response.json({});
+    case "not-json":
+      return new Response("<html>maintenance</html>", {
+        headers: { "Content-Type": "text/html" },
+      });
+    case "reject":
+      return Promise.reject(new TypeError("network connection lost"));
+    case "hang":
+      return new Promise((_, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+      });
+  }
+}
 
 /** Serves the synthetic Access key set from a mocked fetch for this test file. */
 export function installAccessKeys() {
@@ -51,10 +77,7 @@ export function installAccessKeys() {
     impostorKey = await createSigningKey("access-test-key");
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const url = input instanceof Request ? input.url : String(input);
-      if (url === JWKS_URL)
-        return jwks.available
-          ? Response.json({ keys: [accessKey.publicJwk] })
-          : new Response("unavailable", { status: 503 });
+      if (url === JWKS_URL) return serveJwks(init);
       return originalFetch(input, init);
     });
   });

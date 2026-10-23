@@ -571,8 +571,9 @@ describe("account and provider binding admission", () => {
     { exp: accountNow - 1 },
     { exp: "future" },
     { exp: 1.5 },
-    { nbf: accountNow + 1 },
     { nbf: "future" },
+    { nbf: 1.5 },
+    { nbf: -1 },
     { iat: "past" },
     { sstamp: "other-stamp" },
     { iss: 5 },
@@ -582,6 +583,26 @@ describe("account and provider binding admission", () => {
     raw.token.access_token = syntheticJwt(claims);
     expect(mapRaw(raw).ok).toBe(false);
   });
+
+  // Bitwarden (Duende) and Vaultwarden set nbf to the server's issue second. Like the official
+  // clients' TokenService, only exp decides expiry, so any clock behind the server still works.
+  it.each([1, 300, 3600, 365 * 24 * 3600])(
+    "accepts a token whose nbf is %i s ahead of the local clock",
+    (ahead) => {
+      const raw = rawV1Account();
+      raw.token.access_token = syntheticJwt({ nbf: accountNow + ahead, iat: accountNow + ahead });
+      expect(mapRaw(raw).ok).toBe(true);
+    },
+  );
+
+  it.each([{ exp: accountNow }, { exp: accountNow - 1 }])(
+    "reports a token whose exp is not in the future as expired %j",
+    (claims) => {
+      const raw = rawV1Account();
+      raw.token.access_token = syntheticJwt(claims);
+      expect(mapRaw(raw)).toEqual({ ok: false, error: { code: "authentication-expired" } });
+    },
+  );
 
   it.each(["opaque-token", "a.b.c", "e30.e30.c3ludGhldGlj", "x".repeat(200_000)])(
     "rejects malformed bounded JWT without echoing it",

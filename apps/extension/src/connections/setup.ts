@@ -93,6 +93,8 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
   }
   const reviews = new Map<string, string[]>();
   const alive = (flow: Flow) => !flow.controller.signal.aborted && now() < flow.expiresAt;
+  /** Why a flow stopped during a provider call: its 5 minutes ran out, or it was stopped. */
+  const stopped = (flow: Flow) => error(now() >= flow.expiresAt ? "setup-expired" : "cancelled");
   function clear(flow: Flow) {
     clearTimeout(flow.timer);
     flow.controller.abort();
@@ -286,6 +288,7 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
           accepted.data.comparedSnapshotId === prior.data?.accepted?.snapshotId
             ? accepted.data.sameCustomFields
             : [],
+        ...(auto ? { automatic: true as const } : {}),
       });
       if (!alive(flow)) {
         clear(flow);
@@ -349,9 +352,28 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
     );
     // Token lifetime counts from receipt, not from the end of sync and acceptance.
     const receivedAt = now();
+    // The flow's own end aborts the request too; that reads as its end, not a failure.
+    if (!alive(flow)) return stopped(flow);
     if (!token.ok) return token;
-    if (!alive(flow)) return error("cancelled");
     const outcome = token.data;
+    // As on the official two-step page, a refused code keeps the sign-in for another try.
+    if (
+      outcome.kind === "rejected" &&
+      outcome.reason === "mfa" &&
+      flow.manual.twoFactor &&
+      flow.providers
+    ) {
+      const { twoFactor: _refused, ...manual } = flow.manual;
+      flow.manual = manual;
+      return {
+        ok: true,
+        kind: "mfa-required",
+        flowId: flow.id,
+        providers: flow.providers,
+        expiresAt: flow.expiresAt,
+        invalidCode: true,
+      };
+    }
     if (outcome.kind === "mfa-required") {
       if (!outcome.supportedProviders.length)
         return { ok: true, kind: "interaction-required", reason: "unsupported-challenge" };
@@ -361,11 +383,18 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
         kind: "mfa-required",
         flowId: flow.id,
         providers: outcome.supportedProviders,
+        expiresAt: flow.expiresAt,
       };
     }
     if (outcome.kind === "new-device-verification-required") {
       flow.newDevice = true;
-      return { ok: true, kind: outcome.kind, flowId: flow.id, invalidOtp: outcome.invalidOtp };
+      return {
+        ok: true,
+        kind: outcome.kind,
+        flowId: flow.id,
+        invalidOtp: outcome.invalidOtp,
+        expiresAt: flow.expiresAt,
+      };
     }
     if (outcome.kind === "interaction-required")
       return { ok: true, kind: outcome.kind, reason: outcome.reason };
@@ -765,7 +794,7 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
               },
               current.controller.signal,
             );
-            if (!alive(current)) return error("cancelled");
+            if (!alive(current)) return stopped(current);
             return {
               ok: true,
               kind: "email-code",
