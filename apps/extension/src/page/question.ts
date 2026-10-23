@@ -1,5 +1,6 @@
 import { QUESTION_MIN_LENGTH, questionText } from "@pateat/contracts";
 import { renderedText } from "./text";
+import { composedParent, queryAll } from "./shadow";
 
 // The secret question a page asks beside an answer input (ADR 0061), matched against the
 // names of the login item's custom fields, which people name after their questions, and
@@ -29,8 +30,8 @@ export type AskedQuestion = { readonly name: string } | { readonly question: str
  */
 function questionRegion(input: HTMLInputElement): Element {
   let region: Element = input;
-  for (let parent = input.parentElement; parent; parent = parent.parentElement) {
-    const others = [...parent.querySelectorAll("input, textarea")].some(
+  for (let parent = composedParent(input); parent; parent = composedParent(parent)) {
+    const others = queryAll(parent, "input, textarea").some(
       (other) =>
         other !== input &&
         !(

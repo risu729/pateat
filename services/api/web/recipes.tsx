@@ -30,7 +30,10 @@ export const isActive = (entry: ManageRecipe): entry is ActiveRecipe =>
 
 type Step = LoginRecipe["steps"][number];
 
-const describeTarget = (target: LoginMarkerTarget) => `${target.by} "${target.value}"`;
+const describeTarget = (target: LoginMarkerTarget) =>
+  [...("within" in target ? (target.within ?? []) : []), target]
+    .map(({ by, value }) => `${by} "${value}"`)
+    .join(" > ");
 
 /**
  * A `detail` handler's field: its input with the detail and format, or a value split over
