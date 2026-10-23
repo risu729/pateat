@@ -2627,8 +2627,10 @@ path (owner decision 2026-10-13). Labels can contain private data too: sanitize 
 bound them, with privacy fixtures and an abstention path when a useful safe observation
 cannot be constructed. The owner chose on 2026-10-11 to redact observed text before it
 is sent: email-like strings, including masked ones, become `[email]`, whatever HTML's
-valid email address allows in the local part (such as `'` and `#`) and with an
-internationalized domain (`taro@例え.jp`); runs of three or more `*`, `●`, `•` or `＊`
+valid email address allows in the local part (such as `'` and `#`, but not `/`, `=`,
+`?` or `&`, so `youtube.com/@pateat` stays) and with internationalized domain labels
+before an ASCII last one (`taro@例え.jp`; `taro@example.comでログイン` becomes
+`[email]でログイン`); runs of three or more `*`, `●`, `•` or `＊`
 become `[masked]`; and runs of four or more ASCII or fullwidth digits become `[number]`
 (`口座番号 ****1234` becomes `口座番号 [masked][number]`). Page text is read as it
 renders, both before redaction and before it is compared with an account: a `<wbr>`

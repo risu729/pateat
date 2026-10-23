@@ -197,10 +197,13 @@ const changingId = (value: string) => libraryId.test(value) || randomId(value);
  */
 const redactions: readonly (readonly [RegExp, string])[] = [
   // Fullwidth letters, digits and punctuation count too: `ｔａｒｏ＠ｅｘａｍｐｌｅ．ｃｏｍ`. A
-  // local part holds any character HTML's valid email address allows, such as `'` and
-  // `#` (`o'brien@`, `taro#1@`), and a domain may be internationalized (`taro@例え.jp`).
+  // local part holds what HTML's valid email address allows, such as `'` and `#`
+  // (`o'brien@`, `taro#1@`), except `/`, `=`, `?` and `&`, so `youtube.com/@pateat` and
+  // `price=100@shop` stay. A domain's labels may be internationalized (`taro@例え.jp`), but
+  // its last one is ASCII, so text right after it stays: `taro@example.comでログイン`
+  // becomes `[email]でログイン`.
   [
-    /[A-Za-z0-9.!#$%&'*+/=?^_`{|}~\-●•＊Ａ-Ｚａ-ｚ０-９．＿％＋－]+[@＠][\p{L}\p{M}\p{N}.\-*●•＊．－]+/gu,
+    /[A-Za-z0-9.!#$%'*+^_`{|}~\-●•＊Ａ-Ｚａ-ｚ０-９．＿％＋－]+[@＠](?:[\p{L}\p{M}\p{N}\-*●•＊－]+[.．])*[A-Za-z0-9\-*●•＊Ａ-Ｚａ-ｚ０-９－]+/gu,
     "[email]",
   ],
   [/[*●•＊]{3,}/gu, "[masked]"],

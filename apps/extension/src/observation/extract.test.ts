@@ -1090,6 +1090,18 @@ describe("extractLoginObservation", () => {
     expect(observe().headings).toEqual(["[email]", "[email] さん", "[email] でログイン"]);
   });
 
+  it("keeps the text around an email address, a handle in a URL and a key=value pair", () => {
+    page(
+      `<h1>taro@example.comでログイン中</h1><h2>youtube.com/@pateat</h2><h3>price=100@shop</h3>
+      <form id="f"><input id="u"><input id="pw" type="password"><button id="go">Go</button></form>`,
+    );
+    expect(observe().headings).toEqual([
+      "[email]でログイン中",
+      "youtube.com/@pateat",
+      "price=[email]",
+    ]);
+  });
+
   it("skips hidden inputs and other controls' labels when reading adjacent text", () => {
     page(
       `<form id="f"><table>
