@@ -1306,21 +1306,28 @@ export function extractLoginObservation(
       return input instanceof HTMLInputElement && input.type === "password" ? [entry.form] : [];
     }),
   );
-  // Fields outside every form, and whether a button is near them: one of them within its
-  // `besideDepth` nearest ancestors. Reaching the body or the root counts as near.
+  // Fields outside every form, and whether a button is near them: one of them within the
+  // button's `besideDepth` nearest ancestors, or the button within one of theirs, so a
+  // button wrapped deeper beside the fields still counts. Reaching the body or the root
+  // counts as near; a mistake that way only marks the page incomplete.
   const formless = found.flatMap((entry) => {
     const input =
       entry.kind === "candidate" ? fillTypes[entry.draft.role] && entry.draft.element : entry.field;
     return input && entry.form === null ? [input] : [];
   });
-  const nearFields = (element: Element) => {
+  const areaOf = (element: Element) => {
     let area: Element | null = element;
     for (let depth = 0; depth < besideDepth && area; depth++) area = area.parentElement;
+    return area && area !== document.body && area !== document.documentElement ? area : undefined;
+  };
+  const nearFields = (element: Element) => {
+    const area = areaOf(element);
     return (
       !area ||
-      area === document.body ||
-      area === document.documentElement ||
-      formless.some((field) => area.contains(field))
+      formless.some((field) => {
+        const around = areaOf(field);
+        return area.contains(field) || !around || around.contains(element);
+      })
     );
   };
   const areas = [...loginForms].flatMap((form) => {
