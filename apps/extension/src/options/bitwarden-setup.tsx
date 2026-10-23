@@ -29,7 +29,7 @@ import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from "rea
 import * as v from "valibot";
 import type { SetupBegin, SetupReply } from "../connections/types";
 import { providerPermissionOrigins } from "../connections/permissions";
-import { localSyncTime } from "../time";
+import { localClockTime, localSyncTime } from "../time";
 import { Button } from "./button";
 import type { ConnectionClient } from "./connection-client";
 import {
@@ -74,6 +74,30 @@ function normalEmail(email: string) {
   return email.trim().toLowerCase();
 }
 type Message = string | ((translate: TFunction) => string);
+/**
+ * Why a sign-in that waited for its code until `expiresAt` ended at `endedAt`: its 5 minutes
+ * passed, or before that the worker holding it stopped (Chrome restarted or updated it). The
+ * panel status says what happened; the sign-in form, where the password goes, says why.
+ */
+function endedText(expiresAt: number, endedAt: number): { status: string; reason: Message } {
+  return endedAt < expiresAt
+    ? {
+        status: "The sign-in ended before the code was entered.",
+        reason: (translate) =>
+          translate(
+            "The sign-in ended at {{time}}, before its 5 minutes, because Pateat's background stopped. Enter the master password to start again.",
+            { time: localClockTime(endedAt, formatLocale()) },
+          ),
+      }
+    : {
+        status: "The sign-in timed out waiting for the code.",
+        reason: (translate) =>
+          translate(
+            "The sign-in timed out at {{time}}: no code was entered within 5 minutes. Enter the master password to start again.",
+            { time: localClockTime(expiresAt, formatLocale()) },
+          ),
+      };
+}
 const deleteDialog = AlertDialog.createHandle<Connection>();
 function errorMessage(code: string, check?: string): Message {
   if (code === "account-mismatch")
@@ -290,6 +314,13 @@ export function BitwardenSetup({
   const [statusKnown, setStatusKnown] = useState(false);
   const [message, setMessage] = useState<Message>("Loading Bitwarden connections…");
   const say = (next: Message) => setMessage(() => next);
+  // When the shown challenge stops waiting; a reply handler may see an older render's state.
+  const deadline = useRef<number>(undefined);
+  // Why the last sign-in ended while it waited for its code, shown in the sign-in form.
+  const [ended, setEndedState] = useState<Message>();
+  const setEnded = (next: Message | undefined) => setEndedState(() => next);
+  // The server refused the last code; the code screen says so until the next answer.
+  const [refused, setRefused] = useState(false);
   const operation = useRef(false);
   const generation = useRef(0);
   // The page's first connection read is running.
@@ -379,9 +410,20 @@ export function BitwardenSetup({
   /** `endsAdd`: the reply answers this page's add, so its read is the add's last chance. */
   async function receive(result: SetupReply, epoch: number, endsAdd = false) {
     if (epoch !== generation.current) return;
+    const expiresAt = deadline.current;
+    deadline.current = undefined;
     if (!result.ok) {
       setChallenge(undefined);
-      say(errorMessage(result.error.code, result.error.check));
+      if (result.error.code === "setup-expired" && expiresAt !== undefined) {
+        const text = endedText(expiresAt, Date.now());
+        setEnded(text.reason);
+        say(text.status);
+      } else {
+        const text = errorMessage(result.error.code, result.error.check);
+        say(text);
+        // Any other end of a waiting sign-in is said where the password goes too.
+        if (expiresAt !== undefined) setEnded(text);
+      }
       // A resolved error may follow a durable cache/configuration change.
       // Preserve the draft and require a fresh catalog before another settings save.
       onCatalogChanged();
@@ -390,17 +432,20 @@ export function BitwardenSetup({
     }
     if (result.kind === "mfa-required" || result.kind === "new-device-verification-required") {
       setChallenge(result);
-      if (result.kind === "mfa-required") {
+      deadline.current = result.expiresAt;
+      setEnded(undefined);
+      const again = result.kind === "mfa-required" ? !!result.invalidCode : result.invalidOtp;
+      setRefused(again);
+      if (again) {
+        // The same sign-in waits for another code: the method and the sent email stay.
+        focusCode.current = true;
+        say("The code was not accepted. Enter it again.");
+      } else if (result.kind === "mfa-required") {
         // Ascending IDs put the authenticator before email, as the official clients rank them.
         setProvider(result.providers[0] ?? 0);
         setEmailCode(undefined);
         say("Enter a two-step verification code.");
-      } else
-        say(
-          result.invalidOtp
-            ? "The new-device code was rejected. Enter a new code manually."
-            : "Enter the new-device verification code from your email.",
-        );
+      } else say("Enter the new-device verification code from your email.");
       // Adding a connection already saved its policy entry, so the settings draft reloads.
       onCatalogChanged();
       return;
@@ -458,6 +503,7 @@ export function BitwardenSetup({
     void action(epoch)
       .catch(() => {
         if (epoch !== generation.current) return;
+        deadline.current = undefined;
         setChallenge(undefined);
         say(
           "The operation could not be confirmed. Refresh and reload saved settings. Your previous draft is preserved.",
@@ -500,6 +546,7 @@ export function BitwardenSetup({
           enabled,
         };
     clearSecrets();
+    setEnded(undefined);
     say("Requesting provider access and connecting…");
     start(async (epoch) => {
       const granted = await client.requestProviderPermission(profile.data.environment);
@@ -557,7 +604,9 @@ export function BitwardenSetup({
   // The waiting sign-in, password included, lives only in the service worker, which Chrome
   // stops after 30 seconds without an event while the person fetches a code. A message on
   // the Port restarts that count, so the page sends one as soon as a challenge shows and
-  // every 20 seconds after, until the challenge's own 5 minutes end it.
+  // every 20 seconds after, until the challenge's own 5 minutes end it. Chrome runs a
+  // background tab's timers about once a minute after 5 minutes, so the page also asks as
+  // the 5 minutes end and as it shows again, and says at once that the sign-in ended.
   const beat = useEffectEvent(async (flowId: string) => {
     // An operation started after this beat moves the epoch on and answers for the flow.
     const epoch = generation.current;
@@ -575,10 +624,19 @@ export function BitwardenSetup({
   });
   useEffect(() => {
     if (!challenge) return;
-    const { flowId } = challenge;
+    const { flowId, expiresAt } = challenge;
     void beat(flowId);
     const timer = setInterval(() => void beat(flowId), KEEP_ALIVE_MS);
-    return () => clearInterval(timer);
+    const end = setTimeout(() => void beat(flowId), Math.max(0, expiresAt - Date.now()));
+    const shown = () => {
+      if (document.visibilityState === "visible") void beat(flowId);
+    };
+    document.addEventListener("visibilitychange", shown);
+    return () => {
+      clearInterval(timer);
+      clearTimeout(end);
+      document.removeEventListener("visibilitychange", shown);
+    };
   }, [challenge]);
   useEffect(() => {
     if (!focusCode.current || busy) return;
@@ -588,6 +646,7 @@ export function BitwardenSetup({
   function cancel(stopped = "Setup stopped. Refresh to confirm the latest state.") {
     clearSecrets();
     setExisting(undefined);
+    setEnded(undefined);
     // With nothing running, a pending re-read from an earlier stop must still land.
     if (!operation.current && !challenge) {
       say("Setup cancelled.");
@@ -595,6 +654,7 @@ export function BitwardenSetup({
     }
     const epoch = ++generation.current;
     operation.current = false;
+    deadline.current = undefined;
     setChallenge(undefined);
     setBusy(false);
     client.close();
@@ -644,6 +704,7 @@ export function BitwardenSetup({
     clearSecrets();
     setExisting(connection);
     setEnableUnlock(unfinished);
+    if (explain) setEnded(undefined);
     setAddOpen(true);
     focusPassword.current = true;
     if (!explain) return;
@@ -967,6 +1028,40 @@ export function BitwardenSetup({
         <div className={groupClass}>
           <fieldset className="m-0 flex min-w-0 flex-col gap-3 border-0 p-0" disabled={busy}>
             <legend className="mb-3 p-0 font-semibold">{t("Manual verification")}</legend>
+            <StatusLines
+              id="bitwarden-code-deadline"
+              muted
+              lines={[
+                ...(refused
+                  ? [
+                      {
+                        tone: "warn" as const,
+                        icon: TriangleAlert,
+                        text:
+                          challenge.kind === "mfa-required" && provider === 0
+                            ? t(
+                                "The code was not accepted: it is wrong or no longer valid. Enter the current code from the authenticator app.",
+                              )
+                            : challenge.kind === "mfa-required"
+                              ? t(
+                                  "The code was not accepted: it is wrong or no longer valid. Enter the code from the latest email, or Resend code.",
+                                )
+                              : t(
+                                  "The code was not accepted: it is wrong or no longer valid. Enter the code from the latest email.",
+                                ),
+                      },
+                    ]
+                  : []),
+                {
+                  tone: "idle",
+                  icon: Clock,
+                  text: t(
+                    "Enter the code by {{time}}. After that the sign-in ends and needs the master password again.",
+                    { time: localClockTime(challenge.expiresAt, formatLocale()) },
+                  ),
+                },
+              ]}
+            />
             {challenge.kind === "mfa-required" ? (
               <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2">
                 <label className={fieldClass}>
@@ -990,6 +1085,7 @@ export function BitwardenSetup({
                     id="bitwarden-code"
                     ref={codeInput}
                     className={controlClass}
+                    aria-describedby="bitwarden-code-deadline"
                     type="password"
                     autoComplete="off"
                     maxLength={1024}
@@ -1005,6 +1101,7 @@ export function BitwardenSetup({
                   id="bitwarden-new-device-otp"
                   ref={codeInput}
                   className={controlClass}
+                  aria-describedby="bitwarden-code-deadline"
                   type="password"
                   autoComplete="off"
                   maxLength={1024}
@@ -1078,6 +1175,18 @@ export function BitwardenSetup({
                 ? t("Sign in to {{name}} again", { name: existing.label })
                 : t("Add a connection")}
             </legend>
+            {ended && (
+              <StatusLines
+                id="bitwarden-sign-in-ended"
+                lines={[
+                  {
+                    tone: "warn",
+                    icon: TriangleAlert,
+                    text: typeof ended === "function" ? ended(t) : t(ended),
+                  },
+                ]}
+              />
+            )}
             <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2">
               {!existing && (
                 <>
@@ -1146,6 +1255,7 @@ export function BitwardenSetup({
                   id="bitwarden-password"
                   ref={passwordInput}
                   className={controlClass}
+                  aria-describedby={ended ? "bitwarden-sign-in-ended" : undefined}
                   type="password"
                   autoComplete="off"
                   value={password}
@@ -1213,6 +1323,7 @@ export function BitwardenSetup({
                 onClick={() => {
                   clearSecrets();
                   setExisting(undefined);
+                  setEnded(undefined);
                 }}
               >
                 {t("Add another connection")}

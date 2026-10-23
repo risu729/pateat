@@ -123,6 +123,7 @@ test.each([0, 1] as const)(
       ok: true,
       kind: "mfa-required",
       flowId: FLOW,
+      expiresAt: Date.now() + 3_600_000,
       providers: [provider],
     });
     let finish!: (reply: SetupReply) => void;
@@ -158,7 +159,13 @@ test.each([0, 1] as const)(
 
 test("the email code's send result and Resend follow the language", async () => {
   const value = client();
-  value.begin.mockResolvedValue({ ok: true, kind: "mfa-required", flowId: FLOW, providers: [1] });
+  value.begin.mockResolvedValue({
+    ok: true,
+    kind: "mfa-required",
+    flowId: FLOW,
+    providers: [1],
+    expiresAt: Date.now() + 3_600_000,
+  });
   await mount(value);
   await credentials();
   await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
@@ -167,6 +174,10 @@ test("the email code's send result and Resend follow the language", async () => 
   expect(value.sendEmailCode).toHaveBeenCalledExactlyOnceWith(FLOW);
   await i18n.changeLanguage("ja");
   await expect.element(page.getByText(japanese(sent), { exact: true })).toBeVisible();
+  // The code screen's end is worded and formatted in the page's language.
+  await expect
+    .element(page.getByText(/^.+ までにコードを入力してください。それを過ぎるとログインが終了し/u))
+    .toBeVisible();
   value.sendEmailCode.mockResolvedValueOnce({
     ok: true,
     kind: "email-code",

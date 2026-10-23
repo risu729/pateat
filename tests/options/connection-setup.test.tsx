@@ -20,10 +20,12 @@ import {
   type SettingsResponse,
 } from "../../packages/contracts/src/index";
 import type { SetupReply } from "../../apps/extension/src/connections/types";
-import { localSyncTime } from "../../apps/extension/src/time";
+import { localClockTime, localSyncTime } from "../../apps/extension/src/time";
 
 const password = "synthetic-component-password-only";
 const flowId = "50000000-0000-4000-8000-000000000001";
+/** When a waiting sign-in ends: far off, so only a test that sets its own end sees it pass. */
+const expiresAt = Date.now() + 3_600_000;
 function ready(): SetupReply {
   return {
     ok: true,
@@ -206,7 +208,13 @@ test.each([
 
 test("manual MFA clears the code on submission and never resends without another user action", async () => {
   const client = mockClient();
-  client.begin.mockResolvedValue({ ok: true, kind: "mfa-required", flowId, providers: [0, 1] });
+  client.begin.mockResolvedValue({
+    ok: true,
+    kind: "mfa-required",
+    flowId,
+    providers: [0, 1],
+    expiresAt,
+  });
   const pending = held<SetupReply>();
   client.continue.mockReturnValue(pending.promise);
   const { queryClient } = await mount(client);
@@ -226,7 +234,7 @@ test("manual MFA clears the code on submission and never resends without another
     twoFactor: { provider: 1, code: "000123" },
   });
   expect(JSON.stringify(queryClient.getMutationCache().getAll())).not.toContain("000123");
-  pending.resolve({ ok: true, kind: "mfa-required", flowId, providers: [1] });
+  pending.resolve({ ok: true, kind: "mfa-required", flowId, providers: [1], expiresAt });
   await expect
     .element(page.getByRole("button", { name: "Verify code", exact: true }))
     .toBeDisabled();
@@ -241,7 +249,13 @@ test("manual MFA clears the code on submission and never resends without another
 
 test("choosing email sends one code like the official extension, and Resend code sends another", async () => {
   const client = mockClient();
-  client.begin.mockResolvedValue({ ok: true, kind: "mfa-required", flowId, providers: [0, 1] });
+  client.begin.mockResolvedValue({
+    ok: true,
+    kind: "mfa-required",
+    flowId,
+    providers: [0, 1],
+    expiresAt,
+  });
   const pending = held<SetupReply>();
   client.sendEmailCode.mockReturnValueOnce(pending.promise);
   await mount(client);
@@ -299,8 +313,14 @@ test("a new sign-in sends its own code, and a send the background refuses ends t
   const client = mockClient();
   const second = "50000000-0000-4000-8000-000000000002";
   client.begin
-    .mockResolvedValueOnce({ ok: true, kind: "mfa-required", flowId, providers: [1] })
-    .mockResolvedValueOnce({ ok: true, kind: "mfa-required", flowId: second, providers: [1] });
+    .mockResolvedValueOnce({ ok: true, kind: "mfa-required", flowId, providers: [1], expiresAt })
+    .mockResolvedValueOnce({
+      ok: true,
+      kind: "mfa-required",
+      flowId: second,
+      providers: [1],
+      expiresAt,
+    });
   client.sendEmailCode
     .mockResolvedValueOnce({ ok: false, error: { code: "provider-permission-required" } })
     .mockResolvedValueOnce({ ok: true, kind: "email-code", flowId: second, result: "sent" });
@@ -324,7 +344,13 @@ test.each([
   ["failed", /The code email could not be requested/],
 ] as const)("an email-only sign-in sends its code at once and shows %s", async (result, line) => {
   const client = mockClient();
-  client.begin.mockResolvedValue({ ok: true, kind: "mfa-required", flowId, providers: [1] });
+  client.begin.mockResolvedValue({
+    ok: true,
+    kind: "mfa-required",
+    flowId,
+    providers: [1],
+    expiresAt,
+  });
   client.sendEmailCode.mockResolvedValue({ ok: true, kind: "email-code", flowId, result });
   await mount(client);
   await fillNew();
@@ -344,12 +370,20 @@ async function withFakeInterval(run: () => Promise<void>) {
     vi.useRealTimers();
   }
 }
-const expiredText = "This verification session expired. Start sign-in again.";
+// Before its 5 minutes, as when Chrome restarted the worker.
+const expiredText = "The sign-in ended before the code was entered.";
+const endedLine = () => document.querySelector("#bitwarden-sign-in-ended")?.textContent ?? null;
 
 test("a waiting challenge keeps the worker running until its flow ends", async () => {
   await withFakeInterval(async () => {
     const client = mockClient();
-    client.begin.mockResolvedValue({ ok: true, kind: "mfa-required", flowId, providers: [0] });
+    client.begin.mockResolvedValue({
+      ok: true,
+      kind: "mfa-required",
+      flowId,
+      providers: [0],
+      expiresAt,
+    });
     await mount(client);
     await fillNew();
     await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
@@ -367,18 +401,143 @@ test("a waiting challenge keeps the worker running until its flow ends", async (
     await vi.waitFor(() => expect(client.keepAlive).toHaveBeenCalledTimes(shown + 2));
     await painted();
     expect(page.getByLabelText("Verification code", { exact: true }).query()).not.toBeNull();
-    // A flow the worker no longer holds, such as one past its 5 minutes, ends the challenge.
+    // The page asks again as soon as it shows, after Chrome slowed a background tab's timers.
+    document.dispatchEvent(new Event("visibilitychange"));
+    await vi.waitFor(() => expect(client.keepAlive).toHaveBeenCalledTimes(shown + 3));
+    // A flow the worker no longer holds before its 5 minutes, as after Chrome restarted the
+    // worker, ends the challenge and says so where the password goes.
     client.keepAlive.mockResolvedValueOnce({ ok: false, error: { code: "setup-expired" } });
     vi.advanceTimersByTime(20_000);
     await expect.element(page.getByText(expiredText)).toBeVisible();
     await expect
       .element(page.getByLabelText("Verification code", { exact: true }))
       .not.toBeInTheDocument();
+    expect(endedLine()).toMatch(
+      /^The sign-in ended at .+, before its 5 minutes, because Pateat's background stopped\. Enter the master password to start again\.$/u,
+    );
     // React runs the effect's cleanup after the next paint.
     await painted();
     vi.advanceTimersByTime(60_000);
-    expect(client.keepAlive).toHaveBeenCalledTimes(shown + 3);
+    document.dispatchEvent(new Event("visibilitychange"));
+    await painted();
+    expect(client.keepAlive).toHaveBeenCalledTimes(shown + 4);
   });
+});
+
+test("the code screen names its end, and the page asks as it comes", async () => {
+  const client = mockClient();
+  // The end is a real timer, so it is set close: the page asks once it passes.
+  const soon = Date.now() + 1_500;
+  client.begin.mockResolvedValueOnce({
+    ok: true,
+    kind: "mfa-required",
+    flowId,
+    providers: [0],
+    expiresAt: soon,
+  });
+  client.keepAlive.mockImplementation(async (id) =>
+    Date.now() < soon
+      ? { ok: true, kind: "waiting", flowId: id }
+      : { ok: false, error: { code: "setup-expired" } },
+  );
+  await mount(client);
+  await fillNew();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  await expect
+    .element(page.getByText(`Enter the code by ${localClockTime(soon)}.`, { exact: false }))
+    .toBeVisible();
+  await expect.element(page.getByText("The sign-in timed out waiting for the code.")).toBeVisible();
+  await expect
+    .element(page.getByLabelText("Verification code", { exact: true }))
+    .not.toBeInTheDocument();
+  expect(endedLine()).toBe(
+    `The sign-in timed out at ${localClockTime(soon)}: no code was entered within 5 minutes. Enter the master password to start again.`,
+  );
+  // The reason is read with the password field it is next to.
+  expect(document.querySelector("#bitwarden-password")?.getAttribute("aria-describedby")).toBe(
+    "bitwarden-sign-in-ended",
+  );
+  // Starting again clears it.
+  await page.getByLabelText("Master password", { exact: true }).fill("synthetic-password");
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  await vi.waitFor(() => expect(client.begin).toHaveBeenCalledTimes(2));
+  await vi.waitFor(() => expect(endedLine()).toBeNull());
+});
+
+test("a refused code keeps the code screen, its method and its sent email", async () => {
+  const client = mockClient();
+  const challenge = {
+    ok: true as const,
+    kind: "mfa-required" as const,
+    flowId,
+    providers: [0, 1] as (0 | 1)[],
+    expiresAt,
+  };
+  client.begin.mockResolvedValue(challenge);
+  client.continue
+    .mockResolvedValueOnce({ ...challenge, invalidCode: true })
+    .mockResolvedValueOnce(ready());
+  await mount(client);
+  await fillNew();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  await page.getByRole("combobox", { name: "Verification method", exact: true }).selectOptions("1");
+  await vi.waitFor(() => expect(client.sendEmailCode).toHaveBeenCalledTimes(1));
+  await page.getByLabelText("Verification code", { exact: true }).fill("000111");
+  await page.getByRole("button", { name: "Verify code", exact: true }).click();
+  await expect
+    .element(
+      page.getByText(
+        "The code was not accepted: it is wrong or no longer valid. Enter the code from the latest email, or Resend code.",
+      ),
+    )
+    .toBeVisible();
+  await expect.element(page.getByText("The code was not accepted. Enter it again.")).toBeVisible();
+  await expect
+    .element(page.getByRole("combobox", { name: "Verification method", exact: true }))
+    .toHaveValue("1");
+  // No second email without Resend code, and the code field is empty and focused for the next.
+  await painted();
+  expect(client.sendEmailCode).toHaveBeenCalledTimes(1);
+  await expect.element(page.getByLabelText("Verification code", { exact: true })).toHaveValue("");
+  await expect.element(page.getByLabelText("Verification code", { exact: true })).toHaveFocus();
+  expect(endedLine()).toBeNull();
+  await page.getByLabelText("Verification code", { exact: true }).fill("000123");
+  await page.getByRole("button", { name: "Verify code", exact: true }).click();
+  await expect
+    .element(
+      page.getByText(
+        "Vault verified and local cache accepted. Check automatic-unlock status below.",
+      ),
+    )
+    .toBeVisible();
+  expect(client.continue).toHaveBeenLastCalledWith({
+    flowId,
+    twoFactor: { provider: 1, code: "000123" },
+  });
+});
+
+test("a code entered after the end says the sign-in timed out", async () => {
+  const client = mockClient();
+  const past = Date.now() - 1;
+  client.begin.mockResolvedValue({
+    ok: true,
+    kind: "new-device-verification-required",
+    flowId,
+    invalidOtp: false,
+    expiresAt: past,
+  });
+  // The heartbeat cannot tell first: the worker is busy.
+  client.keepAlive.mockResolvedValue({ ok: false, error: { code: "resource-limit" } });
+  client.continue.mockResolvedValue({ ok: false, error: { code: "setup-expired" } });
+  await mount(client);
+  await fillNew();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  await page.getByLabelText("New-device verification code", { exact: true }).fill("000123");
+  await page.getByRole("button", { name: "Verify code", exact: true }).click();
+  await expect.element(page.getByText("The sign-in timed out waiting for the code.")).toBeVisible();
+  expect(endedLine()).toBe(
+    `The sign-in timed out at ${localClockTime(past)}: no code was entered within 5 minutes. Enter the master password to start again.`,
+  );
 });
 
 test.each([
@@ -390,7 +549,13 @@ test.each([
   async (_, providers, resend) => {
     await withFakeInterval(async () => {
       const client = mockClient();
-      client.begin.mockResolvedValue({ ok: true, kind: "mfa-required", flowId, providers });
+      client.begin.mockResolvedValue({
+        ok: true,
+        kind: "mfa-required",
+        flowId,
+        providers,
+        expiresAt,
+      });
       await mount(client);
       await fillNew();
       await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
@@ -421,7 +586,13 @@ test.each([
 test("an ended flow answered while Verify code runs leaves that request to answer", async () => {
   await withFakeInterval(async () => {
     const client = mockClient();
-    client.begin.mockResolvedValue({ ok: true, kind: "mfa-required", flowId, providers: [0] });
+    client.begin.mockResolvedValue({
+      ok: true,
+      kind: "mfa-required",
+      flowId,
+      providers: [0],
+      expiresAt,
+    });
     const pending = held<SetupReply>();
     client.continue.mockReturnValue(pending.promise);
     await mount(client);
@@ -454,7 +625,13 @@ test("an ended first sign-in switches the form to finishing its connection", asy
     client.list
       .mockResolvedValueOnce(status())
       .mockResolvedValue({ ...status(), connections: [registered] });
-    client.begin.mockResolvedValue({ ok: true, kind: "mfa-required", flowId, providers: [0] });
+    client.begin.mockResolvedValue({
+      ok: true,
+      kind: "mfa-required",
+      flowId,
+      providers: [0],
+      expiresAt,
+    });
     await mount(client);
     await fillNew();
     await page.getByLabelText("Email", { exact: true }).fill("Test@Example.test");
@@ -478,6 +655,7 @@ test("new-device verification is a distinct manual continuation and clears its c
     kind: "new-device-verification-required",
     flowId,
     invalidOtp: false,
+    expiresAt,
   });
   const pending = held<SetupReply>();
   client.continue.mockReturnValue(pending.promise);
@@ -665,7 +843,13 @@ test.each(["storage-uncertain", "setup-unavailable"] as const)(
 
 test("a challenge while adding a connection reloads a clean draft to the revision the new policy entry wrote", async () => {
   const connection = mockClient();
-  connection.begin.mockResolvedValue({ ok: true, kind: "mfa-required", flowId, providers: [0] });
+  connection.begin.mockResolvedValue({
+    ok: true,
+    kind: "mfa-required",
+    flowId,
+    providers: [0],
+    expiresAt,
+  });
   function saved(revision: number): Extract<SettingsResponse, { ok: true }> {
     return {
       version: 1,
@@ -1195,7 +1379,13 @@ test("cancelling a first sign-in's verification lists its connection", async () 
   client.list
     .mockResolvedValueOnce(status())
     .mockResolvedValue({ ...status(), connections: [registered] });
-  client.begin.mockResolvedValue({ ok: true, kind: "mfa-required", flowId, providers: [0] });
+  client.begin.mockResolvedValue({
+    ok: true,
+    kind: "mfa-required",
+    flowId,
+    providers: [0],
+    expiresAt,
+  });
   const { changed } = await mount(client);
   await fillNew();
   await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
@@ -1283,7 +1473,13 @@ test("a code rejected after a challenge switches the form to finishing its conne
   client.list
     .mockResolvedValueOnce(status())
     .mockResolvedValue({ ...status(), connections: [registered] });
-  client.begin.mockResolvedValue({ ok: true, kind: "mfa-required", flowId, providers: [0] });
+  client.begin.mockResolvedValue({
+    ok: true,
+    kind: "mfa-required",
+    flowId,
+    providers: [0],
+    expiresAt,
+  });
   client.continue.mockResolvedValue({ ok: false, error: { code: "authentication-rejected" } });
   await mount(client);
   await fillNew();

@@ -351,6 +351,24 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
     if (!token.ok) return token;
     if (!alive(flow)) return error("cancelled");
     const outcome = token.data;
+    // As on the official two-step page, a refused code keeps the sign-in for another try.
+    if (
+      outcome.kind === "rejected" &&
+      outcome.reason === "mfa" &&
+      flow.manual.twoFactor &&
+      flow.providers
+    ) {
+      const { twoFactor: _refused, ...manual } = flow.manual;
+      flow.manual = manual;
+      return {
+        ok: true,
+        kind: "mfa-required",
+        flowId: flow.id,
+        providers: flow.providers,
+        expiresAt: flow.expiresAt,
+        invalidCode: true,
+      };
+    }
     if (outcome.kind === "mfa-required") {
       if (!outcome.supportedProviders.length)
         return { ok: true, kind: "interaction-required", reason: "unsupported-challenge" };
@@ -360,11 +378,18 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
         kind: "mfa-required",
         flowId: flow.id,
         providers: outcome.supportedProviders,
+        expiresAt: flow.expiresAt,
       };
     }
     if (outcome.kind === "new-device-verification-required") {
       flow.newDevice = true;
-      return { ok: true, kind: outcome.kind, flowId: flow.id, invalidOtp: outcome.invalidOtp };
+      return {
+        ok: true,
+        kind: outcome.kind,
+        flowId: flow.id,
+        invalidOtp: outcome.invalidOtp,
+        expiresAt: flow.expiresAt,
+      };
     }
     if (outcome.kind === "interaction-required")
       return { ok: true, kind: outcome.kind, reason: outcome.reason };
