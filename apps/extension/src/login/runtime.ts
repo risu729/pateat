@@ -4496,9 +4496,16 @@ export function createLoginRuntime(
         inFlight &&
         (run.heldClick === run.metadata.stepIndex || routeClick)
       ) {
-        const clicked = await observe(run, stepTargets(inFlight.step));
+        // A button the page only hid counts as gone, as an app that moved on in the same
+        // document and kept its old view there hidden.
+        const clickTargets = stepTargets(inFlight.step);
+        const clicked = await observe(
+          run,
+          clickTargets,
+          clickTargets.map(() => "shown" as const),
+        );
         if (!clicked) return undefined;
-        if (clicked.targets.some((state) => state !== "missing")) {
+        if (clicked.targets.some((state) => state !== "missing" && state !== "unusable")) {
           if (run.heldClick === run.metadata.stepIndex) return "held";
           if (clicked.path === inFlight.step.path) {
             await change(run, {
@@ -5176,7 +5183,7 @@ export function createLoginRuntime(
     const observed = await observe(
       run,
       [click.target, ...proof.targets, ...(rejection ? [rejection] : [])],
-      ["present", ...proof.shown, ...(rejection ? ["present" as const] : [])],
+      ["shown", ...proof.shown, ...(rejection ? ["present" as const] : [])],
       proof.links.length > 0
         ? { links: [false, ...proof.links], hidden: [false, ...proof.hidden] }
         : {},

@@ -491,17 +491,18 @@ new owner decision:
   binding is stored or synced for the route.
 - **Held click.** The hold for a handler's click also covers the `passkey` route's
   click: while the button still shows in the document that clicked it, whatever path a
-  same-document URL change (`pushState`) has moved that document to, the page is
-  neither judged nor settled for up to two minutes, then the login ends `challenge`.
-  This applies to a handler's click too. A new document of the tab that shows the
-  button again on its path, as after a reload back to the start page, ends `challenge`
-  at once; the button is never clicked again or judged. A click left to the person
-  because a CAPTCHA shows is held the same way while its button shows in that document
-  ([ADR 0029](0029-local-sign-in-state.md), S4); a new document, or the same one after a
-  worker restart, is read as after Pateat's own click.
-  The hold lives in the service worker's memory, so a worker restart during the hold
-  treats the same document as a new one and ends `challenge`; a click whose delivery
-  failed while the button still shows also ends `challenge`. Both fail closed.
+  same-document URL change (`pushState`) has moved that document to, the page is neither
+  judged nor settled for up to two minutes, then the login ends `challenge`. A button
+  the page only hid no longer shows, as in an app that moved on in the same document and
+  kept its old view there, hidden. This applies to a handler's click too. A new document
+  of the tab that shows the button again on its path, as after a reload back to the
+  start page, ends `challenge` at once; the button is never clicked again or judged. A
+  click left to the person because a CAPTCHA shows is held the same way while its button
+  shows in that document ([ADR 0029](0029-local-sign-in-state.md), S4); a new document,
+  or the same one after a worker restart, is read as after Pateat's own click. The hold
+  lives in the service worker's memory, so a worker restart during the hold treats the
+  same document as a new one and ends `challenge`; a click whose delivery failed while
+  the button still shows also ends `challenge`. Both fail closed.
 - **Settlement on the passkey route.** Every result on the route other than
   `authenticated` ends `challenge`: the rejection marker, a final `unknown`, a
   judgement of `rejected`, `unclear` or `challenge` without a handler, and a page that
@@ -727,7 +728,7 @@ new owner decision:
   renders again at the same locator, still shown, enabled and not busy, is not a sign,
   nor is a status message on its own, since ordinary pages count digits or confirm the
   format in live regions. It also does so when, before the click, the page has left the
-  path or shows the completion or the rejection without the button, and when a new
+  path or shows the completion or the rejection without the button shown, and when a new
   document of the tab resumes a login whose code fill went in, or may have, and whose
   click has not run. The button is clicked, once, only when it was enabled within half a
   second of the code going in, stayed enabled and idle since, and nothing else showed a
