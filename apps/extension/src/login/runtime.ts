@@ -4972,7 +4972,8 @@ export function createLoginRuntime(
     // button is also a route step's on this path, as in a form that asks for the code after
     // the password, needs every fill field of the route there gone: while one shows, the
     // page is still the sign-in page. A handler that already ran counts as shown again
-    // whenever its elements are there, hidden or disabled, so it never runs twice.
+    // whenever its elements are there, hidden or disabled, so it never runs twice; only in
+    // the document that holds its click is one the page hid gone instead.
     const routeFields = passwordVariants(run.recipe)
       .flatMap((variant) => variant.steps)
       .filter((step) => step.path === path)
@@ -5022,6 +5023,10 @@ export function createLoginRuntime(
           entry.step.kind === "fill" &&
           entry.step.fields.some((field) => field.slot === "password"),
       );
+    // The handler whose click this document performed and holds: its button the page only
+    // hid is gone, as for the hold, not shown again (ADR 0027).
+    const held =
+      run.heldClick === run.metadata.stepIndex ? plan[run.metadata.stepIndex]?.handler : undefined;
     const entries = (run.recipe.handlers ?? []).flatMap((handler, index) => {
       if (
         handler.path !== path ||
@@ -5047,7 +5052,7 @@ export function createLoginRuntime(
           targets: [...targets, ...(sameForm ? routeFields : [])],
           require: [
             ...(ran
-              ? targets.map(() => "present" as const)
+              ? targets.map(() => (index === held ? ("shown" as const) : ("present" as const)))
               : handler.kind === "totp"
                 ? (["writable", "shown"] as const)
                 : handler.kind === "password"
