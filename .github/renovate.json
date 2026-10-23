@@ -21,6 +21,11 @@
       "commitMessageAction": "Update"
     },
     {
+      "description": "ai and the @ai-sdk packages each pin one @ai-sdk/provider-utils; updated apart, the lockfile holds two copies whose Schema types differ and inference fails typecheck.",
+      "matchPackageNames": ["ai", "@ai-sdk/**"],
+      "groupName": "ai sdk"
+    },
+    {
       "description": "Review compiler upgrades alongside the shared preset's peer requirements.",
       "matchPackageNames": ["typescript", "npm:typescript", "@risu729/tsconfigs", "@types/**"],
       "groupName": "typescript"
