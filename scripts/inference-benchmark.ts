@@ -4,12 +4,17 @@
 import { parseArgs } from "node:util";
 import { runClaudeBenchmark, runHeuristicBenchmark } from "../packages/inference/src/bench";
 import { evaluationCorpus } from "../packages/inference/src/corpus/cases";
-import { japanesePageCorpus, realPageCorpus } from "../packages/inference/src/corpus/real";
+import {
+  japanesePageCorpus,
+  realPageCorpus,
+  webPageCorpus,
+} from "../packages/inference/src/corpus/real";
 
 const corpora = {
   synthetic: evaluationCorpus,
   real: realPageCorpus,
   japanese: japanesePageCorpus,
+  web: webPageCorpus,
 };
 
 const { values } = parseArgs({
