@@ -15623,11 +15623,12 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       read: Record<string, string> = birthValue,
       chosen = detailed,
       overrides: Partial<LocalSettings> = {},
+      live: Parameters<typeof harness>[1] = {},
     ) {
       const report = vi.fn<(report: LoginReport) => void>();
       const h = harness(
         { detailLinks: links, ...overrides },
-        { passkeys: noPasskey, report, extraItems },
+        { passkeys: noPasskey, report, extraItems, ...live },
       );
       values(h, read);
       h.recipes.recipe.mockResolvedValue(chosen);
@@ -15840,6 +15841,92 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         );
         expect(detailFills()).toEqual([]);
         expect(handlerReports(report)).toEqual([[0, "detail", "detail-unlinked", 2]]);
+      }, 10_000);
+
+      it("waits for a totp handler shown with it, which goes first", async () => {
+        const codeHandler = {
+          kind: "totp" as const,
+          path: "/signin",
+          field: target("app-code"),
+          target: target("verify"),
+        };
+        // The recipe lists the detail first; the code still goes first.
+        const both = parseLoginRecipe({ ...detailed, handlers: [detailHandler, codeHandler] });
+        onClick({
+          login: { path: "/signin", present: [...toConfirm.present, "app-code", "verify"] },
+          verify: toHome,
+          confirm: toHome,
+        });
+        const { h, report } = start([birthLink], { ...birthValue, "login.totp-code": "012345" }, both);
+        editFields(h, (fields) => [
+          ...fields,
+          { id: "login.totp-code", label: "Verification code", name: null, kind: "otp" },
+        ]);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+          timeout: 6_000,
+        });
+        expect(handlerReports(report)).toEqual([[1, "totp", "entered", 2]]);
+        expect(clicks("verify")).toBe(1);
+        expect(clicks("confirm")).toBe(0);
+        expect(detailFills()).toEqual([]);
+        expect(reads(h).map(([, fieldId]) => fieldId)).not.toContain(birthField);
+      }, 10_000);
+    });
+
+    describe("no usable link", () => {
+      const offersKey = "pateat.login-detail-offers.v1";
+
+      it("stops at the handler and keeps it for the popup, reading no detail", async () => {
+        onClick({ login: toConfirm, confirm: toHome });
+        const { h, report } = start([]);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() =>
+          expect(status()).toMatchObject([{ state: "watching", outcome: "challenge" }]),
+        );
+        expect(detailFills()).toEqual([]);
+        expect(clicks("confirm")).toBe(0);
+        expect(reads(h)).toEqual([[itemId, "login.password"]]);
+        expect(handlerReports(report)).toEqual([[0, "detail", "detail-unlinked", 2]]);
+        // The offer names the login's document, its login item and the handler's inputs,
+        // never a value or an item name.
+        await vi.waitFor(() =>
+          expect(fake.state.session[offersKey]).toEqual([
+            {
+              document: expect.objectContaining({ tabId: 1, documentId: "synthetic-document" }),
+              path: "/signin",
+              attemptId: status()![0]!["id"],
+              handler: 0,
+              account: { connectionId, itemId, origin },
+              fields: detailHandler.fields,
+              target: target("confirm"),
+            },
+          ]),
+        );
+        expect(JSON.stringify(fake.state.session)).not.toContain("Extra synthetic item");
+        expect(h.store.update).not.toHaveBeenCalled();
+      }, 10_000);
+
+      it("stops for the popup when the only linked input is not writable", async () => {
+        onClick({ login: toConfirm, confirm: toHome });
+        // The birth input is linked but disabled; the phone input is not linked.
+        fake.state.unusable = new Set(["birth"]);
+        const { h, report } = start([birthLink]);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() =>
+          expect(status()).toMatchObject([{ state: "watching", outcome: "challenge" }]),
+        );
+        expect(detailFills()).toEqual([]);
+        expect(clicks("confirm")).toBe(0);
+        expect(reads(h)).toEqual([[itemId, "login.password"]]);
+        expect(handlerReports(report)).toEqual([[0, "detail", "detail-unlinked", 2]]);
+        await vi.waitFor(() =>
+          expect(fake.state.session[offersKey]).toEqual([
+            expect.objectContaining({ handler: 0, fields: detailHandler.fields }),
+          ]),
+        );
+        // The saved link stays the owner's.
+        expect(savedLinks(h)).toEqual([birthLink]);
       }, 10_000);
     });
 
@@ -16152,6 +16239,101 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         await signedIn(h);
         expect(status()).toMatchObject([{ state: "authenticated" }]);
         expect(savedLinks(h)).toEqual([]);
+        expect(h.store.update).not.toHaveBeenCalled();
+      });
+
+      it("drops the kept link when the watched login is rejected", async () => {
+        vi.useFakeTimers();
+        onClick({ login: toConfirm, confirm: toHome });
+        // The page after the person's submission says the value was wrong.
+        const service = generation(async (_recipe, _revision, _route, observation) => ({
+          verdict: observation.path === "/next" ? "rejected" : "unclear",
+        }));
+        const { h, report } = start([], birthValue, detailed, {}, { generation: service });
+        expect(await h.hello()).toEqual({ ok: true });
+        await until(settled("watching", "challenge"), 10_000);
+        expect(await fill(h, "synthetic-document")).toEqual({ ok: true });
+        expect(fake.state.session[pendingKey]).toHaveLength(1);
+        fake.state.pageUrl = `${origin}/next`;
+        fake.state.observedPath = "/next";
+        fake.state.present = new Set();
+        fake.state.signs = { password: false, code: false, captcha: false, invalid: false, alert: false };
+        fake.state.extracted = {
+          "signed-in": {
+            ok: true,
+            observation: {
+              version: 1,
+              origin,
+              path: "/next",
+              language: "en",
+              complete: true,
+              candidates: [{ id: "c1", role: "link", target: target("help"), label: "Help" }],
+            },
+          },
+        };
+        await h.hello({ documentId: "document-next" }, false);
+        await until(settled("blocked", "credential-rejected"), 60_000);
+        expect(fake.state.session[pendingKey]).toEqual([]);
+        expect(savedLinks(h)).toEqual([]);
+        expect(h.store.update).not.toHaveBeenCalled();
+        // No link was saved, so none is forgotten either.
+        expect(handlerReports(report)).toEqual([[0, "detail", "detail-unlinked", 2]]);
+        expect(await ask(h)).toMatchObject({ links: [] });
+      });
+
+      it("proposes nothing more once the person typed the value and the login was confirmed", async () => {
+        const { h, report } = await stopped();
+        await signedIn(h);
+        expect(status()).toMatchObject([{ state: "authenticated", outcome: "authenticated" }]);
+        expect(await ask(h)).toEqual({ ok: true, origin, links: [] });
+        expect(await fill(h, "synthetic-document")).toEqual({
+          ok: false,
+          reason: "document-gone",
+        });
+        expect(savedLinks(h)).toEqual([]);
+        expect(popupFills()).toEqual([]);
+        expect(handlerReports(report)).toEqual([[0, "detail", "detail-unlinked", 2]]);
+      });
+
+      it("lifts a refused link that the person fills again, once the login is confirmed", async () => {
+        vi.useFakeTimers();
+        onClick({ login: toConfirm, confirm: toConfirm });
+        const { h, report } = start([birthLink]);
+        // The settings refuse the refused link's removal.
+        const write = h.store.update.getMockImplementation()!;
+        h.store.update.mockRejectedValue(new Error("synthetic storage failure"));
+        expect(await h.hello()).toEqual({ ok: true });
+        await until(() => clicks("confirm") === 1);
+        await h.hello({ documentId: "again" }, false);
+        await until(settled("watching", "challenge"), 5_000);
+        expect(fake.state.session[refusedKey]).toEqual([birthRefusal]);
+        // The person signs out and the page asks again; the refused link is not used.
+        for (const listener of fake.state.removed.splice(0)) listener(1);
+        await vi.advanceTimersByTimeAsync(1_000);
+        fake.state.present = new Set(["password", "login"]);
+        expect(await h.hello({ documentId: "later" })).toEqual({ ok: true });
+        await until(() => handlerReports(report).length === 4, 10_000);
+        expect(handlerReports(report).at(-1)).toEqual([0, "detail", "detail-unlinked", 2]);
+        // The person picks the same field in the popup, and the login is confirmed.
+        h.store.update.mockImplementation(write);
+        expect(await fill(h, "later")).toEqual({ ok: true });
+        await signedIn(h);
+        await vi.waitFor(() =>
+          expect(handlerReports(report).at(-1)).toEqual([0, "detail", "detail-saved", 2]),
+        );
+        expect(savedLinks(h)).toEqual([birthLink]);
+      });
+
+      it("has nothing to show for a tab without a web page or a login", async () => {
+        const { h } = start([birthLink]);
+        fake.state.tabUrls[1] = "chrome://newtab/";
+        expect(await ask(h)).toEqual({ ok: false, reason: "no-page" });
+        expect(await remove(h)).toEqual({ ok: false, reason: "no-link" });
+        delete fake.state.tabUrls[1];
+        // No login ran in the tab, so it has no login item whose links to list.
+        expect(await ask(h)).toEqual({ ok: true, origin, links: [] });
+        expect(await remove(h)).toEqual({ ok: false, reason: "no-link" });
+        expect(savedLinks(h)).toEqual([birthLink]);
         expect(h.store.update).not.toHaveBeenCalled();
       });
 
