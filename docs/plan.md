@@ -1989,30 +1989,33 @@ The fourth slice syncs recipes into a last-known-good cache that the login execu
 reads. The background pulls `GET /v1/recipes` pages from the stored cursor with the
 paired device's credential, applies active and revoked changes, and writes the cursor
 and recipes together, so a failed page or write leaves the previous consistent copy. It
-reads at most 50 pages per sync, plus one blocked-page retry after an overflow walk,
-and refuses a page that moves the cursor backwards or
-does not advance it. The cache belongs to one paired device: a new pairing starts from
-an empty cache, nothing is served while no device is paired or the pairing cannot be
-read, and disconnecting or forgetting an unreadable pairing clears it. Sync runs right
-after pairing completes, also when another device's sync is still running, and in the
-background when the worker starts, a lookup arrives or the settings page is open and the
-last attempt is more than five minutes old. The attempt time is stored, so a worker
-restart does not sync again sooner, and a 429 postpones background syncs, but not the
-one after pairing, for 15 minutes. A lookup does not wait for the network or for pairing
-and disconnect requests. The serialized cache is limited to 2 MiB of the extension's 10
-MB `storage.local` quota, which it shares with settings, login attempts and other
-extension state (the vault cache is in IndexedDB); a page that would exceed it is not
-fully applied. Sync walks later current heads within the shared 50-page budget,
-saving revocations and newer non-growing updates to already cached recipes with
-the old applied cursor. A separate device-bound checkpoint resumes lookahead
-across syncs and worker restarts, including freeing changes beyond the first
-50 pages, without adding bytes to the capped recipe cache. Safe cache writes
-precede checkpoint advancement. One additional fresh request retries the
-blocked page from the applied cursor; pending active changes wait until their
-entire page fits. The settled current-head feed can therefore recover when its
-active documents fit the service cap, while storage and transport failures
-retain earlier durable reductions. Disconnect clearing waits for pending
-writes and removes both records
+reads at most 50 pages per sync, plus one blocked-page retry after an overflow walk, and
+refuses a page that moves the cursor backwards or does not advance it. The cache belongs
+to one paired device: a new pairing starts from an empty cache, nothing is served while
+no device is paired or the pairing cannot be read, and disconnecting or forgetting an
+unreadable pairing clears it. Sync runs right after pairing completes, also when another
+device's sync is still running, and in the background when the worker starts, a lookup
+arrives (each page Pateat runs on looks up its recipe) or the settings page loads, and
+the last attempt is more than five minutes old; the open settings page asks again every
+10 seconds only until the first sync finishes or the device is rejected or its cache is
+full. Saving settings or an account choice
+syncs at once, whatever the schedule. The attempt time is stored, so a worker restart
+does not sync again sooner, and a 429, also an edge rate-limit page that is not JSON,
+postpones background syncs, but not the one after pairing, for 15 minutes. A clock set
+back before the last attempt makes a sync due at once, also within one worker. A lookup
+does not wait for the network or for pairing and disconnect requests. The serialized
+cache is limited to 2 MiB of the extension's 10 MB `storage.local` quota, which it
+shares with settings, login attempts and other extension state (the vault cache is in
+IndexedDB); a page that would exceed it is not fully applied. Sync walks later current
+heads within the shared 50-page budget, saving revocations and newer non-growing updates
+to already cached recipes with the old applied cursor. A separate device-bound
+checkpoint resumes lookahead across syncs and worker restarts, including freeing changes
+beyond the first 50 pages, without adding bytes to the capped recipe cache. Safe cache
+writes precede checkpoint advancement. One additional fresh request retries the blocked
+page from the applied cursor; pending active changes wait until their entire page fits.
+The settled current-head feed can therefore recover when its active documents fit the
+service cap, while storage and transport failures retain earlier durable reductions.
+Disconnect clearing waits for pending writes and removes both records
 ([ADR 0013 amendment](adr/0013-service-held-recipes-and-settings.md#amendment-durable-recovery-under-cache-pressure-2026-10-14)).
 How many recipes the cache holds and the implemented service cap are under
 [service limits](architecture.md#service-limits). A 401 marks the device as
