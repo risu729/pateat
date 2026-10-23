@@ -262,12 +262,35 @@ export default defineBackground(() => {
     deviceRecipes: {
       count: () => deviceRecipes.count(),
       // Called only after the recipe sync below exists.
+      // The record of the limits of recipes made here describes the recipes replaced.
       keepSynced: async () => {
         const synced = await recipeSync.synced();
         if (synced?.length) await deviceRecipes.keep(synced);
+        await deviceGenerationBackend.forget();
       },
-      clear: () => deviceRecipes.clear(),
+      clear: async () => {
+        await deviceRecipes.clear();
+        await deviceGenerationBackend.forget();
+      },
     },
+  });
+  // ADR 0040: with this device's own key saved, the device makes the model calls itself.
+  const deviceModel = createDeviceModel({
+    storage: trustedRecord(DEVICE_MODEL_KEY),
+    spend: trustedRecord(DEVICE_MODEL_SPEND_KEY),
+  });
+  // ADR 0040: without a pairing, the same routes run here with the key and kept recipes.
+  const deviceGenerationBackend = createDeviceGenerationBackend({
+    recipes: deviceRecipes,
+    storage: trustedRecord(DEVICE_GENERATION_KEY),
+    key: deviceModel.direct,
+    bindings: async () => (await settings.read()).settings.bindings,
+    // A pairing that cannot be read counts as one, so no write is lost to an upload.
+    paired: () =>
+      service.connection().then(
+        (connection) => connection !== undefined,
+        () => true,
+      ),
   });
   const settingsBaseStorage = createBrowserSettingsBaseStorage();
   const settingsHoldStorage = createBrowserSettingsHoldStorage();
@@ -319,22 +342,11 @@ export default defineBackground(() => {
     service,
     transport: serviceTransport,
     report: diagnosticsLog.recipeUse,
-  });
-  // ADR 0040: with this device's own key saved, the device makes the model calls itself.
-  const deviceModel = createDeviceModel({
-    storage: trustedRecord(DEVICE_MODEL_KEY),
-    spend: trustedRecord(DEVICE_MODEL_SPEND_KEY),
+    // ADR 0060: unpaired, the layout a login starts on is marked used here.
+    local: (recipeId, layout) => deviceGenerationBackend.markLayoutUsed(recipeId, layout),
   });
   const modelRequests = deviceModel.wrap(serviceTransport);
-  // ADR 0040: without a pairing, the same routes run here with the key and kept recipes.
-  const deviceGeneration = createDeviceGeneration(
-    createDeviceGenerationBackend({
-      recipes: deviceRecipes,
-      storage: trustedRecord(DEVICE_GENERATION_KEY),
-      key: deviceModel.direct,
-      bindings: async () => (await settings.read()).settings.bindings,
-    }),
-  );
+  const deviceGeneration = createDeviceGeneration(deviceGenerationBackend);
   const generationRequests = (origin: string) =>
     origin === DEVICE_GENERATION_ORIGIN ? deviceGeneration : modelRequests;
   const recipeCacheStorage = createBrowserRecipeCacheStorage();
@@ -435,9 +447,10 @@ export default defineBackground(() => {
           generationConnection(
             () => service.connection(),
             () =>
+              // A key that cannot be read makes no recipes, as none does.
               deviceModel.direct.setting().then(
                 (setting) => setting !== undefined,
-                () => true,
+                () => false,
               ),
           ),
       },

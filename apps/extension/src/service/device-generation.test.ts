@@ -63,8 +63,8 @@ const plan = JSON.stringify({
   },
 });
 
-/** A text answer, or an HTTP error status. */
-type Reply = string | number;
+/** A text answer, a refusal, or an HTTP error status. */
+type Reply = string | number | { refusal: string };
 
 function setup(
   options: {
@@ -72,6 +72,10 @@ function setup(
     spend?: DeviceModelSpend;
     replies?: Reply[];
     bindings?: SavedLoginBinding[];
+    paired?: boolean;
+    /** Runs while a model call is in flight, before its answer. */
+    during?: () => Promise<void>;
+    writeSpend?: () => Promise<void>;
   } = {},
 ) {
   const replies = [...(options.replies ?? [])];
@@ -87,6 +91,7 @@ function setup(
     });
     const reply = replies.shift();
     if (reply === undefined) throw new Error("No synthetic reply queued");
+    await options.during?.();
     if (typeof reply === "number")
       return Response.json(
         { type: "error", error: { type: "api_error", message: "synthetic" } },
@@ -97,8 +102,13 @@ function setup(
       type: "message",
       role: "assistant",
       model: body.model,
-      content: [{ type: "text", text: reply }],
-      stop_reason: "end_turn",
+      ...(typeof reply === "object"
+        ? {
+            content: [],
+            stop_reason: "refusal",
+            stop_details: { type: "refusal", category: reply.refusal, explanation: "synthetic" },
+          }
+        : { content: [{ type: "text", text: reply }], stop_reason: "end_turn" }),
       stop_sequence: null,
       usage: { input_tokens: 3_000, output_tokens: 300 },
     });
@@ -113,6 +123,7 @@ function setup(
     spend: {
       read: async () => spend,
       write: async (value) => {
+        await options.writeSpend?.();
         spend = value;
       },
     },
@@ -139,9 +150,13 @@ function setup(
       write: async (value) => {
         record = structuredClone(value);
       },
+      clear: async () => {
+        record = undefined;
+      },
     },
     key: model.direct,
     bindings: async () => options.bindings ?? [],
+    paired: async () => options.paired ?? false,
   });
   const generation = createDeviceGeneration(backend);
   return {
@@ -304,6 +319,115 @@ describe("generation on a device without a pairing (ADR 0040)", () => {
       {},
     );
     expect(written).toEqual({ ok: false, limited: false, current: change });
+  });
+});
+
+describe("the device's model calls (ADR 0040)", () => {
+  const recipeOf = async (generation: ReturnType<typeof setup>["generation"]) => {
+    const answer = await generation.generateRecipe(DEVICE_GENERATION_ORIGIN, "", request);
+    if (answer.kind !== "result" || answer.result.status !== "recipe") throw new Error("no recipe");
+    return answer.result.change;
+  };
+
+  it("asks Sonnet 5.5 after Opus 5.5 refuses, and records the attempt once", async () => {
+    const { generation, sent, record } = setup({ replies: [{ refusal: "cyber" }, plan] });
+    await recipeOf(generation);
+    expect(sent.map((call) => call.model)).toEqual(["claude-opus-5-5", "claude-sonnet-5-5"]);
+    expect((record() as { attempts: unknown[] }).attempts).toHaveLength(1);
+  });
+
+  it("answers busy while another request's call runs, and frees the lock after it", async () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let started!: () => void;
+    const inCall = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const { generation } = setup({
+      replies: [plan, plan],
+      during: async () => {
+        started();
+        await held;
+      },
+    });
+    const first = generation.generateRecipe(DEVICE_GENERATION_ORIGIN, "", request);
+    await inCall;
+    const other = { ...request, observation: { ...page, path: "/signin" } };
+    expect(await generation.generateRecipe(DEVICE_GENERATION_ORIGIN, "", other)).toMatchObject({
+      kind: "result",
+      result: { status: "unavailable", reason: "busy" },
+    });
+    release();
+    expect(await first).toMatchObject({ kind: "result", result: { status: "recipe" } });
+  });
+
+  it("keeps an answer Anthropic charged when its spend cannot be written", async () => {
+    const { generation } = setup({
+      replies: [plan],
+      writeSpend: async () => {
+        throw new Error("storage full");
+      },
+    });
+    await recipeOf(generation);
+  });
+
+  it("refuses a write that lands after a pairing", async () => {
+    const { backend, recipes } = setup({ paired: true });
+    const recipe = {
+      ...(await recipeOf(setup({ replies: [plan] }).generation)).recipe,
+    };
+    expect(
+      await backend.writeRecipe(
+        recipe.id,
+        { version: 1, state: "active", expectedRevision: 0, recipe },
+        {},
+      ),
+    ).toEqual({ ok: false, limited: false, current: null });
+    expect(await recipes.list()).toEqual([]);
+  });
+
+  it("forgets its judgements when the recipes they describe are replaced", async () => {
+    const { backend } = setup();
+    const key: JudgementKey = {
+      recipeId: "gen_synthetic",
+      branch: "1",
+      revision: 1,
+      origin: page.origin,
+      path: "/account",
+      promptVersion: "v2",
+    };
+    await backend.recordJudgement(key, 2_000, { expired: 1_000, versions: ["v2"] });
+    await backend.keepVerdict(key, "rejected");
+    await backend.forget();
+    expect(await backend.judgement(key)).toBeUndefined();
+  });
+
+  it("keeps the last use of a layout the recipe has, and drops it with the layout", async () => {
+    const { generation, backend } = setup({ replies: [plan] });
+    const change = await recipeOf(generation);
+    if (change.state !== "active" || !("layouts" in change.recipe)) throw new Error("no layouts");
+    const layout = change.recipe.layouts[0]!.key;
+    await backend.markLayoutUsed(change.recipeId, "999");
+    expect(await backend.layoutUses(change.recipeId)).toBeUndefined();
+    await backend.markLayoutUsed(change.recipeId, layout);
+    expect([...((await backend.layoutUses(change.recipeId)) ?? new Map()).keys()]).toEqual([
+      layout,
+    ]);
+    // A write whose recipe no longer has the layout drops its use.
+    const without = {
+      ...change.recipe,
+      revision: 2,
+      layouts: change.recipe.layouts.map((entry) => ({ ...entry, key: "1" })),
+    };
+    const written = await backend.writeRecipe(
+      change.recipeId,
+      { version: 1, state: "active", expectedRevision: 1, recipe: without as typeof change.recipe },
+      {},
+    );
+    expect(written.ok).toBe(true);
+    expect(await backend.layoutUses(change.recipeId)).toBeUndefined();
   });
 });
 

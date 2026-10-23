@@ -2,6 +2,7 @@ import {
   DEFAULT_MODEL_CONFIG,
   DEVICE_MODEL_URL,
   MAX_ACTIVE_RECIPE_BYTES,
+  MAX_ACTIVE_RECIPES,
   deviceModelCallBody,
   deviceModelHeaderNames,
   entryGenerationRequestSchema,
@@ -35,7 +36,7 @@ import {
 } from "@pateat/inference";
 import * as v from "valibot";
 import type { createDeviceModel } from "./device-model";
-import { MAX_DEVICE_ACTIVE_RECIPES, type createDeviceRecipes } from "./device-recipes";
+import type { createDeviceRecipes } from "./device-recipes";
 import type { ServiceConnection } from "./runtime";
 import type { InferenceResult, ServiceTransport } from "./transport";
 
@@ -98,6 +99,7 @@ type DeviceGenerationRecord = v.InferOutput<typeof recordSchema>;
 export interface DeviceGenerationStorage {
   read(): Promise<unknown>;
   write(record: DeviceGenerationRecord): Promise<void>;
+  clear(): Promise<void>;
 }
 
 const empty = (): DeviceGenerationRecord => ({
@@ -139,21 +141,27 @@ type DeviceKey = ReturnType<typeof createDeviceModel>["direct"];
 /**
  * The generation routes' backend on this device (ADR 0040): its recipes, its own record of
  * the routes' limits, the bindings of its settings, and its key's calls with the default
- * models. Nothing is logged.
+ * models. Nothing is logged. `forget` drops the record, for when the recipes it describes
+ * are replaced or deleted: a recipe made here again starts at revision 1, and must not meet
+ * the old revision's judgements.
  */
 export function createDeviceGenerationBackend(options: {
   recipes: DeviceRecipes;
   storage: DeviceGenerationStorage;
   key: DeviceKey;
   bindings: () => Promise<readonly SavedLoginBinding[]>;
+  /** Whether a service is paired now: a write that lands after a pairing is refused. */
+  paired: () => Promise<boolean>;
   now?: () => number;
-}): GenerationBackend {
+}): GenerationBackend & { forget(): Promise<void> } {
   const { recipes, storage, key } = options;
   const now = options.now ?? Date.now;
   // One change at a time, so two pages' requests both keep theirs.
   let queue: Promise<unknown> = Promise.resolve();
-  // One request's model calls at a time, as the service's lock per owner.
+  // One request's model calls at a time, as the service's lock per owner, until every call
+  // it sent has ended.
   let calling = false;
+  const inFlight = new Set<Promise<unknown>>();
 
   /** The record; one that does not parse counts as empty, as no older format is kept. */
   async function read(): Promise<DeviceGenerationRecord> {
@@ -190,29 +198,38 @@ export function createDeviceGenerationBackend(options: {
       const start = now();
       const blocked = await call.gate?.(start);
       if (blocked) return { status: "unavailable", reason: blocked };
-      const setting = await key.setting();
+      const setting = await key.setting().catch(() => undefined);
       if (!setting) return { status: "unavailable", reason: "credentials-not-configured" };
       // The written record before the first request is sent, once (ADR 0016, ADR 0027).
       let reserved: Promise<void> | undefined;
-      const beforeRequest = () => (reserved ??= call.beforeSend?.(now()) ?? Promise.resolve());
+      const reserve = () => (reserved ??= call.beforeSend?.(now()) ?? Promise.resolve());
       let timedOut = false;
       // Anthropic's fixed URL only, with the key added by `send`; the request the role built
-      // is checked as a service's would be.
+      // is checked as the paired relay checks a service's, and the checked body is sent.
       const direct: typeof globalThis.fetch = async (input, init) => {
         const outbound = new Request(input, init);
         if (outbound.url !== DEVICE_MODEL_URL || outbound.method !== "POST")
           throw new TypeError("Unexpected model request");
-        const body = await outbound.text();
         const headers: DeviceModelCall["call"]["headers"] = {};
         for (const name of deviceModelHeaderNames) {
           const value = outbound.headers.get(name);
           if (value !== null) headers[name] = value;
         }
-        const sent = { index: 0, headers, body };
-        if (!deviceModelCallBody(sent)) throw new TypeError("Unexpected model request");
-        const { response, cost } = await key.send(setting.apiKey, sent, body);
-        await key.charge(cost);
-        return answer(response);
+        const sent = { index: 0, headers, body: await outbound.text() };
+        const checked = deviceModelCallBody(sent);
+        if (!checked) throw new TypeError("Unexpected model request");
+        await reserve();
+        const sending = key.send(setting.apiKey, sent, checked, outbound.signal);
+        inFlight.add(sending);
+        try {
+          const { response, cost } = await sending;
+          // An answer Anthropic charged is kept even when its spend cannot be written; the
+          // count keeps it in memory until it can.
+          await key.charge(cost).catch(() => undefined);
+          return answer(response);
+        } finally {
+          inFlight.delete(sending);
+        }
       };
       const answer = (response: DeviceModelResponse) => {
         if (response.kind === "timeout") timedOut = true;
@@ -241,12 +258,7 @@ export function createDeviceGenerationBackend(options: {
           // oxlint-disable-next-line no-await-in-loop
           outcome = await call.invoke(
             // The key goes with `send` only; the provider's own header is dropped.
-            createClaudeGenerationModel({
-              apiKey: "device",
-              choice: attempt,
-              fetch: direct,
-              beforeRequest,
-            }),
+            createClaudeGenerationModel({ apiKey: "device", choice: attempt, fetch: direct }),
           );
         } catch {
           outcome = { status: "failed", error: "provider-error", calls: 1, usage: unknownUsage };
@@ -267,6 +279,8 @@ export function createDeviceGenerationBackend(options: {
       }
       return last ?? { status: "unavailable", reason: "credentials-not-configured" };
     } finally {
+      // A call the role stopped waiting for is cancelled; the next request waits for it.
+      await Promise.allSettled(inFlight);
       calling = false;
     }
   }
@@ -283,7 +297,7 @@ export function createDeviceGenerationBackend(options: {
       const recipe = await recipes.head(recipeId);
       return recipe?.revision === revision ? activeChange(recipe) : null;
     },
-    hasRecipeRoom: async () => (await recipes.usage()).count < MAX_DEVICE_ACTIVE_RECIPES,
+    hasRecipeRoom: async () => (await recipes.usage()).count < MAX_ACTIVE_RECIPES,
     hasRecipeByteRoom: async (bytes) =>
       (await recipes.usage()).bytes + bytes <= MAX_ACTIVE_RECIPE_BYTES,
     async bindingSlots(origin, recipeId) {
@@ -310,7 +324,7 @@ export function createDeviceGenerationBackend(options: {
       }));
     },
     async writeRecipe(recipeId, write) {
-      const written = await recipes.write(recipeId, write);
+      const written = await recipes.write(recipeId, write, async () => !(await options.paired()));
       if (!written.ok)
         return written.limited
           ? written
@@ -414,6 +428,11 @@ export function createDeviceGenerationBackend(options: {
     },
 
     call: callModel,
+    forget() {
+      const next = queue.then(() => storage.clear());
+      queue = next.catch(() => undefined);
+      return next;
+    },
     // The request log is the service's; a device without a pairing keeps none (owner,
     // 2026-10-23).
     logUnsent: async () => {},

@@ -182,18 +182,30 @@ run the same checks, build the same model input and write the same recipes.
 - **Recipes**: read from and written to the device's own store
   (`pateat.device-recipes.v1`, [above](#recipes-a-device-keeps)), only over the revision
   a write expects. Only the head of each recipe is kept. The service's limits apply:
-  1,000 recipes and 1.5 MiB of recipe documents, and the store's own 2 MiB.
+  1,000 recipes and 1.5 MiB of recipe documents, and the store's own 2 MiB. A write that
+  lands once a service is paired is refused as one another writer beat, and the upload
+  reads the store in turn with the writes, so a pairing during a request never loses a
+  revision to the upload.
 - **Limits**: the retry window (ADR 0016), the daily repair (ADR 0041), the judgement
   per page and the 20 a day per recipe (ADR 0027), and each layout's last use (ADR 0060)
   are kept in `pateat.device-generation.v1` in trusted local storage, 2,000 entries per
-  list at most, the oldest dropped first. One request's model calls run at a time; a
-  second answers `busy`, as the service's lock does.
+  list at most, the oldest dropped first. A login that starts on a layout marks it used,
+  once an hour, as the service's use report does (ADR 0058). The record is deleted when
+  the recipes it describes are replaced or deleted (keeping the synced recipes on
+  unpairing, or deleting the kept ones), since a recipe made again starts at revision 1.
+  Chosen by an agent: a record that cannot be read counts as empty, as the other local
+  records do; the key's spend limits still bound the cost. One request's model calls run
+  at a time, until each call it sent has ended; a second answers `busy`, as the
+  service's lock does.
 - **Models**: the default choices (`DEFAULT_MODEL_CONFIG`), in the same order and with
   the same move to the next model after a refusal as the service
   (`roleChoices`, `nextAttempt`). There is no model picker on the device (12:38 UTC).
 - **Key and spend**: each call goes to `https://api.anthropic.com/v1/messages` with the
-  key, and counts toward the key's daily and monthly limits as a paired call does; a
-  limit reached before the first call answers `daily-limit` or `monthly-limit`.
+  key, after the same checks of the request as the paired relay makes, and counts toward
+  the key's daily and monthly limits as a paired call does; a limit reached before the
+  first call answers `daily-limit` or `monthly-limit`. An answer whose spend cannot be
+  written is still used, and its cost stays counted in memory. A key that cannot be read
+  makes no recipes.
 - **Bindings**: the slots a new layout carries come from the bindings in this device's
   settings.
 - **Nothing logged** (owner, Q4): no request log, no page samples and no unit

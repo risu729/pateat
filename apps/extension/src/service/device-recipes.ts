@@ -1,5 +1,6 @@
 import {
   MAX_ACTIVE_RECIPE_BYTES,
+  MAX_ACTIVE_RECIPES,
   storedLoginRecipeSchema,
   type StoredLoginRecipe,
   type SyncRecipeWrite,
@@ -49,9 +50,6 @@ export interface DeviceRecipeStorage {
   write(store: DeviceRecipeStore): Promise<void>;
   clear(): Promise<void>;
 }
-
-/** Active recipes a device holds at once, as the service's `MAX_ACTIVE_RECIPES` (ADR 0040). */
-export const MAX_DEVICE_ACTIVE_RECIPES = 1_000;
 
 export class DeviceRecipesUnavailable extends Error {}
 export class DeviceRecipesCorrupt extends Error {}
@@ -179,6 +177,11 @@ export function createDeviceRecipes(options: {
     write(
       recipeId: string,
       write: SyncRecipeWrite,
+      /**
+       * Checked in turn with the other changes: false refuses the write as one another
+       * writer beat, as once a service is paired, so an upload never misses it.
+       */
+      allowed: () => Promise<boolean> = async () => true,
     ): Promise<
       | { ok: true; recipe: StoredLoginRecipe | undefined }
       | { ok: false; limited: false; current: StoredLoginRecipe | undefined }
@@ -187,7 +190,7 @@ export function createDeviceRecipes(options: {
       return enqueue(async () => {
         const store = await load();
         const current = store.recipes.find((recipe) => recipe.id === recipeId);
-        if ((current?.revision ?? 0) !== write.expectedRevision)
+        if ((current?.revision ?? 0) !== write.expectedRevision || !(await allowed()))
           return { ok: false, limited: false, current };
         const others = store.recipes.filter((recipe) => recipe.id !== recipeId);
         if (write.state === "revoked") {
@@ -198,7 +201,7 @@ export function createDeviceRecipes(options: {
         const next = [...others, write.recipe];
         const bytes = next.reduce((sum, recipe) => sum + documentBytes(recipe), 0);
         if (
-          (!current && next.length > MAX_DEVICE_ACTIVE_RECIPES) ||
+          (!current && next.length > MAX_ACTIVE_RECIPES) ||
           // As on the service, only a write that adds a recipe or grows one is held to it.
           (bytes > MAX_ACTIVE_RECIPE_BYTES &&
             (!current || documentBytes(write.recipe) > documentBytes(current))) ||
@@ -232,7 +235,8 @@ export function createDeviceRecipes(options: {
      * nothing.
      */
     async upload(connection: ServiceConnection, stale: () => boolean): Promise<DeviceRecipeUpload> {
-      const store = await load().catch(() => undefined);
+      // Read in turn with the writes, so one written before the pairing is sent.
+      const store = await enqueue(load).catch(() => undefined);
       if (!store) return "done";
       const refused = new Set(
         (store.refused ?? []).map((entry) => `${entry.id}\n${entry.revision}`),
