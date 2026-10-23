@@ -97,8 +97,8 @@ export const bitwardenJa = {
     "接続、ローカル保管庫のコピー、ロック解除キー、同期用のログイン情報をこのデバイスから削除しました。ほかのセッションからはログアウトしません。この接続を参照する保存済みの設定は、利用不可と表示されます。",
   "Automatic unlock is off. To turn it back on, sign in again with Enable automatic unlock on this device checked.":
     "自動ロック解除はオフです。オンに戻すには、「このデバイスで自動ロック解除を有効にする」を選択して再ログインしてください。",
-  "Pateat could not confirm the result. Refresh, then reload saved settings. Your unsaved settings changes are kept.":
-    "結果を確認できませんでした。更新してから、保存済みの設定を再読み込みしてください。未保存の設定の変更は保持されています。",
+  "Pateat could not confirm the result. Refresh, then reload saved settings.":
+    "結果を確認できませんでした。更新してから、保存済みの設定を再読み込みしてください。",
   "Enter a name, a valid email and the master password. A self-hosted server address is an HTTPS address such as https://vault.example.com, or HTTP on localhost or 127.0.0.1, with no path, credentials, query or fragment.":
     "名前、有効なメールアドレス、マスターパスワードを入力してください。セルフホストのサーバーアドレスは https://vault.example.com のような HTTPS アドレス（localhost と 127.0.0.1 では HTTP も可）で、パス、認証情報、クエリ、フラグメントは含めません。",
   "Asking Chrome for access to the Bitwarden server, then connecting…":
@@ -143,6 +143,8 @@ export const bitwardenJa = {
     "影響を受けるアイテムは、フィールド設定を確認するまで利用できません。更新しても承認は行われません。",
   "Reload saved settings to review the current fields. Your unsaved settings changes are kept until you reload.":
     "現在のフィールドを確認するには、保存済みの設定を再読み込みしてください。未保存の設定の変更は、再読み込みするまで保持されます。",
+  "Reload saved settings to review the current fields.":
+    "現在のフィールドを確認するには、保存済みの設定を再読み込みしてください。",
   "Manual verification": "手動での確認",
   "Verification method": "確認方法",
   "Authenticator code": "認証アプリのコード",
@@ -228,7 +230,7 @@ export const bitwardenJa = {
   "The code email could not be requested. Resend to try again.":
     "コードのメール送信を依頼できませんでした。もう一度お試しいただくには、再送信してください。",
   "Loading stopped.": "読み込みを停止しました。",
-  "Enter the master password to finish setting up this connection. Automatic unlock is enabled, as when adding it.":
-    "この接続の設定を完了するには、マスターパスワードを入力してください。追加するときと同じく、自動ロック解除は有効になります。",
+  "Enter the master password to finish setting up this connection. Automatic unlock is turned on, as when adding it.":
+    "この接続の設定を完了するには、マスターパスワードを入力してください。追加するときと同じく、自動ロック解除はオンになります。",
   "Resend code": "コードを再送信",
 } satisfies Record<keyof typeof bitwardenEn, string>;

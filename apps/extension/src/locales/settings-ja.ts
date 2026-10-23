@@ -11,6 +11,10 @@ export const settingsJa = {
     "保存済みの設定を読み込みました（リビジョン {{revision}}）。",
   "Your vaults changed while the settings were being saved. Your unsaved changes are kept. Reload saved settings before you change anything else; reloading drops them.":
     "設定の保存中に保管庫が変更されました。未保存の変更は保持されています。ほかを変更する前に、保存済みの設定を再読み込みしてください。再読み込みすると、未保存の変更は破棄されます。",
+  "Your vaults changed while the settings were being saved. The change was saved; reload saved settings before you change anything else.":
+    "設定の保存中に保管庫が変更されました。変更は保存されています。ほかを変更する前に、保存済みの設定を再読み込みしてください。",
+  "Your vaults changed while the settings were being saved. The change was saved, and later changes are kept. Reload saved settings before you change anything else; reloading drops them.":
+    "設定の保存中に保管庫が変更されました。変更は保存され、その後の変更は保持されています。ほかを変更する前に、保存済みの設定を再読み込みしてください。再読み込みすると、未保存の変更は破棄されます。",
   "The saved settings changed before this save: {{reasons}}. Your unsaved changes are kept. Reload saved settings to see the latest ones before you change anything else; reloading drops them.":
     "この保存の前に保存済みの設定が変更されました（{{reasons}}）。未保存の変更は保持されています。ほかを変更する前に、保存済みの設定を再読み込みして最新の設定を確認してください。再読み込みすると、未保存の変更は破棄されます。",
   "settings were saved in another window or the toolbar popup":
@@ -27,8 +31,8 @@ export const settingsJa = {
   "{{error}} Your unsaved changes are kept.": "{{error}} 未保存の変更は保持されています。",
   "{{error}} Your unsaved changes are kept. Reload saved settings to try again; reloading drops them.":
     "{{error}} 未保存の変更は保持されています。もう一度試すには、保存済みの設定を再読み込みしてください。再読み込みすると、未保存の変更は破棄されます。",
-  "Pateat could not confirm that the settings were saved. Your unsaved changes are kept. Reload saved settings before you try again; reloading drops them.":
-    "設定が保存されたか確認できませんでした。未保存の変更は保持されています。もう一度試す前に、保存済みの設定を再読み込みしてください。再読み込みすると、未保存の変更は破棄されます。",
+  "Pateat could not confirm that the settings were saved. Your unsaved changes are kept. Reload saved settings before you try again; reloading drops any that were not saved.":
+    "設定が保存されたか確認できませんでした。未保存の変更は保持されています。もう一度試す前に、保存済みの設定を再読み込みしてください。再読み込みすると、保存されなかった変更は破棄されます。",
   "Pateat could not read the saved settings. Reload saved settings to try again.":
     "保存済みの設定を読み取れませんでした。もう一度試すには、保存済みの設定を再読み込みしてください。",
   "Pateat could not read the saved settings. Your unsaved changes are kept. Reload saved settings to try again; reloading drops them.":
@@ -37,8 +41,8 @@ export const settingsJa = {
     "{{error}} もう一度試すには、保存済みの設定を再読み込みしてください。",
   "Your vaults changed while the settings were loading. Reload saved settings to see the current vaults.":
     "設定の読み込み中に保管庫が変更されました。現在の保管庫を確認するには、保存済みの設定を再読み込みしてください。",
-  "This change was kept but not saved. Reload saved settings before you change anything else; reloading drops them.":
-    "この変更は保持されていますが、保存されていません。ほかを変更する前に、保存済みの設定を再読み込みしてください。再読み込みすると、未保存の変更は破棄されます。",
+  "This change was kept but not saved. Reload saved settings before you change anything else; reloading drops it.":
+    "この変更は保持されていますが、保存されていません。ほかを変更する前に、保存済みの設定を再読み込みしてください。再読み込みすると、この変更は破棄されます。",
   "Your vaults changed while the settings were loading. Your unsaved changes are kept. Reload saved settings again; reloading drops them.":
     "設定の読み込み中に保管庫が変更されました。未保存の変更は保持されています。保存済みの設定をもう一度再読み込みしてください。再読み込みすると、未保存の変更は破棄されます。",
   "Your vaults changed while the settings were loading. Reload saved settings again.":

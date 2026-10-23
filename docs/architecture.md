@@ -1653,9 +1653,9 @@ pages, such as `/manage`, are not translated yet.
 
 The owner accepted these rules for the text of the extension's popup, toolbar icon
 title, settings page and passkey chooser on 2026-10-23 at 12:46 UTC
-([#601](https://github.com/risu729/pateat/pull/601)). The diagnostics page, the
-messages of the settings store in `packages/contracts` and the service's pages are not
-covered yet. The Japanese catalogs (`apps/extension/src/locales/*-ja.ts`) follow the
+([#601](https://github.com/risu729/pateat/pull/601)). The diagnostics page, the messages
+of the settings store in `packages/contracts` and the service's pages are not covered
+yet. The Japanese catalogs (`apps/extension/src/locales/ja.ts` and `*-ja.ts`) follow the
 same rules, with full-width punctuation (。、：), 保管庫, アイテム and デバイス, and
 toolbar titles that start "Pateat：".
 
@@ -1682,9 +1682,13 @@ toolbar titles that start "Pateat：".
   there are unsaved changes.
 - Codes the log names, such as `credential-rejected`, show only in parentheses after a
   plain sentence or where no sentence exists yet.
-- A catalog key is the whole English sentence, so a variant, such as a message with or
-  without unsaved changes, or the icon's title beside the popup's reason line, is its
-  own key rather than text joined or recased at run time.
+- A catalog key is the whole English sentence where it can be, so a variant, such as a
+  message with or without unsaved changes, or the icon's title beside the popup's
+  reason line, is its own key rather than text recased at run time. A few lines are
+  still joined from whole-sentence keys: the settings page's matching-accounts note
+  adds its incomplete-list sentence, a no-route refusal adds the passkey sentence after
+  its reason (`{{text}}. Pateat logs in…`), and the icon's count title adds its
+  follow-up sentences (`{{first}} {{next}}`).
 
 ## Page styles and theme
 

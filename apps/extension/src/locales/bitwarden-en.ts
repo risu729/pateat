@@ -94,8 +94,8 @@ export const bitwardenEn = {
     "Connection deleted from this device, with its local vault copy, unlock key and sync sign-in. This does not sign out other sessions. Saved settings that referred to it now show it as unavailable.",
   "Automatic unlock is off. To turn it back on, sign in again with Enable automatic unlock on this device checked.":
     "Automatic unlock is off. To turn it back on, sign in again with Enable automatic unlock on this device checked.",
-  "Pateat could not confirm the result. Refresh, then reload saved settings. Your unsaved settings changes are kept.":
-    "Pateat could not confirm the result. Refresh, then reload saved settings. Your unsaved settings changes are kept.",
+  "Pateat could not confirm the result. Refresh, then reload saved settings.":
+    "Pateat could not confirm the result. Refresh, then reload saved settings.",
   "Enter a name, a valid email and the master password. A self-hosted server address is an HTTPS address such as https://vault.example.com, or HTTP on localhost or 127.0.0.1, with no path, credentials, query or fragment.":
     "Enter a name, a valid email and the master password. A self-hosted server address is an HTTPS address such as https://vault.example.com, or HTTP on localhost or 127.0.0.1, with no path, credentials, query or fragment.",
   "Asking Chrome for access to the Bitwarden server, then connecting…":
@@ -139,6 +139,8 @@ export const bitwardenEn = {
     "Affected items stay unavailable until their field settings are reviewed; refreshing does not approve them.",
   "Reload saved settings to review the current fields. Your unsaved settings changes are kept until you reload.":
     "Reload saved settings to review the current fields. Your unsaved settings changes are kept until you reload.",
+  "Reload saved settings to review the current fields.":
+    "Reload saved settings to review the current fields.",
   "Manual verification": "Manual verification",
   "Verification method": "Verification method",
   "Authenticator code": "Authenticator code",
@@ -224,7 +226,7 @@ export const bitwardenEn = {
   "The code email could not be requested. Resend to try again.":
     "The code email could not be requested. Resend to try again.",
   "Loading stopped.": "Loading stopped.",
-  "Enter the master password to finish setting up this connection. Automatic unlock is enabled, as when adding it.":
-    "Enter the master password to finish setting up this connection. Automatic unlock is enabled, as when adding it.",
+  "Enter the master password to finish setting up this connection. Automatic unlock is turned on, as when adding it.":
+    "Enter the master password to finish setting up this connection. Automatic unlock is turned on, as when adding it.",
   "Resend code": "Resend code",
 } as const;

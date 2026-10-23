@@ -275,6 +275,7 @@ export function BitwardenSetup({
   onCatalogChanged,
   acceptedSettings,
   reviewBlocked = true,
+  unsavedChanges = false,
   renderAccess,
   renderOthers,
 }: {
@@ -282,6 +283,8 @@ export function BitwardenSetup({
   onCatalogChanged: () => void;
   acceptedSettings?: Extract<SettingsResponse, { ok: true }> | undefined;
   reviewBlocked?: boolean;
+  /** The settings page has unsaved changes, which reloading saved settings would drop. */
+  unsavedChanges?: boolean;
   /** Which items Pateat may use from a connection, shown in its row. */
   renderAccess?: (connectionId: string) => ReactNode;
   /** What goes under the rows, given the listed connections once their status was read. */
@@ -520,9 +523,7 @@ export function BitwardenSetup({
         if (epoch !== generation.current) return;
         deadline.current = undefined;
         setChallenge(undefined);
-        say(
-          "Pateat could not confirm the result. Refresh, then reload saved settings. Your unsaved settings changes are kept.",
-        );
+        say("Pateat could not confirm the result. Refresh, then reload saved settings.");
         catalogChanged.current();
       })
       .finally(() => {
@@ -730,7 +731,7 @@ export function BitwardenSetup({
     if (!explain) return;
     say(
       unfinished
-        ? "Enter the master password to finish setting up this connection. Automatic unlock is enabled, as when adding it."
+        ? "Enter the master password to finish setting up this connection. Automatic unlock is turned on, as when adding it."
         : "Enter the master password to sign in again. Automatic unlock stays as it is unless you check Enable automatic unlock on this device.",
     );
   }
@@ -1012,7 +1013,9 @@ export function BitwardenSetup({
                         tone: "warn" as const,
                         icon: TriangleAlert,
                         text: t(
-                          "Reload saved settings to review the current fields. Your unsaved settings changes are kept until you reload.",
+                          unsavedChanges
+                            ? "Reload saved settings to review the current fields. Your unsaved settings changes are kept until you reload."
+                            : "Reload saved settings to review the current fields.",
                         ),
                       },
                     ]

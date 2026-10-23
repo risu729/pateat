@@ -123,9 +123,33 @@ export function SettingsApp({
         });
         if (epoch !== catalogGeneration.current) {
           setSaveBlocked(true);
+          if (!result.ok) {
+            setMessage((translate) =>
+              translate(
+                "Your vaults changed while the settings were being saved. Your unsaved changes are kept. Reload saved settings before you change anything else; reloading drops them.",
+              ),
+            );
+            return;
+          }
+          // The save went through, so its edits are no longer unsaved; only edits made
+          // while it ran still are.
+          queryClient.setQueryData(SETTINGS_QUERY_KEY, result);
+          lastSaveSucceeded.current = true;
+          retried.current = false;
+          unsavedEdits.current.splice(0, submittedUnsaved);
+          const next = structuredClone(result);
+          acceptedRef.current = next;
+          setAccepted(next);
+          const pending = submitted !== edits.current;
+          if (!pending) {
+            setDirty(false);
+            dirtyRef.current = false;
+          }
           setMessage((translate) =>
             translate(
-              "Your vaults changed while the settings were being saved. Your unsaved changes are kept. Reload saved settings before you change anything else; reloading drops them.",
+              pending
+                ? "Your vaults changed while the settings were being saved. The change was saved, and later changes are kept. Reload saved settings before you change anything else; reloading drops them."
+                : "Your vaults changed while the settings were being saved. The change was saved; reload saved settings before you change anything else.",
             ),
           );
           return;
@@ -190,7 +214,7 @@ export function SettingsApp({
         setSaveBlocked(true);
         setMessage((translate) =>
           translate(
-            "Pateat could not confirm that the settings were saved. Your unsaved changes are kept. Reload saved settings before you try again; reloading drops them.",
+            "Pateat could not confirm that the settings were saved. Your unsaved changes are kept. Reload saved settings before you try again; reloading drops any that were not saved.",
           ),
         );
       }
@@ -309,7 +333,7 @@ export function SettingsApp({
     if (saveBlockedRef.current)
       setMessage((translate) =>
         translate(
-          "This change was kept but not saved. Reload saved settings before you change anything else; reloading drops them.",
+          "This change was kept but not saved. Reload saved settings before you change anything else; reloading drops it.",
         ),
       );
     void save();
@@ -503,6 +527,7 @@ export function SettingsApp({
               onCatalogChanged={catalogChanged}
               acceptedSettings={accepted}
               reviewBlocked={dirty || busy || saveBlocked}
+              unsavedChanges={dirty}
               renderAccess={(id) => {
                 const connection = draft.connections.find((entry) => entry.connectionId === id);
                 const metadata = accepted?.catalog.connections.find((entry) => entry.id === id);

@@ -119,8 +119,8 @@ export const en = {
     "the steps kept failing, and the retry limit was reached",
   "the login was already submitted as often as allowed":
     "the login was already submitted as often as allowed",
-  "Pateat could not tell whether the login worked after it was submitted":
-    "Pateat could not tell whether the login worked after it was submitted",
+  "the page after submitting did not show whether it worked":
+    "the page after submitting did not show whether it worked",
   "the page did not match the recipe": "the page did not match the recipe",
   "the page did not respond in time": "the page did not respond in time",
   "the tab moved to another site during the login":

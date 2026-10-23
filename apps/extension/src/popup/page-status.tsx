@@ -13,7 +13,7 @@ const OUTCOMES: Record<string, string> = {
   "credential-rejected": "the site did not accept the password",
   "retry-limit": "the steps kept failing, and the retry limit was reached",
   "submission-limit": "the login was already submitted as often as allowed",
-  "unknown-submit": "Pateat could not tell whether the login worked after it was submitted",
+  "unknown-submit": "the page after submitting did not show whether it worked",
   "structural-mismatch": "the page did not match the recipe",
   timeout: "the page did not respond in time",
   "left-origin": "the tab moved to another site during the login",

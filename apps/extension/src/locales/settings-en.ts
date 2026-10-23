@@ -9,6 +9,10 @@ export const settingsEn = {
     "Saved settings loaded (revision {{revision}}).",
   "Your vaults changed while the settings were being saved. Your unsaved changes are kept. Reload saved settings before you change anything else; reloading drops them.":
     "Your vaults changed while the settings were being saved. Your unsaved changes are kept. Reload saved settings before you change anything else; reloading drops them.",
+  "Your vaults changed while the settings were being saved. The change was saved; reload saved settings before you change anything else.":
+    "Your vaults changed while the settings were being saved. The change was saved; reload saved settings before you change anything else.",
+  "Your vaults changed while the settings were being saved. The change was saved, and later changes are kept. Reload saved settings before you change anything else; reloading drops them.":
+    "Your vaults changed while the settings were being saved. The change was saved, and later changes are kept. Reload saved settings before you change anything else; reloading drops them.",
   "The saved settings changed before this save: {{reasons}}. Your unsaved changes are kept. Reload saved settings to see the latest ones before you change anything else; reloading drops them.":
     "The saved settings changed before this save: {{reasons}}. Your unsaved changes are kept. Reload saved settings to see the latest ones before you change anything else; reloading drops them.",
   "settings were saved in another window or the toolbar popup":
@@ -27,8 +31,8 @@ export const settingsEn = {
   "{{error}} Your unsaved changes are kept.": "{{error}} Your unsaved changes are kept.",
   "{{error}} Your unsaved changes are kept. Reload saved settings to try again; reloading drops them.":
     "{{error}} Your unsaved changes are kept. Reload saved settings to try again; reloading drops them.",
-  "Pateat could not confirm that the settings were saved. Your unsaved changes are kept. Reload saved settings before you try again; reloading drops them.":
-    "Pateat could not confirm that the settings were saved. Your unsaved changes are kept. Reload saved settings before you try again; reloading drops them.",
+  "Pateat could not confirm that the settings were saved. Your unsaved changes are kept. Reload saved settings before you try again; reloading drops any that were not saved.":
+    "Pateat could not confirm that the settings were saved. Your unsaved changes are kept. Reload saved settings before you try again; reloading drops any that were not saved.",
   "Pateat could not read the saved settings. Reload saved settings to try again.":
     "Pateat could not read the saved settings. Reload saved settings to try again.",
   "Pateat could not read the saved settings. Your unsaved changes are kept. Reload saved settings to try again; reloading drops them.":
@@ -36,8 +40,8 @@ export const settingsEn = {
   "{{error}} Reload saved settings to try again.": "{{error}} Reload saved settings to try again.",
   "Your vaults changed while the settings were loading. Reload saved settings to see the current vaults.":
     "Your vaults changed while the settings were loading. Reload saved settings to see the current vaults.",
-  "This change was kept but not saved. Reload saved settings before you change anything else; reloading drops them.":
-    "This change was kept but not saved. Reload saved settings before you change anything else; reloading drops them.",
+  "This change was kept but not saved. Reload saved settings before you change anything else; reloading drops it.":
+    "This change was kept but not saved. Reload saved settings before you change anything else; reloading drops it.",
   "Your vaults changed while the settings were loading. Your unsaved changes are kept. Reload saved settings again; reloading drops them.":
     "Your vaults changed while the settings were loading. Your unsaved changes are kept. Reload saved settings again; reloading drops them.",
   "Your vaults changed while the settings were loading. Reload saved settings again.":

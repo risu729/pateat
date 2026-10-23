@@ -977,10 +977,10 @@ Once the fixes have settled:
   line the popup and the icon's title show when another tab of the site logged out or
   the site did not accept that tab's login: both say "You logged out of this site in
   another tab" (`choiceReason` in `apps/extension/src/login/choice-wire.ts`, the
-  `other-tab` title in `apps/extension/src/login/runtime.ts`), which reads wrong after a
-  rejection. The review comes before the Japanese text below, so that the English text
-  is settled before it is translated (owner, 2026-10-13 15:17 UTC). The owner gave the
-  go-ahead on 2026-10-15 at 00:44 UTC.
+  `other-tab` title, now `choiceTitle` in `apps/extension/src/login/badge.ts`), which
+  reads wrong after a rejection. The review comes before the Japanese text below, so
+  that the English text is settled before it is translated (owner, 2026-10-13 15:17
+  UTC). The owner gave the go-ahead on 2026-10-15 at 00:44 UTC.
   - Done (2026-10-23): the popup, the icon's title, the settings page and the passkey
     chooser follow the [UI text](architecture.md#ui-text) rules, which the owner
     accepted on 2026-10-23 at 12:46 UTC

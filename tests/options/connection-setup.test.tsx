@@ -917,8 +917,14 @@ test.each(["storage-uncertain", "setup-unavailable"] as const)(
       .element(page.getByText(/Your vaults changed\. Your unsaved changes are kept/))
       .toBeVisible();
     resolveSave(saved(1));
+    // The save went through, so nothing is said to be unsaved.
     await expect
-      .element(page.getByText(/Your vaults changed while the settings were being saved/))
+      .element(
+        page.getByText(
+          "Your vaults changed while the settings were being saved. The change was saved; reload saved settings before you change anything else.",
+          { exact: true },
+        ),
+      )
       .toBeVisible();
     expect(document.getElementById("site-list")?.textContent).toContain("draft.example");
     expect(settings.getSettings).toHaveBeenCalledTimes(1);
@@ -936,6 +942,74 @@ test.each(["storage-uncertain", "setup-unavailable"] as const)(
     expect(settings.saveSettings.mock.calls[1]?.[0]).toMatchObject({ expectedRevision: 7 });
   },
 );
+
+/**
+ * Starts a reload of clean settings, then changes the vault metadata while it runs, as a
+ * setup outcome that may have written the catalog does.
+ */
+async function catalogChangeDuringCleanReload() {
+  const connection = mockClient();
+  connection.begin.mockResolvedValue({ ok: false, error: { code: "storage-uncertain" } });
+  function saved(revision: number): Extract<SettingsResponse, { ok: true }> {
+    return {
+      version: 1,
+      ok: true,
+      snapshot: { version: 1, revision, settings: createDefaultSettings() },
+      catalog: structuredClone(DUMMY_VAULT_CATALOG),
+    };
+  }
+  const settings = {
+    getSettings: vi.fn<SettingsClient["getSettings"]>().mockResolvedValue(saved(0)),
+    saveSettings: vi.fn<SettingsClient["saveSettings"]>(),
+    findSiteAccounts: vi.fn<SettingsClient["findSiteAccounts"]>().mockResolvedValue({
+      version: 1,
+      ok: false,
+      reason: "unavailable",
+    }),
+  };
+  await render(
+    <QueryClientProvider client={createMetadataQueryClient()}>
+      <SettingsApp client={settings} connectionClient={connection} />
+    </QueryClientProvider>,
+  );
+  await expect.element(page.getByText("Saved settings loaded (revision 0).")).toBeVisible();
+  const reading = held<SettingsResponse>();
+  settings.getSettings.mockReturnValueOnce(reading.promise);
+  await page.getByRole("button", { name: "Reload saved settings", exact: true }).click();
+  await expect.element(page.getByText("Loading saved settings…")).toBeVisible();
+  await fillNew();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  await vi.waitFor(() => expect(connection.begin).toHaveBeenCalledTimes(1));
+  return { settings, finish: () => reading.resolve(saved(1)) };
+}
+
+test("vault metadata that changes while clean settings reload claims no unsaved changes", async () => {
+  await catalogChangeDuringCleanReload();
+  await expect
+    .element(
+      page.getByText(
+        "Your vaults changed. Reload saved settings to see the current vaults before you change anything else.",
+        { exact: true },
+      ),
+    )
+    .toBeVisible();
+  expect(document.body.textContent).not.toContain("unsaved changes");
+});
+
+test("a reload of clean settings that the vault metadata overtook asks for another without claiming unsaved changes", async () => {
+  const { settings, finish } = await catalogChangeDuringCleanReload();
+  finish();
+  await expect
+    .element(
+      page.getByText(
+        "Your vaults changed while the settings were loading. Reload saved settings again.",
+        { exact: true },
+      ),
+    )
+    .toBeVisible();
+  expect(document.body.textContent).not.toContain("unsaved changes");
+  expect(settings.getSettings).toHaveBeenCalledTimes(2);
+});
 
 test("a challenge while adding a connection reloads a clean draft to the revision the new policy entry wrote", async () => {
   const connection = mockClient();
@@ -977,9 +1051,13 @@ test("a challenge while adding a connection reloads a clean draft to the revisio
   expect(settings.getSettings).toHaveBeenCalledTimes(2);
 });
 
-test.each([false, true])(
-  "field review uses current snapshot IDs and starts every custom field excluded (blocked=%s)",
-  async (blocked) => {
+test.each([
+  [false, false],
+  [true, false],
+  [true, true],
+])(
+  "field review uses current snapshot IDs and starts every custom field excluded (blocked=%s, unsaved=%s)",
+  async (blocked, unsaved) => {
     const client = mockClient();
     const snapshot = crypto.randomUUID();
     const accepted: Extract<SettingsResponse, { ok: true }> = {
@@ -1030,6 +1108,7 @@ test.each([false, true])(
           onCatalogChanged={changed}
           acceptedSettings={accepted}
           reviewBlocked={blocked}
+          unsavedChanges={unsaved}
         />
       </QueryClientProvider>,
     );
@@ -1048,6 +1127,17 @@ test.each([false, true])(
     await expect.element(first).toBeChecked();
     await expect.element(second).toBeChecked();
     if (blocked) {
+      // Only unsaved changes are said to be kept, as reloading would drop them.
+      await expect
+        .element(
+          page.getByText(
+            unsaved
+              ? "Reload saved settings to review the current fields. Your unsaved settings changes are kept until you reload."
+              : "Reload saved settings to review the current fields.",
+            { exact: true },
+          ),
+        )
+        .toBeVisible();
       await expect.element(first).toBeDisabled();
       await expect.element(review).toBeDisabled();
       expect(client.review).not.toHaveBeenCalled();
@@ -1634,7 +1724,7 @@ test("Sign in again on a connection that never unlocked enables automatic unlock
     .element(page.getByLabelText("Enable automatic unlock on this device", { exact: true }))
     .toBeChecked();
   await expect
-    .element(page.getByText(/finish setting up this connection\. Automatic unlock is enabled/))
+    .element(page.getByText(/finish setting up this connection\. Automatic unlock is turned on/))
     .toBeVisible();
 });
 

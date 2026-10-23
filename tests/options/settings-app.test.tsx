@@ -591,6 +591,32 @@ test("an origin row names why its default cannot be used", async () => {
     .toHaveDisplayValue("Demo team account in Demo work vault (unavailable)");
 });
 
+test("a reload of clean settings that is refused claims no unsaved changes", async () => {
+  const client = mockClient();
+  await mount(client);
+  client.getSettings.mockResolvedValueOnce({
+    version: 1,
+    ok: false,
+    error: { code: "storage-unavailable", message: "Synthetic unreadable settings." },
+  });
+  await control("reload-settings").click();
+  await expect
+    .element(control("settings-status"))
+    .toMatchTextContent(/^Synthetic unreadable settings\. Reload saved settings to try again\.$/);
+});
+
+test("a reload of clean settings that fails claims no unsaved changes", async () => {
+  const client = mockClient();
+  await mount(client);
+  client.getSettings.mockRejectedValueOnce(new Error("Synthetic read unavailable"));
+  await control("reload-settings").click();
+  await expect
+    .element(control("settings-status"))
+    .toMatchTextContent(
+      /^Pateat could not read the saved settings\. Reload saved settings to try again\.$/,
+    );
+});
+
 test("a rejected draft is not saved again until the next change", async () => {
   const client = mockClient();
   client.saveSettings.mockResolvedValueOnce({

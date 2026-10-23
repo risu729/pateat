@@ -120,8 +120,8 @@ export const ja = {
   "the steps kept failing, and the retry limit was reached":
     "手順の実行が繰り返し失敗し、再試行の上限に達しました",
   "the login was already submitted as often as allowed": "ログインの送信回数が上限に達しました",
-  "Pateat could not tell whether the login worked after it was submitted":
-    "送信後にログインが成功したか、Pateat は判断できませんでした",
+  "the page after submitting did not show whether it worked":
+    "送信後のページでは成功したか分かりませんでした",
   "the page did not match the recipe": "ページがレシピと一致しませんでした",
   "the page did not respond in time": "ページが制限時間内に応答しませんでした",
   "the tab moved to another site during the login": "ログイン中にタブが別のサイトに移動しました",

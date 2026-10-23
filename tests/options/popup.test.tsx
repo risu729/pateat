@@ -1037,6 +1037,10 @@ test("after the site rejects a login in another tab, the popup chooses no accoun
     rejectedElsewhere: true,
   });
   await mount(client, "https://bank.example/", choices);
+  // The reason line names the rejection rather than the sentence that covers a logout too.
+  await expect
+    .element(page.getByText("The site did not accept a login in another tab.", { exact: true }))
+    .toBeVisible();
   const offered = page.getByRole("group", { name: "Account to log in with" });
   await expect.element(offered.getByRole("radio").first()).not.toBeChecked();
   await expect.element(offered.getByRole("radio").last()).not.toBeChecked();
