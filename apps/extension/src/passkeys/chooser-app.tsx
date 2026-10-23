@@ -1,11 +1,11 @@
 import { useTranslation } from "react-i18next";
 import { i18n } from "../i18n";
 import { ChevronLeft, ChevronRight, Info, KeyRound, LockKeyhole, Star } from "lucide-react";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import * as v from "valibot";
 import { Logo } from "../logo";
 import { Button } from "../options/button";
-import { controlClass, fieldClass } from "../options/ui";
+import { UnlockForm } from "../options/unlock-form";
 import { chooserResponseSchema, type ChooserResponse, type ChooserView } from "./chooser";
 
 const MAIN = "mx-auto flex min-h-screen max-w-md flex-col gap-4 p-5";
@@ -54,8 +54,8 @@ function EntryName({ entry }: { entry: Entry }) {
 }
 
 /**
- * Asks for the master password of an item with Bitwarden's re-prompt. The background
- * checks it offline; a wrong one is asked again, and the field is emptied either way.
+ * Asks for the master password of an item with Bitwarden's re-prompt, with the settings
+ * page's unlock form. The background checks it offline; a wrong one is asked again.
  */
 function MasterPasswordForm({
   entry,
@@ -67,30 +67,8 @@ function MasterPasswordForm({
   onSubmit: (password: string) => Promise<boolean | undefined>;
 }) {
   const { t } = useTranslation(undefined, { i18n });
-  const [wrong, setWrong] = useState(false);
-  const [checking, setChecking] = useState(false);
-  const inputId = useId();
-  const errorId = useId();
-  const input = useRef<HTMLInputElement>(null);
-  useEffect(() => input.current?.focus(), []);
   return (
-    <form
-      className="flex flex-col gap-3"
-      onSubmit={(event) => {
-        event.preventDefault();
-        const field = input.current;
-        if (!field?.value || checking) return;
-        const password = field.value;
-        field.value = "";
-        setChecking(true);
-        void (async () => {
-          const matches = await onSubmit(password);
-          setChecking(false);
-          setWrong(matches === false);
-          if (matches === false) field.focus();
-        })();
-      }}
-    >
+    <div className="flex flex-col gap-3">
       <div className="flex items-center gap-3 rounded-lg border border-border bg-surface-sunken px-3 py-2">
         <span className="grid size-8 shrink-0 place-items-center rounded-lg border border-border bg-surface text-ink-muted">
           <LockKeyhole aria-hidden size={16} strokeWidth={2} />
@@ -100,32 +78,19 @@ function MasterPasswordForm({
       <p className="m-0 text-[15px]/6">
         {t("Bitwarden asks for your master password before this item is used.")}
       </p>
-      <label htmlFor={inputId} className={fieldClass}>
-        {t("Master password")}
-        <input
-          ref={input}
-          id={inputId}
-          type="password"
-          autoComplete="off"
-          spellCheck={false}
-          required
-          disabled={disabled || checking}
-          className={controlClass}
-          aria-invalid={wrong}
-          {...(wrong ? { "aria-describedby": errorId } : {})}
-        />
-      </label>
-      {wrong && (
-        <p id={errorId} role="alert" className="m-0 text-[13px]/5 text-danger">
-          {t("This is not the master password of this vault. Try again.")}
-        </p>
-      )}
-      <div className="flex justify-end">
-        <Button type="submit" disabled={disabled || checking}>
-          {checking ? t("Checking…") : t("Log in")}
-        </Button>
-      </div>
-    </form>
+      <UnlockForm
+        submitLabel={t("Log in")}
+        // The field is the one thing the window asks for.
+        // oxlint-disable-next-line jsx-a11y/no-autofocus
+        autoFocus
+        disabled={disabled}
+        onSubmit={async (password) => {
+          const matches = await onSubmit(password);
+          if (matches) return { ok: true };
+          return { ok: false, error: matches === false ? "wrong-password" : "unavailable" };
+        }}
+      />
+    </div>
   );
 }
 

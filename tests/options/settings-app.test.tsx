@@ -690,7 +690,7 @@ test("the add form makes the entered site ask for the master password, then stop
   await control("site-origin").fill("https://bank.example");
   await control("site-subdomains").click();
   await control("add-reprompt-site").click();
-  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 1");
+  await expect.element(control("settings-status")).toMatchTextContent("Settings saved (revision 1).");
   const settings = client.saveSettings.mock.calls[0]?.[0].settings;
   expect(settings?.repromptSites).toEqual([{ hostname: "bank.example", includeSubdomains: true }]);
   expect(settings?.excludedSites).toEqual([]);
@@ -703,7 +703,7 @@ test("the add form makes the entered site ask for the master password, then stop
       exact: true,
     })
     .click();
-  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 2");
+  await expect.element(control("settings-status")).toMatchTextContent("Settings saved (revision 2).");
   expect(client.saveSettings.mock.calls[1]?.[0].settings.repromptSites).toEqual([]);
   await expect.element(control("site-origin")).toHaveFocus();
 });

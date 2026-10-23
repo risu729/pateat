@@ -134,9 +134,7 @@ test("asks a password login's master password, says when it is wrong, and emptie
   await expect.element(page.getByRole("button", { name: "Cancel" })).toBeVisible();
   await field.fill("wrong");
   await page.getByRole("button", { name: "Log in" }).click();
-  await expect
-    .element(page.getByRole("alert"))
-    .toHaveTextContent("This is not the master password of this vault. Try again.");
+  await expect.element(page.getByText("Invalid master password.")).toBeVisible();
   await expect.element(field).toHaveValue("");
   await expect.element(field).toHaveAttribute("aria-invalid", "true");
   await field.fill("right");

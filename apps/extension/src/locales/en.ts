@@ -29,9 +29,6 @@ export const en = {
   "Use the browser or another extension": "Use the browser or another extension",
   "Bitwarden asks for your master password before this item is used.":
     "Bitwarden asks for your master password before this item is used.",
-  "This is not the master password of this vault. Try again.":
-    "This is not the master password of this vault. Try again.",
-  "Checking…": "Checking…",
   "Other passkeys": "Other passkeys",
   "Asks for the master password": "Asks for the master password",
   "Pateat on this site": "Pateat on this site",
@@ -56,13 +53,14 @@ export const en = {
   "The master password window could not open. Reopen this popup and try again.":
     "The master password window could not open. Reopen this popup and try again.",
   "Ask for the master password": "Ask for the master password",
-  "For vault items with Bitwarden's master password re-prompt":
-    "For vault items with Bitwarden's master password re-prompt",
-  "Set by a rule for {{hostname}} and its subdomains":
-    "Set by a rule for {{hostname}} and its subdomains",
-  "{{hostname}} now asks for the master password": "{{hostname}} now asks for the master password",
-  "{{hostname}} no longer asks for the master password":
-    "{{hostname}} no longer asks for the master password",
+  "For vault items with Bitwarden's master password re-prompt.":
+    "For vault items with Bitwarden's master password re-prompt.",
+  "Set by a rule for {{hostname}} and its subdomains.":
+    "Set by a rule for {{hostname}} and its subdomains.",
+  "{{hostname}} now asks for the master password.":
+    "{{hostname}} now asks for the master password.",
+  "{{hostname}} no longer asks for the master password.":
+    "{{hostname}} no longer asks for the master password.",
   "Starting the login…": "Starting the login…",
   "Logging in with {{name}}. It becomes the default once the login succeeds.":
     "Logging in with {{name}}. It becomes the default once the login succeeds.",

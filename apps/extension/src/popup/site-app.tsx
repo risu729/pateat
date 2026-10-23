@@ -224,8 +224,8 @@ function RepromptSwitch({
       </label>
       <p id="popup-reprompt-note" className="popup-muted">
         {site.editable
-          ? t("For vault items with Bitwarden's master password re-prompt")
-          : t("Set by a rule for {{hostname}} and its subdomains", {
+          ? t("For vault items with Bitwarden's master password re-prompt.")
+          : t("Set by a rule for {{hostname}} and its subdomains.", {
               hostname: site.shared[0]?.hostname ?? "",
             })}
       </p>
@@ -1358,8 +1358,8 @@ export function SiteApp({
                 (value) => reprompt.set(value, on),
                 (translate) =>
                   on
-                    ? translate("{{hostname}} now asks for the master password", { hostname })
-                    : translate("{{hostname}} no longer asks for the master password", {
+                    ? translate("{{hostname}} now asks for the master password.", { hostname })
+                    : translate("{{hostname}} no longer asks for the master password.", {
                         hostname,
                       }),
               );

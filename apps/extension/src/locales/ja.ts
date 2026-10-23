@@ -31,9 +31,6 @@ export const ja = {
   "Use the browser or another extension": "ブラウザーまたは別の拡張機能を使う",
   "Bitwarden asks for your master password before this item is used.":
     "このアイテムは、使う前にマスターパスワードの入力が必要です (Bitwarden の再入力の設定)。",
-  "This is not the master password of this vault. Try again.":
-    "この保管庫のマスターパスワードではありません。もう一度入力してください。",
-  "Checking…": "確認しています…",
   "Other passkeys": "ほかのパスキー",
   "Asks for the master password": "マスターパスワードが必要",
   "Pateat on this site": "このサイトで Pateat を使う",
@@ -58,14 +55,14 @@ export const ja = {
   "The master password window could not open. Reopen this popup and try again.":
     "マスターパスワードのウィンドウを開けませんでした。このポップアップを開き直して、もう一度お試しください。",
   "Ask for the master password": "マスターパスワードを求める",
-  "For vault items with Bitwarden's master password re-prompt":
-    "Bitwarden で「マスターパスワードの再入力」が有効なアイテムに適用されます",
-  "Set by a rule for {{hostname}} and its subdomains":
-    "{{hostname}} とそのサブドメインのルールで設定されています",
-  "{{hostname}} now asks for the master password":
-    "{{hostname}} ではマスターパスワードを求めるようになりました",
-  "{{hostname}} no longer asks for the master password":
-    "{{hostname}} ではマスターパスワードを求めなくなりました",
+  "For vault items with Bitwarden's master password re-prompt.":
+    "Bitwarden で「マスターパスワードの再入力」が有効なアイテムに適用されます。",
+  "Set by a rule for {{hostname}} and its subdomains.":
+    "{{hostname}} とそのサブドメインのルールで設定されています。",
+  "{{hostname}} now asks for the master password.":
+    "{{hostname}} ではマスターパスワードを求めるようになりました。",
+  "{{hostname}} no longer asks for the master password.":
+    "{{hostname}} ではマスターパスワードを求めなくなりました。",
   "Starting the login…": "ログインを開始しています…",
   "Logging in with {{name}}. It becomes the default once the login succeeds.":
     "{{name}} でログインしています。ログインに成功すると、既定のアカウントになります。",

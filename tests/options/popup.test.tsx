@@ -380,10 +380,10 @@ test("the master password switch asks on the site by its exact hostname, and sto
   await expect.element(toggle).not.toBeChecked();
   await expect
     .element(toggle)
-    .toHaveAccessibleDescription("For vault items with Bitwarden's master password re-prompt");
+    .toHaveAccessibleDescription("For vault items with Bitwarden's master password re-prompt.");
   await userEvent.click(toggle);
   await expect
-    .element(page.getByText("login.bank.example now asks for the master password"))
+    .element(page.getByText("login.bank.example now asks for the master password."))
     .toBeVisible();
   await expect.element(toggle).toBeChecked();
   expect(current().snapshot.settings.repromptSites).toEqual([
@@ -391,7 +391,7 @@ test("the master password switch asks on the site by its exact hostname, and sto
   ]);
   await userEvent.click(toggle);
   await expect
-    .element(page.getByText("login.bank.example no longer asks for the master password"))
+    .element(page.getByText("login.bank.example no longer asks for the master password."))
     .toBeVisible();
   expect(current().snapshot.settings.repromptSites).toEqual([]);
   // An excluded site runs nothing, so it has no master password switch.
@@ -409,7 +409,7 @@ test("a master password rule for a parent site is changed only in settings", asy
   await expect.element(toggle).toBeDisabled();
   await expect
     .element(toggle)
-    .toHaveAccessibleDescription("Set by a rule for bank.example and its subdomains");
+    .toHaveAccessibleDescription("Set by a rule for bank.example and its subdomains.");
   await userEvent.click(page.getByRole("link", { name: "Change in settings for bank.example" }));
   expect(host.openSettings).toHaveBeenCalledOnce();
   expect(client.saveSettings).not.toHaveBeenCalled();
