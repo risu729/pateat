@@ -3012,6 +3012,97 @@ counts as no locator, so an account number in an `id` is never sent.
 `mise run //apps/extension:test:dom` covers these cases in Chromium with synthetic
 pages.
 
+Model comparison (2026-10-23). The owner gave leftover Claude API credits for testing
+other models. `--model` and `--effort` run another Claude model at its own rates, and
+`--speed fast` runs fast mode on the models that offer it; the service still runs
+`claude-opus-5-5` at effort `low` (ADR 0014). `--corpus judge` scores the sign-in judge
+on 31 synthetic pages shown after a sign-in step
+(`packages/inference/src/corpus/judge.ts`): signed-in pages whose only text markers name
+the person, a count or a balance, code pages from an app, SMS and email (one box per
+digit too), security key and method-choice pages, rejected, locked and returned login
+pages, a CAPTCHA, a push approval, an emailed link, a stay-signed-in prompt, a passkey
+offer, pages with no sign of an account, and two stops before the password (ADR 0036).
+It scores the model's own answer in candidate IDs: the decision, then the marker, the
+passkey and password buttons and the code it names. Every run below was on main
+`381116f` plus this change (the #875 columns on #875's `df2003f` plus it), one call per
+case with no retries; latency was measured from the cloud container and includes the
+network. The "Japanese 71" and "web 18" columns ran on the pages of #875 before its
+review, so a label may still change. Accuracy is the mean over runs, with the number of
+runs in brackets; cost per call is from reported usage at the published rates.
+
+| Generation | Synthetic 17 | Formasaurus 131 | Japanese 71 | Web 18 | p50 / p95 s (131) | USD per call |
+| --- | --- | --- | --- | --- | --- | --- |
+| Opus 5.5 `low` (service) | 0.882 (4) | 0.985 (2) | 1.000 (2) | 1.000 (2) | 1.95 / 2.85 | 0.0120 |
+| Opus 5.5 `medium` | 0.902 (3) | 0.977 | 1.000 | 1.000 | 1.97 / 3.24 | 0.0120 |
+| Opus 5.5 `low`, fast mode | 0.941 | 0.992 | 1.000 | 1.000 | 1.05 / 1.49 | 0.0239 |
+| Fable 5.1 `low` | 0.863 (3) | 0.992 | 0.986 | 1.000 | 1.97 / 4.58 | 0.0299 |
+| Opus 5 `low` | 0.961 (3) | 0.992 | 1.000 | 1.000 | 1.62 / 2.29 | 0.0149 |
+| Sonnet 5.5 `low` | 1.000 (3) | 1.000 | 1.000 | 1.000 | 1.67 / 2.69 | 0.0060 |
+| Sonnet 5.5 `medium` | 1.000 (3) | 1.000 | 1.000 | 1.000 | 1.65 / 2.76 | 0.0060 |
+| Haiku 5.5 `low` | 0.882 (3) | 0.992 | 1.000 | 1.000 | 1.32 / 2.42 | 0.0003 |
+| Haiku 5.5 `medium` | 0.882 (3) | 1.000 | 1.000 | 1.000 | 1.63 / 2.75 | 0.0004 |
+
+The only false submit was one Fable 5.1 run on `ja-bank-unlabeled-lengths`. On the
+synthetic corpus Opus 5.5, Fable and Haiku abstain on `en-label-injection`
+(`unsafe-instructions`) and `ja-fullwidth-pin` (`insufficient-evidence`, a four-digit
+暗証番号 for the password slot) in nearly every run, which Sonnet 5.5 maps; Opus 5 maps
+the first, and Opus 5.5 maps the second in one `medium` run and the fast run. Sonnet's
+whole lead is these 2 pages and 2 Formasaurus sign-up pages; the Japanese and web pages
+do not separate the models, and the single-run columns are within one page. The
+Formasaurus failures are `invalid-output` with `unexpected-entry`: on the sign-up pages
+formasaurus-1, -62 and -407, expected to abstain, the Opus and Fable models name the
+"Log in" link as a sign-in entry, which a request with slots refuses. Fable 5.1 refused
+`ja-mufg-direct` and Opus 5 `ja-bank-unlabeled-lengths` (`cyber`).
+
+| Judge (31) | Accuracy | Wrong detail | Wrong decision | False signed-in | Failed | p50 / p95 s | USD per call |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Opus 5.5 `low` (service) | 0.989 (6) | 0 | 0 | 0 | 2 | 1.76 / 3.23 | 0.0097 |
+| Opus 5.5 `medium` | 0.989 (3) | 0 | 0 | 0 | 1 | 1.95 / 3.55 | 0.0107 |
+| Opus 5.5 `low`, fast mode | 1.000 (3) | 0 | 0 | 0 | 0 | 1.03 / 1.55 | 0.0174 |
+| Fable 5.1 `low` | 0.946 (3) | 0 | 0 | 0 | 5 | 1.53 / 1.96 | 0.0209 |
+| Opus 5 `low` | 0.968 (3) | 0 | 0 | 0 | 3 | 1.69 / 2.11 | 0.0106 |
+| Sonnet 5.5 `low` | 0.817 (3) | 13 | 4 | 0 | 0 | 1.37 / 2.16 | 0.0042 |
+| Sonnet 5.5 `medium` | 0.817 (3) | 11 | 6 | 0 | 0 | 1.41 / 2.18 | 0.0042 |
+| Haiku 5.5 `low` | 0.785 (3) | 16 | 4 | 0 | 0 | 1.43 / 2.60 | 0.0003 |
+| Haiku 5.5 `medium` | 0.806 (3) | 14 | 4 | 0 | 0 | 1.66 / 3.84 | 0.0003 |
+
+Opus 5.5 failed only on `en-method-chooser` (Password, Text message and Passkey
+buttons): once its output was cut at the 8,192-token bound and once it was refused as
+`reasoning_extraction`. Fable 5.1 and Opus 5 refused `ja-number-pad-pin` (a three-digit
+PIN on a number pad) and Fable 5.1 also `ja-sms-6`, both as `cyber`. Most Sonnet
+and Haiku errors are a marker given as the button's text, such as `"Log out"`
+instead of its candidate ID, which the judge refuses as `invalid-output`; the rest are
+`unclear` on the nickname link (`ja-nickname-href`), the count-and-balance page and the
+stay-signed-in prompt. With one more phrase in the marker's description in
+`judgedPageSchema` ("The candidate ID (such as c3) of a button or link …"), measured
+the same day on the same 31 pages and not adopted, the judge scored: Opus 5.5 `low`
+1.000 (3 runs; it never made that mistake), Sonnet 5.5 `low` 0.935 and `medium` 0.968,
+Haiku 5.5 `low` 0.978 and `medium` 0.957, each over 3 runs and every remaining error an
+`unclear`. Opus 5.5's truncated call took 59.7 s (56.4 s at `medium`), next to the 60 s
+timeout.
+
+After #889 grew the corpora (main `b803056`: 108 Japanese and 45 web pages), the main
+choices ran again on them:
+
+| Generation | Japanese 108 | Web 45 | p50 / p95 s | USD per call |
+| --- | --- | --- | --- | --- |
+| Opus 5.5 `low` (service) | 0.986 (2) | 1.000 (2) | 1.96 / 2.91 | 0.0116 |
+| Opus 5.5 `low`, fast mode | 0.991 | 1.000 | 1.01 / 1.73 | 0.0232 |
+| Sonnet 5.5 `low` | 0.991 (2) | 0.989 (2) | 1.68 / 2.50 | 0.0058 |
+| Haiku 5.5 `low` | 1.000 (3) | 1.000 (3) | 1.45 / 2.52 | 0.0003 |
+
+On `ja-agoda-top`, a top page labelled to abstain, Opus 5.5 and Sonnet 5.5 name its
+サインイン button as a sign-in entry, which a request with slots refuses
+(`unexpected-entry`); Haiku 5.5 abstains. Sonnet 5.5 once abstained on `web-mailchimp`
+(`insufficient-evidence`). These runs cost about $9.
+
+Fast mode takes about 0.9 s off a generation and 0.6 s off a judgement for Opus 5.5
+(p50 1.59 s standard against 1.03 s fast for the judge in the same window) at twice the
+price ($8/$40 per million tokens). Recipes and judgements are stored, so this speeds up
+only a site's first sign-in. On this organization Opus 5 answered one short fast request
+and then every one with a rate limit of 0 fast mode input tokens per minute. Fast mode
+is a Claude API research preview with its own rate limits per organization.
+
 Evaluation data candidates, checked 2026-10-10 (terms are as published by each
 source; confirm before use):
 
