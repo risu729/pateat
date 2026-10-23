@@ -285,6 +285,9 @@ function readable(
   );
 }
 
+/** The most candidates the popup lists for a detail. */
+export const MAX_DETAIL_CANDIDATES = 20;
+
 /** One vault field that could give a detail, as the popup offers it. */
 export type DetailCandidate = {
   connectionId: string;
@@ -308,7 +311,7 @@ export function detailCandidates(
   connection: VaultConnectionMetadata,
   detail: LoginDetail,
   page: { host: string; title?: string | undefined; loginItemId: string },
-  limit = 20,
+  limit = MAX_DETAIL_CANDIDATES,
 ): DetailCandidate[] {
   const found: (DetailCandidate & { near: boolean })[] = [];
   for (const item of connection.items) {
@@ -402,9 +405,11 @@ export const cardLast4 = (number: string) => detailValue("card-last-4", undefine
  * 12:26 UTC), from what the page shows and what each card item holds (`facts`, by item):
  * the one card whose last four digits the page shows first; among several such cards, the
  * one whose brand the page names too, and otherwise those cards first with none selected,
- * so a tie is never chosen. With no such card, the only card whose brand the page names
- * comes first, leaving out a card whose last digits are known while the page shows other
- * ones. Otherwise the order by name is kept.
+ * so a tie is never chosen. When the page shows last digits and no card ends in them, the
+ * cards whose digits are unknown come before those whose digits differ, the brand's
+ * first, and none is selected. When it shows none, the only card of the brand it names
+ * comes first. Otherwise the order by name is kept. A brand counts only when the page
+ * names just one, and a candidate missing from `facts` was not read, so none is selected.
  */
 export function rankCards<T extends { itemId: string }>(
   candidates: readonly T[],
@@ -412,14 +417,12 @@ export function rankCards<T extends { itemId: string }>(
   hints: CardHints,
 ): { candidates: T[]; preselect: boolean } {
   const items = [...new Set(candidates.map((entry) => entry.itemId))];
+  const brand = hints.brands.length === 1 ? hints.brands[0] : undefined;
   const shows = (id: string) => {
     const last4 = facts.get(id)?.last4;
     return last4 !== undefined && hints.last4.includes(last4);
   };
-  const named = (id: string) => {
-    const brand = facts.get(id)?.brand;
-    return brand !== undefined && hints.brands.includes(brand);
-  };
+  const named = (id: string) => brand !== undefined && facts.get(id)?.brand === brand;
   const byDigits = items.filter(shows);
   let first: string[] = [];
   let preselect = true;
@@ -428,14 +431,18 @@ export function rankCards<T extends { itemId: string }>(
     const both = byDigits.filter(named);
     first = both.length === 1 ? both : byDigits;
     preselect = both.length === 1;
+  } else if (hints.last4.length > 0) {
+    const unknown = items.filter((id) => facts.get(id)?.last4 === undefined);
+    first = [...unknown.filter(named), ...unknown.filter((id) => !named(id))];
+    preselect = false;
   } else {
-    const differs = (id: string) => hints.last4.length > 0 && facts.get(id)?.last4 !== undefined;
-    const byBrand = items.filter((id) => named(id) && !differs(id));
+    const byBrand = items.filter(named);
     if (byBrand.length === 1) first = byBrand;
   }
+  if (items.some((id) => !facts.has(id))) preselect = false;
   return {
     candidates: [
-      ...candidates.filter((entry) => first.includes(entry.itemId)),
+      ...first.flatMap((id) => candidates.filter((entry) => entry.itemId === id)),
       ...candidates.filter((entry) => !first.includes(entry.itemId)),
     ],
     preselect,

@@ -62,7 +62,7 @@ describe("login.detail.card (ADR 0061, owner 2026-10-23 12:26 UTC)", () => {
   it("answers only the last four digits and brands shown beside the input and in the title", async () => {
     // Synthetic numbers only.
     document.body.innerHTML = `<form><div>
-        <p>Enter the security code of your VISA card •••• 9876</p>
+        <p>Enter the security code of your VISA card \u2022\u2022\u2022\u2022 9876</p>
         <input name="code" maxlength="3"></div><button>Next</button></form>`;
     document.title = "Card ending in 5555";
     uninstall = installLoginContent();

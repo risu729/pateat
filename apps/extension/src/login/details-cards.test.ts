@@ -287,14 +287,37 @@ describe("the popup's guess of a card (owner 2026-10-23 12:26 UTC)", () => {
       ["one", "two", "three"],
       true,
     ]);
-    // A card whose known digits differ from the shown ones is not the brand's card.
+    // A page that names several brands, as a list of accepted cards does, names none.
+    expect(
+      order(rankCards(candidates, facts, { last4: [], brands: ["Mastercard", "Visa"] })),
+    ).toEqual([["one", "two", "three"], true]);
+  });
+
+  it("selects none when the page shows last digits no card ends in", () => {
+    // A card whose known digits differ from the shown ones is not the page's card.
     expect(
       order(rankCards(candidates, facts, { last4: ["5555"], brands: ["Mastercard"] })),
-    ).toEqual([["one", "two", "three"], true]);
-    const unread = new Map<string, CardFacts>([["two", { brand: "Mastercard" }]]);
+    ).toEqual([["one", "two", "three"], false]);
+    // Cards whose digits are unknown, as one without a number, come first, the brand's first.
+    const partly = new Map<string, CardFacts>([
+      ["one", { last4: "1111" }],
+      ["two", { brand: "Visa" }],
+      ["three", { brand: "Mastercard" }],
+    ]);
     expect(
-      order(rankCards(candidates, unread, { last4: ["5555"], brands: ["Mastercard"] })),
-    ).toEqual([["two", "one", "three"], true]);
+      order(rankCards(candidates, partly, { last4: ["5555"], brands: ["Mastercard"] })),
+    ).toEqual([["three", "two", "one"], false]);
+  });
+
+  it("selects none while a candidate was not read", () => {
+    const some = new Map<string, CardFacts>([
+      ["one", { last4: "1111" }],
+      ["two", { last4: "9876" }],
+    ]);
+    expect(order(rankCards(candidates, some, { last4: ["1111"], brands: [] }))).toEqual([
+      ["one", "two", "three"],
+      false,
+    ]);
   });
 
   it("reads only a card's number and brand, while the item and the field are allowed", () => {

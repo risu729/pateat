@@ -14764,15 +14764,16 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         id: "synthetic-extension",
         url: "chrome-extension://synthetic-extension/popup.html",
       } as never;
-      const cards = {
+      const cards: Record<string, { number?: string; brand?: string }> = {
         "card-a": { number: "4242 4242 4242 7351", brand: "Visa" },
         "card-b": { number: "5555 5555 5555 9876", brand: "Mastercard" },
         "card-c": { number: "3530 1113 3330 9876", brand: "JCB" },
-      } as const;
-      type CardId = keyof typeof cards;
+        // A card item without a brand.
+        "card-d": { number: "3530 2224 4440 9876" },
+      };
       /** Stops at the code page with these card items in the vault, the page showing `hints`. */
       async function stopped(
-        ids: CardId[],
+        ids: string[],
         hints: unknown,
         overrides: Partial<LocalSettings> = {},
       ) {
@@ -14780,9 +14781,11 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         fake.state.cardHints = hints;
         const report = vi.fn<(entry: LoginReport) => void>();
         const h = harness(overrides, { passkeys: noPasskey, report });
+        const vault = { state: "ready" as "ready" | "locked" };
         const original = h.store.handle.getMockImplementation()!;
         h.store.handle.mockImplementation(async () => {
           const response = await original();
+          if (response.ok) response.catalog.connections[0]!.state = vault.state;
           if (response.ok)
             response.catalog.connections[0]!.items.push(
               ...ids.map((id) => ({
@@ -14801,8 +14804,9 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
           return response;
         });
         h.fields.mockImplementation(async (request) => {
-          const card = cards[request.account.itemId as CardId];
+          const card = cards[request.account.itemId];
           if (!card) return "synthetic-secret";
+          // A field without a value reads as nothing, as the vault field source answers.
           return request.fieldId === "card.number" ? card.number : card.brand;
         });
         h.recipes.recipe.mockResolvedValue(coded);
@@ -14811,7 +14815,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
           expect(status()).toMatchObject([{ state: "watching", outcome: "challenge" }]),
         );
         h.fields.mockClear();
-        return { h, report };
+        return { h, report, vault };
       }
       const offered = async (h: ReturnType<typeof harness>) => {
         const answer = (await h.login.handle(
@@ -14899,9 +14903,9 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
             ],
           },
         );
-        // Card B's number is not allowed, so nothing says it ends in 9876; card C is no
-        // candidate.
-        expect(await offered(h)).toEqual({ order: ["card-a", "card-b"], preselect: undefined });
+        // Card B's number is not allowed, so its digits are unknown and it comes before card
+        // A, whose digits differ, with none selected; card C is no candidate.
+        expect(await offered(h)).toEqual({ order: ["card-b", "card-a"], preselect: false });
         expect(reads(h)).toEqual([
           ["card-a", "card.number"],
           ["card-a", "card.brand"],
@@ -14925,6 +14929,85 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         fake.state.cardHints = { ok: true, last4: ["12345"], brands: [] };
         expect(await offered(h)).toEqual({ order: ["card-a", "card-b"], preselect: undefined });
         expect(reads(h)).toEqual([]);
+      });
+
+      it("reads on past a card without a brand", async () => {
+        const { h } = await stopped(["card-a", "card-d"], {
+          ok: true,
+          last4: ["9876"],
+          brands: [],
+        });
+        expect(await offered(h)).toEqual({ order: ["card-d", "card-a"], preselect: undefined });
+        expect(reads(h)).toEqual([
+          ["card-a", "card.number"],
+          ["card-a", "card.brand"],
+          ["card-d", "card.number"],
+          ["card-d", "card.brand"],
+        ]);
+      });
+
+      it("reads the vault once for the popup's polls, and keeps its guess when the page does not answer", async () => {
+        const { h } = await stopped(["card-a", "card-b"], {
+          ok: true,
+          last4: ["9876"],
+          brands: [],
+        });
+        expect(await offered(h)).toEqual({ order: ["card-b", "card-a"], preselect: undefined });
+        expect(reads(h)).toHaveLength(4);
+        h.fields.mockClear();
+        expect(await offered(h)).toEqual({ order: ["card-b", "card-a"], preselect: undefined });
+        fake.state.cardHints = { ok: false };
+        expect(await offered(h)).toEqual({ order: ["card-b", "card-a"], preselect: undefined });
+        expect(reads(h)).toEqual([]);
+        // The page now shows other digits: the cards are read again.
+        fake.state.cardHints = { ok: true, last4: ["7351"], brands: [] };
+        expect(await offered(h)).toEqual({ order: ["card-a", "card-b"], preselect: undefined });
+        expect(reads(h)).toHaveLength(4);
+      });
+
+      it("keeps the order by name while the vault is locked or when it changes during the reads", async () => {
+        const { h, vault } = await stopped(["card-a", "card-b"], {
+          ok: true,
+          last4: ["9876"],
+          brands: [],
+        });
+        vault.state = "locked";
+        expect(await offered(h)).toEqual({ order: ["card-a", "card-b"], preselect: undefined });
+        expect(reads(h)).toEqual([]);
+        vault.state = "ready";
+        const read = h.fields.getMockImplementation()!;
+        // A vault that locked after its catalog was read gives no value at all.
+        h.fields.mockImplementation(async () => undefined);
+        expect(await offered(h)).toEqual({ order: ["card-a", "card-b"], preselect: undefined });
+        expect(reads(h)).toHaveLength(4);
+        h.fields.mockClear();
+        h.fields.mockImplementation(read);
+        // A sync opens another snapshot while the cards are read.
+        h.fields.mockImplementationOnce(async (request) => {
+          h.snapshot.current = "60000000-0000-4000-8000-000000000009";
+          return read(request);
+        });
+        expect(await offered(h)).toEqual({ order: ["card-a", "card-b"], preselect: undefined });
+        expect(reads(h)).toHaveLength(4);
+        // Nothing was kept, so the next poll reads the new snapshot.
+        expect(await offered(h)).toEqual({ order: ["card-b", "card-a"], preselect: undefined });
+        expect(reads(h)).toHaveLength(8);
+      });
+
+      it("selects none when more cards could give the value than one guess reads", async () => {
+        const many = Array.from({ length: 21 }, (_, index) => {
+          const id = `card-${String(index + 10)}`;
+          cards[id] = { number: `4242 4242 4242 ${String(index + 1000)}`, brand: "Visa" };
+          return id;
+        });
+        const { h } = await stopped(many, { ok: true, last4: ["1000"], brands: [] });
+        const guess = await offered(h);
+        expect(guess.order[0]).toBe("card-10");
+        expect(guess.order).toHaveLength(20);
+        expect(guess.preselect).toBe(false);
+        // The first 20 cards only, each its number and brand.
+        expect(reads(h)).toHaveLength(40);
+        expect(reads(h).some(([read]) => read === "card-30")).toBe(false);
       });
     });
   });
