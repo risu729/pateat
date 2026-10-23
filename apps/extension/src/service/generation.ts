@@ -763,6 +763,8 @@ export function createLoginGeneration(options: {
           route: sample.route,
           ...(branch ? { branch } : {}),
           observation: described.observation,
+          // The account's slots, as the judge request carries them (owner 2026-10-23).
+          slots: slotsForPage(described.observation, described.slots),
         },
       );
       if (answer.kind === "rejected") return { outcome: "failed", reason: "device-rejected" };

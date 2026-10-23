@@ -532,7 +532,13 @@ describe("recipe generation", () => {
             ? { error: "device_revoked" }
             : { error: "synthetic" },
       );
-      const sample = { version: 1 as const, revision: 2, route: "password" as const, observation };
+      const sample = {
+        version: 1 as const,
+        revision: 2,
+        route: "password" as const,
+        observation,
+        slots: [] as [],
+      };
       expect(
         await createServiceTransport({ fetch }).samplePage(ORIGIN, CREDENTIAL, recipeId, sample),
       ).toEqual(expected);

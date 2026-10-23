@@ -87,7 +87,8 @@ export const judgedPageSchema = v.strictObject({
                     // Checked as `shownQuestionSchema` once parsed: a JSON schema carries
                     // no Unicode character classes.
                     v.pipe(v.string(), v.minLength(1), v.maxLength(QUESTION_MAX_LENGTH)),
-                    "With slot: the question as the page shows it, copied exactly.",
+                    "With slot: the whole question sentence as the page shows it, copied " +
+                      "exactly, without a label before it.",
                   ),
                 ),
               }),
@@ -163,8 +164,9 @@ export const completionInstructions = [
   "the username slot.",
   "For a secret-answer, slot is the index in slots of the identifier or hidden slot with",
   "fieldName that holds the answer to the question the page shows, even when its name",
-  "words the question otherwise, and shown is that question copied exactly as the page",
-  "shows it; leave both out when no slot is for that question, and for every other",
+  "words the question otherwise, and shown is the whole question sentence copied exactly",
+  'as the page shows it, without a label before it such as "Security question:" and never',
+  "a part of it; leave both out when no slot is for that question, and for every other",
   "detail.",
   "Any other fact, a whole phone or card number, a card's expiry date, a PIN, a password",
   "or a code sent to the person is no detail. A card's security code is a detail,",

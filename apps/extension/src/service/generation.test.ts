@@ -3,6 +3,7 @@ import {
   type EntryGenerationRequest,
   type LoginObservation,
   type RecipeGenerationRequest,
+  type SemanticSlot,
 } from "@pateat/contracts";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -1706,6 +1707,11 @@ describe("signed-in page samples (ADR 0029, owner 2026-10-18 08:05 UTC)", () => 
   const recipeId = "gen-0123456789abcdef0123456789abcdef";
   const signedIn: LoginObservation = { ...observation, path: "/home", candidates: [] };
   const sample = { recipeId, revision: 2, route: "password" as const };
+  // The account's slots, as the judge gets them; the page shows no code field.
+  const accountSlots: SemanticSlot[] = [
+    { id: "username", kind: "identifier", description: "account username" },
+    { id: "totp", kind: "one-time-code", description: "one-time authentication code" },
+  ];
   function sampleSetup(paired = true) {
     let stored: unknown;
     let now = 5_000_000_000;
@@ -1737,8 +1743,11 @@ describe("signed-in page samples (ADR 0029, owner 2026-10-18 08:05 UTC)", () => 
       now: () => now,
     });
     const describePage = vi.fn(
-      async (): Promise<{ observation: LoginObservation } | { unsent: string }> => ({
+      async (): Promise<
+        { observation: LoginObservation; slots: readonly SemanticSlot[] } | { unsent: string }
+      > => ({
         observation: signedIn,
+        slots: accountSlots,
       }),
     );
     return {
@@ -1767,6 +1776,8 @@ describe("signed-in page samples (ADR 0029, owner 2026-10-18 08:05 UTC)", () => 
       revision: 2,
       route: "password",
       observation: signedIn,
+      // The judge request's slots: `totp` only beside a code field (owner 2026-10-23).
+      slots: [accountSlots[0]],
     });
     expect(h.stored()).toEqual({
       version: 1,

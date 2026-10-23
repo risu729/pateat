@@ -101,15 +101,21 @@ describe("recipe generation contracts", () => {
   });
 
   it("takes a signed-in page sample (ADR 0029) with its route and only its own fields", () => {
-    const sampled = { version: 1, revision: 2, route: "password", observation };
+    const sampled = { version: 1, revision: 2, route: "password", observation, slots: [] };
     expect(v.is(recipePageSampleRequestSchema, sampled)).toBe(true);
+    // The account's slots, as the judge request carries them (owner 2026-10-23).
+    expect(
+      v.is(recipePageSampleRequestSchema, { ...sampled, slots: [builtInLoginSlots.username] }),
+    ).toBe(true);
     expect(v.is(recipePageSampleRequestSchema, { ...sampled, branch: "account" })).toBe(true);
     for (const invalid of [
       { ...sampled, branch: "list" },
       { ...sampled, partial: true },
       { ...sampled, stop: true },
       { ...sampled, revision: 0 },
-      { version: 1, revision: 2, observation },
+      { version: 1, revision: 2, observation, slots: [] },
+      { version: 1, revision: 2, route: "password", observation },
+      { ...sampled, slots: [{ ...builtInLoginSlots.username, value: "x" }] },
     ])
       expect(v.is(recipePageSampleRequestSchema, invalid)).toBe(false);
   });

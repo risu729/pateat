@@ -365,6 +365,11 @@ export const recipePageSampleRequestSchema = v.strictObject({
   /** For a chooser recipe (ADR 0028): the branch the login took. */
   branch: v.optional(chooserBranchSchema),
   observation: loginObservationSchema,
+  /**
+   * The login account's slots, exactly as the judge request would carry them, so the
+   * logged sample is the request the judge would get (owner 2026-10-23).
+   */
+  slots: v.union([semanticSlotsSchema, v.strictTuple([])]),
 });
 
 export const recipeCompletionResultSchema = v.variant("status", [

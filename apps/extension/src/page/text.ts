@@ -262,12 +262,17 @@ export function shown(element: Element, opacity = true): element is HTMLElement 
  * `skip` contribute nothing. A line-break opportunity never separates words: a `<wbr>`
  * adds nothing, and format characters such as a zero-width space or soft hyphen are
  * left out, so `taro@<wbr>example.com` and `taro@\u200Bexample.com` read as
- * `taro@example.com`.
+ * `taro@example.com`. With `separator`, block and `<br>` boundaries are that character,
+ * removed from the text itself, so a caller can split the text into its blocks.
  */
 export function renderedText(
   root: Element,
   limit: number,
-  { everyElement = false, skip }: { everyElement?: boolean; skip?: string } = {},
+  {
+    everyElement = false,
+    skip,
+    separator = " ",
+  }: { everyElement?: boolean; skip?: string; separator?: string } = {},
 ): string | undefined {
   if (!shown(root) || textless.has(root.tagName)) return undefined;
   const view = root.ownerDocument.defaultView;
@@ -280,20 +285,21 @@ export function renderedText(
   enqueue(root);
   while (pending.length > 0 && text.length <= limit) {
     const node = pending.pop();
-    if (node === undefined) text += " ";
-    else if (node instanceof Text) text += node.data.replace(/\p{Cf}+/gu, "");
+    if (node === undefined) text += separator;
+    else if (node instanceof Text)
+      text += node.data.replace(/\p{Cf}+/gu, "").replaceAll(separator, " ");
     else if (
       node instanceof Element &&
       !textless.has(node.tagName) &&
       shown(node) &&
       !(skip && node.matches(skip))
     ) {
-      if (node instanceof HTMLBRElement) text += " ";
+      if (node instanceof HTMLBRElement) text += separator;
       else if (
         node.localName !== "wbr" &&
         (everyElement || !view?.getComputedStyle(node).display.startsWith("inline"))
       ) {
-        text += " ";
+        text += separator;
         pending.push(undefined);
       }
       enqueue(node);

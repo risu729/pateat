@@ -1322,7 +1322,7 @@ describe("the account's slots for the judge (owner 2026-10-23)", () => {
       /A slot with fieldName offers one of the user's vault fields, and fieldPosition tells apart the user's fields of the same name: compare its name and valueShape with element labels, descriptions and constraints to name details and to tell a member-id from the account's sign-in ID, the username slot\./u,
     );
     expect(completionInstructions).toMatch(
-      /For a secret-answer, slot is the index in slots of the identifier or hidden slot with fieldName that holds the answer to the question the page shows, even when its name words the question otherwise, and shown is that question copied exactly as the page shows it; leave both out when no slot is for that question, and for every other detail\./u,
+      /For a secret-answer, slot is the index in slots of the identifier or hidden slot with fieldName that holds the answer to the question the page shows, even when its name words the question otherwise, and shown is the whole question sentence copied exactly as the page shows it, without a label before it such as "Security question:" and never a part of it; leave both out when no slot is for that question, and for every other detail\./u,
     );
   });
 });

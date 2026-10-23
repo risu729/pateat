@@ -1140,7 +1140,7 @@ export async function samplePage(
 ): Promise<"sampled" | "recent" | undefined | null> {
   const change = await readRevision(env.DB, scope.ownerId, recipeId, request.revision);
   if (!change || change.state !== "active") return undefined;
-  const { observation, route, branch } = request;
+  const { observation, route, branch, slots } = request;
   const recipe = routeOf(change.recipe, branch);
   if (
     !recipe ||
@@ -1171,6 +1171,8 @@ export async function samplePage(
         recipeId,
         route,
         loginPaths: judgedLoginPaths(change.recipe, recipe, route),
+        // The account's slots, as the judge request carries them (owner 2026-10-23).
+        slots,
         observation,
       },
       recipe: { recipeId, branch: branch ?? "", baseRevision: change.revision },

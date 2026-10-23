@@ -187,8 +187,8 @@ export const shownQuestionSchema = v.pipe(
   v.regex(/^[^\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+$/u),
 );
 /**
- * A secret question as a link stores it (ADR 0061): already in its compared form, so a
- * later login matches it literally, as it matches a field's name.
+ * A secret question as a link stores it (ADR 0061): already in its compared form
+ * (`questionText`), so a later login compares it with the page's whole questions.
  */
 export const storedQuestionSchema = v.pipe(
   v.string(),
@@ -212,7 +212,8 @@ export const detailLinkSchema = v.strictObject({
   /**
    * Only for a secret question's answer: the question the page showed when the owner
    * confirmed, in the popup, the AI's pairing of it with this field, whose name differs.
-   * A later login matches it literally, beside the field's name.
+   * A later login answers the question only where the page shows it, compared after
+   * normalization, as one whole question; the field's name then no longer counts.
    */
   question: v.optional(storedQuestionSchema),
 });

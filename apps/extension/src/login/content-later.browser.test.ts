@@ -139,30 +139,30 @@ describe("a secret question's answer under the question the owner confirmed (ADR
   }
   const answer = () => (document.getElementById("answer") as HTMLInputElement).value;
 
-  it("finds the field whose confirmed question the page shows, literally", async () => {
+  it("finds the field whose confirmed question the page shows as a whole question", async () => {
     await install();
     expect(
       await command({
         type: "login.detail.question",
         path: "/question",
         target,
-        names: [["好きな食べ物は"], ["お母さんの旧姓", "母親の旧姓は"]],
+        names: [{ name: "好きな食べ物は" }, { question: "母親の旧姓は" }],
       }),
     ).toEqual({ ok: true, index: 1 });
-    // A question worded otherwise is not the stored one.
+    // A question worded otherwise is not the stored one, nor is the label before it.
     expect(
       await command({
         type: "login.detail.question",
         path: "/question",
         target,
-        names: [["お母さんの旧姓", "母の旧姓は"]],
+        names: [{ question: "母の旧姓は" }, { question: "秘密の質問" }],
       }),
     ).toEqual({ ok: true });
   });
 
   it("fills the answer while the page still shows the confirmed question, and never otherwise", async () => {
     await install();
-    const fill = (question: string[]) =>
+    const fill = (question: { name: string } | { question: string }) =>
       command({
         type: "login.detail.fill",
         path: "/question",
@@ -171,9 +171,11 @@ describe("a secret question's answer under the question the owner confirmed (ADR
         secret: "answer",
         question,
       });
-    expect(await fill(["お母さんの旧姓", "母の旧姓は"])).toEqual({ ok: false });
+    expect(await fill({ question: "母の旧姓は" })).toEqual({ ok: false });
+    // A part of the question is not the question.
+    expect(await fill({ question: "母親の旧姓" })).toEqual({ ok: false });
     expect(answer()).toBe("");
-    expect(await fill(["お母さんの旧姓", "母親の旧姓は"])).toEqual({ ok: true });
+    expect(await fill({ question: "母親の旧姓は" })).toEqual({ ok: true });
     expect(answer()).toBe("synthetic answer");
   });
 });

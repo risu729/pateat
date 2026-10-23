@@ -5933,12 +5933,23 @@ describe("request timing", () => {
 });
 
 describe("signed-in page samples (ADR 0029, owner 2026-10-18 08:05 UTC)", () => {
+  // The account's slots, as the judge request carries them (owner 2026-10-23).
+  const sampleSlots: SemanticSlot[] = [
+    { id: "username", kind: "identifier", description: "account username" },
+    {
+      id: "custom-1",
+      kind: "hidden",
+      description: "concealed value of the user's vault field named in fieldName, such as a PIN",
+      fieldName: "Synthetic branch PIN",
+    },
+  ];
   const sample = (device: Device, recipeId: string, body: Record<string, unknown> = {}) =>
     post(device, `/v1/recipes/${recipeId}/page-sample`, {
       version: 1,
       revision: 2,
       route: "password",
       observation: homePage,
+      slots: sampleSlots,
       ...body,
     });
   const sampledRows = async (ownerId: string) =>
@@ -5986,6 +5997,7 @@ describe("signed-in page samples (ADR 0029, owner 2026-10-18 08:05 UTC)", () => 
           recipeId: change.recipeId,
           route: "password",
           loginPaths: ["/login", "/password"],
+          slots: sampleSlots,
           observation: homePage,
         },
         result: null,
@@ -6168,6 +6180,21 @@ describe("signed-in page samples (ADR 0029, owner 2026-10-18 08:05 UTC)", () => 
     // None of them holds off the recipe's signed-in page.
     expect((await sample(device, change.recipeId)).status).toBe(201);
     expect((await sampledRows(device.ownerId)).map(({ path }) => path)).toEqual(["/home"]);
+  });
+
+  it("refuses a sample without the account's slots, or with a value in one", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    const before = await logCount(device.ownerId);
+    expect((await sample(device, change.recipeId, { slots: undefined })).status).toBe(400);
+    expect(
+      (
+        await sample(device, change.recipeId, {
+          slots: [{ ...sampleSlots[0], value: "synthetic-secret" }],
+        })
+      ).status,
+    ).toBe(400);
+    expect(await logCount(device.ownerId)).toBe(before);
   });
 
   it("answers other methods with 405", async () => {
