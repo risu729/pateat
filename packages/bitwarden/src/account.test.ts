@@ -595,14 +595,14 @@ describe("account and provider binding admission", () => {
     },
   );
 
-  it.each([
-    { exp: accountNow },
-    { exp: accountNow - 1 },
-  ])("reports a token whose exp is not in the future as expired %j", (claims) => {
-    const raw = rawV1Account();
-    raw.token.access_token = syntheticJwt(claims);
-    expect(mapRaw(raw)).toEqual({ ok: false, error: { code: "authentication-expired" } });
-  });
+  it.each([{ exp: accountNow }, { exp: accountNow - 1 }])(
+    "reports a token whose exp is not in the future as expired %j",
+    (claims) => {
+      const raw = rawV1Account();
+      raw.token.access_token = syntheticJwt(claims);
+      expect(mapRaw(raw)).toEqual({ ok: false, error: { code: "authentication-expired" } });
+    },
+  );
 
   it.each(["opaque-token", "a.b.c", "e30.e30.c3ludGhldGlj", "x".repeat(200_000)])(
     "rejects malformed bounded JWT without echoing it",
