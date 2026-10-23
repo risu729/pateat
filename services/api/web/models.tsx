@@ -40,6 +40,19 @@ function unavailable(model: ManageModelOption) {
   return undefined;
 }
 
+/** Whether every choice names a model the list offers, as the service checks on saving. */
+function offersConfig(models: readonly ManageModelOption[], config: ModelConfig) {
+  return [...config.generate, ...config.judge].every((choice) => {
+    const model = models.find((entry) => entry.id === choice.model);
+    return (
+      model !== undefined &&
+      unavailable(model) === undefined &&
+      model.efforts.includes(choice.effort) &&
+      (choice.speed === "standard" || model.fast === "available")
+    );
+  });
+}
+
 /** A choice moved to another model keeps its effort and speed where that model allows them. */
 function withModel(choice: ModelChoice, model: ManageModelOption): ModelChoice {
   return {
@@ -57,7 +70,13 @@ function withModel(choice: ModelChoice, model: ManageModelOption): ModelChoice {
  */
 export function ModelsPage({ client }: { client: ManageClient }) {
   const queryClient = useQueryClient();
-  const models = useQuery({ queryKey: MODELS_QUERY_KEY, queryFn: () => client.models() });
+  // Read once per visit: each read exchanges a new token and calls the Models API.
+  const models = useQuery({
+    queryKey: MODELS_QUERY_KEY,
+    queryFn: () => client.models(),
+    staleTime: Number.POSITIVE_INFINITY,
+    refetchOnWindowFocus: false,
+  });
   // The owner's unsaved edit; null while the page shows the saved configuration.
   const [draft, setDraft] = useState<ModelConfig | null>(null);
   const save = useMutation({
@@ -143,8 +162,10 @@ function ModelsForm({
           <ol className="space-y-3">
             {config[role].map((choice, index) => (
               <ChoiceRow
-                // A role names each model once.
-                key={choice.model}
+                // A row is its place in the order; keyed by model, changing one would
+                // remount it and lose the select's focus.
+                // oxlint-disable-next-line react/no-array-index-key
+                key={index}
                 role={role}
                 index={index}
                 count={config[role].length}
@@ -211,7 +232,8 @@ function ModelsForm({
         <Button
           variant="outline"
           id="models-defaults"
-          disabled={saving}
+          // The defaults can be saved only while the list offers them.
+          disabled={saving || !offersConfig(view.models, DEFAULT_MODEL_CONFIG)}
           onClick={() => onChange(DEFAULT_MODEL_CONFIG)}
         >
           Use the defaults
@@ -245,6 +267,7 @@ function ChoiceRow({
 }) {
   const id = `models-${role}-${index}`;
   const model = models.find((entry) => entry.id === choice.model);
+  const name = model?.displayName ?? choice.model;
   const fastNote =
     model?.fast === "failing"
       ? "Fast (unavailable: its last calls failed)"
@@ -316,7 +339,7 @@ function ChoiceRow({
         <span className="flex gap-1">
           <Button
             variant="ghost"
-            aria-label="Move up"
+            aria-label={`Move ${name} up`}
             disabled={index === 0}
             onClick={() => onMove(-1)}
           >
@@ -324,13 +347,18 @@ function ChoiceRow({
           </Button>
           <Button
             variant="ghost"
-            aria-label="Move down"
+            aria-label={`Move ${name} down`}
             disabled={index === count - 1}
             onClick={() => onMove(1)}
           >
             <ArrowDown size={16} aria-hidden />
           </Button>
-          <Button variant="danger" disabled={count === 1} onClick={onRemove}>
+          <Button
+            variant="danger"
+            aria-label={`Remove ${name}`}
+            disabled={count === 1}
+            onClick={onRemove}
+          >
             Remove
           </Button>
         </span>

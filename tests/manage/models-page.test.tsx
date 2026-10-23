@@ -120,7 +120,7 @@ test("saves an edited order and effort", async () => {
   const client = mockClient();
   await mount(client);
   await expect.element(page.getByRole("heading", { name: "Recipe generation" })).toBeVisible();
-  await page.getByRole("button", { name: "Move up" }).nth(1).click();
+  await page.getByRole("button", { name: "Move Claude Sonnet 5.5 up" }).first().click();
   await page.getByRole("combobox", { name: "Effort" }).first().selectOptions("medium");
   await page.getByRole("button", { name: "Add a fallback" }).first().click();
   await page.getByRole("button", { name: "Save" }).click();
@@ -145,4 +145,23 @@ test("explains a model the list no longer offers", async () => {
     .toBeVisible();
   // The page reads the list again.
   expect(client.models).toHaveBeenCalledTimes(2);
+});
+
+test("offers the defaults only while the list offers their models", async () => {
+  const client = mockClient();
+  client.models.mockImplementation(async () => ({
+    ...structuredClone(VIEW),
+    config: {
+      generate: [
+        { provider: "anthropic", model: "claude-haiku-5-5", effort: "low", speed: "standard" },
+      ],
+      judge: [
+        { provider: "anthropic", model: "claude-haiku-5-5", effort: "low", speed: "standard" },
+      ],
+    },
+    models: VIEW.models.filter((model) => model.id !== "claude-sonnet-5-5"),
+  }));
+  await mount(client);
+  await expect.element(page.getByRole("heading", { name: "Recipe generation" })).toBeVisible();
+  await expect.element(page.getByRole("button", { name: "Use the defaults" })).toBeDisabled();
 });

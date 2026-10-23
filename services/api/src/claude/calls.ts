@@ -31,7 +31,7 @@ import {
   type inferenceLogRecipePages,
 } from "../db/schema";
 import { resolveClaudeCredential } from "./credentials";
-import { readModelConfig, roleChoices, type RoleChoice } from "./models";
+import { fastFailingModels, readModelConfig, roleChoices, type RoleChoice } from "./models";
 import { newId } from "@pateat/contracts/ids";
 
 // Every Claude call the service makes goes through here (ADR 0018): one call at a time
@@ -51,7 +51,10 @@ export const CLAUDE_CALL_LIMITS = {
   monthlyMicroUsd: 100_000_000,
   /** $5 a day (UTC), counting generation and judgement alike (owner decision, 2026-10-11). */
   dailyMicroUsd: 5_000_000,
-  /** Longer than the token exchange and the model timeout together. */
+  /**
+   * Longer than the token exchange and the most calls one request makes in turn: up to
+   * three choices, each fast then standard, at the 10 s model timeout.
+   */
   lockMs: 90_000,
   /** Every request log row and login result code, for evaluation (owner decision, 2026-10-18). */
   logRetentionMs: INFERENCE_LOG_RETENTION_MS,
@@ -141,7 +144,7 @@ export type ClaudeCallResult<T> =
       served: ServedModel;
     };
 
-/** A model as a call asked it, for the request log and the recipe it writes. */
+/** The model a call asked, as the request log keeps it, for the route that made the call. */
 export type ServedModel = {
   provider: "anthropic";
   model: string;
@@ -158,6 +161,11 @@ export type ServedModel = {
  */
 export type RequestTrace = {
   startedAt: number;
+  /**
+   * Keeps a promise running after the response or a client disconnect (the request's
+   * `waitUntil`), so a call already sent is still charged and logged.
+   */
+  waitUntil?: (promise: Promise<unknown>) => void;
   call?: ClaudeCallResult<unknown>;
   logId?: string;
 };
@@ -516,7 +524,11 @@ export async function callClaude<T>(
   trace: RequestTrace,
   call: ClaudeCall<T>,
 ): Promise<ClaudeCallResult<T>> {
-  const result = await runCall(env, ownerId, call, trace.startedAt);
+  // A client that disconnects mid-call must not end the Worker before the call is charged
+  // (ADR 0014): nothing is reserved before it.
+  const running = runCall(env, ownerId, call, trace.startedAt);
+  trace.waitUntil?.(running);
+  const result = await running;
   trace.call = result;
   if (result.status === "called" && result.logId !== undefined) trace.logId = result.logId;
   return result;
@@ -561,7 +573,11 @@ async function runCall<T>(
     if (credential.status !== "ready")
       return { status: "unavailable", reason: credentialUnavailable[credential.status], tokenMs };
 
-    const choices = roleChoices((await readModelConfig(env.DB, ownerId)).config, call.role);
+    const [{ config }, fastFailing] = await Promise.all([
+      readModelConfig(env.DB, ownerId),
+      fastFailingModels(env.DB, ownerId, Date.now()),
+    ]);
+    const choices = roleChoices(config, call.role, fastFailing);
     const before = call.beforeSend?.(db, Date.now()) ?? [];
     if (before.length > 0) await db.batch(before as [BatchItem<"sqlite">]);
 
@@ -612,9 +628,9 @@ async function runCall<T>(
 /**
  * Sends one model call for `runCall`, under its lock, then charges it to the spend stops
  * from reported usage at its model's rates (the worst case when usage is unknown) and logs
- * it. Nothing is reserved before the call (owner, 2026-10-23 11:31 UTC): with one call at a
- * time per owner, a stop is overshot by at most the call that crossed it, and a call whose
- * Worker ends before it returns is not charged. A request the role refused locally was
+ * it. Nothing is reserved before the call (owner, 2026-10-23 11:31 and 12:16 UTC): with
+ * one call at a time per owner, a stop is overshot by at most the call that crossed it.
+ * `callClaude` keeps the calls running past a client disconnect so each is charged. A request the role refused locally was
  * never sent, so it gets no log row here: its route logs it (ADR 0012).
  */
 async function sendCall<T>(

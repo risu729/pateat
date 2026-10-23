@@ -37,8 +37,10 @@ monthly Claude API credit and chose the model. The offline harness in
   call (owner, 2026-10-23 11:31 UTC): each call checks the stops first and is charged
   after it returns, from reported usage, or at its upper bound (64 KiB of input as
   tokens plus 1,024 output tokens at its rates) when usage is unknown. With one call at
-  a time per owner, a stop is overshot by at most the call that crossed it; a call
-  whose Worker ends before it returns is not charged.
+  a time per owner, a stop is overshot by at most the call that crossed it. The calls
+  run under the request's `waitUntil`, so a client that disconnects mid-call cannot
+  leave a sent call uncharged. The owner may bring the reservation back if overshoot
+  becomes a problem (12:16 UTC).
 - Anthropic's server-side `fallbacks` parameter is not used. An overload or other
   failure of the configured model ends as an error, with no automatic switch to another
   model, as ADR 0003 requires. A refusal is the one exception (owner, 2026-10-23 11:04
@@ -71,7 +73,8 @@ monthly Claude API credit and chose the model. The offline harness in
   line, and a role left with none asks the defaults. Fast mode cannot be chosen where
   the pricing page lists no fast price, or while the owner's last three fast calls of
   that model in the last seven days all failed as above, as when the organization has
-  no fast mode access. Retirement dates are not shown.
+  no fast mode access; a saved fast choice of such a model then runs at the standard
+  speed. Retirement dates are not shown.
 - Model rates are not written by hand (owner, 2026-10-23 11:31 UTC). `mise run
   //packages/inference:pricing` reads the model and fast mode tables of Anthropic's
   public pricing page (`https://platform.claude.com/docs/en/about-claude/pricing.md`)

@@ -55,7 +55,19 @@ beforeAll(() => {
     if (outbound.url.startsWith(MODELS_URL)) {
       modelRequests.push(outbound);
       if (typeof listed === "number") return Response.json({ type: "error" }, { status: listed });
-      return Response.json({ data: listed, has_more: false, first_id: null, last_id: null });
+      // One model per page, so every listing reads several pages.
+      const after = new URL(outbound.url).searchParams.get("after_id");
+      const start =
+        after === null
+          ? 0
+          : listed.findIndex((model) => (model as { id: string }).id === after) + 1;
+      const page = listed.slice(start, start + 1) as { id: string }[];
+      return Response.json({
+        data: page,
+        has_more: start + 1 < listed.length,
+        first_id: page[0]?.id ?? null,
+        last_id: page[0]?.id ?? null,
+      });
     }
     return accessFetch(input, init);
   });
@@ -145,6 +157,13 @@ describe("owner model configuration", () => {
       fastRates: { input: 8, output: 40 },
     });
     expect(modelRequests[0]?.headers.get("authorization")).toBe("Bearer synthetic-token");
+    // Four models, one page each, each page after the previous one's last model.
+    expect(modelRequests.map((entry) => new URL(entry.url).searchParams.get("after_id"))).toEqual([
+      null,
+      "claude-opus-5-5",
+      "claude-opus-4-8",
+      "claude-sonnet-5-5",
+    ]);
   });
 
   it("shows a new model without a price as unavailable, beside its line's newest priced one", async () => {

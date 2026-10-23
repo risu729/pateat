@@ -70,13 +70,23 @@ export async function saveModelConfig(db: Db, ownerId: string, config: ModelConf
 export type RoleChoice = ClaudeModelChoice & { speed: "standard" | "fast" };
 
 /**
- * The role's choices in order, each with its published rates. A choice the pricing page
- * no longer prices is skipped and written to the Worker log, since its spend could not be
- * bounded; with none left the role asks the defaults.
+ * The role's choices in order, each with its published rates. Fast mode on a model in
+ * `fastFailing` runs at the standard speed, so a saved choice the page now refuses stops
+ * paying for failed fast calls. A choice the pricing page no longer prices is skipped and
+ * written to the Worker log, since its spend could not be bounded; with none left the role
+ * asks the defaults.
  */
-export function roleChoices(config: ModelConfig, role: ModelRole): RoleChoice[] {
+export function roleChoices(
+  config: ModelConfig,
+  role: ModelRole,
+  fastFailing: ReadonlySet<string> = new Set(),
+): RoleChoice[] {
   const priced = (choices: readonly ModelChoice[]) =>
-    choices.flatMap((choice) => {
+    choices.flatMap((saved) => {
+      const choice =
+        saved.speed === "fast" && fastFailing.has(saved.model)
+          ? { ...saved, speed: "standard" as const }
+          : saved;
       const rates = claudeModelRates(choice.model, choice.speed);
       if (rates === undefined) {
         console.warn("Configured Claude model has no price", {

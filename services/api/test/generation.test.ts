@@ -774,6 +774,42 @@ describe("recipe generation", () => {
     expect(asked().map(({ model }) => model)).toEqual(["claude-opus-5-5", "claude-opus-5-5"]);
   });
 
+  it("asks no standard call once the failed fast call reached the daily spend stop", async () => {
+    const device = await owner();
+    await saveModelConfig(env.DB, device.ownerId, {
+      generate: [choice("claude-opus-5-5", "low", "fast")],
+      judge: [choice("claude-opus-5-5", "low", "standard")],
+    });
+    // Under the stop until fast mode's worst case, about $0.57, is charged.
+    await env.DB.prepare(
+      "INSERT INTO inference_spend (owner_id, period, calls, cost_micro_usd) VALUES (?, ?, 0, ?)",
+    )
+      .bind(device.ownerId, day(), 4_500_000)
+      .run();
+    replies.push(429);
+    expect(await generate(device, emailPage)).toMatchObject({ error: "rate-limited" });
+    expect(sent).toHaveLength(1);
+  });
+
+  it("runs a saved fast choice at the standard speed while its fast calls keep failing", async () => {
+    const device = await owner();
+    await saveModelConfig(env.DB, device.ownerId, {
+      generate: [choice("claude-opus-5-5", "low", "fast")],
+      judge: [choice("claude-opus-5-5", "low", "standard")],
+    });
+    const now = Date.now();
+    await env.DB.batch(
+      [1, 2, 3].map((index) =>
+        env.DB.prepare(
+          "INSERT INTO inference_log (id, owner_id, role, provider, model_id, speed, origin, path, request, outcome, cost_micro_usd, created_at) VALUES (?, ?, 'generate', 'anthropic', 'claude-opus-5-5', 'fast', ?, '/', '{}', 'rate-limited', 0, ?)",
+        ).bind(crypto.randomUUID(), device.ownerId, ORIGIN, now - index * 1000),
+      ),
+    );
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    expect(await generate(device, emailPage)).toMatchObject({ status: "recipe" });
+    expect(asked()).toEqual([{ model: "claude-opus-5-5", effort: "low", speed: undefined }]);
+  });
+
   it("asks the next choice, not the standard speed, when fast mode refuses", async () => {
     const device = await owner();
     await saveModelConfig(env.DB, device.ownerId, {
