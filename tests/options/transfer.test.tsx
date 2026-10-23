@@ -1,4 +1,4 @@
-import type { TransferFile, TransferResponse } from "@pateat/contracts";
+import type { TransferFile, TransferResponse } from "../../packages/contracts/src/index";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, test, vi } from "vitest";
 import { page } from "vitest/browser";
@@ -39,10 +39,12 @@ const FILE: TransferFile = {
 function syntheticClient(answers: { export?: TransferResponse; import?: TransferResponse } = {}) {
   return {
     exportFile: vi.fn(
-      async () => answers.export ?? { version: 1, ok: true, type: "settings.export", file: FILE },
+      async (): Promise<TransferResponse> =>
+        answers.export ?? { version: 1, ok: true, type: "settings.export", file: FILE },
     ),
     importFile: vi.fn(
-      async () => answers.import ?? { version: 1, ok: true, type: "settings.import", recipes: 2 },
+      async (_file: unknown): Promise<TransferResponse> =>
+        answers.import ?? { version: 1, ok: true, type: "settings.import", recipes: 2 },
     ),
   } satisfies TransferClient;
 }
