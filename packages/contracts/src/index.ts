@@ -15,5 +15,6 @@ export * from "./password-choice";
 export * from "./recipes";
 export * from "./service-connection";
 export * from "./sync";
+export * from "./transfer";
 export * from "./values";
 export * from "./passkey-button";

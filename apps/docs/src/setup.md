@@ -148,6 +148,18 @@ with Claude's default models, and keeps them on this device. **Daily limit (USD)
 **Monthly limit (USD)**, $5 and $100 unless you change them, stop requests at either
 limit. **Remove key** deletes the key.
 
+### Export and import
+
+Under **Export and import**, **Export to a file** saves a JSON file with what a paired
+Pateat service would keep: the site settings, the item and field limits of each vault
+with the vault's account and item names, the account chosen for each site, and the
+recipes this device uses. It never holds vault keys or values, the service's sign-in or
+the AI key. **Import from a file** on another device adds the file's settings to that
+device's own: everything the device has stays, and where both hold the same entry, the
+file's wins. A recipe replaces one the device keeps only when the file's is newer. A
+paired device uploads the imported recipes to its service at its next sync. Save or
+reload the settings page before you import.
+
 ## Using Pateat
 
 Once both steps are done, open the login page of a site that has an item in your vault.

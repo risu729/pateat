@@ -417,6 +417,24 @@ const serviceDocument = ({ popupPageSection, ...lists }: SyncedSettings): LocalS
   ...(popupPageSection ? {} : { popupPageSection: false }),
 });
 
+/** The synced part of the local settings as an exported file holds it (ADR 0040). */
+export function exportedSettings(settings: LocalSettings): LocalSettings {
+  return serviceDocument(syncedSettings(settings));
+}
+
+/**
+ * Local settings with an exported file's settings merged in as a first pairing merges a
+ * service's (ADR 0040): every entry of both is kept, and the file's wins where both hold
+ * one. Vault connections and the demo provider's policy stay as they are.
+ */
+export function importedSettings(settings: LocalSettings, file: LocalSettings): LocalSettings {
+  const base = { service: emptySynced, local: emptySynced };
+  return applySynced(
+    settings,
+    mergeSyncedSettings(base, syncedSettings(settings), syncedSettings(file)),
+  );
+}
+
 export function createSettingsSync(options: {
   transport: Pick<ServiceTransport, "settings" | "saveSettings">;
   /** The local settings store; writes go through its revision check. */

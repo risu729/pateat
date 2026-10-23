@@ -197,6 +197,7 @@ and no setting value:
 | `automatic-vault-sync` | A snapshot adopted by an automatic check |
 | `field-review` | A custom-field review ([ADR 0023](0023-synced-vault-policy.md)) |
 | `service-sync` | Settings merged from the Pateat service |
+| `settings-import` | Settings merged from an exported file ([ADR 0040](0040-running-without-the-service.md#export-and-import)) |
 | `account-choice` | An account used on a site, from a login or a passkey request, saved for that site ([ADR 0021](0021-account-choice-outside-settings.md)) |
 | `detail-link` | A vault field linked to, or unlinked from, a personal detail on a site ([ADR 0061](0061-personal-details-during-a-login.md)) |
 

@@ -26,6 +26,7 @@ export const settingsJa = {
   "a Bitwarden vault was synced automatically": "Bitwarden 保管庫の自動同期",
   "custom fields were reviewed": "カスタムフィールドの確認",
   "settings were merged with the Pateat sync service": "Pateat 同期サービスとの設定の統合",
+  "settings were imported from a file": "ファイルからの設定の読み込み",
   "an account used to log in on a site was saved for that site":
     "サイトでのログインに使ったアカウントの保存",
   "a vault field for a personal detail was linked or unlinked for a site":
@@ -226,4 +227,36 @@ export const settingsJa = {
     "このキーでの利用額: 今日 {{today}}、今月 {{month}}（UTC）。Anthropic が返す使用量からの見積もりです。どちらかの上限に達すると問い合わせを止めます。",
   "The key stays on this device and is sent to Anthropic only, never to the sync service. Without a paired sync service, this device makes recipes with it and keeps them here.":
     "キーはこのデバイスにだけ保存し、Anthropic にだけ送ります。同期サービスには送りません。同期サービスとペアリングしていないときは、このデバイスがこのキーでレシピを作り、このデバイスに保存します。",
+  "Export and import": "エクスポートとインポート",
+  "Export to a file": "ファイルにエクスポート",
+  "Import from a file": "ファイルからインポート",
+  "Pateat export file": "Pateat のエクスポートファイル",
+  "Exporting…": "エクスポート中…",
+  "Importing…": "インポート中…",
+  "Exported the settings and {{count}} recipe.":
+    "設定と {{count}} 件のレシピをエクスポートしました。",
+  "Exported the settings and {{count}} recipe._one":
+    "設定と {{count}} 件のレシピをエクスポートしました。",
+  "Exported the settings and {{count}} recipe._other":
+    "設定と {{count}} 件のレシピをエクスポートしました。",
+  "Imported the settings and {{count}} new or newer recipe.":
+    "設定と、新しいか更新された {{count}} 件のレシピをインポートしました。",
+  "Imported the settings and {{count}} new or newer recipe._one":
+    "設定と、新しいか更新された {{count}} 件のレシピをインポートしました。",
+  "Imported the settings and {{count}} new or newer recipe._other":
+    "設定と、新しいか更新された {{count}} 件のレシピをインポートしました。",
+  "The settings or recipes are larger than an export file holds.":
+    "設定かレシピが、エクスポートファイルに入る大きさを超えています。",
+  "This is not a Pateat export file, or its settings do not fit with these.":
+    "Pateat のエクスポートファイルではないか、その設定をこのデバイスの設定と合わせられません。",
+  "The recipes do not fit with the ones this device keeps. Nothing was imported.":
+    "このデバイスにあるレシピと合わせると保存できる量を超えます。何もインポートしていません。",
+  "Pateat could not read or write its storage. Try again.":
+    "Pateat の保存領域を読み書きできませんでした。もう一度お試しください。",
+  "Save or reload the settings above before you import.":
+    "インポートする前に、上の設定を保存するか読み込み直してください。",
+  "The file holds what a paired sync service keeps: the site settings, the vault policies with their account and item names, the accounts chosen for sites, and the recipes logins use. It never holds vault keys or values, the sync service's sign-in or the AI key.":
+    "ファイルには、ペアリングした同期サービスが保存するものが入ります。サイトの設定、アカウント名とアイテム名を含む保管庫の利用範囲、サイトごとに選んだアカウント、ログインに使うレシピです。保管庫の鍵や値、同期サービスのサインイン情報、AI キーは入りません。",
+  "Importing keeps everything this device has; where both hold the same entry, the file's wins. A recipe replaces one kept here only at a newer revision. A paired device uploads the imported ones at its next sync.":
+    "インポートしても、このデバイスにある設定はすべて残ります。同じ項目が両方にあるときは、ファイルの方を使います。レシピは、ファイルの方が新しい版のときだけ置き換えます。ペアリングしたデバイスでは、次の同期でインポートしたものをアップロードします。",
 } satisfies Record<keyof typeof settingsEn, string>;

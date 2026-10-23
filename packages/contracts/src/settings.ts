@@ -577,6 +577,8 @@ export const SETTINGS_CHANGE_CAUSES = [
   "field-review",
   /** Settings merged from the Pateat service. */
   "service-sync",
+  /** Settings merged from a file exported on another device (ADR 0040). */
+  "settings-import",
   /** An account used on a site, from a login or a passkey request, saved for it (ADR 0021). */
   "account-choice",
   /** A vault field linked to a personal detail on a site, or that link removed (ADR 0061). */

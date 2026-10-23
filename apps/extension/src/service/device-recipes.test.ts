@@ -98,9 +98,16 @@ describe("recipes this device holds as its own (ADR 0040)", () => {
   it("keeps recipes, replacing one only with a newer revision", async () => {
     const { recipes } = setup({ version: 1, recipes: [recipe("a", 4), recipe("b", 2)] });
     const newer = { ...recipe("b", 3, "/signin") };
-    await recipes.keep([recipe("a", 3, "/other"), newer, recipe("c", 1)]);
+    expect(await recipes.keep([recipe("a", 3, "/other"), newer, recipe("c", 1)])).toBe(2);
     expect(await recipes.list()).toEqual([recipe("a", 4), newer, recipe("c", 1)]);
     expect(await recipes.count()).toBe(3);
+  });
+
+  it("writes nothing when every recipe given is kept already at that revision or newer", async () => {
+    const { recipes, storage } = setup({ version: 1, recipes: [recipe("a", 4)] });
+    expect(await recipes.keep([recipe("a", 4, "/other"), recipe("a", 2)])).toBe(0);
+    expect(storage.write).not.toHaveBeenCalled();
+    expect(await recipes.list()).toEqual([recipe("a", 4)]);
   });
 
   it("keeps nothing when the result would not fit", async () => {
