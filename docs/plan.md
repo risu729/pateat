@@ -1144,9 +1144,9 @@ be started from the issue alone (owner, 2026-10-14 08:40 UTC). The list below na
 items the owner mentioned and gates still open on 2026-10-11.
 
 - From the [external review](research/2026-10-13-external-review.md): a scheduled purge
-  of the inference log, which since 2026-10-18 keeps
-  every row one year (a trigger is a deployment change the owner approves); and syncing
-  which recipes exist and which are revoked separately from their bodies, if
+  of the inference log, which since 2026-10-18 keeps every row one year (a trigger is a
+  deployment change the owner approves); and syncing which recipes exist and which are
+  revoked separately from their bodies, if
   [#544](https://github.com/risu729/pateat/issues/544) and the recipe limits are not
   enough.
 - Signing in through an identity provider

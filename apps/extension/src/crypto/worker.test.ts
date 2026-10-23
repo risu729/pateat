@@ -45,7 +45,7 @@ vi.mock("@pateat/bitwarden/browser-sdk", () => ({
 }));
 
 const generation = "30000000-0000-4000-8000-000000000001";
-const connectionId = "synthetic-worker-cache";
+const connectionId = "synthetic-worker";
 const userId = "30000000-0000-4000-8000-000000000002";
 const snapshotId = "30000000-0000-4000-8000-000000000003";
 const otherSnapshotId = "30000000-0000-4000-8000-000000000004";
