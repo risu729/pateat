@@ -1482,6 +1482,35 @@ describe("recipe sync schedule", () => {
     await flush();
     expect(limited.transport.recipeChanges).toHaveBeenCalledOnce();
   });
+
+  it("syncs now when the clock moves backwards in the same worker", async () => {
+    const DAY = 24 * 60 * 60 * 1000;
+    let time = 2 * DAY;
+    const h = setup({ now: () => time });
+    expect(await h.sync.sync()).toBe("synced");
+    expect(h.transport.recipeChanges).toHaveBeenCalledOnce();
+    time -= DAY;
+
+    // A new worker over the same storage treats the schedule as due now.
+    const restarted = setup({ now: () => time, scheduled: h.schedule() });
+    restarted.sync.refreshIfStale();
+    await vi.waitFor(() => expect(restarted.transport.recipeChanges).toHaveBeenCalledOnce());
+
+    // So does the worker that recorded it.
+    h.sync.refreshIfStale();
+    await flush();
+    expect(h.transport.recipeChanges).toHaveBeenCalledTimes(2);
+  });
+
+  it("ends a rate-limit back-off when the clock moves backwards", async () => {
+    let time = 10 * RECIPE_SYNC_RATE_LIMIT_MS;
+    const h = setup({ now: () => time, pages: [{ kind: "failed", error: "rate-limited" }] });
+    expect(await h.sync.sync()).toBe("rate-limited");
+    time -= RECIPE_SYNC_RATE_LIMIT_MS;
+    h.sync.refreshIfStale();
+    await flush();
+    expect(h.transport.recipeChanges).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe("cached recipe lookup", () => {

@@ -77,9 +77,12 @@ application exempts `/v1/*`, `/health`, `/.well-known/openid-configuration` and
 `/.well-known/jwks.json`, which clients call without an Access login. For `/pair` and
 `/manage`, the Worker verifies the `Cf-Access-Jwt-Assertion` itself against the team's
 keys, the `ACCESS_TEAM_DOMAIN` issuer and the `ACCESS_AUD` audience. Without both
-secrets those routes answer 503. `POST /pair` and `GET /pair/signed-in` also accept the
-`ACCESS_PAIR_AUD` audience of the "pateat pair" Access application, which admits
-browsers without WARP to pairing only
+secrets those routes answer 503. When the team's signing keys cannot be fetched (an
+error, an answer that is not a key set, or no answer within five seconds), owner pages
+answer 503 asking to try again later and the JSON routes 503 `access_keys_unavailable`,
+not a refused sign-in.
+`POST /pair` and `GET /pair/signed-in` also accept the `ACCESS_PAIR_AUD` audience of the
+"pateat pair" Access application, which admits browsers without WARP to pairing only
 ([ADR 0030](../../docs/adr/0030-pairing-without-warp.md)). An empty value turns it off
 only while that application does not exist. The owner is found by token issuer and
 subject, never by email. The
@@ -112,6 +115,7 @@ with host access skip CORS. Errors are `{ "error": code }`:
 | 429 | `rate_limited` | Too many pairings by this identity, with `Retry-After: 60` |
 | 500 | `internal_error` | An unexpected failure |
 | 503 | `access_unavailable` | The Access secrets are missing or invalid |
+| 503 | `access_keys_unavailable` | Access's signing keys could not be fetched; try again later |
 | 503 | `pairing_unavailable` | `PAIRING_EXTENSION_IDS` is missing, empty or malformed |
 
 Without an Access session, Access itself redirects to its login or answers with its own
@@ -125,11 +129,12 @@ assets, all with a Content Security Policy that allows only this origin's script
 framing. `/manage/api` answers with JSON and its contracts are in
 `packages/contracts/src/manage.ts`; failures are `unauthorized` (no token), `forbidden`
 (a token that fails verification, or a state-changing request without this origin's
-`Origin`) and `access_unavailable` (no Access configuration). An identity that never
-approved a pairing has no owner and sees no data; its settings requests answer 404
-`not_paired`. Settings and recipe revisions written here record no device as their
-writer. The bundle includes GPL-3.0-only `packages/contracts` code; each page links its
-source and the GPL text at the built commit, and the third-party notices served with it
+`Origin`), `access_unavailable` (no Access configuration) and `access_keys_unavailable`
+(Access's signing keys could not be fetched). An identity that never approved a pairing
+has no owner and sees no data; its settings requests answer 404 `not_paired`. Settings
+and recipe revisions written here record no device as their writer. The bundle includes
+GPL-3.0-only `packages/contracts` code; each page links its source and the GPL text at
+the built commit, and the third-party notices served with it
 (`public/manage/assets/notices.md` and the build's `licenses.md`).
 
 Recipe revisions are immutable. A write claims the head with a conditional statement and
@@ -272,7 +277,11 @@ the path ending before it), or `{ check: "plan", reason }` with the plan check's
   button. A recipe's first page that lists no accounts, and only it, carries `signedIn`
   (400 otherwise): the device's hint that the page shows the person signed in
   ([ADR 0035](../../docs/adr/0035-page-kinds-per-site.md)), sent to the model with the
-  page. Every plan answers `pageKind` (`sign-in`, `confirm` or `unclear`) and
+  page. A page that lists accounts has `slots: []`, and only such a page or a
+  passkey-only one may (400 otherwise): no slot, field name or value shape goes with a
+  list, whose instructions say so
+  ([ADR 0028](../../docs/adr/0028-account-chooser-login-pages.md#amendment-2026-10-23-sent-without-slots)).
+  Every plan answers `pageKind` (`sign-in`, `confirm` or `unclear`) and
   `irreversible` (`yes`, `no` or `unclear`, for evaluation only). The recipe stores its
   first page's `pageKind`: a continuation keeps the recipe's, and a chooser branch's
   pages are `sign-in` whatever the model answers. `irreversible` is never stored on a

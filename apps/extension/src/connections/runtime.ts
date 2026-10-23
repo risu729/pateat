@@ -35,6 +35,14 @@ import type { ConnectionRegistry, ConnectionSetupDependencies, SetupReply } from
 /** A diagnostics read must not hold the page as long as a sync may take. */
 const SERVER_CONFIG_TIMEOUT_MS = 5_000;
 
+export type SignInStep = "begin" | "continue" | "send-email-code" | "keep-alive";
+const signInSteps: Partial<Record<v.InferOutput<typeof setupRequestSchema>["type"], SignInStep>> = {
+  "connection.begin": "begin",
+  "connection.continue": "continue",
+  "connection.send-email-code": "send-email-code",
+  "connection.keep-alive": "keep-alive",
+};
+
 export function createConnectionRuntime(
   host: CryptoHost,
   options: {
@@ -53,6 +61,11 @@ export function createConnectionRuntime(
     onVaultOpened?: () => void;
     /** Called with each settings-page Sync result, for the local log. */
     onSync?: (connectionId: string, reply: SetupReply) => void;
+    /**
+     * Called with each settings-page sign-in step's result, for the local log: the password,
+     * the code, an email code send, and a heartbeat that found the sign-in gone.
+     */
+    onSignIn?: (step: SignInStep, reply: SetupReply) => void;
     /** Called with each Bitwarden refresh result, for the local log. */
     onRefresh?: (event: RefreshReport) => void;
   } = {},
@@ -249,12 +262,13 @@ export function createConnectionRuntime(
           pending -= 1;
           // A heartbeat changes no vault state.
           if (request.type !== "connection.keep-alive") options.onVaultStateMayChange?.();
-          if (request.type === "connection.sync") {
-            try {
-              options.onSync?.(request.connectionId, reply);
-            } catch {
-              // Logging never holds back the reply.
-            }
+          try {
+            if (request.type === "connection.sync") options.onSync?.(request.connectionId, reply);
+            const step = signInSteps[request.type];
+            // A heartbeat is logged only when it found the sign-in gone.
+            if (step && (step !== "keep-alive" || !reply.ok)) options.onSignIn?.(step, reply);
+          } catch {
+            // Logging never holds back the reply.
           }
           send({ requestId: request.requestId, result: reply });
           return undefined;

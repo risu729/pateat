@@ -121,6 +121,7 @@ export const LOG_EVENTS = {
     level: "info",
     fields: { connection: "connection", outcome: "code", check: "code" },
   },
+  "vault.sign-in": { level: "info", fields: { step: "code", outcome: "code" } },
   "vault.check": { level: "info", fields: { connection: "connection", outcome: "code" } },
   "vault.refresh": {
     level: "info",

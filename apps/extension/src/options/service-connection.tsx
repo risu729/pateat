@@ -54,6 +54,8 @@ function errorMessage(error: ServiceErrorCode, origin?: string): ServiceMessage 
       return "This service does not accept this build of Pateat. Its operator must add this extension's ID to PAIRING_EXTENSION_IDS.";
     case "pairing-unavailable":
       return "Pairing is not configured on this service.";
+    case "access-keys-unavailable":
+      return "The service could not check your sign-in. Try again later.";
     case "wrong-state":
       return "The connection changed elsewhere. This page now shows its current state.";
     case "invalid-request":

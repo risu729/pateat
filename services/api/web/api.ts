@@ -140,6 +140,8 @@ export function describeError(error: unknown): string {
       return "Your sign-in could not be verified. Reload the page to sign in again.";
     case "access_unavailable":
       return "Owner sign-in is not configured for this service.";
+    case "access_keys_unavailable":
+      return "Your sign-in could not be checked. Try again later.";
     case "not_found":
       return "It no longer exists. Reload the page.";
     case "not_paired":
