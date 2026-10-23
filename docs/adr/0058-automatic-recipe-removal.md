@@ -119,9 +119,10 @@ Claude's choices beyond the owner's answer, not confirmed by the owner:
   idle. That login's use report and records then get 404, and the next visit generates
   the recipe again.
 - Part A can repeat on a page whose regenerated recipe the item still cannot run, as a
-  page with no passkey button for an item that only has a passkey: each device then
-  revokes and generates it again once every 30 days, and each round loses the learned
-  handlers, markers and continuation pages, as above.
+  page with no passkey button for an item that only has a passkey, or a page with only a
+  passkey button that one matching item can press and another, with only a password,
+  cannot: each device then revokes and generates it again once every 30 days, and each
+  round loses the learned handlers, markers and continuation pages, as above.
 - A revocation under part A tells the service that the chosen item could not run the
   recipe, which hints at what the item lacks (its password, its TOTP secret or a
   passkey). It sends no value or fact by name, and the service is the owner's own.
@@ -144,13 +145,18 @@ revocation in `pateat.recipe-replacements.v1`, sends `PUT /v1/recipes/:recipeId`
 `state: "revoked"` and pulls recipes. Once the recipe cache no longer starts that
 revision on the page, the document announces again and is offered for generation as a
 page where no recipe starts ([ADR 0016](0016-recipe-generation-trigger.md)); otherwise
-it is refused as before. Each revocation logs `recipe.revoke`. On `main` this covers an
-item with a discoverable passkey and no usable password, or without its TOTP secret, on
-a recipe without a passkey button. The owner's example, a recipe that only presses a
-passkey button for an item with only a password, needs the passkey-only recipe of
-[#663](https://github.com/risu729/pateat/pull/663), which the same check covers. A page
-whose document was already offered for generation once is generated only on its next
-visit.
+it is refused as before. Each revocation logs `recipe.revoke`. This covers an item with
+a discoverable passkey and no usable password, or without its TOTP secret, on a recipe
+without a passkey button, and the owner's example: a passkey-only recipe
+([ADR 0053](0053-passkey-only-generation.md), merged in
+[#805](https://github.com/risu729/pateat/pull/805)) has no `password` variant, so an
+item with a password and no discoverable passkey refuses it with `no-route` and is
+marked `password`. A page that also shows an entry or a list is then sent with that
+entry or list, since that item holds no passkey (ADR 0053 decision 7); a page with only
+the button is generated as a passkey-only page again when another matching item holds
+a passkey (decision 2), and the 30-day bound limits that repeat, as ADR 0053's
+implementation notes say. A page whose document was
+already offered for generation once is generated only on its next visit.
 
 ## Alternatives
 

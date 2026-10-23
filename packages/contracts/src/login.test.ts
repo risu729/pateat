@@ -2941,9 +2941,34 @@ describe("the route a recipe lacks for the item (ADR 0058 A)", () => {
     expect(heldRouteMissing(plain(), facts(true, true), false)).toBeUndefined();
   });
 
+  it("names the password route for a password on a passkey-only recipe (ADR 0053)", () => {
+    const only = parseLoginRecipe({
+      version: 1,
+      id: "bank-login",
+      revision: 1,
+      origin: "https://bank.example",
+      slots: [],
+      passkeyOnly: true,
+      passkey: { path: "/identity", target: id("passkey-login") },
+      steps: [{ kind: "click", path: "/identity", target: id("passkey-login"), purpose: "submit" }],
+      maxSubmissions: 1,
+    });
+    expect(recipeHasRoute(only, "password")).toBe(false);
+    expect(recipeHasRoute(only, "passkey")).toBe(true);
+    // A password and no discoverable passkey: the recipe has no route for the password.
+    expect(heldRouteMissing(only, facts(true, false), true)).toBe("password");
+    expect(heldRouteMissing(only, facts(true, false), false)).toBe("password");
+    // A discoverable passkey alone: the recipe has the passkey route.
+    expect(heldRouteMissing(only, facts(false, true), true)).toBeUndefined();
+    // With the password beside it, the plan takes the passkey route and never asks.
+    expect(chooseLoginRoute(only, facts(true, true), [])).toEqual({ route: "passkey" });
+    // Neither: nothing the recipe lacks.
+    expect(heldRouteMissing(only, facts(false, false), true)).toBeUndefined();
+    expect(heldRouteMissing(only, facts(false, false), false)).toBeUndefined();
+  });
+
   it("names no password route while the recipe has a password variant", () => {
-    // Every recipe the current schema accepts has at least one password variant, so the
-    // `password` answer needs a recipe without one (#663); a password alone names nothing.
+    // A password alone names nothing on a recipe with a password variant.
     expect(recipeHasRoute(plain(), "password")).toBe(true);
     expect(heldRouteMissing(plain(), facts(true, false), true)).toBeUndefined();
     expect(heldRouteMissing(plain(), facts(true, false), false)).toBeUndefined();
