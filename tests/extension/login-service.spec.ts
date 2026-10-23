@@ -415,7 +415,7 @@ test("a page whose recipe was generated as a verification only watches, and logs
         const browser = await open();
         await serveSite(browser.context, fixture);
         await setupProbe(browser.page, { action: "configure", variant: "uri" });
-        const confirm = {
+        const confirmRoute: LoginRecipe = {
           version: 1,
           id: "synthetic-confirm",
           revision: 1,
@@ -427,6 +427,7 @@ test("a page whose recipe was generated as a verification only watches, and logs
               kind: "fill",
               path: "/confirm-transfer",
               fields: [{ slot: "password", target: target("confirm-password") }],
+              effect: "prepare",
             },
             {
               kind: "click",
@@ -437,6 +438,13 @@ test("a page whose recipe was generated as a verification only watches, and logs
           ],
           completion: [{ target: target("authenticated") }],
           maxSubmissions: 1,
+        };
+        const confirm: LoginRecipeDocument = {
+          version: 1,
+          id: confirmRoute.id,
+          revision: 1,
+          origin: site,
+          layouts: [toLoginLayout(confirmRoute, { key: newLayoutKey(createdAt, []), createdAt })],
         };
         const { options } = await prepare(browser, service, [confirm]);
 
