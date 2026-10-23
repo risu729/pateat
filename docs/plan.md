@@ -498,7 +498,10 @@ than in this repository.
   saved-profile list shows a handle while the item's username is an email, which
   [ADR 0028](adr/0028-account-chooser-login-pages.md) does not match. The owner chose on
   2026-10-23 (11:23 UTC) to add no rule for it: Pateat keeps logging in through "Use
-  another profile" and never picks a saved profile there.
+  another profile" and never picks a saved profile there. An item's username is the ID
+  typed on the sign-in page; matching a list's handle against another field (such as a
+  custom field) is considered only once lists like this are found to make logins fail
+  or take needless time, such as re-verification requests (owner, 11:24 UTC).
 - Installed-Chrome checks moved from phase 1 (owner, 2026-10-12 20:35 UTC), checked
   when daily use reaches them:
   - A plain HTTP site whose item is saved with an `http://` URI logs in, submit
