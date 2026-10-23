@@ -516,18 +516,34 @@ describe("diagnostics log", () => {
     for (const level of ["debug", "info", "warn"] as const)
       vi.spyOn(console, level).mockImplementation(() => undefined);
     log.recipeSync("synced", { scope: "full", added: 1, updated: 0, removed: 0, unreadable: 2 });
+    // Warn even for an outcome logged at info otherwise.
+    log.recipeSync("unreachable", {
+      scope: "full",
+      added: 0,
+      updated: 0,
+      removed: 0,
+      unreadable: 1,
+    });
     await vi.waitFor(async () =>
       expect(
         (await log.logger.entries()).filter((entry) => entry.event === "service.sync"),
-      ).toHaveLength(1),
+      ).toHaveLength(2),
     );
-    const [entry] = (await log.logger.entries()).filter(
+    const entries = (await log.logger.entries()).filter(
       (logged) => logged.event === "service.sync",
     );
-    expect(entry).toMatchObject({
-      level: "warn",
-      fields: { outcome: "synced", scope: "full", added: 1, unreadable: 2 },
-    });
+    expect(entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          level: "warn",
+          fields: { outcome: "synced", scope: "full", added: 1, unreadable: 2 },
+        }),
+        expect.objectContaining({
+          level: "warn",
+          fields: { outcome: "unreachable", scope: "full", unreadable: 1 },
+        }),
+      ]),
+    );
     vi.restoreAllMocks();
   });
 

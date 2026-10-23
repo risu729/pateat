@@ -160,15 +160,36 @@ export type RecipeChangesResult = (
 ) &
   Timed;
 
-/** Each change's identity, read before the change itself; the page keeps its own checks. */
+const writtenRevision = v.pipe(
+  v.number(),
+  v.integer(),
+  v.minValue(1),
+  v.maxValue(Number.MAX_SAFE_INTEGER - 1),
+);
+/**
+ * Each change read before its recipe: an active change's own fields and the recipe's
+ * identity must read and match, so only the recipe's body can be left out; a tombstone is
+ * read in full with the page.
+ */
 const recipeChangesPageSchema = v.strictObject({
   ...syncRecipeChangesSchema.entries,
   changes: v.pipe(
     v.array(
-      v.looseObject({
-        recipeId: syncRecipeIdSchema,
-        state: v.picklist(["active", "revoked"]),
-      }),
+      v.union([
+        v.pipe(
+          v.strictObject({
+            recipeId: syncRecipeIdSchema,
+            revision: writtenRevision,
+            state: v.literal("active"),
+            recipe: v.looseObject({ id: v.unknown(), revision: v.unknown() }),
+          }),
+          v.check(
+            (change) =>
+              change.recipe.id === change.recipeId && change.recipe.revision === change.revision,
+          ),
+        ),
+        v.looseObject({ recipeId: syncRecipeIdSchema, state: v.literal("revoked") }),
+      ]),
     ),
     v.maxLength(SYNC_PAGE_LIMIT),
   ),
@@ -177,7 +198,7 @@ const recipeChangesPageSchema = v.strictObject({
  * A sync page read change by change: an active change whose recipe this build cannot read,
  * as one stored by a service that is newer than the extension, is left out and named, so
  * the rest of the page and every later page still reach the cache (#959). Undefined when the
- * page itself, a change's identity or a tombstone does not read.
+ * page itself, a change's own fields or its recipe's identity, or a tombstone does not read.
  */
 function readRecipeChanges(
   body: unknown,

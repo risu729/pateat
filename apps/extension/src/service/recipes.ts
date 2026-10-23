@@ -62,7 +62,7 @@ const cacheSchema = v.strictObject({
   origin: serviceOriginSchema,
   deviceId: deviceIdSchema,
   cursor: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(Number.MAX_SAFE_INTEGER)),
-  unreadableBy: v.optional(v.pipe(v.string(), v.minLength(1), v.maxLength(64))),
+  unreadableBy: v.optional(v.pipe(v.string(), v.minLength(1))),
   recipes: v.pipe(
     v.array(storedLoginRecipeSchema),
     v.check(
@@ -291,14 +291,30 @@ export function createRecipeSync(options: {
     // Another build left out a change it could not read: this one reads every head again,
     // keeping the recipes held meanwhile, so the recipe arrives once the extension can read
     // it (#959).
-    if (cache.unreadableBy !== undefined && cache.unreadableBy !== options.build) {
+    const reread = cache.unreadableBy !== undefined && cache.unreadableBy !== options.build;
+    if (reread) {
       const { unreadableBy: _, ...rest } = cache;
       cache = { ...rest, cursor: 0 };
     }
     // Disconnected while loading the cache; the old credential is not used again.
     if (generation !== started) return "not-connected";
     let recovery: RecipeRecovery | undefined;
-    if (loaded) {
+    if (reread) {
+      // The checkpoint of the walk from the old cursor is replaced by one that skips
+      // nothing, so the cursor arriving there again never resumes that walk.
+      try {
+        const neutral: RecipeRecovery = {
+          version: 2,
+          origin: cache.origin,
+          deviceId: cache.deviceId,
+          cursor: 0,
+          after: 0,
+        };
+        if (!(await persist(() => storage.writeRecovery(neutral), started))) return "not-connected";
+      } catch {
+        return "storage-unavailable";
+      }
+    } else if (loaded) {
       try {
         const parsed = v.safeParse(recoverySchema, await storage.readRecovery());
         if (

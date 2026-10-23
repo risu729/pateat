@@ -388,11 +388,25 @@ describe("recipe changes", () => {
       });
     });
 
+    it("names every change of a page that only holds unreadable recipes", async () => {
+      const other = change("card-otp", { by: "future-locator", value: "code" });
+      expect(await read({ ...recipePage, changes: [newer, other] })).toEqual({
+        kind: "page",
+        page: { ...recipePage, changes: [] },
+        unreadable: ["card-signin", "card-otp"],
+      });
+    });
+
     it.each([
       ["a tombstone that does not read", [{ ...recipePage.changes[0], revision: 0 }]],
       ["a change without a recipe ID", [{ ...newer, recipeId: "" }]],
       ["an unknown state", [{ ...newer, state: "paused" }]],
       ["a recipe left out twice", [newer, newer]],
+      ["a bad revision", [{ ...newer, revision: 0 }]],
+      ["a recipe of another ID", [{ ...newer, recipe: { ...newer.recipe, id: "shop-signin" } }]],
+      ["a recipe of another revision", [{ ...newer, recipe: { ...newer.recipe, revision: 3 } }]],
+      ["an active change without a recipe", [{ ...newer, recipe: undefined }]],
+      ["another field on a change", [{ ...newer, note: "x" }]],
       [
         "a recipe left out and read once",
         [newer, change("card-signin", { by: "id", value: "password" })],

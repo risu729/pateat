@@ -383,6 +383,79 @@ describe("recipe sync", () => {
     });
   });
 
+  it("brings a revision left out once another build can read it", async () => {
+    const stored = {
+      version: 2,
+      origin: SERVICE,
+      deviceId: DEVICE,
+      cursor: 6,
+      recipes: [recipe("bank-signin", "/login")],
+      unreadableBy: "0ld0001",
+    };
+    const newer = recipe("bank-signin", "/login", 2);
+    const { sync, cache, report, recovery } = setup({
+      stored,
+      // A checkpoint of the old build's walk from cursor 6.
+      recovery: { version: 2, origin: SERVICE, deviceId: DEVICE, cursor: 6, after: 9 },
+      pages: [page([active(newer)], 6)],
+    });
+    expect(await sync.sync()).toBe("synced");
+    expect(cache()).toMatchObject({ cursor: 6, recipes: [newer] });
+    expect(cache()).not.toHaveProperty("unreadableBy");
+    expect(report).toHaveBeenCalledExactlyOnceWith("synced", {
+      scope: "full",
+      added: 0,
+      updated: 1,
+      removed: 0,
+    });
+    // The cursor landing on 6 again never resumes the old walk from 9.
+    expect(recovery()).toEqual({
+      version: 2,
+      origin: SERVICE,
+      deviceId: DEVICE,
+      cursor: 0,
+      after: 0,
+    });
+  });
+
+  it("keeps the build that left a change out across later pages", async () => {
+    const { sync, cache } = setup({
+      pages: [
+        {
+          kind: "page",
+          page: { version: 1, changes: [], cursor: 2, complete: false },
+          unreadable: ["bank-otp"],
+        },
+        page([active(recipe("bank-signin", "/login"))], 4),
+      ],
+    });
+    expect(await sync.sync()).toBe("synced");
+    expect(cache()).toMatchObject({ cursor: 4, unreadableBy: "1c42ad3" });
+  });
+
+  it("keeps the old cursor and reads again when a reread fails before a page is written", async () => {
+    const stored = {
+      version: 2,
+      origin: SERVICE,
+      deviceId: DEVICE,
+      cursor: 6,
+      recipes: [],
+      unreadableBy: "0ld0001",
+    };
+    const { sync, cache, transport } = setup({
+      stored,
+      pages: [{ kind: "failed", error: "unreachable" }, page([], 6)],
+    });
+    expect(await sync.sync()).toBe("unreachable");
+    expect(cache()).toEqual(stored);
+    expect(await sync.sync()).toBe("synced");
+    expect(transport.recipeChanges.mock.calls).toEqual([
+      [SERVICE, CREDENTIAL, 0],
+      [SERVICE, CREDENTIAL, 0],
+    ]);
+    expect(cache()).not.toHaveProperty("unreadableBy");
+  });
+
   it("does not read the heads again for the build that left a change out", async () => {
     const stored = {
       version: 2,

@@ -3239,9 +3239,12 @@ generated for this device, still reach the cache. The cursor moves past it, and 
 device keeps any earlier revision of that recipe it held. The cache records the build
 that left a change out (`unreadableBy`); a sync by any other build reads every head
 again from cursor 0, keeping the cached recipes meanwhile, so the recipe arrives once an
-updated extension can read it. `service.sync` counts the changes left out as
-`unreadable`, at warn. A page whose own fields, a change's recipe ID or state, or a
-tombstone do not read still fails as `unexpected-response`.
+updated extension can read it; it also replaces the recovery checkpoint of a walk from
+the old cursor with one that skips nothing. `service.sync` counts the changes left out
+as `unreadable`, at warn. Only a recipe's body is left out: a page still fails as
+`unexpected-response` when its own fields, a change's `recipeId`, `revision` or `state`,
+a recipe's `id` and `revision` matching its change's, or a tombstone do not read, or a
+change has another field.
 
 Keep provider selection independent of recipe contracts: Claude for bounded generation
 and Clef-flash, Clef and Jev for finite choices are evaluation candidates, not fixed
@@ -3488,7 +3491,8 @@ these yet. Each says what a device does and how to recover.
   service sends. Settings sync stops at it until the extension is updated. A recipe it
   cannot read no longer stops recipe sync: that change is left out until an update
   ([minimal service](#minimal-service)).
-- Sync records that a new build cannot read after an extension update. The recipe cache
+- Sync records that a new build cannot read after an extension update, or an older
+  build after a downgrade (such as a cache with `unreadableBy`). The recipe cache
   is discarded and synced again from the start, and each recipe is found only once its
   page arrives. The settings base is discarded too, so the next merge has none: an entry
   that the service or another device removed since this device last synced comes back
