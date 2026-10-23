@@ -15857,7 +15857,11 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
           verify: toHome,
           confirm: toHome,
         });
-        const { h, report } = start([birthLink], { ...birthValue, "login.totp-code": "012345" }, both);
+        const { h, report } = start(
+          [birthLink],
+          { ...birthValue, "login.totp-code": "012345" },
+          both,
+        );
         editFields(h, (fields) => [
           ...fields,
           { id: "login.totp-code", label: "Verification code", name: null, kind: "otp" },
@@ -16246,8 +16250,8 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         vi.useFakeTimers();
         onClick({ login: toConfirm, confirm: toHome });
         // The page after the person's submission says the value was wrong.
-        const service = generation(async (_recipe, _revision, _route, observation) => ({
-          verdict: observation.path === "/next" ? "rejected" : "unclear",
+        const service = generation(async (_recipe, _revision, _route, page) => ({
+          verdict: page.path === "/next" ? "rejected" : "unclear",
         }));
         const { h, report } = start([], birthValue, detailed, {}, { generation: service });
         expect(await h.hello()).toEqual({ ok: true });
@@ -16257,7 +16261,13 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         fake.state.pageUrl = `${origin}/next`;
         fake.state.observedPath = "/next";
         fake.state.present = new Set();
-        fake.state.signs = { password: false, code: false, captcha: false, invalid: false, alert: false };
+        fake.state.signs = {
+          password: false,
+          code: false,
+          captcha: false,
+          invalid: false,
+          alert: false,
+        };
         fake.state.extracted = {
           "signed-in": {
             ok: true,
