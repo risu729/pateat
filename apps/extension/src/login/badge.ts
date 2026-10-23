@@ -1,9 +1,14 @@
 // The toolbar badge tells, per tab, what Pateat is doing or just did there (ADR 0038): a
-// waiting account choice, a model request in flight, and how the last login ended. It also
-// keeps the tab's last login and model request for the popup's page section.
+// waiting account choice, a model request in flight, and how the last login ended; below
+// them, how many vault items match the site (ADR 0021). It also keeps the tab's last login
+// and model request for the popup's page section.
+import type { TFunction } from "i18next";
 import * as v from "valibot";
 import { browser } from "wxt/browser";
+import { i18n } from "../i18n";
+import type { LogoutReason } from "./choice-wire";
 import type { LoginReport } from "./runtime";
+import type { SiteCount, SiteCountState, UncheckedReason } from "./site-count";
 
 export const LOGIN_BADGE_KEY = "session:pateat.login-badge.v1";
 
@@ -104,7 +109,8 @@ export type PageStatus = {
 };
 
 type Shown = Required<Omit<BadgeDetails, "tabId">>;
-type Choice = { count: number; title: string };
+/** A waiting account choice: how many accounts match, and why the tab asks after a logout. */
+type Choice = { count: number; logout?: LogoutReason };
 type Stored = v.InferOutput<typeof storedSchema>;
 
 const STYLES = {
@@ -113,15 +119,96 @@ const STYLES = {
   failed: { color: "#b91c1c", textColor: "#ffffff" },
   succeeded: { color: "#15803d", textColor: "#ffffff" },
   unsettled: { color: "#facc15", textColor: "#1e293b" },
+  usable: { color: "#115e59", textColor: "#ffffff" },
+  excluded: { color: "#cbd5e1", textColor: "#1e293b" },
 } as const;
 
 const RESULT_TEXT = { failed: "!", succeeded: "✓", unsettled: "!" } as const;
 
-function resultTitle(result: BadgeResult): string {
-  if (result.kind === "succeeded") return "Pateat: logged in.";
+function resultTitle(result: BadgeResult, t: TFunction): string {
+  if (result.kind === "succeeded") return t("Pateat: logged in.");
   if (result.kind === "unsettled")
-    return `Pateat: the login's result is not known (${result.reason}). Open Pateat for details.`;
-  return `Pateat: the login did not succeed (${result.reason}). Open Pateat for details.`;
+    return t("Pateat: the login's result is not known ({{reason}}). Open Pateat for details.", {
+      reason: result.reason,
+    });
+  return t("Pateat: the login did not succeed ({{reason}}). Open Pateat for details.", {
+    reason: result.reason,
+  });
+}
+
+/** The tooltip of a tab whose login waits for an account choice (ADR 0021). */
+function choiceTitle({ count, logout }: Choice, t: TFunction): string {
+  return logout
+    ? t(
+        {
+          "this-tab":
+            "Pateat: you logged out of this site in this tab. Click to choose an account.",
+          rejected:
+            "Pateat: the site did not accept the last login in this tab. Click to choose an account.",
+          "stopped-login":
+            "Pateat: the last login on this site stopped in this tab. Click to choose an account.",
+          "other-tab":
+            "Pateat: you logged out of this site in another tab. Click to choose an account.",
+        }[logout],
+      )
+    : t("Pateat: {{count}} accounts match this page. Click to choose one.", { count });
+}
+
+// Tooltip keys with `count`; `_one` and `_other` forms in the catalogs.
+const EXCLUDED_TITLES = {
+  site: "badgeExcludedSite",
+  items: "badgeExcludedItems",
+  review: "badgeExcludedReview",
+  "items-review": "badgeExcludedItemsReview",
+} as const;
+const MORE_TITLES = {
+  site: "badgeMoreExcluded",
+  items: "badgeMoreExcluded",
+  review: "badgeMoreReview",
+  "items-review": "badgeMoreItemsReview",
+} as const;
+const UNCHECKED_TITLES = {
+  locked: "Pateat: the vault is locked, so this site's accounts were not counted.",
+  "not-opened":
+    "Pateat: the vault has not been opened since Pateat restarted, so this site's accounts were not counted.",
+  unreadable: "Pateat: the vault could not be read, so this site's accounts were not counted.",
+  updating: "Pateat: the vault is being updated, so this site's accounts were not counted.",
+  busy: "Pateat: a login or a page check was using the vault, so this site's accounts were not counted yet.",
+} as const satisfies Record<UncheckedReason, string>;
+
+/** The badge text, colours and title of a site count (ADR 0021); no text for none. */
+export function countBadge(
+  state: SiteCountState,
+  t: TFunction = i18n.t.bind(i18n),
+): Partial<Shown> & { title: string } {
+  if (state.kind === "unchecked") return { title: t(UNCHECKED_TITLES[state.reason]) };
+  const { usable, matching, unevaluated, excluded }: SiteCount = state.count;
+  // Sentences follow one another as the language writes them (a space in English).
+  const then = (first: string, next: string | false) =>
+    next ? t("{{first}} {{next}}", { first, next }) : first;
+  const unknown = unevaluated > 0 && t("badgeUnknown", { count: unevaluated });
+  const text = (count: number) => (count > 99 ? "99+" : String(count));
+  if (usable > 0) {
+    const more = matching - usable;
+    return {
+      text: text(usable),
+      ...STYLES.usable,
+      title: then(
+        then(
+          t("badgeUsable", { count: usable }),
+          more > 0 && t(MORE_TITLES[excluded ?? "items"], { count: more }),
+        ),
+        unknown,
+      ),
+    };
+  }
+  if (matching > 0)
+    return {
+      text: text(matching),
+      ...STYLES.excluded,
+      title: then(t(EXCLUDED_TITLES[excluded ?? "items"], { count: matching }), unknown),
+    };
+  return { title: then(t("Pateat: no account for this site."), unknown) };
 }
 
 /**
@@ -197,11 +284,17 @@ export function createLoginBadge(deps: {
   setBadge: (details: BadgeDetails) => Promise<void>;
   storage: { getValue(): Promise<unknown>; setValue(value: unknown): Promise<void> };
   now?: () => number;
+  /** Translates the tooltips into the extension's language, read at each draw. */
+  t?: TFunction;
 }) {
   const now = deps.now ?? Date.now;
+  const t: TFunction = deps.t ?? i18n.t.bind(i18n);
   const choices = new Map<number, Choice>();
+  // Each tab's tooltip key, translated when drawn.
   const notes = new Map<number, string>();
   const results = new Map<number, BadgeResult>();
+  // Each tab's site count, for the origin it was counted for (ADR 0021).
+  const counts = new Map<number, { origin: string; state: SiteCountState }>();
   // Spins in flight; a tab spins while one names it. A replaced tab's spins move with it.
   const spins = new Set<{ tabId: number }>();
   // Each tab's last attempt state and outcome, so a report that changes neither is ignored.
@@ -227,19 +320,34 @@ export function createLoginBadge(deps: {
   const spinning = (tabId: number) => [...spins].some((spin) => spin.tabId === tabId);
   function wanted(tabId: number): Shown {
     const choice = choices.get(tabId);
-    if (choice) return { text: String(choice.count), ...STYLES.choice, title: choice.title };
+    if (choice)
+      return { text: String(choice.count), ...STYLES.choice, title: choiceTitle(choice, t) };
     if (spinning(tabId))
-      return { text: BUSY_FRAMES[frame] ?? "", ...STYLES.busy, title: "Pateat: asking the AI…" };
+      return { text: BUSY_FRAMES[frame] ?? "", ...STYLES.busy, title: t("Pateat: asking the AI…") };
     const result = results.get(tabId);
     if (result && (result.until === undefined || result.until > now()))
-      return { text: RESULT_TEXT[result.kind], ...STYLES[result.kind], title: resultTitle(result) };
+      return {
+        text: RESULT_TEXT[result.kind],
+        ...STYLES[result.kind],
+        title: resultTitle(result, t),
+      };
+    const note = notes.get(tabId);
+    const count = counts.get(tabId);
+    const counted = count && countBadge(count.state, t);
+    if (counted?.text !== undefined && counted.color && counted.textColor)
+      return {
+        text: counted.text,
+        color: counted.color,
+        textColor: counted.textColor,
+        title: note ? t(note) : counted.title,
+      };
     // Colours stay as they were; Chrome shows none without text.
     const last = shown.get(tabId);
     return {
       text: "",
       color: last?.color ?? STYLES.choice.color,
       textColor: last?.textColor ?? STYLES.choice.textColor,
-      title: notes.get(tabId) ?? "Pateat",
+      title: note ? t(note) : (counted?.title ?? t("Pateat")),
     };
   }
   function draw(tabId: number): void {
@@ -388,6 +496,7 @@ export function createLoginBadge(deps: {
     tops.delete(tabId);
     choices.delete(tabId);
     notes.delete(tabId);
+    counts.delete(tabId);
     lastAttempt.delete(tabId);
     shown.delete(tabId);
     for (const spin of spins) if (spin.tabId === tabId) spins.delete(spin);
@@ -401,10 +510,26 @@ export function createLoginBadge(deps: {
       else if (!choices.delete(tabId)) return;
       draw(tabId);
     },
-    /** A tooltip for a tab that shows no badge, such as why its login is held. */
+    /**
+     * A tooltip for a tab that shows no badge, such as why its login is held, as a catalog
+     * key that is translated when drawn.
+     */
     note(tabId: number, title: string | undefined): void {
       if (title) notes.set(tabId, title);
       else if (!notes.delete(tabId)) return;
+      draw(tabId);
+    },
+    /**
+     * The site count of the tab's page (ADR 0021), shown when nothing above it is. A count
+     * for another origin than the tab's last loaded page is dropped.
+     */
+    count(tabId: number, origin: string, state: SiteCountState | undefined): void {
+      const top = tops.get(tabId);
+      if (top !== undefined && top !== origin) return;
+      const before = counts.get(tabId);
+      if (state) counts.set(tabId, { origin, state });
+      else if (!counts.delete(tabId)) return;
+      if (JSON.stringify(before) === JSON.stringify(counts.get(tabId))) return;
       draw(tabId);
     },
     /**
@@ -459,6 +584,7 @@ export function createLoginBadge(deps: {
       const origin = (url ? URL.parse(url)?.origin : undefined) ?? "unreadable";
       const before = tops.get(tabId);
       tops.set(tabId, origin);
+      if (counts.get(tabId)?.origin !== origin) counts.delete(tabId);
       if (before !== undefined && before !== origin) {
         choices.delete(tabId);
         notes.delete(tabId);
@@ -472,6 +598,7 @@ export function createLoginBadge(deps: {
       if (
         choices.has(tabId) ||
         notes.has(tabId) ||
+        counts.has(tabId) ||
         results.has(tabId) ||
         spinning(tabId) ||
         writes.has(tabId)
@@ -480,6 +607,10 @@ export function createLoginBadge(deps: {
     },
     removed(tabId: number): void {
       forget(tabId);
+    },
+    /** The extension's language changed: every tab's tooltip is written again. */
+    relabel(): void {
+      for (const tabId of shown.keys()) draw(tabId);
     },
     /** The tab's last login and model request, for the popup's page section. */
     status(tabId: number): PageStatus | undefined {
@@ -494,6 +625,7 @@ export function createLoginBadge(deps: {
       if (added === removed) return;
       const choice = choices.get(removed);
       const note = notes.get(removed);
+      const count = counts.get(removed);
       const result = results.get(removed);
       const status = statuses.get(removed);
       const top = tops.get(removed);
@@ -505,6 +637,7 @@ export function createLoginBadge(deps: {
       if (status) statuses.set(added, status);
       if (choice) choices.set(added, choice);
       if (note) notes.set(added, note);
+      if (count) counts.set(added, count);
       for (const spin of moved) {
         spin.tabId = added;
         spins.add(spin);

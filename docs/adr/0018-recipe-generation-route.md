@@ -14,6 +14,8 @@ service and the extension implement.
 How a page after a submission is settled, and when it is sent to the judge, is amended
 by [ADR 0029](0029-local-sign-in-state.md), whose first part of delivery 2 (completing
 on confirmed evidence of a sign-in) is implemented.
+A plan's action may also be its last field, whose form Enter submits, by
+[ADR 0064](0064-enter-in-a-form-without-a-button.md).
 Amended on 2026-10-11 by [ADR 0027](0027-per-account-login-routes.md): a page is judged
 after any effect step that leads nowhere known, a judgement can add a second-factor
 handler, and judgements are limited per revision and path and to 20 per recipe a day

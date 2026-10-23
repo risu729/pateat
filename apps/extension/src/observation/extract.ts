@@ -70,7 +70,7 @@ export type ObservationRefusal = "unsupported-page" | "no-candidates" | "no-loca
  *   or disabled); on a signed-in page, only one that may be a sign-in field.
  * - `unsupported-control`: a control the executor cannot act on in a login form, such as
  *   a select, a radio button or a text area.
- * - `unlocated-field`, `unlocated-checkbox`, `unlocated-button`: a field, checkbox or
+ * - `unlocated-field`, `unlocated-checkbox`, `unlocated-button`: a field, required checkbox or
  *   button of a login form without a locator that names it alone; for buttons, also an
  *   icon button in a form with no other button to submit with.
  * - `too-many-fields` (signed-in page), `too-many-candidates` (login page): more than the
@@ -143,7 +143,7 @@ const ignoredTypes = new Set(["hidden", "reset"]);
 const controls = "input:not([type='hidden']), select, textarea, button";
 const fields = "input:not([type='hidden']), select, textarea";
 /** Every element `describe` may accept, script buttons included. */
-const observed = "input, select, textarea, button, a[href], a[onclick], [role]";
+const observed = "input, select, textarea, button, a, [role]";
 /** Fillable inputs only; consent banners in shadow roots often hold checkboxes. */
 const shadowFields = Object.keys(fillTypes)
   .map((type) => `input[type='${type}' i]`)
@@ -1155,6 +1155,14 @@ const iconButton = (element: Element, nearFields: (element: Element) => boolean)
   (element.type === "button" || (element.form === null && !nearFields(element))) &&
   buttonText(element) === undefined;
 
+/**
+ * Whether a checkbox must be checked before its form submits: `required`, or
+ * `aria-required="true"` for a script that checks it.
+ */
+const mustCheck = (element: Element) =>
+  (element instanceof HTMLInputElement && element.required) ||
+  element.getAttribute("aria-required")?.trim().toLowerCase() === "true";
+
 /** True when an open shadow root holds a visible match, which the executor cannot reach. */
 function inShadow(shadow: ShadowRoot, selector: string): boolean {
   return (
@@ -1233,9 +1241,9 @@ function loginFormsOf(
  * buttons outside every form but near a login form with a password field
  * (`besideDepth`), such as a passkey button, are kept when they can be located and never
  * make the observation incomplete. A field or button that cannot be located (other than
- * a script button, or an icon button that never submits in a form with another button,
- * or a textless button away from the fields outside every form when another button
- * outside every form is located, which is left out), a control
+ * a script button, an icon button that never submits in a form with another button, a
+ * textless button away from the fields outside every form when another button outside
+ * every form is located, or a checkbox the page does not require, which is left out), a control
  * the executor cannot act on or a control in a shadow root marks the observation
  * incomplete when it is in a login form (`loginFormsOf`); any other form with one is
  * left out entirely. A field in any shadow root, or more than 48 candidates, marks it
@@ -1319,6 +1327,10 @@ export function extractLoginObservation(
   // submit with: an icon-only button may itself be the form's script submit.
   const icons: typeof required = [];
   const links: typeof required = [];
+  // A checkbox is context only, never checked by a recipe, so one the page does not
+  // require, as "Remember me", is left out without a locator; a required one, as an
+  // agreement the form cannot submit without, still marks the form incomplete.
+  const checks: typeof required = [];
   const beside: typeof required = [];
   // Only a form with a password field has such neighbours; a search form does not.
   const passwordForms = new Set(
@@ -1380,7 +1392,9 @@ export function extractLoginObservation(
       flaw(entry.form, entry.field ? "unfillable-field" : "unsupported-control");
     } else if (entry.draft.role === "link") {
       if (entry.form) links.push(entry);
-    } else if (isScriptButton(entry.draft.element)) scripted.push(entry);
+    } else if (entry.draft.role === "checkbox" && !mustCheck(entry.draft.element))
+      checks.push(entry);
+    else if (isScriptButton(entry.draft.element)) scripted.push(entry);
     else if (iconButton(entry.draft.element, nearFields)) icons.push(entry);
     else required.push(entry);
   }
@@ -1421,6 +1435,7 @@ export function extractLoginObservation(
   const gap = loginGaps.find((cause) => gaps.has(cause));
   const buttons = [
     ...described,
+    ...kept(checks, { optional: true }),
     ...kept(scripted, { optional: true }),
     ...keep(iconsFound),
     // More than a few is page content around the form, not its alternatives.

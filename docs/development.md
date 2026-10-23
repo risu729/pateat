@@ -187,7 +187,7 @@ Focused tasks are available for diagnosis:
 | `mise run //packages/inference:typecheck` | Check AI adapter, corpus and harness types |
 | `mise run //packages/inference:corpus:formasaurus <checkout>` | Regenerate the real-page corpus from a local Formasaurus checkout ([plan](plan.md#ai-evaluation-harness-progress)) |
 | `mise run //packages/inference:corpus:japanese (--refresh [--web] \| --report <file> <url>...)` | Observe public login pages live: refresh the Japanese corpus (or with `--web` the English one), or report listed pages to label ([plan](plan.md#ai-evaluation-harness-progress)) |
-| `mise run //packages/inference:bench --paid [--corpus real\|japanese\|web] [--from n --count n]` | Run the paid Claude benchmark on the synthetic corpus, the Formasaurus real-page corpus, the Japanese pages or the English pages, whole or one batch; needs `ANTHROPIC_API_KEY` (in cloud sessions, `PATEAT_ANTHROPIC_API_KEY`) and owner approval for each run |
+| `mise run //packages/inference:bench --paid [--corpus real\|japanese\|web\|judge] [--from n --count n] [--model id] [--effort level] [--speed fast]` | Run the paid Claude benchmark on the synthetic corpus, the Formasaurus real-page corpus, the Japanese pages, the English pages or the sign-in judge's pages, whole or one batch, with the service's model or another one to compare, in fast mode where the model offers it; needs `ANTHROPIC_API_KEY` (in cloud sessions, `PATEAT_ANTHROPIC_API_KEY`) and owner approval for each run |
 | `mise run //packages/inference:bench --provider heuristic [--corpus real\|japanese\|web] [--from n --count n]` | Score the free model-free comparator on the same cases, whole or one batch |
 | `mise run test:tools` | Test artifact/provenance helpers |
 | `mise run coverage:summary` | Merge the coverage that test runs with `PATEAT_COVERAGE=1` wrote and print one row per project ([test coverage](#test-coverage)) |
@@ -494,10 +494,14 @@ holds:
   request kept unanswered after a Pateat login of its page signed in, or after four
   minutes of waiting for that login or for a pick after a logout) and the delegate
   `reason`. A conditional request is handed on as `no-recipe` (no recipe for the site),
-  `no-login` (no login of its page started), `login-ended` (the login did not sign
-  in) or `no-pick` (the popup offered its page a choice of accounts outside a logout,
-  with an item that holds a passkey, and nothing was picked within four minutes)
-  ([ADR 0034](adr/0034-answer-page-passkey-requests.md));
+  `no-login` (no login of its page started), `login-ended` (the login did not sign in)
+  or `no-pick` (the popup offered its page a choice of accounts outside a logout, with
+  an item that holds a passkey, and nothing was picked within four minutes)
+  ([ADR 0034](adr/0034-answer-page-passkey-requests.md)). A request outside conditional
+  mediation that names its credentials, in a tab whose Pateat login of the origin signed
+  in with no logout detected since, is a re-verification while signed in and is handed
+  on as `confirm-fill`
+  ([ADR 0035](adr/0035-page-kinds-per-site.md#passkey-re-verification));
 - once the request is admitted, `rpId` and `allowCredentials` (how many credential IDs
   the site listed);
 - once the vault was searched, `stored` (eligible stored passkeys with that RP ID in

@@ -459,12 +459,20 @@ than in this repository.
   so its retention rule needs no work. The first login result of each revision reaches
   the service as codes
   ([ADR 0035](adr/0035-page-kinds-per-site.md#amendment-2026-10-18-login-results-on-the-service)).
-- The toolbar badge counts the matching items on every HTTP(S) site (on an `http:` page
-  only items saved with an `http://` URI;
+  Implemented on 2026-10-23
+  ([ADR 0035](adr/0035-page-kinds-per-site.md#implementation-of-delivery-1)) except the
+  local evaluation fields of `confirm-unsupported` pages beyond the recipe and its kind,
+  and the counts of pages not sent, which come next. Covered by unit, Worker and
+  fake-model tests only; no real site or paid generation checked it.
+- Done: the toolbar badge counts the matching items on every HTTP(S) site (on an `http:`
+  page only items saved with an `http://` URI;
   [ADR 0050](adr/0050-http-pages-for-http-items.md)): teal with the usable count, light
   gray when every match is excluded, amber while a login waits for a choice (owner,
   2026-10-13 14:42 UTC;
-  [ADR 0021](adr/0021-account-choice-outside-settings.md#site-count-badge)).
+  [ADR 0021](adr/0021-account-choice-outside-settings.md#site-count-badge)). Covered by
+  unit tests and a synthetic Playwright test. Next: see it once in installed Chrome on a
+  site with a saved item, including that Chrome draws the gray and teal colours and
+  keeps the count across a same-origin navigation.
 - Generation for passkey-only start pages, moved from phase 4 (owner, 2026-10-19;
   [ADR 0053](adr/0053-passkey-only-generation.md)): implemented. A page that shows only
   a button to sign in with a passkey is sent once the no-input page wait of
@@ -488,8 +496,12 @@ than in this repository.
   and the service's D1 records. The Japanese government sites and Santander, which the
   owner wants to work although they look hard, are among them. So is Instagram: its
   saved-profile list shows a handle while the item's username is an email, which
-  [ADR 0028](adr/0028-account-chooser-login-pages.md) does not match, and what to do
-  there is not decided.
+  [ADR 0028](adr/0028-account-chooser-login-pages.md) does not match. The owner chose on
+  2026-10-23 (11:23 UTC) to add no rule for it: Pateat keeps logging in through "Use
+  another profile" and never picks a saved profile there. An item's username is the ID
+  typed on the sign-in page; matching a list's handle against another field (such as a
+  custom field) is considered only once lists like this are found to make logins fail
+  or take needless time, such as re-verification requests (owner, 11:24 UTC).
 - Installed-Chrome checks moved from phase 1 (owner, 2026-10-12 20:35 UTC), checked
   when daily use reaches them:
   - A plain HTTP site whose item is saved with an `http://` URI logs in, submit
@@ -986,11 +998,14 @@ Once the fixes have settled:
   chose i18next with react-i18next (2026-10-12 14:31 UTC), so that the language can be
   chosen in Pateat's settings
   ([comparison](research/2026-10-12-extension-ui-translation.md),
-  [dependency policy](development.md#dependency-policy)); where that setting is stored
-  is not decided yet. The owner chose (2026-10-12 14:14 UTC) that "the docs" means the
-  README and the user-facing pages, including those the docs website below adds; ADRs,
-  this plan and research notes stay in English. AGENTS.md's English rule gets an
-  exception for the Japanese pages when they land.
+  [dependency policy](development.md#dependency-policy)). The owner chose on 2026-10-18
+  to translate now. The extension's pages, toolbar tooltips and manifest description are
+  translated as [ADR 0043](adr/0043-extension-language-preference.md) records; the
+  README and user-facing docs are not. The owner chose
+  (2026-10-12 14:14 UTC) that "the docs" means the README and the user-facing pages,
+  including those the docs website below adds; ADRs, this plan and research notes stay
+  in English. AGENTS.md's English rule gets an exception for the Japanese pages when
+  they land.
 - The docs website (VitePress 2, see
   [decisions still requiring evidence](#decisions-still-requiring-evidence)) with
   user-facing pages for installation, setup and permissions, plus the M6 operational
@@ -2397,18 +2412,23 @@ after the final submission, with the login paths, and returns `signed-in` with a
 or link marker, `rejected` or `challenge`, or abstains when unclear. An unknown marker,
 one that is not a button or link, or a page that still has a password input not marked
 `new-password` or a field marked `username`, `current-password` or `one-time-code` fails
-as `invalid-output`. `addCompletion` stores the marker as the recipe's `completion` in
-the next revision. It refuses a marker that is not on the judged page, a page on another
-origin, a marker one of the recipe's own steps uses on that path, and a page that still
-shows an element a step uses on that path or a field any step fills. A failed sign-in
-that shows the form again with the same locators, on its own path or where the form
-posted, is then not learned as signed in. A site that signs in on the login page's own
-path learns its completion only once that form is gone, and the completion then lists
-that path's fill fields as `absent` (at most four), which the executor requires to be
-missing. Both roles share `runStructuredRole` for metering, timeouts and disabled
-telemetry. The service routes call them
-([API README](../services/api/README.md#recipe-generation)), and the extension calls
-those routes as described under the remaining M4 AI work below.
+as `invalid-output`. The response format describes the marker as a candidate ID (such as
+`c3`) since 2026-10-23: on 31 synthetic judged pages, most of Sonnet 5.5's and Haiku
+5.5's errors were a marker given as a button's text (`"Log out"`), which fails here.
+With the ID named, Haiku 5.5 low went from 0.785 to 0.978 and Sonnet 5.5 medium from
+0.817 to 0.968 (3 runs each, on the same pages; Opus 5.5 never made that error). The
+owner chose this on 2026-10-23 (11:03 UTC). The change re-judges each page judged before
+once. `addCompletion` stores the marker as the recipe's `completion` in the next
+revision. It refuses a marker that is not on the judged page, a page on another origin,
+a marker one of the recipe's own steps uses on that path, and a page that still shows an
+element a step uses on that path or a field any step fills. A failed sign-in that shows
+the form again with the same locators, on its own path or where the form posted, is then
+not learned as signed in. A site that signs in on the login page's own path learns its
+completion only once that form is gone, and the completion then lists that path's fill
+fields as `absent` (at most four), which the executor requires to be missing. Both roles
+share `runStructuredRole` for metering, timeouts and disabled telemetry. The service
+routes call them ([API README](../services/api/README.md#recipe-generation)), and the
+extension calls those routes as described under the remaining M4 AI work below.
 
 A 16-page synthetic Japanese/English corpus covers bank branch/account/password
 (including an unlabeled page distinguishable only by length),
@@ -2895,7 +2915,9 @@ never contribute. Only forms that hold a field count, or every control outside a
 when a field is outside one. In those forms the candidates are visible text, email, tel,
 number and password inputs, checkboxes, buttons (disabled ones too, since many enable
 after typing), script links (an `<a>` without `href` that has an `onclick` attribute or
-`role="button"`, or an `<a href>` with a `javascript:` URL or with an empty or
+`role="button"` or sets a pointer cursor itself, as IIJmio's login (owner-approved
+2026-10-23), or an
+`<a href>` with a `javascript:` URL or with an empty or
 fragment-only `href` and an `onclick` attribute or `role="button"`) as buttons, other
 elements with `role="button"` that have an `id`, `name` or `data-testid`, or in a login
 form or beside a password form a unique text (as
@@ -2961,11 +2983,14 @@ its visible name when no other shown fillable input has it, before such an `id`
 ([ADR 0037](adr/0037-fields-by-visible-name.md)); a button without one gets a text
 locator when its text matches exactly one button and redaction leaves it unchanged, and
 a script link when its text matches no button and exactly one script link. In a login
-form, a field, button or checkbox without a target, a control the executor cannot act on
-(a select, radio, text area, another input type, or a read-only, disabled, transparent
-or tiny field) or a control in a shadow root makes the observation incomplete, as do
-more than 48 candidates, so inference rejects it; a page without a field, or where
-nothing in a login form can be located or acted on, is refused. The login forms are
+form, a field, button or required checkbox without a target (a checkbox is context
+only, so one without `required` or `aria-required="true"` and without a target is left
+out, 2026-10-23, as Stripe's and 1Password's "Remember me"), a control the executor
+cannot act on (a select, radio, text area, another input type, or a read-only, disabled,
+transparent or tiny field) or a control in a shadow root makes the observation
+incomplete, as do more than 48 candidates, so inference rejects it; a page without a
+field, or where nothing in a login form can be located or acted on, is refused. The
+login forms are
 those with one password field that is not `new-password`, or with a `username` or
 `one-time-code` field, as ADR 0016 detects a login; failing that, any with a password
 field; otherwise every form that holds a field. Any other form with such a control, such
@@ -3015,6 +3040,97 @@ now keeps the header's links. There, an attribute locator that redaction would c
 counts as no locator, so an account number in an `id` is never sent.
 `mise run //apps/extension:test:dom` covers these cases in Chromium with synthetic
 pages.
+
+Model comparison (2026-10-23). The owner gave leftover Claude API credits for testing
+other models. `--model` and `--effort` run another Claude model at its own rates, and
+`--speed fast` runs fast mode on the models that offer it; the service still runs
+`claude-opus-5-5` at effort `low` (ADR 0014). `--corpus judge` scores the sign-in judge
+on 31 synthetic pages shown after a sign-in step
+(`packages/inference/src/corpus/judge.ts`): signed-in pages whose only text markers name
+the person, a count or a balance, code pages from an app, SMS and email (one box per
+digit too), security key and method-choice pages, rejected, locked and returned login
+pages, a CAPTCHA, a push approval, an emailed link, a stay-signed-in prompt, a passkey
+offer, pages with no sign of an account, and two stops before the password (ADR 0036).
+It scores the model's own answer in candidate IDs: the decision, then the marker, the
+passkey and password buttons and the code it names. Every run below was on main
+`381116f` plus this change (the #875 columns on #875's `df2003f` plus it), one call per
+case with no retries; latency was measured from the cloud container and includes the
+network. The "Japanese 71" and "web 18" columns ran on the pages of #875 before its
+review, so a label may still change. Accuracy is the mean over runs, with the number of
+runs in brackets; cost per call is from reported usage at the published rates.
+
+| Generation | Synthetic 17 | Formasaurus 131 | Japanese 71 | Web 18 | p50 / p95 s (131) | USD per call |
+| --- | --- | --- | --- | --- | --- | --- |
+| Opus 5.5 `low` (service) | 0.882 (4) | 0.985 (2) | 1.000 (2) | 1.000 (2) | 1.95 / 2.85 | 0.0120 |
+| Opus 5.5 `medium` | 0.902 (3) | 0.977 | 1.000 | 1.000 | 1.97 / 3.24 | 0.0120 |
+| Opus 5.5 `low`, fast mode | 0.941 | 0.992 | 1.000 | 1.000 | 1.05 / 1.49 | 0.0239 |
+| Fable 5.1 `low` | 0.863 (3) | 0.992 | 0.986 | 1.000 | 1.97 / 4.58 | 0.0299 |
+| Opus 5 `low` | 0.961 (3) | 0.992 | 1.000 | 1.000 | 1.62 / 2.29 | 0.0149 |
+| Sonnet 5.5 `low` | 1.000 (3) | 1.000 | 1.000 | 1.000 | 1.67 / 2.69 | 0.0060 |
+| Sonnet 5.5 `medium` | 1.000 (3) | 1.000 | 1.000 | 1.000 | 1.65 / 2.76 | 0.0060 |
+| Haiku 5.5 `low` | 0.882 (3) | 0.992 | 1.000 | 1.000 | 1.32 / 2.42 | 0.0003 |
+| Haiku 5.5 `medium` | 0.882 (3) | 1.000 | 1.000 | 1.000 | 1.63 / 2.75 | 0.0004 |
+
+The only false submit was one Fable 5.1 run on `ja-bank-unlabeled-lengths`. On the
+synthetic corpus Opus 5.5, Fable and Haiku abstain on `en-label-injection`
+(`unsafe-instructions`) and `ja-fullwidth-pin` (`insufficient-evidence`, a four-digit
+暗証番号 for the password slot) in nearly every run, which Sonnet 5.5 maps; Opus 5 maps
+the first, and Opus 5.5 maps the second in one `medium` run and the fast run. Sonnet's
+whole lead is these 2 pages and 2 Formasaurus sign-up pages; the Japanese and web pages
+do not separate the models, and the single-run columns are within one page. The
+Formasaurus failures are `invalid-output` with `unexpected-entry`: on the sign-up pages
+formasaurus-1, -62 and -407, expected to abstain, the Opus and Fable models name the
+"Log in" link as a sign-in entry, which a request with slots refuses. Fable 5.1 refused
+`ja-mufg-direct` and Opus 5 `ja-bank-unlabeled-lengths` (`cyber`).
+
+| Judge (31) | Accuracy | Wrong detail | Wrong decision | False signed-in | Failed | p50 / p95 s | USD per call |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Opus 5.5 `low` (service) | 0.989 (6) | 0 | 0 | 0 | 2 | 1.76 / 3.23 | 0.0097 |
+| Opus 5.5 `medium` | 0.989 (3) | 0 | 0 | 0 | 1 | 1.95 / 3.55 | 0.0107 |
+| Opus 5.5 `low`, fast mode | 1.000 (3) | 0 | 0 | 0 | 0 | 1.03 / 1.55 | 0.0174 |
+| Fable 5.1 `low` | 0.946 (3) | 0 | 0 | 0 | 5 | 1.53 / 1.96 | 0.0209 |
+| Opus 5 `low` | 0.968 (3) | 0 | 0 | 0 | 3 | 1.69 / 2.11 | 0.0106 |
+| Sonnet 5.5 `low` | 0.817 (3) | 13 | 4 | 0 | 0 | 1.37 / 2.16 | 0.0042 |
+| Sonnet 5.5 `medium` | 0.817 (3) | 11 | 6 | 0 | 0 | 1.41 / 2.18 | 0.0042 |
+| Haiku 5.5 `low` | 0.785 (3) | 16 | 4 | 0 | 0 | 1.43 / 2.60 | 0.0003 |
+| Haiku 5.5 `medium` | 0.806 (3) | 14 | 4 | 0 | 0 | 1.66 / 3.84 | 0.0003 |
+
+Opus 5.5 failed only on `en-method-chooser` (Password, Text message and Passkey
+buttons): once its output was cut at the 8,192-token bound and once it was refused as
+`reasoning_extraction`. Fable 5.1 and Opus 5 refused `ja-number-pad-pin` (a three-digit
+PIN on a number pad) and Fable 5.1 also `ja-sms-6`, both as `cyber`. Most Sonnet
+and Haiku errors are a marker given as the button's text, such as `"Log out"`
+instead of its candidate ID, which the judge refuses as `invalid-output`; the rest are
+`unclear` on the nickname link (`ja-nickname-href`), the count-and-balance page and the
+stay-signed-in prompt. With one more phrase in the marker's description in
+`judgedPageSchema` ("The candidate ID (such as c3) of a button or link …"), measured
+the same day on the same 31 pages and not adopted, the judge scored: Opus 5.5 `low`
+1.000 (3 runs; it never made that mistake), Sonnet 5.5 `low` 0.935 and `medium` 0.968,
+Haiku 5.5 `low` 0.978 and `medium` 0.957, each over 3 runs and every remaining error an
+`unclear`. Opus 5.5's truncated call took 59.7 s (56.4 s at `medium`), next to the 60 s
+timeout.
+
+After #889 grew the corpora (main `b803056`: 108 Japanese and 45 web pages), the main
+choices ran again on them:
+
+| Generation | Japanese 108 | Web 45 | p50 / p95 s | USD per call |
+| --- | --- | --- | --- | --- |
+| Opus 5.5 `low` (service) | 0.986 (2) | 1.000 (2) | 1.96 / 2.91 | 0.0116 |
+| Opus 5.5 `low`, fast mode | 0.991 | 1.000 | 1.01 / 1.73 | 0.0232 |
+| Sonnet 5.5 `low` | 0.991 (2) | 0.989 (2) | 1.68 / 2.50 | 0.0058 |
+| Haiku 5.5 `low` | 1.000 (3) | 1.000 (3) | 1.45 / 2.52 | 0.0003 |
+
+On `ja-agoda-top`, a top page labelled to abstain, Opus 5.5 and Sonnet 5.5 name its
+サインイン button as a sign-in entry, which a request with slots refuses
+(`unexpected-entry`); Haiku 5.5 abstains. Sonnet 5.5 once abstained on `web-mailchimp`
+(`insufficient-evidence`). These runs cost about $9.
+
+Fast mode takes about 0.9 s off a generation and 0.6 s off a judgement for Opus 5.5
+(p50 1.59 s standard against 1.03 s fast for the judge in the same window) at twice the
+price ($8/$40 per million tokens). Recipes and judgements are stored, so this speeds up
+only a site's first sign-in. On this organization Opus 5 answered one short fast request
+and then every one with a rate limit of 0 fast mode input tokens per minute. Fast mode
+is a Claude API research preview with its own rate limits per organization.
 
 Evaluation data candidates, checked 2026-10-10 (terms are as published by each
 source; confirm before use):

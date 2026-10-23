@@ -8,20 +8,29 @@ description = "Score AI role adapters on the synthetic corpus with fake provider
 run = "node ../../node_modules/vitest/vitest.mjs run"
 
 [tasks.bench]
-description = "Benchmark generation on a corpus: Claude (paid, owner approval per run) or the free heuristic."
+description = "Benchmark generation or the sign-in judge on a corpus: Claude (paid, owner approval per run) or the free heuristic."
 usage = '''
 flag "--paid" help="Confirm the owner approved this paid Claude run."
 flag "--max-cost-usd <usd>" default="2" help="Stop before a call that could exceed this estimated spend."
-flag "--corpus <name>" default="synthetic" help="The synthetic corpus, the Formasaurus real-page corpus, the Japanese pages or the English pages." {
-  choices "synthetic" "real" "japanese" "web"
+flag "--corpus <name>" default="synthetic" help="The synthetic corpus, the Formasaurus real-page corpus, the Japanese pages, the English pages, or the sign-in judge's pages." {
+  choices "synthetic" "real" "japanese" "web" "judge"
 }
 flag "--provider <name>" default="claude" help="Claude, or the model-free heuristic comparator." {
   choices "claude" "heuristic"
 }
 flag "--from <index>" default="0" help="Index of the first case, to run the corpus in batches."
 flag "--count <n>" help="Number of cases in this batch; all remaining when omitted."
+flag "--model <id>" default="claude-opus-5-5" help="The Claude model to compare; the service always runs claude-opus-5-5." {
+  choices "claude-opus-5-5" "claude-fable-5-1" "claude-opus-5" "claude-sonnet-5-5" "claude-haiku-5-5"
+}
+flag "--effort <level>" default="low" help="The effort to run the model at." {
+  choices "low" "medium" "high" "xhigh" "max"
+}
+flag "--speed <speed>" default="standard" help="Fast mode, on the models that offer it." {
+  choices "standard" "fast"
+}
 '''
-run = "bun ../../scripts/inference-benchmark.ts {% if usage.paid %}--paid{% endif %} --max-cost-usd {{ usage.max_cost_usd }} --corpus {{ usage.corpus }} --provider {{ usage.provider }} --from {{ usage.from }} {% if usage.count %}--count {{ usage.count }}{% endif %}"
+run = "bun ../../scripts/inference-benchmark.ts {% if usage.paid %}--paid{% endif %} --max-cost-usd {{ usage.max_cost_usd }} --corpus {{ usage.corpus }} --provider {{ usage.provider }} --from {{ usage.from }} {% if usage.count %}--count {{ usage.count }}{% endif %} --model {{ usage.model }} --effort {{ usage.effort }} --speed {{ usage.speed }}"
 
 [tasks."corpus:formasaurus"]
 description = "Regenerate the real-page corpus from a local Formasaurus checkout (ADR 0012)."
