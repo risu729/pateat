@@ -5,10 +5,15 @@
 // that reads a field only on blur missed Pateat's value. Then these send them as Chrome
 // does for a focused page. They are not trusted.
 
-/** The page's focused element, inside shadow roots too. */
+import { shadowRootOf } from "./shadow";
+
+/** The page's focused element, inside shadow roots too, closed ones included (ADR 0070). */
 export function focusedElement(): Element | null {
   let active = document.activeElement;
-  while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
+  for (let inner = active && shadowRootOf(active)?.activeElement; inner;) {
+    active = inner;
+    inner = shadowRootOf(active)?.activeElement;
+  }
   return active;
 }
 

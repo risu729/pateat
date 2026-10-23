@@ -75,6 +75,7 @@ export const settingsEn = {
   "Licenses and source": "Licenses and source",
   "GPL-3.0-only, no warranty": "GPL-3.0-only, no warranty",
   Theme: "Theme",
+  'Show "This page" in the popup': 'Show "This page" in the popup',
   Light: "Light",
   Dark: "Dark",
   "Stored settings are invalid. They were not replaced.":

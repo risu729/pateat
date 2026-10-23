@@ -5,7 +5,13 @@ monorepo_root = true
 
 [monorepo]
 # Each project keeps its own tasks; run one as //services/api:build.
-config_roots = ["apps/extension", "services/api", "packages/*", "tests/*"]
+config_roots = [
+  "apps/extension",
+  "apps/docs",
+  "services/api",
+  "packages/*",
+  "tests/*",
+]
 
 [tools]
 aube = "v2.8.1"

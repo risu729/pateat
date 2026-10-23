@@ -37,7 +37,7 @@ recipe stayed for good:
   revokes the recipe.
 
 A revoked recipe is generated again on its first page as the revision after its
-tombstone (owner, 2026-10-12; `services/api/src/recipes/generate.ts`), under the same
+tombstone (owner, 2026-10-12; `packages/generation/src/generate.ts`), under the same
 recipe ID, so the owner's saved bindings and site defaults still apply to it. One
 generation costs about $0.007.
 

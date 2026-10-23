@@ -17,6 +17,8 @@ export const profileDocument = (document: LocalSettings) => ({
   repromptSites: document.repromptSites,
   passkeyBrowserSites: document.passkeyBrowserSites,
   siteDefaults: document.siteDefaults,
+  // Kept only while it hides the popup's page status; absent means shown.
+  ...(document.popupPageSection === false && { popupPageSection: false }),
 });
 
 /**

@@ -63,3 +63,17 @@ describe("device unlock words of a passkey button (ADR 0053, owner 2026-10-19)",
     expect(registersPasskey(labelled(label))).toBe(true);
   });
 });
+
+describe("buttons inside shadow hosts (ADR 0070)", () => {
+  it("refuses a button inside a host that registers a passkey", () => {
+    const inside = (host: string) => ({
+      label: undefined,
+      target: { by: "id" as const, value: "button", within: [{ by: "id" as const, value: host }] },
+    });
+    // A host that registers refuses its buttons; one that names a passkey makes none of
+    // them a passkey button, as it may hold "Cancel" too.
+    expect(registersPasskey(inside("register-passkey"))).toBe(true);
+    expect(registersPasskey(inside("passkey-login"))).toBe(false);
+    expect(namesPasskey(inside("passkey-login"))).toBe(false);
+  });
+});

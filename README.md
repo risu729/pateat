@@ -58,6 +58,8 @@ honoured only on the sites you list: elsewhere Pateat fills, and signs with the 
 of, items marked with it without asking for the master password
 ([vault adapter](docs/architecture.md#vault-adapter)).
 
+The user-facing pages (installation, setup, permissions and a draft privacy policy) are
+the docs website in [apps/docs/src](apps/docs/src/index.md), which is not deployed yet.
 Start with the [documentation index](docs/README.md), then the
 [architecture](docs/architecture.md) and [implementation plan](docs/plan.md).
 See [AGENTS.md](AGENTS.md) for repository working instructions.

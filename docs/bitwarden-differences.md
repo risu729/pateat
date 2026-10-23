@@ -162,6 +162,17 @@ Pateat's rule is `besideForm` in `packages/inference/src/plan.ts`
   decision 2026-10-13 at 14:42 UTC). On an `http:` page only items saved with an
   `http://` URI count, as for logins (see URI matching above).
 
+## Popup display
+
+- The official extension keeps its popup display options, such as showing cards and
+  identities on the current tab page, in device storage
+  ([vault-settings.state.ts](https://github.com/bitwarden/clients/blob/8246ae9c9a484a0a69f8b27203034555fb872523/libs/common/src/vault/services/key-state/vault-settings.state.ts#L11-L27),
+  `VAULT_SETTINGS_DISK`), so each device has its own. Pateat's **Show "This page" in the
+  popup** checkbox is stored in the synced settings document as `popupPageSection`, so
+  every paired device follows one choice
+  ([ADR 0038's amendment](adr/0038-login-status-badge.md#amendment-a-synced-setting-hides-the-popups-section-2026-10-23),
+  owner's decision 2026-10-23 at 12:47 UTC).
+
 ## Passkeys
 
 - Chrome Immediate UI (`uiMode: "immediate"`): the official extension copies only

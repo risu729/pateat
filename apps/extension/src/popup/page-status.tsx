@@ -360,7 +360,8 @@ const ICONS = {
 
 /**
  * The popup's "This page" section: the page's status when the worker describes the page,
- * then what else the popup offers for it, such as its personal details (ADR 0061).
+ * then what else the popup offers for it, such as its personal details (ADR 0061). Without
+ * `onOpenDiagnostics`, as when settings hide the page's status, it shows no log link.
  */
 export function PageStatusSection({
   status,
@@ -369,7 +370,7 @@ export function PageStatusSection({
 }: {
   status: Status | undefined;
   children?: ReactNode;
-  onOpenDiagnostics: () => void;
+  onOpenDiagnostics?: (() => void) | undefined;
 }) {
   const { t } = useTranslation(undefined, { i18n });
   return (
@@ -393,20 +394,22 @@ export function PageStatusSection({
         </ul>
       )}
       {children}
-      <div>
-        <a
-          id="popup-open-diagnostics"
-          href="diagnostics.html"
-          className="popup-link popup-link--icon"
-          onClick={(event) => {
-            event.preventDefault();
-            onOpenDiagnostics();
-          }}
-        >
-          <Bug size={16} strokeWidth={2} aria-hidden="true" />
-          {t("Open the detailed log")}
-        </a>
-      </div>
+      {onOpenDiagnostics && (
+        <div>
+          <a
+            id="popup-open-diagnostics"
+            href="diagnostics.html"
+            className="popup-link popup-link--icon"
+            onClick={(event) => {
+              event.preventDefault();
+              onOpenDiagnostics();
+            }}
+          >
+            <Bug size={16} strokeWidth={2} aria-hidden="true" />
+            {t("Open the detailed log")}
+          </a>
+        </div>
+      )}
     </section>
   );
 }

@@ -1386,3 +1386,24 @@ test("the vault timeout has its own section only with a device setting to show",
   expect(vaultTimeoutClient.read).toHaveBeenCalled();
   expect(vaultTimeoutClient.write).not.toHaveBeenCalled();
 });
+
+test("the popup's This page checkbox sits under the theme and saves to the synced settings", async () => {
+  const client = mockClient();
+  await mount(client);
+  const checkbox = page.getByRole("checkbox", { name: 'Show "This page" in the popup' });
+  await expect.element(checkbox).toBeChecked();
+  // Under the Theme select, in the section list.
+  const theme = document.querySelector("#theme-preference")!;
+  expect(
+    theme.compareDocumentPosition(checkbox.element()) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  expect(checkbox.element().closest("nav")).not.toBeNull();
+  await checkbox.click();
+  await expect.poll(() => client.saveSettings.mock.calls.length).toBe(1);
+  expect(client.saveSettings.mock.calls[0]![0].settings.popupPageSection).toBe(false);
+  await expect.element(control("settings-status")).toMatchTextContent("saved (revision 1).");
+  await expect.element(checkbox).not.toBeChecked();
+  await checkbox.click();
+  await expect.poll(() => client.saveSettings.mock.calls.length).toBe(2);
+  expect(client.saveSettings.mock.calls[1]![0].settings.popupPageSection).toBeUndefined();
+});

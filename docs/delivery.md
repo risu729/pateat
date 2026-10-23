@@ -51,11 +51,12 @@ by the real-Chrome checks, not by CI. `CI Check` requires `Changes` and `Verify`
 succeed and `Browser` to be `success`, or `skipped` exactly when `Changes` reported a
 documentation-only PR; it runs even when an upstream job failed. A `Changes` job (no
 checkout, on `ubuntu-slim`) decides whether a PR needs the browser tests: a PR whose
-changed files are all under `docs/` or are `AGENTS.md`, `README.md` or `README.ja.md`
-skips the `Browser` job, runs only `Verify` (which still checks the documentation) and
-passes `CI Check` with the shards skipped; any other change, every main push and every
-manual run runs them. The owner chose
-[dorny/paths-filter](https://github.com/dorny/paths-filter) (pinned at v4.0.3) on
+changed files are all under `docs/` or `apps/docs/` (the
+[docs website](development.md#docs-website)) or are `AGENTS.md`, `README.md` or
+`README.ja.md` skips the `Browser` job, runs only `Verify` (which still checks the
+documentation and builds the docs website) and passes `CI Check` with the shards
+skipped; any other change, every main push and every manual run runs them. The owner
+chose [dorny/paths-filter](https://github.com/dorny/paths-filter) (pinned at v4.0.3) on
 2026-10-12 because on a `pull_request` event it reads the changed files through the API,
 so the job needs no checkout and only `pull-requests: read`; workflow-level `paths`
 filters are not used because a skipped workflow reports no `CI Check`. If the `Changes`
