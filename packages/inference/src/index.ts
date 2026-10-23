@@ -32,6 +32,8 @@ export {
   completionPromptVersion,
   completionStopInstructions,
   completionStopPromptVersion,
+  completionBesideInstructions,
+  completionBesidePromptVersion,
   createCompletionJudge,
   judgedPageSchema,
   type CompletionRequest,

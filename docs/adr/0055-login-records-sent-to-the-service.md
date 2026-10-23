@@ -12,7 +12,17 @@ user, so it is fine). Implemented (local tests only; not deployed). Amends
 [ADR 0012](0012-inference-request-log.md) (what the service keeps beside the request
 log). Amended on 2026-10-19 by [ADR 0058](0058-automatic-recipe-removal.md): a device
 also tells the service when a login starts on a recipe revision, recipe ID and revision
-only (Claude's choice, not confirmed by the owner).
+only (Claude's choice, not confirmed by the owner). Amended on 2026-10-23 by
+[ADR 0066](0066-problem-lines-sent-to-the-service.md): a device also sends its local
+log's `warn` and `error` lines and why Pateat did nothing. A setting to turn off both
+kinds of sending is on the
+[pre-release list](../plan.md#phase-3-public-release).
+
+Amended on 2026-10-23 by [ADR 0060](0060-recipe-layouts.md) (layouts accepted by the
+owner on 2026-10-23 at 11:41 UTC; implemented on a branch, local tests only): a record
+always carries `branch`, which names the layout the login ran (`<key>`, or
+`<key>:account` / `<key>:other` for a chooser's branch), and the service marks that
+layout used.
 
 Date: 2026-10-18
 

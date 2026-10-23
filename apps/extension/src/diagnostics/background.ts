@@ -2,6 +2,7 @@
 import type { LocalSettings } from "@pateat/contracts";
 import * as v from "valibot";
 import type { VaultSyncOutcome } from "../connections/auto-sync";
+import type { VaultTimeoutReport } from "../vault/timeout";
 import type { SignInStep } from "../connections/runtime";
 import type { RefreshReport } from "../connections/sessions";
 import type { SetupReply } from "../connections/types";
@@ -10,6 +11,7 @@ import type { PasskeyCreateReport } from "../passkeys/create";
 import type { PasskeyRequestReport } from "../passkeys/runtime";
 import type { LoginRecordSent } from "../service/login-records";
 import type { LoginOutcomeSent } from "../service/outcomes";
+import type { ProblemsSent } from "../service/problems";
 import type { RecipeUseSent } from "../service/recipe-use";
 import type { RecipeSyncChanges, RecipeSyncOutcome } from "../service/recipes";
 import type { ServiceTiming } from "../service/transport";
@@ -83,6 +85,8 @@ export function createDiagnosticsLog(options: {
   settings(): Promise<{ revision: number; settings: LocalSettings }>;
   recipeCache(): Promise<unknown>;
   connections(): Promise<SetupReply>;
+  /** Told after each entry is stored that goes to the service (ADR 0066). */
+  onProblem?: () => void;
   /** For tests: another database and event target than the worker's. */
   databaseName?: string;
   scope?: Pick<typeof globalThis, "addEventListener">;
@@ -92,6 +96,7 @@ export function createDiagnosticsLog(options: {
   );
   const logger = createLogger({
     pseudonym: pseudonyms,
+    ...(options.onProblem ? { onProblem: options.onProblem } : {}),
     ...(options.databaseName ? { databaseName: options.databaseName } : {}),
     build: options.build,
     async knownSites(): Promise<KnownSites> {
@@ -259,6 +264,12 @@ export function createDiagnosticsLog(options: {
         },
       );
     },
+    /** The vault timeout acted (ADR 0075): info when every vault closed, else warn. */
+    vaultTimeout(event: VaultTimeoutReport) {
+      void logger.log("vault.timeout", event, {
+        level: event.outcome === "done" ? "info" : "warn",
+      });
+    },
     /**
      * A Bitwarden refresh request: debug when it succeeded, info when none was sent and why,
      * else warn.
@@ -293,18 +304,22 @@ export function createDiagnosticsLog(options: {
           added: changes.added || undefined,
           updated: changes.updated || undefined,
           removed: changes.removed || undefined,
+          unreadable: changes.unreadable || undefined,
           roundTripMs: changes.timing?.roundTripMs,
           serverMs: changes.timing?.serverMs,
           networkMs: changes.timing?.networkMs,
         },
         {
-          level: QUIET_SYNC.has(outcome)
-            ? changed
-              ? "info"
-              : "debug"
-            : outcome === "unreachable" || outcome === "busy"
-              ? "info"
-              : "warn",
+          // A change left out waits for an extension update, which only the person can make.
+          level: changes.unreadable
+            ? "warn"
+            : QUIET_SYNC.has(outcome)
+              ? changed
+                ? "info"
+                : "debug"
+              : outcome === "unreachable" || outcome === "busy"
+                ? "info"
+                : "warn",
         },
       );
     },
@@ -351,7 +366,12 @@ export function createDiagnosticsLog(options: {
     recipeUse(sent: RecipeUseSent) {
       void logger.log(
         "service.use",
-        { recipe: sent.recipeId, recipeRevision: sent.revision, result: sent.result },
+        {
+          recipe: sent.recipeId,
+          recipeRevision: sent.revision,
+          layout: sent.layout,
+          result: sent.result,
+        },
         {
           level: QUIET_RECIPE_USES.has(sent.result)
             ? "debug"
@@ -359,6 +379,17 @@ export function createDiagnosticsLog(options: {
               ? "info"
               : "warn",
         },
+      );
+    },
+    /**
+     * Warning and error lines sent to the service (ADR 0066): debug when kept, else
+     * info, never warn, so a failed send does not become a line to send in turn.
+     */
+    problemsSent(sent: ProblemsSent) {
+      void logger.log(
+        "service.problems",
+        { lines: sent.lines, result: sent.result },
+        { level: sent.result === "kept" ? "debug" : "info" },
       );
     },
     /**
@@ -415,6 +446,8 @@ export function createDiagnosticsLog(options: {
             url: report.url,
             recipe: report.recipeId,
             recipeRevision: report.recipeRevision,
+            layout: report.layout,
+            layouts: report.layouts,
             route: report.route,
             variant: report.variant,
             account: report.account,
@@ -514,6 +547,7 @@ export function createDiagnosticsLog(options: {
             route: report.route,
             state: report.state,
             step: report.stepIndex,
+            unsubmitted: report.unsubmitted,
             name: report.name,
             // Engine messages can quote input; only Pateat's own codes are kept.
             message:
@@ -574,6 +608,7 @@ export function createDiagnosticsLog(options: {
             notCompleted: report.notCompleted,
             moved: report.moved,
             stop: report.stop,
+            beside: report.beside,
             ...requestTimes(report.timing),
           },
           // The answer follows, but `sent` is what is left when no answer came (ADR 0019).
@@ -760,7 +795,11 @@ export function createDiagnosticsLog(options: {
             reason: report.reason,
             settled: report.settled,
             unconfirmed: report.unconfirmed,
+            unsubmitted: report.unsubmitted,
             routeChange: report.routeChange,
+            // A switch of layouts names both (ADR 0060).
+            layout: report.layoutFrom === undefined ? undefined : report.branch,
+            layoutFrom: report.layoutFrom,
             stop: report.stop,
             ...report.times,
           },
@@ -785,7 +824,8 @@ export function createDiagnosticsLog(options: {
                   ? "warn"
                   : report.state === "authenticated" ||
                       report.state === "retryable" ||
-                      report.routeChange !== undefined
+                      report.routeChange !== undefined ||
+                      report.layoutFrom !== undefined
                     ? "info"
                     : "debug",
           },

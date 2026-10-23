@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  completionBesideInstructions,
   completionInstructions,
   completionStopInstructions,
   createCompletionJudge,
@@ -410,6 +411,76 @@ describe("password button on a page that asks how to verify (ADR 0048)", () => {
         }),
       );
     });
+  });
+});
+
+describe("optional page after the sign-in (ADR 0065)", () => {
+  // A synthetic page shown after the sign-in that asks to check two-factor settings and can
+  // be put off.
+  const checkup = {
+    ...signedIn,
+    path: "/checkup",
+    title: "Verify your two-factor settings",
+    headings: ["Verify your two-factor authentication settings"],
+    candidates: [
+      { id: "verify", role: "button", target: { by: "id", value: "verify" }, label: "Verify now" },
+      {
+        id: "later",
+        role: "button",
+        target: { by: "id", value: "later" },
+        label: "Remind me later",
+      },
+    ],
+  };
+  const optional = { ...request, observation: checkup };
+  const withField = (field: Record<string, unknown>) => ({
+    ...optional,
+    observation: {
+      ...checkup,
+      candidates: [...checkup.candidates, { target: { by: "id", value: "f" }, ...field }],
+    },
+  });
+
+  it("passes an optional page through, logged without any element", async () => {
+    const outcome = await judgeReturning({ decision: "optional" }).judge(optional);
+    expect(outcome).toMatchObject({ status: "ok", value: { decision: "optional" } });
+    expect(outcome.answer).toEqual({ decision: "optional" });
+  });
+
+  it.each([
+    ["a password field", { id: "pw", role: "password", label: "Password" }],
+    ["a username field", { id: "user", role: "email", autocomplete: "username" }],
+    ["a one-time-code field", { id: "otp", role: "text", autocomplete: "one-time-code" }],
+    ["a numeric code field", { id: "otp", role: "text", inputMode: "numeric", maxLength: 6 }],
+    ["a plain email field", { id: "mail", role: "email", label: "Recovery email" }],
+    ["a phone field", { id: "phone", role: "tel", label: "Phone number" }],
+    ["a text field", { id: "answer", role: "text", label: "Your answer" }],
+  ])("reads an optional answer on a page with %s as a challenge", async (_name, field) => {
+    const outcome = await judgeReturning({ decision: "optional" }).judge(withField(field));
+    expect(outcome).toMatchObject({ status: "ok", value: { decision: "challenge" } });
+    // The log keeps the model's own answer.
+    expect(outcome.answer).toEqual({ decision: "optional" });
+  });
+
+  it.each([
+    ["by its label", { label: "Search" }],
+    ["by its placeholder", { placeholder: "サイト内検索" }],
+    ["by its input mode", { inputMode: "search" }],
+  ])("keeps an optional page with a search box %s optional", async (_name, extra) => {
+    const field = { id: "q", role: "text", ...extra };
+    expect(await judgeReturning({ decision: "optional" }).judge(withField(field))).toMatchObject({
+      status: "ok",
+      value: { decision: "optional" },
+    });
+  });
+
+  it("tells the model what such a page is and what stays a challenge", () => {
+    expect(completionInstructions).toMatch(
+      /A page shown after the sign-in whose content is only an offer or reminder the person may put off, .* is optional, not a challenge and not signed-in, but only when the person is already signed in and could reach the account without acting on the page\./u,
+    );
+    expect(completionInstructions).toMatch(
+      /A page that asks for a choice of how to sign in, a password, a code, a CAPTCHA, an approval on another device, a confirmation of the sign-in or another step before the account opens is a challenge, never optional, and so is a security notice about this sign-in, .* even one with Dismiss\./u,
+    );
   });
 });
 
@@ -884,6 +955,111 @@ describe("sign-in judge at a stop before the password", () => {
     expect(
       await judge({ observation: passwordPage, loginPaths: ["/login"], stop: true }),
     ).toMatchObject({ status: "failed", error: "invalid-output" });
+  });
+});
+
+// ADR 0061: a page that still shows the sign-in form Pateat filled, beside another form
+// that asks for a detail, as a lightbox over the sign-in sidebar. Synthetic page.
+describe("sign-in judge beside the sign-in form", () => {
+  const besidePage = {
+    version: 1,
+    origin: "https://card.example",
+    path: "/members/",
+    language: "en",
+    complete: true,
+    candidates: [
+      { id: "c1", role: "text", target: { by: "id", value: "user" }, label: "ID", group: "g1" },
+      {
+        id: "c2",
+        role: "password",
+        target: { by: "id", value: "pw" },
+        label: "Password",
+        group: "g1",
+      },
+      {
+        id: "c3",
+        role: "button",
+        target: { by: "id", value: "login" },
+        label: "Log in",
+        group: "g1",
+      },
+      {
+        id: "c4",
+        role: "text",
+        target: { by: "name", value: "birth" },
+        label: "Birth year and month",
+        group: "g2",
+        maxLength: 6,
+      },
+      {
+        id: "c5",
+        role: "text",
+        target: { by: "name", value: "phone" },
+        label: "Last 4 digits of your phone",
+        group: "g2",
+        maxLength: 4,
+      },
+      {
+        id: "c6",
+        role: "button",
+        target: { by: "id", value: "submit" },
+        label: "Log in",
+        group: "g2",
+      },
+    ],
+  };
+  function judgeAt(result: unknown) {
+    const model = textModel(async () => textResult(JSON.stringify({ result })));
+    return { model, judge: createCompletionJudge({ model, limits, maxOutputTokens: 512 }) };
+  }
+  const system = (model: ReturnType<typeof judgeAt>["model"]) =>
+    model.doGenerateCalls[0]!.prompt.filter((message) => message.role === "system").map(
+      (message) => message.content,
+    );
+
+  it("sends the beside instructions and keeps the other form's details", async () => {
+    const { model, judge } = judgeAt({
+      decision: "challenge",
+      details: [
+        { field: "c4", value: "birth-date", format: "yyyymm" },
+        { field: "c5", value: "phone-last-4" },
+      ],
+      detailSubmit: "c6",
+    });
+    expect(
+      await judge({ observation: besidePage, loginPaths: ["/members/"], beside: true }),
+    ).toMatchObject({
+      status: "ok",
+      value: {
+        decision: "challenge",
+        detail: {
+          fields: [
+            { detail: "birth-date", format: "yyyymm", target: { by: "name", value: "birth" } },
+            { detail: "phone-last-4", target: { by: "name", value: "phone" } },
+          ],
+          target: { by: "id", value: "submit" },
+        },
+      },
+    });
+    expect(system(model)).toEqual([completionBesideInstructions]);
+    expect(completionBesideInstructions.startsWith(completionInstructions)).toBe(true);
+    expect(completionBesideInstructions).toMatch(/details and detailSubmit when that other form/u);
+    expect(completionBesideInstructions).not.toBe(completionStopInstructions);
+  });
+
+  it("still fails closed on a signed-in answer while the password field shows", async () => {
+    const { judge } = judgeAt({ decision: "signed-in", marker: "c6" });
+    expect(
+      await judge({ observation: besidePage, loginPaths: ["/members/"], beside: true }),
+    ).toMatchObject({ status: "failed", error: "invalid-output" });
+  });
+
+  it("never judges a page as both a stop's and beside the sign-in form", async () => {
+    const { model, judge } = judgeAt({ decision: "unclear" });
+    expect(
+      await judge({ observation: besidePage, loginPaths: ["/members/"], beside: true, stop: true }),
+    ).toMatchObject({ status: "failed", error: "invalid-request", calls: 0 });
+    expect(model.doGenerateCalls).toHaveLength(0);
   });
 });
 

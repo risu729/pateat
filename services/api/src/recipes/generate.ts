@@ -1,25 +1,36 @@
 import {
-  chooserBranch,
+  findChooserLayout,
   isGeneratedRecipeId,
-  isLoginRouteRecipe,
-  loginChooserRecipeSchema,
   loginStepEffect,
+  newLayoutKey,
+  parseRecipeBranch,
   recipeHasRoute,
   recipeSlots,
   routeFillTargets,
   routeSignInPaths,
   routeSignInTargets,
   sameLoginTarget,
+  showsBesideForm,
+  storedBranchRoute,
+  storedLoginRecipeSchema,
   storedRecipeStartPath,
+  toChooserLayout,
+  toLoginLayout,
   withChooserBranch,
+  withChooserLayout,
+  withLoginLayout,
   type ChooserBranch,
   type EntryGenerationRequest,
   type EntryGenerationResult,
   type GenerationUnavailableReason,
+  type LayoutMeta,
   type LoginChooserRecipe,
+  type LoginLayout,
+  type LoginObservation,
   type LoginRecipe,
   type LoginMarkerTarget,
   type LoginRoute,
+  type PageKind,
   type RecipeCompletionRequest,
   type RecipeCompletionResult,
   type RecipeGenerationRequest,
@@ -41,6 +52,8 @@ import {
   completionPromptVersion,
   completionStopInstructions,
   completionStopPromptVersion,
+  completionBesideInstructions,
+  completionBesidePromptVersion,
   createCompletionJudge,
   createEntryGenerator,
   createRecipeGenerator,
@@ -55,8 +68,9 @@ import {
   passkeyOnlyGenerationPromptVersion,
   type InferenceErrorCode,
   type InferenceOutcome,
+  type ValidatedGeneratedPage,
 } from "@pateat/inference";
-import { and, count, eq, gt, gte, lt, notInArray, or } from "drizzle-orm";
+import { and, count, eq, gt, gte, inArray, lt, notInArray, or } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import * as v from "valibot";
 import type { DeviceScope } from "../auth";
@@ -76,10 +90,21 @@ import { generationAttempts, pageJudgements, type PageJudgementVerdict } from ".
 import {
   hasRecipeByteRoom,
   hasRecipeRoom,
+  markLayoutUsed,
   readHead,
   readRevision,
   writeRecipe,
+  type UnitSources,
 } from "../recipe-store";
+import {
+  branchUnit,
+  ENTRY_UNIT,
+  handlerUnit,
+  LIST_UNIT,
+  markerUnit,
+  pageUnit,
+  type RecipeUnit,
+} from "../recipe-units";
 import { recipeBindingSlots } from "../settings-store";
 
 // The recipe generation routes of ADR 0018: one page per call, appended to one recipe
@@ -164,27 +189,159 @@ const answerable = (
   const head = active(change);
   return head && !("entry" in head.recipe) ? { ...head, recipe: head.recipe } : undefined;
 };
-/** The branch's route recipe of a chooser head, or the head's own route recipe without one. */
-function routeOf(
-  recipe: StoredLoginRecipe,
-  branch: ChooserBranch | undefined,
-): LoginRecipe | undefined {
-  if (branch) return "chooser" in recipe ? chooserBranch(recipe, branch) : undefined;
-  return isLoginRouteRecipe(recipe) ? recipe : undefined;
-}
+/** The route a branch name runs on a stored head: a layout's, or a chooser layout's branch's. */
+const routeOf = (recipe: StoredLoginRecipe, branch: string) =>
+  storedBranchRoute(recipe, branch)?.route;
 /**
- * A route recipe changed for a page, written back under its chooser for a branch, or
- * `undefined` when the chooser it makes fails its own schema, so devices never get a
- * recipe they refuse to sync.
+ * A route a login ran, changed for a page or a judgement, written back as its layout of the
+ * stored head (ADR 0060), under its chooser layout for a chooser branch, at `next`'s
+ * revision; the head's other layouts stay as they are. `undefined` when the head has no
+ * such layout, or the recipe it makes fails its own schema, so devices never get a recipe
+ * they refuse to sync.
  */
 function stored(
   head: StoredLoginRecipe,
-  branch: ChooserBranch | undefined,
+  branch: string,
   next: LoginRecipe,
 ): StoredLoginRecipe | undefined {
-  if (!branch || !("chooser" in head)) return next;
-  const chooser = withChooserBranch(head, branch, next);
-  return v.is(loginChooserRecipeSchema, chooser) ? chooser : undefined;
+  const named = parseRecipeBranch(branch);
+  if (!named) return undefined;
+  const revision = { revision: next.revision };
+  let written: StoredLoginRecipe | undefined;
+  if ("layouts" in head && !named.branch) {
+    const meta = head.layouts.find((layout) => layout.key === named.layout);
+    written = meta && { ...withLoginLayout(head, toLoginLayout(next, meta)), ...revision };
+  } else if ("chooser" in head && named.branch) {
+    const chooser = findChooserLayout(head, named.layout);
+    const meta = head.chooser.layouts.find((layout) => layout.key === named.layout);
+    written = chooser &&
+      meta && {
+        ...withChooserLayout(
+          head,
+          toChooserLayout(withChooserBranch(chooser, named.branch, next), meta),
+        ),
+        ...revision,
+      };
+  }
+  return written && v.is(storedLoginRecipeSchema, written) ? written : undefined;
+}
+/**
+ * The key, language and creation time of a layout created now (ADR 0060): a language the
+ * page was written in alone, none for a page of both.
+ */
+function newLayoutMeta(language: LoginObservation["language"], now: number): LayoutMeta {
+  return {
+    key: newLayoutKey(now, []),
+    ...(language === "mixed" ? {} : { language }),
+    createdAt: now,
+  };
+}
+/**
+ * A write that a login's page caused, on a continuation or a judgement, marks the layout
+ * the login ran used (ADR 0060). A failed mark only costs that layout some idle time.
+ */
+async function markWritten(env: GenerationEnv, ownerId: string, recipeId: string, branch: string) {
+  const layout = parseRecipeBranch(branch)?.layout;
+  if (layout === undefined) return;
+  try {
+    await markLayoutUsed(drizzle(env.DB), ownerId, recipeId, layout, Date.now());
+  } catch {
+    console.warn("Recipe layout use not kept", { recipeId });
+  }
+}
+/** What the model answered a page for, as {@link buildLoginLayout} builds a layout of it. */
+export type LayoutPage = {
+  /** The recipe's ID and origin. */
+  id: string;
+  origin: string;
+  observation: LoginObservation;
+  slots: RecipeGenerationRequest["slots"];
+  /** The model's validated answer for a form. */
+  value: ValidatedGeneratedPage;
+  /** The page is a recipe's start page, which alone keeps alternatives and a passkey. */
+  startPage: boolean;
+  /** Custom-field names the owner's saved bindings of the recipe carry (ADR 0027). */
+  carriedNames: ReadonlyMap<string, string>;
+  /** The page's kind (ADR 0035); a continuation keeps the layout's own. */
+  pageKind: PageKind;
+};
+/**
+ * Builds the layout a model's answer for one page makes (ADR 0060), without writing it:
+ * the page's steps appended to `base`, the route of the layout it continues, or a new
+ * route without one, stored as the layout `meta` names. Repair builds its layouts here too
+ * and decides itself whether one is added, merged or replaces another before it is
+ * written. `customSlots` are the custom-field slots the page named, for the answer.
+ */
+export function buildLoginLayout(
+  base: LoginRecipe | undefined,
+  page: LayoutPage,
+  meta: LayoutMeta,
+):
+  | {
+      ok: true;
+      layout: LoginLayout;
+      recipe: LoginRecipe;
+      customSlots: { slot: string; offered: string }[];
+    }
+  | { ok: false; answer: Extract<RecipeGenerationResult, { status: "failed" | "unavailable" }> } {
+  const { value, observation, slots, carriedNames, startPage } = page;
+  // Each custom-field slot of any identifier set, under the name the page's text or the
+  // saved bindings gave it: the recipe stores only that name, and the extension maps it
+  // back to the offered field (ADR 0027). A requested slot has one name in every set and
+  // names are numbered apart, so each name appears once. A later page's validated plan has
+  // no alternatives and no passkey button (see `startPage` in `generateRecipe`).
+  const alternatives = value.alternatives ?? [];
+  const passkey = value.passkeyTarget;
+  const customSlots = [
+    ...new Map(
+      [value, ...alternatives]
+        .flatMap((plan) => plan.fields)
+        .flatMap(({ slot, name }) => (name === undefined ? [] : [[name, slot] as const])),
+    ),
+  ].map(([slot, offered]) => ({ slot, offered }));
+  // Appending unites slot IDs, so a name the recipe already uses, in any case, could
+  // silently merge two different fields. It is refused rather than numbered apart: a form
+  // shown again after an error names its field the same, and must not become a next page
+  // that fills it again (ADR 0018).
+  const used = new Set(base ? recipeSlots(base).map((slot) => slot.toLowerCase()) : []);
+  if (customSlots.some(({ slot }) => used.has(slot.toLowerCase())))
+    return { ok: false, answer: failed("recipe-invalid") };
+  // A carried name never lets through a page its own text refuses: the names the page's
+  // text alone gives are checked as well (ADR 0027, amended 2026-10-19).
+  if (
+    used.size > 0 &&
+    carriedNames.size > 0 &&
+    [...customSlotNames(observation, slots, [value]).values()].some((name) =>
+      used.has(name.toLowerCase()),
+    )
+  )
+    return { ok: false, answer: failed("recipe-invalid") };
+  const assembled = appendPageSteps(base, {
+    id: page.id,
+    origin: page.origin,
+    steps: value.steps,
+    ...(alternatives.length ? { alternatives: alternatives.map((entry) => entry.steps) } : {}),
+    ...(value.switchTarget ? { accountSwitch: value.switchTarget } : {}),
+    ...(passkey ? { passkey } : {}),
+    ...(value.passkeyOnly && startPage ? { passkeyOnly: true } : {}),
+    pageKind: page.pageKind,
+  });
+  // A page that fills one of the recipe's slots again, as its identifier form shown again
+  // where it posted, is refused before anything is stored (ADR 0018).
+  if (!assembled.ok)
+    return {
+      ok: false,
+      answer:
+        assembled.reason === "invalid-recipe" || assembled.reason === "slot-refilled"
+          ? failed("recipe-invalid")
+          : unavailable("recipe-conflict"),
+    };
+  return {
+    ok: true,
+    layout: toLoginLayout(assembled.recipe, meta),
+    recipe: assembled.recipe,
+    customSlots,
+  };
 }
 /**
  * The answer of a call that produced no value: failed, with the check that refused the
@@ -347,9 +504,12 @@ export async function generateRecipe(
     recipe.origin === origin &&
     recipe.id === recipeId &&
     (await generatedRecipeId(origin, storedRecipeStartPath(recipe))) === recipeId;
-  /** Whether a stored recipe is the kind this request writes: a chooser, or a route. */
+  // The layout a continuation names (ADR 0060), and the chooser branch it takes, if any.
+  const named = branch === undefined ? undefined : parseRecipeBranch(branch);
+  const chooserSide: ChooserBranch | undefined = named?.branch;
+  /** Whether a stored recipe is the kind this request writes: a chooser, or layouts. */
   const fits = (recipe: StoredLoginRecipe) =>
-    list || branch ? "chooser" in recipe : isLoginRouteRecipe(recipe);
+    list || chooserSide ? "chooser" in recipe : "layouts" in recipe;
 
   /**
    * What the stored head means for this request: an answer without a model call, or the
@@ -396,11 +556,14 @@ export async function generateRecipe(
     if (!current) return { answer: unavailable("recipe-conflict") };
     if (!(await hasRecipeByteRoom(env.DB, scope.ownerId, MIN_GENERATION_RECIPE_ROOM_BYTES)))
       return { answer: unavailable("recipe-limit") };
-    const chooser = "chooser" in current.recipe ? current.recipe : undefined;
+    // The layout the login ran, and its chooser for a branch; one the head no longer has, as
+    // after its revocation from the management page, is not continued.
+    const resolved = branch === undefined ? undefined : storedBranchRoute(current.recipe, branch);
+    if (!resolved) return { answer: unavailable("recipe-conflict") };
+    const { route, chooser } = resolved;
     // The other branch starts only with the chooser's button for it.
-    if (branch === "other" && !chooser?.chooser.other)
+    if (chooserSide === "other" && !chooser?.chooser.other)
       return { answer: unavailable("recipe-conflict") };
-    const route = routeOf(current.recipe, branch);
     // A branch's first page has nothing to continue yet.
     if (chooser && !route) return { base: undefined, chooser };
     const last = route?.steps.at(-1);
@@ -435,10 +598,14 @@ export async function generateRecipe(
       ? carriedSlotNames(slots, await recipeBindingSlots(env.DB, scope.ownerId, origin, recipeId))
       : new Map<string, string>();
   let raced: Extract<RecipeGenerationResult, { status: "recipe" | "unavailable" }> | undefined;
+  // A first page starts the recipe's first layout (ADR 0060), keyed by when it was made and
+  // in the page's language; until repair lands, no request adds another. Its key is chosen
+  // before the call, so the request log names the layout the answer creates.
+  const meta = newLayoutMeta(observation.language, Date.now());
 
   const call = await callClaude(env, scope.ownerId, trace, {
     ...logged,
-    recipe: { ...logged.recipe, baseRevision },
+    recipe: { ...logged.recipe, baseRevision, ...(base ? {} : { layout: meta.key }) },
     ...attemptWindow(
       scope.ownerId,
       { recipeId, branch: attemptBranch, origin, path, baseRevision },
@@ -491,7 +658,15 @@ export async function generateRecipe(
     },
   });
   if (call.status === "unavailable") return unsent(raced ?? unavailable(call.reason));
-  const { logId } = call;
+  const { logId, served } = call;
+  /** The provenance of the units this call's write adds (ADR 0060). */
+  const generated = (units: RecipeUnit[]): UnitSources => ({
+    origin: "generated",
+    units,
+    served,
+    promptVersion: logged.promptVersion,
+    logId,
+  });
   const result = unsettled(call.outcome);
   // A request the role refused locally, as one too large, was never sent; the roles refuse
   // locally only with a failure.
@@ -502,11 +677,14 @@ export async function generateRecipe(
   /**
    * Writes the recipe after `baseRevision` and answers with it, with `customSlots` when
    * given, or with what won the race: only the recipe this call wrote has a mapping to
-   * answer with. A branch's page lost to a write of the chooser's other branch, or of a
-   * judgement there, is written once more onto that head, so the paid answer is kept.
+   * answer with. A page lost to a write of another layout or of the chooser layout's
+   * other branch, such as a judgement or a removal there, is written once more onto that
+   * head, so the paid answer is kept. `units` are the units the page adds, recorded with
+   * each write, the rebased one too (ADR 0060).
    */
   const save = async (
     recipe: StoredLoginRecipe,
+    units: RecipeUnit[],
     customSlots: { slot: string; offered: string }[] = [],
     rebase?: (head: SyncRecipeChange | null) => Promise<StoredLoginRecipe | undefined>,
   ): Promise<RecipeGenerationResult> => {
@@ -520,10 +698,13 @@ export async function generateRecipe(
         recipeId,
         { version: 1, state: "active", expectedRevision, recipe: next },
         scope.deviceId,
+        { sources: generated(units) },
       );
       if (written.ok) {
         // eslint-disable-next-line no-await-in-loop
         await keepLogRevision(env.DB, scope.ownerId, logId, written.change.revision);
+        // eslint-disable-next-line no-await-in-loop
+        if (branch !== undefined) await markWritten(env, scope.ownerId, recipeId, branch);
         const change = answerable(written.change);
         if (!change) return unavailable("recipe-conflict");
         return {
@@ -549,85 +730,90 @@ export async function generateRecipe(
   const { value } = result;
   // The role answers a list only for a list and a plan only for a form; checked again here.
   if ("accountList" in value !== list) return failed("invalid-output");
+  // A recipe generated again follows its tombstone's revision.
+  const revision = baseRevision + 1;
+  /** A new recipe document, checked as devices check what they sync. */
+  const document = (recipe: StoredLoginRecipe) =>
+    v.is(storedLoginRecipeSchema, recipe) ? recipe : undefined;
   if ("accountList" in value) {
-    // The list becomes a chooser recipe without branches; each branch is generated once a
-    // login takes it (ADR 0028). A recipe generated again follows its tombstone's revision.
-    const recipe = v.safeParse(loginChooserRecipeSchema, {
+    // The list becomes a chooser recipe with one layout and no branches; each branch is
+    // generated once a login takes it (ADR 0028).
+    const recipe = document({
       version: 1,
       id: recipeId,
-      revision: baseRevision + 1,
+      revision,
       origin,
       chooser: {
         path,
-        ...(value.other ? { other: value.other.target } : {}),
-        ...(value.continue ? { continue: value.continue.target } : {}),
+        layouts: [
+          {
+            ...meta,
+            ...(value.other ? { other: value.other.target } : {}),
+            ...(value.continue ? { continue: value.continue.target } : {}),
+          },
+        ],
       },
     });
-    return recipe.success ? save(recipe.output) : failed("recipe-invalid");
+    return recipe
+      ? save(recipe, [{ layout: meta.key, unit: LIST_UNIT }])
+      : failed("recipe-invalid");
   }
-
-  // Each custom-field slot of any identifier set, under the name the page's text or the
-  // saved bindings gave it: the recipe stores only that name, and the extension maps it
-  // back to the offered field (ADR 0027). A requested slot has one name in every set and
-  // names are numbered apart, so each name appears once. A later page's validated plan has
-  // no alternatives and no passkey button (see `startPage` above).
-  const alternatives = value.alternatives ?? [];
-  const passkey = value.passkeyTarget;
-  const customSlots = [
-    ...new Map(
-      [value, ...alternatives]
-        .flatMap((plan) => plan.fields)
-        .flatMap(({ slot, name }) => (name === undefined ? [] : [[name, slot] as const])),
-    ),
-  ].map(([slot, offered]) => ({ slot, offered }));
-  // Appending unites slot IDs, so a name the recipe already uses, in any case, could
-  // silently merge two different fields. It is refused rather than numbered apart: a form
-  // shown again after an error names its field the same, and must not become a next page
-  // that fills it again (ADR 0018).
-  const used = new Set(baseRecipe ? recipeSlots(baseRecipe).map((slot) => slot.toLowerCase()) : []);
-  if (customSlots.some(({ slot }) => used.has(slot.toLowerCase()))) return failed("recipe-invalid");
-  // A carried name never lets through a page its own text refuses: the names the page's
-  // text alone gives are checked as well (ADR 0027, amended 2026-10-19).
-  if (
-    used.size > 0 &&
-    carriedNames.size > 0 &&
-    [...customSlotNames(observation, slots, [value]).values()].some((name) =>
-      used.has(name.toLowerCase()),
-    )
-  )
-    return failed("recipe-invalid");
-  const assembled = appendPageSteps(baseRecipe, {
-    id: recipeId,
-    origin,
-    steps: value.steps,
-    ...(alternatives.length ? { alternatives: alternatives.map((entry) => entry.steps) } : {}),
-    ...(value.switchTarget ? { accountSwitch: value.switchTarget } : {}),
-    ...(passkey ? { passkey } : {}),
-    ...(value.passkeyOnly && startPage ? { passkeyOnly: true } : {}),
-    // The first page's kind (ADR 0035): a continuation keeps the recipe's own, and every
-    // page of a chooser branch follows a list of accounts, a sign-in page.
-    pageKind: chooser ? "sign-in" : value.pageKind,
-  });
-  // A page that fills one of the recipe's slots again, as its identifier form shown again
-  // where it posted, is refused before anything is stored (ADR 0018).
-  if (!assembled.ok)
-    return assembled.reason === "invalid-recipe" || assembled.reason === "slot-refilled"
-      ? failed("recipe-invalid")
-      : unavailable("recipe-conflict");
-  // A recipe generated again follows its tombstone's revision.
-  const next = { ...assembled.recipe, revision: baseRevision + 1 };
-  if (!chooser || !branch) return save(next, customSlots);
-  const written = stored(chooser, branch, next);
-  if (!written) return failed("recipe-invalid");
-  return save(written, customSlots, async (head) => {
-    // Only a head whose own branch is still the one this page continues takes the page.
-    const current = active(head);
+  const built = buildLoginLayout(
+    baseRecipe,
+    {
+      id: recipeId,
+      origin,
+      observation,
+      slots,
+      value,
+      startPage,
+      carriedNames,
+      // The first page's kind (ADR 0035): a continuation keeps the layout's own, and every
+      // page of a chooser branch follows a list of accounts, a sign-in page.
+      pageKind: chooserSide ? "sign-in" : value.pageKind,
+    },
+    meta,
+  );
+  if (!built.ok) return built.answer;
+  const { customSlots } = built;
+  const next = { ...built.recipe, revision };
+  if (!branch) {
+    const recipe = document({
+      version: 1,
+      id: recipeId,
+      revision,
+      origin,
+      layouts: [built.layout],
+    });
+    return recipe
+      ? save(recipe, [{ layout: meta.key, unit: pageUnit(0) }], customSlots)
+      : failed("recipe-invalid");
+  }
+  // A continuation goes back as the layout it continues, beside the head's others: the
+  // head the decision read, which the lock found unchanged.
+  const head = active(headAtStart);
+  const written = head && stored(head.recipe, branch, next);
+  if (!written || !named) return failed("recipe-invalid");
+  // The page's steps follow the route's: a branch's first page starts at 0 (ADR 0060). A
+  // rebased write keeps them, as it takes only a head whose route is still `baseRecipe`.
+  const units = [
+    {
+      layout: named.layout,
+      unit: branchUnit(chooserSide, pageUnit(baseRecipe?.steps.length ?? 0)),
+    },
+  ];
+  return save(written, units, customSlots, async (latest) => {
+    // A write of another layout, or of the chooser layout's other branch, meanwhile keeps
+    // this page: only a head whose own route of the layout, or branch, is still the one
+    // this page continues takes it.
+    const current = active(latest);
+    const resolved = current && storedBranchRoute(current.recipe, branch);
     if (
       !current ||
-      !("chooser" in current.recipe) ||
+      !resolved ||
       !(await generatedHere(current.recipe)) ||
-      (branch === "other" && !current.recipe.chooser.other) ||
-      !sameRoute(chooserBranch(current.recipe, branch), baseRecipe)
+      !sameRoute(resolved.route, baseRecipe) ||
+      (chooserSide === "other" && !resolved.chooser?.chooser.other)
     )
       return undefined;
     return stored(current.recipe, branch, { ...next, revision: current.revision + 1 });
@@ -742,6 +928,15 @@ export async function generateEntry(
     recipeId,
     { version: 1, state: "active", expectedRevision: baseRevision, recipe: built.recipe },
     scope.deviceId,
+    {
+      sources: {
+        origin: "generated",
+        units: [{ layout: null, unit: ENTRY_UNIT }],
+        served: call.served,
+        promptVersion: logged.promptVersion,
+        logId: call.logId,
+      },
+    },
   );
   if (!written.ok) {
     if (written.limited) return unavailable("recipe-limit");
@@ -802,13 +997,19 @@ export async function judgeCompletion(
   // 2026-10-13 05:39 UTC): judged though it shows the route's password field, for a
   // `passkey` handler only.
   const stop = request.stop === true;
-  // Each branch of a chooser is judged on its own; its limit per day is the chooser's.
-  const judgedBranch = branch ?? "";
+  // A page that still shows the route's sign-in form beside another form (ADR 0061): judged
+  // though it shows a route fill field, for a `detail` handler only.
+  const beside = request.beside === true;
+  // Each layout (ADR 0060), and each branch of a chooser layout, is judged on its own; its
+  // limit per day is the recipe's.
+  const judgedBranch = branch;
   // A stop's page is judged under its own prompt version, so its row never answers another
-  // login's page of the path, nor theirs it (ADR 0036). Rows of either current version stay.
+  // login's page of the path, nor theirs it (ADR 0036); so is a page beside the sign-in
+  // form (ADR 0061). Rows of every current version stay.
   const usualVersion = await completionPromptVersion();
   const stopVersion = await completionStopPromptVersion();
-  const promptVersion = stop ? stopVersion : usualVersion;
+  const besideVersion = await completionBesidePromptVersion();
+  const promptVersion = stop ? stopVersion : beside ? besideVersion : usualVersion;
   /**
    * What the request log keeps of the request, sent or not (ADR 0012): without the login
    * paths while the request names no route of the stored revision to take them from.
@@ -820,7 +1021,11 @@ export async function judgeCompletion(
       origin: observation.origin,
       path: observation.path,
       request: {
-        instructions: stop ? completionStopInstructions : completionInstructions,
+        instructions: stop
+          ? completionStopInstructions
+          : beside
+            ? completionBesideInstructions
+            : completionInstructions,
         recipeId,
         route,
         ...(loginPaths ? { loginPaths } : {}),
@@ -828,6 +1033,7 @@ export async function judgeCompletion(
         slots,
         observation,
         ...(stop ? { stop } : {}),
+        ...(beside ? { beside } : {}),
       },
       recipe: { recipeId, branch: judgedBranch, baseRevision: head.revision },
     }) satisfies UnsentRequest;
@@ -855,8 +1061,9 @@ export async function judgeCompletion(
   if (!observation.complete) return unsent(failed("incomplete-observation"), loginPaths);
   // A list of accounts shown again is the sign-in's start, not its result (ADR 0028). A
   // stop's page is judged only on a recipe without a chooser and on its own origin: the
-  // extension never sends a chooser branch's stop (ADR 0036, account lists).
-  if (observation.accounts || (stop && (moved || "chooser" in head.recipe)))
+  // extension never sends a chooser branch's stop (ADR 0036, account lists); nor a page
+  // beside the sign-in form (ADR 0061).
+  if (observation.accounts || ((stop || beside) && (moved || "chooser" in head.recipe)))
     return unsent(unavailable("not-judgeable"), loginPaths);
   // The checks use the stored recipe, never the request: a page that still shows one of
   // the password route's fill fields, of any variant and on any path, or a signed-in
@@ -885,12 +1092,23 @@ export async function judgeCompletion(
   const passkeyHandled = (recipe.handlers ?? []).some(
     (handler) => handler.kind === "passkey" && handler.path === observation.path,
   );
+  // A page beside the sign-in form shows one of the route's fill fields on a route path,
+  // and another form with a text-like input and its button (ADR 0061). It is judged only
+  // for a `detail` handler, which a path that has one never gets again.
+  const besidePage =
+    routeSignInPaths(recipe, route).includes(observation.path) &&
+    showsBesideForm(observation, routeFillTargets(recipe, "password"));
+  const detailHandled = (recipe.handlers ?? []).some(
+    (handler) => handler.kind === "detail" && handler.path === observation.path,
+  );
   if (
     stop
       ? !stopPage || shown(markers) || passkeyHandled
-      : shown([...routeFillTargets(recipe, "password"), ...markers]) ||
-        (routeSignInPaths(recipe, route).includes(observation.path) &&
-          shown(routeSignInTargets(recipe, route)))
+      : beside
+        ? !besidePage || shown(markers) || detailHandled
+        : shown([...routeFillTargets(recipe, "password"), ...markers]) ||
+          (routeSignInPaths(recipe, route).includes(observation.path) &&
+            shown(routeSignInTargets(recipe, route)))
   )
     return unsent(unavailable("not-judgeable"), loginPaths);
 
@@ -901,7 +1119,8 @@ export async function judgeCompletion(
   const call = await callClaude(env, scope.ownerId, trace, {
     ...logged(loginPaths),
     // Each revision, origin and path is judged once per judge prompt version, and a recipe
-    // 20 times a UTC day (ADR 0027), counting a stop's pages.
+    // 20 times a UTC day (ADR 0027), counting a stop's pages and those beside the sign-in
+    // form.
     gate: async (db, now) => {
       const stale = staleHead(await readHead(env.DB, scope.ownerId, recipeId), head.revision);
       if (stale) return stale;
@@ -927,8 +1146,9 @@ export async function judgeCompletion(
       // could not decide on a description that left out a disabled field, as a code field
       // waiting for its code may be, is judged again once the path is described in full; a
       // description that leaves one out again is `already-judged`, which the extension
-      // never completes on.
-      if (judged && !(judged.verdict === "partial" && !partial))
+      // never completes on. A page judged `optional` is judged again each time: another
+      // page of the same path, as a single-page sign-in shows, may ask for a step (ADR 0065).
+      if (judged && !(judged.verdict === "partial" && !partial) && judged.verdict !== "optional")
         return judged.verdict === "challenge"
           ? "judged-challenge"
           : judged.verdict === "rejected"
@@ -945,8 +1165,9 @@ export async function judgeCompletion(
       return (today?.value ?? 0) >= JUDGEMENTS_PER_RECIPE_DAY ? "judgement-limit" : undefined;
     },
     // A request the role refuses before sending gives the slot back, as a generation
-    // attempt does (ADR 0027); a `partial` row judged again takes today's slot and waits
-    // for its new verdict. Rows of older revisions or judges go once their day is over.
+    // attempt does (ADR 0027); a `partial` or `optional` row judged again takes today's
+    // slot and waits for its new verdict. Rows of older revisions or judges go once their
+    // day is over.
     beforeSend: (db, now) => [
       db
         .insert(pageJudgements)
@@ -971,7 +1192,7 @@ export async function judgeCompletion(
             pageJudgements.promptVersion,
           ],
           set: { judgedAt: now, verdict: null },
-          setWhere: eq(pageJudgements.verdict, "partial"),
+          setWhere: inArray(pageJudgements.verdict, ["partial", "optional"]),
         }),
       db
         .delete(pageJudgements)
@@ -980,7 +1201,7 @@ export async function judgeCompletion(
             ofRecipe,
             or(
               lt(pageJudgements.revision, head.revision),
-              notInArray(pageJudgements.promptVersion, [usualVersion, stopVersion]),
+              notInArray(pageJudgements.promptVersion, [usualVersion, stopVersion, besideVersion]),
             ),
             lt(pageJudgements.judgedAt, utcDayStart(now)),
           ),
@@ -992,11 +1213,26 @@ export async function judgeCompletion(
         loginPaths,
         slots,
         ...(stop ? { stop } : {}),
+        ...(beside ? { beside } : {}),
       }),
     logValue: (judgement) => judgement,
   });
   if (call.status === "unavailable") return unsent(unavailable(call.reason), loginPaths);
   const { outcome } = call;
+  /**
+   * The provenance of the handlers or marker this judgement adds to the judged layout and
+   * branch (ADR 0060), several under the same request log row.
+   */
+  const named = parseRecipeBranch(branch);
+  const judged = (units: string[]): UnitSources => ({
+    origin: "judged",
+    units: named
+      ? units.map((unit) => ({ layout: named.layout, unit: branchUnit(named.branch, unit) }))
+      : [],
+    served: call.served,
+    promptVersion,
+    logId: call.logId,
+  });
   if (outcome.status === "failed") {
     const answer = failed(failureOf(outcome.error));
     // A request the role refused locally, as one too large, was never sent.
@@ -1033,13 +1269,24 @@ export async function judgeCompletion(
   const judgement = outcome.value;
   // A stop's page keeps a `passkey` handler and nothing else: no rejection, no marker and
   // no `totp` or `password` handler. Its other answers are kept as undecided, under the
-  // stop's version.
-  if (stop && judgement.decision !== "challenge") {
+  // stop's version. So does a page beside the sign-in form, with a `detail` handler (ADR
+  // 0061), and its challenge that keeps none.
+  if ((stop || beside) && judgement.decision !== "challenge") {
     await keepVerdict("unclear");
     return { version: 1, status: "unclear" };
   }
-  await keepVerdict(judgement.decision);
+  // A page beside the sign-in form keeps its verdict once its handlers are known. An
+  // optional answer on a description that left out a disabled field is kept as
+  // `partial`, as an abstention there is (ADR 0029, ADR 0065).
+  if (!beside)
+    await keepVerdict(
+      partial && judgement.decision === "optional" ? "partial" : judgement.decision,
+    );
   if (judgement.decision === "rejected") return { version: 1, status: "rejected" };
+  // A page the person may put off is signed in, but nothing is learned there (ADR 0065):
+  // its elements may never show on the usual signed-in page, so a marker comes only from a
+  // page judged `signed-in`, and the path is judged again on the next login.
+  if (judgement.decision === "optional") return { version: 1, status: "optional" };
   if (judgement.decision === "challenge") {
     // A page may offer both a security key and a TOTP code, or a button that goes on to
     // the password (ADR 0048); each handler that passes its checks is kept, in one revision
@@ -1062,16 +1309,20 @@ export async function judgeCompletion(
         ...(added.ok ? {} : { reason: added.reason }),
       });
     };
-    if (judgement.passkey) keep({ kind: "passkey", target: judgement.passkey });
+    // A page beside the sign-in form keeps only a `detail` handler (ADR 0061).
+    if (judgement.passkey && beside)
+      handlers.push({ kind: "passkey", kept: false, reason: "beside" });
+    else if (judgement.passkey) keep({ kind: "passkey", target: judgement.passkey });
     // A stop's page keeps only a `passkey` handler (ADR 0036).
-    if (judgement.password && stop)
-      handlers.push({ kind: "password", kept: false, reason: "stop" });
+    if (judgement.password && (stop || beside))
+      handlers.push({ kind: "password", kept: false, reason: stop ? "stop" : "beside" });
     else if (judgement.password) keep({ kind: "password", target: judgement.password });
-    // A code on a stop's page is never learned (ADR 0036).
-    if (judgement.totp && stop) handlers.push({ kind: "totp", kept: false, reason: "stop" });
+    // A code on a stop's page is never learned (ADR 0036), nor beside the sign-in form.
+    if (judgement.totp && (stop || beside))
+      handlers.push({ kind: "totp", kept: false, reason: stop ? "stop" : "beside" });
     else if (judgement.totp) keep({ kind: "totp", ...judgement.totp });
     // A code the judge named but its local checks refused is logged with why (ADR 0027).
-    if (judgement.totpDropped && !stop)
+    if (judgement.totpDropped && !stop && !beside)
       handlers.push({ kind: "totp", kept: false, reason: judgement.totpDropped });
     // Nor are a stop's details (ADR 0036, ADR 0061); each dropped input is logged by why.
     if (judgement.detail && stop) handlers.push({ kind: "detail", kept: false, reason: "stop" });
@@ -1089,16 +1340,29 @@ export async function judgeCompletion(
         ? { questions: judgement.questions }
         : {};
     const withHandlers = changed && stored(head.recipe, branch, changed);
+    // A page beside the sign-in form is a challenge only with the `detail` handler it adds,
+    // its only handler there; without one it is still the sign-in page, kept as undecided
+    // (ADR 0061).
+    if (beside) {
+      await keepVerdict(withHandlers ? "challenge" : "unclear");
+      if (!withHandlers) return { version: 1, status: "unclear" };
+    }
     if (!withHandlers) return { version: 1, status: "challenge", ...questions };
+    // Handlers are only appended, so the ones after the judged route's are this call's.
+    const before = recipe.handlers?.length ?? 0;
+    const added = (changed?.handlers ?? []).slice(before).map((_, index) => before + index);
     const written = await writeRecipe(
       env.DB,
       scope.ownerId,
       recipeId,
       { version: 1, state: "active", expectedRevision: head.revision, recipe: withHandlers },
       scope.deviceId,
+      { sources: judged(added.map(handlerUnit)) },
     );
-    if (written.ok)
+    if (written.ok) {
       await keepLogRevision(env.DB, scope.ownerId, call.logId, written.change.revision);
+      await markWritten(env, scope.ownerId, recipeId, branch);
+    }
     // The page is a challenge whether or not its handlers fit the owner's recipe bytes.
     if (!written.ok && written.limited)
       console.warn("Judged page handlers refused by the recipe limit", { recipeId });
@@ -1115,14 +1379,20 @@ export async function judgeCompletion(
   if (!learned.ok) return signedInAnyway ? signedIn : failed("invalid-output");
   const learnedRecipe = stored(head.recipe, branch, learned.recipe);
   if (!learnedRecipe) return signedInAnyway ? signedIn : failed("recipe-invalid");
+  // The marker learned is the route's last one.
+  const learnedMarkers = learned.recipe.completion?.length ?? 0;
   const written = await writeRecipe(
     env.DB,
     scope.ownerId,
     recipeId,
     { version: 1, state: "active", expectedRevision: head.revision, recipe: learnedRecipe },
     scope.deviceId,
+    { sources: judged(learnedMarkers ? [markerUnit(learnedMarkers - 1)] : []) },
   );
-  if (written.ok) await keepLogRevision(env.DB, scope.ownerId, call.logId, written.change.revision);
+  if (written.ok) {
+    await keepLogRevision(env.DB, scope.ownerId, call.logId, written.change.revision);
+    await markWritten(env, scope.ownerId, recipeId, branch);
+  }
   const limited = !written.ok && written.limited;
   if (limited) console.warn("Signed-in marker refused by the recipe limit", { recipeId });
   const change = written.ok ? answerable(written.change) : undefined;
@@ -1185,7 +1455,7 @@ export async function samplePage(
         slots,
         observation,
       },
-      recipe: { recipeId, branch: branch ?? "", baseRevision: change.revision },
+      recipe: { recipeId, branch, baseRevision: change.revision },
     },
     trace,
   );

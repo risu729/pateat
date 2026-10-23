@@ -30,6 +30,8 @@ function client() {
     cancel: vi.fn<ConnectionClient["cancel"]>(),
     sync: vi.fn<ConnectionClient["sync"]>(),
     disableAutoUnlock: vi.fn<ConnectionClient["disableAutoUnlock"]>(),
+    lock: vi.fn<ConnectionClient["lock"]>(),
+    unlock: vi.fn<ConnectionClient["unlock"]>(),
     forgetProviderSession: vi.fn<ConnectionClient["forgetProviderSession"]>(),
     deleteConnection: vi.fn<ConnectionClient["deleteConnection"]>(),
     review: vi.fn<ConnectionClient["review"]>(),
@@ -105,7 +107,7 @@ test("language changes preserve sign-in inputs and focus, then localize a pendin
   });
   await i18n.changeLanguage("en");
   finish(ready());
-  const notice = "Vault verified and copied to this device. Check the automatic unlock line below.";
+  const notice = "Vault verified, unlocked and copied to this device.";
   await expect.element(page.getByText(notice, { exact: true })).toBeVisible();
   await i18n.changeLanguage("ja");
   await expect.element(page.getByText(japanese(notice), { exact: true })).toBeVisible();

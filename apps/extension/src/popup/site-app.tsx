@@ -22,6 +22,7 @@ import {
   IdCard,
   Info,
   LoaderCircle,
+  Lock,
   LogIn,
   MessageCircleQuestionMark,
   Settings2,
@@ -1221,6 +1222,9 @@ export function SiteApp({
   }
 
   const NoticeIcon = NOTICE_ICON[notice.tone];
+  // A locked vault neither fills nor signs passkeys until it is unlocked (ADR 0075).
+  const lockedVaults =
+    saved?.catalog.connections.filter((entry) => entry.state === "locked").length ?? 0;
   return (
     <main className="popup">
       <header className="popup-header">
@@ -1253,6 +1257,19 @@ export function SiteApp({
           </span>
         )}
       </output>
+      {lockedVaults > 0 && (
+        <p id="popup-vault-locked" className="popup-notice popup-notice--warning">
+          <Lock size={16} strokeWidth={2} aria-hidden="true" />
+          <span>
+            {t("vaultsLocked", {
+              count: lockedVaults,
+            })}{" "}
+            <a href="options.html" className="popup-link" onClick={openSettings}>
+              {t("Unlock in settings")}
+            </a>
+          </span>
+        </p>
+      )}
       {body}
     </main>
   );

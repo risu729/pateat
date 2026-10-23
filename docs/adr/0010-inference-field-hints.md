@@ -8,9 +8,12 @@ checks. Automatic generation sends the username's shape when every matching item
 fields by `fieldName`, with `fieldPosition` (position and count) for a name several of
 the item's custom fields share, and Text shapes when every matching item agrees; Hidden
 fields are offered as a `hidden` slot kind, which never carries a shape. Amended on
-2026-10-23 by the owner's rule that every model call gets the same information unless
-there is a sound reason: the judge request carries the login item's slots with these
-hints too
+2026-10-23 by [ADR 0067](0067-software-keyboard-entry.md): an empty read-only field
+beside the page's software keyboard is described as a fill candidate with the keypad's
+locator, and its value must have exactly one key per character before anything is
+typed. Amended on 2026-10-23 by the owner's rule that every model call gets the same
+information unless there is a sound reason: the judge request carries the login item's
+slots with these hints too
 ([ADR 0061](0061-personal-details-during-a-login.md#the-judge-gets-the-accounts-slots)).
 
 Date: 2026-10-10
