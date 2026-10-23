@@ -108,10 +108,10 @@ Pateat's rule is in [Background execution](architecture.md#background-execution)
   named, then calls `requestSubmit()`, walks up from the last field when there is no
   form, and never checks `disabled`
   ([auto-submit-login.ts](https://github.com/bitwarden/clients/blob/abccf1e342dccba06a3cc635cd4c706defa64a32/apps/browser/src/autofill/content/auto-submit-login.ts#L111-L240)).
-  Pateat reads no button words (ADR 0033; the generation role judges the buttons it saw),
-  needs a `<form>`, and presses no default button that is disabled, associated with the
-  form only through `form=`, or already shown when the fill began, which the generation
-  role saw and did not name; the destination is checked as for a click.
+  Pateat reads no button words (ADR 0033; the generation role judges the buttons it
+  saw), needs a `<form>`, and presses no default button that is disabled, associated
+  with the form only through `form=`, or already shown when the fill began, which the
+  generation role saw and did not name; the destination is checked as for a click.
 - A `javascript:` form action is allowed for fill and click (owner's decision,
   2026-10-18 04:19 UTC), as the official clients fill such a form like any other (their
   action handling above has no case for it). Chrome refuses to run the `javascript:` URL

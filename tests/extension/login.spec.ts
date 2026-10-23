@@ -1478,6 +1478,7 @@ test("submits a form without a button by Enter in its last field, never through 
         page.evaluate((name) => Number(sessionStorage.getItem(name) || 0), key);
       // Without a submit button the form is submitted with `requestSubmit()`; with one that
       // appeared as the password went in, that button is clicked, as Enter does.
+      /* eslint-disable no-await-in-loop */
       for (const [query, buttonClicks] of [
         ["", 0],
         ["?late", 1],
@@ -1508,6 +1509,7 @@ test("submits a form without a button by Enter in its last field, never through 
           .poll(async () => await send(options, { version: 1, type: "login.probe.status" }))
           .toMatchObject({ attempts: [] });
       }
+      /* eslint-enable no-await-in-loop */
     });
   } finally {
     await fixture.close();
