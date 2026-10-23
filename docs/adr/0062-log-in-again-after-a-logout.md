@@ -1,21 +1,34 @@
 # ADR 0062: Log in again after a logout, and pause automatic login
 
-Status: A and C accepted by the owner; B and D proposed, not accepted. On 2026-10-22
-(11:37 UTC) the owner asked to drop the rule that Pateat does not log in by itself after
-a logout (「バグの温床なのでやめたい」), to log in automatically whenever a login page
-is entered, and to add a button that pauses automatic login for a while, designed
-together with account switching ([ADR 0063](0063-switch-accounts-from-the-popup.md)). A
-reviewed proposal asked three questions by decision card; before they were answered, the
-owner asked on 2026-10-23 (05:28 UTC) to build on the likely answers and decide later,
-like the pull requests built ahead of their phases
-(「フェーズは一旦無視して、ある程度決め打ちで進め、後から 判断」). The owner accepted A
-and C (log in again after a logout, with the repeat guard) on 2026-10-23 at 11:54 UTC by
-a card tap (「自動ログイン + 歯止め」, over asking when a later step starts and keeping
-the current rule). B and D are still the recommended options of their cards, not the
-owner's answers. Replaces
+Status: A, B, C and E accepted by the owner; D accepted in part. On 2026-10-22 (11:37
+UTC) the owner asked to drop the rule that Pateat does not log in by itself after a
+logout (「バグの温床なのでやめたい」), to log in automatically whenever a login page is
+entered, and to add a button that pauses automatic login for a while, designed together
+with account switching ([ADR 0063](0063-switch-accounts-from-the-popup.md)). A reviewed
+proposal asked three questions by decision card; before they were answered, the owner
+asked on 2026-10-23 (05:28 UTC) to build on the likely answers and decide later, like
+the pull requests built ahead of their phases
+(「フェーズは一旦無視して、ある程度決め打ちで進め、後から 判断」). Then, on 2026-10-23:
+
+- 11:54 UTC, A and C, by a card tap: log in again after a logout, with the repeat guard
+  (「自動ログイン + 歯止め」, over asking when a later step starts and keeping the
+  current rule).
+- 11:55 UTC, B: the remaining asks fill without pressing, as before
+  (「追加認証は入力だけするんじゃないの？それと同じではないですか？」, the same as
+  [ADR 0035](0035-page-kinds-per-site.md)'s `confirm` pages); the recommended option,
+  asking without filling, was not taken.
+- 11:56 UTC, D: while paused, a passkey request the person starts opens the account
+  chooser, with the site default treated as unset, and nothing logs in automatically
+  (「これはアカウント選択画面を出すようにしましょう。既定がunsetされたという扱いでいい
+  し、あと自動ログインは基本的に一切しない」). The pause's scope and length (the
+  registrable site, every tab, one hour) are still the card's recommended option.
+- 11:56–11:57 UTC, E: a setting for private windows, off by default
+  (「incognitoで一括して自動ログインを永久に止める設定は作っておきましょうか」
+  「incognitoでも入力するか、既定オフみたいなことね」).
+
+Replaces
 [ADR 0021 D](0021-account-choice-outside-settings.md#d-after-a-logout-choose-again-detection-l1)
-except its rejected-password, stopped-login and abandoned-watch asks, which stay
-without filling.
+except its rejected-password, stopped-login and abandoned-watch asks, which stay.
 
 Date: 2026-10-23
 

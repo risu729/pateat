@@ -4,7 +4,9 @@ Status: proposed, not accepted. Built with
 [ADR 0062](0062-log-in-again-after-a-logout.md) at the owner's request of 2026-10-23
 (05:28 UTC) to build on the likely answers and decide later. The two questions here
 (how Pateat logs out, and how long a pick that is not made the default lasts) were not
-yet asked; the decisions below are the reviewed proposal's recommendations. Builds the
+yet asked; the decisions below are the reviewed proposal's recommendations. On
+2026-10-23 at 11:57 UTC the owner asked to build the switch in the same pull request as
+ADR 0062 (「切替は一緒にやってしまいましょう」). Builds the
 account switch that
 [ADR 0021](0021-account-choice-outside-settings.md#later) kept for later and keeps the
 owner's rules recorded there: a switch starts only from the person's choice in the
