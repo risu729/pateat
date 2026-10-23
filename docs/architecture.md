@@ -189,9 +189,13 @@ The pure account mapper prepares trusted transport responses for local crypto.
 It correlates token subject, sync profile and a known account's canonical provider
 binding. Decoding unsigned JWT claims does not verify their signature or establish
 ownership; the calling host must preserve the fixed HTTPS response provenance.
-Authentication salt/KDF and vault-unlock salt/KDF remain independent. Incomplete
-modern account keys cannot fall back to legacy state. Previously verified account
-format and signed security-version floors must survive subsequent syncs.
+An access token whose `exp` has been reached is expired. Like the official clients'
+`TokenService`, which reads only `exp`, the mapper never compares `nbf` (the server's
+issue second) with the local clock, so a clock behind the server's still accepts a
+fresh token; `nbf` and `iat` must only be non-negative integers. Authentication salt/KDF
+and vault-unlock salt/KDF remain independent. Incomplete modern account keys cannot
+fall back to legacy state. Previously verified account format and signed
+security-version floors must survive subsequent syncs.
 
 The initial mapper admits login, secure-note, card and identity items. Other
 types have explicit unavailable results containing only IDs and an unsupported
