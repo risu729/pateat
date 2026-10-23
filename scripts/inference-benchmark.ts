@@ -9,7 +9,11 @@ import {
 } from "../packages/inference/src/bench";
 import { evaluationCorpus } from "../packages/inference/src/corpus/cases";
 import { judgeCorpus } from "../packages/inference/src/corpus/judge";
-import { japanesePageCorpus, realPageCorpus } from "../packages/inference/src/corpus/real";
+import {
+  japanesePageCorpus,
+  realPageCorpus,
+  webPageCorpus,
+} from "../packages/inference/src/corpus/real";
 import {
   claudeBenchmarkModels,
   claudeEfforts,
@@ -23,6 +27,7 @@ const corpora = {
   synthetic: evaluationCorpus,
   real: realPageCorpus,
   japanese: japanesePageCorpus,
+  web: webPageCorpus,
   // The sign-in judge's pages; Claude only, since the heuristic has no judge.
   judge: judgeCorpus,
 };

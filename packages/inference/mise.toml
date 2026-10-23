@@ -12,8 +12,8 @@ description = "Benchmark generation or the sign-in judge on a corpus: Claude (pa
 usage = '''
 flag "--paid" help="Confirm the owner approved this paid Claude run."
 flag "--max-cost-usd <usd>" default="2" help="Stop before a call that could exceed this estimated spend."
-flag "--corpus <name>" default="synthetic" help="The synthetic corpus, the Formasaurus real-page corpus, the Japanese pages, or the sign-in judge's pages." {
-  choices "synthetic" "real" "japanese" "judge"
+flag "--corpus <name>" default="synthetic" help="The synthetic corpus, the Formasaurus real-page corpus, the Japanese pages, the English pages, or the sign-in judge's pages." {
+  choices "synthetic" "real" "japanese" "web" "judge"
 }
 flag "--provider <name>" default="claude" help="Claude, or the model-free heuristic comparator." {
   choices "claude" "heuristic"
@@ -44,15 +44,16 @@ run = [
 ]
 
 [tasks."corpus:japanese"]
-description = "Observe public Japanese login pages live: refresh the Japanese corpus, or report listed pages to label."
+description = "Observe public login pages live: refresh the Japanese or English corpus, or report listed pages to label."
 usage = '''
 flag "--refresh" help="Observe every corpus page again and move each label to the new observation."
+flag "--web" help="Refresh the English pages (src/corpus/web.json) instead of the Japanese ones."
 flag "--report <file>" help="Write the observations of the listed pages to this local file (an absolute path)."
 flag "--chromium <path>" help="Chromium or Chrome executable, when Playwright's own is not installed."
 flag "--headed" help="Show the browser window."
 arg "[url]..." var=#true help="Public login pages to observe for labelling."
 '''
 run = [
-  "bun ../../scripts/japanese/observe.ts {% if usage.refresh %}--refresh{% endif %} {% if usage.report %}--report {{ usage.report | quote }}{% endif %} {% if usage.chromium %}--chromium {{ usage.chromium | quote }}{% endif %} {% if usage.headed %}--headed{% endif %} {% for url in usage.url %}{{ url | quote }} {% endfor %}",
-  "oxfmt src/corpus/japanese.json",
+  "bun ../../scripts/japanese/observe.ts {% if usage.refresh %}--refresh{% endif %} {% if usage.web %}--corpus src/corpus/web.json{% endif %} {% if usage.report %}--report {{ usage.report | quote }}{% endif %} {% if usage.chromium %}--chromium {{ usage.chromium | quote }}{% endif %} {% if usage.headed %}--headed{% endif %} {% for url in usage.url %}{{ url | quote }} {% endfor %}",
+  "oxfmt src/corpus/japanese.json src/corpus/web.json",
 ]

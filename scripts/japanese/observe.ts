@@ -1,7 +1,8 @@
-// Observes public Japanese login pages live for the Japanese corpus (ADR 0012): one empty
-// browser context per page (no profile, cookies or account), locale ja-JP, nothing typed
-// or clicked. `--refresh` observes every corpus page again and moves its label to the new
-// observation; listed URLs are observed into a local report, labelled by hand.
+// Observes public login pages live for the Japanese and English corpora (ADR 0012): one
+// empty browser context per page (no profile, cookies or account), locale ja-JP, nothing
+// typed or clicked. `--refresh` observes every page of the Japanese corpus, or of the one
+// `--corpus` names, again and moves its label to the new observation; listed URLs are
+// observed into a local report, labelled by hand.
 /* oxlint-disable no-await-in-loop -- one browser observes the pages one at a time */
 import { execFileSync } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
