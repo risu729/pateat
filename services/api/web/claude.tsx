@@ -9,7 +9,7 @@ import { useId, useRef, useState, type FormEvent } from "react";
 import * as v from "valibot";
 import { describeError, ManageApiError, type ManageClient } from "./api";
 import { Button } from "./button";
-import { ModelsPanel } from "./models";
+import { MODELS_QUERY_KEY, ModelsPanel } from "./models";
 import {
   ErrorNotice,
   KeyValues,
@@ -121,8 +121,10 @@ export function ClaudePage({ client }: { client: ManageClient }) {
     onSuccess: (state) => {
       queryClient.setQueryData(CLAUDE_QUERY_KEY, state);
       setNotice("Identifiers saved");
-      // A result for the identifiers this save replaced no longer applies.
+      // A result for the identifiers this save replaced no longer applies, and the model
+      // list is read with the new credential.
       test.reset();
+      void queryClient.invalidateQueries({ queryKey: MODELS_QUERY_KEY });
     },
   });
 
@@ -136,7 +138,6 @@ export function ClaudePage({ client }: { client: ManageClient }) {
           API key is stored here.
         </p>
       </div>
-      <SuccessNotice id="claude-saved" message={notice} />
       {claude.isPending ? (
         <output id="claude-status" className="block">
           Loading Claude settings…
@@ -174,6 +175,8 @@ export function ClaudePage({ client }: { client: ManageClient }) {
             saved={claude.data.identifiers}
             storedInvalid={claude.data.storedInvalid}
             busy={save.isPending}
+            notice={notice}
+            onEdit={() => setNotice("")}
             error={save.isError ? save.error : undefined}
             onSave={(identifiers, saved) => {
               setNotice("");
@@ -187,8 +190,11 @@ export function ClaudePage({ client }: { client: ManageClient }) {
             error={test.isError ? test.error : undefined}
             onTest={() => test.mutate()}
           />
-          <ModelsPanel client={client} />
         </>
+      )}
+      {/* The models load on their own; without a paired device both reads fail alike. */}
+      {!(claude.error instanceof ManageApiError && claude.error.code === "not_paired") && (
+        <ModelsPanel client={client} />
       )}
       <Lines>
         <Line icon={<KeyRound size={16} aria-hidden />}>
@@ -210,12 +216,16 @@ function IdentifiersPanel({
   saved,
   storedInvalid,
   busy,
+  notice,
+  onEdit,
   error: saveError,
   onSave,
 }: {
   saved: WifIdentifiers | null;
   storedInvalid: boolean;
   busy: boolean;
+  notice: string;
+  onEdit: () => void;
   error: Error | undefined;
   onSave: (identifiers: WifIdentifiers, saved: () => void) => void;
 }) {
@@ -248,6 +258,7 @@ function IdentifiersPanel({
 
   return (
     <Panel id="claude-identifiers-heading" title="Federation identifiers">
+      <SuccessNotice id="claude-saved" message={notice} />
       {storedInvalid && <ErrorNotice id="claude-stored-invalid">{STORED_INVALID}</ErrorNotice>}
       {saveError && (
         <ErrorNotice id="claude-save-error">
@@ -282,7 +293,10 @@ function IdentifiersPanel({
                 spellCheck={false}
                 placeholder={placeholder}
                 value={values[name]}
-                onChange={(event) => setValues({ ...values, [name]: event.target.value })}
+                onChange={(event) => {
+                  setValues({ ...values, [name]: event.target.value });
+                  onEdit();
+                }}
                 aria-required
                 aria-invalid={error ? true : undefined}
                 aria-describedby={error ? `${id}-error ${id}-hint` : `${id}-hint`}

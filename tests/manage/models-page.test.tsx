@@ -108,6 +108,10 @@ test("shows each role's models in order, with the fallbacks after a refusal", as
   await expect.element(page.getByRole("heading", { name: "Sign-in judge" })).toBeVisible();
   expect(document.title).toBe("Claude – Pateat");
   await expect.element(page.getByRole("region", { name: "Models" })).toBeVisible();
+  await expect.element(page.getByRole("heading", { name: "Models", level: 2 })).toBeVisible();
+  await expect
+    .element(page.getByRole("heading", { name: "Recipe generation", level: 3 }))
+    .toBeVisible();
   await expect.element(page.getByText("These are the defaults.")).toBeVisible();
   expect(select("models-generate-0-model").value).toBe("claude-opus-5-5");
   expect(select("models-generate-1-model").value).toBe("claude-sonnet-5-5");

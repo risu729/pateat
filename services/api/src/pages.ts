@@ -22,7 +22,7 @@ export const PAGE_HEADERS = {
 type Body = HtmlEscapedString | Promise<HtmlEscapedString>;
 
 /** Every interpolated value but the fixed stylesheet is escaped by Hono's `html` helper. */
-export function page(c: Context, status: ContentfulStatusCode, title: string, body: Body) {
+function page(c: Context, status: ContentfulStatusCode, title: string, body: Body) {
   return c.html(
     html`<!doctype html>
       <html lang="en">

@@ -509,5 +509,7 @@ describe("Claude page", () => {
     for (const body of await Promise.all(refused.map((response) => response.text())))
       expect(body).not.toContain("Pateat test app");
     expect((await request("/manage/claude/test", access)).status).toBe(404);
+    // The model choices moved onto this page.
+    expect((await request("/manage/models", access)).status).toBe(404);
   });
 });

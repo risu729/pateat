@@ -14,8 +14,8 @@ migrations to that database before activation
 ## Routes
 
 All responses carry `Cache-Control: no-store` and `nosniff`; no route sends CORS
-headers. API routes answer JSON, and owner pages answer script-free HTML that cannot be
-framed. Device routes (`/v1/*`) also send `Server-Timing` with `total` from the Worker
+headers. API routes answer JSON; the owner web UI is a React app, and `/pair/signed-in`,
+the Access and error pages are script-free HTML; none can be framed. Device routes (`/v1/*`) also send `Server-Timing` with `total` from the Worker
 receiving the request, before device authentication. A generation or completion request
 that reached the Claude credential step adds `token` (that step) and, once it sent the
 model request, `model`; a request refused at the credential step or by the role's local

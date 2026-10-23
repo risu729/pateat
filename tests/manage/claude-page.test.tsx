@@ -243,6 +243,8 @@ test("trims the identifiers, saves them and shows what was stored", async () => 
   await expect.element(field("federationRuleId")).toHaveValue(ids.federationRuleId);
   await expect.element(field("serviceAccountId")).toHaveValue(ids.serviceAccountId);
   await expect.element(testButton()).toBeEnabled();
+  // The model list is read again with the new credential.
+  await vi.waitFor(() => expect(client.models).toHaveBeenCalledTimes(2));
 });
 
 test("asks for the identifiers again when the saved row is no longer valid", async () => {
@@ -385,6 +387,15 @@ test("asks for a reload when the settings cannot be read", async () => {
   client.claude.mockRejectedValue(new ManageApiError("not_paired"));
   await mount(client);
   await expect.element(page.getByRole("alert")).toMatchTextContent(/Pair a device first/);
+  // Without a paired device the models cannot be read either, so they are not shown.
+  await expect.element(page.getByRole("region", { name: "Models" })).not.toBeInTheDocument();
+});
+
+test("still shows the models when the identifiers cannot be read", async () => {
+  const client = mockClient();
+  client.claude.mockRejectedValue(new ManageApiError("network"));
+  await mount(client);
+  await expect.element(page.getByRole("region", { name: "Models" })).toBeVisible();
 });
 
 test.each<[ManageClaudeTest["result"], string]>([
