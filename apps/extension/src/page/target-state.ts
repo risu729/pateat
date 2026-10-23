@@ -31,7 +31,7 @@ export function writable(element: Element | undefined): element is HTMLInputElem
 }
 /**
  * A shown enabled input of a kind Pateat fills, read-only or not: a field entered on the
- * page's software keyboard (proposed ADR 0067), which pages keep read-only.
+ * page's software keyboard (ADR 0067), which pages keep read-only.
  */
 export function keyable(element: Element | undefined): element is HTMLInputElement {
   return textInput(element) && visible(element) && !element.disabled;

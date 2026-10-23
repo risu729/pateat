@@ -180,7 +180,7 @@ export const loginMarkerTargetSchema = v.variant("by", [
   loginLinkTargetSchema,
 ]);
 /**
- * The element that holds a page's software keyboard (proposed ADR 0067): an `id` or
+ * The element that holds a page's software keyboard (ADR 0067): an `id` or
  * `data-testid` locator of the keypad's container. A fill field that names one takes its
  * characters only from the keypad's keys, one press per character, and may be read-only.
  * The recipe carries no key, label or layout: the executor reads the keys on the page.

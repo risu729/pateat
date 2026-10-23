@@ -1,4 +1,4 @@
-// Software keyboards (proposed ADR 0067). Some bank and card pages keep a password or PIN
+// Software keyboards (ADR 0067). Some bank and card pages keep a password or PIN
 // input read-only and take its characters only from buttons the page draws, often in a
 // shuffled order: SMBC Direct's optional keyboard is `<input type="button" value="Ｆ">`
 // keys whose letters start at another place and whose digits change order on every load,

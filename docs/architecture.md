@@ -940,8 +940,8 @@ that advances or submits through the page's own event sets the value and sends t
 `input` or `change` event alone, with no focus, keys or blur that could run its effect
 again. Known limits: the events are not trusted (`isTrusted` is false), so a page that
 checks that, or opens a software keyboard on focus, can still refuse a fill (a
-read-only field on a page's software keyboard is typed by pressing its keys instead, as
-proposed in [ADR 0067](adr/0067-software-keyboard-entry.md))
+read-only field on a page's software keyboard is typed by pressing its keys instead,
+[ADR 0067](adr/0067-software-keyboard-entry.md))
 (`chrome.debugger` is the only extension API that sends trusted events, and the rule
 above keeps Pateat's own debugger detached); no `compositionstart`, `compositionupdate`
 or `compositionend` events are sent, so a page that takes a value only when an input

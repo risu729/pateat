@@ -172,7 +172,7 @@ describe("pageSigns", () => {
     });
   });
 
-  it("reads a read-only PIN entered on the page's software keyboard as a sign-in input (proposed ADR 0067)", () => {
+  it("reads a read-only PIN entered on the page's software keyboard as a sign-in input (ADR 0067)", () => {
     const keys = [..."0123456789"]
       .map((digit) => `<button type="button">${digit}</button>`)
       .join("");

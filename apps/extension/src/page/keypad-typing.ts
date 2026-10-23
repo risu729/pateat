@@ -1,4 +1,4 @@
-// Typing a value on a page's software keyboard (proposed ADR 0067), one press per
+// Typing a value on a page's software keyboard (ADR 0067), one press per
 // character on the key that shows it (`keysFor` in `keypad.ts`).
 
 import { gap } from "./enter-value";

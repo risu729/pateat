@@ -728,7 +728,7 @@ test("fills the second identifier set when the account maps only that one (ADR 0
   }
 });
 
-test("types a read-only password on the page's shuffled software keyboard, one press per character (proposed ADR 0067)", async () => {
+test("types a read-only password on the page's shuffled software keyboard, one press per character (ADR 0067)", async () => {
   const fixture = await startLoginFixture();
   try {
     await withLoginExtension(async (context, _worker, id) => {
@@ -766,7 +766,7 @@ test("types a read-only password on the page's shuffled software keyboard, one p
   }
 });
 
-test("a software keyboard that does not fit the value gets no press and no submission (proposed ADR 0067)", async () => {
+test("a software keyboard that does not fit the value gets no press and no submission (ADR 0067)", async () => {
   const fixture = await startLoginFixture();
   try {
     await withLoginExtension(async (context, _worker, id) => {
@@ -806,22 +806,22 @@ test("a software keyboard that does not fit the value gets no press and no submi
       }
       /* eslint-enable no-await-in-loop */
       // The log names the missing key, never which one.
-      const logs = JSON.stringify(
+      const exported = JSON.stringify(
         await send(diagnostics, {
           version: 1,
           type: "diagnostics.logs.export",
           includeSites: false,
         }),
       );
-      expect(logs).toContain("keypad-key-missing");
-      expect(logs).not.toContain("Pateat-synthetic-only!");
+      expect(exported).toContain("keypad-key-missing");
+      expect(exported).not.toContain("Pateat-synthetic-only!");
     });
   } finally {
     await fixture.close();
   }
 });
 
-test("a software keyboard that submits by itself partway is never typed on again (proposed ADR 0067)", async () => {
+test("a software keyboard that submits by itself partway is never typed on again (ADR 0067)", async () => {
   const fixture = await startLoginFixture();
   try {
     await withLoginExtension(async (context, _worker, id) => {
@@ -858,7 +858,56 @@ test("a software keyboard that submits by itself partway is never typed on again
   }
 });
 
-test("a software keyboard login the page answers only by marking the input invalid is rejected (proposed ADR 0067, ADR 0029)", async () => {
+test("a software keyboard that stops showing its presses partway gets no more presses, and the person is told to reload (ADR 0067)", async () => {
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, _worker, id) => {
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin);
+      const diagnostics = await context.newPage();
+      await diagnostics.goto(`chrome-extension://${id}/diagnostics.html`);
+      expect(
+        await send(diagnostics, { version: 1, type: "diagnostics.logs.debug", enabled: true }),
+      ).toMatchObject({ ok: true });
+      const page = await context.newPage();
+      await page.goto(`${fixture.origin}/keypad?keep-after=3`);
+      // The fourth press left the input unchanged, so the step stopped there.
+      await expect
+        .poll(async () => await send(options, { version: 1, type: "login.probe.status" }))
+        .toMatchObject({ attempts: [{ state: "blocked", outcome: "fill-rejected" }] });
+      // Cover the click the attempt would have made next: nothing more is pressed, and the
+      // three characters it showed stay for the person to clear by reloading.
+      await page.waitForTimeout(1500);
+      expect(
+        await page.evaluate(() => ({
+          presses: Number(sessionStorage.getItem("keypadPresses")),
+          submitClicks: Number(sessionStorage.getItem("submitClicks") || 0),
+        })),
+      ).toEqual({ presses: 4, submitClicks: 0 });
+      await expect(page.locator("#password")).toHaveValue("●●●");
+      // The popup reads the stop's cause, which tells the person to reload the page.
+      const exported = JSON.stringify(
+        await send(diagnostics, {
+          version: 1,
+          type: "diagnostics.logs.export",
+          includeSites: false,
+        }),
+      );
+      expect(exported).toContain("keypad-pressed");
+      expect(exported).not.toContain("Pateat-synthetic-only!");
+      // The reloaded page is left to the person: the stopped login is resumed, never
+      // started again (ADR 0022).
+      await page.reload();
+      await page.waitForTimeout(1500);
+      expect(await page.evaluate(() => Number(sessionStorage.getItem("keypadPresses")))).toBe(0);
+      await expect(page.locator("#password")).toHaveValue("");
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("a software keyboard login the page answers only by marking the input invalid is rejected (ADR 0067, ADR 0029)", async () => {
   const fixture = await startLoginFixture();
   try {
     await withLoginExtension(async (context, _worker, id) => {

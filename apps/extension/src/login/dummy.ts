@@ -191,7 +191,7 @@ function sharedInputRecipe(origin: string, path: string): LoginRecipe {
 }
 /**
  * A read-only password input that takes its characters only from the page's shuffled
- * software keyboard in `#keypad` (proposed ADR 0067).
+ * software keyboard in `#keypad` (ADR 0067).
  */
 function keypadRecipe(origin: string, path: string): LoginRecipe {
   return parseLoginRecipe({
@@ -199,6 +199,7 @@ function keypadRecipe(origin: string, path: string): LoginRecipe {
     id: "demo-keypad",
     revision: 1,
     origin,
+    pageKind: "sign-in",
     slots: ["password"],
     steps: [
       {

@@ -124,7 +124,7 @@ function ready(readiness: LoginReadiness): boolean {
     readiness.targets.every((target) => {
       const found = matches(target);
       if (found.length !== 1) return false;
-      // A field entered on the page's keypad may be read-only (proposed ADR 0067).
+      // A field entered on the page's keypad may be read-only (ADR 0067).
       if (readiness.require === "writable")
         return readiness.keypad?.some((other) => sameLoginTarget(other, target))
           ? keyable(found[0])
@@ -143,7 +143,7 @@ function ready(readiness: LoginReadiness): boolean {
  * Whether the page shows a visible password input, or one marked for a username or a
  * one-time code: the only pages without a recipe that may be sent for generation
  * (ADR 0016). A read-only password input counts on a page with a software keyboard
- * (`findKeypad`, proposed ADR 0067).
+ * (`findKeypad`, ADR 0067).
  */
 function showsSignIn(): boolean {
   // The keypad is looked for once, and only for a read-only password input.
@@ -1002,7 +1002,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       const username = command.account?.username;
       if (command.account) command.account.username = "";
       // The sign-in form shown again in a new document: its inputs each target names alone,
-      // read-only ones when entered on the page's keypad (proposed ADR 0067).
+      // read-only ones when entered on the page's keypad (ADR 0067).
       const keypad = command.fields ? findKeypad(document) : undefined;
       const keyed = new Set<HTMLInputElement>();
       const reshown = command.fields?.flatMap((target) => {
@@ -1064,6 +1064,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     void (async () => {
       const operation = command.operation;
       let mutated = false;
+      // A key of the page's keypad was pressed (ADR 0067).
+      let keyPressed = false;
       const fail = (
         reason:
           | "structural-mismatch"
@@ -1078,7 +1080,14 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       ) => ({
         ok: false,
         reason,
-        ...(detail ? { detail } : {}),
+        // A stop after a key press leaves its characters in the field, which only the
+        // page's own keys or a reload clear, so the person is told to reload it; a page
+        // that may have submitted them is waited for instead (ADR 0067).
+        ...(keyPressed && reason !== "submitted"
+          ? { detail: "keypad-pressed" as const }
+          : detail
+            ? { detail }
+            : {}),
         mutation: mutated ? "possible" : "none",
       });
       const authorized: unknown = await sendMessage("login", {
@@ -1256,7 +1265,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           const found = matches(field.target);
           return found.length === 1 ? found[0] : undefined;
         });
-        // A field entered on the page's keypad may be read-only (proposed ADR 0067).
+        // A field entered on the page's keypad may be read-only (ADR 0067).
         const usable = (input: Element | undefined, index: number) =>
           step.fields[index]!.keypad ? keyable(input) : writable(input);
         if (inputs.some((input, index) => !usable(input, index)))
@@ -1365,7 +1374,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         )
           return fail("value-mismatch");
         // A keypad that already shows its keys must show exactly one for each character of
-        // its value before anything is typed, in any field (proposed ADR 0067). One that
+        // its value before anything is typed, in any field (ADR 0067). One that
         // opens when its field is pressed is checked once it opens.
         if (
           step.fields.some((field, index) => {
@@ -1485,7 +1494,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                 if (stopped) return fail("cancelled", stopped);
               }
             } else if (keypads[index]) {
-              // One press per character on the page's keypad (proposed ADR 0067); a stop is
+              // One press per character on the page's keypad (ADR 0067); a stop is
               // never followed by another press.
               filled.add(input);
               const keypad = keypads[index];
@@ -1494,6 +1503,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
               const stopped = await typeOnKeypad(input, value.value, keypad, {
                 onPress: () => {
                   pressed = true;
+                  keyPressed = true;
                 },
                 between: () => {
                   if (cancelled) return "document-cancelled";
@@ -1659,7 +1669,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         filled = new WeakSet();
         shownBefore = undefined;
         // A keypad field Pateat filled is read-only, and still a sign-in input of the form
-        // (proposed ADR 0067).
+        // (ADR 0067).
         const keyed = new Set(
           formInputs.filter((input) => !writable(input) && fills.has(input) && keyable(input)),
         );

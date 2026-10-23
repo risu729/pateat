@@ -434,21 +434,23 @@ export async function startLoginFixture(
       );
     } else if (path === "/keypad") {
       // A read-only password input that takes its characters only from a software keyboard
-      // that opens when the input is pressed (proposed ADR 0067). Its keys change order on
+      // that opens when the input is pressed (ADR 0067). Its keys change order on
       // load and after every press, show digits in full-width forms, and come as buttons,
       // input buttons and links; an image key without `alt` shows no character to Pateat,
       // though the page types `~` for it. Each press adds a mask character to the input and
       // the character to the page's own value, and counts. Keys only count a press that
       // comes with `pointerdown`, as a person's does. `?missing=X` leaves out the key for X,
       // `?open=1` shows the keypad from the start, `?maxlength=N` limits the input,
-      // `?submit-at=N` submits the form by itself at the Nth character, replacing it, and
-      // `?reject=invalid` answers the login button by marking the input invalid, with no
+      // `?submit-at=N` submits the form by itself at the Nth character, replacing it,
+      // `?keep-after=N` keeps every character after the Nth in its own value only, leaving
+      // the input unchanged, and `?reject=invalid` answers the login button by marking the input invalid, with no
       // other sign. Typed input is ignored, and the page records any change to the input's
       // value that it did not make itself.
       const missing = fixtureUrl.searchParams.get("missing") ?? "";
       const open = fixtureUrl.searchParams.has("open");
       const maxLength = Number(fixtureUrl.searchParams.get("maxlength") ?? 0);
       const submitAt = Number(fixtureUrl.searchParams.get("submit-at") ?? 0);
+      const keepAfter = Number(fixtureUrl.searchParams.get("keep-after") ?? 0);
       const rejectInvalid = fixtureUrl.searchParams.get("reject") === "invalid";
       const characters = [
         ..."ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-!@",
@@ -501,7 +503,7 @@ export async function startLoginFixture(
             if (!key || key !== armed || !key.dataset.character) return;
             armed = null;
             typed += key.dataset.character;
-            input.value = '\u25cf'.repeat(typed.length);
+            if (!${keepAfter} || typed.length <= ${keepAfter}) input.value = '\u25cf'.repeat(typed.length);
             sessionStorage.setItem('keypadPresses', String(Number(sessionStorage.getItem('keypadPresses')) + 1));
             if (typed.length === ${submitAt}) {
               submit();

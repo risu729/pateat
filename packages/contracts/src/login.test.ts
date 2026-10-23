@@ -160,7 +160,7 @@ describe("declarative login boundaries", () => {
     expect(parseLoginRecipe(recipe())).toEqual(recipe());
     expect(parseLoginAccountBinding(binding())).toEqual(binding());
   });
-  it("names a keypad only by its container's id or test ID, on a preparing fill (proposed ADR 0067)", () => {
+  it("names a keypad only by its container's id or test ID, on a preparing fill (ADR 0067)", () => {
     const withKeypad = (keypad: unknown, extra: object = {}) => {
       const value = recipe();
       value.steps[2] = {

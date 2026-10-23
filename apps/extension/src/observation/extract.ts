@@ -1093,14 +1093,14 @@ const actionControl = (element: HTMLElement) =>
   (element instanceof HTMLInputElement && actionTypes.has(element.type)) ||
   isScriptButton(element);
 
-/** The page's software keyboard (proposed ADR 0067) and its locator. */
+/** The page's software keyboard (ADR 0067) and its locator. */
 interface Keypad {
   readonly container: Element;
   readonly target: LoginKeypadTarget;
 }
 
 /**
- * Describes one element. With `keypad`, the page's software keyboard (proposed ADR 0067),
+ * Describes one element. With `keypad`, the page's software keyboard (ADR 0067),
  * a visible, enabled, empty read-only field beside it (`keypadField`) is a fill candidate
  * entered on that keypad instead of a field that cannot be filled.
  */
@@ -1281,7 +1281,7 @@ const describeAll = (document: Document, keypad?: Keypad) =>
     .filter((entry) => entry !== undefined);
 
 /**
- * The locator of the page's software keyboard (`findKeypad`, proposed ADR 0067): the `id`
+ * The locator of the page's software keyboard (`findKeypad`, ADR 0067): the `id`
  * or `data-testid` of the keypad or its nearest ancestor below the body that names it
  * alone in the document, skipping an ID React generated or another load may change, and,
  * with `tokens`, a value that may be a token.
@@ -1472,7 +1472,7 @@ export function extractLoginObservation(
         index.get(attribute)!.get(target.value) === 1
       );
     });
-  // A page's software keyboard (proposed ADR 0067): its read-only fields are described
+  // A page's software keyboard (ADR 0067): its read-only fields are described
   // with its locator, and its keys are left out, as no step presses one by name.
   const container = findKeypad(document);
   const keypadLocator = container && keypadTarget(container, index, tokens);

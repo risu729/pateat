@@ -468,7 +468,7 @@ export function validatePagePlan(
       path: observation.path,
       fields: plan.fields.map((field) => {
         const { target, keypad } = candidates.get(field.candidate)!;
-        // A field on the page's software keyboard is entered there (proposed ADR 0067): the
+        // A field on the page's software keyboard is entered there (ADR 0067): the
         // keypad comes from the observation, never from the model.
         return { slot: nameOf(field.slot) ?? field.slot, target, ...(keypad ? { keypad } : {}) };
       }),

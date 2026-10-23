@@ -228,6 +228,7 @@ export const loginOutcomeCauseSchema = v.picklist([
   "form-destination-unchecked",
   "keypad-missing",
   "keypad-key-missing",
+  "keypad-pressed",
   // Flags of the attempt itself.
   "settled",
   "unconfirmed",

@@ -307,6 +307,16 @@ function attemptLines(status: Status, t: TFunction): StatusLine[] {
       tone: "idle",
       text: t("This recipe is not made again automatically."),
     });
+  // The field holds the characters of the keys pressed before the stop, which no step
+  // clears (ADR 0067).
+  if (login.cause === "keypad-pressed")
+    lines.push({
+      id: "login-keypad",
+      tone: "warn",
+      text: t(
+        "Pateat pressed keys on the page's keyboard before it stopped. Reload the page before you enter the value.",
+      ),
+    });
   return lines;
 }
 

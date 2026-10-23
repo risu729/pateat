@@ -7772,17 +7772,24 @@ export function createLoginRuntime(
           (result.output.reason === "fill-rejected" &&
             (operation.step.effect === "prepare" || codeRefused)))
       ) {
-        await change(run, {
-          type: "VALUE_REJECTED",
-          operationId: operation.operationId,
-          document: run.live.document,
-          stage:
-            result.output.reason === "value-mismatch"
-              ? "before-fill"
-              : codeRefused
-                ? "code-refused"
-                : "after-fill",
-        });
+        // The page's detail goes to the log and the popup, as `keypad-pressed` after a key
+        // press on its keypad (ADR 0067).
+        await change(
+          run,
+          {
+            type: "VALUE_REJECTED",
+            operationId: operation.operationId,
+            document: run.live.document,
+            stage:
+              result.output.reason === "value-mismatch"
+                ? "before-fill"
+                : codeRefused
+                  ? "code-refused"
+                  : "after-fill",
+          },
+          undefined,
+          result.output.detail,
+        );
         return;
       }
       // The code page showed that it submits the code by itself, or replaced its form

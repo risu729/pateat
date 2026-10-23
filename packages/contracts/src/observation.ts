@@ -145,7 +145,7 @@ export const observedCandidateSchema = v.pipe(
       v.picklist(["none", "text", "decimal", "numeric", "tel", "search", "email", "url"]),
     ),
     // A read-only fill-role field that takes its characters from the page's software
-    // keyboard, located by its container (proposed ADR 0067). The keys and their labels
+    // keyboard, located by its container (ADR 0067). The keys and their labels
     // are never described.
     keypad: v.optional(loginKeypadTargetSchema),
   }),

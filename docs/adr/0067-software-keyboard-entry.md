@@ -1,19 +1,20 @@
 # ADR 0067: A field on a page's software keyboard is typed one key press per character
 
-Status: proposed, implemented pending the owner's approval; not to be merged until the
-owner decides. The plan's phase 4 item on entering a value on a page's software keyboard
-is the owner's (2026-10-17 03:35 UTC); every choice below is Claude's default, pending
-the owner's confirmation. On 2026-10-23 the owner asked for work to go ahead regardless
-of phase on the most likely answer and be judged later, as for the other proposed pull
-requests
-(「フェーズは一旦無視して、ある程度決め打ちで進め、後から判断という今あるprたちと同じ例外扱いで」).
-The number was free when the pull request opened and may be renumbered. Amends
+Status: accepted by the owner on 2026-10-23 at 12:28 UTC, choosing option A: press the
+page's own on-screen keys (setting the field's value, B, and leaving these pages to the
+person, C, were the other options). Built ahead of the decision on the owner's
+2026-10-23 rule to set the phases aside, proceed on the most likely answer and decide
+afterwards
+(「フェーズは一旦無視して、ある程度決め打ちで進め、後から判断という今あるprたちと同じ例外扱いで」);
+the plan's phase 4 item on entering a value on a page's software keyboard is the owner's
+(2026-10-17 03:35 UTC). The other choices below are Claude's defaults. Amends
 [ADR 0010](0010-inference-field-hints.md) (a read-only field beside a keypad is
 described), [ADR 0016](0016-recipe-generation-trigger.md) (such a password field is a
 sign-in input) and [ADR 0029](0029-local-sign-in-state.md) (such a field counts in the
 signs of a failure and S2). Revised on 2026-10-23 after an independent review (keypad
 requirements, value checks before the first press, a page change after a press, the
-signs of a failure). No installed-Chrome or real-site check has been run.
+signs of a failure), and after the decision (a stop after a key press tells the person
+to reload). No installed-Chrome or real-site check has been run.
 
 Date: 2026-10-23
 
@@ -75,6 +76,15 @@ their character by `aria-label`, by an image's `alt`, or only as an image.
   again. A stop never presses again, never presses a clear key and never clicks the
   submit button. A key that shows its character only as an image without `alt` is
   never used.
+- **A stop after a key press tells the person to reload.** A stop of the step after a
+  key press, other than a possible submission and including one at a later field, leaves
+  characters in the field that no step clears. The step's detail is then
+  `keypad-pressed`, and the popup tells the person to reload the page before entering
+  the value. Pateat never reloads the page itself: a reload may send a posted form
+  again. The stopped login, ended while a fill may have reached the page, is resumed by
+  the tab's later pages and holds the site in other tabs
+  ([ADR 0022](0022-login-attempts-per-tab-and-origin.md)), so the reloaded page is left
+  to the person and never typed on again by itself.
 - **A rejection is read as for any field.** The read-only field the step typed on counts
   as a sign-in input in the signs of a failure (ADR 0029, F1 and F2), in the submitted
   document and in a sign-in form shown again beside a keypad, and an empty read-only
@@ -82,7 +92,8 @@ their character by `aria-label`, by an image's `alt`, or only as an image.
   `credential-rejected` and other tabs never type it again (ADR 0021 D).
 - Nothing new leaves the device: the keypad's `id` or test ID goes to the service as
   any locator does; the value, the key labels, their order and which keys were pressed
-  do not. Logs carry the codes `keypad-missing` and `keypad-key-missing` only.
+  do not. Logs and the outcome report (ADR 0019) carry the codes `keypad-missing`,
+  `keypad-key-missing` and `keypad-pressed` only.
 
 ## Consequences
 
@@ -99,9 +110,16 @@ their character by `aria-label`, by an image's `alt`, or only as an image.
 
 ## Alternatives
 
-- Setting the read-only field's `value` and sending events: the least code, but most
+- Setting the read-only field's `value` and sending events (B): the least code, but most
   keypads keep the value in their own state or a hidden input, so the page would get no
   value or another one than it shows, and a wrong submission can lock the account.
 - The model naming the keys, or a recipe storing the layout: sends the keypad's labels
   to the service and breaks on every shuffle.
-- Leaving these pages to the person, as today.
+- Leaving these pages to the person, as before (C).
+- Trusted input through `chrome.debugger` (the debugger API's `Input.dispatchMouseEvent`
+  or `Input.insertText`), which a keypad that checks `isTrusted` would take: rejected
+  because it needs the `debugger` permission and Chrome shows its debugging banner on
+  the tab while attached.
+- Reloading the page after a stop that pressed a key: clears the field without the
+  person, but a reload may send a posted form again and loses what the page held, so
+  the person is told to reload instead.

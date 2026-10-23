@@ -97,7 +97,7 @@ export const loginReadinessSchema = v.strictObject({
   targets: v.pipe(v.array(loginTargetSchema), v.maxLength(20)),
   /**
    * Those of a `fill` step's `targets` that are entered on the page's software keyboard
-   * (proposed ADR 0067): ready when shown and enabled, read-only or not.
+   * (ADR 0067): ready when shown and enabled, read-only or not.
    */
   keypad: v.optional(v.pipe(v.array(loginTargetSchema), v.minLength(1), v.maxLength(20))),
   /**
@@ -634,13 +634,15 @@ export const executionResultSchema = v.strictObject({
    * was filled, or `possible` after the field was pressed to open its keypad).
    * `keypad-missing`: a keypad field's keypad is not on the page or not beside the field;
    * `keypad-key-missing`: it showed no key, or a character of the value had no key or
-   * several, so no further key was pressed (proposed ADR 0067).
+   * several, so no further key was pressed; `keypad-pressed`: the step stopped for any
+   * reason but `submitted` after a key press, so the field holds characters the person
+   * clears by reloading the page (ADR 0067).
    * `fill-rejected`: after a preparing fill the page marked a filled input invalid or
    * showed a new alert (ADR 0010), or while typing it kept a character out so the input
    * does not hold the value.
    * `submitted`: after a `totp` handler's code fill the page showed that it submits the
    * code by itself (ADR 0027), or after a key press on a keypad the page moved or changed
-   * the field, perhaps submitting the characters so far (proposed ADR 0067); nothing was
+   * the field, perhaps submitting the characters so far (ADR 0067); nothing was
    * clicked.
    * `captcha`: the page showed a CAPTCHA before a click, so the click was left to the
    * person (ADR 0029, S4); nothing was clicked.
@@ -693,6 +695,7 @@ export const executionResultSchema = v.strictObject({
       "form-destination-unchecked",
       "keypad-missing",
       "keypad-key-missing",
+      "keypad-pressed",
     ]),
   ),
   /**

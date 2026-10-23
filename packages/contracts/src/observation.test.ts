@@ -156,7 +156,7 @@ describe("observation contract", () => {
     expect(withDescription({ description: "a\u202eb" })).toBe(false);
   });
 
-  it("takes a keypad locator only on fill roles (proposed ADR 0067)", () => {
+  it("takes a keypad locator only on fill roles (ADR 0067)", () => {
     const keypad = { by: "id", value: "soft-keys" };
     const withKeypad = (index: number, value: unknown = keypad) =>
       parse({

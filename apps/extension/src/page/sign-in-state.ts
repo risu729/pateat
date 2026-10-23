@@ -17,7 +17,7 @@ export interface SubmittedPage {
   readonly alerts: ReadonlySet<string>;
   /**
    * Those of `fields` entered on the page's software keyboard, which stay read-only
-   * (proposed ADR 0067).
+   * (ADR 0067).
    */
   readonly keyed: ReadonlySet<HTMLInputElement>;
 }
@@ -99,7 +99,7 @@ function writableInput(element: Element): element is HTMLInputElement {
 }
 /**
  * A sign-in input that still counts: shown, enabled and writable, or read-only when it is
- * one of `keyed`, entered on the page's software keyboard (proposed ADR 0067).
+ * one of `keyed`, entered on the page's software keyboard (ADR 0067).
  */
 const signInInput = (input: HTMLInputElement, keyed: ReadonlySet<HTMLInputElement>) =>
   keyed.has(input) ? visible(input) && !input.disabled : writableInput(input);
@@ -287,7 +287,7 @@ export function submittedPage(
  * or more shown password inputs (a password change or a registration), where the current
  * password must never go. Inputs outside any form count as one form. A read-only password
  * input counts when it is entered on the page's software keyboard (`keypadField`,
- * proposed ADR 0067), as a PIN page shown again after a wrong PIN.
+ * ADR 0067), as a PIN page shown again after a wrong PIN.
  */
 function showsPassword(document: Document): boolean {
   // The keypad is looked for once, and only for a read-only password input.

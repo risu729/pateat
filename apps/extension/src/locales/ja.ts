@@ -218,6 +218,8 @@ export const ja = {
   "The login did not succeed: {{why}}.": "ログインに成功しませんでした：{{why}}。",
   "The result of the login is not known: {{why}}.": "ログインの結果が分かりません：{{why}}。",
   "This recipe is not made again automatically.": "このレシピは自動では作り直されません。",
+  "Pateat pressed keys on the page's keyboard before it stopped. Reload the page before you enter the value.":
+    "Pateat は中断する前にページのキーボードのキーを押しました。値を入力する前にページを再読み込みしてください。",
   "This page": "このページ",
   "Open the detailed log": "詳細ログを開く",
   matchingAccounts_one: "{{count}} 件のアカウントがこのページに一致します。",

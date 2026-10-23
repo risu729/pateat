@@ -310,7 +310,7 @@ Pateat's side is [ADR 0075](adr/0075-vault-lock-and-timeout.md) and
 
 ## Software keyboards
 
-Proposed, pending the owner's decision
+Accepted by the owner on 2026-10-23
 ([ADR 0067](adr/0067-software-keyboard-entry.md)).
 
 - The official extension never fills a read-only or disabled field

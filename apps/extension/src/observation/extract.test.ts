@@ -1728,7 +1728,7 @@ describe("extractLoginObservation", () => {
     ).toEqual([false, "unfillable-field"]);
   });
 
-  it("describes a read-only field beside a software keyboard with the keypad's locator and leaves its keys out (proposed ADR 0067)", () => {
+  it("describes a read-only field beside a software keyboard with the keypad's locator and leaves its keys out (ADR 0067)", () => {
     const keys = (characters: string) =>
       [...characters].map((character) => `<input type="button" value="${character}">`).join("");
     page(

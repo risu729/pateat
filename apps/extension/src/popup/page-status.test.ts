@@ -257,6 +257,23 @@ describe("pageStatusLines", () => {
     },
   );
 
+  it.each(["fill-rejected", "structural-mismatch", "cancelled"])(
+    "tells the person to reload a page whose keypad Pateat pressed before a %s stop (ADR 0067)",
+    (outcome) => {
+      const shown = lines({ login: { state: "blocked", outcome, cause: "keypad-pressed" } });
+      expect(shown.at(-1)).toEqual([
+        "login-keypad",
+        "warn",
+        "Pateat pressed keys on the page's keyboard before it stopped. Reload the page before you enter the value.",
+      ]);
+      expect(
+        lines({ login: { state: "blocked", outcome, cause: "keypad-key-missing" } }).map(
+          ([id]) => id,
+        ),
+      ).not.toContain("login-keypad");
+    },
+  );
+
   it("names the outcome of a failed login without the recipe line", () => {
     expect(lines({ login: { state: "blocked", outcome: "credential-rejected" } }).slice(1)).toEqual(
       [["login", "err", "The login did not succeed: the site did not accept the password."]],

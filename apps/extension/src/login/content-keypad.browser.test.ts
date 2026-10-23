@@ -49,7 +49,7 @@ const announced = () =>
 /** The announcements that offered the page for generation as a sign-in page. */
 const offered = () => sent.filter((message) => message["signIn"] !== undefined);
 
-describe("a read-only field entered on the page's software keyboard (proposed ADR 0067)", () => {
+describe("a read-only field entered on the page's software keyboard (ADR 0067)", () => {
   it("is ready only for a step that names it as entered on a keypad", async () => {
     history.replaceState(null, "", "/pin");
     const target = { by: "id", value: "pin" };

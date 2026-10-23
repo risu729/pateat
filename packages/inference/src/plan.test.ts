@@ -169,7 +169,7 @@ describe("an accessible-name locator (ADR 0048 amendment of 2026-10-19)", () => 
   });
 });
 
-describe("a field on the page's software keyboard (proposed ADR 0067)", () => {
+describe("a field on the page's software keyboard (ADR 0067)", () => {
   it("is filled with the keypad the observation names, which the model never gives", () => {
     const keypad = { by: "id", value: "soft-keys" } as const;
     const page: LoginObservation = {

@@ -52,11 +52,10 @@ marker completed is sent as a sample, once in 30 days per recipe and branch; see
 [the amendment below](#amendment-signed-in-page-samples-2026-10-18) (implemented, local
 tests only). This also amends [ADR 0012](0012-inference-request-log.md) and
 [ADR 0016](0016-recipe-generation-trigger.md).
-Amended on 2026-10-23 by proposed [ADR 0067](0067-software-keyboard-entry.md) (pending
-the owner, implemented in its pull request): a read-only input the step typed on the
-page's software keyboard is a sign-in input for F1 and F2, as is one the re-shown form
-holds beside a keypad, and an empty read-only password input beside a keypad counts
-for S2.
+Amended on 2026-10-23 by [ADR 0067](0067-software-keyboard-entry.md): a read-only input
+the step typed on the page's software keyboard is a sign-in input for F1 and F2, as is
+one the re-shown form holds beside a keypad, and an empty read-only password input
+beside a keypad counts for S2.
 
 Amended on 2026-10-23 by [ADR 0060](0060-recipe-layouts.md) (layouts accepted by the
 owner on 2026-10-23 at 11:41 UTC; implemented on a branch, local tests only): a recipe

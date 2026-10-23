@@ -217,6 +217,8 @@ export const en = {
   "The result of the login is not known: {{why}}.":
     "The result of the login is not known: {{why}}.",
   "This recipe is not made again automatically.": "This recipe is not made again automatically.",
+  "Pateat pressed keys on the page's keyboard before it stopped. Reload the page before you enter the value.":
+    "Pateat pressed keys on the page's keyboard before it stopped. Reload the page before you enter the value.",
   "This page": "This page",
   "Open the detailed log": "Open the detailed log",
   matchingAccounts: "{{count}} accounts match this page.",

@@ -8,10 +8,10 @@ agrees ([ADR 0016](0016-recipe-generation-trigger.md#username-shape)). Amended o
 offers custom fields by `fieldName`, with `fieldPosition` (position and count) for a
 name several of the item's custom fields share, and Text shapes when every matching item
 agrees; Hidden fields are offered as a `hidden` slot kind, which never carries a shape.
-Amended on 2026-10-23 by proposed [ADR 0067](0067-software-keyboard-entry.md) (pending
-the owner, implemented in its pull request): an empty read-only field beside the page's
-software keyboard is described as a fill candidate with the keypad's locator, and its
-value must have exactly one key per character before anything is typed.
+Amended on 2026-10-23 by [ADR 0067](0067-software-keyboard-entry.md): an empty read-only
+field beside the page's software keyboard is described as a fill candidate with the
+keypad's locator, and its value must have exactly one key per character before anything
+is typed.
 
 Date: 2026-10-10
 
