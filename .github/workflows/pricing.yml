@@ -1,0 +1,72 @@
+name: Pricing
+# Reads Claude's public pricing page daily into the committed rates (ADR 0014) and
+# proposes any change as a pull request, merged like any other once CI passes.
+on:
+  schedule:
+    - cron: "41 2 * * *"
+  workflow_dispatch:
+concurrency:
+  group: pricing
+  cancel-in-progress: false
+permissions: {}
+defaults:
+  run:
+    shell: bash
+jobs:
+  refresh:
+    name: Refresh Claude rates
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    permissions:
+      contents: write # Commit the refreshed rates to the pricing branch.
+      pull-requests: write # Open the pull request.
+      actions: write # Start CI on the branch, since a job token's push or PR starts none.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+        with:
+          version: 2026.10.17
+          install_args: --locked
+      - name: Install frozen dependencies
+        run: mise deps --force aube_workspace
+      - name: Read the pricing page
+        run: mise run //packages/inference:pricing
+      - name: Propose the change
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BASE_SHA: ${{ github.sha }}
+          BRANCH: pricing/claude-rates
+          FILE: packages/inference/src/providers/claude-pricing.json
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- "${FILE}"; then
+            echo "The rates are unchanged."
+            exit 0
+          fi
+          git diff -- "${FILE}"
+          # An open proposal that already carries these rates needs nothing more.
+          if current=$(gh api "repos/${REPO}/contents/${FILE}?ref=${BRANCH}" --jq .content 2>/dev/null) &&
+            base64 -d <<<"${current}" | cmp -s - "${FILE}"; then
+            echo "The open proposal already carries these rates."
+            exit 0
+          fi
+          # Restart the branch from this main commit. The contents API commits as the
+          # Actions bot, and GitHub signs that commit.
+          if gh api "repos/${REPO}/git/ref/heads/${BRANCH}" >/dev/null 2>&1; then
+            gh api -X PATCH "repos/${REPO}/git/refs/heads/${BRANCH}" -f sha="${BASE_SHA}" -F force=true >/dev/null
+          else
+            gh api -X POST "repos/${REPO}/git/refs" -f ref="refs/heads/${BRANCH}" -f sha="${BASE_SHA}" >/dev/null
+          fi
+          blob=$(gh api "repos/${REPO}/contents/${FILE}?ref=${BRANCH}" --jq .sha)
+          gh api -X PUT "repos/${REPO}/contents/${FILE}" \
+            -f message="chore(inference): refresh Claude rates from the pricing page" \
+            -f content="$(base64 -w0 "${FILE}")" -f sha="${blob}" -f branch="${BRANCH}" >/dev/null
+          if [[ "$(gh pr list -R "${REPO}" --head "${BRANCH}" --state open --json number --jq length)" == 0 ]]; then
+            gh pr create -R "${REPO}" --head "${BRANCH}" --base main \
+              --title "chore(inference): refresh Claude rates from the pricing page" \
+              --body "The scheduled pricing workflow read new rates from https://platform.claude.com/docs/en/about-claude/pricing.md (ADR 0014). Check the diff against the page, then merge once CI passes."
+          fi
+          gh workflow run ci.yml -R "${REPO}" --ref "${BRANCH}"

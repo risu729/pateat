@@ -2,17 +2,47 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { defaultSettingsMiddleware, wrapLanguageModel } from "ai";
 import * as v from "valibot";
 import type { InferenceUsage } from "../outcome";
+import pricing from "./claude-pricing.json";
+import {
+  claudePricingName,
+  type ClaudeModelPricing,
+  type ClaudePricing,
+  type ClaudeTokenRates,
+} from "./claude-pricing";
+
+/**
+ * Rates committed from the public pricing page by `mise run //packages/inference:pricing`;
+ * the scheduled pricing workflow proposes each change (ADR 0014).
+ */
+const claudePricing: ClaudePricing = pricing;
+
+/** USD per million tokens; output includes thinking. */
+export type ClaudeRates = Omit<ClaudeModelPricing, "fast">;
+
+/** A model's published rates at a speed; undefined when the pricing page lists no such price. */
+export function claudeModelRates(
+  modelId: string,
+  speed: "standard" | "fast" = "standard",
+): ClaudeRates | undefined {
+  const name = claudePricingName(modelId);
+  if (name === undefined || !Object.hasOwn(claudePricing.models, name)) return undefined;
+  const { fast, ...standard } = claudePricing.models[name]!;
+  // Fast mode's price applies across the whole context window.
+  return speed === "fast" ? fast : standard;
+}
+
+function publishedRates(modelId: string): ClaudeRates {
+  const rates = claudeModelRates(modelId);
+  if (rates === undefined) throw new Error(`The pricing page lists no price for ${modelId}.`);
+  return rates;
+}
 
 /** The owner-selected generation configuration (ADR 0014). */
 export const claudeGeneration = {
   modelId: "claude-opus-5-5",
   effort: "low",
-  /** USD per million tokens, as published on the date checked; output includes thinking. */
-  rates: { input: 4, output: 20, checked: "2026-10-10" },
+  rates: publishedRates("claude-opus-5-5"),
 } as const;
-
-/** USD per million tokens; output includes thinking. */
-export type ClaudeRates = { input: number; output: number; checked: string };
 
 /**
  * The model the service asks once more when `claudeGeneration` refuses a request (owner
@@ -21,33 +51,16 @@ export type ClaudeRates = { input: number; output: number; checked: string };
 export const claudeRefusalFallback = {
   modelId: "claude-sonnet-5-5",
   effort: "low",
-  rates: { input: 2, output: 10, checked: "2026-10-23" },
+  rates: publishedRates("claude-sonnet-5-5"),
 } as const;
 
-/**
- * Models the benchmark may compare with the service's, at their published rates. Only the
- * benchmark takes them: the service runs `claudeGeneration` and, after its refusal,
- * `claudeRefusalFallback` (ADR 0014).
- */
-export const claudeBenchmarkModels = {
-  "claude-opus-5-5": claudeGeneration.rates,
-  "claude-fable-5-1": { input: 10, output: 50, checked: "2026-10-23" },
-  "claude-opus-5": { input: 5, output: 25, checked: "2026-10-23" },
-  "claude-sonnet-5-5": claudeRefusalFallback.rates,
-  // Prompts above 100K tokens cost more; the role's input bound keeps them far below.
-  "claude-haiku-5-5": { input: 0.1, output: 0.5, checked: "2026-10-23" },
-} as const satisfies Record<string, ClaudeRates>;
-
-export type ClaudeBenchmarkModel = keyof typeof claudeBenchmarkModels;
-
-/**
- * Fast mode's rates (Claude API research preview: the same model, faster output), for the
- * models that offer it.
- */
-export const claudeFastModeRates = {
-  "claude-opus-5-5": { input: 8, output: 40, checked: "2026-10-23" },
-  "claude-opus-5": { input: 10, output: 50, checked: "2026-10-23" },
-} as const satisfies Partial<Record<ClaudeBenchmarkModel, ClaudeRates>>;
+/** The highest per-token rates a call can be charged, for spend bounds. */
+export function claudeWorstCaseRates(rates: ClaudeRates): ClaudeTokenRates {
+  return {
+    input: Math.max(rates.input, rates.longPrompt?.input ?? 0),
+    output: Math.max(rates.output, rates.longPrompt?.output ?? 0),
+  };
+}
 
 export const claudeEfforts = ["low", "medium", "high", "xhigh", "max"] as const;
 export type ClaudeEffort = (typeof claudeEfforts)[number];
@@ -123,12 +136,14 @@ export function claudeRefusalCategory(providerMetadata: unknown): string | undef
   return typeof category === "string" ? category : undefined;
 }
 
-/** Estimated cost from reported usage at the checked rates; undefined when usage is unknown. */
+/** Estimated cost from reported usage at the published rates; undefined when usage is unknown. */
 export function estimateClaudeCostUsd(
   usage: InferenceUsage,
   rates: ClaudeRates = claudeGeneration.rates,
 ): number | undefined {
   if (usage.inputTokens === null || usage.outputTokens === null) return undefined;
-  const { input, output } = rates;
+  const { longPrompt } = rates;
+  const { input, output } =
+    longPrompt !== undefined && usage.inputTokens > longPrompt.overInputTokens ? longPrompt : rates;
   return (usage.inputTokens * input + usage.outputTokens * output) / 1_000_000;
 }

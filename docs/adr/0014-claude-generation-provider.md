@@ -44,6 +44,16 @@ monthly Claude API credit and chose the model. The offline harness in
   rather than sending `fallbacks`, since Anthropic's server-side fallback does not retry
   every refusal category, such as the `reasoning_extraction` refusals Opus 5.5 gave in
   the 2026-10-23 comparison.
+- Model rates are not written by hand (owner, 2026-10-23 11:31 UTC). `mise run
+  //packages/inference:pricing` reads the model and fast mode tables of Anthropic's
+  public pricing page (`https://platform.claude.com/docs/en/about-claude/pricing.md`)
+  into `packages/inference/src/providers/claude-pricing.json`, keyed by the Models API
+  display name (`claude-opus-5-5` is `Claude Opus 5.5`), and stops on any table it
+  cannot read whole. The service and the benchmark charge those rates; Haiku 5.5's
+  higher price above 100,000 prompt tokens is kept too. The pricing workflow
+  (`.github/workflows/pricing.yml`) runs the task daily and proposes any change as a
+  pull request, merged like any other once CI passes. The Models API carries no prices
+  and no fast mode flag, so the page is the provider's only source for both.
 - Jev and Clef are not required. The finite-choice role has no provider for now; its
   adapter contract stays, and those models may be evaluated later against the same
   corpus. On 2026-10-11 the owner chose to implement the role with Clef in
