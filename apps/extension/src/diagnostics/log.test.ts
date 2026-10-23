@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { createDefaultSettings, PROBLEM_EVENT_FIELDS, problemEntrySchema } from "@pateat/contracts";
+import {
+  createDefaultSettings,
+  LOCAL_ONLY_EVENTS,
+  LOCAL_ONLY_FLAG,
+  PROBLEM_EVENT_FIELDS,
+  problemEntrySchema,
+} from "@pateat/contracts";
 import { createDiagnosticsLog } from "./background";
 import {
   DEBUG_LOGGING_MS,
@@ -14,6 +20,7 @@ import {
   formatLogExport,
   problemLine,
   recentLog,
+  sentToService,
   stackPositions,
   type KnownSites,
   type LogEntry,
@@ -3403,11 +3410,112 @@ describe("problem lines (ADR 0066)", () => {
           Object.entries(definition.fields as Record<string, string>)
             .filter(([, kind]) => kind !== "item" && kind !== "connection")
             .filter(([field, kind]) => kind !== "url" || field === "url")
+            // The flag of a fill-only login, whose lines stay on the device.
+            .filter(([field]) => field !== LOCAL_ONLY_FLAG)
             .map(([field, kind]) => [field, kind === "url" ? "path" : kind]),
         ),
       ]),
     );
+    // Passkey reports never leave, so the contract does not list them.
+    for (const event of LOCAL_ONLY_EVENTS) {
+      expect(fromLog).toHaveProperty([event]);
+      delete fromLog[event];
+    }
     expect(fromLog).toEqual(PROBLEM_EVENT_FIELDS);
+  });
+
+  it("keeps passkey reports and a fill-only login's lines on the device", async () => {
+    const onProblem = vi.fn();
+    const log = createDiagnosticsLog({
+      build: { version: "0.1.0", revision: "1c42ad3" },
+      settings: async () => {
+        throw new Error("not needed");
+      },
+      recipeCache: async () => undefined,
+      connections: async () => ({ ok: true, kind: "status", connections: [] }),
+      onProblem,
+      databaseName: `log-test-${crypto.randomUUID()}`,
+      scope: { addEventListener: () => undefined } as never,
+    });
+    for (const level of ["debug", "info", "warn"] as const)
+      vi.spyOn(console, level).mockImplementation(() => undefined);
+    const { logger } = log;
+    const site = { origin: "https://bank.example", url: "https://bank.example/login" };
+    await logger.log(
+      "passkey.request",
+      { origin: site.origin, rpId: "bank.example", outcome: "failed" },
+      { level: "warn" },
+    );
+    await logger.log(
+      "passkey.create",
+      { origin: site.origin, rpId: "bank.example", outcome: "failed" },
+      { level: "error" },
+    );
+    const attempt = {
+      type: "attempt",
+      tabId: 3,
+      origin: site.origin,
+      url: site.url,
+      recipeId: "gen-0123",
+      recipeRevision: 2,
+      route: "password",
+      state: "blocked",
+      stepIndex: 0,
+      stepCount: 2,
+      outcome: "timeout",
+      cause: "elements-timeout",
+    } as const;
+    // A fill-only login's warning, also one whose stop named another reason.
+    log.login({ ...attempt, fillOnly: true, reason: "fill-only" });
+    log.login({ ...attempt, fillOnly: true, reason: "password-empty" });
+    log.login({
+      type: "exception",
+      tabId: 3,
+      origin: site.origin,
+      recipeId: "gen-0123",
+      recipeRevision: 2,
+      route: "password",
+      state: "blocked",
+      stepIndex: 0,
+      fillOnly: true,
+      name: "TypeError",
+    });
+    // The same warning of a login that is not fill-only leaves.
+    log.login(attempt);
+    await vi.waitFor(async () => expect(await logger.entries()).toHaveLength(6));
+    const entries = await logger.entries();
+    expect(entries.map(({ level, event }) => `${level} ${event}`)).toEqual([
+      "warn passkey.request",
+      "error passkey.create",
+      "warn login.attempt",
+      "warn login.attempt",
+      "warn login.exception",
+      "warn login.attempt",
+    ]);
+    // The local log keeps the mark that keeps them local.
+    for (const entry of entries.slice(2, 5)) expect(entry.fields["fillOnly"]).toBe(true);
+    expect(entries.map((entry) => sentToService(entry))).toEqual([
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+    ]);
+    expect(entries.map(problemLine).map((line) => line?.event)).toEqual([
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "login.attempt",
+    ]);
+    expect(onProblem).toHaveBeenCalledTimes(1);
+    const { entries: found } = await logger.problemsAfter(0, 10);
+    expect(found.map(({ entry }) => entry.fields["fillOnly"] ?? entry.event)).toEqual([
+      "login.attempt",
+    ]);
+    vi.restoreAllMocks();
   });
 
   it("logs a send at debug when kept and at info otherwise, never as a problem", async () => {

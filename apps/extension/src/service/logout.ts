@@ -6,7 +6,8 @@ import type { ServiceTransport } from "./transport";
 /**
  * The extension side of `POST /v1/recipes/logout` (ADR 0063): an account switch's
  * signed-in pages go only to the paired service with the device credential, and with the
- * device's own key to Anthropic in the calls the service hands over (ADR 0040). A page is
+ * device's own key to Anthropic in the calls the service hands over; unpaired, a device
+ * with its own key runs the same route itself (ADR 0040). A page is
  * asked about once per switch round, at the person's press, so nothing is claimed for the
  * retry window here; the service keeps its own (ADR 0016). A returned recipe is pulled into
  * the recipe cache behind the switch, which goes on with the answer's copy.

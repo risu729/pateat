@@ -8,9 +8,10 @@ want to put their key on my service"), that files can export and import everythi
 pairing shares (12:49 UTC), and, on cards between 12:36 and 13:04 UTC, the upload rule,
 the key field, the spend stops, the log rows and the choice on unpairing below. The
 details marked "chosen by an agent" were not asked. The
-[paired part](#a-paired-device-with-its-own-key) and the
-[recipes a device keeps](#recipes-a-device-keeps) are implemented; generation on an
-unpaired device and export and import come in later pull requests. On a card at 21:11
+[paired part](#a-paired-device-with-its-own-key), the
+[recipes a device keeps](#recipes-a-device-keeps) and
+[generation on an unpaired device](#generation-on-an-unpaired-device) are implemented;
+export and import come in a later pull request. On a card at 21:11
 UTC the owner decided to build generation on an unpaired device and to settle the Chrome
 Web Store question when the extension is submitted. Amends
 [ADR 0012](0012-inference-request-log.md),
@@ -37,7 +38,7 @@ is paired decides only where recipes are kept and shared.
 
 | | Key on this device | No key on this device |
 | --- | --- | --- |
-| Not paired | This device calls the model and keeps the recipes (later) | No new recipes; recipes already on the device still run |
+| Not paired | This device calls the model and keeps the recipes | No new recipes; recipes already on the device still run |
 | Paired | This device calls the model; the service checks and stores the result | The service calls the model with the owner's credential, as before |
 
 ### The key on the settings page
@@ -168,14 +169,56 @@ paired, logins use only the service's recipes.
   ([ADR 0027](0027-per-account-login-routes.md)) uploads nothing, and a device
   disconnected during the upload removes nothing from its store.
 
-### Running without the service (later pull requests)
+### Generation on an unpaired device
 
-- **Generation on the device**: unpaired, the device runs the same checks and builds the
-  same model input with code shared with the service, and keeps its recipes in its own
-  store. The routes now live in `@pateat/generation` (`packages/generation`) and run
-  against a `GenerationBackend`; the service's is `d1Backend`, and the device's comes
-  with this part. Without a key no recipe is made, and recipes already on the device
-  still run. There is no editor for recipes or bindings.
+Unpaired, the device runs the service's own generation, account-switch logout
+([ADR 0063](0063-switch-accounts-from-the-popup.md)) and judge routes
+(`@pateat/generation`, `packages/generation`) against its own `GenerationBackend`
+(`apps/extension/src/service/device-generation.ts`); the service's is `d1Backend`. Both
+run the same checks, build the same model input and write the same recipes.
+
+- **When**: while no service is paired and a key is saved, generation runs under a
+  connection of this device's own (`pateat-device:`), whose requests never leave it.
+  Without a key no recipe is made, and recipes already on the device still run. A paired
+  device always uses the service as above, whatever the key.
+- **Recipes**: read from and written to the device's own store
+  (`pateat.device-recipes.v1`, [above](#recipes-a-device-keeps)), only over the revision
+  a write expects. Only the head of each recipe is kept. The service's limits apply:
+  1,000 recipes and 1.5 MiB of recipe documents, and the store's own 2 MiB. A write that
+  lands once a service is paired is refused as one another writer beat, and the upload
+  reads the store in turn with the writes, so a pairing during a request never loses a
+  revision to the upload.
+- **Limits**: the retry window (ADR 0016), the daily repair (ADR 0041), the judgement
+  per page and the 20 a day per recipe (ADR 0027), and each layout's last use (ADR 0060)
+  are kept in `pateat.device-generation.v1` in trusted local storage, 2,000 entries per
+  list at most, the oldest dropped first. A login that starts on a layout marks it used,
+  once an hour, as the service's use report does (ADR 0058). The record is deleted when
+  the recipes it describes are replaced or deleted (keeping the synced recipes on
+  unpairing, or deleting the kept ones), since a recipe made again starts at revision 1.
+  Chosen by an agent: a record that cannot be read counts as empty, as the other local
+  records do; the key's spend limits still bound the cost. One request's model calls run
+  at a time, until each call it sent has ended; a second answers `busy`, as the
+  service's lock does.
+- **Models**: the default choices (`DEFAULT_MODEL_CONFIG`), in the same order and with
+  the same move to the next model after a refusal as the service
+  (`roleChoices`, `nextAttempt`). There is no model picker on the device (12:38 UTC).
+- **Key and spend**: each call goes to `https://api.anthropic.com/v1/messages` with the
+  key, after the same checks of the request as the paired relay makes, and counts toward
+  the key's daily and monthly limits as a paired call does; a limit reached before the
+  first call answers `daily-limit` or `monthly-limit`. An answer whose spend cannot be
+  written is still used, and its cost stays counted in memory. A key that cannot be read
+  makes no recipes.
+- **Bindings**: the slots a new layout carries come from the bindings in this device's
+  settings.
+- **Nothing logged** (owner, Q4): no request log, no page samples and no unit
+  provenance (ADR 0060); a repeat login sends no sample.
+
+Chosen by an agent: the backend is plain JavaScript over `storage.local` rather than
+SQLite in WebAssembly, which needs no content security policy change and no second copy
+of the D1 queries.
+
+### Export and import (later pull request)
+
 - **Export and import** (12:49 UTC): a file can carry everything pairing shares
   (settings, recipes and bindings) to another device, never vault data, the sync
   service's sign-in or the AI key. How this meets settings profiles is decided when

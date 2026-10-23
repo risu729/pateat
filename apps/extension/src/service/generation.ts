@@ -30,6 +30,7 @@ import type {
   PageSampleOutcome,
   RecipeRepairClaim,
 } from "../login/runtime";
+import { DEVICE_GENERATION_ORIGIN } from "./device-generation";
 import type { ServiceConnection } from "./runtime";
 import type { InferenceResult, ServiceTiming, ServiceTransport } from "./transport";
 
@@ -775,7 +776,9 @@ export function createLoginGeneration(options: {
     async samplePage(sample, describe, sending): Promise<PageSampleOutcome> {
       if (!transport.samplePage || !sampleStorage) return { outcome: "not-due" };
       const connection = await connected();
-      if (!connection) return { outcome: "not-due", reason: "not-connected" };
+      // A device without a pairing keeps no request log, so it has no samples (ADR 0040).
+      if (!connection || connection.origin === DEVICE_GENERATION_ORIGIN)
+        return { outcome: "not-due", reason: "not-connected" };
       const { recipeId, branch } = sample;
       // The service files a sample under the layout the login ran (ADR 0060).
       if (!v.is(recipeBranchSchema, branch)) return { outcome: "not-due", reason: "no-layout" };

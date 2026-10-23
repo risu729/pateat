@@ -8,19 +8,23 @@ import {
   parseRecipeBranch,
   type DeviceModel,
   type DeviceModelCall,
+  type GenerationUnavailableReason,
 } from "@pateat/contracts";
 import {
+  choiceAttempts,
   MAX_OUTPUT_TOKENS,
+  nextAttempt,
   ROLE_LIMITS,
+  roleChoices,
+  servedModel,
   type GenerationCall,
   type GenerationCallResult,
   type GenerationCallTimings,
-  type ServedModel,
+  type RoleChoice,
   type UnsentOutcome,
   type UnsentRequest,
 } from "@pateat/generation";
 import {
-  claudeModelRates,
   claudeWorstCaseRates,
   createClaudeGenerationModel,
   estimateClaudeCostUsd,
@@ -44,12 +48,13 @@ import {
   problemLog,
 } from "../db/schema";
 import { resolveClaudeCredential } from "./credentials";
-import { fastFailingModels, readModelConfig, roleChoices, type RoleChoice } from "./models";
+import { fastFailingModels, readModelConfig } from "./models";
 import { newId } from "@pateat/contracts/ids";
 
-// Every Claude call the service makes goes through here (ADR 0018): one call at a time
-// per owner, the monthly and daily spend stops, and the ADR 0012 request
-// log with its one-year retention, which also keeps requests answered without a call.
+// Every Claude call the service makes goes through here (ADR 0018): at most
+// `CLAUDE_CALL_LIMITS.concurrentCalls` requests at a time per owner, the monthly and daily
+// spend stops, and the ADR 0012 request log with its one-year retention, which also keeps
+// requests answered without a call.
 
 export const CLAUDE_CALL_LIMITS = {
   /** $100 a month (ADR 0014), estimated from returned usage. */
@@ -57,8 +62,14 @@ export const CLAUDE_CALL_LIMITS = {
   /** $5 a day (UTC), counting generation and judgement alike (owner decision, 2026-10-11). */
   dailyMicroUsd: 5_000_000,
   /**
-   * Longer than the token exchange and the most calls one request makes in turn: up to
-   * three choices, each fast then standard, at the 10 s model timeout.
+   * Requests of one owner whose calls run at once, against abuse; more answer `busy`. Five
+   * stays acceptable once Pateat is public (owner decision, 2026-10-23 22:05-22:06 UTC).
+   */
+  concurrentCalls: 5,
+  /**
+   * How long a request holds its slot: longer than the token exchange and the most calls
+   * one request makes in turn, up to three choices, each fast then standard, at the 10 s
+   * model timeout.
    */
   lockMs: 90_000,
   /** Every request log row and login result code, for evaluation (owner decision, 2026-10-18). */
@@ -124,20 +135,28 @@ function addSpend(db: Db, ownerId: string, period: string, calls: number, micro:
     });
 }
 
-async function acquireLock(db: Db, ownerId: string, now: number) {
+/**
+ * Takes the first of the owner's call slots that is free or abandoned (its request ended
+ * without releasing it), each with one conditional statement, so two requests never hold
+ * the same slot. Returns undefined while every slot is held.
+ */
+async function acquireSlot(db: Db, ownerId: string, now: number) {
   const lockId = newId();
   const expiresAt = now + CLAUDE_CALL_LIMITS.lockMs;
-  const result = await db
-    .insert(inferenceLocks)
-    .values({ ownerId, lockId, expiresAt })
-    .onConflictDoUpdate({
-      target: inferenceLocks.ownerId,
-      set: { lockId, expiresAt },
-      // An abandoned lock (its request ended without releasing it) is taken over.
-      setWhere: lte(inferenceLocks.expiresAt, now),
-    })
-    .run();
-  return result.meta.changes === 1 ? lockId : undefined;
+  for (let slot = 0; slot < CLAUDE_CALL_LIMITS.concurrentCalls; slot++) {
+    // oxlint-disable-next-line no-await-in-loop
+    const result = await db
+      .insert(inferenceLocks)
+      .values({ ownerId, slot, lockId, expiresAt })
+      .onConflictDoUpdate({
+        target: [inferenceLocks.ownerId, inferenceLocks.slot],
+        set: { lockId, expiresAt },
+        setWhere: lte(inferenceLocks.expiresAt, now),
+      })
+      .run();
+    if (result.meta.changes === 1) return { slot, lockId };
+  }
+  return undefined;
 }
 
 /** Whether the owner reached the monthly or daily spend stop. */
@@ -493,6 +512,15 @@ type Reservation = {
   error?: unknown;
 };
 
+/** A request `beforeSend` stopped before its first model request, with the answer's reason. */
+class Unsent extends Error {
+  readonly reason: GenerationUnavailableReason;
+  constructor(reason: GenerationUnavailableReason) {
+    super("Model call not sent");
+    this.reason = reason;
+  }
+}
+
 function reserveOnce(write: () => Promise<void>): Reservation {
   let written: Promise<void> | undefined;
   const reservation: Reservation = {
@@ -516,23 +544,6 @@ function reserveOnce(write: () => Promise<void>): Reservation {
   };
   return reservation;
 }
-
-/** The failures after which fast mode asks the same model at the standard speed. */
-const FAST_RETRY = new Set(["rate-limited", "provider-error", "timeout"]);
-
-/** A choice's calls in order: fast mode is followed by the same model at the standard speed. */
-function attempts(choice: RoleChoice): RoleChoice[] {
-  if (choice.speed !== "fast") return [choice];
-  const rates = claudeModelRates(choice.modelId);
-  return rates === undefined ? [choice] : [choice, { ...choice, rates, speed: "standard" }];
-}
-
-const servedModel = (choice: RoleChoice): ServedModel => ({
-  provider: "anthropic",
-  model: choice.modelId,
-  effort: choice.effort,
-  speed: choice.speed,
-});
 
 /** Whose key a request's calls use: the owner's credential, or the device's (ADR 0040). */
 type CallerKey =
@@ -593,8 +604,8 @@ async function runCall<T>(
 ): Promise<GenerationCallResult<T>> {
   const db = drizzle(env.DB);
   const start = Date.now();
-  const lockId = await acquireLock(db, ownerId, start);
-  if (!lockId) return { status: "unavailable", reason: "busy" };
+  const held = await acquireSlot(db, ownerId, start);
+  if (!held) return { status: "unavailable", reason: "busy" };
   try {
     const { device } = call;
     // The spend stops count the owner's credential only; a device's key pays its own calls.
@@ -620,7 +631,8 @@ async function runCall<T>(
     ]);
     const choices = roleChoices(config, call.role, fastFailing);
     const reservation = reserveOnce(async () => {
-      await call.beforeSend?.(Date.now());
+      const refused = await call.beforeSend?.(Date.now());
+      if (refused) throw new Unsent(refused);
     });
 
     // The role's choices in order (owner decision, 2026-10-23 11:31 UTC): a refusal asks
@@ -633,18 +645,14 @@ async function runCall<T>(
     ): Promise<Called<T> | Extract<GenerationCallResult<T>, { status: "device-call" }>> => {
       let last: Called<T> | undefined;
       let key = caller;
-      for (const attempt of choices.flatMap(attempts)) {
+      for (const attempt of choices.flatMap(choiceAttempts)) {
         if (last !== undefined) {
-          const { outcome, served } = last;
-          if (outcome.status !== "failed") break;
-          const sameModel = attempt.modelId === served.model;
-          // A refusal skips the same model at the standard speed and asks the next choice.
-          if (outcome.error === "refused" && sameModel) continue;
-          const retry =
-            outcome.error === "refused" ||
-            (served.speed === "fast" && sameModel && FAST_RETRY.has(outcome.error));
+          const next = nextAttempt(last, attempt);
+          if (next === "skip") continue;
           // oxlint-disable-next-line no-await-in-loop
-          if (!retry || (!device && (await limitReached(db, ownerId, Date.now())))) break;
+          if (next === "stop" || (!device && (await limitReached(db, ownerId, Date.now())))) {
+            break;
+          }
         }
         // Later calls' time before the model includes the calls before; they run no exchange.
         // oxlint-disable-next-line no-await-in-loop
@@ -674,21 +682,36 @@ async function runCall<T>(
       const probe = await run(true);
       if (probe.status === "device-call") return probe;
     }
-    return await run(false);
+    try {
+      return await run(false);
+    } catch (error) {
+      // `beforeSend` stopped the request before its first model request was sent.
+      if (error instanceof Unsent) return { status: "unavailable", reason: error.reason };
+      throw error;
+    }
   } finally {
+    // Only this request's slot: one it lost after `lockMs` belongs to another request now.
     await db
       .delete(inferenceLocks)
-      .where(and(eq(inferenceLocks.ownerId, ownerId), eq(inferenceLocks.lockId, lockId)));
+      .where(
+        and(
+          eq(inferenceLocks.ownerId, ownerId),
+          eq(inferenceLocks.slot, held.slot),
+          eq(inferenceLocks.lockId, held.lockId),
+        ),
+      );
   }
 }
 
 /**
- * Sends one model call for `runCall`, under its lock, then charges it to the spend stops
+ * Sends one model call for `runCall`, in its slot, then charges it to the spend stops
  * from reported usage at its model's rates (the worst case when usage is unknown) and logs
- * it. Nothing is reserved before the call (owner, 2026-10-23 11:31 and 12:16 UTC): with
- * one call at a time per owner, a stop is overshot by at most the call that crossed it.
- * `callClaude` keeps the calls running past a client disconnect so each is charged. A request the role refused locally was
- * never sent, so it gets no log row here: its route logs it (ADR 0012).
+ * it. Nothing is reserved before the call (owner, 2026-10-23 11:31 and 12:16 UTC): with at
+ * most `concurrentCalls` requests at a time per owner, a stop is overshot by at most the
+ * calls running when it was crossed (owner, 2026-10-23 22:05 UTC).
+ * `callClaude` keeps the calls running past a client disconnect so each is charged. A
+ * request the role refused locally was never sent, so it gets no log row here: its route
+ * logs it (ADR 0012).
  */
 async function sendCall<T>(
   db: Db,

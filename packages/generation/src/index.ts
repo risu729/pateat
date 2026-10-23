@@ -2,6 +2,7 @@
 // D1 and by a device with its own key against its own storage (ADR 0040).
 
 export * from "./backend";
+export * from "./choices";
 export * from "./generate";
 export * from "./logout";
 export * from "./repair";

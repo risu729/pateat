@@ -93,6 +93,7 @@ export const generationUnavailableReasonSchema = v.picklist([
   "token-exchange-failed",
   "monthly-limit",
   "daily-limit",
+  /** The owner already has five requests making model calls (ADR 0018). */
   "busy",
   "recently-tried",
   /**
@@ -114,7 +115,7 @@ export const generationUnavailableReasonSchema = v.picklist([
   "judged-rejected",
   /**
    * As `already-judged`, and that request has no verdict: it failed, or it is still being
-   * judged after the owner's lock expired (ADR 0029).
+   * judged (ADR 0029).
    */
   "judgement-unanswered",
   /** The recipe's pages were judged 20 times this UTC day (ADR 0027). */

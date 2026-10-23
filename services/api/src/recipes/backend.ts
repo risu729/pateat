@@ -151,7 +151,7 @@ export function d1Backend(
       return judged?.value ?? 0;
     },
     recordJudgement: async (key, now, stale) => {
-      await db.batch([
+      const [taken] = await db.batch([
         db
           .insert(pageJudgements)
           .values({ ownerId, ...key, judgedAt: now })
@@ -182,6 +182,9 @@ export function d1Backend(
             ),
           ),
       ]);
+      // An insert or a retaken `partial` or `optional` row; none while another request's
+      // row is there.
+      return taken.meta.changes === 1;
     },
     keepVerdict: async (key, verdict) => {
       await db.update(pageJudgements).set({ verdict }).where(judgementOf(key));

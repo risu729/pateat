@@ -27,7 +27,17 @@ export const profileDocument = (document: LocalSettings) => ({
 });
 
 /**
- * Reads the profile and the shared bindings at the owner's revision in one statement. A
+ * The owner's parts, shared by every profile (ADR 0076): account bindings and the links
+ * to the items that hold a login's personal details (ADR 0061), which name vault items
+ * and fields per site as bindings do.
+ */
+export const ownerDocument = (document: LocalSettings) => ({
+  bindings: document.bindings,
+  detailLinks: document.detailLinks,
+});
+
+/**
+ * Reads the profile and the owner's shared parts at the owner's revision in one statement. A
  * profile with no document of its own yet answers `newProfile`, so the first device to
  * sync it keeps its own entries (ADR 0076).
  */
@@ -43,7 +53,9 @@ export async function readSettings(
     .bind(ownerId, profileId)
     .first<{ revision: number | null; shared: string | null; document: string | null }>();
   if (!row) throw new Error("profile-not-found");
-  const shared = row.shared ? JSON.parse(row.shared) : { bindings: [] };
+  const shared: Partial<ReturnType<typeof ownerDocument>> = row.shared
+    ? JSON.parse(row.shared)
+    : { bindings: [] };
   const profile = {
     accountPolicies: [],
     itemPolicies: [],
@@ -57,7 +69,14 @@ export async function readSettings(
     version: 1,
     profileId,
     revision: row.revision ?? 0,
-    settings: row.revision ? { connections: [], ...profile, bindings: shared.bindings } : null,
+    settings: row.revision
+      ? {
+          connections: [],
+          ...profile,
+          bindings: shared.bindings,
+          ...(shared.detailLinks ? { detailLinks: shared.detailLinks } : {}),
+        }
+      : null,
     ...(row.revision && !row.document ? { newProfile: true } : {}),
   });
 }
@@ -86,7 +105,10 @@ export async function recipeBindingSlots(
   );
 }
 
-/** One owner revision covers shared bindings and every profile. D1 batches are atomic. */
+/**
+ * One owner revision covers the owner's shared parts and every profile. D1 batches are
+ * atomic.
+ */
 export async function writeSettings(
   db: D1Database,
   ownerId: string,
@@ -98,6 +120,13 @@ export async function writeSettings(
   /** `current` is missing when the profile was deleted meanwhile. */
   | { ok: false; current: SyncSettingsState | undefined }
 > {
+  // A write without `detailLinks` keeps the stored ones: the key is optional, so a client
+  // that predates it (or leaves it out) must not delete every device's links. They are
+  // read at the expected revision; any later write changes the revision, so the batch
+  // below then loses its compare-and-swap and stores nothing.
+  const settings = write.settings.detailLinks
+    ? write.settings
+    : await withStoredDetailLinks(db, ownerId, write.expectedRevision, write.settings);
   // Both statements use the exact same compare-and-swap predicate. The profile write
   // runs first; changes() gates the revision write so losing writers update neither.
   const results = await db.batch([
@@ -125,7 +154,7 @@ export async function writeSettings(
       .bind(
         ownerId,
         write.expectedRevision + 1,
-        JSON.stringify({ bindings: write.settings.bindings }),
+        JSON.stringify(ownerDocument(settings)),
         Date.now(),
         writer,
       ),
@@ -151,7 +180,24 @@ export async function writeSettings(
       version: 1,
       profileId,
       revision: write.expectedRevision + 1,
-      settings: write.settings,
+      settings,
     },
   };
+}
+
+/** `settings` with the owner's stored detail links at `revision`, when it has any. */
+async function withStoredDetailLinks(
+  db: D1Database,
+  ownerId: string,
+  revision: number,
+  settings: LocalSettings,
+): Promise<LocalSettings> {
+  const row = await db
+    .prepare("SELECT document FROM settings WHERE owner_id = ? AND revision = ?")
+    .bind(ownerId, revision)
+    .first<{ document: string }>();
+  const stored: Partial<ReturnType<typeof ownerDocument>> | undefined = row
+    ? JSON.parse(row.document)
+    : undefined;
+  return stored?.detailLinks ? { ...settings, detailLinks: stored.detailLinks } : settings;
 }

@@ -500,6 +500,7 @@ export const localSettingsSchema = v.pipe(
                 JSON.stringify([
                   link.origin,
                   link.provider,
+                  link.server,
                   link.userId,
                   link.itemId,
                   link.detail,

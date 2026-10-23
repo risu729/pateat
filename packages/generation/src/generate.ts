@@ -367,8 +367,9 @@ function unsettled<T>(
 
 /**
  * The repair limit of ADR 0041: a device asks to repair a recipe at most once a
- * UTC day, whatever came of the call. `recheck` reads the stored head again under the
- * owner's lock.
+ * UTC day, whatever came of the call. `recheck` reads the stored head again once the
+ * request holds a call slot. Two repairs at once both pass and are both charged; the
+ * recipe's revision claim keeps one write (ADR 0018).
  */
 function repairWindow(
   backend: GenerationBackend,
@@ -391,7 +392,9 @@ function repairWindow(
 /**
  * The 10-minute retry window of one generation call and its attempt row (ADR 0016), keyed
  * by the recipe, the chooser branch (empty without one), the path and the revision the
- * call's write replaces. `recheck` reads the stored head again under the owner's lock.
+ * call's write replaces. `recheck` reads the stored head again once the request holds a
+ * call slot. The same page asked twice at once passes twice and is charged twice; the
+ * recipe's revision claim keeps one write (ADR 0018).
  */
 export function attemptWindow(
   backend: GenerationBackend,
@@ -497,7 +500,7 @@ export async function generateRecipe(
   /**
    * What the stored head means for this request: an answer without a model call, or the
    * route to continue (`undefined` for a first page) with the chooser it belongs to for a
-   * branch. Checked again under the lock.
+   * branch. Checked again once the request holds a call slot.
    */
   const decide = async (
     head: SyncRecipeChange | null,
@@ -628,7 +631,7 @@ export async function generateRecipe(
   // the call, so the request log names the layout the answer creates.
   const meta = newLayoutMeta(observation.language, Date.now());
 
-  // Another device may have stored this recipe while this request waited for the lock.
+  // Another device may have stored this recipe while this request waited for a call slot.
   const recheck = async () => {
     const latest = await decide(await backend.readHead(recipeId));
     if ("answer" in latest) {
@@ -885,7 +888,7 @@ export async function generateRecipe(
       : failed("recipe-invalid");
   }
   // A continuation goes back as the layout it continues, beside the head's others: the
-  // head the decision read, which the lock found unchanged.
+  // head the decision read, which the recheck in the call slot found unchanged.
   const head = active(headAtStart);
   const written = head && stored(head.recipe, branch, next);
   if (!written || !named) return failed("recipe-invalid");
@@ -947,7 +950,8 @@ export async function generateEntry(
 
   /**
    * What the stored head means for this request: an answer without a model call, or the
-   * revision the new recipe follows (its tombstone's, or 0). Checked again under the lock.
+   * revision the new recipe follows (its tombstone's, or 0). Checked again once the
+   * request holds a call slot.
    */
   const decide = async (
     head: SyncRecipeChange | null,
@@ -991,7 +995,7 @@ export async function generateEntry(
   const baseRevision = before.revision;
   let raced: Extract<EntryGenerationResult, { status: "recipe" | "unavailable" }> | undefined;
 
-  // Another device may have stored this recipe while this request waited for the lock.
+  // Another device may have stored this recipe while this request waited for a call slot.
   const recheck = async () => {
     const latest = await decide(await backend.readHead(recipeId));
     if ("answer" in latest) {
@@ -1066,8 +1070,8 @@ export async function generateEntry(
 }
 
 /**
- * Why a recipe head read again under the owner's lock can no longer be judged at the
- * revision that ran: revoked, gone or replaced meanwhile.
+ * Why a recipe head read again once the request holds a call slot can no longer be judged
+ * at the revision that ran: revoked, gone or replaced meanwhile.
  */
 export function staleHead(
   latest: SyncRecipeChange | null,
@@ -1232,6 +1236,34 @@ export async function judgeCompletion(
     path: observation.path,
     promptVersion,
   };
+  /**
+   * The answer a kept judgement of the page gives without a model call, if any. A later
+   * login of the revision completes on the path only after a `signed-in` or undecided
+   * verdict (ADR 0029): one judged `challenge` or `rejected`, still being judged, or whose
+   * request failed does not. A row of an earlier judge prompt does not count: a page it
+   * judged `challenge` but kept no handler for, such as a code split into one-digit inputs
+   * before those were learned, is judged again. A page the model could not decide on a
+   * description that left out a disabled field, as a code field waiting for its code may
+   * be, is judged again once the path is described in full; a description that leaves one
+   * out again is `already-judged`, which the extension never completes on. A page judged
+   * `optional` is judged again each time: another page of the same path, as a single-page
+   * sign-in shows, may ask for a step (ADR 0065).
+   */
+  const judgedAnswer = (
+    judged: { verdict: PageJudgementVerdict | null } | undefined,
+  ): GenerationUnavailableReason | undefined => {
+    if (!judged || (judged.verdict === "partial" && !partial) || judged.verdict === "optional")
+      return undefined;
+    return judged.verdict === "challenge"
+      ? "judged-challenge"
+      : judged.verdict === "rejected"
+        ? "judged-rejected"
+        : judged.verdict === null
+          ? "judgement-unanswered"
+          : judged.verdict === "signed-in"
+            ? "judged-signed-in"
+            : "already-judged";
+  };
   const call = await backend.call({
     ...logged(loginPaths),
     device: request.deviceModel,
@@ -1241,27 +1273,8 @@ export async function judgeCompletion(
     gate: async (now) => {
       const stale = staleHead(await backend.readHead(recipeId), head.revision);
       if (stale) return stale;
-      const judged = await backend.judgement(judgedPage);
-      // A later login of the revision completes on the path only after a `signed-in` or
-      // undecided verdict (ADR 0029): one judged `challenge` or `rejected`, still being
-      // judged, or whose request failed does not. A row of an earlier judge prompt does not
-      // count: a page it judged `challenge` but kept no handler for, such as a code split
-      // into one-digit inputs before those were learned, is judged again. A page the model
-      // could not decide on a description that left out a disabled field, as a code field
-      // waiting for its code may be, is judged again once the path is described in full; a
-      // description that leaves one out again is `already-judged`, which the extension
-      // never completes on. A page judged `optional` is judged again each time: another
-      // page of the same path, as a single-page sign-in shows, may ask for a step (ADR 0065).
-      if (judged && !(judged.verdict === "partial" && !partial) && judged.verdict !== "optional")
-        return judged.verdict === "challenge"
-          ? "judged-challenge"
-          : judged.verdict === "rejected"
-            ? "judged-rejected"
-            : judged.verdict === null
-              ? "judgement-unanswered"
-              : judged.verdict === "signed-in"
-                ? "judged-signed-in"
-                : "already-judged";
+      const judged = judgedAnswer(await backend.judgement(judgedPage));
+      if (judged) return judged;
       return (await backend.judgementsSince(recipeId, utcDayStart(now))) >=
         JUDGEMENTS_PER_RECIPE_DAY
         ? "judgement-limit"
@@ -1270,12 +1283,15 @@ export async function judgeCompletion(
     // A request the role refuses before sending gives the slot back, as a generation
     // attempt does (ADR 0027); a `partial` or `optional` row judged again takes today's
     // slot and waits for its new verdict. Rows of older revisions or judges go once their
-    // day is over.
-    beforeSend: (now) =>
-      backend.recordJudgement(judgedPage, now, {
+    // day is over. A row another request wrote since the gate stops this one unsent, so a
+    // page is never judged twice at once (ADR 0018): it answers as that row does.
+    beforeSend: async (now) =>
+      (await backend.recordJudgement(judgedPage, now, {
         expired: utcDayStart(now),
         versions: [usualVersion, stopVersion, besideVersion],
-      }),
+      }))
+        ? undefined
+        : (judgedAnswer(await backend.judgement(judgedPage)) ?? "judgement-unanswered"),
     invoke: (model) =>
       createCompletionJudge({ model, ...roleConfig })({
         observation,
