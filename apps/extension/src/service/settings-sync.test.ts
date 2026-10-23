@@ -1150,7 +1150,11 @@ describe("moves to a profile no device has written yet", () => {
     const h = setup({ local, service: state(4, agreed), base: baseOf(4, agreed) });
     // The owner moves the device before its upload lands.
     h.transport.saveSettings.mockImplementationOnce(async () => {
-      const moved = { ...state(5, settingsOf()), profileId: OTHER_PROFILE, newProfile: true };
+      const moved: SyncSettingsState = {
+        ...state(5, settingsOf()),
+        profileId: OTHER_PROFILE,
+        newProfile: true,
+      };
       h.setService(moved);
       return { kind: "conflict", current: structuredClone(moved) };
     });
