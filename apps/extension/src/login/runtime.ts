@@ -7405,7 +7405,10 @@ export function createLoginRuntime(
         let unsent =
           extracted.success && !extracted.output.ok ? extracted.output.reason : "extract-failed";
         // Why a described page is not sent, for the log (ADR 0019).
-        let detail: string | undefined;
+        let detail: string | undefined =
+          extracted.success && !extracted.output.ok && extracted.output.detail
+            ? logCode(extracted.output.detail)
+            : undefined;
         if (extracted.success && extracted.output.ok) {
           // An incomplete observation is not sent (ADR 0016). A list is sent as one, and
           // only a page announced as one is.
