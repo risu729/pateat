@@ -496,8 +496,9 @@ than in this repository.
   and the service's D1 records. The Japanese government sites and Santander, which the
   owner wants to work although they look hard, are among them. So is Instagram: its
   saved-profile list shows a handle while the item's username is an email, which
-  [ADR 0028](adr/0028-account-chooser-login-pages.md) does not match, and what to do
-  there is not decided.
+  [ADR 0028](adr/0028-account-chooser-login-pages.md) does not match. The owner chose on
+  2026-10-23 (11:23 UTC) to add no rule for it: Pateat keeps logging in through "Use
+  another profile" and never picks a saved profile there.
 - Installed-Chrome checks moved from phase 1 (owner, 2026-10-12 20:35 UTC), checked
   when daily use reaches them:
   - A plain HTTP site whose item is saved with an `http://` URI logs in, submit
