@@ -11,6 +11,9 @@ const item = (id: string, reprompt: boolean): Pick<VaultItemMetadata, "id" | "re
 });
 const policy = (asks: boolean): LocalSettings => ({
   connections: [],
+  accountPolicies: [],
+  itemPolicies: [],
+  customFieldReviews: [],
   excludedSites: [],
   repromptSites: asks ? [{ hostname: "bank.example", includeSubdomains: true }] : [],
   passkeyBrowserSites: [],
