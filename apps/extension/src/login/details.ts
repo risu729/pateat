@@ -28,14 +28,23 @@ const builtinSources: Readonly<Record<LoginDetail, readonly string[]>> = {
 /** Custom field names that read as a birth date, compared without case. */
 const birthWords = ["birth", "dob", "生年月日", "誕生日"];
 
-/** Whether `field` of an item may give `detail`: a built-in source, or a Text or Hidden custom field. */
+/**
+ * Whether `field` of an item may give `detail`: a built-in source, or a Text or Hidden
+ * custom field whose name says it holds the detail, a birth date's or a phone number's,
+ * so a link never reads another custom field, such as a PIN, into a page's input.
+ */
 export function givesDetail(
   detail: LoginDetail,
   field: VaultItemMetadata["fields"][number],
 ): boolean {
   if (builtinSources[detail].includes(field.id)) return true;
   if (detail === "card-last-4" || detail === "card-code") return false;
-  return field.id.startsWith("custom.") && (field.kind === "text" || field.kind === "hidden");
+  if (!field.id.startsWith("custom.") || (field.kind !== "text" && field.kind !== "hidden"))
+    return false;
+  const name = field.name?.toLowerCase() ?? "";
+  return detail === "birth-date"
+    ? birthWords.some((word) => name.includes(word))
+    : /phone|tel|電話/u.test(name);
 }
 
 /** The ASCII digits of a value, after NFKC so full-width digits count. */
@@ -138,9 +147,8 @@ export type DetailCandidate = {
 
 /**
  * The fields of the login item's connection that could give `detail` (ADR 0061), at most
- * 20, under the rules of `linkedField`: identity phone numbers, card numbers and codes,
- * and for a birth date or phone number Text or Hidden custom fields, a birth date's only
- * when its name reads as one. An item whose name shares a run of three or more ASCII
+ * `limit`, under the rules of `linkedField`: identity phone numbers, card numbers and
+ * codes, and Text or Hidden custom fields whose name reads as a birth date or a phone. An item whose name shares a run of three or more ASCII
  * letters or digits with the page's host name, or appears whole in its title, comes
  * first; otherwise the catalog's order is kept.
  */
@@ -150,6 +158,7 @@ export function detailCandidates(
   connection: VaultConnectionMetadata,
   detail: LoginDetail,
   page: { host: string; title?: string | undefined },
+  limit = 20,
 ): DetailCandidate[] {
   const found: (DetailCandidate & { near: boolean })[] = [];
   for (const item of connection.items) {
@@ -158,13 +167,6 @@ export function detailCandidates(
     if (!eligibility.eligible) continue;
     for (const field of item.fields) {
       if (!eligibility.fieldIds.includes(field.id) || !givesDetail(detail, field)) continue;
-      // A custom field gives a birth date only when its name says so, and a phone number
-      // only when it is no identity's own phone field.
-      if (field.id.startsWith("custom.")) {
-        const name = field.name?.toLowerCase() ?? "";
-        if (detail === "birth-date" && !birthWords.some((word) => name.includes(word))) continue;
-        if (detail === "phone-last-4" && !/phone|tel|電話/u.test(name)) continue;
-      }
       found.push({
         connectionId: connection.id,
         itemId: item.id,
@@ -181,7 +183,7 @@ export function detailCandidates(
       (left, right) =>
         Number(right.entry.near) - Number(left.entry.near) || left.index - right.index,
     )
-    .slice(0, 20)
+    .slice(0, limit)
     .map(({ entry: { near: _near, ...candidate } }) => candidate);
 }
 

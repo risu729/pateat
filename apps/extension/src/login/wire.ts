@@ -13,7 +13,7 @@ import { alertMisses } from "../page/sign-in-state";
 
 const id = v.pipe(v.string(), v.minLength(1), v.maxLength(120));
 /** Which inputs a secret value may fill; see `acceptsSecret` in `inputs.ts`. */
-export const loginSecretKinds = ["password", "otp", "hidden"] as const;
+export const loginSecretKinds = ["password", "otp", "hidden", "card-code", "detail"] as const;
 export type LoginSecretKind = (typeof loginSecretKinds)[number];
 const path = v.pipe(v.string(), v.minLength(1), v.maxLength(300));
 /** One target's state: no element, exactly one usable element, several, or one unusable. */

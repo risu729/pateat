@@ -551,7 +551,13 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           !setter
         )
           return { ok: false };
-        if (!chooseFor(input) || !isOnly(matches(command.target), input) || !writable(input))
+        // The radio's click may change the input, so its checks run again.
+        if (
+          !chooseFor(input) ||
+          !isOnly(matches(command.target), input) ||
+          !writable(input) ||
+          !acceptsSecret(input, command.secret)
+        )
           return { ok: false };
         const stopped = await typeValue(input, value, setter, {
           between: () =>
@@ -958,7 +964,10 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             command.account.username,
             {
               masked: command.values.some(
-                (entry) => entry.secret === "password" || entry.secret === "hidden",
+                (entry) =>
+                  entry.secret === "password" ||
+                  entry.secret === "hidden" ||
+                  entry.secret === "card-code",
               ),
             },
           );
@@ -1105,7 +1114,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                   cancelled ||
                   pagePath() !== step.path ||
                   !isOnly(matches(field.target), input) ||
-                  !writable(input))
+                  !writable(input) ||
+                  !acceptsSecret(input, value.secret))
               )
                 return fail("cancelled", "field-changed");
               filled.add(input);
