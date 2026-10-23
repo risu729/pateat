@@ -306,6 +306,7 @@ function DetailChoices({
   disabled: boolean;
   onChange: (value: string) => void;
 }) {
+  const { t } = useTranslation(undefined, { i18n });
   const Icon = DETAIL_ICON[detail];
   const seen = new Map<string, number>();
   for (const source of candidates)
@@ -315,7 +316,10 @@ function DetailChoices({
       {candidates.map((source) => {
         const title = sourceLabel(source);
         // Fields that would read the same add their item ID's first 8 characters.
-        const sub = (seen.get(title) ?? 0) > 1 ? `ID ${source.itemId.slice(0, 8)}` : undefined;
+        const sub =
+          (seen.get(title) ?? 0) > 1
+            ? t("ID {{id}}", { id: source.itemId.slice(0, 8) })
+            : undefined;
         return (
           <label key={sourceValue(source)} className="popup-choice">
             <input
@@ -324,7 +328,7 @@ function DetailChoices({
               value={sourceValue(source)}
               checked={checked === sourceValue(source)}
               disabled={disabled}
-              aria-label={sub ? `${title}, ${sub}` : title}
+              aria-label={sub ? t("{{title}}, {{sub}}", { title, sub }) : title}
               onChange={() => onChange(sourceValue(source))}
             />
             <span className="popup-avatar">

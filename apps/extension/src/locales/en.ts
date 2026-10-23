@@ -327,4 +327,5 @@ export const en = {
   "Pateat cannot read that field now. Unlock the vault and try again.":
     "Pateat cannot read that field now. Unlock the vault and try again.",
   "The page did not accept the value.": "The page did not accept the value.",
+  "ID {{id}}": "ID {{id}}",
 } as const;
