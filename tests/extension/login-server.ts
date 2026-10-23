@@ -925,6 +925,19 @@ export async function startLoginFixture(
           '<h1>Synthetic ambiguous login</h1><input name="password" type="password"><input name="password" type="password"><button id="login" type="button">Log in</button>',
         ),
       );
+    } else if (path === "/shared-input") {
+      // One input that both of the recipe's locators name (its ID and its name): filling
+      // both slots would leave only the second value in it, which the page rejects.
+      response.end(
+        html(
+          '<h1>Synthetic shared input</h1><main id="app"><form><label>Password<input id="account" name="password" type="password"></label><button id="login" type="button">Log in</button></form></main>',
+          `document.getElementById('login').addEventListener('click', () => {
+          sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
+          document.getElementById('app').innerHTML = '<p id="rejected">Wrong account or password</p>';
+          updateFixtureStatus();
+        });`,
+        ),
+      );
     } else if (path === "/authenticated") {
       response.end(
         html(
