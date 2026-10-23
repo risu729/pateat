@@ -19,10 +19,13 @@ whose passkey requests go to the browser, ADR 0007) and ADR 0023's lists
 (`accountPolicies`, `itemPolicies` and `customFieldReviews`), as did the popup's
 `popupPageSection` choice
 ([ADR 0038](0038-login-status-badge.md#amendment-a-synced-setting-hides-the-popups-section-2026-10-23)),
-stored only while `false`. ADR 0035's page
-permissions are not built yet; when they land, they add their fields to the profile
-document (`profileDocument` in `services/api/src/settings-store.ts`) and to the
-extension's merge.
+stored only while `false`. `detailLinks` (the links to the vault fields that hold a
+login's personal details, ADR 0061) joined the owner's parts beside `bindings` the same
+day: like a binding, a link names a vault item and field for one login item on one
+site, which does not depend on how a browser is used. ADR 0035's page permissions are
+not built yet; when they land, they add their fields to the profile document
+(`profileDocument` in `services/api/src/settings-store.ts`) and to the extension's
+merge.
 
 ## Decision
 

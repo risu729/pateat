@@ -34,12 +34,15 @@ type Binding = LocalSettings["bindings"][number];
 type AccountPolicy = LocalSettings["accountPolicies"][number];
 type ItemPolicy = LocalSettings["itemPolicies"][number];
 type CustomFieldReview = LocalSettings["customFieldReviews"][number];
+type DetailLink = NonNullable<LocalSettings["detailLinks"]>[number];
 
 /**
  * The part of the settings that means the same on every device (ADR 0013): site
- * exclusions, defaults and bindings, and each provider account's vault policy and
- * custom-field reviews (ADR 0023). Vault connections stay on this device, and so does the
- * policy of the unsynced demo provider.
+ * exclusions, defaults and bindings, each provider account's vault policy and
+ * custom-field reviews (ADR 0023), and the links to the vault fields that hold a login's
+ * personal details (ADR 0061). Bindings and detail links belong to the owner; the rest to
+ * a profile (ADR 0076). Vault connections stay on this device, and so does the policy of
+ * the unsynced demo provider.
  */
 export type SyncedSettings = {
   accountPolicies: AccountPolicy[];
@@ -50,6 +53,7 @@ export type SyncedSettings = {
   repromptSites: ExcludedSite[];
   siteDefaults: SiteDefault[];
   bindings: Binding[];
+  detailLinks: DetailLink[];
   popupPageSection: boolean;
 };
 
@@ -69,6 +73,7 @@ export function syncedSettings(settings: LocalSettings): SyncedSettings {
     repromptSites: settings.repromptSites,
     siteDefaults: settings.siteDefaults,
     bindings: settings.bindings,
+    detailLinks: settings.detailLinks ?? [],
     popupPageSection: popupPageSectionShown(settings),
   };
 }
@@ -82,6 +87,7 @@ const emptySynced: SyncedSettings = {
   repromptSites: [],
   siteDefaults: [],
   bindings: [],
+  detailLinks: [],
   popupPageSection: true,
 };
 
@@ -157,6 +163,31 @@ const accountKey = (entry: AccountPolicy) =>
   JSON.stringify([entry.provider, entry.server, entry.userId]);
 const itemKey = (entry: ItemPolicy | CustomFieldReview) =>
   JSON.stringify([entry.provider, entry.server, entry.userId, entry.itemId]);
+/**
+ * The settings' duplicate check for detail links, so a merge never pairs two links the
+ * schema refuses together: one per field for an answer (ADR 0061).
+ */
+const detailLinkKey = (link: DetailLink) =>
+  JSON.stringify([
+    link.origin,
+    link.provider,
+    link.userId,
+    link.itemId,
+    link.detail,
+    link.detail === "secret-answer" ? link.source.field : null,
+  ]);
+/** A stored question belongs to one answer of a login item (ADR 0061), as the schema checks. */
+const detailQuestionKey = (link: DetailLink) =>
+  link.question === undefined
+    ? undefined
+    : JSON.stringify([
+        link.origin,
+        link.provider,
+        link.server,
+        link.userId,
+        link.itemId,
+        link.question,
+      ]);
 const same = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
 
 /** What each side last agreed to: the service's copy and the local copy it accounts for. */
@@ -183,6 +214,44 @@ function mergeEntries<T>(
     if (entry !== undefined) merged.push(entry);
   }
   return merged;
+}
+
+/**
+ * Detail links merge per link like bindings. Two answers of one login item may also not
+ * store the same question; when a local link takes a question the service's copy already
+ * gives another field, the service's link stands, and that local link falls back to the
+ * service's copy of it, or is left out when the service has none.
+ */
+function mergeDetailLinks(
+  base: { service: DetailLink[]; local: DetailLink[] },
+  local: DetailLink[],
+  service: DetailLink[],
+): DetailLink[] {
+  const merged = mergeEntries(base, local, service, detailLinkKey);
+  const serviceLinks = new Map(service.map((link) => [detailLinkKey(link), link]));
+  const fromService = (link: DetailLink) => same(link, serviceLinks.get(detailLinkKey(link)));
+  const claimed = new Set<string>();
+  /** Claims the link's question; false when another link already holds it. */
+  const claim = (link: DetailLink) => {
+    const question = detailQuestionKey(link);
+    if (question === undefined) return true;
+    if (claimed.has(question)) return false;
+    claimed.add(question);
+    return true;
+  };
+  // The service's links are valid together, so they claim their questions first.
+  for (const link of merged.filter(fromService)) claim(link);
+  const settled = new Map<DetailLink, DetailLink | undefined>();
+  for (const link of merged.filter((entry) => !fromService(entry))) {
+    if (claim(link)) continue;
+    const fallback = serviceLinks.get(detailLinkKey(link));
+    settled.set(link, fallback && claim(fallback) ? fallback : undefined);
+  }
+  return merged.flatMap((link) => {
+    if (!settled.has(link)) return [link];
+    const fallback = settled.get(link);
+    return fallback ? [fallback] : [];
+  });
 }
 
 /**
@@ -254,6 +323,7 @@ export function mergeSyncedSettings(
       defaultKey,
     ),
     bindings: mergeEntries(part("bindings"), local.bindings, service.bindings, bindingKey),
+    detailLinks: mergeDetailLinks(part("detailLinks"), local.detailLinks, service.detailLinks),
     // One value, merged like one entry.
     popupPageSection:
       service.popupPageSection === base.service.popupPageSection &&
@@ -318,6 +388,7 @@ function equalSynced(left: SyncedSettings, right: SyncedSettings): boolean {
     same(sorted(left.repromptSites, siteKey), sorted(right.repromptSites, siteKey)) &&
     same(sorted(left.siteDefaults, defaultKey), sorted(right.siteDefaults, defaultKey)) &&
     same(sorted(left.bindings, bindingKey), sorted(right.bindings, bindingKey)) &&
+    same(sorted(left.detailLinks, detailLinkKey), sorted(right.detailLinks, detailLinkKey)) &&
     left.popupPageSection === right.popupPageSection
   );
 }
@@ -422,20 +493,21 @@ export function createSettingsSync(options: {
     // A matching profile base preserves local edits. A new pairing or a profile switch
     // adopts the profile's own parts below (ADR 0076); only a profile no device has
     // written yet (`newProfile`, or the owner's first settings) starts from local policy.
-    // Bindings belong to the owner, not a profile, so they keep merging either way.
+    // Bindings and detail links belong to the owner, not a profile, so they keep merging
+    // either way.
     let base: SyncBase = { service: emptySynced, local: emptySynced };
-    let bindingBase = base;
+    let ownerBase = base;
     if (
       stored &&
       (service.revision > stored.revision ||
         (service.revision === stored.revision &&
           equalSynced(serviceCopy(service), syncedSettings(stored.settings))))
     ) {
-      bindingBase = {
+      ownerBase = {
         service: syncedSettings(stored.settings),
         local: syncedSettings(stored.local),
       };
-      if (stored.profileId === service.profileId) base = bindingBase;
+      if (stored.profileId === service.profileId) base = ownerBase;
     }
     async function record(next: SyncBase) {
       if (stale()) return;
@@ -470,11 +542,13 @@ export function createSettingsSync(options: {
       }
       const localSynced = syncedSettings(local.settings);
       const serviceSynced = serviceCopy(service);
+      const ownerParts = mergeSyncedSettings(ownerBase, localSynced, serviceSynced);
       const mergedEntries = {
         ...(switchingProfile
           ? serviceSynced
           : mergeSyncedSettings(base, localSynced, serviceSynced)),
-        bindings: mergeSyncedSettings(bindingBase, localSynced, serviceSynced).bindings,
+        bindings: ownerParts.bindings,
+        detailLinks: ownerParts.detailLinks,
       };
       // Named after the merge, so the names are uploaded and written like any change.
       if (unnamed(mergedEntries)) catalog ??= options.catalog?.().catch(() => undefined);
@@ -511,7 +585,7 @@ export function createSettingsSync(options: {
         service = saved.state;
         // The service holds the merge; local settings still hold `localSynced`.
         base = { service: merged, local: localSynced };
-        bindingBase = base;
+        ownerBase = base;
         // oxlint-disable-next-line no-await-in-loop -- recorded before the local write
         if (!switchingProfile) await record(base);
       }

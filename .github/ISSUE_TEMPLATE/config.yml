@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Is it intended?
+    url: https://github.com/risu729/pateat/blob/main/CONTRIBUTING.md#is-it-intended
+    about: Check the documents and ADRs before reporting a bug.
