@@ -100,21 +100,31 @@ that logs out right after a login, or two tabs of a site that allows one session
   `chrome.storage.session` is shared while cookies are not). While paused the popup
   shows "Paused until 12:40" and "Resume".
 - Kept in `pateat.login-pauses.v1` in `chrome.storage.session` (site, incognito, end
-  time). Nothing reaches the service or other devices; closing the browser ends it.
+  time; at most 256 sites). Nothing reaches the service or other devices; closing the
+  browser ends it.
 - While paused, Pateat starts nothing by itself on the site: no automatic login and no
   fill, no [ADR 0031](0031-sign-in-entry-pages.md) entry press, no page sent for a
   recipe, and a conditional passkey request of
   [ADR 0034](0034-answer-page-passkey-requests.md) is handed on to the browser at once.
   A frame's login is paused when the top page's site or the frame's site is.
+- Pressing Pause also stops the site's running automatic logins in that window kind
+  before their next step, as a policy change does (`policy-changed`, cause `paused`);
+  their tabs ask as paused pages. A login started by a popup pick goes on. The pause is
+  read again right before a login starts or a page is sent, and after a page's passkey
+  request is parked.
 - What the person starts still runs: a paused document is refused `paused` and offers
-  the account list, and a pick logs in once with the password route; modal and
+  the account list (`login.refused` `paused`, the saved default first), and a pick logs
+  in once with the password route; an item with no password is refused
+  (`paused-no-password`); modal and
   Immediate UI passkey requests ([ADR 0007](0007-existing-passkey-assertions.md),
   [ADR 0052](0052-immediate-ui-stored-passkeys.md)) are answered as before.
 - The badge shows a gray `II` on the site's tabs, with the end time in its title; a
   waiting choice's amber count wins ([ADR 0038](0038-login-status-badge.md)).
 - "Resume" ends the pause and asks the site's tabs to announce again, so they log in at
   once. At the end time nothing is re-announced; the next page load logs in. A popup
-  pick whose login ends `authenticated` ends its site's pause.
+  pick whose login is confirmed signed in ends its site's pause; an undecided completion
+  ([ADR 0029](0029-local-sign-in-state.md)) does not. The log shows `login.pause` with
+  `paused`, `resumed` or `picked`.
 - This is not a timed form of the "Pateat on this site" switch, which excludes one host
   name and syncs. The official Bitwarden extension has no timed pause; its blocked
   domains are permanent, like that switch.
