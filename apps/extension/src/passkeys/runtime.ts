@@ -254,6 +254,8 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       origin: string;
       documentId: string;
       signal: AbortSignal;
+      /** Whether the page's tab is incognito, as its sender says; it keeps its own pauses. */
+      incognito: boolean;
     }) => Promise<ConditionalDecision>;
     /**
      * Holds vault replacement off while the vault is read and signed with for a request,
@@ -501,7 +503,13 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       operation.parked = true;
       const decision = await abortable(
         Promise.try(() =>
-          options.conditional!({ tabId: context.tabId, origin, documentId, signal }),
+          options.conditional!({
+            tabId: context.tabId,
+            origin,
+            documentId,
+            signal,
+            incognito: context.incognito,
+          }),
         ),
         signal,
       );

@@ -3,6 +3,8 @@
 // keeps the tab's last login and model request for the popup's page section.
 import * as v from "valibot";
 import { browser } from "wxt/browser";
+import { localClock } from "../time";
+import { pauseSite } from "./pause";
 import type { LoginReport } from "./runtime";
 
 export const LOGIN_BADGE_KEY = "session:pateat.login-badge.v1";
@@ -107,7 +109,10 @@ const STYLES = {
   failed: { color: "#b91c1c", textColor: "#ffffff" },
   succeeded: { color: "#15803d", textColor: "#ffffff" },
   unsettled: { color: "#facc15", textColor: "#1e293b" },
+  paused: { color: "#6b7280", textColor: "#ffffff" },
 } as const;
+/** The badge text of a tab whose site has automatic login paused (ADR 0062). */
+export const PAUSED_TEXT = "II";
 
 const RESULT_TEXT = { failed: "!", succeeded: "✓", unsettled: "!" } as const;
 
@@ -195,6 +200,9 @@ export function createLoginBadge(deps: {
   const now = deps.now ?? Date.now;
   const choices = new Map<number, Choice>();
   const notes = new Map<number, string>();
+  // When the pause of each tab's site ends (ADR 0062), and the timers that redraw then.
+  const pauses = new Map<number, number>();
+  const pauseTimers = new Map<number, ReturnType<typeof setTimeout>>();
   const results = new Map<number, BadgeResult>();
   // Spins in flight; a tab spins while one names it. A replaced tab's spins move with it.
   const spins = new Set<{ tabId: number }>();
@@ -224,6 +232,14 @@ export function createLoginBadge(deps: {
     if (choice) return { text: String(choice.count), ...STYLES.choice, title: choice.title };
     if (spinning(tabId))
       return { text: BUSY_FRAMES[frame] ?? "", ...STYLES.busy, title: "Pateat: asking the AI…" };
+    // A waiting choice and a running model request show over a pause (ADR 0062).
+    const paused = pauses.get(tabId);
+    if (paused !== undefined && paused > now())
+      return {
+        text: PAUSED_TEXT,
+        ...STYLES.paused,
+        title: `Pateat: automatic login is paused on this site until ${localClock(paused)}.`,
+      };
     const result = results.get(tabId);
     if (result && (result.until === undefined || result.until > now()))
       return { text: RESULT_TEXT[result.kind], ...STYLES[result.kind], title: resultTitle(result) };
@@ -372,9 +388,30 @@ export function createLoginBadge(deps: {
     for (const tabId of new Set([...spins].map((spin) => spin.tabId)))
       if (!writes.has(tabId)) draw(tabId);
   }
+  function setPause(tabId: number, until: number | undefined): boolean {
+    clearTimeout(pauseTimers.get(tabId));
+    pauseTimers.delete(tabId);
+    const live = until !== undefined && until > now();
+    const changed = live ? pauses.get(tabId) !== until : pauses.has(tabId);
+    if (live) {
+      pauses.set(tabId, until);
+      // The pause ends by itself; the badge is drawn again then.
+      pauseTimers.set(
+        tabId,
+        setTimeout(() => {
+          pauseTimers.delete(tabId);
+          if (pauses.get(tabId) !== until) return;
+          pauses.delete(tabId);
+          draw(tabId);
+        }, until - now()),
+      );
+    } else pauses.delete(tabId);
+    return changed;
+  }
   function forget(tabId: number): void {
     touched.add(tabId);
     tops.delete(tabId);
+    setPause(tabId, undefined);
     choices.delete(tabId);
     notes.delete(tabId);
     lastAttempt.delete(tabId);
@@ -389,6 +426,13 @@ export function createLoginBadge(deps: {
       if (choice) choices.set(tabId, choice);
       else if (!choices.delete(tabId)) return;
       draw(tabId);
+    },
+    /**
+     * When the pause of the tab's site ends (ADR 0062), or undefined when its site is not
+     * paused; the badge shows a gray `II` until then.
+     */
+    paused(tabId: number, until: number | undefined): void {
+      if (setPause(tabId, until)) draw(tabId);
     },
     /** A tooltip for a tab that shows no badge, such as why its login is held. */
     note(tabId: number, title: string | undefined): void {
@@ -441,8 +485,9 @@ export function createLoginBadge(deps: {
     /**
      * A page or frame of the tab loaded or committed: Chrome may have reset the tab's
      * badge, so it is written again. When the top page's origin changed since the last
-     * load, the result, tooltip and choice of the page before no longer apply. `url` is
-     * the top page's, absent for a page Pateat cannot read, which counts as another origin.
+     * load, the result, tooltip and choice of the page before no longer apply, and its
+     * pause once the site changed. `url` is the top page's, absent for a page Pateat cannot
+     * read, which counts as another origin.
      */
     loaded(tabId: number, url?: string): void {
       const origin = (url ? URL.parse(url)?.origin : undefined) ?? "unreadable";
@@ -451,6 +496,9 @@ export function createLoginBadge(deps: {
       if (before !== undefined && before !== origin) {
         choices.delete(tabId);
         notes.delete(tabId);
+        // A pause covers the whole site (ADR 0062); another site's pause, if any, is set
+        // again once the runtime reads it.
+        if (pauseSite(before) !== pauseSite(origin)) setPause(tabId, undefined);
         // A restore still reading the stored results must not bring back this tab's.
         touched.add(tabId);
         if (dropResult(tabId)) save();
@@ -460,6 +508,7 @@ export function createLoginBadge(deps: {
       // still in flight could land on the new page after that reset.
       if (
         choices.has(tabId) ||
+        pauses.has(tabId) ||
         notes.has(tabId) ||
         results.has(tabId) ||
         spinning(tabId) ||
@@ -482,6 +531,7 @@ export function createLoginBadge(deps: {
     replaced(added: number, removed: number): void {
       if (added === removed) return;
       const choice = choices.get(removed);
+      const paused = pauses.get(removed);
       const note = notes.get(removed);
       const result = results.get(removed);
       const status = statuses.get(removed);
@@ -493,6 +543,7 @@ export function createLoginBadge(deps: {
       if (top !== undefined) tops.set(added, top);
       if (status) statuses.set(added, status);
       if (choice) choices.set(added, choice);
+      setPause(added, paused);
       if (note) notes.set(added, note);
       for (const spin of moved) {
         spin.tabId = added;

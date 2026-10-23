@@ -351,6 +351,18 @@
   gap: 8px;
 }
 
+/* The pause of automatic login sits under the site switch (ADR 0062). */
+.popup-pause {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.popup .popup-pause .popup-status {
+  margin: 0;
+}
+
 .popup .popup-check {
   margin: 0;
   font-size: 15px;

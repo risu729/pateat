@@ -49,6 +49,7 @@ const NOT_STARTED: Record<string, string> = {
   "relogin-limit":
     "Pateat logged in to this site twice in the last 10 minutes; choose an account to log in again",
   "account-ambiguous": "several accounts match; choose one to log in",
+  paused: "automatic login is paused on this site; choose an account to log in",
   "origin-busy": "another tab's login to this site is running or did not succeed",
   "tab-busy": "another login runs in this tab",
   "attempt-limit": "Pateat already holds as many login records as it can",
@@ -70,6 +71,7 @@ const NOT_SENT: Record<string, string> = {
   "connection-disabled": "the vault connection is turned off",
   "after-sign-in": "this page came right after a sign-in",
   "nothing-offered": "the page showed no sign-in form",
+  paused: "automatic login is paused on this site",
 };
 
 const plain = (table: Record<string, string>, code: string) => table[code] ?? code;
@@ -230,7 +232,12 @@ function attemptLines(status: Status): StatusLine[] {
       },
     ];
   if (login.state !== "blocked") return [{ id: "login", tone: "busy", text: "Logging in…" }];
-  const why = outcome ? plain(OUTCOMES, outcome) : "no reason was recorded";
+  const why =
+    outcome === "policy-changed" && login.cause === "paused"
+      ? "automatic login of this site was paused" // ADR 0062
+      : outcome
+        ? plain(OUTCOMES, outcome)
+        : "no reason was recorded";
   const lines: StatusLine[] = [
     QUIET.has(outcome)
       ? { id: "login", tone: "idle", text: `The login stopped: ${why}.` }

@@ -8,9 +8,11 @@ import {
   badgeResult,
   createLoginBadge,
   memoryBadgeStorage,
+  PAUSED_TEXT,
   setActionBadge,
   type BadgeDetails,
 } from "./badge";
+import { localClock } from "../time";
 import type { LoginReport } from "./runtime";
 
 const action = vi.hoisted(() => ({
@@ -319,6 +321,70 @@ describe("login badge", () => {
     h.badge.note(tabId, undefined);
     await h.flush();
     expect(h.view()).toMatchObject(NONE);
+  });
+
+  it("shows a paused site's gray II until the pause ends, under a waiting choice (ADR 0062)", async () => {
+    const h = harness();
+    const until = Date.now() + 60 * 60_000;
+    const PAUSED = {
+      text: PAUSED_TEXT,
+      color: "#6b7280",
+      textColor: "#ffffff",
+      title: `Pateat: automatic login is paused on this site until ${localClock(until)}.`,
+    };
+    h.badge.observe(attempt({ outcome: "credential-rejected" }));
+    h.badge.paused(tabId, until);
+    await h.flush();
+    // A pause shows over a result, and a waiting choice's amber count over a pause.
+    expect(h.view()).toEqual(PAUSED);
+    h.badge.choice(tabId, { count: 1, title: "Pateat: choose an account." });
+    await h.flush();
+    expect(h.view()).toEqual({ text: "1", ...CHOICE, title: "Pateat: choose an account." });
+    h.badge.choice(tabId, undefined);
+    await h.flush();
+    expect(h.view()).toEqual(PAUSED);
+    // Another tab of the site shows it too; the pause ends by itself.
+    h.badge.paused(8, until);
+    await vi.advanceTimersByTimeAsync(60 * 60_000 - 1);
+    expect(h.view(8)).toMatchObject({ text: PAUSED_TEXT });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(h.view()).toMatchObject(FAILED);
+    expect(h.view(8)).toMatchObject({ text: "" });
+  });
+
+  it("drops a pause when the tab loads another site, or when it is resumed (ADR 0062)", async () => {
+    const h = harness();
+    const until = Date.now() + 60_000;
+    h.badge.loaded(tabId, `${origin}/signin`);
+    h.badge.paused(tabId, until);
+    await h.flush();
+    expect(h.view()).toMatchObject({ text: PAUSED_TEXT });
+    // Another origin of the same registrable site keeps the pause, through any redraw.
+    h.badge.loaded(tabId, `https://www.${new URL(origin).host}/account`);
+    h.badge.note(tabId, "Pateat: held.");
+    await h.flush();
+    expect(h.view()).toMatchObject({ text: PAUSED_TEXT });
+    h.badge.note(tabId, undefined);
+    // Chrome resets the badge for another site's page; the runtime sets that site's pause,
+    // if any, once it read it, so nothing draws the old one back meanwhile.
+    h.badge.loaded(tabId, "https://other.example/");
+    h.badge.note(tabId, "Pateat: held.");
+    await h.flush();
+    expect(h.view()).toMatchObject({ text: "", title: "Pateat: held." });
+    h.badge.note(tabId, undefined);
+    h.badge.paused(tabId, until);
+    await h.flush();
+    expect(h.view()).toMatchObject({ text: PAUSED_TEXT });
+    h.badge.replaced(9, tabId);
+    await h.flush();
+    expect(h.view(9)).toMatchObject({ text: PAUSED_TEXT });
+    h.badge.paused(9, undefined);
+    await h.flush();
+    expect(h.view(9)).toMatchObject(NONE);
+    // An end already past shows nothing.
+    h.badge.paused(9, Date.now());
+    await h.flush();
+    expect(h.view(9)).toMatchObject(NONE);
   });
 
   it("keeps the tab's badge through a revocation report (ADR 0058 A)", async () => {

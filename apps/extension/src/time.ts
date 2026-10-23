@@ -29,6 +29,22 @@ export function localSyncTime(ms: number): string {
   }
 }
 
+/**
+ * A time of day, as `12:40` on a 24-hour clock in the browser's time zone, such as when a pause of
+ * automatic login ends (ADR 0062). Damaged storage could hold a time Temporal cannot
+ * place; that reads as `--:--`.
+ */
+export function localClock(ms: number, timeZone?: string): string {
+  try {
+    const time = Temporal.Instant.fromEpochMilliseconds(ms).toZonedDateTimeISO(
+      timeZone ?? Temporal.Now.timeZoneId(),
+    );
+    return `${String(time.hour).padStart(2, "0")}:${String(time.minute).padStart(2, "0")}`;
+  } catch {
+    return "--:--";
+  }
+}
+
 /** The epoch milliseconds of an ISO 8601 time with a UTC offset; a RangeError for other text. */
 export function isoTimeMs(text: string): number {
   return Temporal.Instant.from(text).epochMilliseconds;

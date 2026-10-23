@@ -77,6 +77,7 @@ function noChoice() {
     get: vi.fn<ChoiceClient["get"]>().mockResolvedValue({ ok: false, reason: "no-choice" }),
     pick: vi.fn<ChoiceClient["pick"]>().mockResolvedValue({ ok: true }),
     status: vi.fn<ChoiceClient["status"]>().mockResolvedValue({ ok: false, reason: "no-page" }),
+    pause: vi.fn<ChoiceClient["pause"]>().mockResolvedValue({ ok: true }),
   };
 }
 
@@ -1305,4 +1306,68 @@ test("the page section names the page's refusal over an older not-started reason
   await expect
     .poll(() => lineText("login"))
     .toBe("No login started: another tab's login to this site is running or did not succeed.");
+});
+
+test("a site Pateat logs in to by itself can be paused for an hour, then resumed (ADR 0062)", async () => {
+  const { client } = store();
+  const choices = onPage({ recipe: "page" });
+  await mount(client, "https://bank.example/login", choices);
+  // The row sits under the "Pateat on this site" switch.
+  const pause = page.getByRole("button", { name: "Pause automatic login" });
+  await expect.element(pause).toBeVisible();
+  const until = Date.now() + 60 * 60_000;
+  choices.pause.mockImplementation(async (_tabId, paused) => {
+    choices.status.mockResolvedValue({
+      ok: true,
+      origin: "https://bank.example",
+      recipe: "page",
+      ...(paused ? { pause: { until } } : {}),
+    });
+    return paused ? { ok: true, until } : { ok: true };
+  });
+  await userEvent.click(pause);
+  expect(choices.pause).toHaveBeenCalledWith(7, true);
+  const clock = new Date(until).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  await expect.element(page.getByText(`Paused until ${clock}`, { exact: true })).toBeVisible();
+  await expect
+    .element(page.getByText("Automatic login on this site is paused for an hour"))
+    .toBeVisible();
+  await userEvent.click(page.getByRole("button", { name: "Resume" }));
+  expect(choices.pause).toHaveBeenLastCalledWith(7, false);
+  await expect.element(page.getByRole("button", { name: "Pause automatic login" })).toBeVisible();
+  await expect.element(page.getByText("Automatic login on this site resumed")).toBeVisible();
+});
+
+test("no pause is offered where nothing matches and the site has no recipe", async () => {
+  const { client } = store();
+  const choices = onPage({ origin: "https://nothing.example", recipe: "none" });
+  await mount(client, "https://nothing.example/", choices);
+  await expect
+    .element(page.getByText("No vault item matches this site", { exact: false }))
+    .toBeVisible();
+  expect(page.getByRole("button", { name: "Pause automatic login" }).query()).toBeNull();
+});
+
+test("a paused page offers even its only matching account (ADR 0062)", async () => {
+  const { client } = store();
+  const choices = onPage({ recipe: "page", pause: { until: Date.now() + 60_000 } });
+  choices.get.mockResolvedValue({
+    ok: true,
+    origin: "https://bank.example",
+    documentId: "paused",
+    candidates: [{ connectionId: "demo-work", itemId: "primary" }],
+    paused: true,
+  });
+  await mount(client, "https://bank.example/", choices);
+  await expect
+    .element(page.getByText("Automatic login is paused on this site", { exact: true }))
+    .toBeVisible();
+  await expect
+    .element(page.getByRole("group", { name: "Account to log in with" }).getByRole("radio"))
+    .toHaveLength(1);
+  await expect.element(page.getByRole("button", { name: "Resume" })).toBeVisible();
+  await userEvent.click(page.getByRole("button", { name: "Log in" }));
+  expect(choices.pick).toHaveBeenCalledWith(
+    expect.objectContaining({ documentId: "paused", connectionId: "demo-work" }),
+  );
 });

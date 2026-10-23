@@ -1043,7 +1043,13 @@ describe("a page's own conditional request through a login (ADR 0034)", () => {
     request: { ...request, mediation: "conditional" },
   });
   const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
-  type Input = { tabId: number; origin: string; documentId: string; signal: AbortSignal };
+  type Input = {
+    tabId: number;
+    origin: string;
+    documentId: string;
+    signal: AbortSignal;
+    incognito: boolean;
+  };
   /** A login runtime whose decisions the test gives, one per waiting request. */
   function decisions() {
     const waiting: Array<{ input: Input; decide(decision: ConditionalDecision): void }> = [];
@@ -1083,6 +1089,8 @@ describe("a page's own conditional request through a login (ADR 0034)", () => {
       origin,
       documentId: "document-a",
       signal: expect.any(AbortSignal),
+      // The sender's window kind, which keeps its own pauses (ADR 0062).
+      incognito: false,
     });
     // Nothing is read from the vault, and the vault is not held, while it waits.
     expect(backing.candidates).not.toHaveBeenCalled();
@@ -1102,6 +1110,34 @@ describe("a page's own conditional request through a login (ADR 0034)", () => {
         mediation: "conditional",
       }),
     );
+  });
+
+  it("hands a paused site's own request on at once, while a modal one is still answered (ADR 0062)", async () => {
+    const report = vi.fn();
+    const backing = source();
+    // The login runtime decides at once that the page's site is paused.
+    const conditional = vi.fn(async (): Promise<ConditionalDecision> => ({
+      kind: "delegate",
+      reason: "paused",
+    }));
+    const runtime = createPasskeyRuntime(backing, { extensionId, report, conditional });
+    expect(await runtime.handle(conditionalGet(), sender())).toEqual({
+      kind: "delegate",
+      reason: "paused",
+    });
+    expect(backing.candidates).not.toHaveBeenCalled();
+    await vi.waitFor(() =>
+      expect(report).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          outcome: "delegate",
+          reason: "paused",
+          mediation: "conditional",
+        }),
+      ),
+    );
+    // A request the person started on the page never asks the login runtime.
+    expect(await runtime.handle(get(), sender())).toMatchObject({ kind: "assertion" });
+    expect(conditional).toHaveBeenCalledTimes(1);
   });
 
   it("withholds the request after the login signed in", async () => {

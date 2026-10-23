@@ -424,6 +424,7 @@ export function createDiagnosticsLog(options: {
             choice: report.choice,
             candidates: report.candidates,
             ask: report.ask,
+            paused: report.paused,
             held: report.held,
             rejectedElsewhere: report.rejectedElsewhere,
             recordState: report.recordState,
@@ -649,6 +650,19 @@ export function createDiagnosticsLog(options: {
                   ? "debug"
                   : "info",
           },
+        );
+      else if (report.type === "pause")
+        // The person paused or resumed automatic login of a site, or a login picked in the
+        // popup ended its pause (ADR 0062).
+        void logger.log(
+          "login.pause",
+          {
+            origin: report.origin,
+            action: report.action,
+            incognito: report.incognito,
+            url: report.url,
+          },
+          { source },
         );
       else if (report.type === "revoke")
         void logger.log(

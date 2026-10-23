@@ -100,7 +100,7 @@ import {
 } from "@pateat/contracts";
 import { browser, type Browser } from "wxt/browser";
 import { storage } from "wxt/utils/storage";
-import { trustedRecord } from "../storage";
+import { sessionValue, trustedRecord } from "../storage";
 import type { ServiceTiming } from "../service/transport";
 import { createLoginBadge, memoryBadgeStorage, setActionBadge, type LoginBadge } from "./badge";
 import { domainKey } from "@pateat/bitwarden";
@@ -151,13 +151,16 @@ import { findLiveSiteCandidates, type LiveUriMatcher } from "../vault/site-candi
 import {
   askReasonSchema,
   choiceRequestSchema,
+  pauseRequestSchema,
   pickRequestSchema,
   statusRequestSchema,
   type AskReason,
   type ChoiceResponse,
+  type PauseResponse,
   type PickResponse,
   type StatusResponse,
 } from "./choice-wire";
+import { createLoginPauses, LOGIN_PAUSES_KEY, pauseSite, type LoginPauses } from "./pause";
 import { customFieldOffers, type CustomFieldOffer } from "./generation-slots";
 import { emailUsername, namesUsername, type EntryMiss, type OtherMiss } from "../page/account-list";
 import { observedPath } from "../observation/path";
@@ -449,8 +452,16 @@ type LiveDocument = {
    * as well as the frame's own URL (ADR 0017).
    */
   topUrl?: string;
+  /**
+   * Whether the document's tab is in an incognito window, as its sender or tab said when it
+   * announced. Incognito keeps its own pauses and relogin counts (ADR 0062); absent when the
+   * browser did not say, and then either window kind's pause counts.
+   */
+  incognito?: boolean;
   state?: string;
   reason?: string;
+  /** The detail of the refusal `reason` names, as the log has it, if any. */
+  refusal?: string;
   /** A provider URI match for this document only, valid while its snapshot is unchanged. */
   uriMatch?: { connectionId: string; itemId: string; snapshotId: string };
   /** A single-match account choice, valid while every connection's snapshot is unchanged. */
@@ -461,8 +472,6 @@ type LiveDocument = {
   generationSkip?: string;
   /** Why this document's sign-in input last did not start a login, logged once. */
   notStarted?: string;
-  /** The document's tab is in an incognito window, as its tab said when it announced. */
-  incognito?: true;
   /**
    * When this worker first saw the document. Only a page first seen after another tab's
    * login began to be watched ends that login (ADR 0027).
@@ -575,6 +584,8 @@ const pendingChoiceSchema = v.strictObject({
   at: v.pipe(v.number(), v.integer(), v.minValue(0)),
   candidates: v.array(v.strictObject({ connectionId: v.string(), itemId: v.string() })),
   ask: v.optional(askReasonSchema),
+  /** Refused because automatic login of the site is paused (ADR 0062). */
+  paused: v.optional(v.literal(true)),
 });
 /** A tab and origin that asks for an account until a pick logs in (ADR 0021 D). */
 const askSchema = v.strictObject({
@@ -1497,6 +1508,19 @@ export type LoginReport = (
     }
   | {
       /**
+       * Automatic login of a registrable site was paused or resumed from the popup, or its
+       * pause ended because a login picked in the popup authenticated (ADR 0062). `origin`
+       * is the page's the pause was set from or the picked login's.
+       */
+      type: "pause";
+      tabId: number;
+      origin: string;
+      action: "paused" | "resumed" | "picked";
+      /** The pause is the incognito windows'. */
+      incognito?: true;
+    }
+  | {
+      /**
        * Whether an automatic or picked account choice was saved after the login
        * authenticated (ADR 0013), and why not.
        */
@@ -1524,6 +1548,8 @@ export type LoginReport = (
       candidates?: number;
       /** Why the tab asks for an account (ADR 0021 D, ADR 0062). */
       ask?: AskReason;
+      /** Automatic login of the site is paused (ADR 0062). */
+      paused?: true;
       held?: true;
       /** The site rejected another tab's login, so the popup chooses no account. */
       rejectedElsewhere?: true;
@@ -1768,7 +1794,9 @@ export type PolicyChangeCause =
   | "settings-unavailable"
   | "plan"
   | "vault-replaced"
-  | "field-unavailable";
+  | "field-unavailable"
+  // Automatic login of the site was paused (ADR 0062).
+  | "paused";
 type PolicyChange = { cause: PolicyChangeCause; reason?: string };
 /**
  * Why a login failed or was cancelled, for the log (ADR 0019): its step's elements did not
@@ -1824,21 +1852,24 @@ class DocumentGone extends Error {
 function choiceBadge(
   candidates: readonly unknown[],
   ask: AskReason | undefined,
+  paused?: boolean,
 ): { count: number; title: string } {
   return {
     count: candidates.length,
-    title: ask
-      ? {
-          rejected:
-            "Pateat: the site did not accept the last login in this tab. Click to choose an account.",
-          "rejected-elsewhere":
-            "Pateat: the site did not accept the last login in another tab. Click to choose an account.",
-          "stopped-login":
-            "Pateat: the last login on this site stopped in this tab. Click to choose an account.",
-          "relogin-limit":
-            "Pateat: this site was logged in again twice in 10 minutes. Click to choose an account.",
-        }[ask]
-      : `Pateat: ${candidates.length} accounts match this page. Click to choose one.`,
+    title: paused
+      ? "Pateat: automatic login is paused on this site. Click to choose an account."
+      : ask
+        ? {
+            rejected:
+              "Pateat: the site did not accept the last login in this tab. Click to choose an account.",
+            "rejected-elsewhere":
+              "Pateat: the site did not accept the last login in another tab. Click to choose an account.",
+            "stopped-login":
+              "Pateat: the last login on this site stopped in this tab. Click to choose an account.",
+            "relogin-limit":
+              "Pateat: this site was logged in again twice in 10 minutes. Click to choose an account.",
+          }[ask]
+        : `Pateat: ${candidates.length} accounts match this page. Click to choose one.`,
   };
 }
 
@@ -1872,7 +1903,13 @@ export function createLoginRuntime(
      * the popup's page section. Without one the runtime writes `chrome.action` itself and
      * keeps nothing across worker restarts.
      */
-    badge?: Pick<LoginBadge, "choice" | "note" | "spin" | "status" | "asking">;
+    badge?: Pick<LoginBadge, "choice" | "note" | "spin" | "status" | "asking"> &
+      Partial<Pick<LoginBadge, "paused">>;
+    /**
+     * The paused sites (ADR 0062); without it they are kept in `storage.session` under
+     * `LOGIN_PAUSES_KEY`.
+     */
+    pauses?: LoginPauses;
     /**
      * Told of each origin of a login that reached signed in, on any route, so a site's
      * passkey registration right after it can be refused (ADR 0007). Never changes the login.
@@ -1898,6 +1935,16 @@ export function createLoginRuntime(
   const { fields, sites, recipes = noLoginRecipes, uris, generation } = options;
   const badge =
     options.badge ?? createLoginBadge({ setBadge: setActionBadge, storage: memoryBadgeStorage() });
+  const pauses = options.pauses ?? createLoginPauses(sessionValue(LOGIN_PAUSES_KEY));
+  /**
+   * When the pause covering a document ends, while it runs: a frame is paused when its own
+   * site or its tab's is (ADR 0062). A pause that cannot be read counts as none.
+   */
+  const pausedUntil = (live: {
+    url: string;
+    topUrl?: string | undefined;
+    incognito?: boolean | undefined;
+  }) => pauses.until([live.url, live.topUrl], live.incognito).catch(() => undefined);
   /** Spins the tab's badge from a model request's `sent` until `stop`, once the request returns. */
   function spinning(tabId: number) {
     let stop: (() => void) | undefined;
@@ -2129,7 +2176,7 @@ export function createLoginRuntime(
       for (const entry of choices.output) {
         pending.set(entry.document.tabId, entry);
         // Chrome kept the tab's badge; the badge learns the choice it shows again.
-        badge.choice(entry.document.tabId, choiceBadge(entry.candidates, entry.ask));
+        badge.choice(entry.document.tabId, choiceBadge(entry.candidates, entry.ask, entry.paused));
       }
     const stopped = v.safeParse(v.array(askSchema), stored[STOPPED_ASKS_KEY] ?? []);
     if (stopped.success)
@@ -2194,6 +2241,7 @@ export function createLoginRuntime(
     document: LoginDocument,
     candidates: PendingChoice["candidates"],
     ask?: AskReason,
+    paused?: boolean,
   ): void {
     // The same document offered the choice again still waits since its first offer.
     const offered = pending.get(document.tabId);
@@ -2202,9 +2250,10 @@ export function createLoginRuntime(
       at: offered?.document.documentId === document.documentId ? offered.at : Date.now(),
       candidates,
       ...(ask ? { ask } : {}),
+      ...(paused ? { paused: true as const } : {}),
     });
     void quietly(saveSession);
-    badge.choice(document.tabId, choiceBadge(candidates, ask));
+    badge.choice(document.tabId, choiceBadge(candidates, ask, paused));
     // The site may have been excluded while the refusal was decided from older settings.
     void choiceExclusions();
   }
@@ -2469,14 +2518,23 @@ export function createLoginRuntime(
       clearChoice(tabId);
       return { ok: false, reason: "no-choice" };
     }
+    // A paused choice ends once its pause has (ADR 0062); the page's next announcement
+    // logs in.
+    if (waiting.paused && (await pausedUntil(live)) === undefined) {
+      if (pending.get(tabId) === waiting) clearChoice(tabId);
+      return { ok: false, reason: "no-choice" };
+    }
+    if (pending.get(tabId) !== waiting) return { ok: false, reason: "no-choice" };
     const held = heldElsewhere(tabId, waiting.document.origin) ? { held: true as const } : {};
-    if (waiting.ask)
+    // A tab that asks, and a paused site (ADR 0062), offers any matching account.
+    if (waiting.ask || waiting.paused)
       return {
         ok: true,
         origin: waiting.document.origin,
         documentId: waiting.document.documentId,
         candidates: waiting.candidates,
-        ask: waiting.ask,
+        ...(waiting.ask ? { ask: waiting.ask } : {}),
+        ...(waiting.paused ? { paused: true as const } : {}),
         ...held,
         ...(waiting.ask !== "rejected" && rejectedElsewhere(tabId, waiting.document.origin)
           ? { rejectedElsewhere: true as const }
@@ -2531,6 +2589,7 @@ export function createLoginRuntime(
         ? {
             candidates: answer.candidates.length,
             ...(answer.ask ? { ask: answer.ask } : {}),
+            ...(answer.paused ? { paused: true as const } : {}),
             ...(answer.held ? { held: true as const } : {}),
             ...(answer.rejectedElsewhere ? { rejectedElsewhere: true as const } : {}),
           }
@@ -2558,11 +2617,16 @@ export function createLoginRuntime(
   async function popupStatus(tabId: number): Promise<StatusResponse> {
     const live = documents.get(frameKey({ tabId, frameId: 0 }));
     // The tab's own URL, since its page may not have announced yet.
-    const url = (await browser.tabs.get(tabId).catch(() => undefined))?.url ?? live?.url;
+    const tab = await browser.tabs.get(tabId).catch(() => undefined);
+    const url = tab?.url ?? live?.url;
     const page = url ? (URL.parse(url) ?? undefined) : undefined;
     // The popup shows its page section only on HTTP(S) pages.
     if (page?.protocol !== "https:" && page?.protocol !== "http:")
       return { ok: false, reason: "no-page" };
+    const pausedTill = await pausedUntil({
+      url: page.href,
+      incognito: tab?.incognito ?? live?.incognito,
+    });
     const pageOrigin = page.origin;
     const path = observedPath(page.pathname);
     const [starts, entries] = await Promise.all([
@@ -2614,8 +2678,190 @@ export function createLoginRuntime(
           }
         : {}),
       ...(known?.refused ? { refused: clipCodes(known.refused) } : {}),
+      ...(pausedTill === undefined ? {} : { pause: { until: pausedTill } }),
       ...(known?.generation ? { generation: clipCodes(known.generation) } : {}),
     };
+  }
+  /**
+   * The open tabs whose page is on `url`'s registrable site, in the windows of that kind:
+   * normal or incognito (ADR 0062).
+   */
+  async function siteTabs(url: string, incognito: boolean): Promise<Browser.tabs.Tab[]> {
+    const site = pauseSite(url);
+    const tabs = await browser.tabs.query({}).catch(() => []);
+    return tabs.filter(
+      (tab) =>
+        tab.id !== undefined &&
+        (tab.incognito === true) === incognito &&
+        tab.url !== undefined &&
+        site !== undefined &&
+        pauseSite(tab.url) === site,
+    );
+  }
+  /** Shows the pause of the tab's page, or its end, on the tab's badge (ADR 0062). */
+  async function showTabPause(tab: Browser.tabs.Tab): Promise<void> {
+    if (tab.id === undefined || !tab.url || pauseSite(tab.url) === undefined) return;
+    badge.paused?.(tab.id, await pausedUntil({ url: tab.url, incognito: tab.incognito }));
+  }
+  /** Shows the pause of `url`'s site, or its end, on the badge of each of its tabs. */
+  async function showPause(url: string, incognito: boolean): Promise<Browser.tabs.Tab[]> {
+    const tabs = await siteTabs(url, incognito);
+    await Promise.all(tabs.map(showTabPause));
+    return tabs;
+  }
+  /**
+   * The tabs that show the site of `url` in a window of that kind, also in a frame of
+   * another site's page, or hold a choice of a document of the site (ADR 0062).
+   */
+  async function pausedTabs(url: string, incognito: boolean): Promise<Set<number>> {
+    const site = pauseSite(url);
+    const ids = new Set((await siteTabs(url, incognito)).map((tab) => tab.id!));
+    for (const live of documents.values())
+      if (pauseSite(live.url) === site && (live.incognito ?? incognito) === incognito)
+        ids.add(live.document.tabId);
+    for (const [tabId, waiting] of pending)
+      if (waiting.paused && pauseSite(waiting.document.origin) === site) ids.add(tabId);
+    return ids;
+  }
+  /**
+   * Stops a running automatic login of a site whose pause just started, before its next
+   * step, as a settings change does (outcome `policy-changed`, cause `paused`). Its record
+   * is let go, so it holds nothing, and its document asks as a paused one (ADR 0062).
+   */
+  async function stopForPause(run: Execution): Promise<void> {
+    if (!current(run) || terminal(run.metadata)) return;
+    void send(run.live, { type: "login.cancel" }).catch(() => undefined);
+    await change(run, { type: "POLICY_CHANGED" }, { cause: "paused" }).catch(() => undefined);
+    const { document } = run.live;
+    if (attempts.get(document.tabId) !== run || !terminal(run.metadata)) return;
+    attempts.delete(document.tabId);
+    await forget(recordKey(document.tabId, run.metadata.account.origin)).catch(() => undefined);
+    const snapshot = await settings
+      .handle({ version: 1, type: "settings.get" })
+      .catch(() => undefined);
+    if (documents.get(frameKey(document)) !== run.live) return;
+    const candidates = snapshot?.ok
+      ? await pausedCandidates(
+          snapshot,
+          run.live,
+          snapshot.snapshot.settings.siteDefaults.find((entry) => entry.origin === document.origin),
+        ).catch(() => [])
+      : [];
+    if (documents.get(frameKey(document)) !== run.live) return;
+    if (candidates.length) offerChoice(document, candidates, undefined, true);
+    note(document, run.live.url, "paused", undefined, undefined, candidates.length || undefined);
+    run.live.state = "denied";
+    run.live.reason = "paused";
+    delete run.live.refusal;
+    await publish(run.live);
+  }
+  /**
+   * Pauses automatic login of the tab's registrable site for an hour, in every tab of the
+   * tab's window kind, or resumes it (ADR 0062). A pause stops the site's running automatic
+   * logins and hands on its waiting conditional passkey requests at once. A resume ends the
+   * site's paused choices, also once the pause ended by itself, and asks the site's tabs,
+   * and frames of the site in other tabs, to announce again, so they log in at once.
+   * Nothing goes to the service.
+   */
+  async function pauseFor(tabId: number, paused: boolean): Promise<PauseResponse> {
+    await sessionLoaded;
+    const tab = await browser.tabs.get(tabId).catch(() => undefined);
+    const url = tab?.url;
+    if (!url || pauseSite(url) === undefined) return { ok: false, reason: "no-site" };
+    const incognito = tab.incognito === true;
+    let until: number | undefined;
+    let resumed = false;
+    try {
+      if (paused) until = await pauses.pause(url, incognito);
+      else resumed = await pauses.resume(url, incognito);
+    } catch {
+      return { ok: false, reason: "storage-unavailable" };
+    }
+    if (paused || resumed)
+      report(
+        { frameId: 0 },
+        {
+          type: "pause",
+          tabId,
+          origin: new URL(url).origin,
+          action: paused ? "paused" : "resumed",
+          ...(incognito ? { incognito: true as const } : {}),
+        },
+      );
+    await showPause(url, incognito);
+    const ids = await pausedTabs(url, incognito);
+    if (paused) {
+      // Waiting conditional requests of the site's pages go to the browser at once.
+      for (const parked of [...parkedRequests])
+        if (ids.has(parked.tabId) && pauseSite(parked.origin) === pauseSite(url))
+          parked.settle({ kind: "delegate", reason: "paused" });
+      reviewRequests();
+      // Running automatic logins of the site stop; one a popup pick started goes on.
+      const stopping: Promise<void>[] = [];
+      for (const run of attempts.values())
+        if (
+          !terminal(run.metadata) &&
+          run.metadata.watch === undefined &&
+          picked.get(run.live.document.tabId)?.attemptId !== run.metadata.id &&
+          (run.live.incognito ?? incognito) === incognito &&
+          [run.live.url, run.live.topUrl].some(
+            (page) => page !== undefined && pauseSite(page) === pauseSite(url),
+          )
+        )
+          stopping.push(stopForPause(run));
+      await Promise.all(stopping);
+    } else
+      for (const id of ids) {
+        // A choice offered because of the pause ends; the page's announcement decides anew.
+        const hadChoice = pending.get(id)?.paused === true;
+        if (hadChoice) clearChoice(id);
+        // Every frame announces again, so the site's pages log in at once; after a pause
+        // that ran out by itself, those still refused as paused do.
+        if (
+          resumed ||
+          hadChoice ||
+          documents.values().some((live) => live.document.tabId === id && live.reason === "paused")
+        )
+          void browser.tabs
+            .sendMessage(id, { version: 1, type: "login.reconnect" })
+            .catch(() => undefined);
+      }
+    return { ok: true, ...(until === undefined ? {} : { until }) };
+  }
+  /**
+   * Ends the pause of the site of a login picked in the popup once it signed in, confirmed
+   * as `noteSignedIn` counts it (ADR 0062): the person signed in, so nothing is left to keep
+   * paused. Its own site's pause ends, and for a login in a frame the tab's site's too.
+   */
+  async function endPickedPause(
+    metadata: LoginAttemptMetadata,
+    live: LiveDocument | undefined,
+  ): Promise<void> {
+    const { tabId } = metadata.document;
+    if (picked.get(tabId)?.attemptId !== metadata.id) return;
+    const tab = await browser.tabs.get(tabId).catch(() => undefined);
+    const incognito = live?.incognito ?? tab?.incognito;
+    const urls = new Set(
+      [metadata.account.origin, metadata.pageOrigin, live?.topUrl].filter(
+        (value): value is string => value !== undefined,
+      ),
+    );
+    const ended: string[] = [];
+    for (const url of urls)
+      if (await pauses.resume(url, incognito).catch(() => false)) ended.push(url);
+    for (const url of ended) {
+      report(metadata.document, {
+        type: "pause",
+        tabId,
+        origin: new URL(url).origin,
+        action: "picked",
+        ...(incognito ? { incognito: true as const } : {}),
+      });
+      // eslint-disable-next-line no-await-in-loop
+      await Promise.all(
+        (incognito === undefined ? [false, true] : [incognito]).map((kind) => showPause(url, kind)),
+      );
+    }
   }
   /**
    * Restarts the refused document's login with the picked account: the document announces
@@ -2679,9 +2925,18 @@ export function createLoginRuntime(
       live.document.documentId === waiting.document.documentId &&
       !pending.has(request.tabId)
     ) {
-      offerChoice(waiting.document, waiting.candidates, waiting.ask);
+      offerChoice(waiting.document, waiting.candidates, waiting.ask, waiting.paused);
       return { ok: false, reason: "origin-busy" };
     }
+    // On a paused site an item without a password is not handed on to its passkey, which
+    // the page signs in with by itself once the pause ends (ADR 0062).
+    if (
+      waiting.paused &&
+      live?.document.documentId === waiting.document.documentId &&
+      live.reason === "no-route" &&
+      live.refusal?.startsWith("password-empty") === true
+    )
+      return { ok: false, reason: "paused-no-password" };
     return { ok: false, reason: "not-started" };
   }
   /**
@@ -2809,6 +3064,9 @@ export function createLoginRuntime(
       throw new Error("storage-failed");
     }
   }
+  /** A login just signed in, confirmed: what `noteSignedIn` tells (ADR 0007, ADR 0062). */
+  const signedInNow = (previous: LoginAttemptMetadata, next: LoginAttemptMetadata) =>
+    next.state === "authenticated" && !next.unconfirmed && previous.state !== "authenticated";
   /**
    * Tells `options.signedIn` of an attempt that has just reached signed in: its origin, the
    * top page's origin for a frame's login, and the page it ended on.
@@ -2818,8 +3076,7 @@ export function createLoginRuntime(
     next: LoginAttemptMetadata,
     pageOrigin?: string,
   ) => {
-    if (next.state !== "authenticated" || next.unconfirmed || previous.state === "authenticated")
-      return;
+    if (!signedInNow(previous, next)) return;
     const origins = new Set(
       [next.account.origin, next.pageOrigin, pageOrigin].filter(
         (value): value is string => value !== undefined,
@@ -2862,6 +3119,7 @@ export function createLoginRuntime(
       run.live.document.frameId === 0 ? run.live.document.origin : undefined,
     );
     countRelogin(previous, run.metadata, run.live.incognito === true);
+    if (signedInNow(previous, run.metadata)) void endPickedPause(run.metadata, run.live);
     // Settling as unknown keeps the state, but it is how a login ends without a result.
     const settled = run.metadata.settled === true && previous.settled !== true ? true : undefined;
     // An ended login no longer waits for a continuation it asked for (ADR 0018).
@@ -3130,8 +3388,34 @@ export function createLoginRuntime(
     candidates?: PendingChoice["candidates"];
     /** The tab asks for an account, with `candidates` (ADR 0021 D, ADR 0062). */
     ask?: true;
+    /** Automatic login of the site is paused; the candidates are offered (ADR 0062). */
+    paused?: true;
     noUriMatch?: true;
   };
+  /**
+   * The accounts a paused page offers in the popup (ADR 0062): the saved default when its
+   * connection is there, then every item that matches the page, at most 100. Matches that
+   * could not be listed leave the saved default alone.
+   */
+  async function pausedCandidates(
+    snapshot: Extract<SettingsResponse, { ok: true }>,
+    live: LiveDocument,
+    saved: LocalSettings["siteDefaults"][number] | undefined,
+  ): Promise<PendingChoice["candidates"]> {
+    const listed: PendingChoice["candidates"] = [];
+    const mapped = saved && siteDefaultConnection(saved, snapshot.catalog);
+    if (saved && mapped?.ok)
+      listed.push({ connectionId: mapped.connectionId, itemId: saved.itemId });
+    const found = uris ? await siteCandidates(snapshot, live) : undefined;
+    for (const entry of found && !("reason" in found) ? found.candidates : [])
+      if (
+        !listed.some(
+          (other) => other.connectionId === entry.connectionId && other.itemId === entry.itemId,
+        )
+      )
+        listed.push({ connectionId: entry.connectionId, itemId: entry.itemId });
+    return listed.slice(0, 100);
+  }
   /**
    * The account for this document. A saved site default wins. Without one, a single
    * eligible provider URI match across all enabled connections is used for this attempt
@@ -3143,6 +3427,7 @@ export function createLoginRuntime(
     snapshot: Extract<SettingsResponse, { ok: true }>,
     live: LiveDocument,
     asking?: "account-asked" | "relogin-limit",
+    paused = false,
   ): Promise<Choice | Refusal> {
     // An account picked in the popup wins for the document it restarted and the attempt that
     // document started; its item must still match the page and pass every check below.
@@ -3165,6 +3450,12 @@ export function createLoginRuntime(
     const saved = snapshot.snapshot.settings.siteDefaults.find(
       (entry) => entry.origin === live.document.origin,
     );
+    if (paused) {
+      // A paused site logs in only with an account picked in the popup, which lists any
+      // matching account, the saved default first (ADR 0062).
+      const listed = await pausedCandidates(snapshot, live, saved);
+      return { reason: "paused", paused: true, ...(listed.length ? { candidates: listed } : {}) };
+    }
     if (asking) {
       // The tab asks, with the saved default first, and fills nothing (ADR 0021 D, ADR 0062).
       const listed: PendingChoice["candidates"] = [];
@@ -3585,6 +3876,11 @@ export function createLoginRuntime(
        * first page, is not there to click.
        */
       later?: boolean;
+      /**
+       * Automatic login of the page's site is paused (ADR 0062): only an account picked in
+       * the popup logs in, once, on the password route.
+       */
+      paused?: boolean;
     } = {},
   ) {
     let catalog: VaultCatalog;
@@ -3592,18 +3888,20 @@ export function createLoginRuntime(
     let savedDefault = false;
     if (probeMode && recipe.origin === origin) {
       // The tab asks, as `choose` answers it (ADR 0021 D); the probe has no list to offer.
+      if (request.paused) return { ok: false as const, reason: "paused" as const };
       if (request.asking) return { ok: false as const, reason: request.asking, ask: true as const };
       catalog = grantProbeOrigin(snapshot.catalog, origin, account);
       const top = await topScope(snapshot, live, account, catalog);
       if (top) return { ok: false as const, reason: top.reason };
     } else {
-      const found = await choose(snapshot, live, request.asking);
+      const found = await choose(snapshot, live, request.asking, request.paused === true);
       if ("reason" in found)
         return {
           ok: false as const,
           reason: found.reason,
           ...(found.candidates ? { candidates: found.candidates } : {}),
           ...(found.ask ? { ask: true as const } : {}),
+          ...(found.paused ? { paused: true as const } : {}),
           ...(found.noUriMatch ? { noUriMatch: true as const } : {}),
         };
       chosen = found;
@@ -3742,8 +4040,10 @@ export function createLoginRuntime(
     const pageRequest = request.pageRequest === true && passkeyAnswersRequest(recipe);
     const { passkey: _button, ...buttonless } = recipe;
     const routeRecipe: LoginRecipe = request.later ? buttonless : recipe;
-    // Only a page the passkey scripts run on can answer a passkey request (ADR 0050).
+    // Only a page the passkey scripts run on can answer a passkey request (ADR 0050). A pick
+    // on a paused site logs in on the password route (ADR 0062).
     if (
+      !request.paused &&
       passkeyScriptsRun(live.document.origin, probeMode) &&
       (recipeHasRoute(routeRecipe, "passkey") || pageRequest)
     ) {
@@ -3768,7 +4068,12 @@ export function createLoginRuntime(
       }
       // Otherwise the password route decides, with its own refusals.
     }
-    return passwordPlan();
+    const password = await passwordPlan();
+    // A paused site never hands a login on to the browser's passkey sign-in: an item
+    // without a password stops before anything, pressing nothing (ADR 0062).
+    if (request.paused && password.ok && "stopAt" in password)
+      return { ok: false as const, reason: "no-route" as const, detail: "password-empty:paused" };
+    return password;
     /**
      * The first password variant that fits, or why none does. A saved binding is first tried
      * as it is on every variant, so an item keeps the variant its binding fits even when an
@@ -7071,6 +7376,23 @@ export function createLoginRuntime(
     }
     return slots;
   }
+  /**
+   * Whether a pause of the page's site started while the page was made ready to send for
+   * generation (ADR 0062): it is then not sent, and the document is asked to announce
+   * again, so it is refused as paused.
+   */
+  async function pausedMeanwhile(live: LiveDocument, page?: "entry" | "other"): Promise<boolean> {
+    if ((await pausedUntil(live)) === undefined) return false;
+    skipGeneration(live, "paused", page);
+    void browser.tabs
+      .sendMessage(
+        live.document.tabId,
+        { version: 1, type: "login.reconnect" },
+        { frameId: live.document.frameId, documentId: live.document.documentId },
+      )
+      .catch(() => undefined);
+    return true;
+  }
   /** Logs once per document and reason why it was not sent for generation. */
   function skipGeneration(
     live: LiveDocument,
@@ -7251,6 +7573,7 @@ export function createLoginRuntime(
       }
       const custom = passkeyOnly ? [] : await customSlots(live.document.origin, scope);
       if (documents.get(key) !== live) return;
+      if (await pausedMeanwhile(live, otherless ? "other" : undefined)) return;
       const spin = spinning(live.document.tabId);
       const asked = Date.now();
       const result = await generation
@@ -7649,10 +7972,11 @@ export function createLoginRuntime(
     // inside the page keeps its load URL and records the tab's URL to match as well.
     let url = sender.url;
     let topUrl: string | undefined;
-    let incognito = false;
+    // The sender's tab says whether its window is incognito; `tabs.get` is asked otherwise.
+    let incognito = sender.tab?.incognito;
     try {
       const tab = await browser.tabs.get(document.tabId);
-      incognito = tab.incognito === true;
+      incognito ??= tab.incognito;
       if (document.frameId !== 0) {
         // A frame's page is a web page; any other URL means the tab moved on.
         if (!tab.url || !/^https?:$/.test(new URL(tab.url).protocol))
@@ -7763,7 +8087,7 @@ export function createLoginRuntime(
       url,
       path,
       ...(topUrl ? { topUrl } : {}),
-      ...(incognito ? { incognito: true as const } : {}),
+      ...(incognito === undefined ? {} : { incognito }),
       // A document announcing again on the same path logs each generation skip once.
       ...(sameDocument && oldLive.path === path && oldLive.generationSkip
         ? { generationSkip: oldLive.generationSkip }
@@ -7783,6 +8107,12 @@ export function createLoginRuntime(
         : {}),
     };
     documents.set(key, live);
+    // Automatic login of the page's site is paused (ADR 0062): its own site's or, for a
+    // frame, also its tab's. The tab's page shows the pause on the badge.
+    const until = await pausedUntil(live);
+    const paused = until !== undefined;
+    if (document.frameId === 0) badge.paused?.(document.tabId, until);
+    if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
     // The first other top document of the tab after an effect step, when it comes soon
     // enough to be the site's answer to it (ADR 0029). One announced later, as after the
     // person's own retry in a page the login settled on, is never read as that answer.
@@ -7804,6 +8134,8 @@ export function createLoginRuntime(
       note(document, live.url, reason, detail, unrelated, candidates);
       live.state = "denied";
       live.reason = reason;
+      if (detail === undefined) delete live.refusal;
+      else live.refusal = detail;
       await publish(live);
       return { ok: false, reason };
     };
@@ -7875,7 +8207,8 @@ export function createLoginRuntime(
         ...(signedIn ? { signedIn } : {}),
       });
       noteSignedIn(before, ended, moved.origin);
-      countRelogin(before, ended, incognito);
+      countRelogin(before, ended, incognito === true);
+      if (signedInNow(before, ended)) void endPickedPause(ended, run?.live);
       if (run) run.metadata = ended;
       reportAttempt(ended, run?.recipe);
       try {
@@ -8139,6 +8472,30 @@ export function createLoginRuntime(
     ) {
       const refused = await abandonWatch(recorded);
       if (refused) return refused;
+      recorded = undefined;
+    }
+    // A paused site's automatic login that has not ended stops on its next page before any
+    // step, as when its pause started (ADR 0062); one a popup pick started goes on.
+    if (
+      paused &&
+      recorded &&
+      !terminal(recorded) &&
+      recorded.watch === undefined &&
+      picked.get(document.tabId)?.attemptId !== recorded.id
+    ) {
+      const run = attempts.get(document.tabId);
+      const own = run?.metadata.id === recorded.id ? run : undefined;
+      const ended = transitionLoginAttempt(own?.metadata ?? recoverLoginAttempt(recorded), {
+        type: "POLICY_CHANGED",
+      });
+      if (own) attempts.delete(document.tabId);
+      reportAttempt(ended, own?.recipe, { cause: "paused" });
+      try {
+        await forget(recordKey(document.tabId, recorded.account.origin));
+      } catch {
+        return refuse("storage-unavailable");
+      }
+      if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
       recorded = undefined;
     }
     if (
@@ -8415,8 +8772,9 @@ export function createLoginRuntime(
       )
         skipGeneration(live, otherOffer, "other");
       if (otherShown && otherOffer === true) {
-        // Nor is the page right after a sign-in.
-        if (afterSignIn.get(document.tabId) === document.documentId)
+        // Nor is the page right after a sign-in, nor one of a paused site (ADR 0062).
+        if (paused) skipGeneration(live, "paused", "other");
+        else if (afterSignIn.get(document.tabId) === document.documentId)
           skipGeneration(live, "after-sign-in", "other");
         // Nor a page whose list shows meanwhile: the login clicks there (ADR 0028).
         else if (await showsNow(live, listReadiness(otherShown))) {
@@ -8441,6 +8799,11 @@ export function createLoginRuntime(
       const availability = recipe ? undefined : await offersGeneration(live);
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
       let offer = availability === true;
+      // A paused site sends no page for generation (ADR 0062).
+      if (offer && paused) {
+        skipGeneration(live, "paused");
+        offer = false;
+      }
       // Only a page that was sent is held, so the log says why it is not sent again.
       if (availability === "sending" || availability === "sent") skipGeneration(live, availability);
       // Without the service no page is sent; logged at debug level, as every page is.
@@ -8609,7 +8972,7 @@ export function createLoginRuntime(
         ok: false,
         reason: recipe ? "form-not-ready" : "recipe-not-found",
         starts,
-        ...(offer || otherOffer === true ? { generate: true as const } : {}),
+        ...(offer || (otherOffer === true && !paused) ? { generate: true as const } : {}),
         ...(offer && entryPage ? { entry: true as const } : {}),
       };
     }
@@ -8675,7 +9038,7 @@ export function createLoginRuntime(
     // any tab of this normal or incognito session, keep a third from starting: the tab asks
     // instead, so a site that logs out again at once is not logged in over and over. A pick
     // in the popup still logs in, and is not counted (ADR 0062).
-    if (!ask && !previous && !switched && reloginLimited(document.origin, incognito))
+    if (!ask && !previous && !switched && reloginLimited(document.origin, incognito === true))
       ask = "relogin-limit";
     if (ask && heldElsewhere(document.tabId, document.origin)) {
       showHeld(document.tabId);
@@ -8688,8 +9051,11 @@ export function createLoginRuntime(
     // (ADR 0034), as one picked in the popup and one on a chooser's list do, instead of
     // clicking there.
     const pageRequest = !previous && document.frameId === 0 && parkedFor(document) !== undefined;
+    // A paused site starts no login by itself; a resumed one goes on (ADR 0062).
+    const pausedStart = paused && !previous;
     let plan = await planFor(snapshot, live, recipe, {
       ...(asking ? { asking } : {}),
+      ...(pausedStart ? { paused: true } : {}),
       ...(previous ? { route: attemptRouteChoice(previous) } : {}),
       ...(pageRequest ? { pageRequest } : {}),
       ...(later && !later.button ? { later: true } : {}),
@@ -8708,6 +9074,7 @@ export function createLoginRuntime(
         (await planFor(snapshot, live, bare, {
           ...(asking ? { asking } : {}),
           ...(pageRequest ? { pageRequest } : {}),
+          ...(pausedStart ? { paused: true } : {}),
         }));
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
       if (bare && alone && alone.ok && "stopAt" in alone) {
@@ -8738,6 +9105,7 @@ export function createLoginRuntime(
       !shownOther &&
       !deferred &&
       !later &&
+      !pausedStart &&
       document.frameId === 0 &&
       !live.topUrl &&
       !(probeMode && document.origin === origin) &&
@@ -8745,6 +9113,8 @@ export function createLoginRuntime(
       generation?.replace &&
       !recipeInUse(recipe.id)
     ) {
+      // A pause that started meanwhile admits the document again (ADR 0062).
+      if ((await pausedUntil(live)) !== undefined) return { ok: false, reason: CHOICE_SAVED };
       live.state = "generating";
       delete live.reason;
       await publish(live);
@@ -8760,13 +9130,14 @@ export function createLoginRuntime(
       // after an account switch belongs to that login, so it offers none.
       if (!previous && !switched && "candidates" in plan && plan.candidates) {
         const asked = "ask" in plan && plan.ask === true ? ask : undefined;
-        offerChoice(document, plan.candidates, asked);
+        const pausedChoice = "paused" in plan && plan.paused === true;
+        offerChoice(document, plan.candidates, asked, pausedChoice);
         // Outside an ask, the page's own conditional request may wait for the pick, on a
-        // recipe without a passkey button (ADR 0034).
+        // recipe without a passkey button (ADR 0034); a paused site hands it on (ADR 0062).
         noteChoice(
           document,
           plan.candidates,
-          !asked && document.frameId === 0 && passkeyAnswersRequest(recipe),
+          !asked && !pausedChoice && document.frameId === 0 && passkeyAnswersRequest(recipe),
         );
       }
       const refused = await refuse(
@@ -8823,6 +9194,7 @@ export function createLoginRuntime(
           const replanned = await planFor(snapshot, live, route, {
             ...(asking ? { asking } : {}),
             ...(pageRequest ? { pageRequest } : {}),
+            ...(pausedStart ? { paused: true } : {}),
           });
           if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
           // An item without a password goes on only when that branch can take its stop
@@ -8856,6 +9228,16 @@ export function createLoginRuntime(
         showHeld(document.tabId);
         return refuse("origin-busy");
       }
+    }
+    // A pause that started while this announcement was handled stops what it would start
+    // or go on with by itself: the document is admitted again and refused as paused. A
+    // login a popup pick started goes on (ADR 0062).
+    const picking = previous
+      ? picked.get(document.tabId)?.attemptId === previous.id
+      : "chosen" in plan && plan.chosen?.source === "pick";
+    if (!paused && !picking && (await pausedUntil(live)) !== undefined) {
+      if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+      return { ok: false, reason: CHOICE_SAVED };
     }
     if (!previous && persisted.size >= 100) return refuse("attempt-limit");
     // Another document of the tab, such as a frame, may have started an attempt while this
@@ -9381,6 +9763,7 @@ export function createLoginRuntime(
         skipGeneration(live, "no-entry-link", "entry");
         return;
       }
+      if (await pausedMeanwhile(live, "entry")) return;
       const spin = spinning(live.document.tabId);
       const asked = Date.now();
       const result = await generation
@@ -9464,6 +9847,8 @@ export function createLoginRuntime(
     if (site === undefined) return "no-site";
     if (siteRecorded(tabId, site)) return "site-record";
     if (siteHeldElsewhere(tabId, site)) return "site-held";
+    // Pateat presses nothing by itself on a paused site (ADR 0062).
+    if ((await pausedUntil({ ...live, url })) !== undefined) return "paused";
     const last = entryPresses.get(tabId);
     if (last && Date.now() - isoTimeMs(last.pressedAt) < ENTRY_PRESS_MS) return "press-limit";
     const snapshot = await settings
@@ -9656,6 +10041,8 @@ export function createLoginRuntime(
     if (fromPopup(sender)) {
       const ask = v.safeParse(choiceRequestSchema, message);
       if (ask.success) return popupChoice(ask.output.tabId);
+      const pausing = v.safeParse(pauseRequestSchema, message);
+      if (pausing.success) return pauseFor(pausing.output.tabId, pausing.output.paused);
       const asked = v.safeParse(statusRequestSchema, message);
       if (asked.success) return popupStatus(asked.output.tabId);
       const pick = v.safeParse(pickRequestSchema, message);
@@ -9953,6 +10340,12 @@ export function createLoginRuntime(
         storageHealthy = false;
       });
   }
+  // Pauses outlive a worker restart, and so does `II` on the badge of each tab of a paused
+  // site, until its pause ends (ADR 0062).
+  void browser.tabs
+    .query({})
+    .then((tabs) => Promise.all(tabs.map(showTabPause)))
+    .catch(() => undefined);
   // A worker restart does not reinstall content scripts. Rebind browser-provided
   // document identity before reconciling, without restoring pending side effects.
   void loaded
@@ -10559,9 +10952,17 @@ export function createLoginRuntime(
     origin: string;
     documentId: string;
     signal: AbortSignal;
+    /** Whether the tab is incognito, as the request's sender says (ADR 0062). */
+    incognito?: boolean;
   }): Promise<ConditionalDecision> {
     await loaded;
     await sessionLoaded;
+    // A paused site's own request goes to the browser at once (ADR 0062).
+    const incognito =
+      input.incognito ?? (await browser.tabs.get(input.tabId).catch(() => undefined))?.incognito;
+    const pausedPage = async () =>
+      (await pausedUntil({ url: input.origin, incognito })) !== undefined;
+    if (await pausedPage()) return { kind: "delegate", reason: "paused" };
     const run = attempts.get(input.tabId);
     if (run?.live.document.documentId !== input.documentId) {
       const starts = await startsFor(input.origin).catch(() => []);
@@ -10585,6 +10986,11 @@ export function createLoginRuntime(
       parkedRequests.add(parked);
       input.signal.addEventListener("abort", onAbort, { once: true });
       reviewRequests();
+      // A pause that started while the request was looked at hands it on as well.
+      void pausedPage().then((now) => {
+        if (now) parked.settle({ kind: "delegate", reason: "paused" });
+        return undefined;
+      });
     });
   }
   /**
@@ -11229,5 +11635,7 @@ export function createLoginRuntime(
     passkeyRequested,
     passkeyAnswered,
     conditionalRequest,
+    /** A tab's page changed: a page of a paused site shows `II` on its badge (ADR 0062). */
+    tabLoaded: (tab: Browser.tabs.Tab) => showTabPause(tab).catch(() => undefined),
   };
 }
