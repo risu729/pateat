@@ -1585,6 +1585,8 @@ test("a code rejected after a challenge switches the form to finishing its conne
   await expect
     .element(page.getByLabelText("Enable automatic unlock on this device", { exact: true }))
     .toBeChecked();
+  // The removed Verify code hands focus to the password the sign-in now needs.
+  await expect.element(page.getByLabelText("Master password", { exact: true })).toHaveFocus();
 });
 
 test("an unsupported interaction on a first sign-in switches the form to finishing its connection", async () => {
@@ -2122,4 +2124,46 @@ test("a failed sync or refresh keeps keyboard focus on its button", async () => 
   await expect.element(page.getByText(/^The operation could not be confirmed/)).toBeVisible();
   await expect.element(refresh).toBeEnabled();
   await expect.element(refresh).toHaveFocus();
+});
+
+test("sending and resending the email code keep keyboard focus on the code field", async () => {
+  const client = mockClient();
+  client.begin.mockResolvedValue({ ok: true, kind: "mfa-required", flowId, providers: [0, 1] });
+  const pending = held<SetupReply>();
+  client.sendEmailCode
+    .mockReturnValueOnce(pending.promise)
+    .mockResolvedValueOnce({ ok: true, kind: "email-code", flowId, result: "sent" })
+    .mockResolvedValueOnce({ ok: false, error: { code: "provider-permission-required" } });
+  await mount(client);
+  await fillNew();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  const code = page.getByLabelText("Verification code", { exact: true });
+  await expect.element(code).toHaveFocus();
+  // Choosing email sends a code, which disables the method select while it runs.
+  const method = page.getByRole("combobox", { name: "Verification method", exact: true });
+  (method.element() as HTMLElement).focus();
+  await method.selectOptions("1");
+  await expect.element(method).toBeDisabled();
+  pending.resolve({ ok: true, kind: "email-code", flowId, result: "sent" });
+  await expect.element(page.getByText(/The server sent a verification code/)).toBeVisible();
+  await expect.element(code).toHaveFocus();
+  // Resend code sits in the same disabled form while it sends.
+  await pressWithKeyboard("Resend code");
+  await vi.waitFor(() => expect(client.sendEmailCode).toHaveBeenCalledTimes(2));
+  await expect
+    .element(page.getByRole("button", { name: "Resend code", exact: true }))
+    .toBeEnabled();
+  await expect.element(code).toHaveFocus();
+  // A send that ends the sign-in removes the code field; the status says why.
+  const focus = vi.spyOn(HTMLElement.prototype, "focus");
+  try {
+    await pressWithKeyboard("Resend code");
+    await expect.element(code).not.toBeInTheDocument();
+    await expect.element(statusOutput()).toHaveFocus();
+    // Focus moves without scrolling the page to the status.
+    const call = focus.mock.contexts.indexOf(statusOutput().element() as HTMLElement);
+    expect(focus.mock.calls[call]).toEqual([{ preventScroll: true }]);
+  } finally {
+    focus.mockRestore();
+  }
 });

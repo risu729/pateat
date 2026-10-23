@@ -311,8 +311,6 @@ export function BitwardenSetup({
   const [emailCode, setEmailCode] = useState<EmailCode>();
   // The sign-in whose email code was already asked for once without a click.
   const emailFlow = useRef<string>(undefined);
-  // Disabling the form for a send drops focus from the method select; return it to the code.
-  const focusCode = useRef(false);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(true);
   const [statusKnown, setStatusKnown] = useState(false);
@@ -598,7 +596,9 @@ export function BitwardenSetup({
     // A new code is on its way; the refused one no longer matters.
     setRefused(false);
     setEmailCode("sending");
-    focusCode.current = true;
+    // Disabling the form for a send drops focus from the method select or Resend code;
+    // return it to the code.
+    focusNext.current = codeInput;
     start(async (epoch) => {
       const result = await client.sendEmailCode(flowId);
       if (epoch !== generation.current) return;
@@ -659,11 +659,6 @@ export function BitwardenSetup({
       document.removeEventListener("visibilitychange", shown);
     };
   }, [challenge]);
-  useEffect(() => {
-    if (!focusCode.current || busy) return;
-    focusCode.current = false;
-    codeInput.current?.focus();
-  });
   function cancel(stopped = "Setup stopped. Refresh to confirm the latest state.") {
     clearSecrets();
     setExisting(undefined);
@@ -742,14 +737,22 @@ export function BitwardenSetup({
     if (challenge !== shownChallenge.current) {
       shownChallenge.current = challenge;
       // A new or repeated challenge asks for a code. When it ends, its removed controls
-      // leave focus on the page; the status then says how it ended.
-      focusNext.current = challenge ? codeInput : undefined;
-      if (!challenge && (!document.activeElement || document.activeElement === document.body))
-        statusOutput.current?.focus();
+      // leave focus on the page; the status then says how it ended, unless the end opened
+      // another control to fill, such as the master password to finish a first sign-in.
+      if (challenge) focusNext.current = codeInput;
+      else if (focusNext.current === codeInput) focusNext.current = undefined;
+      if (
+        !challenge &&
+        !focusNext.current &&
+        (!document.activeElement || document.activeElement === document.body)
+      )
+        statusOutput.current?.focus({ preventScroll: true });
     }
-    // The control may only now be shown, or still disabled while an operation finishes.
+    // The control may only now be shown, or still disabled while an operation finishes. An
+    // operation started in this render, such as the email send choosing email starts, has
+    // not disabled it yet.
     const target = focusNext.current?.current;
-    if (target?.isConnected && !target.matches(":disabled")) {
+    if (target?.isConnected && !target.matches(":disabled") && !operation.current) {
       focusNext.current = undefined;
       target.focus();
       return;
@@ -762,7 +765,7 @@ export function BitwardenSetup({
       !focusNext.current &&
       (!focused || focused === document.body || focused.matches(":disabled"))
     )
-      statusOutput.current?.focus();
+      statusOutput.current?.focus({ preventScroll: true });
   });
   const previewEnvironment: BitwardenProfile["environment"] =
     existing?.environment ??
@@ -799,7 +802,6 @@ export function BitwardenSetup({
             type="button"
             variant="ghost"
             aria-label={t("Refresh connections")}
-            className={BUSY_DIMMED}
             disabled={busy || !!challenge}
             focusableWhenDisabled={busy}
             onClick={() =>
@@ -850,7 +852,6 @@ export function BitwardenSetup({
                   <Button
                     type="button"
                     variant="outline"
-                    className={BUSY_DIMMED}
                     disabled={blocked}
                     focusableWhenDisabled={busy}
                     aria-label={t("{{name}}: {{action}}", {
@@ -1201,7 +1202,6 @@ export function BitwardenSetup({
             <Button
               id="bitwarden-continue"
               type="button"
-              className={BUSY_DIMMED}
               focusableWhenDisabled={busy}
               disabled={
                 busy || !code || (challenge.kind === "mfa-required" && !challenge.providers.length)
@@ -1374,7 +1374,6 @@ export function BitwardenSetup({
             <Button
               id="bitwarden-connect"
               type="button"
-              className={BUSY_DIMMED}
               disabled={busy}
               focusableWhenDisabled={busy}
               onClick={connect}
@@ -1406,10 +1405,6 @@ export function BitwardenSetup({
   );
 }
 
-// Buttons that start an operation are only marked disabled while it runs, since Chrome
-// moves focus away from a focused control that becomes disabled.
-/** A busy button is marked with aria-disabled, which the Button's disabled style misses. */
-const BUSY_DIMMED = "aria-disabled:opacity-50";
 const iconButtonClass =
   "inline-grid size-10 flex-none place-items-center rounded-lg border border-transparent bg-transparent text-ink-muted hover:bg-surface-sunken disabled:opacity-50";
 const menuItemClass =

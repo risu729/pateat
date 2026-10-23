@@ -142,9 +142,6 @@ function SiteSwitch({
   );
 }
 
-/** A busy button is marked with aria-disabled, which the Button's disabled style misses. */
-const BUSY_DIMMED = "aria-disabled:opacity-50";
-
 const NOTICE_ICON = { progress: LoaderCircle, success: CircleCheck, error: CircleX } as const;
 
 /** One account as a card: the username as the title, the item and its vault below. */
@@ -313,7 +310,8 @@ export function SiteApp({
   // Buttons that start a change are only marked disabled while it runs, since Chrome moves
   // focus away from a focused control that becomes disabled. A control the result
   // removes or disables, such as Remove default once the default is gone, leaves focus on
-  // the result message, so a keyboard user is not sent back to the top of the popup.
+  // the result message, so a keyboard user is not sent back to the top of the popup. A
+  // mouse click also focuses the button, so the move does not scroll.
   const message = useRef<HTMLOutputElement>(null);
   const wasBusy = useRef(false);
   useEffect(() => {
@@ -323,7 +321,7 @@ export function SiteApp({
       !busy &&
       (!focused || focused === document.body || (focused as HTMLButtonElement).disabled)
     )
-      message.current?.focus();
+      message.current?.focus({ preventScroll: true });
     wasBusy.current = busy;
   }, [busy]);
   const tab = useQuery({
@@ -691,7 +689,6 @@ export function SiteApp({
         id="popup-remove-default"
         type="button"
         variant="outline"
-        className={BUSY_DIMMED}
         disabled={busy || listing}
         focusableWhenDisabled={busy}
         onClick={removeDefault}
@@ -758,7 +755,7 @@ export function SiteApp({
             <Button
               id="popup-pick"
               type="button"
-              className={`w-full gap-2 ${BUSY_DIMMED}`}
+              className="w-full gap-2"
               disabled={busy || offered.held || !shownPick}
               focusableWhenDisabled={busy}
               aria-describedby={offered.held ? "popup-pick-held" : undefined}
@@ -858,7 +855,6 @@ export function SiteApp({
                   <Button
                     id="popup-set-default"
                     type="button"
-                    className={BUSY_DIMMED}
                     disabled={busy || !shown || shown === currentValue}
                     focusableWhenDisabled={busy}
                     onClick={setDefault}

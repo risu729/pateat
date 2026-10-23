@@ -1676,11 +1676,26 @@ names the connection and explains removal of its local vault cache, unlock key a
 sign-in. Focus starts on **Keep connection**; Keep and Escape close without deleting,
 report "Connection kept." and return focus to that row's **More** button. Backdrop
 clicks leave the question open, and the page behind it is blocked until it closes.
-**Delete connection** runs the existing local deletion operation and reports its result
-in the settings status line. The owner approved this change on 2026-10-14 at 08:40 UTC
+**Delete connection** runs the existing local deletion operation, reports its result in
+the settings status line and moves focus there. The owner approved this change on
+2026-10-14 at 08:40 UTC
 ([adopted platform features](research/2026-10-14-platform-feature-candidates.md)). The
 `/manage` recipe revoke and diagnostics **Clear logs** confirmations remain inline;
 whether they follow is a separate owner decision.
+
+Keyboard focus in the popup and the settings page's Bitwarden setup never falls back to
+the top of the page (owner, 2026-10-23 12:32 UTC):
+
+- A button that starts an operation stays focusable while it runs: Base UI's
+  `focusableWhenDisabled` marks it `aria-disabled` instead of `disabled`, because Chrome
+  moves focus off a focused control that becomes disabled. `Button` dims both states.
+- When the result removes the pressed button or leaves it disabled, focus moves to the
+  result line (`#popup-message`, `#bitwarden-setup-status`) with
+  `focus({ preventScroll: true })`, so a mouse click does not scroll the page. Both are
+  polite live regions, so a screen reader may read the result twice.
+- A control the result opens takes focus instead: a verification challenge's code field
+  (also after sending or resending the email code), the master password for **Sign in
+  again**, and **Server** after **Add another connection**.
 
 ## Diagnostics
 
