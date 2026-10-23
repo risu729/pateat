@@ -36,7 +36,7 @@ import { saveWifCredential } from "../src/claude/credentials";
 import { saveModelConfig } from "../src/claude/models";
 import { MAX_ACTIVE_RECIPES } from "../src/limits";
 import { writeRecipe } from "../src/recipe-store";
-import { documentUnits } from "../src/recipe-units";
+import { documentUnits } from "@pateat/generation";
 import { seedRecipeBytes, storedRecipeBytes } from "./recipe-byte-helpers";
 import {
   ATTEMPT_WINDOW_MS,
@@ -44,7 +44,7 @@ import {
   generatedRecipeId,
   MIN_GENERATION_RECIPE_ROOM_BYTES,
   staleHead,
-} from "../src/recipes/generate";
+} from "@pateat/generation";
 
 // Synthetic owners, devices, federation identifiers and pages only. Anthropic's token
 // endpoint and the Messages API are answered locally; no request leaves the test.

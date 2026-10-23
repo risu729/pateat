@@ -159,7 +159,7 @@ accounts in another language fails the same way.
 - A judgement learns its handler or marker into the named layout. Generation attempts
   and judged pages are keyed by layout, so two layouts of one revision and path do not
   share the once-per-page rule.
-- `buildLoginLayout` in `services/api/src/recipes/generate.ts` builds a layout from the
+- `buildLoginLayout` in `packages/generation/src/generate.ts` builds a layout from the
   model's answer without writing it; the write is separate. Until repair lands, new
   generation writes the recipe's first layout only, and the document schema refuses a
   fourth layout that `withLoginLayout` adds.
@@ -344,11 +344,11 @@ Recorded on 2026-10-23 from the owner; not designed or decided here:
   the login runtime (`apps/extension/src/login/runtime.ts`), the page's language
   (`observation/extract.ts`, `login/content.ts`), and the service senders that now name
   the layout.
-- Service: `services/api/src/recipes/generate.ts`, `recipe-store.ts` (`markLayoutUsed`,
-  `removeUnusedLayouts`, the unit rows of `writeRecipe`), `recipe-units.ts` (unit IDs),
-  `routes/recipes.ts`, `routes/manage-api.ts`, `db/schema.ts` (`recipe_unit_sources`),
-  migration `0029_recipe_layouts.sql`, and the management page
-  (`services/api/web/recipes.tsx`).
+- Service: `packages/generation/src/generate.ts`, `recipe-store.ts` (`markLayoutUsed`,
+  `removeUnusedLayouts`, the unit rows of `writeRecipe`),
+  `packages/generation/src/units.ts` (unit IDs), `routes/recipes.ts`,
+  `routes/manage-api.ts`, `db/schema.ts` (`recipe_unit_sources`), migration
+  `0029_recipe_layouts.sql`, and the management page (`services/api/web/recipes.tsx`).
 
 ## Alternatives
 

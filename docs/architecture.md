@@ -2858,12 +2858,15 @@ observations instead of relying on provider truncation.
 
 Extract an allowlisted observation before filling. The proposed observation contract
 lives in `packages/contracts` and the offline role adapters in `packages/inference`; see
-[AI evaluation harness progress](plan.md#ai-evaluation-harness-progress). Exclude
-values, hidden inputs, raw HTML, screenshots, query strings, and unrelated page text by
-default. On every page Pateat observes (a login page, a list of accounts, a sign-in
-entry page, the page after an `advance` step and a judged page), each whole path segment
-that may carry a session ID, a tenant or account ID or another token is replaced by
-`[id]` ([ADR 0039](adr/0039-redacted-token-path-segments.md), owner 2026-10-16 14:10
+[AI evaluation harness progress](plan.md#ai-evaluation-harness-progress). The generation
+and judge routes that call them live in `packages/generation` and run against a
+`GenerationBackend`: D1 and the owner's credential on the service, and the device's
+storage and key without one ([ADR 0040](adr/0040-running-without-the-service.md)).
+Exclude values, hidden inputs, raw HTML, screenshots, query strings, and unrelated page
+text by default. On every page Pateat observes (a login page, a list of accounts, a
+sign-in entry page, the page after an `advance` step and a judged page), each whole path
+segment that may carry a session ID, a tenant or account ID or another token is replaced
+by `[id]` ([ADR 0039](adr/0039-redacted-token-path-segments.md), owner 2026-10-16 14:10
 UTC), so `/<tenant UUID>/oauth2/authorize` is sent as `/[id]/oauth2/authorize` and the
 token never reaches the service or its request log. A segment counts when, as it is or
 percent-decoded, it holds a matrix parameter such as `;jsessionid=`, an ASP.NET
