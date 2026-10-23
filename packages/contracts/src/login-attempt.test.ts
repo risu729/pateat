@@ -899,6 +899,7 @@ describe("submission and failure reconciliation", () => {
     const next: LoginDocument = { ...top, documentId: "document-next" };
     const ready = transitionLoginAttempt(
       createAttemptMetadata({
+        timing: noTimeBefore,
         id: "attempt-top",
         recipe,
         policyRevision: 3,
@@ -955,6 +956,7 @@ describe("submission and failure reconciliation", () => {
     };
     let filling = transitionLoginAttempt(
       createAttemptMetadata({
+        timing: noTimeBefore,
         id: "attempt-top",
         recipe,
         policyRevision: 3,

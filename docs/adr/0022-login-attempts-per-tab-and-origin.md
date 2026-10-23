@@ -158,10 +158,14 @@ fix them now; the SSO policy itself is recorded separately.
 - **Leaving the origin after a possible submission ends the attempt.** A top-level
   attempt that may have submitted (any fill or a click that submitted) and sees the
   tab's page move to another origin ends `blocked` with the new outcome `left-origin`.
-  Without a possible submission it ends `interrupted`. Neither is `authenticated`, so no
-  account choice is saved, and neither is retried. For the logout detection of
-  [ADR 0021](0021-account-choice-outside-settings.md) (part D), both count as finished,
-  like unknown outcomes.
+  Without a possible submission it ends `interrupted`; a fill whose failure confirmed it
+  changed nothing, waiting to be tried again, is none. A login that has submitted
+  nothing and has nothing in flight that may have, as one between steps when a new page
+  of its origin shows or the worker restarts, never settles as unknown: a page that does
+  not show its step yet is left to that step's own wait and retries. Neither is
+  `authenticated`, so no account choice is saved, and neither is retried. For the logout
+  detection of [ADR 0021](0021-account-choice-outside-settings.md) (part D), both count
+  as finished, like unknown outcomes.
   - **A move after a passkey answer** (amended 2026-10-12). Such an attempt ends
     `authenticated` instead when all of these hold: after its last effect step and at
     most 30 seconds before the move, Pateat returned an assertion to a passkey request

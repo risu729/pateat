@@ -543,10 +543,14 @@ const leftOrigin = (left: LoginDocument, right: LoginDocument) =>
   right.frameId === 0 &&
   left.tabId === right.tabId &&
   left.origin !== right.origin;
-/** The current operation may have submitted or changed the page. */
+/**
+ * The current operation may have submitted or changed the page. A fill whose failure
+ * confirmed that it changed nothing, or that failed before its intent, waits to be tried
+ * again and did not (ADR 0022).
+ */
 const maySubmit = (context: LoginAttemptMetadata) =>
   context.mutationIntent === true ||
-  context.operationKind === "fill" ||
+  (context.operationKind === "fill" && context.retryRequired !== true) ||
   (context.operationKind === "click" && context.submissions > 0);
 const operationMatches = (context: LoginAttemptMetadata, event: LoginAttemptEvent) =>
   "operationId" in event && event.operationId === context.operationId;
@@ -1557,7 +1561,20 @@ export function transitionLoginAttempt(
   const event = v.parse(loginAttemptEventSchema, eventValue);
   if (metadata.state === "authenticated" || metadata.state === "blocked") return metadata;
   const snapshot = loginAttemptMachine.resolveState({ value: metadata.state, context: metadata });
-  const [next] = transition(loginAttemptMachine, snapshot, event);
+  // A login that has submitted nothing, and has nothing in flight that may have, has no
+  // result to settle as unknown: the page goes on as one that does not show its step yet,
+  // which the step's own bounded wait and the retries decide (ADR 0022).
+  const unsubmitted =
+    event.type === "OBSERVED" &&
+    event.result === "unknown" &&
+    metadata.submissions === 0 &&
+    !maySubmit(metadata)
+      ? transition(loginAttemptMachine, snapshot, { ...event, result: "continue" })[0]
+      : undefined;
+  const [next] =
+    unsubmitted && (unsubmitted.value === "ready" || unsubmitted.value === "retryable")
+      ? [unsubmitted]
+      : transition(loginAttemptMachine, snapshot, event);
   const { watch, ...moved } = {
     ...next.context,
     state: next.value as LoginAttemptMetadata["state"],
