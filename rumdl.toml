@@ -6,3 +6,8 @@ line_length = 88
 code_blocks = false
 tables = false
 reflow = true
+
+[per-file-ignores]
+# Japanese has no spaces between words, so a line break inside a paragraph shows as a
+# space; keep each Japanese paragraph on one line.
+"README.ja.md" = ["MD013"]
