@@ -30,10 +30,12 @@ type SiteDefault = LocalSettings["siteDefaults"][number];
 type ExcludedSite = LocalSettings["excludedSites"][number];
 type PasskeyBrowserSite = LocalSettings["passkeyBrowserSites"][number];
 type Binding = LocalSettings["bindings"][number];
+type DetailLink = NonNullable<LocalSettings["detailLinks"]>[number];
 
 /**
  * The part of the settings that means the same on every device (ADR 0013). Vault
- * connections, item selection and field exclusions stay on this device.
+ * connections, item selection and field exclusions stay on this device. Bindings and
+ * personal-detail links (ADR 0061) belong to the owner; the rest to a profile (ADR 0076).
  */
 export type SyncedSettings = {
   excludedSites: ExcludedSite[];
@@ -41,6 +43,7 @@ export type SyncedSettings = {
   repromptSites: ExcludedSite[];
   siteDefaults: SiteDefault[];
   bindings: Binding[];
+  detailLinks: DetailLink[];
 };
 
 export function syncedSettings(settings: LocalSettings): SyncedSettings {
@@ -50,6 +53,7 @@ export function syncedSettings(settings: LocalSettings): SyncedSettings {
     repromptSites: settings.repromptSites,
     siteDefaults: settings.siteDefaults,
     bindings: settings.bindings,
+    detailLinks: settings.detailLinks ?? [],
   };
 }
 
@@ -59,6 +63,7 @@ const emptySynced: SyncedSettings = {
   repromptSites: [],
   siteDefaults: [],
   bindings: [],
+  detailLinks: [],
 };
 
 // The base of the next three-way merge. Normally both copies are the same; after an
@@ -122,6 +127,21 @@ const siteKey = (entry: ExcludedSite | PasskeyBrowserSite) => entry.hostname;
 const defaultKey = (entry: SiteDefault) => entry.origin;
 const bindingKey = (entry: Binding) =>
   JSON.stringify([entry.recipeId, entry.origin, entry.provider, entry.userId, entry.itemId]);
+/** The settings' duplicate check for detail links: one per field for an answer (ADR 0061). */
+const detailLinkKey = (link: DetailLink) =>
+  JSON.stringify([
+    link.origin,
+    link.provider,
+    link.userId,
+    link.itemId,
+    link.detail,
+    link.detail === "secret-answer" ? link.source.field : null,
+  ]);
+/** A stored question belongs to one answer of a login item (ADR 0061). */
+const detailQuestionKey = (link: DetailLink) =>
+  link.question === undefined
+    ? undefined
+    : JSON.stringify([link.origin, link.provider, link.userId, link.itemId, link.question]);
 const same = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
 
 /** What each side last agreed to: the service's copy and the local copy it accounts for. */
@@ -148,6 +168,30 @@ function mergeEntries<T>(
     if (entry !== undefined) merged.push(entry);
   }
   return merged;
+}
+
+/**
+ * Detail links merge per link like bindings. Two answers of one login item may also not
+ * store the same question; when a local link takes a question the service's copy already
+ * gives another field, the service's link stands and the local one is dropped.
+ */
+function mergeDetailLinks(
+  base: { service: DetailLink[]; local: DetailLink[] },
+  local: DetailLink[],
+  service: DetailLink[],
+): DetailLink[] {
+  const merged = mergeEntries(base, local, service, detailLinkKey);
+  const serviceLinks = new Map(service.map((link) => [detailLinkKey(link), link]));
+  const fromService = (link: DetailLink) => same(link, serviceLinks.get(detailLinkKey(link)));
+  const claimed = new Set<string>();
+  const dropped = new Set<DetailLink>();
+  for (const link of [...merged.filter(fromService), ...merged.filter((l) => !fromService(l))]) {
+    const question = detailQuestionKey(link);
+    if (question === undefined) continue;
+    if (claimed.has(question)) dropped.add(link);
+    else claimed.add(question);
+  }
+  return merged.filter((link) => !dropped.has(link));
 }
 
 export function mergeSyncedSettings(
@@ -185,6 +229,7 @@ export function mergeSyncedSettings(
       defaultKey,
     ),
     bindings: mergeEntries(part("bindings"), local.bindings, service.bindings, bindingKey),
+    detailLinks: mergeDetailLinks(part("detailLinks"), local.detailLinks, service.detailLinks),
   };
 }
 
@@ -223,6 +268,8 @@ export function refreshDisplayNames(synced: SyncedSettings, catalog: VaultCatalo
     repromptSites: synced.repromptSites,
     siteDefaults: synced.siteDefaults.map((entry) => refresh(entry, siteDefaultSchema)),
     bindings: synced.bindings.map((entry) => refresh(entry, savedLoginBindingSchema)),
+    // Links carry no display names: an item name of a card often holds its last digits.
+    detailLinks: synced.detailLinks,
   };
 }
 
@@ -241,7 +288,8 @@ function equalSynced(left: SyncedSettings, right: SyncedSettings): boolean {
     same(sorted(left.passkeyBrowserSites, siteKey), sorted(right.passkeyBrowserSites, siteKey)) &&
     same(sorted(left.repromptSites, siteKey), sorted(right.repromptSites, siteKey)) &&
     same(sorted(left.siteDefaults, defaultKey), sorted(right.siteDefaults, defaultKey)) &&
-    same(sorted(left.bindings, bindingKey), sorted(right.bindings, bindingKey))
+    same(sorted(left.bindings, bindingKey), sorted(right.bindings, bindingKey)) &&
+    same(sorted(left.detailLinks, detailLinkKey), sorted(right.detailLinks, detailLinkKey))
   );
 }
 
@@ -329,20 +377,21 @@ export function createSettingsSync(options: {
     // A matching profile base preserves local edits. A new pairing or a profile switch
     // adopts the profile's own parts below (ADR 0076); only a profile no device has
     // written yet (`newProfile`, or the owner's first settings) starts from local policy.
-    // Bindings belong to the owner, not a profile, so they keep merging either way.
+    // Bindings and detail links belong to the owner, not a profile, so they keep merging
+    // either way.
     let base: SyncBase = { service: emptySynced, local: emptySynced };
-    let bindingBase = base;
+    let ownerBase = base;
     if (
       stored &&
       (service.revision > stored.revision ||
         (service.revision === stored.revision &&
           equalSynced(serviceCopy(service), syncedSettings(stored.settings))))
     ) {
-      bindingBase = {
+      ownerBase = {
         service: syncedSettings(stored.settings),
         local: syncedSettings(stored.local),
       };
-      if (stored.profileId === service.profileId) base = bindingBase;
+      if (stored.profileId === service.profileId) base = ownerBase;
     }
     async function record(next: SyncBase) {
       if (stale()) return;
@@ -377,11 +426,13 @@ export function createSettingsSync(options: {
       }
       const localSynced = syncedSettings(local.settings);
       const serviceSynced = serviceCopy(service);
+      const ownerParts = mergeSyncedSettings(ownerBase, localSynced, serviceSynced);
       const mergedEntries = {
         ...(switchingProfile
           ? serviceSynced
           : mergeSyncedSettings(base, localSynced, serviceSynced)),
-        bindings: mergeSyncedSettings(bindingBase, localSynced, serviceSynced).bindings,
+        bindings: ownerParts.bindings,
+        detailLinks: ownerParts.detailLinks,
       };
       // Named after the merge, so the names are uploaded and written like any change.
       if (unnamed(mergedEntries)) catalog ??= options.catalog?.().catch(() => undefined);
@@ -418,7 +469,7 @@ export function createSettingsSync(options: {
         service = saved.state;
         // The service holds the merge; local settings still hold `localSynced`.
         base = { service: merged, local: localSynced };
-        bindingBase = base;
+        ownerBase = base;
         // oxlint-disable-next-line no-await-in-loop -- recorded before the local write
         if (!switchingProfile) await record(base);
       }

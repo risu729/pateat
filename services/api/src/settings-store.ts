@@ -17,7 +17,17 @@ export const profileDocument = (document: LocalSettings) => ({
 });
 
 /**
- * Reads the profile and the shared bindings at the owner's revision in one statement. A
+ * The owner's parts, shared by every profile (ADR 0076): account bindings and the links
+ * to the items that hold a login's personal details (ADR 0061), which name vault items
+ * and fields per site as bindings do.
+ */
+export const ownerDocument = (document: LocalSettings) => ({
+  bindings: document.bindings,
+  detailLinks: document.detailLinks,
+});
+
+/**
+ * Reads the profile and the owner's shared parts at the owner's revision in one statement. A
  * profile with no document of its own yet answers `newProfile`, so the first device to
  * sync it keeps its own entries (ADR 0076).
  */
@@ -33,7 +43,9 @@ export async function readSettings(
     .bind(ownerId, profileId)
     .first<{ revision: number | null; shared: string | null; document: string | null }>();
   if (!row) throw new Error("profile-not-found");
-  const shared = row.shared ? JSON.parse(row.shared) : { bindings: [] };
+  const shared: Partial<ReturnType<typeof ownerDocument>> = row.shared
+    ? JSON.parse(row.shared)
+    : { bindings: [] };
   const profile = row.document
     ? JSON.parse(row.document)
     : { excludedSites: [], repromptSites: [], passkeyBrowserSites: [], siteDefaults: [] };
@@ -41,7 +53,14 @@ export async function readSettings(
     version: 1,
     profileId,
     revision: row.revision ?? 0,
-    settings: row.revision ? { connections: [], ...profile, bindings: shared.bindings } : null,
+    settings: row.revision
+      ? {
+          connections: [],
+          ...profile,
+          bindings: shared.bindings,
+          ...(shared.detailLinks ? { detailLinks: shared.detailLinks } : {}),
+        }
+      : null,
     ...(row.revision && !row.document ? { newProfile: true } : {}),
   });
 }
@@ -70,7 +89,10 @@ export async function recipeBindingSlots(
   );
 }
 
-/** One owner revision covers shared bindings and every profile. D1 batches are atomic. */
+/**
+ * One owner revision covers the owner's shared parts and every profile. D1 batches are
+ * atomic.
+ */
 export async function writeSettings(
   db: D1Database,
   ownerId: string,
@@ -109,7 +131,7 @@ export async function writeSettings(
       .bind(
         ownerId,
         write.expectedRevision + 1,
-        JSON.stringify({ bindings: write.settings.bindings }),
+        JSON.stringify(ownerDocument(write.settings)),
         Date.now(),
         writer,
       ),

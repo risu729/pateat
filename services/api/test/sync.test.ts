@@ -2,6 +2,7 @@ import {
   createDefaultSettings,
   DEVICE_IDLE_LIMIT_MS,
   MAX_ACTIVE_RECIPE_BYTES,
+  MAX_SETTINGS_DOCUMENT_BYTES,
   type LocalSettings,
   type LoginRecipeDocument,
   type SyncRecipeChanges,
@@ -78,6 +79,28 @@ function settings(hostname = "excluded.example"): LocalSettings {
     ...createDefaultSettings(),
     connections: [],
     excludedSites: [{ hostname, includeSubdomains: true }],
+  };
+}
+
+/** A link to the field that holds a login's personal detail (ADR 0061); references only. */
+function detailLink(origin = "https://bank.example", custom = "Birth date") {
+  return {
+    origin,
+    provider: "bitwarden",
+    userId: "00000000-0000-4000-8000-000000000001",
+    itemId: "item-1",
+    detail: "birth-date" as const,
+    source: { itemId: "identity-1", field: { custom } },
+  };
+}
+
+/** A secret question's answer, linked with the question the owner confirmed. */
+function answerLink(custom = "Answer 1") {
+  return {
+    ...detailLink(),
+    detail: "secret-answer" as const,
+    source: { itemId: "item-1", field: { custom } },
+    question: "what was your first pet",
   };
 }
 
@@ -302,6 +325,93 @@ describe("settings sync", () => {
     });
   });
 
+  it("stores personal-detail links with the owner's bindings, shared by every profile", async () => {
+    // Links name vault items and fields per site, as bindings do (ADR 0061, ADR 0076).
+    const laptop = await enrollOwner();
+    const agentProfile = crypto.randomUUID();
+    await env.DB.prepare("INSERT INTO profiles (owner_id, id, name) VALUES (?, ?, 'Agent')")
+      .bind(laptop.ownerId, agentProfile)
+      .run();
+    const agent = await addDevice(laptop.ownerId);
+    await env.DB.prepare("UPDATE devices SET profile_id = ? WHERE id = ?")
+      .bind(agentProfile, agent.deviceId)
+      .run();
+    const written = { ...settings(), detailLinks: [detailLink(), answerLink()] };
+    const created = await put(laptop, "/v1/settings", {
+      version: 1,
+      expectedRevision: 0,
+      settings: written,
+    });
+    expect(created.status).toBe(200);
+    expect(await (await api(laptop, "/v1/settings")).json()).toMatchObject({
+      revision: 1,
+      settings: written,
+    });
+
+    const shared = await env.DB.prepare("SELECT document FROM settings WHERE owner_id = ?")
+      .bind(laptop.ownerId)
+      .first<{ document: string }>();
+    expect(JSON.parse(shared!.document)).toEqual({
+      bindings: [],
+      detailLinks: written.detailLinks,
+    });
+    const profile = await env.DB.prepare(
+      "SELECT document FROM profiles WHERE owner_id = ? AND id = ?",
+    )
+      .bind(laptop.ownerId, laptop.ownerId)
+      .first<{ document: string }>();
+    expect(JSON.parse(profile!.document)).not.toHaveProperty("detailLinks");
+
+    // A device on another profile gets the owner's links but not the profile's sites.
+    expect(await (await api(agent, "/v1/settings")).json()).toEqual({
+      version: 1,
+      profileId: agentProfile,
+      revision: 1,
+      newProfile: true,
+      settings: {
+        connections: [],
+        excludedSites: [],
+        repromptSites: [],
+        passkeyBrowserSites: [],
+        siteDefaults: [],
+        bindings: [],
+        detailLinks: written.detailLinks,
+      },
+    });
+
+    // Removing a link is a write like any other, from any profile.
+    const removed = await put(agent, "/v1/settings", {
+      version: 1,
+      expectedRevision: 1,
+      settings: { ...createDefaultSettings(), connections: [], detailLinks: [answerLink()] },
+    });
+    expect(removed.status).toBe(200);
+    expect(await (await api(laptop, "/v1/settings")).json()).toMatchObject({
+      revision: 2,
+      settings: { excludedSites: written.excludedSites, detailLinks: [answerLink()] },
+    });
+  });
+
+  it("refuses detail links that push the document over its limit", async () => {
+    const device = await enrollOwner();
+    // Under the request body limit, over the settings document's.
+    const detailLinks = Array.from({ length: 340 }, (_, index) =>
+      detailLink(`https://site-${index}.example`, `${"F".repeat(160)}${index}`),
+    );
+    const write = {
+      version: 1,
+      expectedRevision: 0,
+      settings: { ...settings(), detailLinks },
+    };
+    const bytes = new TextEncoder().encode(JSON.stringify(write)).byteLength;
+    expect(bytes).toBeGreaterThan(MAX_SETTINGS_DOCUMENT_BYTES);
+    expect(bytes).toBeLessThan(128 * 1024);
+    const response = await put(device, "/v1/settings", write);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "bad_request" });
+    expect(await (await api(device, "/v1/settings")).json()).toMatchObject({ revision: 0 });
+  });
+
   it("reads a profile document stored before passkeyBrowserSites as listing no site", async () => {
     const device = await enrollOwner();
     // A profile document as the previous schema wrote it, without the list (ADR 0076).
@@ -403,6 +513,61 @@ describe("settings sync", () => {
       },
     ],
     ["a negative revision", { version: 1, expectedRevision: -1, settings: settings() }],
+    [
+      "a detail link that carries a value",
+      {
+        version: 1,
+        expectedRevision: 0,
+        settings: {
+          ...settings(),
+          detailLinks: [{ ...detailLink(), value: "synthetic-forbidden-value" }],
+        },
+      },
+    ],
+    [
+      "two detail links of one login item for the same detail",
+      {
+        version: 1,
+        expectedRevision: 0,
+        settings: {
+          ...settings(),
+          detailLinks: [detailLink(), detailLink("https://bank.example", "Other date")],
+        },
+      },
+    ],
+    [
+      "two answers that store the same question",
+      {
+        version: 1,
+        expectedRevision: 0,
+        settings: {
+          ...settings(),
+          detailLinks: [answerLink("Answer 1"), answerLink("Answer 2")],
+        },
+      },
+    ],
+    [
+      "a stored question on a detail other than an answer",
+      {
+        version: 1,
+        expectedRevision: 0,
+        settings: {
+          ...settings(),
+          detailLinks: [{ ...detailLink(), question: "what is your birth date" }],
+        },
+      },
+    ],
+    [
+      "a stored question not in its compared form",
+      {
+        version: 1,
+        expectedRevision: 0,
+        settings: {
+          ...settings(),
+          detailLinks: [{ ...answerLink(), question: "What Was Your First Pet?" }],
+        },
+      },
+    ],
   ])("rejects %s", async (_, body) => {
     const device = await enrollOwner();
     const response = await put(device, "/v1/settings", body);
