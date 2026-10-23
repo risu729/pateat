@@ -462,7 +462,7 @@ export function ServiceConnection({
               <legend className="mb-1.5 p-0 text-sm font-semibold">{t("Settings profile")}</legend>
               <p id="sync-service-profile-hint" className="m-0 text-sm text-ink-muted">
                 {t(
-                  "A profile holds site exclusions and saved accounts. Devices that share one share them; account bindings are shared by every profile.",
+                  "A profile holds site exclusions, sites that ask for the master password and saved accounts. Devices that share one share them; account bindings are shared by every profile.",
                 )}
               </p>
               {profiles.map((profile) => (
@@ -527,7 +527,7 @@ export function ServiceConnection({
               <p id="sync-service-replace-detail" className="m-0">
                 {replacement.exclusions < 0
                   ? t(
-                      "This device's site exclusions and saved accounts are removed and {{profile}}'s are used instead. Account bindings are kept.",
+                      "This device's site exclusions, sites that ask for the master password and saved accounts are removed and {{profile}}'s are used instead. Account bindings are kept.",
                       { profile: replacement.profile.name },
                     )
                   : t(

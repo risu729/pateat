@@ -12,6 +12,7 @@ test("local and remote profile site controls have unique IDs and their own descr
   const draft: LocalSettings = {
     connections: [],
     excludedSites: [],
+    repromptSites: [],
     siteDefaults: [],
     bindings: [],
   };

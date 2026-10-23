@@ -42,6 +42,7 @@ const settings: LocalSettings = {
     },
   ],
   excludedSites: [],
+  repromptSites: [],
   siteDefaults: [],
   bindings: [],
 };

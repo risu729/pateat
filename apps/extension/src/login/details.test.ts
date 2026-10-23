@@ -82,6 +82,7 @@ function policy(
       },
     ],
     excludedSites: [],
+    repromptSites: [],
     siteDefaults: [],
     bindings: [],
     ...extra,

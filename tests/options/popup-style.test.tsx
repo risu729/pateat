@@ -223,6 +223,7 @@ test("long vault labels of a page's personal details wrap inside the 360px popup
     get: vi.fn<ChoiceClient["get"]>().mockResolvedValue({ ok: false, reason: "no-choice" }),
     pick: vi.fn<ChoiceClient["pick"]>(),
     status: vi.fn<ChoiceClient["status"]>().mockResolvedValue({ ok: false, reason: "no-page" }),
+    reprompt: vi.fn<ChoiceClient["reprompt"]>(),
   };
   const source = {
     connectionId: "demo-personal",

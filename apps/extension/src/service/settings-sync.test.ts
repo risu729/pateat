@@ -238,6 +238,7 @@ describe("settings sync on a new pairing", () => {
     expect(await sync.run(CONNECTION, never)).toBe("synced");
     const merged = {
       excludedSites: [site("intranet.example")],
+      repromptSites: [],
       siteDefaults: [],
       bindings: [binding("https://bank.example"), binding("https://local.example")],
     };
