@@ -347,6 +347,11 @@ export const ja = {
   "The page did not accept the value.": "ページが値を受け付けませんでした。",
   "the answer to your secret question": "秘密の質問の答え",
   "your member or customer number": "会員番号またはお客様番号",
+  "your card number": "カード番号",
+  "your card's expiry date": "カードの有効期限",
+  "your PIN": "暗証番号",
+  "This page shows another account, so nothing was filled.":
+    "このページには別のアカウントが表示されているため、何も入力しませんでした。",
   "ID {{id}}": "ID {{id}}",
   vaultsLocked_one:
     "{{count}} 個の保管庫がロック中のため、そのログインとパスキーは待機しています。",

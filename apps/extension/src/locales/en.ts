@@ -344,6 +344,11 @@ export const en = {
   "The page did not accept the value.": "The page did not accept the value.",
   "the answer to your secret question": "the answer to your secret question",
   "your member or customer number": "your member or customer number",
+  "your card number": "your card number",
+  "your card's expiry date": "your card's expiry date",
+  "your PIN": "your PIN",
+  "This page shows another account, so nothing was filled.":
+    "This page shows another account, so nothing was filled.",
   "ID {{id}}": "ID {{id}}",
   vaultsLocked_one: "{{count}} vault is locked, so its logins and passkeys wait.",
   vaultsLocked_other: "{{count}} vaults are locked, so their logins and passkeys wait.",

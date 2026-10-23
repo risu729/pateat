@@ -21,6 +21,7 @@ import {
   CreditCard,
   IdCard,
   Info,
+  KeyRound,
   LoaderCircle,
   Lock,
   LogIn,
@@ -286,6 +287,9 @@ const DETAIL_ICON = {
   "phone-last-4": Smartphone,
   "card-last-4": CreditCard,
   "card-code": CreditCard,
+  "card-number": CreditCard,
+  "card-expiry": CreditCard,
+  pin: KeyRound,
   "secret-answer": MessageCircleQuestionMark,
   "member-id": IdCard,
 } as const satisfies Record<LoginDetail, unknown>;

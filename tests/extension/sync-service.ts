@@ -268,10 +268,14 @@ export async function startSyncService({
     const now = Date.now();
     await db.prepare("INSERT INTO owners (id, created_at) VALUES (?, ?)").bind(ownerId, now).run();
     await db
+      .prepare("INSERT INTO profiles (owner_id, id, name) VALUES (?, ?, 'Default')")
+      .bind(ownerId, ownerId)
+      .run();
+    await db
       .prepare(
-        "INSERT INTO devices (id, owner_id, token_hash, label, created_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO devices (id, owner_id, profile_id, token_hash, label, created_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
       )
-      .bind(deviceId, ownerId, tokenHash, "Synthetic test device", now, now)
+      .bind(deviceId, ownerId, ownerId, tokenHash, "Synthetic test device", now, now)
       .run();
     if (claude)
       await db

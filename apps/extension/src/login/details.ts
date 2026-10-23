@@ -1,7 +1,7 @@
 import {
   getItemEligibility,
   resolveDetailSourceField,
-  type BirthDateFormat,
+  type DetailFormat,
   type DetailLink,
   type LocalSettings,
   type LoginDetail,
@@ -9,11 +9,13 @@ import {
   type VaultConnectionMetadata,
   type VaultItemMetadata,
 } from "@pateat/contracts";
+import type { LoginSecretKind } from "./wire";
 
 // Personal details asked during a login (ADR 0061): which vault fields may give each
 // detail, the owner's links to them, and the value a page wants made from a field's
 // value. Values are made here, in the service worker, right after the vault read, so a
-// whole phone or card number never reaches the page.
+// whole phone number never reaches the page, nor a whole card number except for a
+// `card-number` input.
 
 /** The login item a link belongs to: its site and its vault account and item. */
 export type DetailOwner = Pick<DetailLink, "origin" | "provider" | "userId" | "itemId">;
@@ -24,11 +26,27 @@ const builtinSources: Readonly<Record<LoginDetail, readonly string[]>> = {
   "phone-last-4": ["identity.phone"],
   "card-last-4": ["card.number"],
   "card-code": ["card.code"],
+  "card-number": ["card.number"],
+  // The expiry's month names the link; its year is read from the same card item.
+  "card-expiry": ["card.expMonth"],
+  pin: [],
   "secret-answer": [],
   "member-id": [],
 };
 /** Custom field names that read as a birth date, compared without case. */
 const birthWords = ["birth", "dob", "生年月日", "誕生日"];
+/**
+ * A custom field name that reads as a PIN, after NFKC and without case: `pin` as a word of
+ * its own (so not "shipping"), `暗証` or `passcode`.
+ */
+const pinName = /(?:^|[^a-z])pin(?:$|[^a-z])|暗証|passcode/u;
+/** The details read only from a card item's built-in fields. */
+const cardDetails: readonly LoginDetail[] = [
+  "card-last-4",
+  "card-code",
+  "card-number",
+  "card-expiry",
+];
 /** Custom field names that read as a member or customer number, compared without case. */
 const memberWords = ["id", "number", "no", "番号", "会員", "お客様", "customer", "member", "契約"];
 /**
@@ -52,17 +70,39 @@ const notMemberWords = [
 /** The details read only from the login item's own custom fields (ADR 0061). */
 export const ownItemDetails: readonly LoginDetail[] = ["secret-answer", "member-id"];
 
+/** Whether an item is a card: it has a card's built-in fields. */
+const isCard = (item: Pick<VaultItemMetadata, "fields">) =>
+  item.fields.some((field) => field.id.startsWith("card."));
+
+/**
+ * Whether `detail` may be read from `item` for the login item `loginItemId` (ADR 0061): an
+ * answer or member ID only from the login item; a PIN, a credential of one account, only
+ * from the login item or a card item, never an identity or another login item; any other
+ * detail from any item.
+ */
+export function readsFrom(
+  detail: LoginDetail,
+  item: Pick<VaultItemMetadata, "id" | "fields">,
+  loginItemId: string,
+): boolean {
+  if (ownItemDetails.includes(detail)) return item.id === loginItemId;
+  if (detail === "pin") return item.id === loginItemId || isCard(item);
+  return true;
+}
+
 /**
  * Whether `field` of an item may give `detail`: a built-in source, or a Text or Hidden
- * custom field whose name says it holds the detail, a birth date's or a phone number's,
- * so a link never reads another custom field, such as a PIN, into a page's input.
+ * custom field whose name says it holds the detail, a birth date's, a phone number's or a
+ * PIN's. A field named as a PIN gives no other detail but an answer named after its
+ * question, so a link never reads a PIN into a birth date's, phone number's or member ID's
+ * input.
  */
 export function givesDetail(
   detail: LoginDetail,
   field: VaultItemMetadata["fields"][number],
 ): boolean {
   if (builtinSources[detail].includes(field.id)) return true;
-  if (detail === "card-last-4" || detail === "card-code") return false;
+  if (cardDetails.includes(detail)) return false;
   if (!field.id.startsWith("custom.") || (field.kind !== "text" && field.kind !== "hidden"))
     return false;
   const name = field.name?.normalize("NFKC").toLowerCase() ?? "";
@@ -74,6 +114,8 @@ export function givesDetail(
       memberWords.some((word) => name.includes(word)) &&
       !notMemberWords.some((word) => name.includes(word))
     );
+  if (detail === "pin") return pinName.test(name);
+  if (pinName.test(name)) return false;
   return detail === "birth-date"
     ? birthWords.some((word) => name.includes(word))
     : /phone|tel|電話/u.test(name);
@@ -102,29 +144,69 @@ export function readBirthDate(
 }
 
 /**
- * The value a page's input wants for `detail`, made from the linked field's value: the
- * date in `format`, the last four digits, a card code of 3 or 4 digits as it is, or an
- * answer (up to 128 characters) or member ID (up to 64) trimmed. Undefined when the value
- * is no date, has too few digits, or is empty or too long.
+ * The fields a linked detail's value is made from: the link's field, and for a card's
+ * expiry date, whose link names its month, the same card's year after it.
+ */
+export function detailFieldIds(detail: LoginDetail, fieldId: string): string[] {
+  return detail === "card-expiry" ? [fieldId, "card.expYear"] : [fieldId];
+}
+
+/** A card's expiry month (1 to 12) and four-digit year, or undefined when either is not one. */
+function readExpiry(month: string, year: string): { month: string; year: string } | undefined {
+  const monthDigits = digitsOf(month);
+  const yearDigits = digitsOf(year);
+  const number = Number(monthDigits);
+  if (!/^\d{1,2}$/u.test(monthDigits) || number < 1 || number > 12) return undefined;
+  // A two-digit year is in this century, as card years are.
+  const full = /^\d{2}$/u.test(yearDigits)
+    ? `20${yearDigits}`
+    : /^\d{4}$/u.test(yearDigits)
+      ? yearDigits
+      : undefined;
+  return full ? { month: String(number).padStart(2, "0"), year: full } : undefined;
+}
+
+/**
+ * The value a page's input wants for `detail`, made from the linked field's value (and,
+ * for a card's expiry date, `cardYear`, its card's year): the date in `format`, the last four
+ * digits, a card code of 3 or 4 digits as it is, a card number's 12 to 19 digits or a
+ * PIN's 4 to 12, written as digits alone with optional spaces or hyphens, or an answer
+ * (up to 128 characters) or member ID (up to 64) trimmed.
+ * Undefined when the value is no date, has too few or too many digits, or is empty or too
+ * long.
  */
 export function detailValue(
   detail: LoginDetail,
-  format: BirthDateFormat | undefined,
+  format: DetailFormat | undefined,
   value: string,
+  cardYear?: string,
 ): string | undefined {
+  if (detail === "card-expiry") {
+    const expiry = cardYear === undefined ? undefined : readExpiry(value, cardYear);
+    if (!expiry) return undefined;
+    const short = expiry.year.slice(2);
+    const made: Partial<Record<DetailFormat, string>> = {
+      mmyy: `${expiry.month}${short}`,
+      "mm/yy": `${expiry.month}/${short}`,
+      mmyyyy: `${expiry.month}${expiry.year}`,
+      "mm/yyyy": `${expiry.month}/${expiry.year}`,
+    };
+    return format === undefined ? undefined : made[format];
+  }
   if (detail === "birth-date") {
     const date = readBirthDate(value);
     if (!date || !format) return undefined;
     const year = String(date.year);
     const month = String(date.month).padStart(2, "0");
     const day = String(date.day).padStart(2, "0");
-    return {
+    const made: Partial<Record<DetailFormat, string>> = {
       yyyymmdd: `${year}${month}${day}`,
       yyyymm: `${year}${month}`,
       "yyyy-mm-dd": `${year}-${month}-${day}`,
       "yyyy/mm/dd": `${year}/${month}/${day}`,
       mmdd: `${month}${day}`,
-    }[format];
+    };
+    return made[format];
   }
   if (detail === "secret-answer" || detail === "member-id") {
     const text = value.trim();
@@ -132,9 +214,28 @@ export function detailValue(
       ? text
       : undefined;
   }
+  if (detail === "card-number" || detail === "pin") {
+    // Digits alone, perhaps grouped by spaces or hyphens: any other text, such as a note
+    // beside the number, is no value.
+    const text = value.normalize("NFKC").trim();
+    if (!/^[0-9]+(?:[ -]+[0-9]+)*$/u.test(text)) return undefined;
+    const grouped = text.replace(/[ -]/gu, "");
+    return (detail === "pin" ? /^\d{4,12}$/u : /^\d{12,19}$/u).test(grouped) ? grouped : undefined;
+  }
   const digits = digitsOf(value);
   if (detail === "card-code") return /^\d{3,4}$/u.test(digits) ? digits : undefined;
   return digits.length >= 4 ? digits.slice(-4) : undefined;
+}
+
+/**
+ * Which inputs a detail's value may fill (`acceptsSecret`): a card's security code, its
+ * whole number and a PIN each by their own rule; a question's answer is filled as
+ * `answer` with its question, and every other detail as `detail`.
+ */
+export function detailSecret(
+  detail: Exclude<LoginDetail, "secret-answer">,
+): Extract<LoginSecretKind, "card-code" | "card-number" | "pin" | "detail"> {
+  return detail === "card-code" || detail === "card-number" || detail === "pin" ? detail : "detail";
 }
 
 /**
@@ -183,17 +284,38 @@ export function linkedField(
   connection: VaultConnectionMetadata,
   link: Pick<DetailLink, "detail" | "source" | "itemId">,
 ): { itemId: string; fieldId: string; name: string | null } | undefined {
-  // An answer or member ID is read from the login item itself, never another item.
-  if (ownItemDetails.includes(link.detail) && link.source.itemId !== link.itemId) return undefined;
   const item = connection.items.find((entry) => entry.id === link.source.itemId);
-  if (!item || item.inactive || connection.quarantinedItemIds?.includes(item.id)) return undefined;
+  // An answer, member ID or PIN is read only from the items `readsFrom` allows.
+  if (
+    !item ||
+    !readsFrom(link.detail, item, link.itemId) ||
+    item.inactive ||
+    connection.quarantinedItemIds?.includes(item.id)
+  )
+    return undefined;
   const eligibility = getItemEligibility(settings, catalog, connection.id, item.id);
   if (!eligibility.eligible) return undefined;
   const fieldId = resolveDetailSourceField(link.source.field, item.fields);
   const field = item.fields.find((entry) => entry.id === fieldId);
-  if (!field || !eligibility.fieldIds.includes(field.id) || !givesDetail(link.detail, field))
+  if (
+    !field ||
+    !givesDetail(link.detail, field) ||
+    !readable(link.detail, field.id, item, eligibility.fieldIds)
+  )
     return undefined;
   return { itemId: item.id, fieldId: field.id, name: field.name };
+}
+
+/** Whether every field a detail's value is made from is in the item and allowed. */
+function readable(
+  detail: LoginDetail,
+  fieldId: string,
+  item: VaultItemMetadata,
+  allowed: readonly string[],
+): boolean {
+  return detailFieldIds(detail, fieldId).every(
+    (id) => allowed.includes(id) && item.fields.some((entry) => entry.id === id),
+  );
 }
 
 /** One vault field that could give a detail, as the popup offers it. */
@@ -207,11 +329,12 @@ export type DetailCandidate = {
 
 /**
  * The fields of the login item's connection that could give `detail` (ADR 0061), at most
- * `limit`, under the rules of `linkedField`: identity phone numbers, card numbers and
- * codes, and Text or Hidden custom fields whose name reads as a birth date, a phone or a
- * member ID; an answer or member ID only from `loginItemId`, the login item. An item
- * whose name shares a run of three or more ASCII letters or digits with the page's host
- * name, or appears whole in its title, comes first; otherwise the catalog's order is kept.
+ * `limit`, under the rules of `linkedField`: identity phone numbers, card numbers, codes
+ * and expiry months (with their card's year), and Text or Hidden custom fields whose name
+ * reads as a birth date, a phone, a PIN or a member ID; an answer or member ID only from
+ * `loginItemId`, the login item, and a PIN only from it or a card item. An item whose name
+ * shares a run of three or more ASCII letters or digits with the page's host name, or
+ * appears whole in its title, comes first; otherwise the catalog's order is kept.
  */
 export function detailCandidates(
   settings: LocalSettings,
@@ -224,17 +347,18 @@ export function detailCandidates(
   const found: (DetailCandidate & { near: boolean })[] = [];
   for (const item of connection.items) {
     if (item.inactive || connection.quarantinedItemIds?.includes(item.id)) continue;
-    if (ownItemDetails.includes(detail) && item.id !== page.loginItemId) continue;
+    if (!readsFrom(detail, item, page.loginItemId)) continue;
     const eligibility = getItemEligibility(settings, catalog, connection.id, item.id);
     if (!eligibility.eligible) continue;
     for (const field of item.fields) {
-      if (!eligibility.fieldIds.includes(field.id) || !givesDetail(detail, field)) continue;
+      if (!givesDetail(detail, field) || !readable(detail, field.id, item, eligibility.fieldIds))
+        continue;
       found.push({
         connectionId: connection.id,
         itemId: item.id,
         fieldId: field.id,
         itemLabel: item.label,
-        fieldLabel: field.label,
+        fieldLabel: detailFieldLabel(detail, field.id, item),
         near: nearPage(item.label, page),
       });
     }
@@ -247,6 +371,17 @@ export function detailCandidates(
     )
     .slice(0, limit)
     .map(({ entry: { near: _near, ...candidate } }) => candidate);
+}
+
+/** How the popup names the fields a detail reads: their labels, the month's and year's for an expiry. */
+export function detailFieldLabel(
+  detail: LoginDetail,
+  fieldId: string,
+  item: Pick<VaultItemMetadata, "fields">,
+): string {
+  return detailFieldIds(detail, fieldId)
+    .map((id) => item.fields.find((entry) => entry.id === id)?.label ?? id)
+    .join(" / ");
 }
 
 /** Whether an item's name points at the page: an ASCII word of 3 or more in its host, or the whole name in its title. */

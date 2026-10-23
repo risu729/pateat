@@ -53,6 +53,7 @@ function mockClient(initial: ManageClaude = stateOf(null)) {
     revokeDevice: vi.fn<ManageClient["revokeDevice"]>(),
     settings: vi.fn<ManageClient["settings"]>(async () => ({
       version: 1,
+      profileId: "00000000-0000-4000-8000-000000000001",
       revision: 0,
       settings: null,
     })),
@@ -83,6 +84,13 @@ function mockClient(initial: ManageClaude = stateOf(null)) {
       version: 1,
       result: { status: "ready", expiresInSeconds: 600 },
     })),
+    profileId: undefined,
+    selectProfile: vi.fn<ManageClient["selectProfile"]>(),
+    profiles: vi.fn<ManageClient["profiles"]>(),
+    copyProfile: vi.fn<ManageClient["copyProfile"]>(),
+    renameProfile: vi.fn<ManageClient["renameProfile"]>(),
+    deleteProfile: vi.fn<ManageClient["deleteProfile"]>(),
+    assignProfile: vi.fn<ManageClient["assignProfile"]>(),
     problems: vi.fn<ManageClient["problems"]>(),
     replace(next: ManageClaude) {
       state = next;

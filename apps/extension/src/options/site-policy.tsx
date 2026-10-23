@@ -256,11 +256,13 @@ function SiteRow({
 
 /** The default account control of an origin row: its select and an explicit Save. */
 function DefaultAccountEditor({
+  idPrefix,
   origin,
   options,
   current,
   save,
 }: {
+  idPrefix: string;
   origin: string;
   options: { value: string; text: string }[];
   current: string;
@@ -272,7 +274,7 @@ function DefaultAccountEditor({
   // A choice the list no longer offers falls back to the saved value.
   const shown =
     choice !== undefined && options.some((entry) => entry.value === choice) ? choice : current;
-  const errorId = `site-default-error-${origin}`;
+  const errorId = `${idPrefix}site-default-error-${origin}`;
   return (
     <>
       <label className="contents">
@@ -316,11 +318,13 @@ function DefaultAccountEditor({
 }
 
 export function SitePolicy({
+  idPrefix = "",
   draft,
   catalog,
   edit,
   findSiteAccounts,
 }: {
+  idPrefix?: string;
   draft: LocalSettings;
   catalog: VaultCatalog;
   edit: (update: (value: LocalSettings) => void) => boolean;
@@ -551,6 +555,7 @@ export function SitePolicy({
         controls={
           <>
             <DefaultAccountEditor
+              idPrefix={idPrefix}
               origin={origin}
               options={options}
               current={current}
@@ -680,8 +685,8 @@ export function SitePolicy({
   );
 
   return (
-    <Panel id="sites" headingId="sites-heading" title={t("Sites")}>
-      <RowList id="site-list">{rows.map((entry) => entry.row())}</RowList>
+    <Panel id={`${idPrefix}sites`} headingId={`${idPrefix}sites-heading`} title={t("Sites")}>
+      <RowList id={`${idPrefix}site-list`}>{rows.map((entry) => entry.row())}</RowList>
       {!rows.length && (
         <StatusLines
           muted
@@ -703,12 +708,12 @@ export function SitePolicy({
                 {t("Origin")}
                 <input
                   ref={originInput}
-                  id="site-origin"
+                  id={`${idPrefix}site-origin`}
                   className={controlClass}
                   type="text"
                   placeholder="https://bank.example"
                   autoComplete="off"
-                  aria-describedby={siteError ? "site-error" : undefined}
+                  aria-describedby={siteError ? `${idPrefix}site-error` : undefined}
                   aria-invalid={Boolean(siteError)}
                   value={field.state.value}
                   onBlur={field.handleBlur}
@@ -728,12 +733,12 @@ export function SitePolicy({
                   {t("Default account")}
                   <select
                     ref={accountSelect}
-                    id="default-account"
+                    id={`${idPrefix}default-account`}
                     className={controlClass}
                     aria-describedby={
                       accountMessage
-                        ? "default-account-error default-account-note"
-                        : "default-account-note"
+                        ? `${idPrefix}default-account-error ${idPrefix}default-account-note`
+                        : `${idPrefix}default-account-note`
                     }
                     aria-invalid={Boolean(accountMessage)}
                     disabled={!accountOptions.length}
@@ -764,7 +769,7 @@ export function SitePolicy({
                   </select>
                 </label>
                 <p
-                  id="default-account-note"
+                  id={`${idPrefix}default-account-note`}
                   className="m-0 text-[0.8125rem] leading-5 text-ink-muted"
                   aria-live="polite"
                 >
@@ -777,7 +782,7 @@ export function SitePolicy({
         <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
           <label className={checkClass}>
             <input
-              id="default-account-all"
+              id={`${idPrefix}default-account-all`}
               type="checkbox"
               checked={showAllAccounts}
               onChange={(event) => {
@@ -791,7 +796,7 @@ export function SitePolicy({
             {(field) => (
               <label className={checkClass}>
                 <input
-                  id="site-subdomains"
+                  id={`${idPrefix}site-subdomains`}
                   type="checkbox"
                   checked={field.state.value}
                   onChange={(event) => field.handleChange(event.target.checked)}
@@ -802,20 +807,25 @@ export function SitePolicy({
           </siteForm.Field>
         </div>
         {siteError && (
-          <p id="site-error" className="validation-error m-0" role="alert">
+          <p id={`${idPrefix}site-error`} className="validation-error m-0" role="alert">
             {t(siteError)}
           </p>
         )}
         {accountMessage && (
-          <p id="default-account-error" className="validation-error m-0" role="alert">
+          <p id={`${idPrefix}default-account-error`} className="validation-error m-0" role="alert">
             {t(accountMessage)}
           </p>
         )}
         <div className="flex flex-wrap gap-2">
-          <Button id="add-default" type="submit">
+          <Button id={`${idPrefix}add-default`} type="submit">
             {t("Save default")}
           </Button>
-          <Button id="add-site" type="button" variant="outline" onClick={excludeEntered}>
+          <Button
+            id={`${idPrefix}add-site`}
+            type="button"
+            variant="outline"
+            onClick={excludeEntered}
+          >
             <Ban aria-hidden size={16} strokeWidth={2} />
             {t("Exclude site")}
           </Button>

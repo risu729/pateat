@@ -15,15 +15,28 @@ async function addDevice(ownerId: string, pairedAt = PAIRED_AT): Promise<Device>
   const deviceId = `device-${crypto.randomUUID()}`;
   const token = createDeviceToken();
   await env.DB.prepare(
-    "INSERT INTO devices (id, owner_id, token_hash, label, created_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?)",
+    "INSERT INTO profiles (owner_id, id, name) VALUES (?, ?, 'Default') ON CONFLICT DO NOTHING",
   )
-    .bind(deviceId, ownerId, await hashDeviceToken(token), "Owner laptop", pairedAt, Date.now())
+    .bind(ownerId, ownerId)
+    .run();
+  await env.DB.prepare(
+    "INSERT INTO devices (id, owner_id, profile_id, token_hash, label, created_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+  )
+    .bind(
+      deviceId,
+      ownerId,
+      ownerId,
+      await hashDeviceToken(token),
+      "Owner laptop",
+      pairedAt,
+      Date.now(),
+    )
     .run();
   return { ownerId, deviceId, token };
 }
 
 async function owner(): Promise<Device> {
-  const ownerId = `owner-${crypto.randomUUID()}`;
+  const ownerId = crypto.randomUUID();
   await env.DB.prepare("INSERT INTO owners (id, created_at) VALUES (?, ?)")
     .bind(ownerId, Date.now())
     .run();

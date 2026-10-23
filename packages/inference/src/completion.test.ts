@@ -1132,6 +1132,100 @@ describe("personal-detail inputs on a challenge page (ADR 0061)", () => {
     expect(outcome.answer).toEqual(answer());
   });
 
+  it("keeps a card's whole number, its expiry date and a PIN in the inputs their rules admit", async () => {
+    const number = {
+      id: "number",
+      role: "password",
+      target: { by: "name", value: "card_no" },
+      label: "Card number",
+      maxLength: 16,
+      group: "form-1",
+    };
+    const expiry = {
+      id: "expiry",
+      role: "tel",
+      target: { by: "name", value: "exp" },
+      label: "MM/YY",
+      maxLength: 5,
+      group: "form-1",
+    };
+    const pin = {
+      id: "pin",
+      role: "password",
+      target: { by: "name", value: "pin" },
+      label: "PIN",
+      maxLength: 4,
+      group: "form-1",
+    };
+    expect(
+      await judged(
+        [number, expiry, pin, next],
+        answer([
+          { field: "number", value: "card-number" },
+          { field: "expiry", value: "card-expiry", format: "mm/yy" },
+          { field: "pin", value: "pin" },
+        ]),
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        status: "ok",
+        value: {
+          decision: "challenge",
+          detail: {
+            fields: [
+              { detail: "card-number", target: number.target },
+              { detail: "card-expiry", format: "mm/yy", target: expiry.target },
+              { detail: "pin", target: pin.target },
+            ],
+            target: { by: "id", value: "next" },
+          },
+        },
+      }),
+    );
+    // An expiry date without a format of its own, or one written as mm/yyyy in 5
+    // characters, is dropped.
+    expect(
+      await judged(
+        [number, expiry, pin, next],
+        answer([
+          { field: "expiry", value: "card-expiry", format: "yyyymm" },
+          { field: "number", value: "card-number" },
+        ]),
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        value: {
+          decision: "challenge",
+          detail: {
+            fields: [{ detail: "card-number", target: number.target }],
+            target: { by: "id", value: "next" },
+          },
+          detailsDropped: ["format"],
+        },
+      }),
+    );
+    expect(
+      await judged(
+        [number, expiry, pin, next],
+        answer([
+          { field: "expiry", value: "card-expiry", format: "mm/yyyy" },
+          { field: "pin", value: "pin" },
+        ]),
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        value: {
+          decision: "challenge",
+          detail: {
+            fields: [{ detail: "pin", target: pin.target }],
+            target: { by: "id", value: "next" },
+          },
+          detailsDropped: ["too-short"],
+        },
+      }),
+    );
+  });
+
   it("keeps a detail beside a code and a passkey button", async () => {
     const code = {
       id: "code",
@@ -1308,8 +1402,10 @@ describe("personal-detail inputs on a challenge page (ADR 0061)", () => {
 
   it("fails closed on an unknown detail or format, more than three, or details beside another decision", async () => {
     for (const result of [
-      answer([{ field: "phone", value: "pin" }]),
+      answer([{ field: "phone", value: "password" }]),
       answer([{ field: "birth", value: "birth-date", format: "ddmmyyyy" }]),
+      // A separate expiry month or year is no format.
+      answer([{ field: "birth", value: "card-expiry", format: "mm" }]),
       answer([...both, both[0], both[1]]),
       { decision: "rejected", details: both, detailSubmit: "next" },
       { decision: "signed-in", marker: "next", detailSubmit: "next" },
@@ -1342,16 +1438,19 @@ describe("personal-detail inputs on a challenge page (ADR 0061)", () => {
     });
   });
 
-  it("tells the model the six details, their formats, and that a security code is never code", () => {
+  it("tells the model the nine details, their formats, and that a security code is never code", () => {
     expect(completionInstructions).toMatch(
       /A challenge that asks for a fact about the person instead of a code fills details and detailSubmit\./u,
     );
     expect(completionInstructions).toMatch(
-      /value is birth-date for a birth date asked in one input, whole or as its year and month or its month and day, with format yyyymmdd, yyyymm, yyyy-mm-dd, yyyy\/mm\/dd or mmdd as the page says or shows; a birth date split over several inputs, or written in a form none of these formats match, such as a two-digit or era year or a separator the format lacks, is no detail; phone-last-4 for the last four digits of a phone number; card-last-4 for the last four digits of a card number; card-code for a card's security code; secret-answer for the answer to a secret question the page shows; member-id for a member, customer or contract number that is not the account's sign-in ID\./u,
+      /value is birth-date for a birth date asked in one input, whole or as its year and month or its month and day, with format yyyymmdd, yyyymm, yyyy-mm-dd, yyyy\/mm\/dd or mmdd as the page says or shows; a birth date split over several inputs, or written in a form none of these formats match, such as a two-digit or era year or a separator the format lacks, is no detail; phone-last-4 for the last four digits of a phone number; card-last-4 for the last four digits of a card number; card-code for a card's security code; card-number for a card's whole number asked in one input; card-expiry for a card's expiry month and year asked in one input, with format mmyy, mm\/yy, mmyyyy or mm\/yyyy as the page says or shows; a card number or expiry date split over several inputs is no detail; pin for a PIN or passcode made of digits, such as a card's or an account's, never the account's password; secret-answer for the answer to a secret question the page shows; member-id for a member, customer or contract number that is not the account's sign-in ID\./u,
     );
+    // A whole card number and a PIN are details now (owner, 2026-10-23 11:41 UTC); a
+    // password and a code sent to the person are still none.
     expect(completionInstructions).toMatch(
-      /Any other fact, a whole phone or card number, a card's expiry date, a PIN, a password or a code sent to the person is no detail\. A card's security code is a detail, never code\./u,
+      /Any other fact, a whole phone number, a password or a code sent to the person is no detail\. A card's security code is a detail, never code\./u,
     );
+    expect(completionInstructions).not.toMatch(/a PIN, a password/u);
     // The stop's instructions extend them.
     expect(completionStopInstructions.startsWith(completionInstructions)).toBe(true);
   });

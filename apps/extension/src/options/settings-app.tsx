@@ -624,7 +624,7 @@ export function SettingsApp({
               </Panel>
             )}
           </fieldset>
-          {serviceClient && <ServiceConnection client={serviceClient} />}
+          {serviceClient && <ServiceConnection client={serviceClient} settingsClient={client} />}
           {deviceModelClient && <DeviceModelPanel client={deviceModelClient} />}
           <footer className="flex flex-wrap gap-4 text-[0.8125rem] leading-5 text-ink-muted">
             <a href="legal.html" target="_blank" rel="noreferrer">

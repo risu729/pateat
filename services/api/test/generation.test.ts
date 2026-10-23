@@ -220,14 +220,18 @@ beforeEach(() => {
 type Device = { ownerId: string; deviceId: string; token: string };
 
 async function owner({ claude = true } = {}): Promise<Device> {
-  const ownerId = `owner-${crypto.randomUUID()}`;
+  const ownerId = crypto.randomUUID();
   const deviceId = `device-${crypto.randomUUID()}`;
   const token = createDeviceToken();
   await env.DB.batch([
     env.DB.prepare("INSERT INTO owners (id, created_at) VALUES (?, ?)").bind(ownerId, Date.now()),
+    env.DB.prepare("INSERT INTO profiles (owner_id, id, name) VALUES (?, ?, 'Default')").bind(
+      ownerId,
+      ownerId,
+    ),
     env.DB.prepare(
-      "INSERT INTO devices (id, owner_id, token_hash, created_at, last_used_at) VALUES (?, ?, ?, ?, ?)",
-    ).bind(deviceId, ownerId, await hashDeviceToken(token), Date.now(), Date.now()),
+      "INSERT INTO devices (id, owner_id, profile_id, token_hash, created_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?)",
+    ).bind(deviceId, ownerId, ownerId, await hashDeviceToken(token), Date.now(), Date.now()),
   ]);
   if (claude)
     await saveWifCredential(env.DB, ownerId, {
@@ -6951,10 +6955,11 @@ describe("signed-in page samples (ADR 0029, owner 2026-10-18 08:05 UTC)", () => 
     const otherDevice = { ...device, deviceId: `device-${crypto.randomUUID()}` };
     otherDevice.token = createDeviceToken();
     await env.DB.prepare(
-      "INSERT INTO devices (id, owner_id, token_hash, created_at, last_used_at) VALUES (?, ?, ?, ?, ?)",
+      "INSERT INTO devices (id, owner_id, profile_id, token_hash, created_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?)",
     )
       .bind(
         otherDevice.deviceId,
+        device.ownerId,
         device.ownerId,
         await hashDeviceToken(otherDevice.token),
         Date.now(),
@@ -7641,9 +7646,16 @@ describe("recipe repair (ADR 0041)", () => {
     const otherId = `device-${crypto.randomUUID()}`;
     const otherToken = createDeviceToken();
     await env.DB.prepare(
-      "INSERT INTO devices (id, owner_id, token_hash, created_at, last_used_at) VALUES (?, ?, ?, ?, ?)",
+      "INSERT INTO devices (id, owner_id, profile_id, token_hash, created_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?)",
     )
-      .bind(otherId, device.ownerId, await hashDeviceToken(otherToken), Date.now(), Date.now())
+      .bind(
+        otherId,
+        device.ownerId,
+        device.ownerId,
+        await hashDeviceToken(otherToken),
+        Date.now(),
+        Date.now(),
+      )
       .run();
     const other = { ...device, deviceId: otherId, token: otherToken };
     const again = observation("/login", [
@@ -7808,9 +7820,16 @@ describe("recipe repair (ADR 0041)", () => {
       const otherId = `device-${crypto.randomUUID()}`;
       const otherToken = createDeviceToken();
       await env.DB.prepare(
-        "INSERT INTO devices (id, owner_id, token_hash, created_at, last_used_at) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO devices (id, owner_id, profile_id, token_hash, created_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?)",
       )
-        .bind(otherId, device.ownerId, await hashDeviceToken(otherToken), Date.now(), Date.now())
+        .bind(
+          otherId,
+          device.ownerId,
+          device.ownerId,
+          await hashDeviceToken(otherToken),
+          Date.now(),
+          Date.now(),
+        )
         .run();
       replies.push({ text: listAnswer("other") });
       expect(

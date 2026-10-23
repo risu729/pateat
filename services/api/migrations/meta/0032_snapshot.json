@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "354890a0-bb2b-4dc2-b202-9d83619c6401",
-  "prevId": "837925b1-00c0-4b88-a58c-0b1e5f383592",
+  "id": "103b3e90-8d3d-402a-9468-e5c0908cd295",
+  "prevId": "cd57af6f-6e85-47df-8c13-fcbf83682417",
   "tables": {
     "devices": {
       "name": "devices",
@@ -16,6 +16,13 @@
         },
         "owner_id": {
           "name": "owner_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "profile_id": {
+          "name": "profile_id",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -78,6 +85,15 @@
           "tableTo": "owners",
           "columnsFrom": ["owner_id"],
           "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "devices_owner_id_profile_id_profiles_owner_id_id_fk": {
+          "name": "devices_owner_id_profile_id_profiles_owner_id_id_fk",
+          "tableFrom": "devices",
+          "tableTo": "profiles",
+          "columnsFrom": ["owner_id", "profile_id"],
+          "columnsTo": ["owner_id", "id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -1172,6 +1188,66 @@
         "problem_log_device_id_log_id_seq_pk": {
           "columns": ["device_id", "log_id", "seq"],
           "name": "problem_log_device_id_log_id_seq_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "profiles": {
+      "name": "profiles",
+      "columns": {
+        "owner_id": {
+          "name": "owner_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "document": {
+          "name": "document",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "profiles_owner_id_owners_id_fk": {
+          "name": "profiles_owner_id_owners_id_fk",
+          "tableFrom": "profiles",
+          "tableTo": "owners",
+          "columnsFrom": ["owner_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "profiles_owner_id_id_pk": {
+          "columns": ["owner_id", "id"],
+          "name": "profiles_owner_id_id_pk"
         }
       },
       "uniqueConstraints": {},

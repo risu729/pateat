@@ -922,11 +922,12 @@ than in this repository.
   [ADR 0061](adr/0061-personal-details-during-a-login.md); its delivery 1, the `detail`
   handler that the judge learns, delivery 2, judging a page that asks for a detail
   beside the sign-in form (`beside`), delivery 3, links to the items that hold the
-  values, proposed in the popup, and delivery 4, secret-question answers and member IDs,
-  are implemented. エポスNet asks for the card's security code after the password
-  (owner, 2026-10-12 04:18 UTC: it can wait), and other sites ask for a birth date or
-  similar details as extra verification. The owner sees these as one need (2026-10-12
-  05:29 UTC): the value is in a card or
+  values, proposed in the popup, delivery 4, secret-question answers and member IDs,
+  and delivery 5, whole card numbers, expiry dates and PINs, are implemented. エポスNet
+  asks for the card's security code after the password (owner, 2026-10-12 04:18 UTC:
+  it can wait), and other sites ask for a birth date or similar details as extra
+  verification. The owner sees these as one need (2026-10-12 05:29 UTC): the value is
+  in a card or
   identity item, not in the login item, so the login has to be linked to that item. The
   owner chose how to link them (05:27 UTC): Pateat guesses the item from the site being
   logged into and what its pages show (such as a card name, brand or masked last
@@ -1292,9 +1293,9 @@ items the owner mentioned and gates still open on 2026-10-11.
     and fill-only `sign-in`, filling `confirm` pages, personal details) are here.
 - The items under [later work](#initial-delivery-and-later-scope) and the ADRs' later
   sections, including synced vault policy ([ADR 0023](adr/0023-synced-vault-policy.md)),
-  more settings profiles ([ADR 0024](adr/0024-settings-profiles.md)), the ADR 0025 later
-  work and the ADR 0027 cases it does not handle. Generation for passkey-only start
-  pages moved to [phase 2](#phase-2-use-it-and-fix-what-comes-up) on 2026-10-19.
+  profile inheritance ([ADR 0076](adr/0076-settings-profiles-delivered.md)), the ADR
+  0025 later work and the ADR 0027 cases it does not handle. Generation for passkey-only
+  start pages moved to [phase 2](#phase-2-use-it-and-fix-what-comes-up) on 2026-10-19.
 - Real-account checks of individual Bitwarden two-step methods, other KDFs, V2 keys and
   organization items. The owner moved them after the public release on 2026-10-11
   (18:35 UTC), since few users are expected to need them; each needs the owner's
