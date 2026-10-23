@@ -2383,7 +2383,8 @@ names a script link by text clicks a native button instead if the page later add
 with the same text. Other script buttons, such as a `<div role="button">`, are often
 widgets such as menus and toggles, so their `id`, `name` or `data-testid` names them,
 and their rendered text only inside a login `<form>` or beside a password form, when no
-native button (shown or hidden), script link or other such element carries that text:
+native button (shown or hidden), script link, other such element or link (in any form,
+as an account switch may name that link by the same text) carries that text:
 since 2026-10-13, when Instagram's Log in control was a `<div role="button">` with no
 attribute to name it and the page was described without it, the executor matches them by
 text after native buttons and script links, but only in lookups that never name a link:

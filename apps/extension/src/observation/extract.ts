@@ -394,8 +394,9 @@ function namesOnly(
  * marker needs, since it must match on every later visit. A
  * script link's text must also name no native button, shown or not, which the executor
  * would take first. With `roles`, another `role="button"` element (`isRoleButton`) is
- * located by its text too, when no native button, script link or other such element
- * carries it. Button text is used only when redaction leaves it unchanged, so a
+ * located by its text too, when no native button, script link, other such element or
+ * link carries it, whichever form that link is in, as the link may be located by the same
+ * text. Button text is used only when redaction leaves it unchanged, so a
  * locator never carries an email address or a long number. With
  * `redactAttributes` the same holds for attribute values, since a signed-in page's ids
  * and names often carry the account, and a value that may be a token (`tokenSegment`),
@@ -596,6 +597,7 @@ function contentTarget(
         !index.get("text")!.has(text) &&
         !hasNativeButton(element.ownerDocument, text) &&
         !index.get("script-text")!.has(text) &&
+        !index.get("link-text")!.has(text) &&
         index.get("role-text")!.get(text) === 1
       : index.get("text")!.get(text) === 1;
   if (!unique) return undefined;
