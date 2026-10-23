@@ -16,8 +16,17 @@ run (about 8.5 minutes in total on 2026-10-11). It therefore runs as six shards 
 `PATEAT_E2E_SHARD=<current>/<total>`, which `tests/extension/playwright.config.ts` turns
 into Playwright's `shard`, and the six shards together run every test once. The suite
 splits by test (`fullyParallel`) because splitting by file left `login.spec.ts` alone in
-a shard of about three minutes; each job still runs one worker. The `Verify` job runs
-the rest of the graph (lint, typecheck, unit and component tests with
+a shard of about three minutes; each job still runs one worker.
+`tests/extension/shard-reporter.ts` deals the tests out in turn (1st test to shard 1,
+7th to shard 1 again) instead of Playwright's contiguous ranges, which in
+[run 39795207166](https://github.com/risu729/pateat/actions/runs/39795207166) put all 21
+`login-generation.spec.ts` tests in shard 2: 4.3 minutes of tests there against 1.1 in
+shard 1. The same test durations dealt in turn give 1.6 to 2.7 minutes per shard. Both
+jobs install the browser without `--with-deps`: the `ubuntu-26.04` image already has
+every library Chromium loads, and in that run apt spent 9.5 and 8 minutes in shards 2
+and 5 fetching 25 MB of fonts and package updates from a slow Azure mirror (45 kB/s),
+against 2 seconds in the other shards. The `Verify` job runs the rest of the graph
+(lint, typecheck, unit and component tests with
 [coverage](development.md#test-coverage), build checks) with `PATEAT_SKIP_E2E=1` (any
 non-empty value), which turns `//tests/extension:test` into a no-op there. Both jobs
 pull the pinned Vaultwarden and Mailpit images from `ghcr.io` and run them with the

@@ -64,8 +64,12 @@ jobs:
       - &install
         name: Install frozen dependencies
         run: mise deps --force aube_workspace
-      - name: Install isolated browser runtime
-        run: mise run browser:install --with-deps
+      - &browser
+        name: Install isolated browser runtime
+        # No --with-deps: the runner image already has every library Chromium loads (a
+        # missing one stops Chromium and its error names the file). apt only added fonts and
+        # updates, 25 MB that a slow Azure mirror served at 45 kB/s for 9 minutes on 2026-10-22.
+        run: mise run browser:install
       - name: Run the complete local verification graph
         env:
           # Use the read-only job token for upstream action-pin verification.
@@ -114,8 +118,7 @@ jobs:
       - *checkout
       - *mise
       - *install
-      - name: Install isolated browser runtime
-        run: mise run browser:install --with-deps
+      - *browser
       - name: Run the packaged-extension browser tests
         env:
           PATEAT_E2E_SHARD: ${{ matrix.shard }}/${{ matrix.total }}
