@@ -266,6 +266,14 @@ describe("local TOTP admission", () => {
     });
   });
 
+  it("bounds the key at 8,192 characters", () => {
+    expect(generateLocalTotp("A".repeat(8192), clock(59_000)).ok).toBe(true);
+    expect(generateLocalTotp("A".repeat(8193), clock(59_000))).toEqual({
+      ok: false,
+      error: { code: "invalid-totp" },
+    });
+  });
+
   it.each([NaN, Infinity, -1, Number.MAX_SAFE_INTEGER + 1])("rejects invalid clock %s", (now) => {
     expect(generateLocalTotp(rfcTotpSecrets.SHA1, clock(now))).toEqual({
       ok: false,
@@ -318,7 +326,7 @@ describe("local TOTP agrees with the published Bitwarden SDK", () => {
   );
   const totp = client.vault().totp();
   afterAll(() => client.free());
-  const times = [59_000, bitwardenTotpTime];
+  const times = [59_000, bitwardenTotpTime, 4_100_000_000_123];
 
   const expectSdkParity = (seed: string) => {
     for (const now of times) {
