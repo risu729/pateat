@@ -98,6 +98,7 @@ owner the reason when the amendment changes a recorded owner instruction.
 - [0037: Fields located by their visible name](adr/0037-fields-by-visible-name.md)
 - [0038: The toolbar badge and popup show what a login did](adr/0038-login-status-badge.md)
 - [0039: Token-like path segments are sent as `[id]` on every page](adr/0039-redacted-token-path-segments.md)
+- [0040: A device's own Anthropic API key, and running without the service](adr/0040-running-without-the-service.md)
 - [0041: A generated recipe is repaired by adding a layout (accepted)](adr/0041-repair-stale-recipes.md)
 - [0043: Extension language preference](adr/0043-extension-language-preference.md)
 - [0048: A learned button goes on to the password on a page that asks how to verify](adr/0048-password-method-button.md)

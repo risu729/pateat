@@ -280,6 +280,10 @@ function notRecipe(
       reason: answer.kind === "failed" ? answer.error : "device-rejected",
       ...freed,
     };
+  // Only a request with `deviceModel` is answered with a model call, which the device makes
+  // before the answer comes here (ADR 0040).
+  if (result.status === "model-call")
+    return { outcome: "failed", reason: "unexpected-response", retry: true };
   if (result.status === "abstained") return { outcome: "abstained", reason: result.reason };
   if (result.status === "failed")
     return result.rejection

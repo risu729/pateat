@@ -197,6 +197,13 @@
       "when": 1792786942359,
       "tag": "0031_settings_profiles",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "6",
+      "when": 1792788723725,
+      "tag": "0032_inference_log_source",
+      "breakpoints": true
     }
   ]
 }

@@ -313,6 +313,14 @@ export const inferenceLog = sqliteTable(
     role: text("role", { enum: ["generate", "judge"] }).notNull(),
     /** Null for a request answered without a model call. */
     provider: text("provider"),
+    /**
+     * Whose key made the call (ADR 0040): `service` for the owner's credential on the
+     * service, `device` for a paired device's own key, whose calls the spend stops and the
+     * fast-mode check never count. `service` also for a request answered without a call.
+     */
+    source: text("source", { enum: ["service", "device"] })
+      .notNull()
+      .default("service"),
     modelId: text("model_id"),
     /**
      * The effort and speed the call asked for (the owner's model configuration); null for

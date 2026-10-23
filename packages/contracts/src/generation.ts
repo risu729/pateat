@@ -1,4 +1,5 @@
 import * as v from "valibot";
+import { deviceModelCallSchema, deviceModelSchema } from "./device-model";
 import {
   customSlotIdSchema,
   fillRoles,
@@ -194,6 +195,8 @@ export const recipeGenerationRequestSchema = v.pipe(
         ),
       ),
     ),
+    /** The device makes the model calls with its own key (ADR 0040). */
+    deviceModel: v.optional(deviceModelSchema),
   }),
   v.check(
     (request) =>
@@ -262,6 +265,8 @@ export const entryGenerationRequestSchema = v.pipe(
     version: v.literal(1),
     observation: loginObservationSchema,
     repair: v.optional(v.strictObject({ recipeId: syncRecipeIdSchema, revision: writtenRevision })),
+    /** The device makes the model call with its own key (ADR 0040). */
+    deviceModel: v.optional(deviceModelSchema),
   }),
   v.check(
     (request) => isEntryObservation(request.observation),
@@ -304,6 +309,8 @@ const generationAnswers = [
     status: v.literal("unavailable"),
     reason: generationUnavailableReasonSchema,
   }),
+  /** Only for a request with `deviceModel`: the model call the device makes next. */
+  deviceModelCallSchema,
 ] as const;
 const rejectsOnlyInvalidOutput = (result: {
   status: string;
@@ -422,6 +429,8 @@ export const recipeCompletionRequestSchema = v.pipe(
      * `detail` handler from it. Never with `stop`.
      */
     beside: v.optional(v.literal(true)),
+    /** The device makes the model calls with its own key (ADR 0040). */
+    deviceModel: v.optional(deviceModelSchema),
   }),
   v.check(
     (request) =>
@@ -515,6 +524,8 @@ export const recipeCompletionResultSchema = v.variant("status", [
     status: v.literal("unavailable"),
     reason: generationUnavailableReasonSchema,
   }),
+  /** Only for a request with `deviceModel`: the model call the device makes next. */
+  deviceModelCallSchema,
 ]);
 
 export type RecipeGenerationRequest = v.InferOutput<typeof recipeGenerationRequestSchema>;
