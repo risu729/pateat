@@ -520,6 +520,8 @@ function harness(
     badge?: LoginBadge;
     /** The item has Bitwarden's master password re-prompt. */
     reprompt?: boolean;
+    /** The other item has it too, as an identity or a card linked to the login may. */
+    otherReprompt?: boolean;
     /** Asks for the master password of a re-prompt item. */
     askMasterPassword?: Parameters<typeof createLoginRuntime>[1]["askMasterPassword"];
   } = {},
@@ -603,6 +605,7 @@ function harness(
               {
                 id: otherItemId,
                 label: "Other synthetic item",
+                ...(live.otherReprompt ? { reprompt: true as const } : {}),
                 allowedOrigins: [],
                 groupIds: [],
                 fields: [
@@ -17738,6 +17741,132 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       10_000,
     );
 
+    // A card item with Bitwarden's re-prompt is read on a site in `repromptSites` only once
+    // the login holds the master password, which the chooser window asks for if it does
+    // not (ADR 0061; owner, 2026-10-23 21:50 UTC).
+    describe("a linked card with Bitwarden's re-prompt", () => {
+      const documentFills = () =>
+        fake.state.messages.filter((entry) => entry.type === "login.detail.fill");
+      const listed = { repromptSites: [{ hostname: "login.example", includeSubdomains: false }] };
+      const numberLink = linkTo("card-number", { itemId: otherItemId, field: "card.number" });
+      const cardReads = (h: ReturnType<typeof harness>) =>
+        h.fields.mock.calls.filter(([request]) => request.account.itemId === otherItemId);
+      const cardPage = (h: ReturnType<typeof harness>) => {
+        asCard(h);
+        h.fields.mockImplementation(
+          async (request) => cardValues[request.fieldId] ?? "synthetic-secret",
+        );
+        h.recipes.recipe.mockResolvedValue(
+          asking([{ detail: "card-number", target: target("card") }]),
+        );
+      };
+
+      it("fills it as any other card on a site that does not ask", async () => {
+        onClick({ login: { path: "/confirm", present: ["card", "confirm"] }, confirm: toHome });
+        const h = harness(
+          { detailLinks: [numberLink] },
+          { passkeys: noPasskey, otherReprompt: true },
+        );
+        cardPage(h);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+          timeout: 6_000,
+        });
+        expect(detailFills().map((entry) => entry.values)).toEqual([
+          [{ slot: "detail", value: "4000000000000002", secret: "card-number" }],
+        ]);
+      }, 10_000);
+
+      it("asks for the master password before it reads the card on a site that asks, then fills it", async () => {
+        realTime();
+        onClick({ login: { path: "/confirm", present: ["card", "confirm"] }, confirm: toHome });
+        const report = vi.fn<(report: LoginReport) => void>();
+        let answer!: (value: "verified") => void;
+        const askMasterPassword = vi.fn(
+          (_input: unknown) => new Promise<"verified">((resolve) => (answer = resolve)),
+        );
+        // The login item has no re-prompt, so its login starts without asking.
+        const h = harness(
+          { ...listed, detailLinks: [numberLink] },
+          { passkeys: noPasskey, report, otherReprompt: true, askMasterPassword },
+        );
+        cardPage(h);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() =>
+          expect(status()).toMatchObject([{ state: "watching", outcome: "challenge" }]),
+        );
+        expect(handlerReports(report)).toEqual([[0, "detail", "detail-reprompt", 2]]);
+        await vi.waitFor(() => expect(askMasterPassword).toHaveBeenCalledOnce());
+        expect(askMasterPassword.mock.calls[0]![0]).toMatchObject({
+          tabId: 1,
+          origin,
+          account: { connectionId, itemId },
+          item: { id: otherItemId, reprompt: true },
+        });
+        // Nothing of the card is read or filled while the window asks.
+        expect(cardReads(h)).toEqual([]);
+        expect(detailFills()).toEqual([]);
+        expect(documentFills()).toEqual([]);
+        answer("verified");
+        await vi.waitFor(() => expect(documentFills()).toHaveLength(1));
+        expect(documentFills()[0]).toMatchObject({
+          path: "/confirm",
+          fields: [{ target: target("card"), value: "4000000000000002", secret: "card-number" }],
+        });
+        expect(cardReads(h).map(([request]) => request.fieldId)).toEqual(["card.number"]);
+        // The value is filled as the popup's Fill fills it: the person presses the button.
+        expect(clicks("confirm")).toBe(0);
+        expect(askMasterPassword).toHaveBeenCalledOnce();
+      }, 10_000);
+
+      it.each([["closed" as const], ["unavailable" as const]])(
+        "reads and fills nothing when the window answers %s",
+        async (given) => {
+          realTime();
+          onClick({ login: { path: "/confirm", present: ["card", "confirm"] }, confirm: toHome });
+          const report = vi.fn<(report: LoginReport) => void>();
+          const askMasterPassword = vi.fn(async (_input: unknown) => given);
+          const h = harness(
+            { ...listed, detailLinks: [numberLink] },
+            { passkeys: noPasskey, report, otherReprompt: true, askMasterPassword },
+          );
+          cardPage(h);
+          expect(await h.hello()).toEqual({ ok: true });
+          await vi.waitFor(() => expect(askMasterPassword).toHaveBeenCalledOnce());
+          await vi.waitFor(() =>
+            expect(status()).toMatchObject([{ state: "watching", outcome: "challenge" }]),
+          );
+          expect(handlerReports(report)).toEqual([[0, "detail", "detail-reprompt", 2]]);
+          expect(cardReads(h)).toEqual([]);
+          expect(detailFills()).toEqual([]);
+          expect(documentFills()).toEqual([]);
+          expect(clicks("confirm")).toBe(0);
+        },
+        10_000,
+      );
+
+      it("fills it as usual, asking nothing more, in a login started after the master password", async () => {
+        realTime();
+        onClick({ login: { path: "/confirm", present: ["card", "confirm"] }, confirm: toHome });
+        const askMasterPassword = vi.fn(async (_input: unknown) => "verified" as const);
+        const h = harness(
+          { ...listed, detailLinks: [numberLink] },
+          { passkeys: noPasskey, reprompt: true, otherReprompt: true, askMasterPassword },
+        );
+        cardPage(h);
+        fake.state.onReconnect = () => h.hello();
+        await h.hello();
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+          timeout: 6_000,
+        });
+        expect(askMasterPassword).toHaveBeenCalledOnce();
+        expect(detailFills().map((entry) => entry.values)).toEqual([
+          [{ slot: "detail", value: "4000000000000002", secret: "card-number" }],
+        ]);
+        expect(cardReads(h).map(([request]) => request.fieldId)).toEqual(["card.number"]);
+      }, 10_000);
+    });
+
     describe("a value split over several inputs (owner, 2026-10-23 12:26 UTC)", () => {
       // A synthetic page that asks for a birth date in three selects, a year, a month
       // written without a leading zero and a day with one.
@@ -18034,6 +18163,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       async function stopped(
         fields: Extract<LoginHandler, { kind: "detail" }>["fields"],
         live: Parameters<typeof harness>[1] = {},
+        overrides: Partial<LocalSettings> = {},
       ) {
         fake.state.detailFillReply = undefined;
         onClick({
@@ -18050,7 +18180,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
           },
           confirm: toHome,
         });
-        const h = harness({}, { passkeys: noPasskey, ...live });
+        const h = harness(overrides, { passkeys: noPasskey, ...live });
         h.recipes.recipe.mockResolvedValue(asking(fields));
         expect(await h.hello()).toEqual({ ok: true });
         await vi.waitFor(() =>
@@ -18137,6 +18267,99 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         },
         10_000,
       );
+
+      // ADR 0061 (owner, 2026-10-23 21:50 UTC): a card item with Bitwarden's re-prompt is
+      // offered as any other; on a site in `repromptSites` its Fill asks for the master
+      // password first, as the login item here has no re-prompt.
+      describe("a card with Bitwarden's re-prompt", () => {
+        const listed = {
+          repromptSites: [{ hostname: "login.example", includeSubdomains: false }],
+        };
+        const cardReads = (h: ReturnType<typeof harness>) =>
+          h.fields.mock.calls
+            .filter(([request]) => request.account.itemId === otherItemId)
+            .map(([request]) => request.fieldId);
+        async function proposed(
+          overrides: Partial<LocalSettings>,
+          askMasterPassword?: NonNullable<Parameters<typeof harness>[1]>["askMasterPassword"],
+        ) {
+          realTime();
+          const h = await stopped(
+            [{ detail: "card-number", target: target("card") }],
+            { otherReprompt: true, ...(askMasterPassword ? { askMasterPassword } : {}) },
+            overrides,
+          );
+          asCard(h);
+          h.fields.mockImplementation(
+            async (request) => cardValues[request.fieldId] ?? "synthetic-secret",
+          );
+          // It is proposed on either site.
+          expect(
+            await h.login.handle({ version: 1, type: "login.detail.get", tabId: 1 }, popup),
+          ).toMatchObject({
+            offer: {
+              details: [{ candidates: [{ itemId: otherItemId, fieldId: "card.number" }] }],
+            },
+          });
+          h.fields.mockClear();
+          return h;
+        }
+
+        it("fills it without asking on a site that does not ask", async () => {
+          const askMasterPassword = vi.fn(async (_input: unknown) => "verified" as const);
+          const h = await proposed({}, askMasterPassword);
+          expect(await fill(h, "card-number", otherItemId, "card.number")).toEqual({ ok: true });
+          expect(askMasterPassword).not.toHaveBeenCalled();
+          expect(cardReads(h)).toEqual(["card.number"]);
+          expect(popupFills()).toHaveLength(1);
+        }, 10_000);
+
+        it("asks for the master password on a site that asks, then fills it", async () => {
+          const askMasterPassword = vi.fn(async (_input: unknown) => "verified" as const);
+          const h = await proposed(listed, askMasterPassword);
+          expect(await fill(h, "card-number", otherItemId, "card.number")).toEqual({ ok: true });
+          expect(askMasterPassword).toHaveBeenCalledOnce();
+          expect(askMasterPassword.mock.calls[0]![0]).toMatchObject({
+            item: { id: otherItemId, reprompt: true },
+          });
+          expect(cardReads(h)).toEqual(["card.number"]);
+          expect(popupFills()).toEqual([
+            expect.objectContaining({
+              fields: [
+                { target: target("card"), value: "4000000000000002", secret: "card-number" },
+              ],
+            }),
+          ]);
+          // The login now holds the password: a second Fill asks nothing.
+          expect(await fill(h, "card-number", otherItemId, "card.number")).toEqual({ ok: true });
+          expect(askMasterPassword).toHaveBeenCalledOnce();
+        }, 10_000);
+
+        it.each([["closed" as const], ["unavailable" as const]])(
+          "reads and fills nothing when the window answers %s",
+          async (given) => {
+            const askMasterPassword = vi.fn(async (_input: unknown) => given);
+            const h = await proposed(listed, askMasterPassword);
+            expect(await fill(h, "card-number", otherItemId, "card.number")).toEqual({
+              ok: false,
+              reason: "no-master-password",
+            });
+            expect(cardReads(h)).toEqual([]);
+            expect(popupFills()).toEqual([]);
+          },
+          10_000,
+        );
+
+        it("reads and fills nothing where no window can ask", async () => {
+          const h = await proposed(listed);
+          expect(await fill(h, "card-number", otherItemId, "card.number")).toEqual({
+            ok: false,
+            reason: "no-master-password",
+          });
+          expect(cardReads(h)).toEqual([]);
+          expect(popupFills()).toEqual([]);
+        }, 10_000);
+      });
 
       it("offers and fills a card expiry split over two selects as its one link", async () => {
         // Owner, 2026-10-23 12:26 UTC: a split value is offered like its one-input form.
@@ -18314,11 +18537,13 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         ids: string[],
         hints: unknown,
         overrides: Partial<LocalSettings> = {},
+        /** Card items with Bitwarden's re-prompt, and the harness's further options. */
+        reprompt: { cards?: string[]; live?: Parameters<typeof harness>[1] } = {},
       ) {
         onClick({ login: { path: "/confirm", present: ["code", "confirm"] } });
         fake.state.cardHints = hints;
         const report = vi.fn<(entry: LoginReport) => void>();
-        const h = harness(overrides, { passkeys: noPasskey, report });
+        const h = harness(overrides, { passkeys: noPasskey, report, ...reprompt.live });
         const vault = { state: "ready" as "ready" | "locked" };
         const original = h.store.handle.getMockImplementation()!;
         h.store.handle.mockImplementation(async () => {
@@ -18329,6 +18554,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
               ...ids.map((id) => ({
                 id,
                 label: `Synthetic ${id}`,
+                ...(reprompt.cards?.includes(id) ? { reprompt: true as const } : {}),
                 allowedOrigins: [],
                 groupIds: [],
                 fields: ["card.number", "card.code", "card.brand"].map((field) => ({
@@ -18348,7 +18574,11 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
           return request.fieldId === "card.number" ? card.number : card.brand;
         });
         h.recipes.recipe.mockResolvedValue(coded);
-        expect(await h.hello()).toEqual({ ok: true });
+        if (reprompt.live?.askMasterPassword) {
+          // The login starts once the master password was typed and the document announces again.
+          fake.state.onReconnect = () => h.hello();
+          await h.hello();
+        } else expect(await h.hello()).toEqual({ ok: true });
         await vi.waitFor(() =>
           expect(status()).toMatchObject([{ state: "watching", outcome: "challenge" }]),
         );
@@ -18398,6 +18628,63 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
           h.recipes.starts.mock.calls,
         ]);
         for (const digits of ["9876", "7351", "4242", "5555"]) expect(out).not.toContain(digits);
+      });
+
+      // ADR 0061 (owner, 2026-10-23 21:50 UTC): the guess never asks for the master password.
+      describe("a card with Bitwarden's re-prompt", () => {
+        const listed = {
+          repromptSites: [{ hostname: "login.example", includeSubdomains: false }],
+        };
+        const hints = { ok: true, last4: ["9876"], brands: [] };
+
+        it("is guessed as any other card on a site that does not ask", async () => {
+          const { h } = await stopped(
+            ["card-a", "card-b", "card-c"],
+            hints,
+            {},
+            {
+              cards: ["card-b"],
+            },
+          );
+          expect(await offered(h)).toEqual({
+            order: ["card-b", "card-c", "card-a"],
+            preselect: false,
+          });
+          expect(reads(h).map(([item]) => item)).toContain("card-b");
+        });
+
+        it("is not read for the guess on a site that asks, while the login does not hold the master password", async () => {
+          const { h } = await stopped(["card-a", "card-b", "card-c"], hints, listed, {
+            cards: ["card-b"],
+          });
+          // It stays a candidate after the guessed card, and as it was not read none is
+          // selected; its Fill asks for the master password.
+          expect(await offered(h)).toEqual({
+            order: ["card-c", "card-a", "card-b"],
+            preselect: false,
+          });
+          expect(reads(h)).toEqual([
+            ["card-a", "card.number"],
+            ["card-a", "card.brand"],
+            ["card-c", "card.number"],
+            ["card-c", "card.brand"],
+          ]);
+        });
+
+        it("is guessed in a login started after the master password was typed", async () => {
+          realTime();
+          const askMasterPassword = vi.fn(async (_input: unknown) => "verified" as const);
+          const { h } = await stopped(["card-a", "card-b", "card-c"], hints, listed, {
+            cards: ["card-b"],
+            live: { reprompt: true, askMasterPassword },
+          });
+          expect(askMasterPassword).toHaveBeenCalledOnce();
+          expect(await offered(h)).toEqual({
+            order: ["card-b", "card-c", "card-a"],
+            preselect: false,
+          });
+          expect(reads(h).map(([item]) => item)).toContain("card-b");
+        }, 10_000);
       });
 
       it("selects the only card of the brand the page names when no last digits match", async () => {

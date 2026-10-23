@@ -1,9 +1,9 @@
 # ADR 0061: Personal details asked during a login, filled from a linked vault item
 
-Status: accepted by the owner on 2026-10-23 ([decided](#decided-by-the-owner) 6 to 11).
+Status: accepted by the owner on 2026-10-23 ([decided](#decided-by-the-owner) 6 to 12).
 Claude built it ahead of those decisions on best guesses, as the owner asked at 05:28
 UTC. The design was reviewed against the code by another AI before it was built.
-Deliveries 1 to 8, all of them, are implemented ([Delivery](#delivery)).
+Deliveries 1 to 9, all of them, are implemented ([Delivery](#delivery)).
 Implements the
 [phase 2](../plan.md#phase-2-use-it-and-fix-what-comes-up) item on personal details
 asked for during a login. Amends [ADR 0027](0027-per-account-login-routes.md) (a fourth
@@ -94,6 +94,11 @@ catalog ([feasibility note](../research/2026-10-12-card-security-code.md)).
 11. The guess of the vault item also compares the masked last four digits and the card
     brand that the page shows with the vault's cards, on the device (12:26 UTC,
     「下 4 桁とブランドも見る」). See [The card guess](#the-card-guess).
+12. On a site that asks for Bitwarden's master password re-prompt, a linked identity or
+    card item with re-prompt is read as usual when the login already holds the master
+    password, and the master password is asked for first when it does not (21:50:15
+    UTC, 「入力済みならそのまま、していなければ聞く、でいいんじゃない」). See
+    [Items with Bitwarden's re-prompt](#items-with-bitwardens-re-prompt).
 
 ## Decision
 
@@ -480,7 +485,9 @@ The linked item belongs to the same vault account as the login item. It has no U
 it is exempt from URI matching; the confirmed link is what lets the login read it. It
 must still be one the device may use: selected, not excluded, not quarantined or under
 review, not in the trash and not archived, and so must its field. Otherwise the link
-counts as missing.
+counts as missing. On a site that asks for the master password, an item with re-prompt
+is read only once the login holds it
+([below](#items-with-bitwardens-re-prompt)).
 
 ### Guess, propose, confirm
 
@@ -573,6 +580,37 @@ Security notes:
 - A page can steer the guess by showing digits or a brand, but only the order and the
   selection in the popup change; the owner still confirms the card with **Fill**.
 
+### Items with Bitwarden's re-prompt
+
+[ADR 0021](0021-account-choice-outside-settings.md#amendment-master-password-re-prompt-in-the-chooser-window-2026-10-23)
+asks for the master password in Pateat's chooser window before a login with a re-prompt
+item starts on a site in `repromptSites`. A detail read from another item would skip
+that question, so on such a site an item other than the login item, as an identity or a
+card, that has Bitwarden's re-prompt is read only once the login holds the master
+password for that vault account (decided 12):
+
+- A login started after the window accepted the password holds it, across its pages.
+  Its linked re-prompt items are read and filled as any other.
+- A login that does not hold it never reads such an item without asking. When the only
+  linked value a `detail` page asks for is in such an item, the login ends `challenge`
+  with `detail-reprompt` instead of filling, the popup proposes the link as for
+  `detail-unlinked`, and the same chooser window asks for the master password with that
+  item's name, under the same rules for when it opens. Once the vault accepts it, the
+  login holds the password, and the value is read and filled as the popup's **Fill**
+  fills it: the button is left to the person, who checks the value and submits.
+- The popup's **Fill** of such an item asks the same way first, and fills once the vault
+  accepts the password. A closed window, or one that cannot open, reads and fills
+  nothing, and the popup says the master password was not entered
+  (`no-master-password`); the popup's next **Fill** asks again.
+- The card guess never asks. A re-prompt card is not read for it while the login does
+  not hold the password; it stays a candidate in the name order, and as a candidate not
+  read, the guess selects none. Its **Fill** asks.
+
+The login item's own answers and member IDs are read as before, as its login started
+only after its master password. On a site not in `repromptSites`, nothing changes. Which
+logins hold the password is kept in the service worker's memory only, by login, so after
+a worker restart the window asks again.
+
 ### Refused values
 
 A link whose fill the site refuses (the login ends `rejected`, or the handler's page
@@ -588,7 +626,9 @@ lifts it.
 
 `login.handler` gains the `detail` kind and the outcomes `detail-manual` (never used
 since every linked value is filled; kept for a detail that a later owner decision stops
-filling), `detail-unlinked`, `detail-unreadable` (the linked value is not a date or an
+filling), `detail-unlinked`, `detail-reprompt` (the only linked value is in an item
+that waits for the master password, which the window then asks for; decided 12),
+`detail-unreadable` (the linked value is not a date or an
 expiry month and year, or has too few or too many digits) and `detail-unavailable` (the
 vault could not give the linked value at the fill); a login that meets either stops as a
 changed policy (`field-unavailable`). It gains `detail-unfit` too: a split value fits
@@ -612,6 +652,8 @@ for one not sent) and question. Never a value or an item name.
 6. The judge's account slots (decided 7) and its secret-question pairing.
 7. The card guess from the last digits and brand the page shows (decided 11).
 8. Values split over several inputs and selects (decided 10).
+9. Items with Bitwarden's re-prompt read only once the login holds the master password,
+   which the chooser window asks for (decided 12).
 
 ## Not covered
 

@@ -367,6 +367,8 @@ export const en = {
   "Pateat cannot read that field now. Unlock the vault and try again.":
     "Pateat cannot read that field now. Unlock the vault and try again.",
   "The page did not accept the value.": "The page did not accept the value.",
+  "The master password was not entered, so nothing was read or filled.":
+    "The master password was not entered, so nothing was read or filled.",
   "the answer to your secret question": "the answer to your secret question",
   "your member or customer number": "your member or customer number",
   "This page asks \u201C{{question}}\u201D.": "This page asks \u201C{{question}}\u201D.",
