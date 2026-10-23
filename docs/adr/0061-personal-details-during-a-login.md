@@ -141,8 +141,12 @@ On a `challenge` page the judge may also answer:
 
 Its instructions say what each value is, that a page asking for anything else (a whole
 number, a PIN, a password, a secret question or a code sent to the person) has no
-`details`, and that a card's security code is a detail, never a `code`. Inputs that fail
-the checks above are dropped and logged by reason, as `totpDropped` is.
+`details`, that a birth date split over several inputs or written in a form no `format`
+matches (a two-digit or era year, a separator it lacks) is none either, and that a
+card's security code is a detail, never a `code`. Inputs that fail the checks above are
+dropped and logged by reason, as `totpDropped` is. A paid run on synthetic pages
+([results](../research/2026-10-23-detail-judge-eval.md)) gave the expected answer on
+every requested page with four model settings; the split-date line came from it.
 
 ### Judging a page beside the sign-in form
 

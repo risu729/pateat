@@ -1124,7 +1124,7 @@ describe("personal-detail inputs on a challenge page (ADR 0061)", () => {
       /A challenge that asks for a fact about the person instead of a code fills details and detailSubmit\./u,
     );
     expect(completionInstructions).toMatch(
-      /value is birth-date for the birth date or a part of it, with format yyyymmdd, yyyymm, yyyy-mm-dd, yyyy\/mm\/dd or mmdd as the page says or shows; phone-last-4 for the last four digits of a phone number; card-last-4 for the last four digits of a card number; card-code for a card's security code\./u,
+      /value is birth-date for a birth date asked in one input, whole or as its year and month or its month and day, with format yyyymmdd, yyyymm, yyyy-mm-dd, yyyy\/mm\/dd or mmdd as the page says or shows; a birth date split over several inputs, or written in a form none of these formats match, such as a two-digit or era year or a separator the format lacks, is no detail; phone-last-4 for the last four digits of a phone number; card-last-4 for the last four digits of a card number; card-code for a card's security code\./u,
     );
     expect(completionInstructions).toMatch(
       /Any other fact, a whole phone or card number, a PIN, a password, a secret question or a code sent to the person is no detail\. A card's security code is a detail, never code\./u,
