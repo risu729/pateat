@@ -8,9 +8,17 @@ import {
   parseRecipeBranch,
   type DeviceModel,
   type DeviceModelCall,
-  type GenerationUnavailableReason,
-  type RecipeGenerationResult,
 } from "@pateat/contracts";
+import {
+  MAX_OUTPUT_TOKENS,
+  ROLE_LIMITS,
+  type GenerationCall,
+  type GenerationCallResult,
+  type GenerationCallTimings,
+  type ServedModel,
+  type UnsentOutcome,
+  type UnsentRequest,
+} from "@pateat/generation";
 import {
   claudeModelRates,
   claudeWorstCaseRates,
@@ -25,7 +33,6 @@ import {
 } from "@pateat/inference";
 import * as v from "valibot";
 import { and, count, eq, gt, gte, inArray, isNull, lt, lte, ne, notExists, sql } from "drizzle-orm";
-import type { BatchItem } from "drizzle-orm/batch";
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
 import {
   inferenceLocks,
@@ -35,7 +42,6 @@ import {
   loginTimings,
   owners,
   problemLog,
-  type inferenceLogRecipePages,
 } from "../db/schema";
 import { resolveClaudeCredential } from "./credentials";
 import { fastFailingModels, readModelConfig, roleChoices, type RoleChoice } from "./models";
@@ -45,14 +51,6 @@ import { newId } from "@pateat/contracts/ids";
 // `CLAUDE_CALL_LIMITS.concurrentCalls` requests at a time per owner, the monthly and daily
 // spend stops, and the ADR 0012 request log with its one-year retention, which also keeps
 // requests answered without a call.
-
-/**
- * Request bounds shared by both roles; the same as the benchmark. Every Opus 5.5 call in
- * the 2026-10-23 comparison that succeeded took under 7 s and wrote under 300 tokens
- * (owner decision, 2026-10-23 11:03 UTC).
- */
-export const ROLE_LIMITS = { timeoutMs: 10_000, maxInputBytes: 64 * 1024, maxRetries: 0 };
-export const MAX_OUTPUT_TOKENS = 1_024;
 
 export const CLAUDE_CALL_LIMITS = {
   /** $100 a month (ADR 0014), estimated from returned usage. */
@@ -93,107 +91,9 @@ const worstCaseMicroUsd = ({ rates }: ClaudeModelChoice) => {
 type Db = DrizzleD1Database<Record<string, never>>;
 const DAY_MS = 24 * 60 * 60 * 1000;
 type CallEnv = { DB: D1Database; OIDC_ISSUER?: string; OIDC_SIGNING_KEYS?: string };
-type ClaudeModel = ReturnType<typeof createClaudeGenerationModel>;
-type RecipePage = (typeof inferenceLogRecipePages)[number];
-
-export type ClaudeCall<T> = {
-  role: "generate" | "judge";
-  /**
-   * The role's prompt version (`generationPromptVersion`, `entryGenerationPromptVersion`,
-   * `accountListGenerationPromptVersion`, `completionPromptVersion`).
-   */
-  promptVersion: string;
-  origin: string;
-  path: string;
-  /** What is sent: the instructions and the input, as ADR 0012 requires. */
-  request: { instructions: string; observation: unknown; [key: string]: unknown };
-  /**
-   * The recipe the call is for, logged beside the request: the head revision it starts
-   * from (0 for none) and, for generation, whether the page starts the recipe. `layout` is
-   * the key of the layout a first page's answer creates (ADR 0060); without it, the row's
-   * layout is the one `branch` names.
-   */
-  recipe: {
-    recipeId: string;
-    branch: string;
-    layout?: string;
-    baseRevision: number;
-    page?: RecipePage;
-  };
-  /**
-   * Checked once the request holds one of the owner's call slots, before credentials are
-   * resolved. Other requests of the owner may run their own checks and calls meanwhile.
-   */
-  gate?: (db: Db, now: number) => Promise<GenerationUnavailableReason | undefined>;
-  /**
-   * Written just before the first model request is sent, so a request the role refuses
-   * before sending, as `input-too-large`, writes nothing (ADR 0016, ADR 0027).
-   */
-  beforeSend?: (db: Db, now: number) => BatchItem<"sqlite">[];
-  invoke: (model: ClaudeModel) => Promise<InferenceOutcome<T>>;
-  /** The structured result to log for an `ok` outcome. */
-  logValue: (value: T) => unknown;
-  /**
-   * The device makes the model calls with its own key (ADR 0040): the owner's credential
-   * and the spend stops take no part, and each call is one of `responses`, in order, or
-   * the call the device makes next.
-   */
-  device?: DeviceModel | undefined;
-};
-
-/** What the request log keeps of a request answered without a model call (ADR 0012). */
-export type UnsentRequest = Pick<
-  ClaudeCall<unknown>,
-  "role" | "promptVersion" | "origin" | "path" | "request" | "recipe"
->;
-
 /** The layout a request log row is for (ADR 0060): the one given, or the one `branch` names. */
 const loggedLayout = ({ layout, branch }: { layout?: string; branch: string }) =>
   layout ?? parseRecipeBranch(branch)?.layout ?? null;
-
-/**
- * The code a request answered without a model call is logged under: its unavailable
- * reason or failure code, or `recipe` for a recipe another request stored.
- */
-export type UnsentOutcome =
-  | GenerationUnavailableReason
-  | Extract<RecipeGenerationResult, { status: "failed" }>["error"]
-  | "recipe";
-
-/**
- * Milliseconds a call spent, as its request log row keeps them: from the request's start
- * to just before the model call, the credential's token exchange, and the model call.
- */
-export type ClaudeCallTimings = { preModelMs: number; tokenMs: number; modelMs: number };
-
-export type ClaudeCallResult<T> =
-  /** `tokenMs` once the credential step ran, as for a missing credential or a failed exchange. */
-  | { status: "unavailable"; reason: GenerationUnavailableReason; tokenMs?: number }
-  /**
-   * `logId` names the request log row. A call refused locally has none here: its route logs
-   * it with the answer it gives (`logUnsent`).
-   */
-  | {
-      status: "called";
-      outcome: InferenceOutcome<T>;
-      logId?: string;
-      timings: ClaudeCallTimings;
-      /** The model that gave `outcome`: the last one asked. */
-      served: ServedModel;
-    }
-  /**
-   * The device makes the next model call (ADR 0040): the route answers with it, and has
-   * written and logged nothing for it.
-   */
-  | { status: "device-call"; call: DeviceModelCall["call"] };
-
-/** The model a call asked, as the request log keeps it, for the route that made the call. */
-export type ServedModel = {
-  provider: "anthropic";
-  model: string;
-  effort: RoleChoice["effort"];
-  speed: RoleChoice["speed"];
-};
 
 /**
  * One request's timing: when the Worker received it, the call `callClaude` made for it,
@@ -209,7 +109,7 @@ export type RequestTrace = {
    * `waitUntil`), so a call already sent is still charged and logged.
    */
   waitUntil?: (promise: Promise<unknown>) => void;
-  call?: ClaudeCallResult<unknown>;
+  call?: GenerationCallResult<unknown>;
   logId?: string;
 };
 
@@ -562,7 +462,7 @@ const answeredPlanSchema = v.object({
  * `refused` call the provider's refusal category code when it reported one (ADR 0014),
  * never its explanation.
  */
-function loggedResult<T>(call: ClaudeCall<T>, outcome: InferenceOutcome<T>): unknown {
+function loggedResult<T>(call: GenerationCall<T>, outcome: InferenceOutcome<T>): unknown {
   if (outcome.status === "ok") return call.logValue(outcome.value);
   if (outcome.status === "abstained") return { reason: outcome.reason };
   if (outcome.error === "refused" && outcome.refusalCategory !== undefined)
@@ -582,8 +482,8 @@ export async function callClaude<T>(
   env: CallEnv,
   ownerId: string,
   trace: RequestTrace,
-  call: ClaudeCall<T>,
-): Promise<ClaudeCallResult<T>> {
+  call: GenerationCall<T>,
+): Promise<GenerationCallResult<T>> {
   // A client that disconnects mid-call must not end the Worker before the call is charged
   // (ADR 0014): nothing is reserved before it.
   const running = runCall(env, ownerId, call, trace.startedAt);
@@ -594,7 +494,7 @@ export async function callClaude<T>(
   return result;
 }
 
-type Called<T> = Extract<ClaudeCallResult<T>, { status: "called" }>;
+type Called<T> = Extract<GenerationCallResult<T>, { status: "called" }>;
 
 /**
  * A request's `beforeSend` writes, run once before its first model request. `settled`
@@ -703,9 +603,9 @@ function deviceRelay(
 async function runCall<T>(
   env: CallEnv,
   ownerId: string,
-  call: ClaudeCall<T>,
+  call: GenerationCall<T>,
   startedAt: number,
-): Promise<ClaudeCallResult<T>> {
+): Promise<GenerationCallResult<T>> {
   const db = drizzle(env.DB);
   const start = Date.now();
   const held = await acquireSlot(db, ownerId, start);
@@ -714,8 +614,7 @@ async function runCall<T>(
     const { device } = call;
     // The spend stops count the owner's credential only; a device's key pays its own calls.
     const blocked =
-      (await call.gate?.(db, start)) ??
-      (device ? undefined : await limitReached(db, ownerId, start));
+      (await call.gate?.(start)) ?? (device ? undefined : await limitReached(db, ownerId, start));
     if (blocked) return { status: "unavailable", reason: blocked };
 
     let caller: CallerKey;
@@ -736,8 +635,7 @@ async function runCall<T>(
     ]);
     const choices = roleChoices(config, call.role, fastFailing);
     const reservation = reserveOnce(async () => {
-      const before = call.beforeSend?.(db, Date.now()) ?? [];
-      if (before.length > 0) await db.batch(before as [BatchItem<"sqlite">]);
+      await call.beforeSend?.(Date.now());
     });
 
     // The role's choices in order (owner decision, 2026-10-23 11:31 UTC): a refusal asks
@@ -747,7 +645,7 @@ async function runCall<T>(
     // nothing: it only finds whether the device still has a call to make (ADR 0040).
     const run = async (
       dry: boolean,
-    ): Promise<Called<T> | Extract<ClaudeCallResult<T>, { status: "device-call" }>> => {
+    ): Promise<Called<T> | Extract<GenerationCallResult<T>, { status: "device-call" }>> => {
       let last: Called<T> | undefined;
       let key = caller;
       for (const attempt of choices.flatMap(attempts)) {
@@ -818,11 +716,11 @@ async function runCall<T>(
 async function sendCall<T>(
   db: Db,
   ownerId: string,
-  call: ClaudeCall<T>,
+  call: GenerationCall<T>,
   model: { choice: RoleChoice; caller: CallerKey; reservation: Reservation; dry?: boolean },
   time: { startedAt: number; tokenMs: number },
 ): Promise<
-  | { outcome: InferenceOutcome<T>; logId?: string; timings: ClaudeCallTimings }
+  | { outcome: InferenceOutcome<T>; logId?: string; timings: GenerationCallTimings }
   | { deviceCall: DeviceModelCall["call"] }
 > {
   const { choice, caller, reservation, dry } = model;

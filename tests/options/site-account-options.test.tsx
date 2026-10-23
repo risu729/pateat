@@ -15,6 +15,7 @@ const catalog: VaultCatalog = {
       id: "live",
       label: "Live",
       provider: "bitwarden",
+      server: "cloud-us",
       userId: "33333333-3333-4333-8333-333333333333",
       state: "ready",
       groups: [],
@@ -27,8 +28,18 @@ const catalog: VaultCatalog = {
     },
   ],
 };
+const account = {
+  provider: "bitwarden",
+  server: "cloud-us",
+  userId: "33333333-3333-4333-8333-333333333333",
+};
 const draft = createDefaultSettings(catalog);
-draft.connections[0]!.enabled = true;
+draft.accountPolicies.push({
+  ...account,
+  accountName: "Live",
+  enabled: true,
+  selection: { mode: "all" },
+});
 const found = (accounts: { itemId: string; username?: string }[]) => ({
   version: 1 as const,
   ok: true as const,
@@ -76,7 +87,14 @@ it("labels same-named items by login username, then by an item ID prefix", () =>
 
 it("lists unmatched items only when asked, after the matches, and only those the draft allows", () => {
   const limited = structuredClone(draft);
-  limited.connections[0]!.excludedItemIds.push("66666666-6666-4666-8666-666666666666");
+  limited.itemPolicies.push({
+    ...account,
+    itemId: "66666666-6666-4666-8666-666666666666",
+    itemName: "Same name",
+    selected: false,
+    excluded: true,
+    excludedFields: [],
+  });
   const quarantined = structuredClone(catalog);
   quarantined.connections[0]!.quarantinedItemIds = ["44444444-4444-4444-8444-444444444444"];
   const options = siteAccountOptions(
@@ -90,6 +108,14 @@ it("lists unmatched items only when asked, after the matches, and only those the
     ["55555555", false],
   ]);
   const disabled = structuredClone(draft);
-  disabled.connections[0]!.enabled = false;
+  disabled.accountPolicies[0]!.enabled = false;
   expect(siteAccountOptions(catalog, found([]), true, disabled)).toEqual([]);
+  // The same user ID on another server is another account: its policy does not apply here.
+  const elsewhere = structuredClone(draft);
+  elsewhere.accountPolicies[0]!.server = "cloud-eu";
+  expect(siteAccountOptions(catalog, found([]), true, elsewhere)).toEqual([]);
+  // Before the first settings sync of a paired device, no unmatched item is offered.
+  expect(
+    siteAccountOptions({ ...catalog, settingsSyncPending: true }, found([]), true, draft),
+  ).toEqual([]);
 });

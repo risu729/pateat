@@ -77,15 +77,17 @@ Implementation details chosen by the agent, not confirmed by the owner separatel
   ID, not per item); with no match the page logs `no-item` and the like, as other pages
   do.
 - The extractor (`extractPasskeyObservation`) qualifies a page with no fillable,
-  unsupported or shadow-root field and one to 48 enabled, locatable buttons whose label
-  or locator names a passkey and not a registration; it sends only those buttons, in
-  the same value-free observation as other pages. A list of accounts by email or an
-  identifier input goes first; a list by names only, or an address that is no account
-  entry (such as a heading or a support address beside the button), does not hide the
-  passkey page. The content script announces the passkey page together with the list
-  and entry it would announce without the button, and the runtime chooses: the passkey
-  lookup first, then the list and entry handling unchanged, logged as such rather than
-  as `no-passkey`. A page with neither logs `no-passkey`.
+  unsupported or shadow-root field (since
+  [ADR 0070](0070-shadow-roots-as-page-content.md), a shadow tree's field is the page's
+  own) and one to 48 enabled, locatable buttons whose label or locator names a passkey
+  and not a registration; it sends only those buttons, in the same value-free
+  observation as other pages. A list of accounts by email or an identifier input goes
+  first; a list by names only, or an address that is no account entry (such as a heading
+  or a support address beside the button), does not hide the passkey page. The content
+  script announces the passkey page together with the list and entry it would announce
+  without the button, and the runtime chooses: the passkey lookup first, then the list
+  and entry handling unchanged, logged as such rather than as `no-passkey`. A page with
+  neither logs `no-passkey`.
 - Decision 7 on a shared recipe: a page has one recipe for all its items, and an item
   without a passkey cannot run a passkey-only one (it gets `no-route`, and ADR 0058 A
   would revoke it and regenerate the same page while another item still holds a

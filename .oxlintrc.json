@@ -7,11 +7,18 @@
     "**/.wxt/**",
     "**/.output/**",
     "**/.cloudflare/**",
+    "**/.vitepress/cache/**",
+    "**/.vitepress/dist/**",
     "**/worker-configuration.d.ts"
   ],
   "overrides": [
     {
-      "files": ["services/**", "packages/contracts/**", "packages/inference/**"],
+      "files": [
+        "services/**",
+        "packages/contracts/**",
+        "packages/generation/**",
+        "packages/inference/**"
+      ],
       "rules": {
         "no-restricted-globals": [
           "error",

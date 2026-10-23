@@ -85,8 +85,8 @@ export const bitwardenEn = {
   "Setup cancelled.": "Setup cancelled.",
   "Sync sign-in removed from this device. This does not sign out other sessions; the local vault still unlocks as before.":
     "Sync sign-in removed from this device. This does not sign out other sessions; the local vault still unlocks as before.",
-  "Connection deleted from this device, with its local vault copy, unlock key and sync sign-in. This does not sign out other sessions. Saved settings that referred to it now show it as unavailable.":
-    "Connection deleted from this device, with its local vault copy, unlock key and sync sign-in. This does not sign out other sessions. Saved settings that referred to it now show it as unavailable.",
+  "Connection deleted from this device, with its local vault copy, unlock key and sync sign-in. This does not sign out other sessions, and the synced settings of its account stay.":
+    "Connection deleted from this device, with its local vault copy, unlock key and sync sign-in. This does not sign out other sessions, and the synced settings of its account stay.",
   "Pateat could not confirm the result. Refresh, then reload saved settings.":
     "Pateat could not confirm the result. Refresh, then reload saved settings.",
   "Enter a name, a valid email and the master password. A self-hosted server address is an HTTPS address such as https://vault.example.com, or HTTP on localhost or 127.0.0.1, with no path, credentials, query or fragment.":
@@ -120,9 +120,11 @@ export const bitwardenEn = {
   "Delete connection": "Delete connection",
   "Connection kept.": "Connection kept.",
   "Delete {{name}}?": "Delete {{name}}?",
-  "This removes the connection, its local vault copy, unlock key and sync sign-in from this device. It does not sign out other sessions, and saved settings that refer to it will show it as unavailable.":
-    "This removes the connection, its local vault copy, unlock key and sync sign-in from this device. It does not sign out other sessions, and saved settings that refer to it will show it as unavailable.",
+  "This removes the connection, its local vault copy, unlock key and sync sign-in from this device. It does not sign out other sessions, and the synced settings of its account stay for other devices and a later connection.":
+    "This removes the connection, its local vault copy, unlock key and sync sign-in from this device. It does not sign out other sessions, and the synced settings of its account stay for other devices and a later connection.",
   "Keep connection": "Keep connection",
+  "{{item}} was reviewed on another device against a newer copy of this vault. Sync this vault; if it is still older afterwards, review it here.":
+    "{{item}} was reviewed on another device against a newer copy of this vault. Sync this vault; if it is still older afterwards, review it here.",
   "Review changed custom fields in {{name}}": "Review changed custom fields in {{name}}",
   "Affected items stay unavailable until their field settings are reviewed; refreshing does not approve them.":
     "Affected items stay unavailable until their field settings are reviewed; refreshing does not approve them.",
@@ -160,6 +162,8 @@ export const bitwardenEn = {
   "{{count}} field": "{{count}} field",
   "{{vault}}: Use this vault": "{{vault}}: Use this vault",
   "Use this vault": "Use this vault",
+  "Saved settings name this account on another server, so Pateat does not use it here.":
+    "Saved settings name this account on another server, so Pateat does not use it here.",
   "Items for Pateat": "Items for Pateat",
   "{{vault}}: Items for Pateat": "{{vault}}: Items for Pateat",
   "All except exclusions": "All except exclusions",
@@ -185,8 +189,6 @@ export const bitwardenEn = {
   "Exclude item {{item}}": "Exclude item {{item}}",
   "{{vault}}: Exclude {{field}} from {{item}}": "{{vault}}: Exclude {{field}} from {{item}}",
   "Exclude {{field}} from {{item}}": "Exclude {{field}} from {{item}}",
-  "Unavailable connection": "Unavailable connection",
-  "{{id}}. Its saved settings are kept.": "{{id}}. Its saved settings are kept.",
   "{{count}} item_one": "{{count}} item",
   "{{count}} item_other": "{{count}} items",
   "{{count}} field_one": "{{count}} field",

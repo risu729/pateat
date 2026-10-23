@@ -281,6 +281,7 @@ test("forced colors keep the selected account and the switch position visible", 
   settings.siteDefaults.push({
     origin: ORIGIN,
     provider: "dummy",
+    server: "cloud-us",
     userId: "demo-work-account",
     itemId: "primary",
     itemName: "Demo team account",

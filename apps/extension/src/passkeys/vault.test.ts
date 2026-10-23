@@ -7,6 +7,7 @@ import {
   type VaultCatalog,
 } from "@pateat/contracts";
 import type { PasskeyMatches } from "../crypto/passkey";
+import { excludeField, excludeItem, setAccountPolicy } from "../vault/__fixtures__/policy";
 import { vaultFailure } from "../vault/record";
 import type { PasskeySource } from "./runtime";
 import { selectPasskey } from "./select";
@@ -67,6 +68,7 @@ function saved(
         id: "live",
         label: "Live",
         provider: "bitwarden",
+        server: "cloud-us",
         userId,
         snapshotId: options.snapshot ?? snapshotId,
         state: options.state ?? "ready",
@@ -85,6 +87,7 @@ function saved(
         id: "other",
         label: "Other",
         provider: "bitwarden",
+        server: "cloud-us",
         userId: options.sameAccount ? userId : otherUserId,
         snapshotId: otherSnapshotId,
         state: options.other ?? "ready",
@@ -96,17 +99,20 @@ function saved(
   };
   const settings = createDefaultSettings(catalog);
   // Real connections start disabled; these tests model an explicit owner grant.
-  settings.connections[0]!.enabled = options.enabled ?? true;
-  settings.connections[0]!.excludedItemIds.push(excluded);
-  settings.connections[0]!.excludedFields.push({
-    itemId: fieldsExcluded,
-    fieldId: "login.password",
-  });
-  settings.connections[1]!.enabled = options.other !== undefined;
+  const [live, other] = catalog.connections as [
+    VaultCatalog["connections"][number],
+    VaultCatalog["connections"][number],
+  ];
+  setAccountPolicy(settings, live, options.enabled ?? true);
+  excludeItem(settings, live, excluded);
+  excludeField(settings, live, fieldsExcluded, "login.password");
+  // The same account connected twice shares the live connection's synced policy.
+  if (!options.sameAccount) setAccountPolicy(settings, other, options.other !== undefined);
   if (options.siteDefault)
     settings.siteDefaults.push({
       origin,
       provider: "bitwarden",
+      server: "cloud-us",
       userId: options.defaultAccount ?? userId,
       itemId: options.siteDefault,
     });
@@ -280,6 +286,16 @@ describe("vault passkey candidates", () => {
       await findVaultPasskeys({ saved: saved({ state: "locked" }), origin, rpId, find: locked }),
     ).toEqual({ candidates: [], complete: false, siteDefault: "unset" });
     expect(locked).not.toHaveBeenCalled();
+    // A paired device waits for its first settings sync before searching any vault.
+    const pending = saved();
+    pending.catalog.settingsSyncPending = true;
+    const waiting = finder({ ok: true, data: matches([first]) });
+    expect(await findVaultPasskeys({ saved: pending, origin, rpId, find: waiting })).toEqual({
+      candidates: [],
+      complete: false,
+      siteDefault: "unset",
+    });
+    expect(waiting).not.toHaveBeenCalled();
   });
 
   it("searches every enabled connection and binds the default to its connection", async () => {
@@ -843,6 +859,7 @@ describe("saving a chosen passkey as the site default", () => {
       {
         origin,
         provider: "bitwarden",
+        server: "cloud-us",
         userId,
         itemId: second,
         itemName: "Synthetic 5555",

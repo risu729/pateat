@@ -85,7 +85,7 @@ export const deviceModelCallSchema = v.strictObject({
   }),
 });
 
-/** The most output tokens a model call may ask for, as the service's `MAX_OUTPUT_TOKENS`. */
+/** The most output tokens a model call may ask for, as `MAX_OUTPUT_TOKENS` in @pateat/generation. */
 export const MAX_DEVICE_MODEL_OUTPUT_TOKENS = 1_024;
 /** The only `anthropic-beta` value a device sends: fast mode's. */
 export const deviceModelBetas = ["fast-mode-2026-02-01"] as const;

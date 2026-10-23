@@ -47,6 +47,7 @@ import {
   loginFieldSource,
   loginRecipeSchema,
   loginTargetSchema,
+  sameLoginTarget,
   parseLoginAccountBinding,
   parseLoginOperation,
   parseLoginRecipe,
@@ -154,6 +155,7 @@ function snapshot(): SettingsSnapshot {
     {
       origin: "https://bank.example",
       provider: "dummy",
+      server: "cloud-us",
       userId: "demo-personal-account",
       itemId: "primary",
     },
@@ -702,7 +704,7 @@ describe("saved login plan authorization", () => {
       ),
     ).toMatchObject({ ok: false });
     const disabled = snapshot();
-    disabled.settings.connections[0]!.enabled = false;
+    disabled.settings.accountPolicies[0]!.enabled = false;
     expect(
       resolveLoginPlan(
         disabled,
@@ -741,8 +743,17 @@ describe("saved login plan authorization", () => {
       ),
     ).toMatchObject({ ok: false });
     const fieldExcluded = snapshot();
-    fieldExcluded.settings.connections[0]!.excludedFields = [
-      { itemId: "primary", fieldId: "password" },
+    fieldExcluded.settings.itemPolicies = [
+      {
+        provider: "dummy",
+        server: "cloud-us",
+        userId: "demo-personal-account",
+        itemId: "primary",
+        itemName: "Demo primary account",
+        selected: false,
+        excluded: false,
+        excludedFields: ["password"],
+      },
     ];
     expect(
       resolveLoginPlan(
@@ -2093,7 +2104,18 @@ describe("second-factor page handlers (ADR 0027)", () => {
       const primary = catalog.connections[0]!.items[0]!;
       primary.fields = builtIn().fields;
       const settings = createDefaultSettings(catalog);
-      settings.connections[0]!.excludedFields = [{ itemId: "primary", fieldId: "login.password" }];
+      settings.itemPolicies = [
+        {
+          provider: "dummy",
+          server: "cloud-us",
+          userId: "demo-personal-account",
+          itemId: "primary",
+          itemName: primary.label,
+          selected: false,
+          excluded: false,
+          excludedFields: ["login.password"],
+        },
+      ];
       const eligibility = getItemEligibility(settings, catalog, "demo-personal", "primary");
       expect(eligibility.eligible).toBe(true);
       if (eligibility.eligible)
@@ -4081,5 +4103,58 @@ describe("the route a recipe lacks for the item (ADR 0058 A)", () => {
   it("names nothing for an item that holds neither", () => {
     expect(heldRouteMissing(plain(), facts(false, false), true)).toBeUndefined();
     expect(heldRouteMissing(button(), facts(false, false), true)).toBeUndefined();
+  });
+});
+
+describe("locators inside shadow hosts (ADR 0070)", () => {
+  const field = { by: "id", value: "input", within: [{ by: "id", value: "login-password" }] };
+  it("takes up to three hosts named by id, name or test ID on field and attribute locators", () => {
+    for (const target of [
+      field,
+      { by: "data-test", value: "submit", within: [{ by: "data-test", value: "login" }] },
+      { by: "name", value: "password", within: [{ by: "test-id", value: "login.form" }] },
+      { by: "autocomplete", value: "username", within: [{ by: "name", value: "user" }] },
+      {
+        by: "label",
+        value: "Password",
+        within: [
+          { by: "id", value: "a" },
+          { by: "id", value: "b" },
+        ],
+      },
+      {
+        by: "test-id",
+        value: "submit",
+        within: [
+          { by: "id", value: "a" },
+          { by: "name", value: "b" },
+          { by: "test-id", value: "c" },
+        ],
+      },
+    ])
+      expect(v.is(loginTargetSchema, target), JSON.stringify(target)).toBe(true);
+  });
+
+  it("refuses hosts on text locators, too many hosts and hosts named by anything else", () => {
+    for (const target of [
+      { by: "text", value: "Log in", within: [{ by: "id", value: "a" }] },
+      { by: "accessible-name", value: "Select", within: [{ by: "id", value: "a" }] },
+      { by: "password-form-name", value: "acct", within: [{ by: "id", value: "a" }] },
+      { ...field, within: [] },
+      { ...field, within: [field.within[0], field.within[0], field.within[0], field.within[0]] },
+      { ...field, within: [{ by: "label", value: "Password" }] },
+      { ...field, within: [{ by: "id", value: "a b" }] },
+      { ...field, within: [{ by: "id", value: "a", within: [{ by: "id", value: "b" }] }] },
+    ])
+      expect(v.is(loginTargetSchema, target), JSON.stringify(target)).toBe(false);
+  });
+
+  it("tells locators in other hosts apart", () => {
+    const parsed = v.parse(loginTargetSchema, field);
+    expect(sameLoginTarget(parsed, v.parse(loginTargetSchema, field))).toBe(true);
+    expect(sameLoginTarget(parsed, { by: "id", value: "input" })).toBe(false);
+    expect(
+      sameLoginTarget(parsed, { ...parsed, within: [{ by: "id", value: "login-username" }] }),
+    ).toBe(false);
   });
 });

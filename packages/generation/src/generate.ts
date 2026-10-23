@@ -75,39 +75,18 @@ import {
   type InferenceOutcome,
   type ValidatedGeneratedPage,
 } from "@pateat/inference";
-import { and, count, eq, gt, gte, inArray, lt, notInArray, or } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/d1";
 import * as v from "valibot";
-import type { DeviceScope } from "../auth";
 import {
-  callClaude,
-  keepLogRevision,
-  logPageSample,
-  logUnsent,
   MAX_OUTPUT_TOKENS,
   ROLE_LIMITS,
-  type ClaudeCall,
-  type RequestTrace,
-  type UnsentOutcome,
-  type UnsentRequest,
-} from "../claude/calls";
-import {
-  generationAttempts,
-  pageJudgements,
-  recipeRepairs,
+  type AttemptKey,
+  type GenerationBackend,
+  type JudgementKey,
   type PageJudgementVerdict,
-} from "../db/schema";
-import { chooserRepairWrite, repairBase, repairWrite } from "./repair";
-import {
-  hasRecipeByteRoom,
-  hasRecipeRoom,
-  markLayoutUsed,
-  readHead,
-  readLayoutUses,
-  readRevision,
-  writeRecipe,
   type UnitSources,
-} from "../recipe-store";
+  type UnsentRequest,
+} from "./backend";
+import { chooserRepairWrite, repairBase, repairWrite } from "./repair";
 import {
   branchUnit,
   ENTRY_UNIT,
@@ -116,8 +95,7 @@ import {
   markerUnit,
   pageUnit,
   type RecipeUnit,
-} from "../recipe-units";
-import { recipeBindingSlots } from "../settings-store";
+} from "./units";
 
 // The recipe generation routes of ADR 0018: one page per call, appended to one recipe
 // per origin and start path (ADR 0016), and a page no recipe check explained judged for
@@ -132,8 +110,6 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 export const JUDGEMENTS_PER_RECIPE_DAY = 20;
 const utcDayStart = (now: number) => now - (now % DAY_MS);
 
-type AttemptDb = Parameters<NonNullable<ClaudeCall<unknown>["gate"]>>[0];
-type GenerationEnv = { DB: D1Database; OIDC_ISSUER?: string; OIDC_SIGNING_KEYS?: string };
 type Failure = Extract<RecipeGenerationResult, { status: "failed" }>["error"];
 /** An answer given without a model call: a refusal, a failure, or a stored recipe. */
 type UnsentAnswer = Extract<
@@ -163,22 +139,21 @@ export async function generatedRecipeId(origin: string, startPath: string) {
 /**
  * Answers without a model call, logging the request under the answer's code (ADR 0012,
  * owner 2026-10-18 08:04 UTC): the reason or failure code, or `recipe` for a recipe
- * another request stored. The row is named on `trace` for its server time.
+ * another request stored.
  */
 async function answerUnsent<Answer extends UnsentAnswer>(
-  env: GenerationEnv,
-  ownerId: string,
+  backend: GenerationBackend,
   unsent: UnsentRequest,
   answer: Answer,
-  trace: RequestTrace,
 ) {
-  const code: UnsentOutcome =
+  await backend.logUnsent(
+    unsent,
     answer.status === "unavailable"
       ? answer.reason
       : answer.status === "failed"
         ? answer.error
-        : answer.status;
-  await logUnsent(env.DB, ownerId, unsent, code, trace);
+        : answer.status,
+  );
   return answer;
 }
 
@@ -255,11 +230,11 @@ function newLayoutMeta(language: LoginObservation["language"], now: number): Lay
  * A write that a login's page caused, on a continuation or a judgement, marks the layout
  * the login ran used (ADR 0060). A failed mark only costs that layout some idle time.
  */
-async function markWritten(env: GenerationEnv, ownerId: string, recipeId: string, branch: string) {
+async function markWritten(backend: GenerationBackend, recipeId: string, branch: string) {
   const layout = parseRecipeBranch(branch)?.layout;
   if (layout === undefined) return;
   try {
-    await markLayoutUsed(drizzle(env.DB), ownerId, recipeId, layout, Date.now());
+    await backend.markLayoutUsed(recipeId, layout);
   } catch {
     console.warn("Recipe layout use not kept", { recipeId });
   }
@@ -394,43 +369,20 @@ function unsettled<T>(
  * recipe's revision claim keeps one write (ADR 0018).
  */
 function repairWindow(
-  key: { ownerId: string; deviceId: string; recipeId: string; baseRevision: number },
+  backend: GenerationBackend,
+  key: { recipeId: string; baseRevision: number },
   recheck: () => Promise<GenerationUnavailableReason | undefined>,
 ) {
-  const { ownerId, deviceId, recipeId, baseRevision } = key;
+  const { recipeId, baseRevision } = key;
   return {
-    gate: async (db: AttemptDb, now: number) => {
+    gate: async (now: number) => {
       const stale = await recheck();
       if (stale) return stale;
-      const [recent] = await db
-        .select()
-        .from(recipeRepairs)
-        .where(
-          and(
-            eq(recipeRepairs.ownerId, ownerId),
-            eq(recipeRepairs.recipeId, recipeId),
-            eq(recipeRepairs.deviceId, deviceId),
-            gte(recipeRepairs.repairedAt, utcDayStart(now)),
-          ),
-        )
-        .limit(1);
-      return recent ? "repair-limit" : undefined;
+      return (await backend.repairedSince(recipeId, utcDayStart(now))) ? "repair-limit" : undefined;
     },
-    beforeSend: (db: AttemptDb, now: number) => [
-      db
-        .insert(recipeRepairs)
-        .values({ ownerId, recipeId, deviceId, revision: baseRevision, repairedAt: now })
-        .onConflictDoUpdate({
-          target: [recipeRepairs.ownerId, recipeRepairs.recipeId, recipeRepairs.deviceId],
-          set: { revision: baseRevision, repairedAt: now },
-        }),
-      // Earlier days' rows decide nothing any more.
-      db
-        .delete(recipeRepairs)
-        .where(
-          and(eq(recipeRepairs.ownerId, ownerId), lt(recipeRepairs.repairedAt, utcDayStart(now))),
-        ),
-    ],
+    // Earlier days' rows decide nothing any more.
+    beforeSend: (now: number) =>
+      backend.recordRepair(recipeId, baseRevision, now, utcDayStart(now)),
   };
 }
 
@@ -442,54 +394,19 @@ function repairWindow(
  * recipe's revision claim keeps one write (ADR 0018).
  */
 function attemptWindow(
-  ownerId: string,
-  key: { recipeId: string; branch: string; origin: string; path: string; baseRevision: number },
+  backend: GenerationBackend,
+  key: AttemptKey,
   recheck: () => Promise<GenerationUnavailableReason | undefined>,
 ) {
-  const { recipeId, branch, origin, path, baseRevision } = key;
   return {
-    gate: async (db: AttemptDb, now: number) => {
+    gate: async (now: number) => {
       const stale = await recheck();
       if (stale) return stale;
-      const [recent] = await db
-        .select()
-        .from(generationAttempts)
-        .where(
-          and(
-            eq(generationAttempts.ownerId, ownerId),
-            eq(generationAttempts.recipeId, recipeId),
-            eq(generationAttempts.branch, branch),
-            eq(generationAttempts.path, path),
-            eq(generationAttempts.baseRevision, baseRevision),
-            gt(generationAttempts.attemptedAt, now - ATTEMPT_WINDOW_MS),
-          ),
-        )
-        .limit(1);
-      return recent ? "recently-tried" : undefined;
+      return (await backend.attemptedSince(key, now - ATTEMPT_WINDOW_MS))
+        ? "recently-tried"
+        : undefined;
     },
-    beforeSend: (db: AttemptDb, now: number) => [
-      db
-        .insert(generationAttempts)
-        .values({ ownerId, recipeId, branch, origin, path, baseRevision, attemptedAt: now })
-        .onConflictDoUpdate({
-          target: [
-            generationAttempts.ownerId,
-            generationAttempts.recipeId,
-            generationAttempts.branch,
-            generationAttempts.path,
-            generationAttempts.baseRevision,
-          ],
-          set: { attemptedAt: now },
-        }),
-      db
-        .delete(generationAttempts)
-        .where(
-          and(
-            eq(generationAttempts.ownerId, ownerId),
-            lt(generationAttempts.attemptedAt, now - ATTEMPT_WINDOW_MS),
-          ),
-        ),
-    ],
+    beforeSend: (now: number) => backend.recordAttempt(key, now, now - ATTEMPT_WINDOW_MS),
   };
 }
 
@@ -510,10 +427,8 @@ const sameRoute = (left: LoginRecipe | undefined, right: LoginRecipe | undefined
  * list, or a later one after an advance. Either answers with the chooser.
  */
 export async function generateRecipe(
-  env: GenerationEnv,
-  scope: DeviceScope,
+  backend: GenerationBackend,
   request: RecipeGenerationRequest,
-  trace: RequestTrace,
 ): Promise<RecipeGenerationResult | undefined> {
   const { observation, slots, base, branch, passkeyOnly, signedIn, repair } = request;
   const { origin, path } = observation;
@@ -525,7 +440,7 @@ export async function generateRecipe(
   if (repair && repair.layout === undefined && (await generatedRecipeId(origin, path)) !== recipeId)
     return undefined;
   const list = observation.accounts !== undefined;
-  const headAtStart = await readHead(env.DB, scope.ownerId, recipeId);
+  const headAtStart = await backend.readHead(recipeId);
   const attemptBranch = branch ?? "";
   // What the request log keeps of the request, sent or not (ADR 0012).
   const logged = {
@@ -563,7 +478,7 @@ export async function generateRecipe(
     },
   } satisfies UnsentRequest;
   const unsent = (answer: Extract<RecipeGenerationResult, UnsentAnswer>) =>
-    answerUnsent(env, scope.ownerId, logged, answer, trace);
+    answerUnsent(backend, logged, answer);
   if (!observation.complete) return unsent(failed("incomplete-observation"));
   // A list of accounts is only ever a recipe's first page.
   if (list && base) return unsent(failed("invalid-request"));
@@ -582,7 +497,7 @@ export async function generateRecipe(
   /**
    * What the stored head means for this request: an answer without a model call, or the
    * route to continue (`undefined` for a first page) with the chooser it belongs to for a
-   * branch. Checked again under the lock.
+   * branch. Checked again once the request holds a call slot.
    */
   const decide = async (
     head: SyncRecipeChange | null,
@@ -618,7 +533,7 @@ export async function generateRecipe(
         return answer
           ? { answer: { version: 1, status: "recipe", change: answer } }
           : { answer: unavailable("recipe-conflict") };
-      if (!(await hasRecipeByteRoom(env.DB, scope.ownerId, MIN_GENERATION_RECIPE_ROOM_BYTES)))
+      if (!(await backend.hasRecipeByteRoom(MIN_GENERATION_RECIPE_ROOM_BYTES)))
         return { answer: unavailable("recipe-limit") };
       const repaired = current.recipe;
       if (repair.layout === undefined || !("layouts" in repaired))
@@ -633,8 +548,8 @@ export async function generateRecipe(
     // tombstone (owner, 2026-10-12); a later page never continues it.
     if (head?.state === "revoked") {
       if (base) return { answer: unavailable("recipe-revoked") };
-      return (await hasRecipeRoom(env.DB, scope.ownerId)) &&
-        (await hasRecipeByteRoom(env.DB, scope.ownerId, MIN_GENERATION_RECIPE_ROOM_BYTES))
+      return (await backend.hasRecipeRoom()) &&
+        (await backend.hasRecipeByteRoom(MIN_GENERATION_RECIPE_ROOM_BYTES))
         ? { base: undefined, revoked: head.revision }
         : { answer: unavailable("recipe-limit") };
     }
@@ -652,12 +567,12 @@ export async function generateRecipe(
       return { answer: { version: 1, status: "recipe", change: answer } };
     // A first page adds a recipe, so the owner needs room for one before any model call.
     if (!base)
-      return (await hasRecipeRoom(env.DB, scope.ownerId)) &&
-        (await hasRecipeByteRoom(env.DB, scope.ownerId, MIN_GENERATION_RECIPE_ROOM_BYTES))
+      return (await backend.hasRecipeRoom()) &&
+        (await backend.hasRecipeByteRoom(MIN_GENERATION_RECIPE_ROOM_BYTES))
         ? { base: undefined }
         : { answer: unavailable("recipe-limit") };
     if (!current) return { answer: unavailable("recipe-conflict") };
-    if (!(await hasRecipeByteRoom(env.DB, scope.ownerId, MIN_GENERATION_RECIPE_ROOM_BYTES)))
+    if (!(await backend.hasRecipeByteRoom(MIN_GENERATION_RECIPE_ROOM_BYTES)))
       return { answer: unavailable("recipe-limit") };
     // The layout the login ran, and its chooser for a branch; one the head no longer has, as
     // after its revocation from the management page, is not continued.
@@ -705,7 +620,7 @@ export async function generateRecipe(
   // prompt stays the same.
   const carriedNames =
     !list && slots.some((slot) => slot.fieldName !== undefined)
-      ? carriedSlotNames(slots, await recipeBindingSlots(env.DB, scope.ownerId, origin, recipeId))
+      ? carriedSlotNames(slots, await backend.bindingSlots(origin, recipeId))
       : new Map<string, string>();
   let raced: Extract<RecipeGenerationResult, { status: "recipe" | "unavailable" }> | undefined;
   // A first page starts the recipe's first layout (ADR 0060), keyed by when it was made and
@@ -713,9 +628,9 @@ export async function generateRecipe(
   // the call, so the request log names the layout the answer creates.
   const meta = newLayoutMeta(observation.language, Date.now());
 
-  // Another device may have stored this recipe while this request waited for the lock.
+  // Another device may have stored this recipe while this request waited for a call slot.
   const recheck = async () => {
-    const latest = await decide(await readHead(env.DB, scope.ownerId, recipeId));
+    const latest = await decide(await backend.readHead(recipeId));
     if ("answer" in latest) {
       raced = latest.answer;
       return "recipe-conflict" as const;
@@ -724,7 +639,7 @@ export async function generateRecipe(
     return revisionOf(latest) !== baseRevision ? ("recipe-conflict" as const) : undefined;
   };
 
-  const call = await callClaude(env, scope.ownerId, trace, {
+  const call = await backend.call({
     ...logged,
     device: request.deviceModel,
     // A repair's answer may merge into a layout or write nothing, so it names none.
@@ -736,12 +651,9 @@ export async function generateRecipe(
     // A repair is limited to one a UTC day per recipe and device instead of the page's retry
     // window (ADR 0041).
     ...(repair
-      ? repairWindow(
-          { ownerId: scope.ownerId, deviceId: scope.deviceId, recipeId, baseRevision },
-          recheck,
-        )
+      ? repairWindow(backend, { recipeId, baseRevision }, recheck)
       : attemptWindow(
-          scope.ownerId,
+          backend,
           { recipeId, branch: attemptBranch, origin, path, baseRevision },
           recheck,
         )),
@@ -820,19 +732,16 @@ export async function generateRecipe(
     let expectedRevision = baseRevision;
     for (let tries = 0; ; tries += 1) {
       // eslint-disable-next-line no-await-in-loop
-      const written = await writeRecipe(
-        env.DB,
-        scope.ownerId,
+      const written = await backend.writeRecipe(
         recipeId,
         { version: 1, state: "active", expectedRevision, recipe: next },
-        scope.deviceId,
         { sources: generated(units), ...(copied ? { copied } : {}) },
       );
       if (written.ok) {
         // eslint-disable-next-line no-await-in-loop
-        await keepLogRevision(env.DB, scope.ownerId, logId, written.change.revision);
+        await backend.keepLogRevision(logId, written.change.revision);
         // eslint-disable-next-line no-await-in-loop
-        if (branch !== undefined) await markWritten(env, scope.ownerId, recipeId, branch);
+        if (branch !== undefined) await markWritten(backend, recipeId, branch);
         const change = answerable(written.change);
         if (!change) return unavailable("recipe-conflict");
         return {
@@ -865,7 +774,7 @@ export async function generateRecipe(
     v.is(storedLoginRecipeSchema, recipe) ? recipe : undefined;
   /** The current recipe as the answer to a repair that writes nothing. */
   const unchanged = async (): Promise<RecipeGenerationResult> => {
-    const current = answerable(await readHead(env.DB, scope.ownerId, recipeId));
+    const current = answerable(await backend.readHead(recipeId));
     return current
       ? { version: 1, status: "recipe", change: current }
       : unavailable("recipe-conflict");
@@ -881,7 +790,7 @@ export async function generateRecipe(
     // A chooser's repaired list is a layout beside its others (ADR 0041); a login or entry
     // recipe whose start page became a list is replaced by the chooser.
     if (repaired && "chooser" in repaired) {
-      const uses = (await readLayoutUses(env.DB, scope.ownerId, recipeId)).get(recipeId);
+      const uses = await backend.layoutUses(recipeId);
       const written = chooserRepairWrite(repaired, layout, (key) => uses?.get(key));
       if (written.kind === "same") return unchanged();
       const recipe = document(written.recipe);
@@ -923,7 +832,7 @@ export async function generateRecipe(
   // (ADR 0041 section 6), unless the answer is no sign-in page.
   if (repaired && !("layouts" in repaired) && !runsLogin(next)) return unchanged();
   if (repaired && "layouts" in repaired) {
-    const uses = (await readLayoutUses(env.DB, scope.ownerId, recipeId)).get(recipeId);
+    const uses = await backend.layoutUses(recipeId);
     // An answer that is no sign-in page, as a maintenance page answered 200 that kept an
     // input, would be a layout no login ever chooses (ADR 0035), holding one of the
     // recipe's places: it writes nothing, as a page a layout already matches.
@@ -976,7 +885,7 @@ export async function generateRecipe(
       : failed("recipe-invalid");
   }
   // A continuation goes back as the layout it continues, beside the head's others: the
-  // head the decision read, which the lock found unchanged.
+  // head the decision read, which the recheck in the call slot found unchanged.
   const head = active(headAtStart);
   const written = head && stored(head.recipe, branch, next);
   if (!written || !named) return failed("recipe-invalid");
@@ -1014,17 +923,15 @@ export async function generateRecipe(
  * chooser recipe starting on that path answers `recipe-conflict`.
  */
 export async function generateEntry(
-  env: GenerationEnv,
-  scope: DeviceScope,
+  backend: GenerationBackend,
   request: EntryGenerationRequest,
-  trace: RequestTrace,
 ): Promise<EntryGenerationResult> {
   const { observation, repair } = request;
   const { origin, path } = observation;
   const recipeId = await generatedRecipeId(origin, path);
   // An entry's repair names the entry recipe of its own page (ADR 0041 section 6).
   if (repair && repair.recipeId !== recipeId) return unavailable("recipe-conflict");
-  const headAtStart = await readHead(env.DB, scope.ownerId, recipeId);
+  const headAtStart = await backend.readHead(recipeId);
   // What the request log keeps of the request, sent or not (ADR 0012).
   const logged = {
     role: "generate",
@@ -1035,12 +942,12 @@ export async function generateEntry(
     recipe: { recipeId, branch: "", baseRevision: headAtStart?.revision ?? 0, page: "first" },
   } satisfies UnsentRequest;
   const unsent = (answer: Extract<EntryGenerationResult, UnsentAnswer>) =>
-    answerUnsent(env, scope.ownerId, logged, answer, trace);
+    answerUnsent(backend, logged, answer);
   if (!observation.complete) return unsent(failed("incomplete-observation"));
 
   /**
    * What the stored head means for this request: an answer without a model call, or the
-   * revision the new recipe follows (its tombstone's, or 0). Checked again under the lock.
+   * revision the new recipe follows (its tombstone's, or 0). Checked again once the request holds a call slot.
    */
   const decide = async (
     head: SyncRecipeChange | null,
@@ -1066,15 +973,15 @@ export async function generateEntry(
       // (ADR 0041); any other revision answers as it is.
       if (!repair || current.revision !== repair.revision)
         return { answer: { version: 1, status: "recipe", change: { ...current, recipe } } };
-      return (await hasRecipeByteRoom(env.DB, scope.ownerId, MIN_GENERATION_RECIPE_ROOM_BYTES))
+      return (await backend.hasRecipeByteRoom(MIN_GENERATION_RECIPE_ROOM_BYTES))
         ? { revision: current.revision, repaired: recipe }
         : { answer: unavailable("recipe-limit") };
     }
     // A revoked recipe is generated again as the revision after its tombstone (owner,
     // 2026-10-12), and a new one needs room under the active recipe limit.
     if (
-      !(await hasRecipeRoom(env.DB, scope.ownerId)) ||
-      !(await hasRecipeByteRoom(env.DB, scope.ownerId, MIN_GENERATION_RECIPE_ROOM_BYTES))
+      !(await backend.hasRecipeRoom()) ||
+      !(await backend.hasRecipeByteRoom(MIN_GENERATION_RECIPE_ROOM_BYTES))
     )
       return { answer: unavailable("recipe-limit") };
     return { revision: head?.revision ?? 0 };
@@ -1084,30 +991,23 @@ export async function generateEntry(
   const baseRevision = before.revision;
   let raced: Extract<EntryGenerationResult, { status: "recipe" | "unavailable" }> | undefined;
 
-  // Another device may have stored this recipe while this request waited for the lock.
+  // Another device may have stored this recipe while this request waited for a call slot.
   const recheck = async () => {
-    const latest = await decide(await readHead(env.DB, scope.ownerId, recipeId));
+    const latest = await decide(await backend.readHead(recipeId));
     if ("answer" in latest) {
       raced = latest.answer;
       return "recipe-conflict" as const;
     }
     return latest.revision !== baseRevision ? ("recipe-conflict" as const) : undefined;
   };
-  const call = await callClaude(env, scope.ownerId, trace, {
+  const call = await backend.call({
     ...logged,
     device: request.deviceModel,
     recipe: { ...logged.recipe, baseRevision },
     // A repair is limited to one a UTC day per recipe and device (ADR 0041).
     ...(repair
-      ? repairWindow(
-          { ownerId: scope.ownerId, deviceId: scope.deviceId, recipeId, baseRevision },
-          recheck,
-        )
-      : attemptWindow(
-          scope.ownerId,
-          { recipeId, branch: "", origin, path, baseRevision },
-          recheck,
-        )),
+      ? repairWindow(backend, { recipeId, baseRevision }, recheck)
+      : attemptWindow(backend, { recipeId, branch: "", origin, path, baseRevision }, recheck)),
     invoke: (model) => createEntryGenerator({ model, ...roleConfig })({ observation }),
     logValue: ({ entry: candidate }) => ({ entry: candidate }),
   });
@@ -1125,7 +1025,7 @@ export async function generateEntry(
     before.repaired &&
     JSON.stringify(before.repaired.entry.target) === JSON.stringify(result.value.target)
   ) {
-    const current = active(await readHead(env.DB, scope.ownerId, recipeId));
+    const current = active(await backend.readHead(recipeId));
     return current && "entry" in current.recipe
       ? { version: 1, status: "recipe", change: { ...current, recipe: current.recipe } }
       : unavailable("recipe-conflict");
@@ -1139,12 +1039,9 @@ export async function generateEntry(
     target: result.value.target,
   });
   if (!built.ok) return failed("recipe-invalid");
-  const written = await writeRecipe(
-    env.DB,
-    scope.ownerId,
+  const written = await backend.writeRecipe(
     recipeId,
     { version: 1, state: "active", expectedRevision: baseRevision, recipe: built.recipe },
-    scope.deviceId,
     {
       sources: {
         origin: "generated",
@@ -1161,7 +1058,7 @@ export async function generateEntry(
     const lost = await decide(written.current);
     return "answer" in lost ? lost.answer : unavailable("recipe-conflict");
   }
-  await keepLogRevision(env.DB, scope.ownerId, call.logId, written.change.revision);
+  await backend.keepLogRevision(call.logId, written.change.revision);
   const change = active(written.change);
   return change && "entry" in change.recipe
     ? { version: 1, status: "recipe", change: { ...change, recipe: change.recipe } }
@@ -1201,13 +1098,11 @@ function judgedLoginPaths(head: StoredLoginRecipe, recipe: LoginRecipe, route: L
  * of an origin no move could reach, which the route answers as 404 and 400.
  */
 export async function judgeCompletion(
-  env: GenerationEnv,
-  scope: DeviceScope,
+  backend: GenerationBackend,
   recipeId: string,
   request: RecipeCompletionRequest,
-  trace: RequestTrace,
 ): Promise<RecipeCompletionResult | undefined | null> {
-  const head = await readHead(env.DB, scope.ownerId, recipeId);
+  const head = await backend.readHead(recipeId);
   if (!head) return undefined;
   const { observation, route, branch, partial, slots } = request;
   // A page at a `password` login's stop before its item's missing password (ADR 0036, owner
@@ -1255,7 +1150,7 @@ export async function judgeCompletion(
       recipe: { recipeId, branch: judgedBranch, baseRevision: head.revision },
     }) satisfies UnsentRequest;
   const unsent = (answer: Extract<RecipeCompletionResult, UnsentAnswer>, loginPaths?: string[]) =>
-    answerUnsent(env, scope.ownerId, logged(loginPaths), answer, trace);
+    answerUnsent(backend, logged(loginPaths), answer);
   if (head.state === "revoked") return unsent(unavailable("recipe-revoked"));
   // Only a page of the revision that ran, on a route the stored recipe has, is judged: the
   // recipe's own, or for a chooser (ADR 0028) the route of the branch the login took. An
@@ -1329,33 +1224,24 @@ export async function judgeCompletion(
   )
     return unsent(unavailable("not-judgeable"), loginPaths);
 
-  const ofRecipe = and(
-    eq(pageJudgements.ownerId, scope.ownerId),
-    eq(pageJudgements.recipeId, recipeId),
-  );
-  const call = await callClaude(env, scope.ownerId, trace, {
+  const judgedPage: JudgementKey = {
+    recipeId,
+    branch: judgedBranch,
+    revision: head.revision,
+    origin: observation.origin,
+    path: observation.path,
+    promptVersion,
+  };
+  const call = await backend.call({
     ...logged(loginPaths),
     device: request.deviceModel,
     // Each revision, origin and path is judged once per judge prompt version, and a recipe
     // 20 times a UTC day (ADR 0027), counting a stop's pages and those beside the sign-in
     // form.
-    gate: async (db, now) => {
-      const stale = staleHead(await readHead(env.DB, scope.ownerId, recipeId), head.revision);
+    gate: async (now) => {
+      const stale = staleHead(await backend.readHead(recipeId), head.revision);
       if (stale) return stale;
-      const [judged] = await db
-        .select()
-        .from(pageJudgements)
-        .where(
-          and(
-            ofRecipe,
-            eq(pageJudgements.branch, judgedBranch),
-            eq(pageJudgements.revision, head.revision),
-            eq(pageJudgements.origin, observation.origin),
-            eq(pageJudgements.path, observation.path),
-            eq(pageJudgements.promptVersion, promptVersion),
-          ),
-        )
-        .limit(1);
+      const judged = await backend.judgement(judgedPage);
       // A later login of the revision completes on the path only after a `signed-in` or
       // undecided verdict (ADR 0029): one judged `challenge` or `rejected`, still being
       // judged, or whose request failed does not. A row of an earlier judge prompt does not
@@ -1376,55 +1262,20 @@ export async function judgeCompletion(
               : judged.verdict === "signed-in"
                 ? "judged-signed-in"
                 : "already-judged";
-      const [today] = await db
-        .select({ value: count() })
-        .from(pageJudgements)
-        .where(and(ofRecipe, gte(pageJudgements.judgedAt, utcDayStart(now))));
-      return (today?.value ?? 0) >= JUDGEMENTS_PER_RECIPE_DAY ? "judgement-limit" : undefined;
+      return (await backend.judgementsSince(recipeId, utcDayStart(now))) >=
+        JUDGEMENTS_PER_RECIPE_DAY
+        ? "judgement-limit"
+        : undefined;
     },
     // A request the role refuses before sending gives the slot back, as a generation
     // attempt does (ADR 0027); a `partial` or `optional` row judged again takes today's
     // slot and waits for its new verdict. Rows of older revisions or judges go once their
     // day is over.
-    beforeSend: (db, now) => [
-      db
-        .insert(pageJudgements)
-        .values({
-          ownerId: scope.ownerId,
-          recipeId,
-          branch: judgedBranch,
-          revision: head.revision,
-          origin: observation.origin,
-          path: observation.path,
-          promptVersion,
-          judgedAt: now,
-        })
-        .onConflictDoUpdate({
-          target: [
-            pageJudgements.ownerId,
-            pageJudgements.recipeId,
-            pageJudgements.branch,
-            pageJudgements.revision,
-            pageJudgements.origin,
-            pageJudgements.path,
-            pageJudgements.promptVersion,
-          ],
-          set: { judgedAt: now, verdict: null },
-          setWhere: inArray(pageJudgements.verdict, ["partial", "optional"]),
-        }),
-      db
-        .delete(pageJudgements)
-        .where(
-          and(
-            ofRecipe,
-            or(
-              lt(pageJudgements.revision, head.revision),
-              notInArray(pageJudgements.promptVersion, [usualVersion, stopVersion, besideVersion]),
-            ),
-            lt(pageJudgements.judgedAt, utcDayStart(now)),
-          ),
-        ),
-    ],
+    beforeSend: (now) =>
+      backend.recordJudgement(judgedPage, now, {
+        expired: utcDayStart(now),
+        versions: [usualVersion, stopVersion, besideVersion],
+      }),
     invoke: (model) =>
       createCompletionJudge({ model, ...roleConfig })({
         observation,
@@ -1462,19 +1313,7 @@ export async function judgeCompletion(
   // write only costs that.
   const keepVerdict = async (verdict: PageJudgementVerdict) => {
     try {
-      await drizzle(env.DB)
-        .update(pageJudgements)
-        .set({ verdict })
-        .where(
-          and(
-            ofRecipe,
-            eq(pageJudgements.branch, judgedBranch),
-            eq(pageJudgements.revision, head.revision),
-            eq(pageJudgements.origin, observation.origin),
-            eq(pageJudgements.path, observation.path),
-            eq(pageJudgements.promptVersion, promptVersion),
-          ),
-        );
+      await backend.keepVerdict(judgedPage, verdict);
     } catch {
       console.warn("Page judgement verdict not kept", { recipeId, verdict });
     }
@@ -1570,17 +1409,14 @@ export async function judgeCompletion(
     // Handlers are only appended, so the ones after the judged route's are this call's.
     const before = recipe.handlers?.length ?? 0;
     const added = (changed?.handlers ?? []).slice(before).map((_, index) => before + index);
-    const written = await writeRecipe(
-      env.DB,
-      scope.ownerId,
+    const written = await backend.writeRecipe(
       recipeId,
       { version: 1, state: "active", expectedRevision: head.revision, recipe: withHandlers },
-      scope.deviceId,
       { sources: judged(added.map(handlerUnit)) },
     );
     if (written.ok) {
-      await keepLogRevision(env.DB, scope.ownerId, call.logId, written.change.revision);
-      await markWritten(env, scope.ownerId, recipeId, branch);
+      await backend.keepLogRevision(call.logId, written.change.revision);
+      await markWritten(backend, recipeId, branch);
     }
     // The page is a challenge whether or not its handlers fit the owner's recipe bytes.
     if (!written.ok && written.limited)
@@ -1600,17 +1436,14 @@ export async function judgeCompletion(
   if (!learnedRecipe) return signedInAnyway ? signedIn : failed("recipe-invalid");
   // The marker learned is the route's last one.
   const learnedMarkers = learned.recipe.completion?.length ?? 0;
-  const written = await writeRecipe(
-    env.DB,
-    scope.ownerId,
+  const written = await backend.writeRecipe(
     recipeId,
     { version: 1, state: "active", expectedRevision: head.revision, recipe: learnedRecipe },
-    scope.deviceId,
     { sources: judged(learnedMarkers ? [markerUnit(learnedMarkers - 1)] : []) },
   );
   if (written.ok) {
-    await keepLogRevision(env.DB, scope.ownerId, call.logId, written.change.revision);
-    await markWritten(env, scope.ownerId, recipeId, branch);
+    await backend.keepLogRevision(call.logId, written.change.revision);
+    await markWritten(backend, recipeId, branch);
   }
   const limited = !written.ok && written.limited;
   if (limited) console.warn("Signed-in marker refused by the recipe limit", { recipeId });
@@ -1631,13 +1464,11 @@ export async function judgeCompletion(
  * Nothing is logged for either.
  */
 export async function samplePage(
-  env: GenerationEnv,
-  scope: DeviceScope,
+  backend: GenerationBackend,
   recipeId: string,
   request: RecipePageSampleRequest,
-  trace: RequestTrace,
 ): Promise<"sampled" | "recent" | undefined | null> {
-  const change = await readRevision(env.DB, scope.ownerId, recipeId, request.revision);
+  const change = await backend.readRevision(recipeId, request.revision);
   if (!change || change.state !== "active") return undefined;
   const { observation, route, branch, slots } = request;
   const recipe = routeOf(change.recipe, branch);
@@ -1657,26 +1488,21 @@ export async function samplePage(
     )
   )
     return null;
-  const sampled = await logPageSample(
-    env.DB,
-    scope.ownerId,
-    {
-      role: "judge",
-      promptVersion: await completionPromptVersion(),
-      origin: observation.origin,
-      path: observation.path,
-      request: {
-        instructions: completionInstructions,
-        recipeId,
-        route,
-        loginPaths: judgedLoginPaths(change.recipe, recipe, route),
-        // The account's slots, as the judge request carries them (owner 2026-10-23).
-        slots,
-        observation,
-      },
-      recipe: { recipeId, branch, baseRevision: change.revision },
+  const sampled = await backend.logPageSample({
+    role: "judge",
+    promptVersion: await completionPromptVersion(),
+    origin: observation.origin,
+    path: observation.path,
+    request: {
+      instructions: completionInstructions,
+      recipeId,
+      route,
+      loginPaths: judgedLoginPaths(change.recipe, recipe, route),
+      // The account's slots, as the judge request carries them (owner 2026-10-23).
+      slots,
+      observation,
     },
-    trace,
-  );
+    recipe: { recipeId, branch, baseRevision: change.revision },
+  });
   return sampled ? "sampled" : "recent";
 }

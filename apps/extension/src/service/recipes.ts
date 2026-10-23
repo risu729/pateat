@@ -168,6 +168,11 @@ export function createRecipeSync(options: {
     upload(connection: ServiceConnection, stale: () => boolean): Promise<DeviceRecipeUpload>;
     forget(held: ReadonlySet<string>, stale: () => boolean): Promise<void>;
   };
+  /**
+   * Called once the first settings sync since pairing is recorded, which lets this device
+   * use its vault items (ADR 0023); the merge itself may have changed nothing.
+   */
+  settingsSynced?: () => void;
   /** Receives the outcome of each sync run and what it changed, for the local log. */
   report?: (outcome: RecipeSyncOutcome, changes: RecipeSyncChanges) => void;
   /** The extension's build: its commit, or `development` for a build outside git. */
@@ -281,6 +286,11 @@ export function createRecipeSync(options: {
         )
       : "synced";
     if (generation !== started) return "not-connected";
+    // The first completed settings sync since pairing lets this device use its vaults.
+    if (settingsOutcome === "synced" && !connection.settingsSynced) {
+      await service.recordSync(connection.deviceId, { settingsSynced: true });
+      options.settingsSynced?.();
+    }
     if (settingsOutcome === "rejected") {
       await service.recordSync(connection.deviceId, { rejected: true });
       return "rejected";

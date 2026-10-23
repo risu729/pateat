@@ -1,20 +1,29 @@
 // The site count badge (ADR 0021): how many vault items match a tab's HTTP(S) origin, and
 // how many of them a login may use. A count only reads vaults the service worker already
 // has open; it never opens one, and keeps only the numbers. While a vault stays open on a
-// snapshot, its item, group and field IDs are kept in memory for eligibility, never a
-// name or a value.
+// snapshot, its item, group and field IDs and custom field names are kept in memory for
+// eligibility, never an item's name or a value.
 import {
+  connectionEnabled,
+  connectionUse,
   getItemEligibility,
   isSiteExcluded,
   type SettingsChangeCause,
   type SettingsSnapshot,
   type VaultCatalog,
+  type VaultServer,
 } from "@pateat/contracts";
 import type { LocalVaultMetadata } from "@pateat/bitwarden";
 import * as v from "valibot";
 import { catalogEntry } from "../connections/catalog";
 import type { ConnectionRuntime } from "../connections/runtime";
-import { quarantinedItems } from "../connections/policy";
+import {
+  itemEvidence,
+  profileServer,
+  reviewBlockedItems,
+  withEvidence,
+  type ItemEvidence,
+} from "../connections/policy";
 import type { PasskeyMatches } from "../crypto/passkey";
 import type { UriCandidates } from "../crypto/wire";
 import { passkeyEligible, type PasskeyFinder } from "../passkeys/vault";
@@ -34,7 +43,16 @@ export const STOPPED_RETRY_MS = [1000, 2000, 4000, 8000, 16_000, 32_000] as cons
  * Why a tab shows no number although its site may have items (ADR 0021); `busy` while
  * logins or page admissions keep a count waiting, until it is tried again.
  */
-export type UncheckedReason = "locked" | "not-opened" | "unreadable" | "updating" | "busy";
+export type UncheckedReason =
+  | "locked"
+  | "not-opened"
+  | "unreadable"
+  | "updating"
+  | "busy"
+  /** A paired device uses no vault item before its first settings sync (ADR 0023). */
+  | "settings-sync"
+  /** A vault account's user ID has synced settings for another server (ADR 0023). */
+  | "account-ambiguous";
 /** Why some or all of the matching items are not usable. */
 export type ExcludedReason = "site" | "items" | "review" | "items-review";
 export type SiteCount = {
@@ -65,6 +83,10 @@ export type CountSource =
       connectionId: string;
       /** The stored record's accepted snapshot. */
       snapshotId: string;
+      /** The connection's provider server (ADR 0023). */
+      server: VaultServer;
+      /** Each item's custom-field evidence in that snapshot, for its review state. */
+      evidence: Map<string, ItemEvidence>;
       /** The vault the service worker has open on that snapshot; absent when not open. */
       open?: {
         catalog(): Promise<VaultResult<LocalVaultMetadata>>;
@@ -87,9 +109,9 @@ export function countedOrigin(url: string | undefined): string | undefined {
 }
 
 /**
- * What settings eligibility reads of an open snapshot's catalog: item IDs, groups and
- * field IDs and kinds. Names and labels are left out, so nothing a count keeps names an
- * item.
+ * What settings eligibility reads of an open snapshot's catalog: item IDs, groups, and
+ * field IDs, kinds and custom field names, which synced field exclusions name (ADR 0023).
+ * Labels are left out, so nothing a count keeps names an item.
  */
 function eligibilityOnly(data: LocalVaultMetadata): LocalVaultMetadata {
   return {
@@ -102,10 +124,10 @@ function eligibilityOnly(data: LocalVaultMetadata): LocalVaultMetadata {
       label: "",
       type: item.type,
       groupIds: item.groupIds,
-      fields: item.fields.map(({ id, kind, linkedFieldId, empty }) => ({
+      fields: item.fields.map(({ id, name, kind, linkedFieldId, empty }) => ({
         id,
         label: "",
-        name: null,
+        name,
         kind,
         ...(linkedFieldId ? { linkedFieldId } : {}),
         ...(empty ? { empty } : {}),
@@ -123,6 +145,8 @@ function eligibilityOnly(data: LocalVaultMetadata): LocalVaultMetadata {
 export function createCountScope(
   connections: Pick<ConnectionRuntime, "registry" | "vaultFor"> & {
     settings: { read(): Promise<SettingsSnapshot> };
+    /** Whether a paired device still waits for its first settings sync (ADR 0023). */
+    settingsSyncPending?: () => Promise<boolean>;
   },
   match: { uris: LiveUriMatcher; passkeys: PasskeyFinder },
   fixed: VaultCatalog = { connections: [] },
@@ -133,23 +157,49 @@ export function createCountScope(
   const locked = () => vaultFailure("crypto-locked");
   return async () => {
     const snapshot = await connections.settings.read();
-    const enabled = (id: string) =>
-      snapshot.settings.connections.some((entry) => entry.connectionId === id && entry.enabled);
+    if (await connections.settingsSyncPending?.().catch(() => true))
+      return { unchecked: "settings-sync" };
     const sources: CountSource[] = fixed.connections
-      .filter((connection) => enabled(connection.id))
+      .filter((connection) => connectionEnabled(snapshot.settings, fixed, connection.id))
       .map((connection) => ({ connectionId: connection.id, fixed: connection }));
     const configurations = await connections.registry.list();
-    const live = new Set(configurations.map(({ profile }) => profile.connectionId));
-    for (const connectionId of catalogs.keys())
-      if (!live.has(connectionId) || !enabled(connectionId)) catalogs.delete(connectionId);
-    // Every record is read, so each closed vault's catalog goes, before one answers.
+    // Every record is read, so each closed or unused vault's catalog goes, before one answers.
+    const used = new Set<string>();
     let unchecked: Extract<CountScope, { unchecked: string }>["unchecked"] | undefined;
     for (const configuration of configurations) {
       const connectionId = configuration.profile.connectionId;
-      if (!enabled(connectionId)) continue;
+      const server = profileServer(configuration.profile);
       const vault = connections.vaultFor(configuration.profile);
       // oxlint-disable-next-line no-await-in-loop -- one record read per connection
       const record = await vault.store.read();
+      // The synced policy of the account the record names decides whether it is used
+      // (ADR 0023); a record that cannot be read, or that names no account yet, is
+      // reported below unless its add form chose not to use it.
+      const userId = record.ok ? record.data?.accepted?.userId : undefined;
+      const use = connectionUse(
+        snapshot.settings,
+        {
+          connections: [
+            {
+              id: connectionId,
+              label: "",
+              provider: "bitwarden",
+              server,
+              ...(userId === undefined ? {} : { lockedUserId: userId }),
+              groups: [],
+              items: [],
+            },
+          ],
+        },
+        connectionId,
+      );
+      if (use === "disabled") continue;
+      // Its items are refused, as the popup reports its vault unavailable.
+      if (use === "account-ambiguous") {
+        unchecked ??= "account-ambiguous";
+        continue;
+      }
+      used.add(connectionId);
       const handle = vault.manager.status().handle;
       // A locked vault counts as open only while this browser session holds its key.
       const usable =
@@ -170,6 +220,9 @@ export function createCountScope(
       sources.push({
         connectionId,
         snapshotId,
+        server,
+        // oxlint-disable-next-line no-await-in-loop -- cached per snapshot
+        evidence: await itemEvidence(record.ok ? record.data : null),
         ...(handle
           ? {
               open: {
@@ -191,6 +244,8 @@ export function createCountScope(
           : {}),
       });
     }
+    for (const connectionId of catalogs.keys())
+      if (!used.has(connectionId)) catalogs.delete(connectionId);
     if (unchecked) return { unchecked };
     const key = JSON.stringify([
       snapshot.revision,
@@ -263,7 +318,7 @@ export async function countSite(
     let quarantined: readonly string[];
     if ("fixed" in source) {
       entry = source.fixed;
-      quarantined = entry.quarantinedItemIds ?? [];
+      quarantined = reviewBlockedItems(scope.snapshot, entry).blocked;
       for (const item of entry.items)
         if (item.allowedOrigins.includes(origin)) mark(item.id, "uri");
     } else {
@@ -276,8 +331,11 @@ export async function countSite(
       if (!catalog.value.ok) return { kind: "unchecked", reason: failed(catalog.value.error.code) };
       if (catalog.value.data.snapshotId !== source.snapshotId)
         return { kind: "unchecked", reason: "updating" };
-      entry = catalogEntry(source.connectionId, "", catalog.value.data);
-      quarantined = quarantinedItems(scope.snapshot, source.connectionId, source.snapshotId);
+      entry = withEvidence(
+        catalogEntry(source.connectionId, "", source.server, catalog.value.data),
+        source.evidence,
+      );
+      quarantined = reviewBlockedItems(scope.snapshot, entry).blocked;
       // URI rules are matched for `origin/`, as the popup's list does; on an `http:` page
       // the matcher answers only rules saved with `http://` (ADR 0050).
       // oxlint-disable-next-line no-await-in-loop
@@ -304,7 +362,7 @@ export async function countSite(
         for (const itemId of found.value.data.unavailableItemIds) mark(itemId, "unknownPasskey");
       }
     }
-    const catalog = { connections: [entry] };
+    const catalog: VaultCatalog = { connections: [entry] };
     for (const [itemId, how] of items) {
       if (!how.uri && !how.passkey) {
         // Only an item a login could use is noted, by the rule its popup lookup uses.

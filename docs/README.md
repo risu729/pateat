@@ -25,6 +25,7 @@ from a synced cache ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)).
 | [Differences from Bitwarden](bitwarden-differences.md) | Deliberate differences from the official Bitwarden clients, with sources | Add an entry in the PR that introduces a difference                |
 | [ADRs](adr/0001-local-login-boundary.md)               | Decision rationale and alternatives                                      | Amend explicitly or supersede; preserve history                    |
 | [Research](research/2026-10-10-feasibility.md)         | Dated observations and primary sources                                   | Append new evidence or supersede; never imply current verification |
+| [Docs website](../apps/docs/src/index.md) | User-facing pages: installation, setup, permissions, privacy | Derived: update with the document or ADR that owns each fact; owns the privacy policy draft |
 
 The initial ADRs were accepted by merging PR #1.
 Acceptance does not mean implementation. A later replacement links the old and
@@ -118,6 +119,7 @@ owner the reason when the amendment changes a recorded owner instruction.
 - [0065: Optional pages after a sign-in end the login as signed in](adr/0065-optional-pages-after-a-sign-in.md)
 - [0066: Warning, error and did-nothing log lines are sent to the service](adr/0066-problem-lines-sent-to-the-service.md)
 - [0067: A field on a page's software keyboard is typed one key press per character](adr/0067-software-keyboard-entry.md)
+- [0070: Shadow roots are read as part of the page](adr/0070-shadow-roots-as-page-content.md)
 - [0071: Elements may be named by their `data-test` attribute](adr/0071-data-test-locators.md)
 - [0072: A field may be named by its `name` within the sign-in form](adr/0072-field-name-in-the-sign-in-form.md)
 - [0075: Lock, log out and the vault timeout](adr/0075-vault-lock-and-timeout.md)

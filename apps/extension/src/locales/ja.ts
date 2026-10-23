@@ -329,6 +329,10 @@ export const ja = {
     "Pateat：保管庫を更新中のため、このサイトのアカウントを数えていません。",
   "Pateat: a login or a page check was using the vault, so this site's accounts were not counted yet.":
     "Pateat：ログインまたはページの確認で保管庫を使用中のため、このサイトのアカウントをまだ数えていません。",
+  "Pateat: this device has not finished its first settings sync with the sync service, so this site's accounts were not counted.":
+    "Pateat：このデバイスが同期サービスとの最初の設定同期を終えていないため、このサイトのアカウントを数えていません。",
+  "Pateat: saved settings name a vault's account on another server, so this site's accounts were not counted.":
+    "Pateat：保存済みの設定が保管庫のアカウントを別のサーバーのものとして登録しているため、このサイトのアカウントを数えていません。",
   "{{first}} {{next}}": "{{first}}{{next}}",
   "Pateat: asking the AI…": "Pateat：AI に問い合わせています…",
   "Pateat: you were logged out of this site in this tab. Click to choose an account.":

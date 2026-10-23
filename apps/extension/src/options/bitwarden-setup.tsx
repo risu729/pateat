@@ -522,7 +522,7 @@ export function BitwardenSetup({
       await readConnections(epoch);
     } else if (result.kind === "deleted") {
       say(
-        "Connection deleted from this device, with its local vault copy, unlock key and sync sign-in. This does not sign out other sessions. Saved settings that referred to it now show it as unavailable.",
+        "Connection deleted from this device, with its local vault copy, unlock key and sync sign-in. This does not sign out other sessions, and the synced settings of its account stay.",
       );
       const deleted = result.connectionId;
       setExisting((previous) => (previous?.connectionId === deleted ? undefined : previous));
@@ -1105,7 +1105,7 @@ export function BitwardenSetup({
               </AlertDialog.Title>
               <AlertDialog.Description className="my-4 text-sm leading-6">
                 {t(
-                  "This removes the connection, its local vault copy, unlock key and sync sign-in from this device. It does not sign out other sessions, and saved settings that refer to it will show it as unavailable.",
+                  "This removes the connection, its local vault copy, unlock key and sync sign-in from this device. It does not sign out other sessions, and the synced settings of its account stay for other devices and a later connection.",
                 )}
               </AlertDialog.Description>
               <div className="flex flex-wrap justify-end gap-2">
@@ -1175,7 +1175,20 @@ export function BitwardenSetup({
               ]}
             />
             {connection.items
-              .filter((item) => quarantined.includes(item.id))
+              .filter((item) => connection.staleItemIds?.includes(item.id))
+              .map((item) => (
+                <p key={item.id} className="m-0 text-sm">
+                  {t(
+                    "{{item}} was reviewed on another device against a newer copy of this vault. Sync this vault; if it is still older afterwards, review it here.",
+                    { item: item.label },
+                  )}
+                </p>
+              ))}
+            {connection.items
+              .filter(
+                (item) =>
+                  quarantined.includes(item.id) && !connection.staleItemIds?.includes(item.id),
+              )
               .map((item) => (
                 <FieldReview
                   key={`${connection.snapshotId}:${acceptedSettings.snapshot.revision}:${item.id}`}

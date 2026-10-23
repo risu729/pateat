@@ -14,6 +14,7 @@ import {
 const link = (detail: DetailLink["detail"], custom: string): DetailLink => ({
   origin: "https://bank.example",
   provider: "bitwarden",
+  server: "cloud-us",
   userId: "synthetic-user",
   itemId: "login",
   detail,
