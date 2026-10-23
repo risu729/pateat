@@ -6130,6 +6130,15 @@ describe("production login document admission", () => {
           await vi.waitFor(() => expect(attempts()).toMatchObject([{ state: "authenticated" }]));
           const executed = fake.state.messages.filter((entry) => entry.type === "login.execute");
           fake.state.pageUrl = `${origin}/verify`;
+          // The page announces its first step ready, as one that read the origin's starts
+          // before its recipe was generated again as `confirm` would: a logout before.
+          expect(await h.hello({ documentId: "verify" })).toEqual({
+            ok: false,
+            reason: "logged-in",
+            starts: [signinStart],
+          });
+          expect(report).not.toHaveBeenCalledWith(expect.objectContaining({ type: "logout" }));
+          expect(attempts()).toMatchObject([{ state: "authenticated" }]);
           expect(await shownHello(h, { documentId: "verify" })).toEqual({
             ok: false,
             reason: "logged-in",
@@ -6736,6 +6745,26 @@ describe("production login document admission", () => {
           pageKind: "unclear",
         },
       ]);
+    });
+
+    it("still sends a page on a chooser branch's first-page path, which is a sign-in page (ADR 0028)", async () => {
+      fake.state.extracted = { login: loginPage };
+      const service = generation();
+      const h = harness(unsaved, {
+        allowedOrigins: [],
+        uris,
+        username: true,
+        custom: [],
+        generation: service,
+      });
+      // `routes` lists a chooser's branches too; one starting on this path never holds it back.
+      const branch = parseLoginRecipe({ ...generated, id: "gen-branch", pageKind: "sign-in" });
+      h.recipes.recipe.mockResolvedValue(undefined);
+      h.recipes.starts.mockResolvedValue(startsOf([]));
+      h.recipes.routes.mockResolvedValue([branch]);
+      expect(await h.hello({}, false)).toMatchObject({ generate: true });
+      expect(await h.signIn()).toEqual({ ok: false, reason: "generating" });
+      await vi.waitFor(() => expect(service.generate).toHaveBeenCalledTimes(1));
     });
 
     it("spins the tab's icon from the page's send until its answer", async () => {

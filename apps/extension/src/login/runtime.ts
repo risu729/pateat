@@ -6702,11 +6702,17 @@ export function createLoginRuntime(
     if (entries === undefined || entries.some((entry) => entry.entry.path === live.path))
       return undefined;
     const routes = await routesOf(live.document.origin);
-    if (routes === undefined || routes.some((recipe) => recipe.steps[0]?.path === live.path))
+    if (
+      routes === undefined ||
+      routes.some((recipe) => !runsLogin(recipe) && recipe.steps[0]?.path === live.path)
+    )
       return undefined;
     return generation.available(live.document.origin, live.path).catch(() => undefined);
   }
-  /** Every route recipe of the origin whatever its kind (ADR 0035), or undefined unread. */
+  /**
+   * Every route recipe of the origin whatever its kind, and each chooser branch (ADR 0035),
+   * or undefined unread.
+   */
   async function routesOf(pageOrigin: string): Promise<LoginRecipe[] | undefined> {
     if (probeMode && pageOrigin === origin) return [];
     return Promise.resolve(recipes.routes?.(pageOrigin) ?? []).catch(() => undefined);
@@ -8389,12 +8395,16 @@ export function createLoginRuntime(
       const rejectedHere =
         recorded.outcome === "credential-rejected" &&
         recorded.document.documentId === document.documentId;
-      if (start?.path !== live.path && !rejectedHere) {
+      // A page generated as a verification while signed in is no logout either, even when
+      // it announces a start from starts read before its recipe was generated again (ADR
+      // 0035): the service keeps one recipe per path, so no sign-in recipe starts there.
+      const confirm =
+        rejectedHere || live.topUrl ? undefined : await confirmRecipeOn(document.origin, live.path);
+      if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+      if ((start?.path !== live.path || confirm) && !rejectedHere) {
         const starts = await startsFor(document.origin);
-        const confirm = live.topUrl ? undefined : await confirmRecipeOn(document.origin, live.path);
         if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
-        // Not a recipe's first step on its path, so not taken as a logout (ADR 0021 D); nor
-        // is a page generated as a verification while signed in (ADR 0035).
+        // Not a recipe's first step on its path, so not taken as a logout (ADR 0021 D).
         if (confirm) notStarted("confirm-unsupported", confirm);
         else notStarted("logged-in");
         return { ok: false, reason: "logged-in", starts };
@@ -8451,9 +8461,10 @@ export function createLoginRuntime(
       // never submits again. Its form showing again on one of them asks like a logout, in
       // this tab only, and fills without pressing anything (ADR 0021 D, owner's choice
       // 2026-10-12); until then the page watches for it.
-      if (start?.path !== live.path) {
+      const confirm = live.topUrl ? undefined : await confirmRecipeOn(document.origin, live.path);
+      if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+      if (start?.path !== live.path || confirm) {
         const starts = await startsFor(document.origin);
-        const confirm = live.topUrl ? undefined : await confirmRecipeOn(document.origin, live.path);
         if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
         if (confirm) notStarted("confirm-unsupported", confirm);
         else notStarted("stopped-login");

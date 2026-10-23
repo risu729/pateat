@@ -66,7 +66,7 @@ describe("recipe generation contracts", () => {
       { version: 1, observation, slots: [], signedIn: false },
       // A first page carries the signedIn hint (ADR 0035), and only a first page does.
       { version: 1, observation, slots },
-      { version: 1, observation: { ...observation, accounts: ["[email]"] }, slots, signedIn: true },
+      { version: 1, observation, slots, base, signedIn: false },
       { version: 1, observation: { ...observation, accounts: ["[email]"] }, slots, signedIn: true },
       { version: 1, observation, slots, item: "vault-item" },
       { version: 1, observation, slots, branch: "account" },

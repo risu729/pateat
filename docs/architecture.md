@@ -2834,7 +2834,9 @@ people.
   [ADR 0058](adr/0058-automatic-recipe-removal.md)): `last_used_at` on its head is its
   newest write, or reported started or ended login. A device's recipe sync and the
   `/manage` recipe list each check first and revoke at most 50, oldest first, as
-  tombstones written by no device; entry recipes are never revoked this way.
+  tombstones written by no device; entry recipes and route recipes generated as
+  `confirm` or `unclear` ([ADR 0035](adr/0035-page-kinds-per-site.md)), which never run,
+  are never revoked this way.
 - Recipe history. Each recipe keeps its newest 10 revisions; a winning write deletes
   older ones in the same D1 batch, and a revocation keeps only the tombstone. Nothing
   reads older revisions. At the 128 KiB body limit this bounds an owner's active recipes

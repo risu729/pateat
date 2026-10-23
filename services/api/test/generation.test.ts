@@ -5427,6 +5427,24 @@ describe("requests answered without a model call (ADR 0012)", () => {
       slots,
     });
     expect(invalid.status).toBe(400);
+    // Only a recipe's first page that lists no accounts carries the signedIn hint (ADR 0035).
+    for (const body of [
+      {
+        version: 1,
+        observation: emailPage,
+        slots,
+        base: { recipeId: "gen-1", revision: 1 },
+        signedIn: false,
+      },
+      {
+        version: 1,
+        observation: { ...emailPage, accounts: ["[email]"] },
+        slots,
+        signedIn: true,
+      },
+    ])
+      // oxlint-disable-next-line no-await-in-loop -- Each body is refused on its own.
+      expect((await post(device, "/v1/recipes/generate", body)).status).toBe(400);
     const unknownRoute = await post(
       device,
       `/v1/recipes/${await generatedRecipeId(ORIGIN, "/login")}/completion`,

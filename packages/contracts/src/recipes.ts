@@ -14,7 +14,7 @@ import {
  * Every recipe with a login route for one exact origin that may start a login, in cache
  * order. An entry recipe (ADR 0031) or a chooser recipe (ADR 0028) is left out: nothing
  * starts either yet, and neither starts or resumes a login. So is a route recipe generated
- * as `confirm` or `unclear` ({@link confirmRecipesForOrigin}, ADR 0035).
+ * as `confirm` or `unclear` (ADR 0035).
  */
 export function loginRecipesForOrigin(
   recipes: readonly StoredLoginRecipe[],
@@ -23,21 +23,6 @@ export function loginRecipesForOrigin(
   return recipes.filter(
     (recipe): recipe is LoginRecipe =>
       isLoginRouteRecipe(recipe) && recipe.origin === origin && runsLogin(recipe),
-  );
-}
-
-/**
- * The route recipes of one origin that never start a login (ADR 0035): those generated as
- * `confirm` or `unclear`. Such a page is not sent for generation again, is not watched for
- * a login, and never counts as a logout.
- */
-export function confirmRecipesForOrigin(
-  recipes: readonly StoredLoginRecipe[],
-  origin: string,
-): LoginRecipe[] {
-  return recipes.filter(
-    (recipe): recipe is LoginRecipe =>
-      isLoginRouteRecipe(recipe) && recipe.origin === origin && !runsLogin(recipe),
   );
 }
 

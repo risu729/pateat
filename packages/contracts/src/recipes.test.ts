@@ -3,7 +3,6 @@ import * as v from "valibot";
 import { parseLoginRecipe, type LoginRecipe, type StoredLoginRecipe } from "./login";
 import {
   bindingGaps,
-  confirmRecipesForOrigin,
   customFieldReference,
   defaultLoginBinding,
   fillLoginBinding,
@@ -113,11 +112,6 @@ describe("recipe selection", () => {
       "bank-signin",
       "bank-admin",
     ]);
-    expect(confirmRecipesForOrigin(all, origin).map(({ id }) => id)).toEqual([
-      "bank-transfer",
-      "bank-secret",
-    ]);
-    expect(confirmRecipesForOrigin(all, "https://other.example")).toEqual([]);
     expect(selectLoginRecipe(all, origin, "/transfer")).toEqual({
       ok: false,
       reason: "recipe-not-found",

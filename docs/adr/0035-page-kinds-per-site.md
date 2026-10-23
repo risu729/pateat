@@ -246,7 +246,11 @@ these readings of the text:
   as revoked and generates its page again as the next revision; devices drop it on sync.
 - A page on whose path a `confirm` or `unclear` recipe starts is not sent again, not
   logged in to and only watches, logging `login.refused` `not-started` with
-  `confirm-unsupported` and that recipe's ID, revision and kind. The popup names it.
+  `confirm-unsupported` and that recipe's ID, revision and kind, also when the page
+  announces a start read before its recipe was generated again. The popup names it and
+  points to revoking the recipe in the web UI. Such a recipe never runs, so never
+  reports use, and is never revoked as unused
+  ([ADR 0058](0058-automatic-recipe-removal.md)), like an entry recipe.
 - "A Pateat login of the origin finished" is read as the tab's record for the origin
   being `authenticated` and not fill-only. A logout detected since forgets that record;
   a control that logs out clicked on the RP ID's site in the tab also counts as one. A

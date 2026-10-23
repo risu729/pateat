@@ -132,11 +132,11 @@ describe("recipe generation role", () => {
       // oxlint-disable-next-line no-await-in-loop -- Each answer is checked on its own.
       expect(await refused(request)).toMatchObject({ status: "failed", error: "invalid-output" });
     }
-    const { generate: kindless } = generatorReturning(
-      JSON.stringify({
-        result: { decision: "plan", irreversible: "no", fields: [], action: {} },
-      }),
-    );
+    // The same valid plan without its page kind is refused.
+    const { pageKind: _pageKind, ...valid } = JSON.parse(answer("sign-in", "no")).result;
+    const { generate: kinded } = generatorReturning(answer("sign-in", "no"));
+    expect(await kinded(request)).toMatchObject({ status: "ok" });
+    const { generate: kindless } = generatorReturning(JSON.stringify({ result: valid }));
     expect(await kindless(request)).toMatchObject({ status: "failed", error: "invalid-output" });
     expect(planDescription("pageKind")).toMatch(
       /^sign-in: a login .* confirm: a user already signed in/u,
