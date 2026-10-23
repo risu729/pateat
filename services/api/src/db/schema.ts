@@ -417,9 +417,9 @@ export const inferenceLog = sqliteTable(
     costMicroUsd: integer("cost_micro_usd").notNull(),
     /**
      * Milliseconds from the Worker receiving the request to just before the model call:
-     * device authentication, the request limit, the route's own reads, the owner's lock,
-     * the gate and spend checks, the model configuration and the credential with its token
-     * exchange. A later call of the same request (a fallback after a refusal, or the
+     * device authentication, the request limit, the route's own reads, the owner's call
+     * slot, the gate and spend checks, the model configuration and the credential with its
+     * token exchange. A later call of the same request (a fallback after a refusal, or the
      * standard speed after fast mode failed) includes the calls before it.
      */
     preModelMs: integer("pre_model_ms"),
@@ -716,11 +716,19 @@ export const inferenceModelConfigs = sqliteTable("inference_model_configs", {
   updatedAt: integer("updated_at").notNull(),
 });
 
-/** One model call at a time per owner; a lock past `expiresAt` is abandoned. */
-export const inferenceLocks = sqliteTable("inference_locks", {
-  ownerId: text("owner_id")
-    .primaryKey()
-    .references(() => owners.id),
-  lockId: text("lock_id").notNull(),
-  expiresAt: integer("expires_at").notNull(),
-});
+/**
+ * The model calls an owner has running, one row per slot from 0 below
+ * `CLAUDE_CALL_LIMITS.concurrentCalls` (ADR 0018); a slot past `expiresAt` is abandoned.
+ */
+export const inferenceLocks = sqliteTable(
+  "inference_locks",
+  {
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => owners.id),
+    slot: integer("slot").notNull(),
+    lockId: text("lock_id").notNull(),
+    expiresAt: integer("expires_at").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.ownerId, table.slot] })],
+);

@@ -3325,8 +3325,9 @@ people.
   `Retry-After: 60`. The hosted limiter is approximate and counts per Cloudflare
   location. `/pair` keeps its own 10 a minute per verified Access identity. A login
   result code is at most 1 KiB, and the service keeps one per recipe revision. Recipe
-  generation is also bounded by spend and one call at a time
-  ([ADR 0018](adr/0018-recipe-generation-route.md)).
+  generation is also bounded by spend and five requests making model calls at a time
+  per owner, a sixth answered `busy`
+  ([ADR 0018](adr/0018-recipe-generation-route.md#five-calls-at-a-time)).
 - Recipes. An owner holds at most 1,000 active recipes. Creating a recipe or
   republishing a tombstone beyond that answers 409 `recipe_limit`; updating an active
   recipe does not add to the count, and a revocation frees its place. Generation answers

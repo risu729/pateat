@@ -149,6 +149,8 @@ type Reply = { text: string; usage?: Usage } | { refusal: string; usage?: Usage 
 let replies: Reply[] = [];
 /** Runs while a model call is in flight, before its answer. */
 let during: (() => Promise<void>) | undefined;
+/** While set, every model call waits for it before its answer. */
+let held: Promise<void> | undefined;
 let tokenStatus = 200;
 /** How long the synthetic token exchange takes. */
 let tokenDelayMs = 0;
@@ -180,6 +182,7 @@ beforeAll(() => {
       const hook = during;
       during = undefined;
       await hook?.();
+      await held;
       if (typeof reply === "number")
         return Response.json(
           { type: "error", error: { type: "api_error", message: "synthetic" } },
@@ -213,11 +216,22 @@ beforeEach(() => {
   replies = [];
   sent = [];
   during = undefined;
+  held = undefined;
   tokenStatus = 200;
   tokenDelayMs = 0;
 });
 
 type Device = { ownerId: string; deviceId: string; token: string };
+
+/** The owner's call slots (ADR 0018), held by another request for the next minute. */
+const holdSlots = (ownerId: string, taken = [0, 1, 2, 3, 4]) =>
+  env.DB.batch(
+    taken.map((slot) =>
+      env.DB.prepare(
+        "INSERT INTO inference_locks (owner_id, slot, lock_id, expires_at) VALUES (?, ?, 'other', ?)",
+      ).bind(ownerId, slot, Date.now() + 60_000),
+    ),
+  );
 
 async function owner({ claude = true } = {}): Promise<Device> {
   const ownerId = crypto.randomUUID();
@@ -674,21 +688,60 @@ describe("recipe generation", () => {
     expect(sent).toHaveLength(1);
   });
 
-  it("makes one call at a time per owner and takes over an abandoned lock", async () => {
+  it("makes five calls at a time per owner and takes over an abandoned slot", async () => {
     const device = await owner();
-    await env.DB.prepare(
-      "INSERT INTO inference_locks (owner_id, lock_id, expires_at) VALUES (?, 'other', ?)",
-    )
-      .bind(device.ownerId, Date.now() + 60_000)
-      .run();
+    await holdSlots(device.ownerId);
     expect(await generate(device, emailPage)).toMatchObject({ reason: "busy" });
     expect(sent).toEqual([]);
 
-    await env.DB.prepare("UPDATE inference_locks SET expires_at = ? WHERE owner_id = ?")
+    await env.DB.prepare(
+      "UPDATE inference_locks SET expires_at = ? WHERE owner_id = ? AND slot = 3",
+    )
       .bind(Date.now() - 1, device.ownerId)
       .run();
     replies.push({ text: plan([["email", "email"]], "next", "advance") });
     expect(await generate(device, emailPage)).toMatchObject({ status: "recipe" });
+    // The slot it took over is freed; the other requests' slots stay.
+    expect(
+      await rows(
+        "SELECT slot FROM inference_locks WHERE owner_id = ? ORDER BY slot",
+        device.ownerId,
+      ),
+    ).toEqual([{ slot: 0 }, { slot: 1 }, { slot: 2 }, { slot: 4 }]);
+  });
+
+  it("runs five of an owner's requests at once and answers a sixth busy", async () => {
+    const device = await owner();
+    let release!: () => void;
+    held = new Promise((resolve) => {
+      release = resolve;
+    });
+    // Five first pages of different start paths, so five recipes (owner 2026-10-23 22:06 UTC).
+    const pages = [1, 2, 3, 4, 5].map((index) => ({ ...emailPage, path: `/login/${index}` }));
+    replies.push(...pages.map(() => ({ text: plan([["email", "email"]], "next", "advance") })));
+    const running = pages.map((page) => generate(device, page));
+    await vi.waitFor(() => expect(sent).toHaveLength(5));
+    expect(
+      await rows(
+        "SELECT slot FROM inference_locks WHERE owner_id = ? ORDER BY slot",
+        device.ownerId,
+      ),
+    ).toEqual([{ slot: 0 }, { slot: 1 }, { slot: 2 }, { slot: 3 }, { slot: 4 }]);
+    expect(await generate(device, { ...emailPage, path: "/login/6" })).toEqual({
+      version: 1,
+      status: "unavailable",
+      reason: "busy",
+    });
+    release();
+    const answers = await Promise.all(running);
+    expect(answers.map((answer) => answer.status)).toEqual(Array(5).fill("recipe"));
+    expect(
+      new Set(answers.map((answer) => answer.status === "recipe" && answer.change.recipeId)).size,
+    ).toBe(5);
+    expect(sent).toHaveLength(5);
+    expect(await rows("SELECT * FROM inference_locks WHERE owner_id = ?", device.ownerId)).toEqual(
+      [],
+    );
   });
 
   it("charges the worst case after a failed call that reports no usage", async () => {
@@ -1410,25 +1463,31 @@ describe("recipe generation", () => {
     ).toEqual([{ revision: 1 }]);
   });
 
-  it("holds the owner's lock for the whole call and releases only its own", async () => {
+  it("holds a call slot for the whole call and releases only its own", async () => {
     const device = await owner();
     during = async () => {
-      // A second request while the call runs is turned away.
+      // With the other four slots held, a request while the call runs is turned away.
+      await holdSlots(device.ownerId, [1, 2, 3, 4]);
       expect(await generate(device, passwordPage)).toEqual({
         version: 1,
         status: "unavailable",
         reason: "busy",
       });
-      // A request that took over an abandoned lock keeps it.
-      await env.DB.prepare("UPDATE inference_locks SET lock_id = 'other' WHERE owner_id = ?")
+      // A request that took over the abandoned slot keeps it.
+      await env.DB.prepare(
+        "UPDATE inference_locks SET lock_id = 'other' WHERE owner_id = ? AND slot = 0",
+      )
         .bind(device.ownerId)
         .run();
     };
     replies.push({ text: plan([["email", "email"]], "next", "advance") });
     await generate(device, emailPage);
     expect(
-      await rows("SELECT lock_id FROM inference_locks WHERE owner_id = ?", device.ownerId),
-    ).toEqual([{ lock_id: "other" }]);
+      await rows(
+        "SELECT slot, lock_id FROM inference_locks WHERE owner_id = ? ORDER BY slot",
+        device.ownerId,
+      ),
+    ).toEqual([0, 1, 2, 3, 4].map((slot) => ({ slot, lock_id: "other" })));
   });
 
   it("refuses an oversized page locally: no call and no charge, and logs it unsent", async () => {
@@ -1753,7 +1812,7 @@ describe("recipe generation", () => {
       element("password", "password", "Password"),
       element("sign-in", "button", "Sign in"),
     ]);
-    // Sequential: one call at a time per owner.
+    // In turn, so the queued replies answer the pages in order.
     const continueAt = async (started: typeof first) => {
       replies.push({ text: plan([["password", "password"]], "sign-in", "submit") });
       expect(
@@ -4190,7 +4249,7 @@ describe("page judgement (ADR 0027)", () => {
     expect(staleHead(null, 2)).toBe("recipe-conflict");
   });
 
-  it("makes one model call for a page sent twice at once", async () => {
+  it("makes one model call for a page sent again while it is judged", async () => {
     const device = await owner();
     const change = await twoPageRecipe(device);
     const calls = sent.length;
@@ -4203,8 +4262,13 @@ describe("page judgement (ADR 0027)", () => {
       version: 1,
       status: "rejected",
     });
-    // The owner's lock answers the second request while the first is judged.
-    expect(concurrent).toEqual({ version: 1, status: "unavailable", reason: "busy" });
+    // The first request's row, written before its model call, answers the second while
+    // the first is judged (ADR 0029).
+    expect(concurrent).toEqual({
+      version: 1,
+      status: "unavailable",
+      reason: "judgement-unanswered",
+    });
     expect((await complete(device, change.recipeId, 2)).body).toMatchObject({
       reason: "judged-rejected",
     });
@@ -6457,12 +6521,6 @@ describe("requests answered without a model call (ADR 0012)", () => {
     output_tokens: null,
     cost_micro_usd: 0,
   };
-  const holdLock = (ownerId: string) =>
-    env.DB.prepare(
-      "INSERT INTO inference_locks (owner_id, lock_id, expires_at) VALUES (?, 'other', ?)",
-    )
-      .bind(ownerId, Date.now() + 60_000)
-      .run();
 
   it("logs a page refused at the daily spend limit, which the limit does not count", async () => {
     const device = await owner();
@@ -6511,7 +6569,7 @@ describe("requests answered without a model call (ADR 0012)", () => {
 
   it("logs a busy refusal once per page in ten minutes", async () => {
     const device = await owner();
-    await holdLock(device.ownerId);
+    await holdSlots(device.ownerId);
     const busy = { version: 1, status: "unavailable", reason: "busy" };
     // A client repeating the page adds no row; another page does.
     expect(await generate(device, emailPage)).toEqual(busy);
@@ -6532,10 +6590,10 @@ describe("requests answered without a model call (ADR 0012)", () => {
     expect(await rows("SELECT * FROM inference_spend WHERE owner_id = ?", device.ownerId)).toEqual(
       [],
     );
-    // The other request's lock stays.
+    // The other requests' slots stay.
     expect(
       await rows("SELECT lock_id FROM inference_locks WHERE owner_id = ?", device.ownerId),
-    ).toEqual([{ lock_id: "other" }]);
+    ).toEqual(Array(5).fill({ lock_id: "other" }));
   });
 
   it("logs a page judged before, with the login paths the judge would have got", async () => {
@@ -6645,7 +6703,7 @@ describe("requests answered without a model call (ADR 0012)", () => {
 
   it("answers the same when the row cannot be written", async () => {
     const device = await owner();
-    await holdLock(device.ownerId);
+    await holdSlots(device.ownerId);
     const prepare = env.DB.prepare.bind(env.DB);
     const insert = vi.spyOn(env.DB, "prepare").mockImplementation((query) => {
       if (/^insert into "inference_log"/iu.test(query))
@@ -6674,7 +6732,7 @@ describe("requests answered without a model call (ADR 0012)", () => {
 
   it("logs the same page offered with other slots again", async () => {
     const device = await owner();
-    await holdLock(device.ownerId);
+    await holdSlots(device.ownerId);
     const otherSlots: SemanticSlot[] = [
       ...slots,
       { id: "member", kind: "identifier", description: "membership number" },
@@ -6700,7 +6758,7 @@ describe("requests answered without a model call (ADR 0012)", () => {
 
   it("logs at most 500 requests answered without a call per owner and UTC day", async () => {
     const device = await owner();
-    await holdLock(device.ownerId);
+    await holdSlots(device.ownerId);
     const now = Date.now();
     const insert = (id: string, at: number, modelId: string | null, outcome = "busy") =>
       env.DB.prepare(

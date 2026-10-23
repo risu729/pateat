@@ -389,8 +389,9 @@ function unsettled<T>(
 
 /**
  * The repair limit of ADR 0041: a device asks to repair a recipe at most once a
- * UTC day, whatever came of the call. `recheck` reads the stored head again under the
- * owner's lock.
+ * UTC day, whatever came of the call. `recheck` reads the stored head again once the
+ * request holds a call slot. Two repairs at once both pass and are both charged; the
+ * recipe's revision claim keeps one write (ADR 0018).
  */
 function repairWindow(
   key: { ownerId: string; deviceId: string; recipeId: string; baseRevision: number },
@@ -436,7 +437,9 @@ function repairWindow(
 /**
  * The 10-minute retry window of one generation call and its attempt row (ADR 0016), keyed
  * by the recipe, the chooser branch (empty without one), the path and the revision the
- * call's write replaces. `recheck` reads the stored head again under the owner's lock.
+ * call's write replaces. `recheck` reads the stored head again once the request holds a
+ * call slot. The same page asked twice at once passes twice and is charged twice; the
+ * recipe's revision claim keeps one write (ADR 0018).
  */
 function attemptWindow(
   ownerId: string,
@@ -1166,8 +1169,8 @@ export async function generateEntry(
 }
 
 /**
- * Why a recipe head read again under the owner's lock can no longer be judged at the
- * revision that ran: revoked, gone or replaced meanwhile.
+ * Why a recipe head read again once the request holds a call slot can no longer be judged
+ * at the revision that ran: revoked, gone or replaced meanwhile.
  */
 export function staleHead(
   latest: SyncRecipeChange | null,
