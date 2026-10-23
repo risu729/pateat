@@ -502,6 +502,35 @@ describe("diagnostics log", () => {
     vi.restoreAllMocks();
   });
 
+  it("warns of recipe changes a sync left out as unreadable (#959)", async () => {
+    const log = createDiagnosticsLog({
+      build: { version: "0.1.0", revision: "1c42ad3" },
+      settings: async () => {
+        throw new Error("not needed");
+      },
+      recipeCache: async () => undefined,
+      connections: async () => ({ ok: true, kind: "status", connections: [] }),
+      databaseName: `log-test-${crypto.randomUUID()}`,
+      scope: { addEventListener: () => undefined } as never,
+    });
+    for (const level of ["debug", "info", "warn"] as const)
+      vi.spyOn(console, level).mockImplementation(() => undefined);
+    log.recipeSync("synced", { scope: "full", added: 1, updated: 0, removed: 0, unreadable: 2 });
+    await vi.waitFor(async () =>
+      expect(
+        (await log.logger.entries()).filter((entry) => entry.event === "service.sync"),
+      ).toHaveLength(1),
+    );
+    const [entry] = (await log.logger.entries()).filter(
+      (logged) => logged.event === "service.sync",
+    );
+    expect(entry).toMatchObject({
+      level: "warn",
+      fields: { outcome: "synced", scope: "full", added: 1, unreadable: 2 },
+    });
+    vi.restoreAllMocks();
+  });
+
   it("logs how long service requests and an ended login took (ADR 0019)", async () => {
     const log = createDiagnosticsLog({
       build: { version: "0.1.0", revision: "1c42ad3" },

@@ -341,6 +341,70 @@ describe("recipe changes", () => {
     });
   });
 
+  describe("a change this build cannot read (#959)", () => {
+    const layout = (target: unknown) => ({
+      key: "1760000000000",
+      createdAt: 1760000000000,
+      pageKind: "sign-in",
+      slots: ["password"],
+      steps: [
+        {
+          kind: "fill",
+          path: "/login",
+          fields: [{ slot: "password", target }],
+          effect: "submit",
+          event: "change",
+        },
+      ],
+      maxSubmissions: 1,
+    });
+    const change = (recipeId: string, target: unknown) => ({
+      recipeId,
+      revision: 2,
+      state: "active",
+      recipe: {
+        version: 1,
+        id: recipeId,
+        revision: 2,
+        origin: "https://shop.example",
+        layouts: [layout(target)],
+      },
+    });
+    const readable = change("shop-signin", { by: "id", value: "password" });
+    // A locator kind a newer build might add.
+    const newer = change("card-signin", { by: "future-locator", value: "password" });
+    const read = (body: unknown) =>
+      untimed(
+        createServiceTransport({ fetch: respond(200, body) }).recipeChanges(ORIGIN, CREDENTIAL, 3),
+      );
+
+    it("leaves it out and keeps the rest of the page", async () => {
+      expect(
+        await read({ ...recipePage, changes: [newer, readable, recipePage.changes[0]] }),
+      ).toEqual({
+        kind: "page",
+        page: { ...recipePage, changes: [readable, recipePage.changes[0]] },
+        unreadable: ["card-signin"],
+      });
+    });
+
+    it.each([
+      ["a tombstone that does not read", [{ ...recipePage.changes[0], revision: 0 }]],
+      ["a change without a recipe ID", [{ ...newer, recipeId: "" }]],
+      ["an unknown state", [{ ...newer, state: "paused" }]],
+      ["a recipe left out twice", [newer, newer]],
+      [
+        "a recipe left out and read once",
+        [newer, change("card-signin", { by: "id", value: "password" })],
+      ],
+    ])("still refuses a page with %s", async (_, changes) => {
+      expect(await read({ ...recipePage, changes })).toEqual({
+        kind: "failed",
+        error: "unexpected-response",
+      });
+    });
+  });
+
   it("accepts a page larger than the pairing limit", async () => {
     const body = `${" ".repeat(64 * 1024)}${JSON.stringify({ ...recipePage, cursor: 3 })}`;
     expect(
