@@ -175,7 +175,7 @@ test("production package permits local storage, the crypto host and the HTTPS lo
       js: ["content-scripts/passkey-main.js"],
     },
   ]);
-  expect(manifest.permissions).toEqual(["storage", "offscreen", "alarms"]);
+  expect(manifest.permissions).toEqual(["storage", "offscreen", "alarms", "idle"]);
   expect(manifest.host_permissions).toEqual(["https://*/*", "http://*/*"]);
   // Chrome omits an optional entry the required hosts already cover, with a warning.
   expect(manifest.optional_host_permissions).toBeUndefined();
@@ -194,7 +194,7 @@ test("production package permits local storage, the crypto host and the HTTPS lo
   );
   // URL rechecks and worker reconnect require host access in addition to script
   // matches. Loopback HTTP belongs only to the synthetic build.
-  expect(probeManifest.permissions).toEqual(["storage", "offscreen", "alarms"]);
+  expect(probeManifest.permissions).toEqual(["storage", "offscreen", "alarms", "idle"]);
   expect(probeManifest.host_permissions).toEqual(["https://*/*", "http://127.0.0.1/*"]);
   expect(probeManifest.optional_host_permissions).toBeUndefined();
   // WebAuthn rejects IP-address origins, so only the passkey probe scripts use localhost.

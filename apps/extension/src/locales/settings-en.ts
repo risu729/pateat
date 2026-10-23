@@ -149,4 +149,32 @@ export const settingsEn = {
   "A default account takes effect at the next login.":
     "A default account takes effect at the next login.",
   "{{item}} ({{method}})": "{{item}} ({{method}})",
+  "Vault timeout": "Vault timeout",
+  "Saved on this device.": "Saved on this device.",
+  "The vault timeout could not be saved. Try again.":
+    "The vault timeout could not be saved. Try again.",
+  "{{count}} minute_one": "{{count}} minute",
+  "{{count}} minute_other": "{{count}} minutes",
+  "{{count}} hour_one": "{{count}} hour",
+  "{{count}} hour_other": "{{count}} hours",
+  "Enter whole minutes from 1 to {{max}}.": "Enter whole minutes from 1 to {{max}}.",
+  Unavailable: "Unavailable",
+  "Loading…": "Loading…",
+  "On system idle": "On system idle",
+  "On system lock": "On system lock",
+  "On browser restart": "On browser restart",
+  Never: "Never",
+  Custom: "Custom",
+  Minutes: "Minutes",
+  "Timeout action": "Timeout action",
+  "Never keeps the unlock key on this device, so the vaults unlock by themselves after a browser restart and stay open to anyone who can use this browser profile.":
+    "Never keeps the unlock key on this device, so the vaults unlock by themselves after a browser restart and stay open to anyone who can use this browser profile.",
+  "The unlock key stays in memory only, so a browser restart also locks the vaults.":
+    "The unlock key stays in memory only, so a browser restart also locks the vaults.",
+  "Log out also forgets the sync sign-in; sign in again to use the vault.":
+    "Log out also forgets the sync sign-in; sign in again to use the vault.",
+  "Lock keeps the sync sign-in; unlock with the master password, without the server.":
+    "Lock keeps the sync sign-in; unlock with the master password, without the server.",
+  "Time counts from the last login filled, passkey signed, unlock or sign-in; this setting stays on this device.":
+    "Time counts from the last login filled, passkey signed, unlock or sign-in; this setting stays on this device.",
 } as const;

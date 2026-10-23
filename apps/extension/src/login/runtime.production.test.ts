@@ -1373,6 +1373,8 @@ describe("production login document admission", () => {
       route: "password",
       state: expect.any(String),
       stepIndex: 1,
+      // Before the click: nothing was submitted, in the document the login began in.
+      unsubmitted: true,
       name: "SyntaxError",
       message: "synthetic settings answer",
       stack: expect.any(String),
@@ -3017,6 +3019,8 @@ describe("production login document admission", () => {
           await vi.waitFor(() => expect(executes()).toHaveLength(2));
           fake.state.signs = quiet;
           fake.state.extracted = { "signed-in": movedHome };
+          // The moved page shows the path it is described on.
+          fake.state.observedPath = "/home";
           const judgements = () =>
             report.mock.calls.flatMap(([entry]) => (entry.type === "judge" ? [entry] : []));
           return { h, judge, judgements };
@@ -3047,6 +3051,53 @@ describe("production login document admission", () => {
           }));
           await navigate(h, `${www}/home`, "home-document", false);
           expect(at(origin)).toMatchObject({ state: "authenticated" });
+        }, 15_000);
+        it("completes when the judge answers optional (ADR 0065)", async () => {
+          const { h } = await judged(async () => ({ verdict: "optional" }));
+          await navigate(h, `${www}/home`, "home-document", false);
+          expect(at(origin)).toMatchObject({ state: "authenticated", outcome: "authenticated" });
+          expect(at(origin)).not.toHaveProperty("unconfirmed");
+        }, 15_000);
+        it("ends left-origin on an optional page after the identifier alone", async () => {
+          // The recipe submits the account's identifier only; the password comes later.
+          const identifierOnly = parseLoginRecipe({
+            ...recipe,
+            slots: ["username"],
+            steps: [
+              {
+                kind: "fill",
+                path: "/signin",
+                fields: [{ slot: "username", target: target("password") }],
+              },
+              recipe.steps[1]!,
+            ],
+          });
+          const { h, judge } = await judged(async () => ({ verdict: "optional" }), identifierOnly);
+          await navigate(h, `${www}/home`, "home-document", false);
+          expect(judge).toHaveBeenCalledTimes(1);
+          expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+        }, 15_000);
+        it("ends left-origin when an optional page moved to another path", async () => {
+          const { h } = await judged(async () => {
+            fake.state.observedPath = "/verify";
+            return { verdict: "optional" };
+          });
+          await navigate(h, `${www}/home`, "home-document", false);
+          expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+        }, 15_000);
+        it("ends left-origin on an optional page whose description left out a choice", async () => {
+          const { h } = await judged(async () => ({ verdict: "optional" }));
+          fake.state.extracted = { "signed-in": { ...movedHome, inputLeftOut: true } };
+          await navigate(h, `${www}/home`, "home-document", false);
+          expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+        }, 15_000);
+        it("ends left-origin when an optional page then shows a code field", async () => {
+          const { h } = await judged(async () => {
+            fake.state.signs = { ...quiet, code: true };
+            return { verdict: "optional" };
+          });
+          await navigate(h, `${www}/home`, "home-document", false);
+          expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
         }, 15_000);
         it.each([
           ["cannot decide", { verdict: "unclear" }],
@@ -16682,6 +16733,17 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       );
     });
 
+    it("completes as signed in on a later page the judge finds optional (ADR 0065)", async () => {
+      const { h, service } = await watched(["optional"]);
+      const steps = executed().length;
+      await open(h, "/checkup");
+      expect(service.judge).toHaveBeenCalledTimes(2);
+      expect(status()).toMatchObject([{ state: "authenticated", outcome: "authenticated" }]);
+      expect(status()![0]).not.toHaveProperty("unconfirmed");
+      expect(executed()).toHaveLength(steps);
+      expect(judges().at(-1)).toMatchObject({ verdict: "optional", watched: true });
+    });
+
     it("hides the account's username from a watched page it judges", async () => {
       const { h, service } = await watched(
         ["signed-in"],
@@ -18041,6 +18103,36 @@ describe("the start page's passkey route (ADR 0027)", () => {
     expect(fills()).toBe(0);
   });
 
+  it("ends challenge on the passkey route when the judge answers optional (ADR 0065)", async () => {
+    vi.useFakeTimers();
+    const checkup = observation("/checkup", [
+      { id: "c1", role: "button", target: target("remind-later"), label: "Remind me later" },
+    ]);
+    onClick({ [button.value]: { path: "/checkup", present: [], extracted: checkup } });
+    const clicked = fake.state.onExecute!;
+    fake.state.onExecute = async (message, tabId) => {
+      await clicked(message, tabId);
+      // No sign of a sign-in step and no evidence of one (ADR 0029).
+      if (fake.state.observedPath === "/checkup")
+        fake.state.signs = {
+          password: false,
+          code: false,
+          captcha: false,
+          invalid: false,
+          alert: false,
+        };
+    };
+    const service = generation(async () => ({ verdict: "optional" }));
+    const { h } = start(routed, { generation: service });
+    expect(await h.hello()).toEqual({ ok: true });
+    // A page the route's own checks do not prove ends the passkey route `challenge`.
+    await until(settled("blocked", "challenge"));
+    expect(service.judge).toHaveBeenCalledTimes(1);
+    expect(status()![0]).toMatchObject({ route: "passkey" });
+    expect(clicks(button.value)).toBe(1);
+    expect(fills()).toBe(0);
+  });
+
   it("holds the clicking document whatever path a same-document URL change gives it", async () => {
     vi.useFakeTimers();
     // The page moves to another path with pushState while its passkey prompt still shows.
@@ -18813,6 +18905,45 @@ describe("an advance whose next step is on the same path (ADR 0013)", () => {
       undefined,
       undefined,
     ]);
+  });
+
+  describe("marks a login that submitted nothing yet in its first document (ADR 0066)", () => {
+    const blockedReports = (report: ReturnType<typeof vi.fn<(report: LoginReport) => void>>) =>
+      report.mock.calls.flatMap(([value]) =>
+        value.type === "attempt" && value.state === "blocked" ? [value] : [],
+      );
+
+    it("on a wrong account at the email fill", async () => {
+      fake.state.executeReply = { ok: false, reason: "wrong-account" };
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = start(identifierFirst(), { report });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("blocked", "wrong-account"));
+      expect(blockedReports(report)).toEqual([
+        expect.objectContaining({ outcome: "wrong-account", stepIndex: 0, unsubmitted: true }),
+      ]);
+    });
+
+    it("but not on a wrong account at the password fill after Next", async () => {
+      swapForms();
+      const onExecute = fake.state.onExecute!;
+      fake.state.onExecute = async (message, tabId) => {
+        await onExecute(message, tabId);
+        const step = (
+          message["operation"] as { step: { kind: string; fields?: { slot: string }[] } }
+        ).step;
+        if (step.fields?.some((field) => field.slot === "password"))
+          fake.state.executeReply = { ok: false, reason: "wrong-account" };
+      };
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = start(identifierFirst(), { report });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("blocked", "wrong-account"));
+      expect(executed()).toEqual(["fill:email", "click:next", "fill:password"]);
+      const [blocked] = blockedReports(report);
+      expect(blocked).toMatchObject({ outcome: "wrong-account", stepIndex: 2 });
+      expect(blocked).not.toHaveProperty("unsubmitted");
+    });
   });
 
   it("continues once a password input the email form kept for the browser shows", async () => {
@@ -21239,6 +21370,115 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
       await until(() => executed().length === withPress.length + 1);
       await vi.advanceTimersByTimeAsync(20_000);
       expect(executed()).toEqual([...withPress, "fill:email"]);
+    });
+  });
+
+  describe("an optional page after the sign-in (ADR 0065)", () => {
+    /** The page after Log in: a prompt to verify two-factor settings that can be put off. */
+    const checkupPage = describedPage("/checkup", [
+      { id: "c1", role: "button", target: target("verify-now"), label: "Verify now" },
+      { id: "c2", role: "button", target: target("remind-later"), label: "Remind me later" },
+    ]);
+    const passwordRecipe = continuedOn("/signin");
+    const steps = ["fill:email", "click:next", "fill:password", "click:login"];
+    /** The page signs of ADR 0029 with none shown. */
+    const noSigns = { password: false, code: false, captcha: false, invalid: false, alert: false };
+    /** Next shows the password form; Log in shows the optional page. */
+    const checkup = (signs: Partial<typeof noSigns> = {}) => {
+      fake.state.onExecute = async (message) => {
+        const step = (
+          message["operation"] as { step: { kind: string; target?: { value: string } } }
+        ).step;
+        if (step.kind !== "click") return;
+        if (step.target?.value === "next") {
+          fake.state.present = new Set(["password", "login"]);
+          fake.state.signIn = true;
+        }
+        if (step.target?.value === "login") {
+          fake.state.observedPath = "/checkup";
+          fake.state.present = new Set(["verify-now", "remind-later"]);
+          fake.state.signIn = false;
+          fake.state.extracted = { "signed-in": checkupPage };
+          // No sign of a sign-in step and no evidence of one (ADR 0029), unless given.
+          fake.state.signs = { ...noSigns, ...signs };
+        }
+      };
+    };
+
+    it("completes as signed in, presses nothing and leaves the page", async () => {
+      checkup();
+      const service = generation(undefined, async () => ({ verdict: "optional" }));
+      const h = start(service, { recipe: passwordRecipe });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("authenticated"));
+      expect(executed()).toEqual(steps);
+      expect(service.judge.mock.calls.map((call) => call[3])).toEqual([checkupPage.observation]);
+      expect(status()![0]).toMatchObject({ state: "authenticated", handlers: [] });
+      // Signed in, not the yellow mark of an unconfirmed sign-in.
+      expect(status()![0]!["unconfirmed"]).toBeUndefined();
+    });
+
+    it("does not complete on an optional page before the password was sent", async () => {
+      // The identifier's button submits; the page after it offers a passkey or the password.
+      const identifierOnly = parseLoginRecipe({
+        ...emailFirst,
+        steps: [
+          emailFirst.steps[0]!,
+          { kind: "click", path: "/signin", target: target("next"), purpose: "submit" },
+        ],
+      });
+      const choicePage = describedPage("/options", [
+        { id: "c1", role: "button", target: target("use-passkey"), label: "Use a passkey" },
+        { id: "c2", role: "button", target: target("use-password"), label: "Use your password" },
+      ]);
+      fake.state.onExecute = async (message) => {
+        const step = (
+          message["operation"] as { step: { kind: string; target?: { value: string } } }
+        ).step;
+        if (step.kind !== "click" || step.target?.value !== "next") return;
+        fake.state.observedPath = "/options";
+        fake.state.present = new Set(["use-passkey", "use-password"]);
+        fake.state.extracted = { "signed-in": choicePage };
+        fake.state.signs = noSigns;
+      };
+      const service = generation(undefined, async () => ({ verdict: "optional" }));
+      const h = start(service, { recipe: identifierOnly });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => service.judge.mock.calls.length === 1);
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(executed()).toEqual(["fill:email", "click:next"]);
+      // Not known to be signed in: it settles as an undecided page that does not complete.
+      expect(status()![0]).toMatchObject({ state: "reconciling", outcome: "unknown-submit" });
+    });
+
+    it("fails closed as a challenge when its description left out a choice", async () => {
+      checkup();
+      const service = generation(undefined, async () => ({ verdict: "optional" }));
+      // The page offers how to receive a code as radio buttons, which no candidate names.
+      fake.state.onExecute = (
+        (inner) => async (message: Record<string, unknown>, tabId: number) => {
+          await inner!(message, tabId);
+          if (fake.state.observedPath === "/checkup")
+            fake.state.extracted = { "signed-in": { ...checkupPage, inputLeftOut: true } };
+        }
+      )(fake.state.onExecute);
+      const h = start(service, { recipe: passwordRecipe });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("watching"));
+      expect(executed()).toEqual(steps);
+      expect(service.judge).toHaveBeenCalledTimes(1);
+      expect(status()![0]).toMatchObject({ outcome: "challenge" });
+    });
+
+    it("fails closed as a challenge when the page shows a code field", async () => {
+      checkup({ code: true });
+      const service = generation(undefined, async () => ({ verdict: "optional" }));
+      const h = start(service, { recipe: passwordRecipe });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("watching"));
+      expect(executed()).toEqual(steps);
+      expect(service.judge).toHaveBeenCalledTimes(1);
+      expect(status()![0]).toMatchObject({ outcome: "challenge" });
     });
   });
 
@@ -26163,6 +26403,46 @@ describe("an item without a password, up to its password (ADR 0036)", () => {
     await vi.advanceTimersByTimeAsync(5_000);
     expect(status()![0]).toMatchObject({ state: "watching", outcome: "challenge" });
     expect(judgements(report).at(-1)).toMatchObject({ verdict: "rejected", watched: true });
+    expect(passwordRead(h)).toBe(false);
+  });
+
+  it("stays watched at its stop when a later page is judged optional (ADR 0065)", async () => {
+    vi.useFakeTimers();
+    // No password was submitted, so an optional page proves no sign-in.
+    const { judge, generation } = judging({ verdict: "optional" });
+    const { h, report } = start({ generation });
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => status()?.[0]?.["state"] === "watching");
+    const sent = judge.mock.calls.length;
+    fake.state.signs = quiet;
+    fake.state.pageUrl = `${origin}/home`;
+    fake.state.observedPath = "/home";
+    fake.state.present = new Set();
+    fake.state.extracted = { "signed-in": described("/home") };
+    expect(await h.hello({ documentId: "home-document" }, false)).toMatchObject({ ok: true });
+    await until(() => judge.mock.calls.length === sent + 1);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(status()![0]).toMatchObject({ state: "watching", outcome: "challenge" });
+    expect(judgements(report).at(-1)).toMatchObject({ verdict: "optional", watched: true });
+    expect(passwordRead(h)).toBe(false);
+  });
+
+  it("ends challenge, watched, at the stop on an optional answer (ADR 0065)", async () => {
+    vi.useFakeTimers();
+    const { judge, generation } = judging({ verdict: "optional" });
+    const { h, report } = start({ generation });
+    nextLeadsTo("/verify");
+    fake.state.signs = quiet;
+    fake.state.extracted = { "signed-in": described("/verify") };
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => status()?.[0]?.["state"] === "watching");
+    expect(status()![0]).toMatchObject({ outcome: "challenge", stepIndex: 1 });
+    expect(judge).toHaveBeenCalledTimes(1);
+    expect(judgements(report).at(-1)).toMatchObject({
+      verdict: "optional",
+      notCompleted: "password-empty",
+    });
+    expect(judgements(report).at(-1)).not.toHaveProperty("completed");
     expect(passwordRead(h)).toBe(false);
   });
 
