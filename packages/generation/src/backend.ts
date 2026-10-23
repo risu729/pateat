@@ -227,13 +227,16 @@ export interface GenerationBackend {
 
   /** Whether the attempt was made since `since` (ADR 0016). */
   attemptedSince(key: AttemptKey, since: number): Promise<boolean>;
-  /** Records the attempt at `now`, and forgets the owner's attempts made before `expired`. */
+  /**
+   * Records the attempt at `now`, and forgets the owner's attempts made before `expired`,
+   * in one write.
+   */
   recordAttempt(key: AttemptKey, now: number, expired: number): Promise<void>;
   /** Whether this device asked to repair the recipe since `since` (ADR 0041). */
   repairedSince(recipeId: string, since: number): Promise<boolean>;
   /**
    * Records this device's repair of the recipe at `baseRevision`, and forgets the owner's
-   * repairs made before `expired`.
+   * repairs made before `expired`, in one write.
    */
   recordRepair(recipeId: string, baseRevision: number, now: number, expired: number): Promise<void>;
   /** The kept judgement of a page, with its verdict (null while unanswered). */
@@ -244,7 +247,8 @@ export interface GenerationBackend {
    * Records a page's judgement at `now`, unanswered: a new row, or one whose verdict was
    * `partial` or `optional`, which takes today's slot again. With it, forgets the recipe's
    * rows judged before `expired` whose revision is below `revision` or whose prompt version
-   * is none of `versions`.
+   * is none of `versions`. Both happen in one write; a row with any other verdict, or an
+   * unanswered one, is left as it is.
    */
   recordJudgement(
     key: JudgementKey,
