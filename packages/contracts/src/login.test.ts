@@ -1103,8 +1103,8 @@ describe("second-factor page handlers (ADR 0027)", () => {
       const year = { part: "year", format: "yyyy" };
       const month = { part: "month", format: "mm" };
       const day = { part: "day", format: "d" };
-      const groups = (detail: string, lengths: number[]) => ({
-        detail,
+      const groups = (asked: string, lengths: number[]) => ({
+        detail: asked,
         parts: lengths.map((length, at) => ({ part: at + 1, length, target: id(`g${at + 1}`) })),
       });
       const expiry = (parts: { part: string; format: string }[]) => ({
@@ -1295,7 +1295,7 @@ describe("second-factor page handlers (ADR 0027)", () => {
             { part: 2, length: 6 },
           ]),
         ).toBe(true);
-        for (const detail of [
+        for (const other of [
           "phone-last-4",
           "card-last-4",
           "card-code",
@@ -1303,7 +1303,7 @@ describe("second-factor page handlers (ADR 0027)", () => {
           "member-id",
         ] as const)
           expect(
-            detailPartsFit(detail, [
+            detailPartsFit(other, [
               { part: 1, length: 2 },
               { part: 2, length: 2 },
             ]),

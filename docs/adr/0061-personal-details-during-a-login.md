@@ -155,12 +155,12 @@ with two to six `parts`, each with its own input:
 
 - A date's parts are `year`, `month` and `day`, each with a format: `yyyy` for a birth
   year, `yyyy` or `yy` for an expiry year, `mm` or `m` for a month and `dd` or `d` for a
-  day (`m` and `d` without a leading zero). A birth date is split as year, month and day,
-  year and month, or month and day; an expiry date as month and year. A birth year in two
-  digits or as an era year stays no detail. The judge does not see a select's options,
-  so a select takes `yyyy`, `mm` and `dd`. A part the judge names without a format takes
-  these too, or `yy` for a card expiry year in a two-character input, and its input's
-  `maxlength` must hold it.
+  day (`m` and `d` without a leading zero). A birth date is split as year, month and
+  day, year and month, or month and day; an expiry date as month and year. A birth year
+  in two digits or as an era year stays no detail. The judge does not see a select's
+  options, so a select takes `yyyy`, `mm` and `dd`. A part the judge names without a
+  format takes these too, or `yy` for a card expiry year in a two-character input, and
+  its input's `maxlength` must hold it.
 - A card number's or PIN's parts are digit groups `1`, `2` and so on in the order the
   digits go, each with the `length` its input's `maxlength` declared when it was judged.
   The lengths add up to 12 to 19 digits for a card number and 4 to 12 for a PIN.
@@ -169,8 +169,8 @@ with two to six `parts`, each with its own input:
   handler, as one input is, and its link is the same one link per detail.
 - Its steps are one fill of every part's input, slots `detail`, `detail 2` to
   `detail 6`, then the click. The service worker makes every part right after the one
-  vault read; a group's digits must fill all the groups exactly, or nothing is filled and
-  the login stops as `detail-unreadable`. The content script gets only the parts,
+  vault read; a group's digits must fill all the groups exactly, or nothing is filled
+  and the login stops as `detail-unreadable`. The content script gets only the parts,
   checks every part's input before it fills any, and fills them in one task: a group
   goes only into an input whose `maxlength` is its length, a date's part into a text,
   tel or number input or a single-choice select.
@@ -178,10 +178,11 @@ with two to six `parts`, each with its own input:
   visible text, after NFKC and trimming, holds one run of digits equal to the part's
   number (`4`, `04`, `4月`, `1990年`). A four-digit year that no option says matches the
   option that says only its last two digits, as a card's expiry year `31` for 2031. A
-  disabled or hidden option, or one in a disabled group, never matches. When no option matches, or several do, as when the values count
-  months from 0 and the texts from 1, nothing is chosen in any part's input, and the
-  login ends `challenge` with `detail-unfit` in the log. A match is chosen through the
-  native `selectedIndex` setter, with `input` and `change` events that bubble.
+  disabled or hidden option, or one in a disabled group, never matches. When no option
+  matches, or several do, as when the values count months from 0 and the texts from 1,
+  nothing is chosen in any part's input, and the login ends `challenge` with
+  `detail-unfit` in the log. A match is chosen through the native `selectedIndex`
+  setter, with `input` and `change` events that bubble.
 - The judged page's description lists up to twelve shown, enabled single-choice selects
   as `select`, by their label and position, never their options. A login page's
   description still leaves selects out.
@@ -297,8 +298,8 @@ A radio button chooses an input when it belongs to a group of two or more radios
 the same `name` in the input's form, comes before the input in document order, and no
 other radio and no text-like input or select lies between them. Filling a detail input
 checks its choosing radio first, when it has one and it is not checked, in the same task
-as the fill, with a `click` so the page's handlers run. This is a property of the fill, not a
-recipe step, and it is not a submission. A page whose radios all come before their
+as the fill, with a `click` so the page's handlers run. This is a property of the fill,
+not a recipe step, and it is not a submission. A page whose radios all come before their
 inputs has no choosing radio, and its input is filled only if it is writable as it is.
 
 ### What the judge names
@@ -387,15 +388,15 @@ When a `detail` handler shows and no link has a value for any of its inputs:
    first one selected, for example "This page asks for your birth year and month." and
    "本人 › 生年月日", with **Fill**.
 4. **Fill** fills the input, or every part's input of a split value, in the tab's
-   current document, checking its choosing radio, when that document is the login's,
-   the tab's login is still the one that stopped there, the site and the login item are
-   still allowed, and the page still shows the input writable and the button, and the page shows no other account than the login
-   item's, as for a login's fill; it does not press the button. The person checks the
-   value and submits. One link is kept per handler: a second **Fill**, as after choosing
-   the other radio, replaces the first. The link is kept for that tab in
-   session storage and saved to the owner's settings only when the watched login ends
-   `authenticated`, as an account chosen in the popup is
-   ([ADR 0023](0023-synced-vault-policy.md)); otherwise it is dropped.
+   current document, checking its choosing radio, when that document is the login's, the
+   tab's login is still the one that stopped there, the site and the login item are
+   still allowed, and the page still shows the input writable and the button, and the
+   page shows no other account than the login item's, as for a login's fill; it does not
+   press the button. The person checks the value and submits. One link is kept per
+   handler: a second **Fill**, as after choosing the other radio, replaces the first.
+   The link is kept for that tab in session storage and saved to the owner's settings
+   only when the watched login ends `authenticated`, as an account chosen in the popup
+   is ([ADR 0023](0023-synced-vault-policy.md)); otherwise it is dropped.
 5. The popup also lists the site's saved links, each with **Remove**.
 
 The popup shows nothing more when there is no candidate; the person types the value.

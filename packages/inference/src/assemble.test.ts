@@ -954,8 +954,8 @@ describe("judged detail handler (ADR 0061)", () => {
       detail: "card-number" as const,
       parts: boxes.map((_box, at) => ({ part: at + 1, length: 4, target: target(`c${at + 1}`) })),
     };
-    const page = { ...detailPage(), candidates: [...selects, ...boxes, button()] };
-    const added = addHandler(recipe, page, {
+    const shown = { ...detailPage(), candidates: [...selects, ...boxes, button()] };
+    const added = addHandler(recipe, shown, {
       kind: "detail",
       fields: [date, card],
       target: confirm,
@@ -977,7 +977,7 @@ describe("judged detail handler (ADR 0061)", () => {
       expect(
         addHandler(
           recipe,
-          { ...page, candidates: [...candidates] },
+          { ...shown, candidates: [...candidates] },
           { kind: "detail", fields: [date, card], target: confirm },
         ),
       ).toEqual({ ok: false, reason });

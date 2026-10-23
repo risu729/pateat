@@ -50,17 +50,17 @@ type Field = { target: { by: "id"; value: string }; value: string; secret: strin
 /** The page's answer to the popup's `login.detail.fill` of these fields. */
 async function fill(fields: Field[]) {
   const token = sent.find((message) => typeof message["token"] === "string")?.["token"];
-  let answer: unknown;
+  const answer: { value?: unknown } = {};
   for (const listener of listeners)
     listener(
       { version: 1, type: "login.detail.fill", token, path: location.pathname, fields },
       { id: "synthetic-extension" },
-      (value) => (answer = value),
+      (value) => (answer.value = value),
     );
-  for (let tick = 0; tick < 100 && answer === undefined; tick += 1)
+  for (let tick = 0; tick < 100 && answer.value === undefined; tick += 1)
     // eslint-disable-next-line no-await-in-loop
     await vi.advanceTimersByTimeAsync(100);
-  return answer;
+  return answer.value;
 }
 const id = (value: string) => ({ by: "id" as const, value });
 const options = (from: number, to: number, suffix = "") =>

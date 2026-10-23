@@ -593,6 +593,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       for (const field of command.fields) field.value = "";
       const username = command.account?.username;
       if (command.account) command.account.username = "";
+      const clear = () => {
+        for (const field of fields) field.value = "";
+      };
       void (async () => {
         const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
         const controls = fields.map((field) => {
@@ -647,16 +650,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           if (stopped !== undefined) return { ok: false };
         }
         return { ok: true };
-      })().then(
-        (answer) => {
-          for (const field of fields) field.value = "";
-          respond(answer);
-        },
-        () => {
-          for (const field of fields) field.value = "";
-          respond({ ok: false });
-        },
-      );
+      })()
+        .finally(clear)
+        .then(respond, () => respond({ ok: false }));
       return true;
     }
     if (command.type === "login.cancel") {

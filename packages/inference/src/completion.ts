@@ -406,11 +406,11 @@ function detailInputs(
       fields[group.at] = { detail, parts };
     else {
       broken.add(group.at);
-      for (const _part of parts) dropped.push("parts");
+      dropped.push(...parts.map(() => "parts"));
     }
   }
   const kept = fields.filter((_field, index) => !broken.has(index));
-  for (const _field of kept.slice(3)) dropped.push("too-many");
+  dropped.push(...kept.slice(3).map(() => "too-many"));
   return {
     ...(kept.length && target ? { detail: { fields: kept.slice(0, 3), target } } : {}),
     ...(dropped.length ? { detailsDropped: dropped } : {}),
