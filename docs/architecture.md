@@ -906,14 +906,13 @@ form). A plan's click is in the same form, except a button outside every form fo
 fields of the page's only password form when that form lists no button of its own and
 the button is the only one outside every form (`besideForm` in
 `packages/inference/src/plan.ts`, owner's choice 2026-10-23). Where the values go is
-checked in the page, as the browser would submit the form:
-before a fill step writes into a form, the form's `action` attribute, and before a click
-on a submit button or image input, that control's `formaction` attribute or else its
-form's `action`, resolved against the document's base URL (so a `<base href>` counts; an
-empty or missing value is the document's URL), must have the document's own origin, or
-be allowed by the background
-([ADR 0051](adr/0051-form-destinations-by-item-uri-match.md)). The content script sends
-only an HTTP(S) destination on another origin to the background
+checked in the page, as the browser would submit the form: before a fill step writes
+into a form, the form's `action` attribute, and before a click on a submit button or
+image input, that control's `formaction` attribute or else its form's `action`, resolved
+against the document's base URL (so a `<base href>` counts; an empty or missing value is
+the document's URL), must have the document's own origin, or be allowed by the
+background ([ADR 0051](adr/0051-form-destinations-by-item-uri-match.md)). The content
+script sends only an HTTP(S) destination on another origin to the background
 (`login.destination.check`, with the attempt's token and current operation), which
 allows it only on the document's site, through HTTPS unless the document is HTTP, at an
 admitted site, and when the login's item matches the destination's full URL by its
@@ -970,22 +969,22 @@ the account, such as a card number on a password page, still stops a digits-only
 username: a known limitation. A recipe can name an `accountSwitch` target: the button or
 `<a href>` link that switches to another account
 (`{ "by": "text", "value": "Use another account" }`; text locators match link text only
-here and in a signed-in marker; the recipe must not use it for a click step, a
-handler, `rejection` or a signed-in marker). When the page shows another account, nothing was submitted in the attempt,
-and that target matches exactly one shown link or button that does not submit a form,
-the background first records the attempt as `account-switched` (blocked, no submission
-spent) and then has the content script click it. The click happens only within 10
-seconds, on the same path, while the target still matches exactly that element;
-otherwise the record becomes `wrong-account` and keeps holding that origin in the tab.
-After the click, the tab's next document of that origin that reports ready starts a new
-attempt instead of resuming, so a recipe that starts on the page the switch leads to
-logs in, such as an email page at `/signin/id` after a password page at `/signin/pwd`
-that showed `myaccount@example.com` (owner decision, 2026-10-11). That attempt carries
-the switch and never clicks another: a page that still shows another account ends it
-`wrong-account`. Without the target, or when it is missing or ambiguous, the attempt
-ends `wrong-account` as above. A switch that changes the account in place, without
-loading a new document, does not continue the login. Before a fill step writes anything,
-the content script checks every value against its input
+here and in a signed-in marker; the recipe must not use it for a click step, a handler,
+`rejection` or a signed-in marker). When the page shows another account, nothing was
+submitted in the attempt, and that target matches exactly one shown link or button that
+does not submit a form, the background first records the attempt as `account-switched`
+(blocked, no submission spent) and then has the content script click it. The click
+happens only within 10 seconds, on the same path, while the target still matches exactly
+that element; otherwise the record becomes `wrong-account` and keeps holding that origin
+in the tab. After the click, the tab's next document of that origin that reports ready
+starts a new attempt instead of resuming, so a recipe that starts on the page the switch
+leads to logs in, such as an email page at `/signin/id` after a password page at
+`/signin/pwd` that showed `myaccount@example.com` (owner decision, 2026-10-11). That
+attempt carries the switch and never clicks another: a page that still shows another
+account ends it `wrong-account`. Without the target, or when it is missing or ambiguous,
+the attempt ends `wrong-account` as above. A switch that changes the account in place,
+without loading a new document, does not continue the login. Before a fill step writes
+anything, the content script checks every value against its input
 ([ADR 0010](adr/0010-inference-field-hints.md)): non-empty, within the input's
 `maxlength` and `minlength` (ignored on `number` inputs), and a valid email or number
 for those input types (`valueMismatch` in `packages/contracts/src/values.ts`). A
@@ -2126,17 +2125,17 @@ A recipe's `completion` is a list of up to four signed-in markers without a path
 first from the page after the first sign-in, each later one from another page the judge
 answered `signed-in` for while no learned marker showed there. A marker is never an
 element the recipe's steps, passkey route or handlers use, nor its account switch or
-rejection, on any path. Each may also
-list up to four `absent` elements. The executor reports `authenticated` when one marker
-is unique and visible on any path and every `absent` element of that marker is missing.
-A marker may be a link named by its text, such as an account page link without an `id`,
-matched as an account switch's is. A marker learned on a page that signs in on its own
-path lists that path's sign-in fields, because the executor checks the markers after
-every step and counts hidden elements: a login page that keeps a hidden "Sign out" link
-never counts as signed in. A site that keeps those sign-in inputs hidden in its pages
-after signing in therefore never reports `authenticated` with such a marker. A recipe's
-markers and their absent elements, its rejection and any one step's elements together
-stay within one 24-element observation, so a marker that would exceed it is not learned.
+rejection, on any path. Each may also list up to four `absent` elements. The executor
+reports `authenticated` when one marker is unique and visible on any path and every
+`absent` element of that marker is missing. A marker may be a link named by its text,
+such as an account page link without an `id`, matched as an account switch's is. A
+marker learned on a page that signs in on its own path lists that path's sign-in fields,
+because the executor checks the markers after every step and counts hidden elements: a
+login page that keeps a hidden "Sign out" link never counts as signed in. A site that
+keeps those sign-in inputs hidden in its pages after signing in therefore never reports
+`authenticated` with such a marker. A recipe's markers and their absent elements, its
+rejection and any one step's elements together stay within one 24-element observation,
+so a marker that would exceed it is not learned.
 
 A login that such a marker completed after an effect step sends nothing to the judge,
 but its page may go to the service as a sample for evaluation ([ADR
@@ -2480,26 +2479,24 @@ replaced, an `id`, `name` or `data-testid` that may be a token locates nothing, 
 judged page, so a token the page also writes into such an attribute is not sent through
 a locator either. Text, labels and the title are not checked against the replaced
 segment, and a short token the rule does not flag is sent as it is, so this is a
-heuristic. A username in the path
-is looked for in the raw path, before the replacement. The local log's `url` keeps the
-raw path (owner decision 2026-10-13). Labels can
-contain private data too: sanitize and bound them, with privacy fixtures and an
-abstention path when a useful safe observation cannot be constructed. The owner chose on
-2026-10-11 to redact observed text before it is sent: email-like strings, including
-masked ones, become `[email]`; runs of three or more `*`, `●`, `•` or `＊` become
-`[masked]`; and runs of four or more ASCII or fullwidth digits become `[number]`
-(`口座番号 ****1234` becomes `口座番号 [masked][number]`). Page text is read as it
-renders, both before redaction and before it is compared with an account: a `<wbr>`
-line-break opportunity separates nothing, and format characters (`\p{Cf}`, such as
-U+200B zero-width space and U+00AD soft hyphen) are left out, so
-`taro.yamada@<wbr>example.com` and `taro.yamada@&#8203;example.com` become
-`[email]`, and the sign-in state's E2, the entries of a list of accounts and the
-wrong-account check each read them as one address; usernames are compared without
-format characters too. Names cannot be detected and
-stay, except the account's own usernames: just before a page goes to the service (a
-recipe's first page, the page after an `advance` step, the page the completion judge
-gets and a signed-in page sample), the worker reads the `login.username` of the items
-that match the page as for the
+heuristic. A username in the path is looked for in the raw path, before the replacement.
+The local log's `url` keeps the raw path (owner decision 2026-10-13). Labels can contain
+private data too: sanitize and bound them, with privacy fixtures and an abstention path
+when a useful safe observation cannot be constructed. The owner chose on 2026-10-11 to
+redact observed text before it is sent: email-like strings, including masked ones,
+become `[email]`; runs of three or more `*`, `●`, `•` or `＊` become `[masked]`; and
+runs of four or more ASCII or fullwidth digits become `[number]` (`口座番号 ****1234`
+becomes `口座番号 [masked][number]`). Page text is read as it renders, both before
+redaction and before it is compared with an account: a `<wbr>` line-break opportunity
+separates nothing, and format characters (`\p{Cf}`, such as U+200B zero-width space and
+U+00AD soft hyphen) are left out, so `taro.yamada@<wbr>example.com` and
+`taro.yamada@&#8203;example.com` become `[email]`, and the sign-in state's E2, the
+entries of a list of accounts and the wrong-account check each read them as one address;
+usernames are compared without format characters too. Names cannot be detected and stay,
+except the account's own usernames: just before a page goes to the service (a recipe's
+first page, the page after an `advance` step, the page the completion judge gets and a
+signed-in page sample), the worker reads the `login.username` of the items that match
+the page as for the
 [username shape](adr/0016-recipe-generation-trigger.md#username-shape), and for a judged
 page the login's own item's too, and hides each username of three or more characters
 (the minimum the sign-in state's E2 uses) where it shows as `[account]`, by
@@ -2552,24 +2549,24 @@ live regions, error messages, controls, labels, links and headings left out
 code field, it carries `nearButtons` instead: up to three such texts near its buttons,
 read inside an open modal that holds one or else the first shown main landmark, and
 never in the header or navigation, so the judge can tell that a button labelled only
-"Verify" starts a security-key check. There, a polite live region without a role of
-its own that holds one of those buttons, the modal or main itself or a region inside
-it, is read as any other part of the page; every other live region is still left out.
-Login pages keep the
-four-digit rule, since hints such as `4 digits` help map fields. When a login page
-already shows a chosen account and offers a button or link to use another one, the
-generation role may name it as the plan's `accountSwitch`; it must be an observed button
-or link that the plan neither fills nor uses as its action. The generated recipe keeps
-the first switch a page names that no step clicks and that is not the passkey button,
-a handler's element, the rejection or a signed-in marker. Only links inside the login form are
-observed, so a switch link outside it is not named. A button whose text a link elsewhere
-on the page shows too, and a button that would submit a form, are never clicked as a
-switch; the attempt then ends `wrong-account`. Locating links by text means in-form
-links without an `id`, `name` or `data-testid` are now observed as well, with their
-redacted labels, and a switch link's redacted rendered text is stored in the recipe.
-Model output must pass structural and semantic checks on the server and again locally.
-Screenshot, audio and video collection are deferred. A provider's multimodal support
-does not enable these inputs without a separate privacy/evaluation gate.
+"Verify" starts a security-key check. There, a polite live region without a role of its
+own that holds one of those buttons, the modal or main itself or a region inside it, is
+read as any other part of the page; every other live region is still left out. Login
+pages keep the four-digit rule, since hints such as `4 digits` help map fields. When a
+login page already shows a chosen account and offers a button or link to use another
+one, the generation role may name it as the plan's `accountSwitch`; it must be an
+observed button or link that the plan neither fills nor uses as its action. The
+generated recipe keeps the first switch a page names that no step clicks and that is not
+the passkey button, a handler's element, the rejection or a signed-in marker. Only links
+inside the login form are observed, so a switch link outside it is not named. A button
+whose text a link elsewhere on the page shows too, and a button that would submit a
+form, are never clicked as a switch; the attempt then ends `wrong-account`. Locating
+links by text means in-form links without an `id`, `name` or `data-testid` are now
+observed as well, with their redacted labels, and a switch link's redacted rendered text
+is stored in the recipe. Model output must pass structural and semantic checks on the
+server and again locally. Screenshot, audio and video collection are deferred. A
+provider's multimodal support does not enable these inputs without a separate
+privacy/evaluation gate.
 
 Use a cached compatible recipe first. On structural mismatch or repeated genuine
 recipe failure, request repair within a separate bounded inference budget (proposed, not

@@ -361,6 +361,7 @@ describe("judged completion beside the account switch", () => {
   const other = { by: "text", value: "Switch account" } as const;
   const switched = (() => {
     const first = appendPageSteps(undefined, {
+      pageKind: "sign-in",
       id: "gen-1",
       origin,
       steps: page("/login", "pw", "submit"),
@@ -393,6 +394,7 @@ describe("judged completion beside the account switch", () => {
     );
     if (!handled.ok) throw new Error(handled.reason);
     const next = appendPageSteps(handled.recipe, {
+      pageKind: "sign-in",
       id: "gen-1",
       origin,
       steps: page("/pw", "pw", "submit"),
