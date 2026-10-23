@@ -1294,6 +1294,10 @@ export function extractLoginObservation(
     known.some((target) => {
       if (target.by === "label")
         return fieldName(field) === target.value && index.get("label")!.get(target.value) === 1;
+      if (target.by === "password-form-name") {
+        const found = findTargets(document, target);
+        return found.length === 1 && found[0] === field;
+      }
       const attribute = locators.find(([by]) => by === target.by)?.[1];
       return (
         attribute !== undefined &&

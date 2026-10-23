@@ -1311,6 +1311,18 @@ describe("extractLoginObservation", () => {
     // Two sign-in forms that repeat the name stay ambiguous.
     page(`${form("", "current-password", "login")}${form("", "current-password", "go")}`);
     expect(observe().complete).toBe(false);
+    // Continuing a recipe, the filled field shown read-only again is left out.
+    page(
+      `${form("", "current-password", "login").replace('name="acct"', 'name="acct" readonly')}
+      ${form(`<input type="hidden" name="creating" value="t">`, "new-password", "create account")}`,
+    );
+    const result = extractLoginObservation(document, [{ by: "password-form-name", value: "acct" }]);
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.observation.complete).toBe(true);
+    expect(result.observation.candidates.map(({ target }) => target)).toEqual([
+      { by: "autocomplete", value: "current-password" },
+      { by: "text", value: "login" },
+    ]);
   });
 
   it("treats every control outside a form as part of a formless login", () => {

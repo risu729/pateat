@@ -42,6 +42,10 @@ describe("findTargets", () => {
       <form><input id="i" name="acct"><input type="password" hidden></form>`,
     );
     expect(ids(findTargets(document, { by: "password-form-name", value: "acct" }))).toEqual(["g"]);
+    // A signed-in marker's missing elements count a hidden form's copy too.
+    expect(
+      ids(findTargets(document, { by: "password-form-name", value: "acct" }, { hidden: true })),
+    ).toEqual(["g", "i"]);
     expect(ids(findTargets(document, { by: "name", value: "x'] , [name" }))).toEqual(["d"]);
     expect(ids(findTargets(document, { by: "id", value: "a" }))).toEqual(["a"]);
   });
