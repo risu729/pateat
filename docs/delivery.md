@@ -300,7 +300,7 @@ set up on the owner's request (2026-10-23 21:34 UTC), replacing GitHub's default
 | `type: refactor` | Code change with no change in behaviour |
 | `type: docs` | Documentation only |
 | `type: task` | Maintenance or tracking work that is none of the above |
-| `area: extension` | `apps/extension`: content scripts, worker, popup, options |
+| `area: extension` | `apps/extension` and `packages/bitwarden`: content scripts, worker, popup, options |
 | `area: service` | `services/api` and `packages/inference`: API, `/manage`, recipe generation |
 | `area: ci` | GitHub Actions, build and release |
 | `security` | Affects how credentials or vault data are protected |
@@ -313,6 +313,7 @@ set up on the owner's request (2026-10-23 21:34 UTC), replacing GitHub's default
 | `resolution: by design` | Closed: the behaviour is intended |
 | `resolution: won't fix` | Closed: the owner decided not to change it |
 
+An issue in `packages/contracts` gets the area of the side it breaks, or both.
 Remove a `status:` label once its wait ends. Close an issue as not reproducible only
 after a recorded check failed to show the problem: add `resolution: not reproducible`,
 close it as "not planned", and comment with the build (commit link), where it was
