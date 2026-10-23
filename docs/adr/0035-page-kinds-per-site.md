@@ -263,20 +263,24 @@ followed the same day, all local, with these readings:
 - The content script reports a page's `shown` as soon as the first step of its `confirm`
   or `unclear` recipe shows, which the worker names in its answer, instead of after the
   10-second step wait; an origin with only such recipes otherwise never reported it.
-  Once reported, the page stops watching its DOM and follows only its path; a return to
-  the path in place reports the step and the person's submit again, a new visit.
+  Once reported, the page stops watching its DOM and follows only its path. A move off
+  the path in place is announced, so the worker logs the visit as left and reads the new
+  path as the next page; a return to the path in place reports the step and the person's
+  submit again, a new visit.
 - `amount`: whether the rendered text of the forms that hold that step's elements shows
   `¥`, `円` or `$` (full-width forms too) beside a digit; never a control's value. It is
   absent when those elements are in no form.
 - E1 and E2 are read as the `signedIn` hint reads them, as `e1` and `e2`, but up to
   five times a second apart until either shows or the page goes, since a header can
-  render after the form; both come from the last reading. `e2` is absent when no vault
-  item matches or a username cannot be read.
+  render after the form; both come from the last reading. Both are absent when the page
+  went before its first reading, and `e2` when no vault item matches or a username
+  cannot be read.
 - The previous path (`previousUrl`, sanitized like `url`) is the tab's previous top page
   of the same origin, or the same document before an in-place path change. A page of
   another origin, or one Pateat did not admit in between (an excluded site, no site
   access), leaves it out; a page where no content script runs, such as a browser error
-  page, is not seen.
+  page, is not seen. A document restored from the back-forward cache after a page not
+  admitted keeps the previous path of its first load.
 - `personSubmitted` counts a trusted `submit` of a form that holds the step's elements,
   sent once per visit in `login.document.person-submitted`. A page script's
   `requestSubmit()` is trusted too, so it counts. It is logged in a follow-up entry,
@@ -285,8 +289,9 @@ followed the same day, all local, with these readings:
   worker keeps the visit in memory only, so a worker restart drops that entry.
 - "Sent with `signedIn` false" would need the hint the page's generation request
   carried, which the device keeps only in the 14-day log, possibly on another device. It
-  is read as the inputs of that hint on this visit: E1 false and E2 not true (false, or
-  absent with a locked vault or no match). Then `login.confirm-left` adds `nextE1`:
+  is read as the inputs of that hint on this visit: E1 read and false, and E2 not true
+  (false, or absent with a locked vault, no match or no reading). Then
+  `login.confirm-left` adds `nextE1`:
   whether the next page shows a signed-in marker of the origin's recipes, read up to
   five times a second apart. It is absent when the next page went before its first
   reading, was not admitted, or the tab closed. `confirm` covers `unclear` here.
@@ -295,7 +300,12 @@ followed the same day, all local, with these readings:
   writable `type="text"` input whose name or label pairs a secret word (`secret`,
   `security`, `memorable`, `challenge`) with an answer word (`answer`, `question`,
   `word`, `phrase`), or holds a phrase such as `合言葉`, `秘密の質問` or `質問の答え`,
-  and no other reason holds; and `frame` when a frame whose page would be sent now shows
+  and no sign-in reason holds; short texts beside its button are then not read as a
+  list of accounts. The case the count exists for, a person who signed in earlier, is
+  counted. On the tab's next document after a password submit the page is part of that
+  sign-in and logs `nothing-offered` `after-sign-in`; after Pateat's own login of the
+  origin in the tab it is not offered for generation, so not counted. `frame` counts
+  when a frame whose page would be sent now shows
   a sign-in input or such an answer at one of five readings within the step wait. Each
   logs `recipe.generate` `skipped` with that reason at info, and the bug report counts
   them over 24 hours, like passkey delegations.

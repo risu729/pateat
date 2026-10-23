@@ -7037,6 +7037,69 @@ describe("production login document admission", () => {
       expect(entries("refused")).toHaveLength(2);
     });
 
+    it("logs neither E1 nor E2 for a page gone before its first reading, nor reads its next page (ADR 0035)", async () => {
+      const { h, entries, left, refused } = confirmHarness();
+      // The matching item's username is read slowly, and the person leaves meanwhile.
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      h.fields.mockImplementation(async () => {
+        await held;
+        return "synthetic-user";
+      });
+      fake.state.pageUrl = `${origin}/signin`;
+      await h.hello({ documentId: "verify" }, false);
+      await shownHello(h, { documentId: "verify" });
+      await vi.waitFor(() => expect(h.fields).toHaveBeenCalled());
+      fake.state.present = new Set(["account"]);
+      fake.state.pageUrl = `${origin}/done`;
+      await h.hello({ documentId: "done" }, false);
+      release();
+      await vi.waitFor(() =>
+        expect(entries("confirm-left")).toEqual([{ ...left, personSubmitted: false }]),
+      );
+      const { e1: _unread, ...unread } = refused;
+      expect(entries("refused")).toEqual([unread]);
+    });
+
+    it("logs a return in place to a page Pateat does not fill as a new visit (ADR 0035)", async () => {
+      const { h, entries, visit, left, refused } = confirmHarness({ urls: true });
+      expect(await visit("app")).toEqual({ ...refused, e2: false, url: `${origin}/signin` });
+      await h.login.handle(
+        { version: 1, type: "login.document.person-submitted", token: "synthetic-token" },
+        sender({ documentId: "app" }),
+      );
+      // The same document moves on in place, as the content script announces.
+      fake.state.present = new Set(["account"]);
+      fake.state.pageUrl = `${origin}/done`;
+      await h.hello({ documentId: "app" }, false);
+      await vi.waitFor(() =>
+        expect(entries("confirm-left")).toEqual([
+          { ...left, personSubmitted: true, nextE1: true, url: `${origin}/signin` },
+        ]),
+      );
+      // Back on the page in place: a new visit, whose previous page is the one it left.
+      fake.state.present = new Set();
+      expect(await visit("app")).toEqual({
+        ...refused,
+        e2: false,
+        url: `${origin}/signin`,
+        previousUrl: `${origin}/done`,
+      });
+      fake.state.pageUrl = `${origin}/home`;
+      await h.hello({ documentId: "app" }, false);
+      await vi.waitFor(() =>
+        expect(entries("confirm-left").at(-1)).toEqual({
+          ...left,
+          personSubmitted: false,
+          nextE1: false,
+          url: `${origin}/signin`,
+        }),
+      );
+      expect(entries("confirm-left")).toHaveLength(2);
+    });
+
     it("still sends a page on a chooser branch's first-page path, which is a sign-in page (ADR 0028)", async () => {
       fake.state.extracted = { login: loginPage };
       const service = generation();
@@ -10558,6 +10621,23 @@ describe("production login document admission", () => {
         reason: "nothing-offered",
         detail: "text-answer",
       });
+      // Right after this tab's password submit, the answer is part of that sign-in: not counted.
+      matched = true;
+      await h.login.handle(
+        { version: 1, type: "login.document.submitted", token: "synthetic-token" },
+        sender({ documentId: "other-page" }),
+      );
+      expect(await h.hello({ documentId: "question" }, false)).toMatchObject({ generate: true });
+      await unoffered("text-answer", { documentId: "question" });
+      expect(skips().at(-1)).toEqual({
+        type: "generation",
+        tabId: 1,
+        origin,
+        outcome: "skipped",
+        reason: "nothing-offered",
+        detail: "after-sign-in",
+      });
+      expect(skips().filter((skip) => skip.reason === "text-answer")).toHaveLength(1);
       expect(skips().filter((skip) => skip.reason === "frame")).toHaveLength(1);
       expect(service.generate).not.toHaveBeenCalled();
       expect(h.fields).not.toHaveBeenCalled();

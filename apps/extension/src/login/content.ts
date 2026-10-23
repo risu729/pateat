@@ -311,9 +311,14 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     const bare = !cancelled && !starts.some(ready) && !showsSignIn() && !afterSubmitted();
     const noInput = bare ? noInputOffer(document, entryWanted && !entryOffered) : undefined;
     // Nothing to send yet, or a list announced only for the log, which waits for the window.
+    // Short texts beside the button of a page asking a secret answer name no account: the
+    // page waits for the window too, which counts it (ADR 0035).
     if (
       !noInput ||
-      (noInput.kind === "list" && !noInput.entry && noInput.accounts && logOnly(noInput.accounts))
+      (noInput.kind === "list" &&
+        !noInput.entry &&
+        noInput.accounts &&
+        (logOnly(noInput.accounts) || (noInput.accounts.names && answerInput(document))))
     )
       return;
     if (noInput.kind !== "identifier" && noInput.entry) entryOffered = true;
@@ -335,11 +340,11 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     offered = true;
     watch(starts);
     const bare = !cancelled && !starts.some(ready) && !showsSignIn() && !afterSubmitted();
-    const accounts = bare ? listedAccounts(document) : undefined;
+    const accounts = bare && !answerInput(document) ? listedAccounts(document) : undefined;
     if (accounts && logOnly(accounts)) void announce(false, false, accounts).catch(() => undefined);
     // Nothing was sent: the log says why (ADR 0019). A secret answer of `type="text"` looks
-    // like a verification that is never sent, so it is counted (ADR 0035) when no other
-    // reason holds.
+    // like a verification that is never sent, so it is counted (ADR 0035) when no sign-in
+    // reason holds, also on a page with a list of accounts.
     else if (!cancelled && !starts.some(ready))
       void sendMessage("login", {
         version: 1,
@@ -527,25 +532,31 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     if (!starts.length && !generate) unwatch();
   }
   /**
-   * Follows the path of a page Pateat does not fill (ADR 0035). Left in place, its first
-   * step and the person's submit are reported again on a return, which the worker takes as
-   * a new visit; back on it, the page watches for its first step again.
+   * Follows the path of a page Pateat does not fill (ADR 0035), `followed`, from `at`, the
+   * path last seen. Left in place, the page announces its new path, so the worker logs the
+   * visit as left with that page next; back on it, the page announces again, and the
+   * worker's answer names its first step, which with the person's submit is reported again
+   * as a new visit.
    */
+  let followed: string | undefined;
+  let at: string | undefined;
   const confirmPathChanged = () => {
-    if (!confirmPage || cancelled) return;
-    const { path } = confirmPage;
-    if (pagePath() !== path) {
-      shown.delete(path);
-      personSubmits.delete(path);
-    } else if (!shown.has(path) && !observer) {
-      watch(starts);
-      check();
+    const path = pagePath();
+    if (!followed || cancelled || path === at) return;
+    const leaving = at === followed;
+    at = path;
+    if (leaving) {
+      shown.delete(followed);
+      personSubmits.delete(followed);
     }
+    if (leaving || path === followed) void announce(false).catch(() => undefined);
   };
-  function followConfirmPath(follow: boolean): void {
+  function followConfirmPath(path: string | undefined): void {
     removeEventListener("popstate", confirmPathChanged);
     navigation?.removeEventListener("currententrychange", confirmPathChanged);
-    if (!follow) return;
+    followed = path;
+    at = pagePath();
+    if (!path) return;
     addEventListener("popstate", confirmPathChanged);
     navigation?.addEventListener("currententrychange", confirmPathChanged);
   }
@@ -610,7 +621,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       // A page Pateat does not fill stays one until an answer on another path (ADR 0035).
       if (parsed.output.confirm) confirmPage = parsed.output.confirm;
       else if (confirmPage?.path !== announcedPath) confirmPage = undefined;
-      followConfirmPath(confirmPage !== undefined && !cancelled);
+      // Its path stays followed after the page moves on, for a return in place.
+      if (cancelled) followConfirmPath(undefined);
+      else if (confirmPage && followed !== confirmPage.path) followConfirmPath(confirmPage.path);
       if (parsed.output.frame) watchFrame();
     }
     if (parsed.success && parsed.output.ok && parsed.output.starts) {
@@ -661,7 +674,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       cancelled = true;
       unwatch();
       frameWatch?.();
-      followConfirmPath(false);
+      followConfirmPath(undefined);
       respond({ ok: true });
       return false;
     }
@@ -1478,7 +1491,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     cancelled = true;
     unwatch();
     frameWatch?.();
-    followConfirmPath(false);
+    followConfirmPath(undefined);
     document.removeEventListener("submit", onSubmit, true);
     removeEventListener("click", onClick, true);
     browser.runtime.onMessage.removeListener(listener);

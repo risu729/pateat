@@ -7236,11 +7236,12 @@ export function createLoginRuntime(
    */
   async function confirmSigns(
     live: LiveDocument,
-  ): Promise<{ e1: boolean; e2?: boolean; previousUrl?: string }> {
+  ): Promise<{ e1?: boolean; e2?: boolean; previousUrl?: string }> {
     const proofs = await markerProofs(live.document.origin, live.document.origin);
     const scope = await generationSlotsFor(live).catch(() => undefined);
     const usernames = scope && (await readUsernames(live.document.origin, usernameReads(scope)));
-    let e1 = false;
+    // Unset until the page is read: one gone before its first reading shows neither.
+    let e1: boolean | undefined;
     let e2: boolean | undefined;
     // Each reading waits for the one before, as the page goes on rendering.
     /* eslint-disable no-await-in-loop */
@@ -7256,7 +7257,7 @@ export function createLoginRuntime(
     /* eslint-enable no-await-in-loop */
     usernames?.fill("");
     return {
-      e1,
+      ...(e1 === undefined ? {} : { e1 }),
       ...(e2 === undefined ? {} : { e2 }),
       ...(live.previousUrl ? { previousUrl: live.previousUrl } : {}),
     };
@@ -8297,8 +8298,9 @@ export function createLoginRuntime(
           ...signs,
           url: live.url,
         });
-        // Read as the `signedIn` hint false: neither shows, E2 also when it was not read.
-        return !signs.e1 && signs.e2 !== true;
+        // Read as the `signedIn` hint false: the page was read and neither shows, E2 also
+        // when it was not read.
+        return signs.e1 === false && signs.e2 !== true;
       });
       void visit.logged.catch(() => undefined);
     };
@@ -9183,10 +9185,14 @@ export function createLoginRuntime(
       // that looks like a verification but is never sent, a secret answer of `type="text"` or
       // a frame, is counted by reason at info level when a vault item matches it, as it
       // would for a page that is sent (ADR 0035).
+      // A secret answer on the tab's next document after a password submit is part of that
+      // sign-in, so it is not counted.
       const framed = availability === "frame";
+      const afterSubmit = afterSignIn.get(document.tabId) === document.documentId;
       const unsendable =
         unoffered?.path === live.path &&
-        ((offer && unoffered.why === "text-answer") || (framed && unoffered.why === "frame"))
+        ((offer && unoffered.why === "text-answer" && !afterSubmit) ||
+          (framed && unoffered.why === "frame"))
           ? unoffered.why
           : undefined;
       let counted = false;
@@ -9207,7 +9213,7 @@ export function createLoginRuntime(
           live,
           "nothing-offered",
           undefined,
-          unoffered.why === "no-list" && afterSignIn.get(document.tabId) === document.documentId
+          (unoffered.why === "no-list" || unoffered.why === "text-answer") && afterSubmit
             ? "after-sign-in"
             : unoffered.why,
         );

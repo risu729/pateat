@@ -5,7 +5,12 @@ import { installLoginContent } from "./content";
 
 const { sent, reply } = vi.hoisted(() => ({
   sent: [] as Record<string, unknown>[],
-  reply: { value: {} as Record<string, unknown> },
+  reply: {
+    value: {} as Record<string, unknown>,
+    /** The answer while the page shows another path than the test page's own. */
+    elsewhere: undefined as Record<string, unknown> | undefined,
+    home: "",
+  },
 }));
 
 vi.mock("wxt/browser", () => ({
@@ -18,14 +23,16 @@ vi.mock("wxt/browser", () => ({
 }));
 vi.mock("../messaging/protocol", () => ({
   sendMessage: async (_channel: string, message: Record<string, unknown>) => {
-    sent.push(message);
-    return reply.value;
+    sent.push({ ...message, at: location.pathname });
+    return reply.elsewhere && location.pathname !== reply.home ? reply.elsewhere : reply.value;
   },
 }));
 
 let uninstall: (() => void) | undefined;
 beforeEach(() => {
   sent.length = 0;
+  reply.elsewhere = undefined;
+  reply.home = location.pathname;
 });
 afterEach(() => {
   uninstall?.();
@@ -68,7 +75,12 @@ describe("a page Pateat does not fill (ADR 0035)", () => {
     await userEvent.click(document.querySelector("#confirm")!);
     await vi.waitFor(() =>
       expect(submitted()).toEqual([
-        { version: 1, type: "login.document.person-submitted", token: expect.any(String) },
+        {
+          version: 1,
+          type: "login.document.person-submitted",
+          token: expect.any(String),
+          at: expect.any(String),
+        },
       ]),
     );
     // Nothing of the page's text or values is sent.
@@ -114,7 +126,7 @@ describe("a page Pateat does not fill (ADR 0035)", () => {
     );
   });
 
-  it("reports its first step and the person's submit again after a return in place", async () => {
+  it("announces a move in place and back, then reports its first step and the person's submit again", async () => {
     const home = location.pathname;
     reply.value = {
       ok: false,
@@ -122,6 +134,12 @@ describe("a page Pateat does not fill (ADR 0035)", () => {
       starts: [],
       confirm: { path: path(), require: "writable", targets: [{ by: "id", value: "code" }] },
     };
+    // The worker names no first step on the other path.
+    reply.elsewhere = { ok: false, reason: "recipe-not-found", starts: [] };
+    const announced = () =>
+      ready()
+        .filter((message) => !message["shown"])
+        .map((message) => message["at"]);
     document.body.innerHTML = `<form id="pay"><input id="code"><button id="confirm">Confirm</button></form>`;
     document.forms[0]!.addEventListener("submit", (e) => e.preventDefault());
     uninstall = installLoginContent();
@@ -133,9 +151,12 @@ describe("a page Pateat does not fill (ADR 0035)", () => {
     expect(submitted()).toBe(1);
     try {
       history.pushState(null, "", "/pateat-elsewhere");
+      // The worker hears of the other path, so it logs the visit as left.
+      await vi.waitFor(() => expect(announced()).toEqual([home, "/pateat-elsewhere"]));
       await userEvent.click(document.querySelector("#confirm")!);
       expect(submitted()).toBe(1);
       history.pushState(null, "", home);
+      await vi.waitFor(() => expect(announced()).toEqual([home, "/pateat-elsewhere", home]));
       await vi.waitFor(() => expect(shownCount()).toBe(2));
       await userEvent.click(document.querySelector("#confirm")!);
       expect(submitted()).toBe(2);
@@ -146,17 +167,42 @@ describe("a page Pateat does not fill (ADR 0035)", () => {
 });
 
 describe("a page that looks like a verification but is not sent (ADR 0035)", () => {
-  it("reports a secret answer of type text when its offer window ends", async () => {
+  it("reports a secret answer of type text asked before an action, the person signed in earlier", async () => {
     vi.useFakeTimers();
     reply.value = { ok: false, reason: "recipe-not-found", starts: [], generate: true };
-    document.body.innerHTML = `<main><form>
+    // A profile change asks the secret question; nothing was submitted in this page.
+    document.body.innerHTML = `<main><h1>Change your profile</h1><form>
       <label for="a">Answer to your secret question</label><input id="a" type="text">
-      </form></main>`;
+      <button>Save</button></form></main>`;
     uninstall = installLoginContent();
     await vi.advanceTimersByTimeAsync(10_100);
     expect(ready()).toContainEqual(
       expect.objectContaining({ unoffered: { path: path(), why: "text-answer" } }),
     );
+  });
+
+  it("reports a secret question right after this page's password submit as part of the sign-in", async () => {
+    vi.useFakeTimers();
+    const home = location.pathname;
+    reply.value = { ok: false, reason: "recipe-not-found", starts: [], generate: true };
+    // A password form the page itself submits, before Pateat would offer it.
+    document.body.innerHTML = `<form id="signin"><input type="password" disabled><button>Sign in</button></form>`;
+    uninstall = installLoginContent();
+    await vi.advanceTimersByTimeAsync(0);
+    document.forms[0]!.dispatchEvent(new SubmitEvent("submit", { bubbles: true }));
+    try {
+      // The site asks its secret question next, in place.
+      history.pushState(null, "", "/pateat-question");
+      document.body.innerHTML = `<form><label for="a">秘密の質問の答え</label><input id="a" type="text"></form>`;
+      await vi.advanceTimersByTimeAsync(10_100);
+      const reasons = ready().flatMap((message) =>
+        message["unoffered"] ? [(message["unoffered"] as { why: string }).why] : [],
+      );
+      expect(reasons).toContain("after-sign-in");
+      expect(reasons).not.toContain("text-answer");
+    } finally {
+      history.replaceState(null, "", home);
+    }
   });
 
   it("reports a frame the worker asks about once a later reading finds a secret answer", async () => {
