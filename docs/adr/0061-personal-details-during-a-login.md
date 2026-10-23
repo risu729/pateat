@@ -154,7 +154,9 @@ Hidden-field rule like the birth date's.
   between the read and the fill gets no answer. Nothing is fuzzy.
 - The popup offers, for an answer input, the login item's field named as the page's
   question, or the field the judge paired with it.
-- AI pairing (owner, 2026-10-23): the judge's `details` entry for `secret-answer` may
+- AI pairing, Claude's design under decided 7: since the judge gets the slots, it may
+  pair a question with a field, and the owner confirms the pairing once in the popup,
+  as every link. The judge's `details` entry for `secret-answer` may
   name a `slot` (an index into the sent slots) and `shown`, the whole question sentence
   copied from the page without a label before it. The service hands them back as
   `questions` (input, slot ID, question) only beside a kept `detail` handler; they never
@@ -390,8 +392,7 @@ an item name.
 3. Links, the value rules, choice radios, the popup's proposal, and removal on refusal.
 4. Secret-question answers and member IDs, read from the login item's custom fields.
 5. Whole card numbers, card expiry dates and PINs (decided 8).
-6. The judge's account slots (decided 7) and its secret-question pairing, confirmed once
-   (owner, 2026-10-23).
+6. The judge's account slots (decided 7) and its secret-question pairing.
 7. The card guess from the last digits and brand the page shows (decided 11).
 8. Values split over several inputs and selects (decided 10).
 

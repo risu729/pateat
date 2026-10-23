@@ -335,6 +335,6 @@ export const ja = {
   "your member or customer number": "会員番号またはお客様番号",
   "This page asks \u201C{{question}}\u201D.": "このページは「{{question}}」と尋ねています。",
   "Pateat\u2019s AI thinks this field holds the answer. Fill only if it does; Pateat then fills it whenever this question shows.":
-    "Pateat の AI は、このフィールドに答えがあると判断しました。正しい場合だけ入力してください。入力すると、この質問が表示されるたびに Pateat が入力します。",
+    "Pateat の AI は、このフィールドが答えだと判断しました。正しい場合だけ「入力」を押してください。押すと、この質問が表示されるたびに Pateat が入力します。",
   "ID {{id}}": "ID {{id}}",
 } satisfies Record<keyof typeof en, string>;
