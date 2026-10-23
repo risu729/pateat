@@ -650,8 +650,10 @@ tab's closing drops them, and `chrome.storage.session` keeps them across a worke
 restart. Item selection, field exclusions and custom-field review are synced and stay on
 the extension's settings page ([ADR 0023](adr/0023-synced-vault-policy.md)); the popup
 does not report items waiting for review or repair bindings yet. The service keeps
-excluded sites, site defaults and the synced vault policy per settings profile and
-bindings per owner, under one owner revision ([ADR 0024](adr/0024-settings-profiles.md),
+excluded sites, site defaults and the synced vault policy per settings profile, and
+bindings and personal-detail links (`detailLinks`,
+[ADR 0061](adr/0061-personal-details-during-a-login.md)) per owner, under one owner
+revision ([ADR 0024](adr/0024-settings-profiles.md),
 [ADR 0076](adr/0076-settings-profiles-delivered.md)). Each device uses one profile,
 chosen when it pairs or on the management page's Devices page; `/manage/profiles`
 renames, copies and deletes profiles, and the Sites pages edit one profile at a time.
@@ -659,8 +661,9 @@ The extension's settings page can edit another profile with its own vault catalo
 through `/extension/profiles`, behind the host-wide Access application, which requires
 WARP; that does not move its device. When a device's profile changes, the extension
 replaces its exclusions, saved accounts and vault policy with the new profile's and
-drops its merge base for them, while bindings keep merging. Chrome use access to these
-pages is not assumed. Keep settings and execution operations independent of their UI.
+drops its merge base for them, while bindings and personal-detail links keep merging.
+Chrome use access to these pages is not assumed. Keep settings and execution operations
+independent of their UI.
 
 Each provider account (provider, server and user ID, synced in `accountPolicies`) is
 either used or not, and supports all items except exclusions or selected
@@ -1427,7 +1430,8 @@ handler, then a `passkey` handler, then a `totp` handler, then a `detail` handle
 a page that asks for a personal detail, such as a birth date or the last four digits of
 a phone number, with each input's detail and the button that submits them. The
 owner's settings link the login item, per site and detail, to the identity or card
-item's field that holds the value (`detailLinks`). A login fills the first input with
+item's field that holds the value (`detailLinks`, synced as the owner's like the
+bindings). A login fills the first input with
 a usable link that is writable, checking the radio button that chooses it first, and
 clicks the button; the value is made in the service worker from the vault read (the
 date or card expiry date in the input's format, the last four digits, a card code, a

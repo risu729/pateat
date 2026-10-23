@@ -1078,13 +1078,14 @@ Once the fixes have settled:
   [decisions still requiring evidence](#decisions-still-requiring-evidence)) with
   user-facing pages for installation, setup and permissions, plus the M6 operational
   docs. Started: [`apps/docs`](development.md#docs-website) builds in CI with English
-  pages for installation, setup, permissions and a draft privacy policy with the Chrome
-  Web Store Limited Use statement. Still to do: deploying it (a public assets-only
-  Worker with per-PR previews, owner 2026-10-23), the M6 operational docs, the Japanese
-  pages, and updating the installation page once releases exist. The
-  [operations runbook](operations.md) now documents current retry/revert procedures and
-  the unverified D1 restore and rollback-automation boundaries; this does not complete
-  installed-Chrome or disaster-recovery acceptance.
+  and Japanese pages ([ADR 0047](adr/0047-japanese-user-docs-locales.md)) for
+  installation, setup, permissions and a draft privacy policy with the Chrome Web Store
+  Limited Use statement. Still to do: deploying it (a public assets-only Worker with
+  per-PR previews, owner 2026-10-23), the M6 operational docs, and updating the
+  installation page once releases exist. The [operations runbook](operations.md) now
+  documents current retry/revert procedures and the unverified D1 restore and
+  rollback-automation boundaries; this does not complete installed-Chrome or
+  disaster-recovery acceptance.
 - A mode without the service, designed with the owner on 2026-10-23
   ([ADR 0040](adr/0040-running-without-the-service.md)): a device may hold its own
   Anthropic API key and call the model itself, also while paired, where the service only
@@ -2137,19 +2138,24 @@ two recipes starting on one page find no recipe. Unit tests use synthetic pages 
 in-memory storage; sync against the deployed service has no recorded check yet.
 
 The fifth slice syncs the device-independent settings in the same run, after recipes:
-site exclusions, site defaults that name a provider account and item, and account
-bindings. Vault connections stay on the device; the service document always has an
-empty `connections` list. Since 2026-10-15 the same run also syncs `accountPolicies`,
-`itemPolicies` (merged per provider account and item) and `customFieldReviews`, keyed by
-provider, server and user ID ([ADR 0023](adr/0023-synced-vault-policy.md)); the dummy
-provider's entries stay local, and no vault item is used before a device's first
-settings sync. The background reads
-`GET /v1/settings` and merges three copies per entry (exclusions by hostname, defaults
-by origin, bindings by recipe, origin and account): the last agreed base, stored under
+site exclusions, site defaults that name a provider account and item, account bindings,
+and the links to the vault fields that hold a login's personal details (ADR 0061). Vault
+connections stay on the device; the service document always has an empty `connections`
+list. Since 2026-10-15 the same run also syncs `accountPolicies`, `itemPolicies` (merged
+per provider account and item) and `customFieldReviews`, keyed by provider, server and
+user ID ([ADR 0023](adr/0023-synced-vault-policy.md)); the dummy provider's entries stay
+local, and no vault item is used before a device's first settings sync. The background
+reads `GET /v1/settings` and merges three copies per entry (exclusions by hostname,
+defaults by origin, bindings by recipe, origin and account, detail links by login item,
+site and detail, and an answer's link also by its field): the last agreed base, stored
+under
 `pateat.sync-settings.v1`, the local settings and the service's. A side that changed an
 entry since that base wins, and the service wins when both changed it; removing an entry
-counts as a change. The base keeps the service's copy and the local copy it accounts
-for. Both are the same after a complete sync; after an upload whose local write has not
+counts as a change. When a local link stores a question that the service's copy already
+gives another field of the same login item, the service's link stands and the local one
+falls back to the service's copy of it, or is left out without one. The base keeps the
+service's copy and the local copy it accounts for. Both are the same after a complete
+sync; after an upload whose local write has not
 happened yet, the local copy is still the one the merge started from, so a merged entry
 the device has not written yet is not read as a local removal, and a local edit made
 meanwhile still wins. The base is used only when the service revision is newer than the
