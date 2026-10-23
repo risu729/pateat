@@ -1,5 +1,6 @@
 import {
   devicePairResultSchema,
+  profileSchema,
   recipeCompletionResultSchema,
   entryGenerationResultSchema,
   recipeGenerationResultSchema,
@@ -114,9 +115,22 @@ export function addTimings(
   };
 }
 
+type Profile = v.InferOutput<typeof profileSchema>;
+/** The profile a pairing device takes: an existing one, or a new one by name (ADR 0076). */
+export type PairProfile = { profileId: string } | { newProfile: string };
+
 /** `POST /pair`'s answer (ADR 0020). */
 export type PairResult =
   | { kind: "issued"; result: DevicePairResult }
+  /**
+   * The owner has profiles and the request chose none, or chose one that is gone or a new
+   * name another profile has; `profiles` lists them for the choice (ADR 0076).
+   */
+  | {
+      kind: "profile";
+      error: "profile-required" | "profile-not-found" | "profile-name-taken";
+      profiles: Profile[];
+    }
   /**
    * No login session reached the service: a redirect, a `401`, or a body that is not
    * JSON, such as the Access login page, with any status below 500 except 429.
@@ -284,7 +298,7 @@ export interface ServiceTransport {
    * `POST /pair` with the browser's login session to the service. The only call that
    * sends cookies; it sends no device credential.
    */
-  pair(origin: string, label: string): Promise<PairResult>;
+  pair(origin: string, label: string, profile?: PairProfile): Promise<PairResult>;
   revoke(origin: string, credential: string): Promise<RevokeResult>;
   /** `GET /v1/device`: what the service holds for this device's owner. */
   device(origin: string, credential: string): Promise<DeviceStateResult>;
@@ -555,7 +569,7 @@ export function createServiceTransport(
   }
 
   return {
-    async pair(origin, label) {
+    async pair(origin, label, profile) {
       const response = await call(
         origin,
         "/pair",
@@ -566,7 +580,7 @@ export function createServiceTransport(
             // Asks Access to answer an expired session with a 401 instead of a redirect.
             "X-Requested-With": "XMLHttpRequest",
           },
-          body: JSON.stringify({ version: 1, label }),
+          body: JSON.stringify({ version: 1, label, ...profile }),
         },
         { session: true },
       );
@@ -579,6 +593,20 @@ export function createServiceTransport(
           : { kind: "failed", error: "unexpected-response" };
       }
       const code = errorCode(response.body);
+      const profileError =
+        response.status === 409 && code === "profile_required"
+          ? "profile-required"
+          : response.status === 404 && code === "profile_not_found"
+            ? "profile-not-found"
+            : response.status === 409 && code === "profile_name_taken"
+              ? "profile-name-taken"
+              : undefined;
+      if (profileError) {
+        const parsed = v.safeParse(v.object({ profiles: v.array(profileSchema) }), response.body);
+        return parsed.success
+          ? { kind: "profile", error: profileError, profiles: parsed.output.profiles }
+          : { kind: "failed", error: "unexpected-response" };
+      }
       if (response.status === 401) return { kind: "sign-in-needed" };
       if (response.status === 403 && code === "forbidden")
         return { kind: "failed", error: "sign-in-rejected" };

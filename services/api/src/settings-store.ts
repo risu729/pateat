@@ -1,33 +1,52 @@
 import {
   syncSettingsStateSchema,
+  type LocalSettings,
   type SavedLoginBinding,
   type SyncSettingsState,
   type SyncSettingsWrite,
 } from "@pateat/contracts";
-import { and, eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/d1";
 import * as v from "valibot";
-import { settings } from "./db/schema";
+import { hasProfile } from "./profile-store";
 
-/** The owner's settings; revision 0 with no document before the first write. */
-export async function readSettings(db: D1Database, ownerId: string): Promise<SyncSettingsState> {
-  const [row] = await drizzle(db)
-    .select({ revision: settings.revision, document: settings.document })
-    .from(settings)
-    .where(eq(settings.ownerId, ownerId))
-    .limit(1);
-  // Stored documents are revalidated; a corrupt row fails closed as an internal error.
+/** Profile parts are explicit so shared bindings cannot accidentally become policy. */
+export const profileDocument = (document: LocalSettings) => ({
+  excludedSites: document.excludedSites,
+  siteDefaults: document.siteDefaults,
+});
+
+/**
+ * Reads the profile and the shared bindings at the owner's revision in one statement. A
+ * profile with no document of its own yet answers `newProfile`, so the first device to
+ * sync it keeps its own entries (ADR 0076).
+ */
+export async function readSettings(
+  db: D1Database,
+  ownerId: string,
+  profileId: string,
+): Promise<SyncSettingsState> {
+  const row = await db
+    .prepare(`SELECT s.revision, s.document AS shared, p.document
+    FROM profiles p LEFT JOIN settings s ON s.owner_id = p.owner_id
+    WHERE p.owner_id = ? AND p.id = ? AND p.deleted_at IS NULL`)
+    .bind(ownerId, profileId)
+    .first<{ revision: number | null; shared: string | null; document: string | null }>();
+  if (!row) throw new Error("profile-not-found");
+  const shared = row.shared ? JSON.parse(row.shared) : { bindings: [] };
+  const profile = row.document ? JSON.parse(row.document) : { excludedSites: [], siteDefaults: [] };
   return v.parse(syncSettingsStateSchema, {
     version: 1,
-    revision: row?.revision ?? 0,
-    settings: row?.document ?? null,
+    profileId,
+    revision: row.revision ?? 0,
+    settings: row.revision ? { connections: [], ...profile, bindings: shared.bindings } : null,
+    ...(row.revision && !row.document ? { newProfile: true } : {}),
   });
 }
 
 /**
  * The slots of the owner's saved bindings for one recipe of one origin, every account's,
  * for naming a generated page's custom-field slots (ADR 0027, amended 2026-10-19): only
- * slot names and field references, never the item or account a binding names.
+ * slot names and field references, never the item or account a binding names. Bindings
+ * are shared by every profile.
  */
 export async function recipeBindingSlots(
   db: D1Database,
@@ -35,42 +54,84 @@ export async function recipeBindingSlots(
   origin: string,
   recipeId: string,
 ): Promise<Pick<SavedLoginBinding, "slots">[]> {
-  const { settings: document } = await readSettings(db, ownerId);
-  return (document?.bindings ?? []).flatMap((binding) =>
+  const row = await db
+    .prepare("SELECT document FROM settings WHERE owner_id = ?")
+    .bind(ownerId)
+    .first<{ document: string | null }>();
+  const bindings: SavedLoginBinding[] = row?.document
+    ? (JSON.parse(row.document).bindings ?? [])
+    : [];
+  return bindings.flatMap((binding) =>
     binding.origin === origin && binding.recipeId === recipeId ? [{ slots: binding.slots }] : [],
   );
 }
 
-/**
- * Replaces the owner's settings when `expectedRevision` is still current. `writer` is
- * the writing device, or null for the owner web UI. One conditional statement: a stale
- * writer changes no row and gets the current state back.
- */
+/** One owner revision covers shared bindings and every profile. D1 batches are atomic. */
 export async function writeSettings(
   db: D1Database,
   ownerId: string,
+  profileId: string,
   write: SyncSettingsWrite,
   writer: string | null,
-): Promise<{ ok: true; state: SyncSettingsState } | { ok: false; current: SyncSettingsState }> {
-  const orm = drizzle(db);
-  const values = {
-    revision: write.expectedRevision + 1,
-    document: write.settings,
-    updatedAt: Date.now(),
-    updatedByDeviceId: writer,
+): Promise<
+  | { ok: true; state: SyncSettingsState }
+  /** `current` is missing when the profile was deleted meanwhile. */
+  | { ok: false; current: SyncSettingsState | undefined }
+> {
+  // Both statements use the exact same compare-and-swap predicate. The profile write
+  // runs first; changes() gates the revision write so losing writers update neither.
+  const results = await db.batch([
+    db
+      .prepare(`UPDATE profiles SET document = ? WHERE owner_id = ? AND id = ? AND deleted_at IS NULL
+      AND COALESCE((SELECT revision FROM settings WHERE owner_id = ?), 0) = ?
+      AND (? IS NULL OR EXISTS (SELECT 1 FROM devices WHERE id = ? AND owner_id = ? AND profile_id = ?))`)
+      .bind(
+        JSON.stringify(profileDocument(write.settings)),
+        ownerId,
+        profileId,
+        ownerId,
+        write.expectedRevision,
+        writer,
+        writer,
+        ownerId,
+        profileId,
+      ),
+    db
+      .prepare(`INSERT INTO settings (owner_id, revision, document, updated_at, updated_by_device_id)
+      SELECT ?, ?, ?, ?, ? WHERE changes() = 1
+      ON CONFLICT(owner_id) DO UPDATE SET revision = excluded.revision,
+        document = excluded.document, updated_at = excluded.updated_at,
+        updated_by_device_id = excluded.updated_by_device_id`)
+      .bind(
+        ownerId,
+        write.expectedRevision + 1,
+        JSON.stringify({ bindings: write.settings.bindings }),
+        Date.now(),
+        writer,
+      ),
+  ]);
+  if (results[1]?.meta.changes !== 1) {
+    const currentProfile = writer
+      ? await db
+          .prepare("SELECT profile_id FROM devices WHERE owner_id = ? AND id = ?")
+          .bind(ownerId, writer)
+          .first<{ profile_id: string }>()
+      : null;
+    const target = currentProfile?.profile_id ?? profileId;
+    return {
+      ok: false,
+      current: (await hasProfile(db, ownerId, target))
+        ? await readSettings(db, ownerId, target)
+        : undefined,
+    };
+  }
+  return {
+    ok: true,
+    state: {
+      version: 1,
+      profileId,
+      revision: write.expectedRevision + 1,
+      settings: write.settings,
+    },
   };
-  const result =
-    write.expectedRevision === 0
-      ? await orm
-          .insert(settings)
-          .values({ ownerId, ...values })
-          .onConflictDoNothing()
-          .run()
-      : await orm
-          .update(settings)
-          .set(values)
-          .where(and(eq(settings.ownerId, ownerId), eq(settings.revision, write.expectedRevision)))
-          .run();
-  if (result.meta.changes !== 1) return { ok: false, current: await readSettings(db, ownerId) };
-  return { ok: true, state: { version: 1, revision: values.revision, settings: write.settings } };
 }

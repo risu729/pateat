@@ -1,5 +1,6 @@
 import {
   deviceIdSchema,
+  profileIdSchema,
   localSettingsSchema,
   MAX_SETTINGS_DOCUMENT_BYTES,
   savedLoginBindingSchema,
@@ -56,6 +57,7 @@ const baseSchema = v.strictObject({
   version: v.literal(1),
   origin: serviceOriginSchema,
   deviceId: deviceIdSchema,
+  profileId: profileIdSchema,
   revision: v.pipe(v.number(), v.integer(), v.minValue(0)),
   /** The service document at `revision`, which has no connections. */
   settings: localSettingsSchema,
@@ -253,12 +255,15 @@ export function createSettingsSync(options: {
   const now = options.now ?? Date.now;
   const hold = options.hold ?? memoryHold();
 
-  async function loadBase(connection: ServiceConnection): Promise<SettingsBase | undefined> {
+  /** `unreadable` when storage failed: without the base, local edits look like nothing. */
+  async function loadBase(
+    connection: ServiceConnection,
+  ): Promise<SettingsBase | "unreadable" | undefined> {
     let stored: unknown;
     try {
       stored = await storage.read();
     } catch {
-      return undefined;
+      return "unreadable";
     }
     const parsed = v.safeParse(baseSchema, stored);
     return parsed.success &&
@@ -282,6 +287,8 @@ export function createSettingsSync(options: {
     // A wait that started for an earlier login does not shorten the wait for a later one.
     if (!(await options.deferred?.())) await release();
     const stored = await loadBase(connection);
+    // A missing base would let an existing profile replace this device's entries.
+    if (stored === "unreadable") return "storage-unavailable";
     const fetched = await transport.settings(origin, credential);
     timed?.(fetched.timing);
     if (fetched.kind === "rejected") return "rejected";
@@ -292,16 +299,24 @@ export function createSettingsSync(options: {
     let catalog: Promise<VaultCatalog | undefined> | undefined;
     const serviceCopy = (state: SyncSettingsState) =>
       state.settings ? syncedSettings(state.settings) : emptySynced;
-    // Without a base, for a new pairing or a service restored to an older state, both
-    // sides' entries are kept and the service wins where they differ; nothing is removed.
+    // A matching profile base preserves local edits. A new pairing or a profile switch
+    // adopts the profile's own parts below (ADR 0076); only a profile no device has
+    // written yet (`newProfile`, or the owner's first settings) starts from local policy.
+    // Bindings belong to the owner, not a profile, so they keep merging either way.
     let base: SyncBase = { service: emptySynced, local: emptySynced };
+    let bindingBase = base;
     if (
       stored &&
       (service.revision > stored.revision ||
         (service.revision === stored.revision &&
           equalSynced(serviceCopy(service), syncedSettings(stored.settings))))
-    )
-      base = { service: syncedSettings(stored.settings), local: syncedSettings(stored.local) };
+    ) {
+      bindingBase = {
+        service: syncedSettings(stored.settings),
+        local: syncedSettings(stored.local),
+      };
+      if (stored.profileId === service.profileId) base = bindingBase;
+    }
     async function record(next: SyncBase) {
       if (stale()) return;
       // Best effort: a lost write leaves the older base, which merges to the same result
@@ -311,12 +326,20 @@ export function createSettingsSync(options: {
           version: 1,
           origin,
           deviceId,
+          profileId: service.profileId,
           revision: service.revision,
           settings: serviceDocument(next.service),
           local: serviceDocument(next.local),
         })
         .catch(() => undefined);
     }
+    // A profile switch must never reinterpret the previous profile cache as edits.
+    const adopts = (state: SyncSettingsState) =>
+      !state.newProfile &&
+      (stored ? stored.profileId !== state.profileId : state.settings !== null);
+    let switchingProfile = adopts(service);
+    // Keep the old identity until the replacement is applied: a deferred or failed
+    // local write must still recognize the switch on the next worker run.
     for (let attempt = 0; attempt < MAX_SETTINGS_SYNC_ATTEMPTS; attempt += 1) {
       let local: SettingsSnapshot;
       try {
@@ -327,7 +350,12 @@ export function createSettingsSync(options: {
       }
       const localSynced = syncedSettings(local.settings);
       const serviceSynced = serviceCopy(service);
-      const mergedEntries = mergeSyncedSettings(base, localSynced, serviceSynced);
+      const mergedEntries = {
+        ...(switchingProfile
+          ? serviceSynced
+          : mergeSyncedSettings(base, localSynced, serviceSynced)),
+        bindings: mergeSyncedSettings(bindingBase, localSynced, serviceSynced).bindings,
+      };
       // Named after the merge, so the names are uploaded and written like any change.
       if (unnamed(mergedEntries)) catalog ??= options.catalog?.().catch(() => undefined);
       // oxlint-disable-next-line no-await-in-loop -- read once, on the first attempt that needs it
@@ -351,14 +379,21 @@ export function createSettingsSync(options: {
         if (saved.kind === "rejected") return "rejected";
         if (saved.kind === "failed") return saved.error;
         if (saved.kind === "conflict") {
+          if (service.profileId !== saved.current.profileId) {
+            // The device moved meanwhile: the old profile's base says nothing about the
+            // new one, whose entries are adopted or, if it has none yet, filled locally.
+            switchingProfile ||= adopts(saved.current);
+            base = { service: emptySynced, local: emptySynced };
+          }
           service = saved.current;
           continue;
         }
         service = saved.state;
         // The service holds the merge; local settings still hold `localSynced`.
         base = { service: merged, local: localSynced };
+        bindingBase = base;
         // oxlint-disable-next-line no-await-in-loop -- recorded before the local write
-        await record(base);
+        if (!switchingProfile) await record(base);
       }
       if (stale()) return "busy";
       if (!equalSynced(merged, localSynced)) {
