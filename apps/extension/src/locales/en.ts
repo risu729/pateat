@@ -332,4 +332,5 @@ export const en = {
   "This page asks \u201C{{question}}\u201D.": "This page asks \u201C{{question}}\u201D.",
   "Pateat\u2019s AI thinks this field holds the answer. Fill only if it does; Pateat then fills it whenever this question shows.":
     "Pateat\u2019s AI thinks this field holds the answer. Fill only if it does; Pateat then fills it whenever this question shows.",
+  "ID {{id}}": "ID {{id}}",
 } as const;

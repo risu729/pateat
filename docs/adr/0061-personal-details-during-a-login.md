@@ -72,10 +72,10 @@ catalog ([feasibility note](../research/2026-10-12-card-security-code.md)).
    therefore gets the account's slots as generation does
    ([below](#the-judge-gets-the-accounts-slots)).
 8. Every linked value is filled automatically, whole card numbers, expiry dates and PINs
-   included (11:41 UTC, 「全部」:
-   「割り当てのある値はカード番号や暗証番号も含めて自動で入れる」). A confirmation
-   screen after a completed login is unchanged: Pateat still stops at the fill there.
-   Delivery 5 adds those values.
+   included (11:41:30 UTC, choosing the option 「全部」: 「2. a.
+   全部いれていい基本。ただしログインしてるかの追跡はログアウト後の自動ログインやめる(別で検討中)でも残るはずなので、ログイン完了後の確認画面で自動入力までに止めるのはそのままでいいと思います、たぶん」).
+   A confirmation screen after a completed login is unchanged: Pateat still stops at the
+   fill there. Delivery 5 adds those values.
 9. A page that shows the sign-in form again with a detail form beside it is judged
    (12:25 UTC, 「判定に送る」), amending ADR 0027's rule that a page showing a route
    fill field is never judged ([below](#judging-a-page-beside-the-sign-in-form),
@@ -286,6 +286,8 @@ on every requested page with four model settings; the split-date line came from 
 Deliveries 5 and 8 widen what has `details`.
 
 ### Judging a page beside the sign-in form
+
+Delivery 2 builds this.
 
 After an effect step, a page that still shows a route fill field on a route path is not
 judged today. It is judged when it also shows, in another form than every route fill
