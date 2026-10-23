@@ -102,6 +102,8 @@ export const PROBLEM_EVENT_FIELDS = {
     unconfirmed: "flag",
     unsubmitted: "flag",
     routeChange: "code",
+    layout: "code",
+    layoutFrom: "code",
     stop: "code",
     totalMs: "count",
     serviceMs: "count",
