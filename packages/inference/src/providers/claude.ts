@@ -31,27 +31,44 @@ export function claudeModelRates(
   return speed === "fast" ? fast : standard;
 }
 
+/**
+ * Every model the pricing page prices, with the model ID its name reads as
+ * (`Claude Opus 5.5` is `claude-opus-5-5`), its line (`opus`) and its version, newest
+ * versions first within the page's order.
+ */
+export function claudePricedModels() {
+  return Object.entries(claudePricing.models).flatMap(([displayName, { fast, ...rates }]) => {
+    const match = /^Claude ([A-Z][a-z]+) (\d+)(?:\.(\d+))?$/.exec(displayName);
+    if (match === null) return [];
+    const [, family, major, minor] = match;
+    const line = family!.toLowerCase();
+    return [
+      {
+        modelId: `claude-${line}-${major}${minor === undefined ? "" : `-${minor}`}`,
+        displayName,
+        line,
+        version: Number(major) + Number(minor ?? 0) / 100,
+        rates: rates as ClaudeRates,
+        ...(fast === undefined ? {} : { fast }),
+      },
+    ];
+  });
+}
+
 function publishedRates(modelId: string): ClaudeRates {
   const rates = claudeModelRates(modelId);
   if (rates === undefined) throw new Error(`The pricing page lists no price for ${modelId}.`);
   return rates;
 }
 
-/** The owner-selected generation configuration (ADR 0014). */
+/**
+ * The benchmark's default model: the first choice of the service's default configuration
+ * (`DEFAULT_MODEL_CONFIG`, ADR 0014). The service asks each owner's own configuration.
+ */
 export const claudeGeneration = {
   modelId: "claude-opus-5-5",
   effort: "low",
   rates: publishedRates("claude-opus-5-5"),
-} as const;
-
-/**
- * The model the service asks once more when `claudeGeneration` refuses a request (owner
- * decision, 2026-10-23 11:04 UTC). Its own refusal ends the request.
- */
-export const claudeRefusalFallback = {
-  modelId: "claude-sonnet-5-5",
-  effort: "low",
-  rates: publishedRates("claude-sonnet-5-5"),
 } as const;
 
 /**
@@ -68,13 +85,15 @@ export function claudeWorstCaseRates(rates: ClaudeRates, maxInputTokens: number)
 
 export const claudeEfforts = ["low", "medium", "high", "xhigh", "max"] as const;
 export type ClaudeEffort = (typeof claudeEfforts)[number];
+export const claudeSpeeds = ["standard", "fast"] as const;
+export type ClaudeSpeed = (typeof claudeSpeeds)[number];
 
-/** A model and effort to run, with its rates; `fast` runs it in fast mode. */
+/** A model and effort to run, with its rates at that speed; `fast` runs it in fast mode. */
 export type ClaudeModelChoice = {
   modelId: string;
   effort: ClaudeEffort;
   rates: ClaudeRates;
-  speed?: "fast";
+  speed?: ClaudeSpeed;
 };
 
 // Pinned so ANTHROPIC_BASE_URL in the environment can never redirect the key elsewhere.
@@ -91,12 +110,12 @@ export type ClaudeCredential = { apiKey: string } | { authToken: string };
 /**
  * Builds the Claude model for `createRecipeGenerator`. The credential is passed
  * explicitly and never read from the environment. Server-side `fallbacks` stay unset: a
- * failure of this model is returned as an error, and only the service's own retry of a
- * refusal on `claudeRefusalFallback` asks another model.
+ * failure of this model is returned as an error, and only the service asks another model,
+ * the owner's next choice (ADR 0014).
  */
 export function createClaudeGenerationModel(
   options: ClaudeCredential & {
-    /** Another model: the benchmark's, or the service's `claudeRefusalFallback`. */
+    /** Another model: the benchmark's, or one of the owner's choices in the service. */
     choice?: ClaudeModelChoice;
     /** Test seam only. */
     fetch?: typeof globalThis.fetch;
@@ -122,7 +141,7 @@ export function createClaudeGenerationModel(
         providerOptions: {
           anthropic: {
             effort: choice.effort,
-            ...("speed" in choice && choice.speed ? { speed: choice.speed } : {}),
+            ...("speed" in choice && choice.speed === "fast" ? { speed: "fast" } : {}),
             // Opus 5.5 rejects the forced tool call of the JSON-tool mode.
             structuredOutputMode: "outputFormat",
           },
