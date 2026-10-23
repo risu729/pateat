@@ -56,7 +56,9 @@ sections. Mark anything an agent added beyond the owner's answer as not confirme
 the owner. After acceptance, change an ADR only through a dated amendment section,
 keep the accepted text, and note the amendment in its `Status:`; an ADR that amends
 another also updates the other's `Status:`. Number a new ADR after the highest one
-(0011 stays unused) and add it to the list below in the same PR.
+(0011 stays unused) and add it to the list below in the same PR. An accepted ADR, even
+one quoting the owner, can be wrong: verify it instead of trusting it fully, and explain
+to the owner the reason for any change to a recorded owner instruction.
 
 - [0001: Local login execution and vault adapters](adr/0001-local-login-boundary.md)
 - [0002: Maintained tools and independent feature implementation](adr/0002-toolchain.md)
