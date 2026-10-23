@@ -1419,7 +1419,9 @@ whole card number or a PIN, read only from the login item or a card item, as its
 digits; every linked value is filled, a whole card number and a PIN included, by the
 owner's decision of 2026-10-23 11:41 UTC). A `detail` handler with no usable link ends
 the attempt `challenge` with `detail-unlinked`, and the popup then proposes the vault
-fields that could give each detail; its **Fill** fills the input, unless the page shows
+fields that could give each detail, a card first when its last four digits or brand
+match those the page shows, compared in the service worker (owner, 2026-10-23 12:26
+UTC); its **Fill** fills the input, unless the page shows
 another account than the login item's, without pressing the button and keeps the link
 for the tab, saved only once the watched login ends `authenticated`. A link whose value
 the site refused, as when the login is rejected or the handler's page shows again, is

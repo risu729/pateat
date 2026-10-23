@@ -204,9 +204,8 @@ The owner's request (2026-10-23 11:41 UTC): layouts must be mergeable later into
 canonical recipe the server keeps, once the user who made them is judged trustworthy
 (see [Later](#later)), and the model and time of each generation are stored and taken
 into account for that merge. The service therefore records which call made each part of
-a recipe. Where the record lives (a service table, not the document) follows the
-recommended option of the owner's decision card of 2026-10-23, reviewed independently;
-the owner has not tapped the card yet.
+a recipe. The owner chose to keep the record in a service table, not the document, on
+2026-10-23 at 21:15 UTC.
 
 - The record is the service-only D1 table `recipe_unit_sources`, one row per unit of
   an active recipe. It is never synced and never part of the recipe document, and the

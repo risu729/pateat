@@ -232,16 +232,24 @@ import { newId } from "@pateat/contracts/ids";
 import { loginMoveFits } from "@pateat/contracts/site";
 import { isoTime, isoTimeMs, isoTimeSchema } from "../time";
 import {
+  cardGuessFields,
+  cardLast4,
   detailCandidates,
   detailFieldIds,
   detailFieldLabel,
   detailSecret,
   detailValue,
+  isCardDetail,
   linkedField,
+  MAX_CARD_GUESS_READS,
+  MAX_DETAIL_CANDIDATES,
+  rankCards,
   savedDetailLink,
   savedDetailLinks,
+  type CardFacts,
   type DetailOwner,
 } from "./details";
+import { cardBrandOf, cardBrands, MAX_CARD_LAST_4 } from "../page/card-hints";
 import {
   detailFillRequestSchema,
   detailRemoveRequestSchema,
@@ -2702,6 +2710,15 @@ export function createLoginRuntime(
   const unsavedBlocks: EntryBlock[] = [];
   /** By tab: the `detail` handler its login stopped at for want of a link (ADR 0061). */
   const detailOffers = new Map<number, DetailOffer>();
+  /**
+   * The popup's last card guess for an offer's input (ADR 0061), by attempt, document and
+   * input: its key (the settings revision, vault snapshot, candidates and a digest of the
+   * page's answer), the item IDs in order and whether it selects; never a digit.
+   */
+  const cardGuesses = new Map<
+    string,
+    { key: string; vault: string; order: string[]; preselect: boolean }
+  >();
   /** By tab: links filled from the popup, saved once its login is confirmed (ADR 0061). */
   const pendingDetails = new Map<number, PendingDetail[]>();
   /** Refused links not removed yet, by site, login item and detail (ADR 0061). */
@@ -6179,6 +6196,136 @@ export function createLoginRuntime(
       : undefined;
   }
   /**
+   * The popup's card candidates in the order of `rankCards` (ADR 0061, owner 2026-10-23
+   * 12:26 UTC): the document answers which last four digits and brand it shows beside
+   * `target` (the digits in its title too), then each candidate card's number and brand,
+   * the first `MAX_CARD_GUESS_READS` cards, are read one at a time, as a fill reads them,
+   * and only their last four digits and brand are kept until the ranking. Neither the
+   * page's answer nor a value is sent or logged. The site and the login item must still be
+   * allowed, as for a fill. A page that shows nothing reads nothing; a field without a
+   * value is unknown; a read that throws, or a vault that locks or changes during the
+   * reads, keeps the order by name. The result is kept for the offer's input as its order
+   * of item IDs and whether it selects, so the popup's polls read the vault again only
+   * when the page's answer, the settings or the vault change, and an answer that fails
+   * keeps the last result.
+   */
+  async function guessCard<T extends { itemId: string }>(
+    live: LiveDocument,
+    offer: DetailOffer,
+    target: DetailHandler["fields"][number]["target"],
+    snapshot: { settings: LocalSettings; revision: number },
+    catalog: VaultCatalog,
+    candidates: T[],
+  ): Promise<{ candidates: T[]; preselect: boolean }> {
+    const policy = snapshot.settings;
+    const byName = { candidates, preselect: true };
+    const connection = catalog.connections.find((entry) => entry.id === offer.account.connectionId);
+    if (
+      !connection ||
+      (connection.state !== "ready" && connection.state !== "review-required") ||
+      isSiteExcluded(policy, offer.account.origin) ||
+      !getItemEligibility(policy, catalog, connection.id, offer.account.itemId).eligible
+    )
+      return byName;
+    const items = [...new Set(candidates.map((entry) => entry.itemId))];
+    const slot = `${offer.attemptId} ${offer.document.documentId} ${JSON.stringify(target)}`;
+    const vault = `${snapshot.revision} ${connection.snapshotId ?? ""} ${items.join(",")}`;
+    const kept = cardGuesses.get(slot);
+    const apply = (guess: { order: readonly string[]; preselect: boolean }) => ({
+      candidates: [
+        ...guess.order.flatMap((id) => candidates.filter((entry) => entry.itemId === id)),
+        ...candidates.filter((entry) => !guess.order.includes(entry.itemId)),
+      ],
+      preselect: guess.preselect,
+    });
+    const answer = v.safeParse(
+      v.object({
+        ok: v.literal(true),
+        last4: v.pipe(
+          v.array(v.pipe(v.string(), v.regex(/^\d{4}$/u))),
+          v.maxLength(MAX_CARD_LAST_4),
+        ),
+        brands: v.pipe(v.array(v.picklist(cardBrands)), v.maxLength(cardBrands.length)),
+      }),
+      await send(live, { type: "login.detail.card", path: offer.path, target }).catch(
+        () => undefined,
+      ),
+    );
+    // The page did not answer: the last result for this input, while the vault is the same.
+    if (!answer.success) return kept?.vault === vault ? apply(kept) : byName;
+    const hints = answer.output;
+    // Only a digest of the page's answer is kept, never its digits.
+    const digest = new Uint8Array(
+      await crypto.subtle.digest(
+        "SHA-256",
+        new TextEncoder().encode(JSON.stringify([[...hints.last4].sort(), hints.brands])),
+      ),
+    );
+    const key = `${vault} ${[...digest].map((byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+    if (kept?.key === key) {
+      hints.last4.fill("");
+      return apply(kept);
+    }
+    const keepGuess = (guess: { candidates: T[]; preselect: boolean }) => {
+      cardGuesses.delete(slot);
+      // A few inputs' results at most; the oldest goes first.
+      if (cardGuesses.size >= 32) cardGuesses.delete(cardGuesses.keys().next().value!);
+      cardGuesses.set(slot, {
+        key,
+        vault,
+        order: guess.candidates.map((entry) => entry.itemId),
+        preselect: guess.preselect,
+      });
+      return guess;
+    };
+    if (!hints.last4.length && !hints.brands.length) return keepGuess(byName);
+    const facts = new Map<string, CardFacts>();
+    let gave = false;
+    try {
+      for (const itemId of items.slice(0, MAX_CARD_GUESS_READS)) {
+        const held: CardFacts = {};
+        for (const fieldId of cardGuessFields(policy, catalog, connection, itemId)) {
+          let value: string | undefined;
+          try {
+            // Serial reads through the shared vault host, as for a fill.
+            // eslint-disable-next-line no-await-in-loop
+            value = await fields({ account: { ...offer.account, itemId }, connection, fieldId });
+          } catch {
+            return byName;
+          }
+          // A card without a number or a brand gives nothing for that field.
+          gave ||= value !== undefined;
+          if (value !== undefined && fieldId === "card.number") held.last4 = cardLast4(value);
+          else if (value !== undefined) held.brand = cardBrandOf(value);
+          value = "";
+        }
+        facts.set(itemId, held);
+      }
+      // A read gives nothing too when the vault is locked or changed meanwhile, which is no
+      // field without a value: no read giving a value reads as a locked vault, and the
+      // guess is kept only while the vault is still the same.
+      if (!gave) return byName;
+      const after = await settings
+        .handle({ version: 1, type: "settings.get" })
+        .catch(() => undefined);
+      const now = after?.ok
+        ? after.catalog.connections.find((entry) => entry.id === connection.id)
+        : undefined;
+      if (
+        !after?.ok ||
+        after.snapshot.revision !== snapshot.revision ||
+        !now ||
+        now.state !== connection.state ||
+        now.snapshotId !== connection.snapshotId
+      )
+        return byName;
+      return keepGuess(rankCards(candidates, facts, hints));
+    } finally {
+      facts.clear();
+      hints.last4.fill("");
+    }
+  }
+  /**
    * What the popup shows about a page's personal details (ADR 0061): the handler the tab's
    * login stopped at with the fields that could give each detail, and the site's links for
    * the login item, by their names in the device's catalog only.
@@ -6201,11 +6348,15 @@ export function createLoginRuntime(
     const details = [];
     for (const [at, field] of (offer?.fields ?? []).entries()) {
       if (offer!.fields.findIndex((other) => other.detail === field.detail) !== at) continue;
-      let candidates = detailCandidates(policy, catalog, found.connection, field.detail, {
-        host: page.url.hostname,
-        title: page.title,
-        loginItemId: found.owner.itemId,
-      });
+      // Every card is ranked, so one past the popup's list counts against a selection.
+      let candidates = detailCandidates(
+        policy,
+        catalog,
+        found.connection,
+        field.detail,
+        { host: page.url.hostname, title: page.title, loginItemId: found.owner.itemId },
+        isCardDetail(field.detail) ? Infinity : MAX_DETAIL_CANDIDATES,
+      );
       // A secret question's answer is offered only from the field named as the page's
       // question, or confirmed for it, which the document finds; or from the field the
       // judge paired with it, with the question for the owner to confirm.
@@ -6219,13 +6370,30 @@ export function createLoginRuntime(
         // The popup shows the question as the page showed it.
         question = asked?.shown;
       }
+      // A card is guessed from the last digits and brand the page shows too.
+      let preselect = field.detail !== "member-id";
+      if (live && isCardDetail(field.detail) && candidates.length > 1) {
+        // eslint-disable-next-line no-await-in-loop
+        const guess = await guessCard(
+          live,
+          offer!,
+          field.target,
+          snapshot.snapshot,
+          catalog,
+          candidates,
+        );
+        ({ candidates } = guess);
+        preselect &&= guess.preselect;
+      }
+      candidates = candidates.slice(0, MAX_DETAIL_CANDIDATES);
       if (candidates.length)
         details.push({
           detail: field.detail,
           ...(field.format ? { format: field.format } : {}),
           candidates: candidates as [(typeof candidates)[number], ...typeof candidates],
-          // A member ID's fields' names say little, so none is chosen for the owner.
-          ...(field.detail === "member-id" ? { preselect: false as const } : {}),
+          // A member ID's fields' names say little, and two cards may show the same last
+          // digits, so none is chosen for the owner.
+          ...(preselect ? {} : { preselect: false as const }),
           ...(question ? { question } : {}),
         });
     }
