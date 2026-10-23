@@ -306,6 +306,13 @@ export const vaultCatalogSchema = v.strictObject({
                * value for it (ADR 0016, ADR 0027); the catalog never carries the value itself.
                */
               empty: v.optional(v.literal(true)),
+              /**
+               * Set on a Text or Hidden custom field whose value is shaped like a TOTP key
+               * (`isTotpSeed` in `@pateat/bitwarden`): such a field gives only `totp` codes,
+               * is never offered to generation and is never filled as text (ADR 0027, owner
+               * 2026-10-23). A flag only, never the value.
+               */
+              totpSeed: v.optional(v.literal(true)),
             }),
           ),
         }),

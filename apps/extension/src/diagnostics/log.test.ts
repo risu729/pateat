@@ -1132,6 +1132,30 @@ describe("recent log for a bug report", () => {
     expect(recent.passkeyDelegations.map((item) => item.reason)).not.toContain(TRUNCATED);
     expect(v.is(recentLogSchema, recent)).toBe(true);
   });
+
+  it("counts pages that looked like a verification but were not sent, by reason (ADR 0035)", () => {
+    const skipped = (time: number, reason: string, outcome = "skipped") =>
+      entry(time, "info", "recipe.generate", { origin: "https://bank.example", outcome, reason });
+    const recent = recentLog(
+      [
+        skipped(NOW - 10 * 60_000, "frame"),
+        skipped(NOW - 20 * 60_000, "frame"),
+        skipped(NOW - 30 * 60_000, "text-answer"),
+        // Older than 24 hours, another skip, and another outcome are not counted.
+        skipped(NOW - 25 * HOUR, "text-answer"),
+        skipped(NOW - 40 * 60_000, "sent"),
+        skipped(NOW - 50 * 60_000, "frame", "failed"),
+      ],
+      NOW,
+    );
+    expect(recent.unsentVerifications).toEqual([
+      { reason: "frame", count: 2 },
+      { reason: "text-answer", count: 1 },
+    ]);
+    expect(recent.passkeyDelegations).toEqual([]);
+    expect(JSON.stringify(recent)).not.toContain("bank.example");
+    expect(v.is(recentLogSchema, recent)).toBe(true);
+  });
 });
 
 describe("unhandled errors", () => {
@@ -2521,6 +2545,111 @@ describe("unhandled errors", () => {
       .map((line) => JSON.parse(line) as Record<string, unknown>)
       .filter((line) => line["event"] !== undefined);
     expect(exported.map((line) => line["tab"])).toEqual([4, 4, 5]);
+    vi.restoreAllMocks();
+  });
+
+  it("logs what a page Pateat does not fill showed, and how the tab left it (ADR 0035)", async () => {
+    const recipeOrigin = "https://login.example";
+    const log = createDiagnosticsLog({
+      build: { version: "0.1.0", revision: "1c42ad3" },
+      settings: async () => ({
+        revision: 1,
+        settings: { connections: [], excludedSites: [], siteDefaults: [], bindings: [] },
+      }),
+      recipeCache: async () => ({ recipes: [{ origin: recipeOrigin }] }),
+      connections: async () => ({ ok: true, kind: "status", connections: [] }),
+      databaseName: `log-test-${crypto.randomUUID()}`,
+      scope: { addEventListener: () => undefined } as never,
+    });
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const recipe = { recipeId: "gen-confirm", recipeRevision: 2, pageKind: "confirm" } as const;
+    log.login({
+      type: "refused",
+      tabId: 4,
+      origin: recipeOrigin,
+      reason: "not-started",
+      detail: "confirm-unsupported",
+      ...recipe,
+      amount: true,
+      e1: false,
+      e2: false,
+      previousUrl: `${recipeOrigin}/transfer?to=12345#step=2`,
+      url: `${recipeOrigin}/verify?token=abc`,
+    });
+    log.login({
+      type: "confirm-left",
+      tabId: 4,
+      origin: recipeOrigin,
+      ...recipe,
+      personSubmitted: true,
+      nextE1: false,
+      url: `${recipeOrigin}/verify?token=abc`,
+    });
+    // A previous page of another origin is never kept.
+    log.login({
+      type: "refused",
+      tabId: 5,
+      origin: recipeOrigin,
+      reason: "not-started",
+      detail: "confirm-unsupported",
+      ...recipe,
+      e1: true,
+      previousUrl: "https://other.example/account",
+    });
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(3));
+    const entries = await log.logger.entries();
+    const common = { origin: recipeOrigin, recipe: "gen-confirm", recipeRevision: 2 };
+    expect(entries.map((entry) => [entry.event, entry.level, entry.fields])).toEqual([
+      [
+        "login.refused",
+        "info",
+        {
+          ...common,
+          reason: "not-started",
+          detail: "confirm-unsupported",
+          pageKind: "confirm",
+          amount: true,
+          e1: false,
+          e2: false,
+          previousUrl: "/transfer?to=#step=",
+          url: "/verify?token=",
+          tab: 4,
+        },
+      ],
+      [
+        "login.confirm-left",
+        "info",
+        {
+          ...common,
+          pageKind: "confirm",
+          personSubmitted: true,
+          nextE1: false,
+          url: "/verify?token=",
+          tab: 4,
+        },
+      ],
+      [
+        "login.refused",
+        "info",
+        {
+          ...common,
+          reason: "not-started",
+          detail: "confirm-unsupported",
+          pageKind: "confirm",
+          e1: true,
+          tab: 5,
+        },
+      ],
+    ]);
+    // Hiding sites leaves both URLs out of a download.
+    const exported = formatLogExport(entries, {
+      version: "0.1.0",
+      revision: "1c42ad3",
+      exportedAt: NOW,
+      includeSites: false,
+    });
+    expect(exported).not.toContain("/transfer");
+    expect(exported).not.toContain("/verify");
     vi.restoreAllMocks();
   });
 
