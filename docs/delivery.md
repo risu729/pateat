@@ -51,7 +51,7 @@ by the real-Chrome checks, not by CI. `CI Check` requires `Changes` and `Verify`
 succeed and `Browser` to be `success`, or `skipped` exactly when `Changes` reported a
 documentation-only PR; it runs even when an upstream job failed. A `Changes` job (no
 checkout, on `ubuntu-slim`) decides whether a PR needs the browser tests: a PR whose
-changed files are all under `docs/` or are `AGENTS.md` or `README.md` skips the
+changed files are all under `docs/` or are `AGENTS.md`, `README.md` or `README.ja.md` skips the
 `Browser` job, runs only `Verify` (which still checks the documentation) and passes
 `CI Check` with the shards skipped; any other change, every main push and every manual
 run runs them. The owner chose

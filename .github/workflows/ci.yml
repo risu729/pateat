@@ -45,6 +45,7 @@ jobs:
               - '!docs/**'
               - '!AGENTS.md'
               - '!README.md'
+              - '!README.ja.md'
   verify:
     name: Verify
     runs-on: ubuntu-26.04
