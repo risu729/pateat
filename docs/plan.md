@@ -2902,8 +2902,11 @@ its visible name when no other shown fillable input has it, before such an `id`
 ([ADR 0037](adr/0037-fields-by-visible-name.md)); a button without one gets a text
 locator when its text matches exactly one button and redaction leaves it unchanged, and
 a script link when its text matches no button and exactly one script link. In a login
-form, a field, button or checkbox without a target, a control the executor cannot act on
-(a select, radio, text area, another input type, or a read-only, disabled, transparent
+form, a field, button or required checkbox without a target (a checkbox is context
+only, so one without `required` or `aria-required="true"` and without a target is left
+out, 2026-10-23, as Stripe's and 1Password's "Remember me"), a control the executor
+cannot act on (a select, radio, text area, another input type, or a read-only, disabled,
+transparent
 or tiny field) or a control in a shadow root makes the observation incomplete, as do
 more than 48 candidates, so inference rejects it; a page without a field, or where
 nothing in a login form can be located or acted on, is refused. The login forms are
