@@ -3453,8 +3453,8 @@ export function createLoginRuntime(
   ): Promise<boolean> {
     const { document } = offer;
     const key = `${document.tabId} ${document.documentId}`;
-    const pending = detailAsks.get(key);
-    if (pending) return pending;
+    const waiting = detailAsks.get(key);
+    if (waiting) return waiting;
     if (!options.askMasterPassword || repromptAsking.has(key)) return Promise.resolve(false);
     const ask = options.askMasterPassword;
     const controller = new AbortController();
