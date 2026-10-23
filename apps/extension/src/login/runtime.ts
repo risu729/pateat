@@ -794,7 +794,16 @@ const detailOfferSchema = v.strictObject({
 });
 type DetailOffer = v.InferOutput<typeof detailOfferSchema>;
 /** A saved link's field that a login reads only after the master password (ADR 0061). */
-type DetailWait = { detail: LoginDetail; itemId: string; fieldId: string };
+type DetailWait = {
+  detail: LoginDetail;
+  itemId: string;
+  fieldId: string;
+  /** The waiting field's inputs, so its fill goes to that field and no other. */
+  targets: LoginFieldTarget[];
+};
+/** Whether two fields' inputs are the same, in the same order. */
+const sameInputs = (left: readonly LoginFieldTarget[], right: readonly LoginFieldTarget[]) =>
+  left.length === right.length && left.every((target, at) => sameLoginTarget(target, right[at]!));
 /** A link filled from the popup, saved once the tab's login `attemptId` is confirmed. */
 const pendingDetailSchema = v.strictObject({
   tabId: v.pipe(v.number(), v.integer(), v.minValue(0)),
@@ -2690,8 +2699,19 @@ export function createLoginRuntime(
     url,
     verified: repromptTyped.get(attemptId) === connectionId,
   });
-  /** The master password asked before a detail's read, by tab and document, shared. */
-  const detailAsks = new Map<string, Promise<boolean>>();
+  /**
+   * The chooser window asking for the master password, by tab and document: for a login's
+   * own item (`login`) or before a detail's read (`detail`), with the vault account it
+   * checks the password for. A second ask for the document waits for its answer.
+   */
+  const passwordAsks = new Map<
+    string,
+    {
+      kind: "login" | "detail";
+      connectionId: string;
+      answer: Promise<{ answer: "verified" | "closed" | "unavailable"; aborted: boolean }>;
+    }
+  >();
   /** The login each tab's top document refused for the master password, for the popup. */
   const repromptWaiting = new Map<
     number,
@@ -3393,6 +3413,47 @@ export function createLoginRuntime(
    * its login starts with that item, as after a pick in the popup (ADR 0021 B), whose pick it
    * keeps. The check is never cut off by the page: an aborted check would lock the vault.
    */
+  function openPasswordWindow(
+    kind: "login" | "detail",
+    key: string,
+    input: {
+      tabId: number;
+      origin: string;
+      account: LoginAccount;
+      connection: VaultConnectionMetadata;
+      item: VaultItemMetadata;
+    },
+  ) {
+    const ask = options.askMasterPassword!;
+    const controller = new AbortController();
+    let settle!: (value: {
+      answer: "verified" | "closed" | "unavailable";
+      aborted: boolean;
+    }) => void;
+    const entry = {
+      kind,
+      connectionId: input.connection.id,
+      answer: new Promise<{ answer: "verified" | "closed" | "unavailable"; aborted: boolean }>(
+        (resolve) => (settle = resolve),
+      ),
+    };
+    // Both are set before the window is asked for, so its end always removes them.
+    repromptAsking.set(key, controller);
+    passwordAsks.set(key, entry);
+    void (async () => {
+      let answer: "verified" | "closed" | "unavailable";
+      try {
+        answer = await ask({ ...input, signal: controller.signal });
+      } catch {
+        answer = "unavailable";
+      } finally {
+        if (repromptAsking.get(key) === controller) repromptAsking.delete(key);
+        if (passwordAsks.get(key) === entry) passwordAsks.delete(key);
+      }
+      settle({ answer, aborted: controller.signal.aborted });
+    })();
+    return entry;
+  }
   async function askMasterPassword(
     asking: { document: LoginDocument; account: LoginAccount; pick?: PickedAccount },
     connection: VaultConnectionMetadata,
@@ -3401,27 +3462,24 @@ export function createLoginRuntime(
     const { document, account: login } = asking;
     const key = `${document.tabId} ${document.documentId}`;
     if (!options.askMasterPassword) return { ok: false, reason: "unavailable" };
-    if (repromptAsking.has(key)) return { ok: true };
-    const controller = new AbortController();
-    repromptAsking.set(key, controller);
-    let answer: "verified" | "closed" | "unavailable";
-    try {
-      answer = await options.askMasterPassword({
+    const open = passwordAsks.get(key);
+    if (open?.kind === "login") return { ok: true };
+    // A window that asks before a detail's read is answered first; its password counts
+    // for this login only when it was checked for the same vault account.
+    const asked =
+      open ??
+      openPasswordWindow("login", key, {
         tabId: document.tabId,
         origin: document.origin,
         account: login,
         connection,
         item,
-        signal: controller.signal,
       });
-    } catch {
-      answer = "unavailable";
-    } finally {
-      if (repromptAsking.get(key) === controller) repromptAsking.delete(key);
-    }
+    const { answer, aborted } = await asked.answer;
     if (answer !== "verified") return { ok: false, reason: answer };
+    if (asked.connectionId !== connection.id) return { ok: false, reason: "closed" };
     const live = documents.get(frameKey(document));
-    if (live?.document.documentId !== document.documentId || controller.signal.aborted)
+    if (live?.document.documentId !== document.documentId || aborted)
       return { ok: false, reason: "document-gone" };
     // The document may have started another login meanwhile, as after a pick in the popup.
     if (live.reason !== "master-password-reprompt") return { ok: false, reason: "not-waiting" };
@@ -3454,43 +3512,30 @@ export function createLoginRuntime(
    * still runs that login. One window at a time per document: a second ask waits for the
    * first one's answer. A closed window or one that cannot open gives no password.
    */
-  function askDetailPassword(
+  async function askDetailPassword(
     offer: DetailOffer,
     connection: VaultConnectionMetadata,
     item: VaultItemMetadata,
   ): Promise<boolean> {
     const { document } = offer;
     const key = `${document.tabId} ${document.documentId}`;
-    const waiting = detailAsks.get(key);
-    if (waiting) return waiting;
-    if (!options.askMasterPassword || repromptAsking.has(key)) return Promise.resolve(false);
-    const ask = options.askMasterPassword;
-    const controller = new AbortController();
-    repromptAsking.set(key, controller);
-    const asked = (async () => {
-      let answer: "verified" | "closed" | "unavailable";
-      try {
-        answer = await ask({
-          tabId: document.tabId,
-          origin: document.origin,
-          account: offer.account,
-          connection,
-          item,
-          signal: controller.signal,
-        });
-      } catch {
-        answer = "unavailable";
-      } finally {
-        if (repromptAsking.get(key) === controller) repromptAsking.delete(key);
-        detailAsks.delete(key);
-      }
-      if (answer !== "verified" || controller.signal.aborted) return false;
-      if (tabAttempt(document.tabId)?.id !== offer.attemptId) return false;
-      holdPassword(offer.attemptId, connection.id);
-      return true;
-    })();
-    detailAsks.set(key, asked);
-    return asked;
+    if (!options.askMasterPassword) return false;
+    // A window already open for the document, for its login's item or another detail's,
+    // is answered once; each ask then checks its own login.
+    const asked =
+      passwordAsks.get(key) ??
+      openPasswordWindow("detail", key, {
+        tabId: document.tabId,
+        origin: document.origin,
+        account: offer.account,
+        connection,
+        item,
+      });
+    const { answer, aborted } = await asked.answer;
+    if (answer !== "verified" || aborted || asked.connectionId !== connection.id) return false;
+    if (tabAttempt(document.tabId)?.id !== offer.attemptId) return false;
+    holdPassword(offer.attemptId, connection.id);
+    return true;
   }
   /** The popup's button for a tab whose login waits for the master password. */
   async function repromptFor(tabId: number): Promise<RepromptResponse> {
@@ -5790,7 +5835,7 @@ export function createLoginRuntime(
       const item = found.connection.items.find((entry) => entry.id === source.itemId);
       const wait =
         item && waitsForMasterPassword(authorized.settings, item, found.owner.itemId, site)
-          ? { detail: field.detail, itemId: source.itemId, fieldId: source.fieldId }
+          ? { detail: field.detail, itemId: source.itemId, fieldId: source.fieldId, targets }
           : undefined;
       return [{ index, targets, answer: false, ...(wait ? { wait } : {}) }];
     });
@@ -6374,7 +6419,7 @@ export function createLoginRuntime(
     candidates: T[],
   ): Promise<{ candidates: T[]; preselect: boolean }> {
     const policy = snapshot.settings;
-    const byName = { candidates, preselect: true };
+    let byName = { candidates, preselect: true };
     const connection = catalog.connections.find((entry) => entry.id === offer.account.connectionId);
     if (
       !connection ||
@@ -6384,6 +6429,15 @@ export function createLoginRuntime(
     )
       return byName;
     const items = [...new Set(candidates.map((entry) => entry.itemId))];
+    // A card with Bitwarden's re-prompt is never read for the guess while the login does not
+    // hold the master password: it stays a candidate, not read, so the guess selects none,
+    // even by name, and its Fill asks (owner, 2026-10-23 21:50 UTC).
+    const site = detailSite(offer.attemptId, connection.id, live.url);
+    const readable = items.filter((itemId) => {
+      const item = connection.items.find((entry) => entry.id === itemId);
+      return !item || !waitsForMasterPassword(policy, item, offer.account.itemId, site);
+    });
+    if (readable.length < items.length) byName = { candidates, preselect: false };
     const slot = `${offer.attemptId} ${offer.document.documentId} ${JSON.stringify(target)}`;
     // Whether the login holds the master password changes which cards are read.
     const holds = repromptTyped.get(offer.attemptId) === connection.id;
@@ -6440,14 +6494,6 @@ export function createLoginRuntime(
     const facts = new Map<string, CardFacts>();
     let gave = false;
     try {
-      // A card with Bitwarden's re-prompt is never read for the guess while the login does
-      // not hold the master password: it stays a candidate, not read, so none is selected,
-      // and its Fill asks (owner, 2026-10-23 21:50 UTC).
-      const site = detailSite(offer.attemptId, connection.id, live.url);
-      const readable = items.filter((itemId) => {
-        const item = connection.items.find((entry) => entry.id === itemId);
-        return !item || !waitsForMasterPassword(policy, item, offer.account.itemId, site);
-      });
       for (const itemId of readable.slice(0, MAX_CARD_GUESS_READS)) {
         const held: CardFacts = {};
         for (const fieldId of cardGuessFields(policy, catalog, connection, itemId)) {
@@ -6622,7 +6668,11 @@ export function createLoginRuntime(
    */
   async function popupDetailFill(
     request: v.InferOutput<typeof detailFillRequestSchema>,
-    asked = false,
+    /**
+     * `asked` once the window asked for the master password; `targets` for the fill after
+     * a login's own ask, which names the field it stopped at among those of the detail.
+     */
+    within: { asked?: boolean; targets?: LoginFieldTarget[] } = {},
   ): Promise<DetailFillResponse> {
     await sessionLoaded;
     const offer = detailOffers.get(request.tabId);
@@ -6634,7 +6684,15 @@ export function createLoginRuntime(
       tabAttempt(request.tabId)?.id !== offer.attemptId
     )
       return { ok: false, reason: "document-gone" };
-    const field = offer.fields.find((entry) => entry.detail === request.detail);
+    const field = offer.fields.find(
+      (entry) =>
+        entry.detail === request.detail &&
+        (within.targets === undefined ||
+          sameInputs(
+            detailFieldInputs(entry).map((input) => input.target),
+            within.targets,
+          )),
+    );
     if (!field) return { ok: false, reason: "not-a-candidate" };
     const snapshot = await settings
       .handle({ version: 1, type: "settings.get" })
@@ -6679,9 +6737,9 @@ export function createLoginRuntime(
         detailSite(offer.attemptId, found.connection.id, live.url),
       )
     ) {
-      if (asked || !(await askDetailPassword(offer, found.connection, chosenItem)))
+      if (within.asked || !(await askDetailPassword(offer, found.connection, chosenItem)))
         return { ok: false, reason: "no-master-password" };
-      return popupDetailFill(request, true);
+      return popupDetailFill(request, { ...within, asked: true });
     }
     // A secret question's answer goes only under the page's own question: its field's name
     // or the question confirmed for it, or, confirmed by this Fill, the question the judge
@@ -7114,16 +7172,19 @@ export function createLoginRuntime(
       // popup's Fill fills it, leaving the button to the person.
       const wait = detailWaits.get(shown[0]!.index);
       if (refused === "detail-reprompt" && wait && !stop)
-        void popupDetailFill({
-          version: 1,
-          type: "login.detail.fill",
-          tabId: run.live.document.tabId,
-          documentId: run.live.document.documentId,
-          detail: wait.detail,
-          connectionId: run.metadata.account.connectionId,
-          itemId: wait.itemId,
-          fieldId: wait.fieldId,
-        }).catch(() => undefined);
+        void popupDetailFill(
+          {
+            version: 1,
+            type: "login.detail.fill",
+            tabId: run.live.document.tabId,
+            documentId: run.live.document.documentId,
+            detail: wait.detail,
+            connectionId: run.metadata.account.connectionId,
+            itemId: wait.itemId,
+            fieldId: wait.fieldId,
+          },
+          { targets: wait.targets },
+        ).catch(() => undefined);
       return true;
     }
     if (fresh.handler.kind === "totp") {

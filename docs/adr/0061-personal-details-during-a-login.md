@@ -606,7 +606,11 @@ password for that vault account (decided 12):
   (`no-master-password`); the popup's next **Fill** asks again.
 - The card guess never asks. A re-prompt card is not read for it while the login does
   not hold the password; it stays a candidate in the name order, and as a candidate not
-  read, the guess selects none. Its **Fill** asks.
+  read, the guess selects none, not even by name. Its **Fill** asks.
+- One window asks per document. An ask while it is open, for a detail or for the login's
+  own item, waits for its answer, and the password then counts for each waiting login of
+  the same vault account that the tab still runs. A window closed because the page
+  changed gives no password.
 
 The login item's own answers and member IDs are read as before, as its login started
 only after its master password. On a site not in `repromptSites`, nothing changes. Which

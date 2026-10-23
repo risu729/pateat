@@ -17940,6 +17940,99 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         ]);
         expect(cardReads(h).map(([request]) => request.fieldId)).toEqual(["card.number"]);
       }, 10_000);
+
+      it("asks before it reads an identity, and fills the very input the login stopped at", async () => {
+        realTime();
+        // Two inputs ask for the phone's last digits; the first is disabled, so the login
+        // stopped at the second, which the fill after the password goes to.
+        onClick({
+          login: { path: "/confirm", present: ["phone1", "phone2", "confirm"] },
+          confirm: toHome,
+        });
+        fake.state.unusable = new Set(["phone1"]);
+        const report = vi.fn<(report: LoginReport) => void>();
+        const askMasterPassword = vi.fn(async (_input: unknown) => "verified" as const);
+        const h = harness(
+          {
+            ...listed,
+            detailLinks: [linkTo("phone-last-4", { itemId: otherItemId, field: "identity.phone" })],
+          },
+          { passkeys: noPasskey, report, otherReprompt: true, askMasterPassword },
+        );
+        // The other item is an identity with a phone number; synthetic number only.
+        const original = h.store.handle.getMockImplementation()!;
+        h.store.handle.mockImplementation(async () => {
+          const response = await original();
+          if (response.ok)
+            response.catalog.connections[0]!.items[1]!.fields = [
+              { id: "identity.phone", label: "phone", name: null, kind: "text" as const },
+            ];
+          return response;
+        });
+        h.fields.mockImplementation(async (request) =>
+          request.fieldId === "identity.phone" ? "090-0000-5678" : "synthetic-secret",
+        );
+        h.recipes.recipe.mockResolvedValue(
+          asking([
+            { detail: "phone-last-4", target: target("phone1") },
+            { detail: "phone-last-4", target: target("phone2") },
+          ]),
+        );
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(documentFills()).toHaveLength(1));
+        expect(handlerReports(report)).toEqual([[0, "detail", "detail-reprompt", 2]]);
+        expect(askMasterPassword.mock.calls[0]![0]).toMatchObject({
+          item: { id: otherItemId, reprompt: true },
+        });
+        expect(documentFills()[0]).toMatchObject({
+          fields: [{ target: target("phone2"), value: "5678", secret: "detail" }],
+        });
+        expect(cardReads(h).map(([request]) => request.fieldId)).toEqual(["identity.phone"]);
+        expect(clicks("confirm")).toBe(0);
+      }, 10_000);
+
+      it("reads nothing when the site starts to ask between the input's choice and its fill", async () => {
+        onClick({ login: { path: "/confirm", present: ["card", "confirm"] }, confirm: toHome });
+        const h = harness(
+          { detailLinks: [numberLink] },
+          { passkeys: noPasskey, otherReprompt: true },
+        );
+        cardPage(h);
+        // Once the login chose the card input, the settings read list the site, as a change
+        // that reached the device in between would.
+        let asks = false;
+        const original = h.store.handle.getMockImplementation()!;
+        h.store.handle.mockImplementation(async () => {
+          const response = await original();
+          if (response.ok && asks) response.snapshot.settings.repromptSites = listed.repromptSites;
+          return response;
+        });
+        const push = fake.state.messages.push.bind(fake.state.messages);
+        fake.state.messages.push = (...entries) => {
+          for (const entry of entries)
+            if (
+              entry.type === "login.observe" &&
+              (entry as { require?: string[] }).require?.includes("settable")
+            )
+              asks = true;
+          return push(...entries);
+        };
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(asks).toBe(true));
+        // The handler was entered for the card input; its fill then meets an item that
+        // waits, which it never reads, and the login stops as for a field it may not read.
+        await vi.waitFor(
+          () =>
+            expect(status()).toMatchObject([
+              { state: "blocked", outcome: "policy-changed", handlers: [{ index: 0, field: 0 }] },
+            ]),
+          { timeout: 6_000 },
+        );
+        expect(cardReads(h)).toEqual([]);
+        expect(detailFills()).toEqual([]);
+        expect(documentFills()).toEqual([]);
+        expect(clicks("confirm")).toBe(0);
+      }, 10_000);
     });
 
     describe("a value split over several inputs (owner, 2026-10-23 12:26 UTC)", () => {
@@ -18438,6 +18531,44 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
           expect(cardReads(h)).toEqual([]);
           expect(popupFills()).toEqual([]);
         }, 10_000);
+
+        it("opens one window for two Fills at once, and fills for both once it is answered", async () => {
+          let answer!: (value: "verified") => void;
+          const askMasterPassword = vi.fn(
+            (_input: unknown) => new Promise<"verified">((resolve) => (answer = resolve)),
+          );
+          const h = await proposed(listed, askMasterPassword);
+          const first = fill(h, "card-number", otherItemId, "card.number");
+          const second = fill(h, "card-number", otherItemId, "card.number");
+          await vi.waitFor(() => expect(askMasterPassword).toHaveBeenCalledOnce());
+          expect(cardReads(h)).toEqual([]);
+          answer("verified");
+          expect(await first).toEqual({ ok: true });
+          expect(await second).toEqual({ ok: true });
+          expect(askMasterPassword).toHaveBeenCalledOnce();
+          expect(popupFills()).toHaveLength(2);
+        }, 10_000);
+
+        it("reads and fills nothing when another document replaces the page while the window asks", async () => {
+          const signals: AbortSignal[] = [];
+          // The window answers as if the password were right even once it was closed, so
+          // only the closing stops the read.
+          const askMasterPassword = vi.fn(
+            (input: { signal: AbortSignal }) =>
+              new Promise<"verified">((resolve) => {
+                signals.push(input.signal);
+                input.signal.addEventListener("abort", () => resolve("verified"));
+              }),
+          );
+          const h = await proposed(listed, askMasterPassword);
+          const filling = fill(h, "card-number", otherItemId, "card.number");
+          await vi.waitFor(() => expect(askMasterPassword).toHaveBeenCalledOnce());
+          await h.hello({ documentId: "second-document" });
+          expect(await filling).toEqual({ ok: false, reason: "no-master-password" });
+          expect(signals[0]!.aborted).toBe(true);
+          expect(cardReads(h)).toEqual([]);
+          expect(popupFills()).toEqual([]);
+        }, 10_000);
       });
 
       it("offers and fills a card expiry split over two selects as its one link", async () => {
@@ -18748,6 +18879,25 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
             ["card-c", "card.number"],
             ["card-c", "card.brand"],
           ]);
+        });
+
+        it("selects none, not even by name, when every card waits for the master password", async () => {
+          const { h } = await stopped(["card-a", "card-b"], hints, listed, {
+            cards: ["card-a", "card-b"],
+          });
+          expect(await offered(h)).toEqual({ order: ["card-a", "card-b"], preselect: false });
+          expect(reads(h)).toEqual([]);
+        });
+
+        it("selects none by name on a page that shows no digits or brand while a card waits", async () => {
+          const { h } = await stopped(
+            ["card-a", "card-b"],
+            { ok: true, last4: [], brands: [] },
+            listed,
+            { cards: ["card-b"] },
+          );
+          expect(await offered(h)).toEqual({ order: ["card-a", "card-b"], preselect: false });
+          expect(reads(h)).toEqual([]);
         });
 
         it("is guessed in a login started after the master password was typed", async () => {
