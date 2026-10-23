@@ -25,7 +25,6 @@ export type BitwardenErrorCode =
   | "field-missing"
   | "unsupported-field"
   | "invalid-totp"
-  | "unsupported-totp"
   | "invalid-uri-input"
   | "uri-context-unavailable";
 
