@@ -276,6 +276,8 @@ describe("strict account initialization and metadata", () => {
         "dispose",
         "exportUnlockMaterial",
         "metadata",
+        // Answers only whether a password matches; it exports nothing.
+        "verifyMasterPassword",
       ].sort(),
     );
   });
