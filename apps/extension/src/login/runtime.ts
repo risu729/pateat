@@ -1260,7 +1260,8 @@ function passwordMiss(
  * Where the plan step at `index` stands in a TOTP code's entry (ADR 0027): the code fill
  * of an entered `totp` handler or of a route step that fills only the `totp` slot, or
  * the click on its button that follows the fill on the same path. A route's code fill
- * counts only when that click, a submit, follows it.
+ * counts only when that click, a submit, follows it. A `totp` handler without a button
+ * has only its fill, which submits by itself (ADR 0027 amendment of 2026-10-23).
  */
 function codeStep(
   recipe: LoginRecipe,
@@ -5041,7 +5042,9 @@ export function createLoginRuntime(
       const sameForm =
         !ran &&
         ((handler.kind === "totp" &&
-          routeClicks.some((target) => sameLoginTarget(target, handler.target))) ||
+          routeClicks.some(
+            (target) => handler.target !== undefined && sameLoginTarget(target, handler.target),
+          )) ||
           (handler.kind === "passkey" && typesPassword) ||
           handler.kind === "password");
       const targets = handlerTargets(handler);
@@ -5054,7 +5057,7 @@ export function createLoginRuntime(
             ...(ran
               ? targets.map(() => (index === held ? ("shown" as const) : ("present" as const)))
               : handler.kind === "totp"
-                ? (["writable", "shown"] as const)
+                ? (["writable", "shown"] as const).slice(0, targets.length)
                 : handler.kind === "password"
                   ? // Shown, and its rendered text names the password choice (ADR 0048).
                     (["password-choice"] as const)
@@ -6687,8 +6690,15 @@ export function createLoginRuntime(
           !run.metadata.fillOnly
             ? { accountSwitch: run.recipe.accountSwitch }
             : {}),
-          // A `totp` handler's code fill watches for the page submitting the code itself.
-          ...(codeSubmit ? { code: { submit: codeSubmit } } : {}),
+          // A `totp` handler's code fill watches for the page submitting the code itself; a
+          // handler's without a button types the code as its submission (ADR 0027).
+          ...(codeSubmit
+            ? { code: { submit: codeSubmit } }
+            : operation.step.kind === "fill" &&
+                operation.step.effect === "submit" &&
+                codeStep(run.recipe, run.metadata, operation.stepIndex) === "fill"
+              ? { code: {} }
+              : {}),
           ...(passwordChoice ? { passwordChoice: true as const } : {}),
           // An advance whose next step is on its path has the document measure that step
           // just before its effect, in the same task (ADR 0013).
@@ -6782,12 +6792,14 @@ export function createLoginRuntime(
         return;
       }
       // The code page showed that it submits the code by itself, or replaced its form
-      // once the code was in.
+      // once the code was in. A code typed as its own submission is settled as one below.
       if (
         matchedResult &&
         !result.output.ok &&
         (result.output.reason === "submitted" || result.output.reason === "structural-mismatch") &&
         result.output.mutation === "possible" &&
+        operation.step.kind === "fill" &&
+        operation.step.effect === "prepare" &&
         codeStep(run.recipe, run.metadata, operation.stepIndex) === "fill" &&
         (await codeSubmitted(run))
       )

@@ -467,7 +467,7 @@ export async function startLoginFixture(
         });`,
         ),
       );
-    } else if (path === "/totp") {
+    } else if (path === "/totp" || path === "/totp-typed") {
       // Only the known flags go on, never the query as written.
       const flags = new URLSearchParams();
       for (const flag of ["wrong", "auto", "slow", "split"])
@@ -486,6 +486,10 @@ export async function startLoginFixture(
         ui === "seven"
       )
         flags.set("ui", ui);
+      // `/totp-typed` goes on to a split code page without Verify that submits the code on
+      // its sixth digit, as Slack's two-factor page does (#916).
+      if (path === "/totp-typed")
+        for (const flag of ["split", "auto", "nobutton"]) flags.set(flag, "");
       const next = flags.size === 0 ? "/totp-code" : `/totp-code?${flags.toString()}`;
       // A password page followed by an authenticator app code page (ADR 0027). The query
       // goes on to the code page: `?split` asks for it in six one-digit inputs, the first of
@@ -523,10 +527,11 @@ export async function startLoginFixture(
       const spa = fixtureUrl.searchParams.get("spa");
       const ui = fixtureUrl.searchParams.get("ui");
       const split = fixtureUrl.searchParams.has("split");
+      const nobutton = fixtureUrl.searchParams.has("nobutton");
       const again = fixtureUrl.searchParams.has("wrong") ? "/totp-code?wrong" : "/totp-code";
       response.end(
         html(
-          `<h1>Two-factor authentication</h1><p>Enter the code from your authenticator app.</p><form id="code-form">${split ? `<fieldset><legend>Authentication code</legend><input id="code" inputmode="numeric" maxlength="1" aria-label="Digit 1">${(ui === "seven" ? [2, 3, 4, 5, 6, 7] : [2, 3, 4, 5, 6]).map((digit) => `<input id="code-${digit}" inputmode="numeric" maxlength="1" aria-label="Digit ${digit}">`).join("")}</fieldset>` : '<label>Authentication code<input id="code" autocomplete="one-time-code" inputmode="numeric" maxlength="6"></label>'}<button id="verify" type="button"${ui === "disabled" || ui === "disauto" || ui === "flicker" ? " disabled" : ""}>Verify</button><p role="status" id="code-status"></p>${ui === "counter" ? '<p id="code-counter" aria-live="polite"></p>' : ""}</form>`,
+          `<h1>Two-factor authentication</h1><p>Enter the code from your authenticator app.</p><form id="code-form">${split ? `<fieldset><legend>Authentication code</legend><input id="code" inputmode="numeric" maxlength="1" aria-label="Digit 1">${(ui === "seven" ? [2, 3, 4, 5, 6, 7] : [2, 3, 4, 5, 6]).map((digit) => `<input id="code-${digit}" inputmode="numeric" maxlength="1" aria-label="Digit ${digit}">`).join("")}</fieldset>` : '<label>Authentication code<input id="code" autocomplete="one-time-code" inputmode="numeric" maxlength="6"></label>'}${nobutton ? "" : `<button id="verify" type="button"${ui === "disabled" || ui === "disauto" || ui === "flicker" ? " disabled" : ""}>Verify</button>`}<p role="status" id="code-status"></p>${ui === "counter" ? '<p id="code-counter" aria-live="polite"></p>' : ""}</form>`,
           `const digits = [...document.querySelectorAll('#code-form input')];
           const codeValue = () => digits.map((digit) => digit.value).join('');
           function count(name) {
@@ -588,7 +593,7 @@ export async function startLoginFixture(
                 : ""
             }
           });
-          wire(document.getElementById('verify'));`,
+          ${nobutton ? "" : "wire(document.getElementById('verify'));"}`,
         ),
       );
     } else if (path === "/password") {

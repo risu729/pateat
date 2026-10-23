@@ -720,6 +720,51 @@ describe("code answers checked locally, probed independently (ADR 0027)", () => 
       ).toMatchObject({ value: { totp: first } });
     });
 
+    // Slack's two-factor page (#916): six one-digit inputs and no button; the page submits
+    // the code once its last digit is in.
+    describe("a page that shows no button for the code (ADR 0027 amendment of 2026-10-23)", () => {
+      const noSubmit = (code: Record<string, unknown> = {}) => {
+        const { submit: _, ...rest } = answer(code).code;
+        return { decision: "challenge", code: rest };
+      };
+
+      it("keeps the code's first input without a button outside any form", async () => {
+        const loose = boxes(6, { group: undefined });
+        // Exactly: the handler has no button.
+        expect(await judged(loose, noSubmit({ field: "d3" }))).toEqual(
+          expect.objectContaining({
+            status: "ok",
+            value: { decision: "challenge", totp: { field: { by: "id", value: "otp-1" } } },
+          }),
+        );
+      });
+
+      it("keeps one code input of a form that shows no button", async () => {
+        expect(await judged([field()], noSubmit())).toMatchObject({
+          value: { totp: { field: { by: "id", value: "otp" } } },
+        });
+      });
+
+      it("drops a code without a button in a form that shows one", async () => {
+        const outcome = await judged([...boxes(6), submit()], noSubmit({ field: "d1" }));
+        expect(hasTotp(outcome)).toBe(false);
+        expect(outcome).toMatchObject({ value: { totpDropped: "submit-unnamed" } });
+        // A button outside the form does not keep the form's code from submitting itself.
+        expect(
+          await judged([...boxes(6), submit({ group: undefined })], noSubmit({ field: "d1" })),
+        ).toMatchObject({ value: { totp: { field: { by: "id", value: "otp-1" } } } });
+      });
+
+      it("still drops a code sent to the person", async () => {
+        const outcome = await judged(boxes(6, { group: undefined }), noSubmit({ source: "sms" }));
+        expect(hasTotp(outcome)).toBe(false);
+      });
+
+      it("tells the model when to leave submit out", () => {
+        expect(completionInstructions).toContain("Leave submit out only when no button");
+      });
+    });
+
     it("drops a split code whose button is in another form", async () => {
       expect(
         hasTotp(await judged([...boxes(6), submit({ group: "form-2" })], answer({ field: "d1" }))),

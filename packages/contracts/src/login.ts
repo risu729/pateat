@@ -249,8 +249,10 @@ export const loginRouteSchema = v.picklist(["password", "passkey"]);
  * path matches and all its elements show, and run only for an item with the handler's
  * fact. Its steps follow from its kind. `passkey` clicks a button such as "Use security
  * key"; `totp` fills the item's TOTP code into `field` and clicks `target`, its submit
- * button; `password` clicks a button such as "Password" on a page that asks how to
- * confirm the sign-in, which goes on to typing the password (ADR 0048).
+ * button, or, without `target`, types the code as the submission on a page that shows no
+ * button for it and submits the code once it is in (ADR 0027 amendment of 2026-10-23);
+ * `password` clicks a button such as "Password" on a page that asks how to confirm the
+ * sign-in, which goes on to typing the password (ADR 0048).
  */
 export const loginHandlerSchema = v.variant("kind", [
   v.strictObject({ kind: v.literal("passkey"), path, target: loginTargetSchema }),
@@ -260,11 +262,13 @@ export const loginHandlerSchema = v.variant("kind", [
       kind: v.literal("totp"),
       path,
       field: loginFieldTargetSchema,
-      target: loginTargetSchema,
+      target: v.optional(loginTargetSchema),
     }),
     v.check(
       (handler) =>
-        handler.field.by !== handler.target.by || handler.field.value !== handler.target.value,
+        handler.target === undefined ||
+        handler.field.by !== handler.target.by ||
+        handler.field.value !== handler.target.value,
       "The code field cannot be its submit button",
     ),
   ),
@@ -326,12 +330,14 @@ const completionTargetCount = (
 ) => (markers ?? []).reduce((count, marker) => count + 1 + (marker.absent?.length ?? 0), 0);
 /**
  * Every element a handler uses, in the order its steps use them: a `totp` handler's code
- * field, then its button. The handler is entered only when all of them show (ADR 0027).
+ * field, then its button when it has one. The handler is entered only when all of them
+ * show (ADR 0027).
  */
 export function handlerTargets(
   handler: v.InferOutput<typeof loginHandlerSchema>,
 ): v.InferOutput<typeof loginTargetSchema>[] {
-  return handler.kind === "totp" ? [handler.field, handler.target] : [handler.target];
+  if (handler.kind !== "totp") return [handler.target];
+  return handler.target ? [handler.field, handler.target] : [handler.field];
 }
 /** The `passkey` route's one step: a click on its button that submits. */
 const passkeyStep = (passkey: {
@@ -1357,24 +1363,27 @@ export const TOTP_HANDLER_SLOT = "totp";
 /**
  * The steps a handler runs: a `passkey` handler's click, a `password` handler's click that
  * advances to the password page (ADR 0048), or a `totp` handler's fill of the code into
- * its field followed by the click on its submit button.
+ * its field followed by the click on its submit button. A `totp` handler without a button
+ * runs one fill that submits through the code's own input (ADR 0027 amendment of
+ * 2026-10-23): nothing is clicked.
  */
 export function handlerSteps(handler: LoginHandler): LoginStep[] {
-  const click: LoginStep = {
-    kind: "click",
-    path: handler.path,
-    target: handler.target,
-    purpose: handler.kind === "password" ? "advance" : "submit",
-  };
-  if (handler.kind !== "totp") return [click];
+  if (handler.kind === "totp") {
+    const code = [{ slot: TOTP_HANDLER_SLOT, target: handler.field }];
+    if (!handler.target)
+      return [{ kind: "fill", path: handler.path, fields: code, effect: "submit", event: "input" }];
+    return [
+      { kind: "fill", path: handler.path, fields: code, effect: "prepare" },
+      { kind: "click", path: handler.path, target: handler.target, purpose: "submit" },
+    ];
+  }
   return [
     {
-      kind: "fill",
+      kind: "click",
       path: handler.path,
-      fields: [{ slot: TOTP_HANDLER_SLOT, target: handler.field }],
-      effect: "prepare",
+      target: handler.target,
+      purpose: handler.kind === "password" ? "advance" : "submit",
     },
-    click,
   ];
 }
 

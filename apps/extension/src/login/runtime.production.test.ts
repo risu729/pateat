@@ -14409,6 +14409,71 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       expect(h.store.update).not.toHaveBeenCalled();
     }, 10_000);
 
+    describe("without a button, on a page that submits the code itself (#916)", () => {
+      // Slack's two-factor page: six one-digit inputs and no Verify button.
+      const { target: _, ...buttonless } = codeHandler;
+      const typed = parseLoginRecipe({ ...unlearned, completion: home, handlers: [buttonless] });
+      const toBoxes = { path: "/two-factor", present: ["app-code"] };
+
+      it("types the code as its submission and settles the page it leads to", async () => {
+        onClick({ login: toBoxes });
+        onCodeFill(() => {
+          // The page signs in once the last digit is in.
+          fake.state.observedPath = "/home";
+          fake.state.present = new Set(["logout"]);
+        });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness({}, { passkeys: noPasskey, report });
+        withTotp(h);
+        codes(h);
+        h.recipes.recipe.mockResolvedValue(typed);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+          timeout: 6_000,
+        });
+        expect(executed().map((step) => step.kind)).toEqual(["fill", "click", "fill"]);
+        // One fill that submits through the code's own input, typed as a code; no click.
+        expect(codeFills()).toHaveLength(1);
+        expect(codeFills()[0]).toMatchObject({
+          values: [{ slot: "totp", value: "012345", secret: "otp" }],
+          code: {},
+          operation: { step: { kind: "fill", effect: "submit", event: "input" } },
+        });
+        expect(status()![0]).toMatchObject({
+          handlers: [{ index: 0, start: 2 }],
+          stepCount: 3,
+          submissions: 2,
+          maxSubmissions: 2,
+        });
+        // Only the code field is observed before it is entered.
+        expect(fake.state.messages).toContainEqual(
+          expect.objectContaining({ type: "login.observe", targets: [target("app-code")] }),
+        );
+        expect(handlerReports(report)).toEqual([[0, "totp", "entered", 1]]);
+      }, 10_000);
+
+      it("leaves a code page that keeps its inputs to the person and never types again", async () => {
+        vi.useFakeTimers();
+        // A wrong code, or a page that waits for Enter: the inputs stay in the same document.
+        onClick({ login: toBoxes });
+        const service = generation(async () => ({ verdict: "signed-in" }));
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness({}, { passkeys: noPasskey, report, generation: service });
+        withTotp(h);
+        codes(h);
+        h.recipes.recipe.mockResolvedValue(typed);
+        expect(await h.hello()).toEqual({ ok: true });
+        await until(() => codeFills().length === 1);
+        await vi.advanceTimersByTimeAsync(100_000);
+        await until(settled("watching", "challenge"), 30_000);
+        expect(codeFills()).toHaveLength(1);
+        expect(executed().filter((step) => step.kind === "click")).toHaveLength(1);
+        // The page still asking for the code is never judged.
+        expect(service.judge).not.toHaveBeenCalled();
+        expect(handlerReports(report)).toEqual([[0, "totp", "entered", 1]]);
+      });
+    });
+
     describe("when the tab moves to another site after the code (ADR 0022)", () => {
       const other = "https://portal.example";
       const quiet = { password: false, code: false, captcha: false, invalid: false, alert: false };
