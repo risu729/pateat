@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CryptoHost } from "../crypto/host";
 import type { HostSessionRef } from "../crypto/wire";
 import type { VaultEntry } from "../vault/record";
-import type { SettingsSnapshot, VaultCatalog } from "@pateat/contracts";
+import { createDefaultSettings, type SettingsSnapshot, type VaultCatalog } from "@pateat/contracts";
 import { activeEntry, disabledEntry, lockedEntry } from "../vault/__fixtures__/vault";
 import { accountProfile } from "../../../../packages/bitwarden/src/__fixtures__/account";
 import { legacyItemKey } from "../../../../packages/bitwarden/src/__fixtures__/crypto";
@@ -77,33 +77,31 @@ vi.mock("wxt/browser", () => ({
   },
 }));
 const settingsStore = vi.hoisted(() => {
-  let snapshot: SettingsSnapshot = {
-    version: 1,
-    revision: 0,
-    settings: {
-      connections: [],
-      excludedSites: [],
-      repromptSites: [],
-      siteDefaults: [],
-      bindings: [],
-    },
-  };
-  const empty = structuredClone(snapshot);
+  // Unset means the empty default, built on first read once the imports are available.
+  let snapshot: SettingsSnapshot | undefined;
+  const current = (): SettingsSnapshot =>
+    structuredClone(
+      snapshot ?? {
+        version: 1,
+        revision: 0,
+        settings: createDefaultSettings({ connections: [] }),
+      },
+    );
   return {
     reset: () => {
-      snapshot = structuredClone(empty);
+      snapshot = undefined;
     },
     set: (value: SettingsSnapshot) => {
       snapshot = structuredClone(value);
     },
-    get: () => structuredClone(snapshot),
-    read: async () => structuredClone(snapshot),
+    get: current,
+    read: async () => current(),
     update: async (
       _revision: number | undefined,
       _cause: string,
       mutate: (value: SettingsSnapshot) => unknown,
     ) => {
-      snapshot = mutate(structuredClone(snapshot)) as SettingsSnapshot;
+      snapshot = mutate(current()) as SettingsSnapshot;
       return structuredClone(snapshot);
     },
   };
@@ -301,11 +299,9 @@ describe("settings left by deleted connections", () => {
       version: 1,
       revision: 3,
       settings: {
+        ...createDefaultSettings({ connections: [] }),
         connections: [entry("demo"), entry(accountProfile.connectionId), entry("deleted")],
-        excludedSites: [],
-        repromptSites: [],
         siteDefaults: [synced],
-        bindings: [],
       },
       fieldPolicies: [
         {
